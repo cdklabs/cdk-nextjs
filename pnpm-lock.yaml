@@ -33,13 +33,13 @@ importers:
         specifier: ^2.1.4
         version: 2.1.4
       '@types/node':
-        specifier: ^20.16.10
+        specifier: ^20
         version: 20.16.10
       '@typescript-eslint/eslint-plugin':
-        specifier: ^6.21.0
+        specifier: ^6
         version: 6.21.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.6.2))(eslint@8.57.1)(typescript@5.6.2)
       '@typescript-eslint/parser':
-        specifier: ^6.21.0
+        specifier: ^6
         version: 6.21.0(eslint@8.57.1)(typescript@5.6.2)
       aws-cdk-lib:
         specifier: 2.161.1
@@ -54,7 +54,7 @@ importers:
         specifier: ^0.21.5
         version: 0.21.5
       eslint:
-        specifier: ^8.57.1
+        specifier: ^8
         version: 8.57.1
       eslint-config-prettier:
         specifier: ^9.1.0
@@ -72,10 +72,10 @@ importers:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@20.16.10)(ts-node@10.9.2(@types/node@20.16.10)(typescript@5.6.2))
       jest-junit:
-        specifier: ^15.0.0
+        specifier: ^15
         version: 15.0.0
       jsii:
-        specifier: ~5.5.4
+        specifier: ~5.5.0
         version: 5.5.4
       jsii-diff:
         specifier: ^1.103.1
@@ -87,7 +87,7 @@ importers:
         specifier: ^1.103.1
         version: 1.103.1(jsii-rosetta@5.5.5)
       jsii-rosetta:
-        specifier: ~5.5.5
+        specifier: ~5.5.0
         version: 5.5.5
       mime-types:
         specifier: ^2.1.35
@@ -102,7 +102,7 @@ importers:
         specifier: ^0.81.17
         version: 0.81.17(constructs@10.0.5)
       standard-version:
-        specifier: ^9.5.0
+        specifier: ^9
         version: 9.5.0
       ts-jest:
         specifier: ^29.2.5
@@ -1506,6 +1506,7 @@ packages:
   constructs@10.0.5:
     resolution: {integrity: sha512-IwOwekzrASFC3qt4ozCtV09rteAIAesuCGsW0p+uBfqHd2XcvA5CXqJjgf4eUqm6g8e/noXlVCMDWwC8GaLtrg==}
     engines: {node: '>= 10.17.0'}
+    bundledDependencies: []
 
   conventional-changelog-angular@5.0.13:
     resolution: {integrity: sha512-i/gipMxs7s8L/QeuavPF2hLnJgH6pEZAttySB6aiQLWcX3puWDL3ACVmvBhJGxnAy52Qc15ua26BufY6KpmrVA==}
