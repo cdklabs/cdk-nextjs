@@ -1,0 +1,15 @@
+{
+  "name": "global-functions",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "deploy": "cdk deploy --require-approval never"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "aws-cdk-lib": "2.150.0",
+    "cdk-nextjs": "link:../..",
+    "constructs": "10.0.5",
+    "tsx": "^4.7.3"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "cdk-nextjs-examples",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "prune": "turbo prune app-playground --docker --out-dir pruned/app-playground"
+  },
+  "packageManager": "pnpm@9.1.4+sha256.30a1801ac4e723779efed13a21f4c39f9eb6c9fbb4ced101bce06b422593d7c9",
+  "devDependencies": {
+    "@tsconfig/node20": "^20.1.4",
+    "@tsconfig/strictest": "^2.0.5",
+    "turbo": "^1.13.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "debug@4.1.1": "^4.3.1",
+      "semver@7.3.5": "^7.5.2",
+      "tar@4.4.18": "^6.2.1",
+      "undici@5.26.5": "^5.28.4",
+      "braces@3.0.2": "^3.0.3"
+    }
+  }
+}
