@@ -22,8 +22,8 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // prerelease: "beta",
   minNodeVersion: "20.0.0",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.150.0",
-  jsiiVersion: "~5.4.0",
+  cdkVersion: "2.161.1",
+  jsiiVersion: "~5.5.0",
   packageManager: javascript.NodePackageManager.PNPM,
   devDeps: [
     "@aws-crypto/sha256-js",
