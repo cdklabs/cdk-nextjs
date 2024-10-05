@@ -35,8 +35,8 @@ jobs:
           node-version: 20.0.0
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
-      - name: Compile JSII
-        run: pnpm projen compile
+      - name: release
+        run: pnpm dlx projen release
       - name: Check if version has already been tagged
         id: check_tag_exists
         run: |-

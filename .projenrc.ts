@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { ProjenStruct, Struct } from "@mrgrain/jsii-struct-builder";
-import { JsonPatch, awscdk, javascript } from "projen";
+import { awscdk, javascript } from "projen";
+import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
 const project = new awscdk.AwsCdkConstructLibrary({
@@ -136,22 +137,40 @@ function updateGitHubWorkflows() {
     name: "Compile JSII",
     run: `pnpm projen compile`,
   };
-  const buildWorkflow = project.tryFindObjectFile(
-    ".github/workflows/build.yml",
-  );
-  buildWorkflow?.patch(JsonPatch.add("/jobs/build/steps/4", compileStep));
-  const releaseWorkflow = project.tryFindObjectFile(
-    ".github/workflows/release.yml",
-  );
-  releaseWorkflow?.patch(
-    JsonPatch.replace("/jobs/release/steps/5", compileStep),
-  );
-  const upgradeWorkflow = project.tryFindObjectFile(
-    ".github/workflows/upgrade-main.yml",
-  );
-  upgradeWorkflow?.patch(
-    JsonPatch.replace("/jobs/upgrade/steps/4", compileStep),
-  );
+  // .github/workflows/build.yml
+  const buildWorkflow = project.github?.tryFindWorkflow("build");
+  if (!buildWorkflow) return;
+  const buildJob = buildWorkflow.getJob("build");
+  if (!buildJob || !("steps" in buildJob)) return;
+  // TODO: figure out why wrong types
+  const getSteps = buildJob.steps as unknown as () => JobStep[];
+  const buildJobSteps = getSteps();
+  buildWorkflow.updateJob("build", {
+    ...buildJob,
+    steps: [
+      buildJobSteps[0],
+      {
+        ...buildJobSteps[1],
+        uses: "pnpm/action-setup@v4",
+        with: { version: 9 },
+      },
+      ...buildJobSteps.slice(2, 4),
+      compileStep,
+      ...buildJobSteps.slice(4),
+    ],
+  });
+  // const releaseWorkflow = project.tryFindObjectFile(
+  //   ".github/workflows/release.yml",
+  // );
+  // releaseWorkflow?.patch(
+  //   JsonPatch.replace("/jobs/release/steps/5", compileStep),
+  // );
+  // const upgradeWorkflow = project.tryFindObjectFile(
+  //   ".github/workflows/upgrade-main.yml",
+  // );
+  // upgradeWorkflow?.patch(
+  //   JsonPatch.replace("/jobs/upgrade/steps/4", compileStep),
+  // );
 }
 
 /**

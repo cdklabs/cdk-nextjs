@@ -20,9 +20,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: "7"
+          version: 9
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

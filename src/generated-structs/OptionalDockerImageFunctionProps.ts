@@ -104,6 +104,13 @@ Both supplied and generated roles can always be changed by calling `addToRolePol
    */
   readonly reservedConcurrentExecutions?: number;
   /**
+   * Sets the Recursive Loop Protection for Lambda Function.
+   * It lets Lambda detect and terminate unintended recusrive loops.
+   * @default RecursiveLoop.Terminate
+   * @stability stable
+   */
+  readonly recursiveLoop?: aws_lambda.RecursiveLoop;
+  /**
    * Profiling Group.
    * @default - A new profiling group will be created if `profiling` is set.
    * @stability stable
@@ -335,7 +342,7 @@ ID for the function's name. For more information, see Name Type.
    */
   readonly allowPublicSubnet?: boolean;
   /**
-   * Whether to allow the Lambda to send all network traffic.
+   * Whether to allow the Lambda to send all network traffic (except ipv6).
    * If set to false, you must individually add traffic rules to allow the
    * Lambda to connect to network targets.
    *
@@ -345,6 +352,18 @@ ID for the function's name. For more information, see Name Type.
    * @stability stable
    */
   readonly allowAllOutbound?: boolean;
+  /**
+   * Whether to allow the Lambda to send all ipv6 network traffic.
+   * If set to true, there will only be a single egress rule which allows all
+   * outbound ipv6 traffic. If set to false, you must individually add traffic rules to allow the
+   * Lambda to connect to network targets using ipv6.
+   *
+   * Do not specify this property if the `securityGroups` or `securityGroup` property is set.
+   * Instead, configure `allowAllIpv6Outbound` directly on the security group.
+   * @default false
+   * @stability stable
+   */
+  readonly allowAllIpv6Outbound?: boolean;
   /**
    * Specify the configuration of AWS Distro for OpenTelemetry (ADOT) instrumentation.
    * @default - No ADOT instrumentation

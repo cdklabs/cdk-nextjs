@@ -38,6 +38,12 @@ export interface OptionalS3OriginProps {
    */
   readonly originId?: string;
   /**
+   * The unique identifier of an origin access control for this origin.
+   * @default - no origin access control
+   * @stability stable
+   */
+  readonly originAccessControlId?: string;
+  /**
    * A list of HTTP header names and values that CloudFront adds to requests it sends to the origin.
    * @default {}
    * @stability stable
