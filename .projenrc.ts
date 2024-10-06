@@ -43,6 +43,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "next", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
+  npmIgnoreOptions: {
+    ignorePatterns: ["examples/**/*"],
+  },
   // tooling config
   lambdaOptions: {
     runtime: awscdk.LambdaRuntime.NODEJS_20_X,
@@ -74,7 +77,6 @@ copyDockerfiles();
 bundleFunctions();
 updateGitHubWorkflows();
 generateStructs();
-updatePackageJsonFiles();
 
 project.synth();
 
@@ -287,27 +289,4 @@ function generateStructs() {
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.DockerImageFunctionProps"))
     .allOptional();
-}
-
-/**
- * This setting is required in order to specify exactly which files (folders)
- * should be in the TypeScript/JavaScript package.
- *
- * In particular, for this project, the "examples" folder should NOT be included.
- * Since the default setting is ["*"], just the folders required need to be
- * specified here in order to skip other folders.
- */
-function updatePackageJsonFiles() {
-  project.addFields({
-    files: ["lib", "assets"],
-  });
-  // const packageJson = project.tryFindObjectFile("package.json");
-  // packageJson?.patch(
-  //   JsonPatch.add("/pnpm/overrides", {
-  //     "debug@4.1.1": "^4.3.1",
-  //     "semver@7.3.5": "^7.5.2",
-  //     "tar@4.4.18": "^6.2.1",
-  //     "undici@5.26.5": "^5.28.4",
-  //   }),
-  // );
 }
