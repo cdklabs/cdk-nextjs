@@ -32,14 +32,15 @@
         "CHANGELOG": "dist/changelog.md",
         "BUMPFILE": "dist/version.txt",
         "RELEASETAG": "dist/releasetag.txt",
-        "RELEASE_TAG_PREFIX": ""
+        "RELEASE_TAG_PREFIX": "",
+        "BUMP_PACKAGE": "commit-and-tag-version@^12"
       },
       "steps": [
         {
           "builtin": "release/bump-version"
         }
       ],
-      "condition": "! git log --oneline -1 | grep -q \"chore(release):\""
+      "condition": "git log --oneline -1 | grep -qv \"chore(release):\""
     },
     "bundle": {
       "name": "bundle",
@@ -304,7 +305,12 @@
       "description": "Creates the distribution package",
       "steps": [
         {
-          "exec": "if [ ! -z ${CI} ]; then rsync -a . .repo --exclude .git --exclude node_modules && rm -rf dist && mv .repo dist; else pnpm dlx projen package-all; fi"
+          "spawn": "package:js",
+          "condition": "node -e \"if (!process.env.CI) process.exit(1)\""
+        },
+        {
+          "spawn": "package-all",
+          "condition": "node -e \"if (process.env.CI) process.exit(1)\""
         }
       ]
     },
@@ -377,7 +383,7 @@
       "description": "Run tests",
       "steps": [
         {
-          "exec": "jest --passWithNoTests --coverageProvider=v8 --updateSnapshot",
+          "exec": "jest --passWithNoTests --updateSnapshot",
           "receiveArgs": true
         },
         {
@@ -402,7 +408,8 @@
         "CHANGELOG": "dist/changelog.md",
         "BUMPFILE": "dist/version.txt",
         "RELEASETAG": "dist/releasetag.txt",
-        "RELEASE_TAG_PREFIX": ""
+        "RELEASE_TAG_PREFIX": "",
+        "BUMP_PACKAGE": "commit-and-tag-version@^12"
       },
       "steps": [
         {
@@ -418,13 +425,13 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-s3,@aws-sdk/client-sqs,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-docgen,jsii-pacmak,mime-types,next,prettier,ts-jest,ts-node,typescript,undici"
+          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-s3,@aws-sdk/client-sqs,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,next,prettier,ts-jest,ts-node,typescript,undici"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-s3 @aws-sdk/client-sqs @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen standard-version ts-jest ts-node typescript undici aws-cdk-lib constructs"
+          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-s3 @aws-sdk/client-sqs @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
         },
         {
           "exec": "pnpm dlx projen"
