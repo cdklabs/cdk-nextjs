@@ -19,7 +19,7 @@ importers:
         version: 3.665.0
       '@mrgrain/jsii-struct-builder':
         specifier: ^0.7.43
-        version: 0.7.43(projen@0.81.17(constructs@10.0.5))
+        version: 0.7.43(projen@0.88.0(constructs@10.0.5))
       '@smithy/signature-v4':
         specifier: ^2.3.0
         version: 2.3.0
@@ -99,8 +99,8 @@ importers:
         specifier: ^3.3.3
         version: 3.3.3
       projen:
-        specifier: ^0.81.17
-        version: 0.81.17(constructs@10.0.5)
+        specifier: ^0.88.0
+        version: 0.88.0(constructs@10.0.5)
       standard-version:
         specifier: ^9
         version: 9.5.0
@@ -2926,8 +2926,8 @@ packages:
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
 
-  projen@0.81.17:
-    resolution: {integrity: sha512-8DDFvzA4hk69hNj0zGNa5psQHiwOOqYKt3tx9AHrX+acs4dQ6kjKEAZxyHi91+YjqLTGhfS6uRpx79ldRb4odg==}
+  projen@0.88.0:
+    resolution: {integrity: sha512-7A6OAgL7Gz6R2yWMUlqMqZw7r5jOeqfpNLg+BZbLg3UXbtPsdOjPDp0NroGXxFkqW7NcVPzs7/lF7DZ6H9pRSQ==}
     engines: {node: '>= 16.0.0'}
     hasBin: true
     peerDependencies:
@@ -3432,8 +3432,8 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  typescript@5.7.0-dev.20241005:
-    resolution: {integrity: sha512-jwUlB3Y1mBo3qAXxvbtv7eF4dATeS65xKT4fC9GThKJB2iY8Ptc+frjidfW2mGbKFR0abI8v5gpn9Z7w6oEmFw==}
+  typescript@5.7.0-dev.20241006:
+    resolution: {integrity: sha512-XbEUvmjO3pXSwKpsgTKNHLRROzF2K1tSdqiyRPKwJfv84gPU0H6AjRwvaAaYC9D/6+Hpen0bQLLC0uaGePRHTQ==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -4654,10 +4654,10 @@ snapshots:
     dependencies:
       ajv: 8.17.1
 
-  '@mrgrain/jsii-struct-builder@0.7.43(projen@0.81.17(constructs@10.0.5))':
+  '@mrgrain/jsii-struct-builder@0.7.43(projen@0.88.0(constructs@10.0.5))':
     dependencies:
       '@jsii/spec': 1.103.1
-      projen: 0.81.17(constructs@10.0.5)
+      projen: 0.88.0(constructs@10.0.5)
 
   '@next/env@14.2.3': {}
 
@@ -5807,7 +5807,7 @@ snapshots:
     dependencies:
       semver: 7.6.3
       shelljs: 0.8.5
-      typescript: 5.7.0-dev.20241005
+      typescript: 5.7.0-dev.20241006
 
   ejs@3.1.10:
     dependencies:
@@ -7344,7 +7344,7 @@ snapshots:
 
   process-nextick-args@2.0.1: {}
 
-  projen@0.81.17(constructs@10.0.5):
+  projen@0.88.0(constructs@10.0.5):
     dependencies:
       constructs: 10.0.5
 
@@ -7837,7 +7837,7 @@ snapshots:
 
   typescript@5.6.2: {}
 
-  typescript@5.7.0-dev.20241005: {}
+  typescript@5.7.0-dev.20241006: {}
 
   uglify-js@3.19.3:
     optional: true

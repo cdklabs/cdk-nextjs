@@ -78,7 +78,7 @@
     "mime-types": "^2.1.35",
     "next": "14.2.3",
     "prettier": "^3.3.3",
-    "projen": "^0.81.17",
+    "projen": "^0.88.0",
     "standard-version": "^9",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",

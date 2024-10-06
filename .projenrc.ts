@@ -27,6 +27,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   jsiiVersion: "~5.5.0",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion: "9",
+  projenVersion: "^0.88.0",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-sqs",
