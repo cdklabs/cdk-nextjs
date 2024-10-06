@@ -26,6 +26,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   cdkVersion: "2.161.1",
   jsiiVersion: "~5.5.0",
   packageManager: javascript.NodePackageManager.PNPM,
+  pnpmVersion: "9",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-sqs",
@@ -41,7 +42,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "next", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
-
   // tooling config
   lambdaOptions: {
     runtime: awscdk.LambdaRuntime.NODEJS_20_X,
@@ -133,44 +133,25 @@ function copyDockerfiles() {
  * build. See more here.
  */
 function updateGitHubWorkflows() {
-  const compileStep = {
-    name: "Compile JSII",
-    run: `pnpm projen compile`,
-  };
   // .github/workflows/build.yml
   const buildWorkflow = project.github?.tryFindWorkflow("build");
   if (!buildWorkflow) return;
   const buildJob = buildWorkflow.getJob("build");
   if (!buildJob || !("steps" in buildJob)) return;
   // TODO: figure out why wrong types
-  const getSteps = buildJob.steps as unknown as () => JobStep[];
-  const buildJobSteps = getSteps();
+  const getBuildSteps = buildJob.steps as unknown as () => JobStep[];
+  const buildJobSteps = getBuildSteps();
   buildWorkflow.updateJob("build", {
     ...buildJob,
     steps: [
-      buildJobSteps[0],
+      ...buildJobSteps.slice(0, 4),
       {
-        ...buildJobSteps[1],
-        uses: "pnpm/action-setup@v4",
-        with: { version: 9 },
+        name: "Compile JSII",
+        run: `pnpm projen compile`,
       },
-      ...buildJobSteps.slice(2, 4),
-      compileStep,
       ...buildJobSteps.slice(4),
     ],
   });
-  // const releaseWorkflow = project.tryFindObjectFile(
-  //   ".github/workflows/release.yml",
-  // );
-  // releaseWorkflow?.patch(
-  //   JsonPatch.replace("/jobs/release/steps/5", compileStep),
-  // );
-  // const upgradeWorkflow = project.tryFindObjectFile(
-  //   ".github/workflows/upgrade-main.yml",
-  // );
-  // upgradeWorkflow?.patch(
-  //   JsonPatch.replace("/jobs/upgrade/steps/4", compileStep),
-  // );
 }
 
 /**
