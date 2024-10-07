@@ -42,7 +42,6 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
 export class NextjsContainers extends Construct {
   albFargateService: ApplicationLoadBalancedFargateService;
   ecsCluster: Cluster;
-  url: string;
 
   private props: NextjsContainersProps;
 
@@ -53,7 +52,6 @@ export class NextjsContainers extends Construct {
     this.albFargateService = this.createAlbFargateSevice();
     this.configureHealthCheck();
     this.attachFileSystem();
-    this.url = this.getUrl();
   }
 
   private createEcsCluster(): Cluster {
@@ -189,9 +187,5 @@ export class NextjsContainers extends Construct {
       containerPath: this.props.containerMountPathForEfs,
       readOnly: false,
     });
-  }
-  private getUrl(): string {
-    const protocol = this.albFargateService.certificate ? "https" : "http";
-    return `${protocol}://${this.albFargateService.loadBalancer.loadBalancerDnsName}`;
   }
 }

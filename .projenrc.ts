@@ -174,10 +174,14 @@ function generateStructs() {
   const getFilePath = (fileName: string) =>
     "src/generated-structs/" + fileName + ".ts";
   new ProjenStruct(project, {
-    name: "OptionalS3OriginProps",
-    filePath: getFilePath("OptionalS3OriginProps"),
+    name: "OptionalS3OriginBucketWithOACProps",
+    filePath: getFilePath("OptionalS3OriginBucketWithOACProps"),
   })
-    .mixin(Struct.fromFqn("aws-cdk-lib.aws_cloudfront_origins.S3OriginProps"))
+    .mixin(
+      Struct.fromFqn(
+        "aws-cdk-lib.aws_cloudfront_origins.S3BucketOriginWithOACProps",
+      ),
+    )
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalEdgeFunctionProps",

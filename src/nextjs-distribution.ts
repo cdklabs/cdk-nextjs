@@ -1,12 +1,4 @@
-import {
-  ArnFormat,
-  Aws,
-  CfnOutput,
-  Duration,
-  Fn,
-  RemovalPolicy,
-  Stack,
-} from "aws-cdk-lib";
+import { CfnOutput, Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AddBehaviorOptions,
@@ -18,8 +10,6 @@ import {
   CachePolicyProps,
   CacheQueryStringBehavior,
   CachedMethods,
-  CfnDistribution,
-  CfnOriginAccessControl,
   Function as CloudFrontFunction,
   Distribution,
   FunctionAssociation,
@@ -28,6 +18,7 @@ import {
   HeadersFrameOption,
   HeadersReferrerPolicy,
   HttpVersion,
+  IOrigin,
   IOriginRequestPolicy,
   LambdaEdgeEventType,
   OriginProtocolPolicy,
@@ -39,17 +30,20 @@ import {
   ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import {
+  FunctionUrlOrigin,
+  FunctionUrlOriginProps,
   HttpOrigin,
   HttpOriginProps,
-  S3Origin,
+  S3BucketOrigin,
 } from "aws-cdk-lib/aws-cloudfront-origins";
 import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
-import { CfnBucketPolicy, IBucket } from "aws-cdk-lib/aws-s3";
+import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
+import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { NextjsType } from "./common";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
-import { OptionalS3OriginProps } from "./generated-structs/OptionalS3OriginProps";
+import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { SignFnUrlFunction } from "./lambdas/sign-fn-url/sign-fn-url-function";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
 
@@ -62,10 +56,11 @@ export interface NextjsDistributionOverrides {
   readonly dynamicBehaviorOptions?: AddBehaviorOptions;
   readonly dynamicCachePolicyProps?: CachePolicyProps;
   readonly dynamicResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
-  readonly dynamicHttpOriginProps?: HttpOriginProps;
+  readonly serverOriginProps?: HttpOriginProps & FunctionUrlOriginProps;
+  readonly imageOriginProps?: HttpOriginProps & FunctionUrlOriginProps;
   readonly staticBehaviorOptions?: AddBehaviorOptions;
   readonly staticResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
-  readonly s3OriginProps?: OptionalS3OriginProps;
+  readonly s3OriginProps?: OptionalS3OriginBucketWithOACProps;
 }
 
 export interface NextjsDistributionProps {
@@ -81,13 +76,17 @@ export interface NextjsDistributionProps {
   readonly certificate?: ICertificate;
   readonly distribution?: Distribution;
   /**
-   * Dynamic (Next.js server) URL to add behavior to distribution
+   * * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`
    */
-  readonly dynamicUrl: string;
+  readonly loadBalancerDomainName?: string;
   /**
    * Required if `NextjsType.GLOBAL_FUNCTIONS`
    */
-  readonly functionArn?: string;
+  readonly serverFunctionUrl?: IFunctionUrl;
+  /**
+   * Required if `NextjsType.GLOBAL_FUNCTIONS`
+   */
+  readonly imageFunctionUrl?: IFunctionUrl;
   readonly nextjsType: NextjsType;
   /**
    * Override props for every construct.
@@ -127,8 +126,10 @@ export class NextjsDistribution extends Construct {
     },
     xssProtection: { override: false, protection: true, modeBlock: true },
   };
-  private staticOrigin: S3Origin;
-  private dynamicOrigin: HttpOrigin;
+  private staticOrigin: IOrigin;
+  private serverOrigin: IOrigin;
+  // separate image origin so that we can remove large sharp node_module from server
+  private imageOrigin?: IOrigin;
   private dynamicOriginResponsePolicy: IOriginRequestPolicy;
   private dynamicCloudFrontFunctionAssociations: FunctionAssociation[];
   private edgeLambdas?: AddBehaviorOptions["edgeLambdas"];
@@ -136,21 +137,18 @@ export class NextjsDistribution extends Construct {
   private staticBehaviorOptions: BehaviorOptions;
   private dynamicBehaviorOptions: BehaviorOptions;
   private imageBehaviorOptions: BehaviorOptions;
-  /**
-   * Given stack id: "arn:aws:cloudformation:us-east-1:905418358903:stack/lh-stickb-idp/4bf74be0-e880-11ee-aea9-0affc6185b25",
-   * returns "4bf74be0"
-   */
-  private uniqueStackIdPart = Fn.select(
-    0,
-    Fn.split("-", Fn.select(2, Fn.split("/", `${Aws.STACK_ID}`))),
-  );
 
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
     super(scope, id);
     this.props = props;
     this.staticOrigin = this.createStaticOrigin();
     this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
-    this.dynamicOrigin = this.createDynamicOrigin();
+    if (this.isFunctionCompute) {
+      this.serverOrigin = this.createFunctionUrlServerOrigin();
+      this.imageOrigin = this.createFunctionUrlImageOrigin();
+    } else {
+      this.serverOrigin = this.createHttpOrigin();
+    }
     this.dynamicOriginResponsePolicy = this.createDynamicOriginRequestPolicy();
     this.dynamicCloudFrontFunctionAssociations =
       this.createDynamicCloudFrontFunctionAssociations();
@@ -163,34 +161,84 @@ export class NextjsDistribution extends Construct {
     this.distribution = this.getDistribution();
     this.addStaticBehaviors();
     this.addDynamicBehaviors();
-    this.addS3OacAndRemoveOai();
-    if (this.isFunctionCompute) {
-      // this.addLambdaOac(); // TODO: wait for POST body encryption feature for Lambda OAC
-    }
     new CfnOutput(this, "DistributionDomainName", {
       value: this.distribution.domainName,
     });
   }
 
-  private createStaticOrigin(): S3Origin {
-    const s3Origin = new S3Origin(
+  private createStaticOrigin(): IOrigin {
+    const s3Origin = S3BucketOrigin.withOriginAccessControl(
       this.props.assetsBucket,
       this.props.overrides?.s3OriginProps,
     );
     return s3Origin;
   }
-  private createDynamicOrigin(): HttpOrigin {
-    let protocolPolicy: OriginProtocolPolicy;
-    if (this.isFunctionCompute) {
-      protocolPolicy = OriginProtocolPolicy.HTTPS_ONLY;
-    } else {
-      protocolPolicy = this.props.certificate
-        ? OriginProtocolPolicy.HTTPS_ONLY
-        : OriginProtocolPolicy.HTTP_ONLY;
+  private createFunctionUrlServerOrigin() {
+    if (!this.props.serverFunctionUrl) {
+      throw new Error(
+        "serverFunctionUrl is required when NextjsType.GLOBAL_FUNCTIONS",
+      );
     }
-    return new HttpOrigin(Fn.parseDomainName(this.props.dynamicUrl), {
+    const functionUrlOrigin = new FunctionUrlOrigin(
+      this.props.serverFunctionUrl,
+      this.props.overrides?.serverOriginProps,
+    );
+    // WAITING FOR CLOUDFRONT FEATURE: CloudFront Lambda Function URL OAC
+    // doesn't support POST with body since CloudFront doesn't include sha256
+    // hash of body. see: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
+    // We could monkey patch `fetch` to include sha256 in request for server
+    // actions, but better solution is for cloudfront to support it
+    //
+    // TODO: use L2 construct when released: https://github.com/aws/aws-cdk/issues/31629
+    /**
+     * Given stack id: "arn:aws:cloudformation:us-east-1:905418358903:stack/lh-stickb-idp/4bf74be0-e880-11ee-aea9-0affc6185b25",
+     * returns "4bf74be0"
+     */
+    // const uniqueStackIdPart = Fn.select(
+    //   0,
+    //   Fn.split("-", Fn.select(2, Fn.split("/", `${Aws.STACK_ID}`))),
+    // );
+    // const lambdaOac = new CfnOriginAccessControl(this, "OAC", {
+    //   originAccessControlConfig: {
+    //     name: `OAC-Lambda-${uniqueStackIdPart}`,
+    //     originAccessControlOriginType: "lambda",
+    //     signingBehavior: "always",
+    //     signingProtocol: "sigv4",
+    //   },
+    // });
+    // const cfnDistribution = this.distribution.node
+    //   .defaultChild as CfnDistribution;
+    // cfnDistribution.addPropertyOverride(
+    //   "DistributionConfig.Origins.0.OriginAccessControlId",
+    //   lambdaOac.getAtt("Id"),
+    // );
+    return functionUrlOrigin;
+  }
+  private createFunctionUrlImageOrigin() {
+    if (!this.props.imageFunctionUrl) {
+      throw new Error(
+        "imageFunctionUrl is required when NextjsType.GLOBAL_FUNCTIONS",
+      );
+    }
+    const functionUrlOrigin = new FunctionUrlOrigin(
+      this.props.imageFunctionUrl,
+      this.props.overrides?.imageOriginProps,
+    );
+    // TODO: see createFunctionServerOrigin giant comment above. same applies here.
+    return functionUrlOrigin;
+  }
+  private createHttpOrigin() {
+    if (!this.props.loadBalancerDomainName) {
+      throw new Error(
+        "loadBalancerDomainName is required when NextjsType.GLOBAL_CONTAINERS or NextjsType.REGIONAL_CONTAINERS",
+      );
+    }
+    const protocolPolicy = this.props.certificate
+      ? OriginProtocolPolicy.HTTPS_ONLY
+      : OriginProtocolPolicy.HTTP_ONLY;
+    return new HttpOrigin(this.props.loadBalancerDomainName, {
       protocolPolicy,
-      ...this.props.overrides?.dynamicHttpOriginProps,
+      ...this.props.overrides?.serverOriginProps,
     });
   }
   /**
@@ -205,7 +253,7 @@ export class NextjsDistribution extends Construct {
   }
   /**
    * Ensures Next.js `request.url` will be correct domain instead of URL of
-   * compute option (App Runner, Fargate, or Lambda)
+   * compute option (Fargate, or Lambda)
    * @see https://open-next.js.org/advanced/workaround#workaround-set-x-forwarded-host-header-aws-specific
    */
   private createDynamicCloudFrontFunctionAssociations(): FunctionAssociation[] {
@@ -233,15 +281,20 @@ export class NextjsDistribution extends Construct {
    * use infra configuration for this instead of custom code.
    */
   private createEdgeLambdas(): AddBehaviorOptions["edgeLambdas"] {
-    if (!this.props.functionArn) throw new Error("functionArn is required");
+    if (!this.props.serverFunctionUrl?.functionArn) {
+      throw new Error("serverFunctionUrl is required");
+    }
+    if (!this.props.imageFunctionUrl?.functionArn) {
+      throw new Error("imageFunctionUrl is required");
+    }
     const edgeFn = new SignFnUrlFunction(this, "SignFnUrl", {
-      currentVersionOptions: {
-        retryAttempts: 0, // fail fast when trying to delete b/c replicated functions take long time to delete
-      },
       initialPolicy: [
         new PolicyStatement({
           actions: ["lambda:InvokeFunctionUrl"],
-          resources: [this.props.functionArn],
+          resources: [
+            this.props.serverFunctionUrl.functionArn,
+            this.props.imageFunctionUrl.functionArn,
+          ],
         }),
       ],
       ...this.props.overrides?.edgeFunctionProps,
@@ -314,7 +367,7 @@ export class NextjsDistribution extends Construct {
       cachePolicy,
       edgeLambdas: this.edgeLambdas,
       functionAssociations: this.dynamicCloudFrontFunctionAssociations,
-      origin: this.dynamicOrigin,
+      origin: this.serverOrigin,
       originRequestPolicy: this.dynamicOriginResponsePolicy,
       responseHeadersPolicy,
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -330,6 +383,10 @@ export class NextjsDistribution extends Construct {
       new CachePolicy(this, "ImageCachePolicy", {
         queryStringBehavior: CacheQueryStringBehavior.all(),
         headerBehavior: CacheHeaderBehavior.allowList("accept"),
+        // SECURITY NOTE: by default we don't include cookies in cache for
+        // images b/c it significantly improves image perf for most sites BUT
+        // if you have private images locked behind auth implemented with cookies
+        // you need to override this.
         cookieBehavior: CacheCookieBehavior.none(),
         enableAcceptEncodingBrotli: true,
         enableAcceptEncodingGzip: true,
@@ -349,7 +406,8 @@ export class NextjsDistribution extends Construct {
       cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
       edgeLambdas: this.edgeLambdas,
       functionAssociations: this.dynamicCloudFrontFunctionAssociations,
-      origin: this.dynamicOrigin,
+      // imageOrigin will only exist for functions. if container, then serverOrigin should be used
+      origin: this.imageOrigin ?? this.serverOrigin,
       originRequestPolicy: this.dynamicOriginResponsePolicy,
       cachePolicy,
       responseHeadersPolicy,
@@ -368,7 +426,7 @@ export class NextjsDistribution extends Construct {
       distribution = new Distribution(this, "Distribution", {
         minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
         defaultBehavior: this.dynamicBehaviorOptions,
-        httpVersion: HttpVersion.HTTP2, // HTTP2_AND_3 causes timeout issues with Lambda Function URLs!
+        httpVersion: HttpVersion.HTTP2_AND_3,
         comment: `cdk-nextjs Distribution for ${Stack.of(this).stackName}`,
         ...this.props.overrides?.distributionProps,
       });
@@ -439,95 +497,4 @@ export class NextjsDistribution extends Construct {
       return pathPattern;
     }
   }
-  /**
-   * Add Origin Access Control (OAC) to CloudFront Distribution which is preferred
-   * way to secure access from Distribution to S3. Remove legacy OAI.
-   *
-   * When CDK releases L2 support for this, please remove this code.
-   * @see https://github.com/aws/aws-cdk/issues/21771#issuecomment-1567647338
-   */
-  private addS3OacAndRemoveOai() {
-    const s3Oac = new CfnOriginAccessControl(this, "OAC", {
-      originAccessControlConfig: {
-        name: `OAC-S3-${this.uniqueStackIdPart}`,
-        originAccessControlOriginType: "s3",
-        signingBehavior: "always",
-        signingProtocol: "sigv4",
-      },
-    });
-    // add OAC to CloudFront Distribution
-    const cfnDistribution = this.distribution.node
-      .defaultChild as CfnDistribution;
-    cfnDistribution.addOverride(
-      "Properties.DistributionConfig.Origins.1.S3OriginConfig.OriginAccessIdentity",
-      "",
-    );
-    cfnDistribution.addPropertyOverride(
-      "DistributionConfig.Origins.1.OriginAccessControlId",
-      s3Oac.getAtt("Id"),
-    );
-
-    // add IAM Policy Statement to allow OAC access to Bucket
-    const oacBucketStatement = new PolicyStatement({
-      sid: "AllowS3OacAccess",
-      principals: [new ServicePrincipal("cloudfront.amazonaws.com")],
-      actions: ["s3:GetObject"],
-      resources: [this.props.assetsBucket.bucketArn + "/*"],
-      conditions: {
-        StringEquals: {
-          "aws:sourceArn": Stack.of(this).formatArn({
-            service: "cloudfront",
-            region: "",
-            resource: "distribution",
-            resourceName: this.distribution.distributionId,
-            arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
-          }),
-        },
-      },
-    });
-    this.props.assetsBucket.addToResourcePolicy(oacBucketStatement);
-    // Remove OAI IAM Policy Statement from Bucket Policy
-    const bucketPolicyJson = this.props.assetsBucket.policy?.document.toJSON();
-    const updatedBucketPolicyJson = {
-      Version: "2012-10-17",
-      Statement: [] as unknown[],
-    };
-    for (const statement of bucketPolicyJson.Statement) {
-      if (!("CanonicalUser" in statement.Principal)) {
-        updatedBucketPolicyJson.Statement.push(statement);
-      }
-    }
-    const bucketPolicy = this.props.assetsBucket.node.findChild("Policy").node
-      .defaultChild as CfnBucketPolicy;
-    bucketPolicy.addOverride(
-      "Properties.PolicyDocument",
-      updatedBucketPolicyJson,
-    );
-
-    // Remove S3 Origin Resource
-    const distributionChildren = this.distribution.node.findAll();
-    for (const child of distributionChildren) {
-      if (child.node.id === "S3Origin") {
-        child.node.tryRemoveChild("Resource");
-      }
-    }
-  }
-
-  // TODO: use when POST body encryption feature is added for Lambda OAC
-  // private addLambdaOac() {
-  //   const lambdaOac = new CfnOriginAccessControl(this, "OAC", {
-  //     originAccessControlConfig: {
-  //       name: `OAC-Lambda-${this.uniqueStackIdPart}`,
-  //       originAccessControlOriginType: "lambda",
-  //       signingBehavior: "always",
-  //       signingProtocol: "sigv4",
-  //     },
-  //   });
-  //   const cfnDistribution = this.distribution.node
-  //     .defaultChild as CfnDistribution;
-  //   cfnDistribution.addPropertyOverride(
-  //     "DistributionConfig.Origins.0.OriginAccessControlId",
-  //     lambdaOac.getAtt("Id"),
-  //   );
-  // }
 }

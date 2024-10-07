@@ -64,7 +64,7 @@ tsconfig.json
 !/src/lambdas/sign-fn-url/sign-fn-url-function.ts
 !/examples/**/tsconfig.json
 !/.projenrc.ts
-!/src/generated-structs/OptionalS3OriginProps.ts
+!/src/generated-structs/OptionalS3OriginBucketWithOACProps.ts
 !/src/generated-structs/OptionalEdgeFunctionProps.ts
 !/src/generated-structs/OptionalCloudFrontFunctionProps.ts
 !/src/generated-structs/OptionalDistributionProps.ts
