@@ -77,7 +77,7 @@
     "jsii-pacmak": "^1.103.1",
     "jsii-rosetta": "~5.5.0",
     "mime-types": "^2.1.35",
-    "next": "14.2.3",
+    "next": "14.2.10",
     "prettier": "^3.3.3",
     "projen": "^0.88.0",
     "ts-jest": "^29.2.5",
