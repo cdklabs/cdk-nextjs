@@ -155,6 +155,23 @@ function updateGitHubWorkflows() {
       ...buildJobSteps.slice(4),
     ],
   });
+  // .github/workflows/release.yml
+  const releaseWorkflow = project.github?.tryFindWorkflow("release");
+  if (!releaseWorkflow) return;
+  const releaseJob = releaseWorkflow.getJob("release");
+  if (!releaseJob || !("steps" in releaseJob)) return;
+  const releaseJobSteps = releaseJob.steps;
+  releaseWorkflow.updateJob("release", {
+    ...releaseJob,
+    steps: [
+      ...releaseJobSteps.slice(0, 5),
+      {
+        name: "Compile JSII",
+        run: `pnpm projen compile`,
+      },
+      ...releaseJobSteps.slice(5),
+    ],
+  });
 }
 
 /**
