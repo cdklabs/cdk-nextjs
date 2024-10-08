@@ -27,7 +27,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 - Static assets (JS, CSS, public folder) are stored and served from [Amazon Simple Storage Service (S3)](https://aws.amazon.com/s3/) for global constructs to decrease latency and reduce compute costs.
 - [Optimized images](https://nextjs.org/docs/pages/building-your-application/optimizing/images), [data cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), and [full route cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache) are shared across compute with [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/).
 - Customize every construct via `overrides`.
-- When using AWS Lambda for compute, async revalidation is supported with [Amazon Simple Queue Service (SQS)](https://aws.amazon.com/sqs/).
+- WIP: When using AWS Lambda for compute, async revalidation is supported with [Amazon Simple Queue Service (SQS)](https://aws.amazon.com/sqs/).
 - AWS security and operational best practices are utilized, guided by [cdk-nag](https://github.com/cdklabs/cdk-nag).
 - First class support for [monorepos](https://monorepo.tools/).
 - [AWS GovCloud (US)](https://aws.amazon.com/govcloud-us) compatible (with `NextjsRegionalContainers`).

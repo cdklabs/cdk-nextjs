@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { ProjenStruct, Struct } from "@mrgrain/jsii-struct-builder";
-import { awscdk, javascript } from "projen";
+import { awscdk, javascript, ReleasableCommits } from "projen";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
@@ -68,6 +68,14 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ignorePatterns: ["generated-structs/", "**/*-function.ts", "examples/"],
   },
   sampleCode: false,
+  releasableCommits: ReleasableCommits.ofType([
+    "feat",
+    "fix",
+    "chore",
+    "refactor",
+    "perf",
+    // see commit types here: https://www.conventionalcommits.org/en/v1.0.0/#summary
+  ]),
 });
 
 // by default projen ignores all tsconfigs, but we don't want do this for non-projen
