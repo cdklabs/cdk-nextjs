@@ -37,7 +37,7 @@
 /src/generated-structs/OptionalNextjsFileSystemProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsInvalidationProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsVpcProps.ts linguist-generated
-/src/generated-structs/OptionalS3OriginProps.ts linguist-generated
+/src/generated-structs/OptionalS3OriginBucketWithOACProps.ts linguist-generated
 /src/generated-structs/OptionalVpcProps.ts linguist-generated
 /src/lambdas/assets-deployment/assets-deployment-function.ts linguist-generated
 /src/lambdas/revalidate/revalidate-function.ts linguist-generated

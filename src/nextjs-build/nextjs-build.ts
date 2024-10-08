@@ -117,9 +117,13 @@ export class NextjsBuild extends Construct {
    */
   imageForNextjsContainers?: DockerImageAsset;
   /**
-   * Docker image built if using Lambda.
+   * Docker image built if using Lambda for Next.js server.
    */
-  imageForNextjsFunctions?: DockerImageCode;
+  imageForNextjsFunctionsServer?: DockerImageCode;
+  /**
+   * Docker image built if using Lambda for Next.js image optimization.
+   */
+  imageForNextjsFunctionsImage?: DockerImageCode;
   /**
    * Docker image built for `NextjsAssetsDeployment`
    */
@@ -162,7 +166,12 @@ export class NextjsBuild extends Construct {
     ) {
       this.imageForNextjsContainers = this.createImageForNextjsContainers();
     } else {
-      this.imageForNextjsFunctions = this.createImageForNextjsFunctions();
+      this.imageForNextjsFunctionsServer = this.createImageForNextjsFunctions(
+        "global-functions-server.Dockerfile",
+      );
+      this.imageForNextjsFunctionsImage = this.createImageForNextjsFunctions(
+        "global-functions-image.Dockerfile",
+      );
     }
     this.imageForNextjsAssetsDeployment =
       this.createImageForNextjsAssetsDeployment();
@@ -313,11 +322,10 @@ export class NextjsBuild extends Construct {
     return dockerImageAsset;
   }
 
-  private createImageForNextjsFunctions() {
-    const dockerfileName = "global-functions.Dockerfile";
+  private createImageForNextjsFunctions(dockerfileName: string) {
     // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
     // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
-    // and symlink-full-route-cache scripts which are in lib/nextjs-build folder.
+    // and symlink-full-route-cache scripts in context which are in lib/nextjs-build folder.
     const buildContext = join(__dirname, "..", "..", "lib", "nextjs-build");
     const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
       buildArgs: {

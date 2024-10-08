@@ -30,7 +30,7 @@
     "src/generated-structs/OptionalNextjsFileSystemProps.ts",
     "src/generated-structs/OptionalNextjsInvalidationProps.ts",
     "src/generated-structs/OptionalNextjsVpcProps.ts",
-    "src/generated-structs/OptionalS3OriginProps.ts",
+    "src/generated-structs/OptionalS3OriginBucketWithOACProps.ts",
     "src/generated-structs/OptionalVpcProps.ts",
     "src/lambdas/assets-deployment/assets-deployment-function.ts",
     "src/lambdas/revalidate/revalidate-function.ts",

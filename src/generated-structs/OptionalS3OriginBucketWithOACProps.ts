@@ -2,15 +2,21 @@
 import type { aws_cloudfront, Duration } from 'aws-cdk-lib';
 
 /**
- * OptionalS3OriginProps
+ * OptionalS3OriginBucketWithOACProps
  */
-export interface OptionalS3OriginProps {
+export interface OptionalS3OriginBucketWithOACProps {
   /**
-   * An optional Origin Access Identity of the origin identity cloudfront will use when calling your s3 bucket.
-   * @default - An Origin Access Identity will be created.
+   * The level of permissions granted in the bucket policy and key policy (if applicable) to the CloudFront distribution.
+   * @default [AccessLevel.READ]
    * @stability stable
    */
-  readonly originAccessIdentity?: aws_cloudfront.IOriginAccessIdentity;
+  readonly originAccessLevels?: Array<aws_cloudfront.AccessLevel>;
+  /**
+   * An optional Origin Access Control.
+   * @default - an Origin Access Control will be created.
+   * @stability stable
+   */
+  readonly originAccessControl?: aws_cloudfront.IOriginAccessControl;
   /**
    * An optional path that CloudFront appends to the origin domain name when CloudFront requests content from the origin.
    * Must begin, but not end, with '/' (e.g., '/production/images').

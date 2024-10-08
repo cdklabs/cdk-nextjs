@@ -19,11 +19,7 @@ RUN \
   fi
 ARG BUILD_COMMAND
 ARG RELATIVE_PATH_TO_WORKSPACE
-RUN \
-  if [ -f ./cdk-nextjs-load-env-vars.sh ]; then \
-    chmod u+x ./cdk-nextjs-load-env-vars.sh && \
-    . ./cdk-nextjs-load-env-vars.sh; \
-  fi && \
-  cd $RELATIVE_PATH_TO_WORKSPACE && \
-  $BUILD_COMMAND
-# TODO: remove unnecessary node_modules: https://github.com/sst/open-next/pull/242
+RUN if [ -f ./cdk-nextjs-load-env-vars.sh ]; then chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh; fi
+RUN cd $RELATIVE_PATH_TO_WORKSPACE && $BUILD_COMMAND
+# after building, node_modules aren't needed anymore. this reduces image size by over 50mb
+RUN rm -rf node_modules

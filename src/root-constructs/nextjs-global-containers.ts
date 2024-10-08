@@ -174,7 +174,9 @@ export class NextjsGlobalContainers extends Construct {
       basePath: this.props.basePath,
       certificate: this.nextjsContainers.albFargateService.certificate,
       distribution: this.props.distribution,
-      dynamicUrl: this.nextjsContainers.url,
+      loadBalancerDomainName:
+        this.nextjsContainers.albFargateService.loadBalancer
+          .loadBalancerDnsName,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,

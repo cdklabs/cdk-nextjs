@@ -1,4 +1,5 @@
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import { DockerImageCode } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
   BaseNextjsConstructOverrides,
@@ -84,7 +85,8 @@ export class NextjsGlobalFunctions extends Construct {
   nextjsVpc: NextjsVpc;
   nextjsFileSystem: NextjsFileSystem;
   nextjsAssetsDeployment: NextjsAssetsDeployment;
-  nextjsFunctions: NextjsFunctions;
+  nextjsFunctionsServer: NextjsFunctions;
+  nextjsFunctionsImage: NextjsFunctions;
   nextjsDistribution: NextjsDistribution;
   nextjsRevalidation: NextjsRevalidation;
   nextjsInvalidation: NextjsInvalidation;
@@ -100,10 +102,25 @@ export class NextjsGlobalFunctions extends Construct {
     this.nextjsVpc = this.createVpc();
     this.nextjsFileSystem = this.createNextjsFileSystem();
     this.nextjsAssetsDeployment = this.createNextjsAssetsDeployment();
-    this.nextjsFunctions = this.createNextjsFunctions();
+    if (!this.nextjsBuild.imageForNextjsFunctionsServer) {
+      throw new Error("nextjsBuild.imageForNextjsFunctionsServer is undefined");
+    }
+    this.nextjsFunctionsServer = this.createNextjsFunctions(
+      this.nextjsBuild.imageForNextjsFunctionsServer,
+    );
+    if (!this.nextjsBuild.imageForNextjsFunctionsImage) {
+      throw new Error("nextjsBuild.dockerImageCode is undefined");
+    }
+    // separating image optimization into separate function saves 30MB+ on
+    // server function which saves ~441ms on cold start. adds complication
+    // (especially in NextjsDistribution) but worth it
+    // see: https://aaronstuyvenberg.com/posts/containers-on-lambda
+    this.nextjsFunctionsImage = this.createNextjsFunctions(
+      this.nextjsBuild.imageForNextjsFunctionsImage,
+    );
     this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsFunctions.function.connections,
-      role: this.nextjsFunctions.function.role!,
+      connections: this.nextjsFunctionsServer.function.connections,
+      role: this.nextjsFunctionsServer.function.role!,
     });
     this.nextjsDistribution = this.createNextjsDistribution();
     this.nextjsRevalidation = this.createNextjsRevalidation();
@@ -154,14 +171,11 @@ export class NextjsGlobalFunctions extends Construct {
         ?.nextjsAssetsDeploymentProps,
     });
   }
-  private createNextjsFunctions() {
-    if (!this.nextjsBuild.imageForNextjsFunctions) {
-      throw new Error("nextjsBuild.dockerImageCode is undefined");
-    }
+  private createNextjsFunctions(dockerImageCode: DockerImageCode) {
     return new NextjsFunctions(this, "NextjsFunctions", {
       accessPoint: this.nextjsFileSystem.accessPoint,
       containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
-      dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
+      dockerImageCode,
       healthCheckPath: this.props.healthCheckPath,
       vpc: this.nextjsVpc.vpc,
       overrides: this.props.overrides?.nextjsFunction,
@@ -172,8 +186,9 @@ export class NextjsGlobalFunctions extends Construct {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
       basePath: this.props.basePath,
-      dynamicUrl: this.nextjsFunctions.functionUrl.url,
-      functionArn: this.nextjsFunctions.function.functionArn,
+      loadBalancerDomainName: this.nextjsFunctionsServer.functionUrl.url,
+      serverFunctionUrl: this.nextjsFunctionsServer.functionUrl,
+      imageFunctionUrl: this.nextjsFunctionsImage.functionUrl,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
@@ -182,7 +197,7 @@ export class NextjsGlobalFunctions extends Construct {
   }
   private createNextjsRevalidation() {
     return new NextjsRevalidation(this, "NextjsRevalidation", {
-      fn: this.nextjsFunctions.function,
+      fn: this.nextjsFunctionsServer.function,
       overrides: this.props.overrides?.nextjsRevalidation,
       previewModeId: this.nextjsAssetsDeployment.previewModeId,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsRevalidationProps,
