@@ -74,8 +74,26 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "chore",
     "refactor",
     "perf",
-    // see commit types here: https://www.conventionalcommits.org/en/v1.0.0/#summary
   ]),
+  githubOptions: {
+    pullRequestLintOptions: {
+      semanticTitleOptions: {
+        types: [
+          // see commit types here: https://www.conventionalcommits.org/en/v1.0.0/#summary
+          "feat",
+          "fix",
+          "chore",
+          "refactor",
+          "perf",
+          "docs",
+          "style",
+          "test",
+          "build",
+          "ci",
+        ],
+      },
+    },
+  },
 });
 
 // by default projen ignores all tsconfigs, but we don't want do this for non-projen
