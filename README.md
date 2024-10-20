@@ -1,3 +1,7 @@
+![Version](https://img.shields.io/github/v/release/cdklabs/cdk-nextjs)
+[![npm version](https://img.shields.io/npm/v/cdk-nextjs.svg?style=flat-square)](https://www.npmjs.org/package/cdk-nextjs)
+![License](https://img.shields.io/github/license/cdklabs/cdk-nextjs)
+
 # CDK Next.js Construct Library
 
 <!--BEGIN STABILITY BANNER-->
@@ -34,6 +38,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 
 ## Getting Started
 
+1. If you don’t have a Next.js project yet, follow [these steps](https://nextjs.org/docs/getting-started) to create one.
 1. Install [Docker](https://www.docker.com/). We recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby) container engine enabled.
 1. Install [Node.js](https://nodejs.org/en). We recommend the long term support (LTS) version.
 1. Set your [next.config.js](https://nextjs.org/docs/pages/api-reference/next-config-js) [output](https://nextjs.org/docs/pages/api-reference/next-config-js/output) key to `"standalone"`. Learn more here about [Standalone Output](https://nextjs.org/docs/pages/api-reference/next-config-js/output#automatically-copying-traced-files).
@@ -71,25 +76,31 @@ See [examples/](./examples/) for more usage examples.
 
 ### `NextjsGlobalFunctions`
 
+Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) Functions to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this construct when you have unpredictable traffic, can afford occasional latency (i.e. cold starts - [typically 1% of production traffic](https://aws.amazon.com/blogs/compute/operating-lambda-performance-optimization-part-1/)), and/or want the most granular pricing model. ([code](./src/root-constructs/nextjs-global-functions.ts#L81))
+
 ![NextjsGlobalFunctions](./docs/cdk-nextjs-NextjsGlobalFunctions.png)
 
 ### `NextjsGlobalContainers`
+
+Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this option when you have predictable traffic, need the lowest latency, and/or can afford a less granular pricing model. ([code](./src/root-constructs/nextjs-global-containers.ts#L76))
 
 ![NextjsGlobalContainers](./docs/cdk-nextjs-NextjsGlobalContainers.png)
 
 ### `NextjsRegionalContainers`
 
+Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [Application Load Balancer](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/) to regionally serve requests. Use this options when you cannot use Amazon CloudFront (i.e. [AWS GovCloud](https://aws.amazon.com/govcloud-us/?whats-new.sort-by=item.additionalFields.postDateTime&whats-new.sort-order=desc)). ([code](./src/root-constructs/nextjs-regional-containers.ts#L41))
+
 ![NextjsRegionalContainers](./docs/cdk-nextjs-NextjsRegionalContainers.png)
 
 ## Why
 
-The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Platform-as-a-Service company behind Next.js. However, deploying to Vercel can be expensive and some developers want all of their workloads running _directly_ on AWS. Developers can deploy Next.js on AWS through [AWS Amplify Hosting](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-Amplifysupport.html), but Amplify does not support all Next.js features and manages AWS resources for you so they cannot be customized. If Amplify meets your requirements we recommend you use it, but if you want to use all Next.js features or want more visibility into the AWS resources checkout cdk-nextjs.
+The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Platform-as-a-Service company behind Next.js. However, deploying to Vercel can be expensive and some developers want all of their workloads running _directly_ on AWS. Developers can deploy Next.js on AWS through [AWS Amplify Hosting](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-Amplifysupport.html), but Amplify does not support all Next.js features and manages AWS resources for you so they cannot be customized. If Amplify meets your requirements we recommend you use it, but if you want to use all Next.js features or want more visibility into the AWS resources then this construct is for you.
 
 ## Design Principles
 
 - Treat Next.js as black box. Minimize reliance on Next.js internal APIs to reduce chance of incompatibility between this construct and future versions of Next.js.
 - Security first.
-- One size does not fit all.
+- One architecture does not fit all.
 - Enable customization everywhere.
 
 ## Limitations
@@ -111,10 +122,6 @@ This construct by default implements all AWS security best practices that a CDK 
 
 WIP
 
-## Acknowledgements
-
-This construct was built on the shoulders of giants. Thank you to the contributors of [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs) and [open-next](https://github.com/sst/open-next).
-
 ## Contributing
 
 Steps to build locally:
@@ -135,3 +142,21 @@ A: API Gateway does not support streaming.
 
 Q: Why EFS instead of S3?
 A: Next.js has 3 types of server caching that are persisted to disk: [Data Cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), [Full Route Cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache), and [Image Optimization](https://nextjs.org/docs/pages/building-your-application/optimizing/images). Cached data is persisted at .next/cache/fetch-cache, cached full routes are persisted at .next/server/app, and optimized images are persisted at .next/cache/images. Next.js provides a way to customize where cached data or cached full routes are persisted through the [Custom Next.js Cache Handler](https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath), but there currently is no way to persist optimized images. Therefore, we need a way to persist cached data at the file system level which is transparent to Next.js. To do this, we use [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Benefits of EFS include being able to cache any Next.js data persisted to disk and therefore being flexible to adapt to Next.js as the framework evolves caching additional types of data. One exception to not using the Custom Next.js Cache Handler is to support [Data Cache Time-based Revalidation](https://nextjs.org/docs/app/building-your-application/caching#time-based-revalidation) when using AWS Lambda functions. Functions only run when they are responding to a request preventing time-based revalidation unlike containers with AWS Fargate which run continually. For functions, an [Amazon SQS Queue](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html) and consuming function that will make a HEAD request with x-prerender-revalidate header needed for Next.js to update cache.
+
+Q: How customizable is the `cdk-nextjs` package for different use cases?
+A: The `cdk-nextjs` package offers deep customization through _prop-based_ overrides. These can be accessed in the construct props, allowing you to override settings like VPC configurations, CloudFront distribution, and ECS/Fargate setup. For example, you can modify `nextjsBuildProps` to customize the build process or use `nextjsDistributionProps` to adjust how CloudFront handles caching and routing. This level of control makes it easy to adapt the infrastructure to your application’s specific performance, networking, or deployment needs.
+
+Q: How can I use a custom domain with `cdk-nextjs`?
+A: To use a custom domain, you can configure the `distribution` prop within constructs like `NextjsGlobalFunctions` or `NextjsGlobalContainers`. By providing an ACM certificate and overriding relevant properties such as `nextjsDistributionProps`, you can customize the CloudFront distribution to handle your domain. This allows CloudFront to route traffic through your custom domain while managing SSL termination for secure HTTPS connections.
+
+## Acknowledgements
+
+This construct was built on the shoulders of giants. Thank you to the contributors of [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs) and [open-next](https://github.com/sst/open-next).
+
+## 🥂 Thanks Contributors
+
+Thank you for helping other developers deploy Next.js apps on AWS
+
+<a href="https://github.com/cdklabs/cdk-nextjs/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=cdklabs/cdk-nextjs" />
+</a>
