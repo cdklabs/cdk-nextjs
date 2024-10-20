@@ -76,31 +76,31 @@ See [examples/](./examples/) for more usage examples.
 
 ### `NextjsGlobalFunctions`
 
-This architecture uses [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) to globally serve requests and distribute static assets. Lambda handles dynamic rendering for Next.js pages and API routes, making it a scalable, low-maintenance choice. It's ideal for projects with unpredictable traffic, offering a cost-effective, pay-as-you-go model. ([code](./src/root-constructs/nextjs-global-functions.ts#L81))
+Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) Functions to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this construct when you have unpredictable traffic, can afford occasional latency (i.e. cold starts - [typically 1% of production traffic](https://aws.amazon.com/blogs/compute/operating-lambda-performance-optimization-part-1/)), and/or want the most granular pricing model. ([code](./src/root-constructs/nextjs-global-functions.ts#L81))
 
 ![NextjsGlobalFunctions](./docs/cdk-nextjs-NextjsGlobalFunctions.png)
 
 ### `NextjsGlobalContainers`
 
-[ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers, combined with CloudFront, provide full control over the runtime environment. This option is better suited for applications requiring advanced configurations, like managing long-running processes or optimizing latency. ([code](./src/root-constructs/nextjs-global-containers.ts#L76))
+Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this option when you have predictable traffic, need the lowest latency, and/or can afford a less granular pricing model. ([code](./src/root-constructs/nextjs-global-containers.ts#L76))
 
 ![NextjsGlobalContainers](./docs/cdk-nextjs-NextjsGlobalContainers.png)
 
 ### `NextjsRegionalContainers`
 
-Similar to GlobalContainers, but deployed in specific AWS regions. This model minimizes latency for region-specific users and is perfect for applications that benefit from localized infrastructure. ([code](./src/root-constructs/nextjs-regional-containers.ts#L41))
+Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [Application Load Balancer](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/) to regionally serve requests. Use this options when you cannot use Amazon CloudFront (i.e. [AWS GovCloud](https://aws.amazon.com/govcloud-us/?whats-new.sort-by=item.additionalFields.postDateTime&whats-new.sort-order=desc)). ([code](./src/root-constructs/nextjs-regional-containers.ts#L41))
 
 ![NextjsRegionalContainers](./docs/cdk-nextjs-NextjsRegionalContainers.png)
 
 ## Why
 
-The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Platform-as-a-Service company behind Next.js. However, deploying to Vercel can be expensive and some developers want all of their workloads running _directly_ on AWS. Developers can deploy Next.js on AWS through [AWS Amplify Hosting](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-Amplifysupport.html), but Amplify does not support all Next.js features and manages AWS resources for you so they cannot be customized. If Amplify meets your requirements we recommend you use it, but if you want to use all Next.js features or want more visibility into the AWS resources checkout cdk-nextjs.
+The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Platform-as-a-Service company behind Next.js. However, deploying to Vercel can be expensive and some developers want all of their workloads running _directly_ on AWS. Developers can deploy Next.js on AWS through [AWS Amplify Hosting](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-Amplifysupport.html), but Amplify does not support all Next.js features and manages AWS resources for you so they cannot be customized. If Amplify meets your requirements we recommend you use it, but if you want to use all Next.js features or want more visibility into the AWS resources then this construct is for you.
 
 ## Design Principles
 
 - Treat Next.js as black box. Minimize reliance on Next.js internal APIs to reduce chance of incompatibility between this construct and future versions of Next.js.
 - Security first.
-- One size does not fit all.
+- One architecture does not fit all.
 - Enable customization everywhere.
 
 ## Limitations
@@ -155,7 +155,7 @@ This construct was built on the shoulders of giants. Thank you to the contributo
 
 ## 🥂 Thanks Contributors
 
-Thanks for spending time on this project.
+Thank you for helping other developers deploy Next.js apps on AWS
 
 <a href="https://github.com/cdklabs/cdk-nextjs/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=cdklabs/cdk-nextjs" />
