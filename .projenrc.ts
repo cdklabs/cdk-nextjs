@@ -32,6 +32,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-sqs",
     "@aws-sdk/client-s3",
+    "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
     "@smithy/signature-v4",
     "@types/aws-lambda",

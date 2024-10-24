@@ -1,7 +1,9 @@
 import { createReadStream } from "node:fs";
 import { join, relative } from "node:path";
 // eslint-disable-next-line import/no-extraneous-dependencies
-import { PutObjectCommand, PutObjectCommandInput } from "@aws-sdk/client-s3";
+import { PutObjectCommandInput } from "@aws-sdk/client-s3";
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { Upload } from "@aws-sdk/lib-storage";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import * as mime from "mime-types";
 import { chunkArray, listFilePaths } from "./common";
@@ -31,7 +33,7 @@ export async function fsToS3(props: FsToS3Action) {
     );
     debug({ putObjectInputs });
     await Promise.all(
-      putObjectInputs.map((input) => s3.send(new PutObjectCommand(input))),
+      putObjectInputs.map((input) => new Upload({ client: s3, params: input })),
     );
   }
 }
