@@ -38,14 +38,14 @@ export const handler: CloudFormationCustomResourceHandler = async (
     }
   } catch (err) {
     console.error(err);
-    throw err;
+  } finally {
+    await cfnResponse({
+      event,
+      context,
+      responseStatus,
+      responseData: { previewModeId },
+    });
   }
-  await cfnResponse({
-    event,
-    context,
-    responseStatus,
-    responseData: { previewModeId },
-  });
 };
 
 function initImageCache(imageCachePath: string) {

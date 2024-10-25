@@ -33,7 +33,9 @@ export async function fsToS3(props: FsToS3Action) {
     );
     debug({ putObjectInputs });
     await Promise.all(
-      putObjectInputs.map((input) => new Upload({ client: s3, params: input })),
+      putObjectInputs.map((input) =>
+        new Upload({ client: s3, params: input }).done(),
+      ),
     );
   }
 }

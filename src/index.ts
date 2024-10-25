@@ -89,5 +89,5 @@ export { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDo
 export { OptionalEdgeFunctionProps } from "./generated-structs/OptionalEdgeFunctionProps";
 export { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 export { OptionalFunctionUrlProps } from "./generated-structs/OptionalFunctionUrlProps";
-export { OptionalS3OriginProps } from "./generated-structs/OptionalS3OriginProps";
+export { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 export { OptionalVpcProps } from "./generated-structs/OptionalVpcProps";
