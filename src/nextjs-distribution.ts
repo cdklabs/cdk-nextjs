@@ -1,12 +1,4 @@
-import {
-  ArnFormat,
-  Aws,
-  CfnOutput,
-  Duration,
-  Fn,
-  RemovalPolicy,
-  Stack,
-} from "aws-cdk-lib";
+import { CfnOutput, Duration, Fn, RemovalPolicy, Stack } from "aws-cdk-lib";
 import { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AddBehaviorOptions,
@@ -18,8 +10,6 @@ import {
   CachePolicyProps,
   CacheQueryStringBehavior,
   CachedMethods,
-  CfnDistribution,
-  CfnOriginAccessControl,
   Function as CloudFrontFunction,
   Distribution,
   FunctionAssociation,
@@ -28,6 +18,7 @@ import {
   HeadersFrameOption,
   HeadersReferrerPolicy,
   HttpVersion,
+  IOrigin,
   IOriginRequestPolicy,
   LambdaEdgeEventType,
   OriginProtocolPolicy,
@@ -41,15 +32,15 @@ import {
 import {
   HttpOrigin,
   HttpOriginProps,
-  S3Origin,
+  S3BucketOrigin,
 } from "aws-cdk-lib/aws-cloudfront-origins";
 import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
-import { CfnBucketPolicy, IBucket } from "aws-cdk-lib/aws-s3";
+import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { NextjsType } from "./common";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
-import { OptionalS3OriginProps } from "./generated-structs/OptionalS3OriginProps";
+import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { SignFnUrlFunction } from "./lambdas/sign-fn-url/sign-fn-url-function";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
 
@@ -65,7 +56,7 @@ export interface NextjsDistributionOverrides {
   readonly dynamicHttpOriginProps?: HttpOriginProps;
   readonly staticBehaviorOptions?: AddBehaviorOptions;
   readonly staticResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
-  readonly s3OriginProps?: OptionalS3OriginProps;
+  readonly s3BucketOriginProps?: OptionalS3OriginBucketWithOACProps;
 }
 
 export interface NextjsDistributionProps {
@@ -127,8 +118,8 @@ export class NextjsDistribution extends Construct {
     },
     xssProtection: { override: false, protection: true, modeBlock: true },
   };
-  private staticOrigin: S3Origin;
-  private dynamicOrigin: HttpOrigin;
+  private staticOrigin: IOrigin;
+  private dynamicOrigin: IOrigin;
   private dynamicOriginResponsePolicy: IOriginRequestPolicy;
   private dynamicCloudFrontFunctionAssociations: FunctionAssociation[];
   private edgeLambdas?: AddBehaviorOptions["edgeLambdas"];
@@ -136,14 +127,6 @@ export class NextjsDistribution extends Construct {
   private staticBehaviorOptions: BehaviorOptions;
   private dynamicBehaviorOptions: BehaviorOptions;
   private imageBehaviorOptions: BehaviorOptions;
-  /**
-   * Given stack id: "arn:aws:cloudformation:us-east-1:905418358903:stack/lh-stickb-idp/4bf74be0-e880-11ee-aea9-0affc6185b25",
-   * returns "4bf74be0"
-   */
-  private uniqueStackIdPart = Fn.select(
-    0,
-    Fn.split("-", Fn.select(2, Fn.split("/", `${Aws.STACK_ID}`))),
-  );
 
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
     super(scope, id);
@@ -163,7 +146,6 @@ export class NextjsDistribution extends Construct {
     this.distribution = this.getDistribution();
     this.addStaticBehaviors();
     this.addDynamicBehaviors();
-    this.addS3OacAndRemoveOai();
     if (this.isFunctionCompute) {
       // this.addLambdaOac(); // TODO: wait for POST body encryption feature for Lambda OAC
     }
@@ -172,10 +154,10 @@ export class NextjsDistribution extends Construct {
     });
   }
 
-  private createStaticOrigin(): S3Origin {
-    const s3Origin = new S3Origin(
+  private createStaticOrigin(): IOrigin {
+    const s3Origin = S3BucketOrigin.withOriginAccessControl(
       this.props.assetsBucket,
-      this.props.overrides?.s3OriginProps,
+      this.props.overrides?.s3BucketOriginProps,
     );
     return s3Origin;
   }
@@ -188,6 +170,35 @@ export class NextjsDistribution extends Construct {
         ? OriginProtocolPolicy.HTTPS_ONLY
         : OriginProtocolPolicy.HTTP_ONLY;
     }
+    // WAITING FOR CLOUDFRONT FEATURE: CloudFront Lambda Function URL OAC
+    // doesn't support POST with body since CloudFront doesn't include sha256
+    // hash of body. see: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
+    // We could monkey patch `fetch` to include sha256 in request for server
+    // actions, but better solution is for cloudfront to support it
+    //
+    // TODO: use L2 construct when released: https://github.com/aws/aws-cdk/issues/31629
+    /**
+     * Given stack id: "arn:aws:cloudformation:us-east-1:905418358903:stack/lh-stickb-idp/4bf74be0-e880-11ee-aea9-0affc6185b25",
+     * returns "4bf74be0"
+     */
+    // const uniqueStackIdPart = Fn.select(
+    //   0,
+    //   Fn.split("-", Fn.select(2, Fn.split("/", `${Aws.STACK_ID}`))),
+    // );
+    // const lambdaOac = new CfnOriginAccessControl(this, "OAC", {
+    //   originAccessControlConfig: {
+    //     name: `OAC-Lambda-${uniqueStackIdPart}`,
+    //     originAccessControlOriginType: "lambda",
+    //     signingBehavior: "always",
+    //     signingProtocol: "sigv4",
+    //   },
+    // });
+    // const cfnDistribution = this.distribution.node
+    //   .defaultChild as CfnDistribution;
+    // cfnDistribution.addPropertyOverride(
+    //   "DistributionConfig.Origins.0.OriginAccessControlId",
+    //   lambdaOac.getAtt("Id"),
+    // );
     return new HttpOrigin(Fn.parseDomainName(this.props.dynamicUrl), {
       protocolPolicy,
       ...this.props.overrides?.dynamicHttpOriginProps,
@@ -328,6 +339,10 @@ export class NextjsDistribution extends Construct {
     const cachePolicy =
       imageBehaviorOptions?.cachePolicy ??
       new CachePolicy(this, "ImageCachePolicy", {
+        // SECURITY NOTE: by default we don't include cookies in cache for
+        // images b/c it significantly improves image perf for most sites BUT
+        // if you have private images locked behind auth implemented with cookies
+        // you need to override this.
         queryStringBehavior: CacheQueryStringBehavior.all(),
         headerBehavior: CacheHeaderBehavior.allowList("accept"),
         cookieBehavior: CacheCookieBehavior.none(),
@@ -368,7 +383,7 @@ export class NextjsDistribution extends Construct {
       distribution = new Distribution(this, "Distribution", {
         minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
         defaultBehavior: this.dynamicBehaviorOptions,
-        httpVersion: HttpVersion.HTTP2, // HTTP2_AND_3 causes timeout issues with Lambda Function URLs!
+        httpVersion: HttpVersion.HTTP2_AND_3,
         comment: `cdk-nextjs Distribution for ${Stack.of(this).stackName}`,
         ...this.props.overrides?.distributionProps,
       });
@@ -439,95 +454,4 @@ export class NextjsDistribution extends Construct {
       return pathPattern;
     }
   }
-  /**
-   * Add Origin Access Control (OAC) to CloudFront Distribution which is preferred
-   * way to secure access from Distribution to S3. Remove legacy OAI.
-   *
-   * When CDK releases L2 support for this, please remove this code.
-   * @see https://github.com/aws/aws-cdk/issues/21771#issuecomment-1567647338
-   */
-  private addS3OacAndRemoveOai() {
-    const s3Oac = new CfnOriginAccessControl(this, "OAC", {
-      originAccessControlConfig: {
-        name: `OAC-S3-${this.uniqueStackIdPart}`,
-        originAccessControlOriginType: "s3",
-        signingBehavior: "always",
-        signingProtocol: "sigv4",
-      },
-    });
-    // add OAC to CloudFront Distribution
-    const cfnDistribution = this.distribution.node
-      .defaultChild as CfnDistribution;
-    cfnDistribution.addOverride(
-      "Properties.DistributionConfig.Origins.1.S3OriginConfig.OriginAccessIdentity",
-      "",
-    );
-    cfnDistribution.addPropertyOverride(
-      "DistributionConfig.Origins.1.OriginAccessControlId",
-      s3Oac.getAtt("Id"),
-    );
-
-    // add IAM Policy Statement to allow OAC access to Bucket
-    const oacBucketStatement = new PolicyStatement({
-      sid: "AllowS3OacAccess",
-      principals: [new ServicePrincipal("cloudfront.amazonaws.com")],
-      actions: ["s3:GetObject"],
-      resources: [this.props.assetsBucket.bucketArn + "/*"],
-      conditions: {
-        StringEquals: {
-          "aws:sourceArn": Stack.of(this).formatArn({
-            service: "cloudfront",
-            region: "",
-            resource: "distribution",
-            resourceName: this.distribution.distributionId,
-            arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
-          }),
-        },
-      },
-    });
-    this.props.assetsBucket.addToResourcePolicy(oacBucketStatement);
-    // Remove OAI IAM Policy Statement from Bucket Policy
-    const bucketPolicyJson = this.props.assetsBucket.policy?.document.toJSON();
-    const updatedBucketPolicyJson = {
-      Version: "2012-10-17",
-      Statement: [] as unknown[],
-    };
-    for (const statement of bucketPolicyJson.Statement) {
-      if (!("CanonicalUser" in statement.Principal)) {
-        updatedBucketPolicyJson.Statement.push(statement);
-      }
-    }
-    const bucketPolicy = this.props.assetsBucket.node.findChild("Policy").node
-      .defaultChild as CfnBucketPolicy;
-    bucketPolicy.addOverride(
-      "Properties.PolicyDocument",
-      updatedBucketPolicyJson,
-    );
-
-    // Remove S3 Origin Resource
-    const distributionChildren = this.distribution.node.findAll();
-    for (const child of distributionChildren) {
-      if (child.node.id === "S3Origin") {
-        child.node.tryRemoveChild("Resource");
-      }
-    }
-  }
-
-  // TODO: use when POST body encryption feature is added for Lambda OAC
-  // private addLambdaOac() {
-  //   const lambdaOac = new CfnOriginAccessControl(this, "OAC", {
-  //     originAccessControlConfig: {
-  //       name: `OAC-Lambda-${this.uniqueStackIdPart}`,
-  //       originAccessControlOriginType: "lambda",
-  //       signingBehavior: "always",
-  //       signingProtocol: "sigv4",
-  //     },
-  //   });
-  //   const cfnDistribution = this.distribution.node
-  //     .defaultChild as CfnDistribution;
-  //   cfnDistribution.addPropertyOverride(
-  //     "DistributionConfig.Origins.0.OriginAccessControlId",
-  //     lambdaOac.getAtt("Id"),
-  //   );
-  // }
 }
