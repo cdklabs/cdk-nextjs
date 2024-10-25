@@ -2810,7 +2810,7 @@ const nextjsDistributionOverrides: NextjsDistributionOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageBehaviorOptions">imageBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.AddBehaviorOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageCachePolicyProps">imageCachePolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicyProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageResponseHeadersPolicyProps">imageResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.s3OriginProps">s3OriginProps</a></code> | <code><a href="#cdk-nextjs.OptionalS3OriginProps">OptionalS3OriginProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.s3BucketOriginProps">s3BucketOriginProps</a></code> | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps">OptionalS3OriginBucketWithOACProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.staticBehaviorOptions">staticBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.AddBehaviorOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.staticResponseHeadersPolicyProps">staticResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
 
@@ -2906,13 +2906,13 @@ public readonly imageResponseHeadersPolicyProps: ResponseHeadersPolicyProps;
 
 ---
 
-##### `s3OriginProps`<sup>Optional</sup> <a name="s3OriginProps" id="cdk-nextjs.NextjsDistributionOverrides.property.s3OriginProps"></a>
+##### `s3BucketOriginProps`<sup>Optional</sup> <a name="s3BucketOriginProps" id="cdk-nextjs.NextjsDistributionOverrides.property.s3BucketOriginProps"></a>
 
 ```typescript
-public readonly s3OriginProps: OptionalS3OriginProps;
+public readonly s3BucketOriginProps: OptionalS3OriginBucketWithOACProps;
 ```
 
-- *Type:* <a href="#cdk-nextjs.OptionalS3OriginProps">OptionalS3OriginProps</a>
+- *Type:* <a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps">OptionalS3OriginBucketWithOACProps</a>
 
 ---
 
@@ -9046,35 +9046,36 @@ Bring your own VPC.
 
 ---
 
-### OptionalS3OriginProps <a name="OptionalS3OriginProps" id="cdk-nextjs.OptionalS3OriginProps"></a>
+### OptionalS3OriginBucketWithOACProps <a name="OptionalS3OriginBucketWithOACProps" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps"></a>
 
-OptionalS3OriginProps.
+OptionalS3OriginBucketWithOACProps.
 
-#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalS3OriginProps.Initializer"></a>
+#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.Initializer"></a>
 
 ```typescript
-import { OptionalS3OriginProps } from 'cdk-nextjs'
+import { OptionalS3OriginBucketWithOACProps } from 'cdk-nextjs'
 
-const optionalS3OriginProps: OptionalS3OriginProps = { ... }
+const optionalS3OriginBucketWithOACProps: OptionalS3OriginBucketWithOACProps = { ... }
 ```
 
 #### Properties <a name="Properties" id="Properties"></a>
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.connectionAttempts">connectionAttempts</a></code> | <code>number</code> | The number of times that CloudFront attempts to connect to the origin; |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.connectionTimeout">connectionTimeout</a></code> | <code>aws-cdk-lib.Duration</code> | The number of seconds that CloudFront waits when trying to establish a connection to the origin. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.customHeaders">customHeaders</a></code> | <code>{[ key: string ]: string}</code> | A list of HTTP header names and values that CloudFront adds to requests it sends to the origin. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.originAccessControlId">originAccessControlId</a></code> | <code>string</code> | The unique identifier of an origin access control for this origin. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.originAccessIdentity">originAccessIdentity</a></code> | <code>aws-cdk-lib.aws_cloudfront.IOriginAccessIdentity</code> | An optional Origin Access Identity of the origin identity cloudfront will use when calling your s3 bucket. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.originId">originId</a></code> | <code>string</code> | A unique identifier for the origin. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.originPath">originPath</a></code> | <code>string</code> | An optional path that CloudFront appends to the origin domain name when CloudFront requests content from the origin. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.originShieldEnabled">originShieldEnabled</a></code> | <code>boolean</code> | Origin Shield is enabled by setting originShieldRegion to a valid region, after this to disable Origin Shield again you must set this flag to false. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginProps.property.originShieldRegion">originShieldRegion</a></code> | <code>string</code> | When you enable Origin Shield in the AWS Region that has the lowest latency to your origin, you can get better network performance. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.connectionAttempts">connectionAttempts</a></code> | <code>number</code> | The number of times that CloudFront attempts to connect to the origin; |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.connectionTimeout">connectionTimeout</a></code> | <code>aws-cdk-lib.Duration</code> | The number of seconds that CloudFront waits when trying to establish a connection to the origin. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.customHeaders">customHeaders</a></code> | <code>{[ key: string ]: string}</code> | A list of HTTP header names and values that CloudFront adds to requests it sends to the origin. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControl">originAccessControl</a></code> | <code>aws-cdk-lib.aws_cloudfront.IOriginAccessControl</code> | An optional Origin Access Control. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControlId">originAccessControlId</a></code> | <code>string</code> | The unique identifier of an origin access control for this origin. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessLevels">originAccessLevels</a></code> | <code>aws-cdk-lib.aws_cloudfront.AccessLevel[]</code> | The level of permissions granted in the bucket policy and key policy (if applicable) to the CloudFront distribution. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originId">originId</a></code> | <code>string</code> | A unique identifier for the origin. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originPath">originPath</a></code> | <code>string</code> | An optional path that CloudFront appends to the origin domain name when CloudFront requests content from the origin. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originShieldEnabled">originShieldEnabled</a></code> | <code>boolean</code> | Origin Shield is enabled by setting originShieldRegion to a valid region, after this to disable Origin Shield again you must set this flag to false. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originShieldRegion">originShieldRegion</a></code> | <code>string</code> | When you enable Origin Shield in the AWS Region that has the lowest latency to your origin, you can get better network performance. |
 
 ---
 
-##### `connectionAttempts`<sup>Optional</sup> <a name="connectionAttempts" id="cdk-nextjs.OptionalS3OriginProps.property.connectionAttempts"></a>
+##### `connectionAttempts`<sup>Optional</sup> <a name="connectionAttempts" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.connectionAttempts"></a>
 
 ```typescript
 public readonly connectionAttempts: number;
@@ -9089,7 +9090,7 @@ valid values are 1, 2, or 3 attempts.
 
 ---
 
-##### `connectionTimeout`<sup>Optional</sup> <a name="connectionTimeout" id="cdk-nextjs.OptionalS3OriginProps.property.connectionTimeout"></a>
+##### `connectionTimeout`<sup>Optional</sup> <a name="connectionTimeout" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.connectionTimeout"></a>
 
 ```typescript
 public readonly connectionTimeout: Duration;
@@ -9104,7 +9105,7 @@ Valid values are 1-10 seconds, inclusive.
 
 ---
 
-##### `customHeaders`<sup>Optional</sup> <a name="customHeaders" id="cdk-nextjs.OptionalS3OriginProps.property.customHeaders"></a>
+##### `customHeaders`<sup>Optional</sup> <a name="customHeaders" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.customHeaders"></a>
 
 ```typescript
 public readonly customHeaders: {[ key: string ]: string};
@@ -9117,7 +9118,20 @@ A list of HTTP header names and values that CloudFront adds to requests it sends
 
 ---
 
-##### `originAccessControlId`<sup>Optional</sup> <a name="originAccessControlId" id="cdk-nextjs.OptionalS3OriginProps.property.originAccessControlId"></a>
+##### `originAccessControl`<sup>Optional</sup> <a name="originAccessControl" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControl"></a>
+
+```typescript
+public readonly originAccessControl: IOriginAccessControl;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IOriginAccessControl
+- *Default:* an Origin Access Control will be created.
+
+An optional Origin Access Control.
+
+---
+
+##### `originAccessControlId`<sup>Optional</sup> <a name="originAccessControlId" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControlId"></a>
 
 ```typescript
 public readonly originAccessControlId: string;
@@ -9130,20 +9144,20 @@ The unique identifier of an origin access control for this origin.
 
 ---
 
-##### `originAccessIdentity`<sup>Optional</sup> <a name="originAccessIdentity" id="cdk-nextjs.OptionalS3OriginProps.property.originAccessIdentity"></a>
+##### `originAccessLevels`<sup>Optional</sup> <a name="originAccessLevels" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessLevels"></a>
 
 ```typescript
-public readonly originAccessIdentity: IOriginAccessIdentity;
+public readonly originAccessLevels: AccessLevel[];
 ```
 
-- *Type:* aws-cdk-lib.aws_cloudfront.IOriginAccessIdentity
-- *Default:* An Origin Access Identity will be created.
+- *Type:* aws-cdk-lib.aws_cloudfront.AccessLevel[]
+- *Default:* [AccessLevel.READ]
 
-An optional Origin Access Identity of the origin identity cloudfront will use when calling your s3 bucket.
+The level of permissions granted in the bucket policy and key policy (if applicable) to the CloudFront distribution.
 
 ---
 
-##### `originId`<sup>Optional</sup> <a name="originId" id="cdk-nextjs.OptionalS3OriginProps.property.originId"></a>
+##### `originId`<sup>Optional</sup> <a name="originId" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originId"></a>
 
 ```typescript
 public readonly originId: string;
@@ -9158,7 +9172,7 @@ This value must be unique within the distribution.
 
 ---
 
-##### `originPath`<sup>Optional</sup> <a name="originPath" id="cdk-nextjs.OptionalS3OriginProps.property.originPath"></a>
+##### `originPath`<sup>Optional</sup> <a name="originPath" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originPath"></a>
 
 ```typescript
 public readonly originPath: string;
@@ -9173,7 +9187,7 @@ Must begin, but not end, with '/' (e.g., '/production/images').
 
 ---
 
-##### `originShieldEnabled`<sup>Optional</sup> <a name="originShieldEnabled" id="cdk-nextjs.OptionalS3OriginProps.property.originShieldEnabled"></a>
+##### `originShieldEnabled`<sup>Optional</sup> <a name="originShieldEnabled" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originShieldEnabled"></a>
 
 ```typescript
 public readonly originShieldEnabled: boolean;
@@ -9186,7 +9200,7 @@ Origin Shield is enabled by setting originShieldRegion to a valid region, after 
 
 ---
 
-##### `originShieldRegion`<sup>Optional</sup> <a name="originShieldRegion" id="cdk-nextjs.OptionalS3OriginProps.property.originShieldRegion"></a>
+##### `originShieldRegion`<sup>Optional</sup> <a name="originShieldRegion" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originShieldRegion"></a>
 
 ```typescript
 public readonly originShieldRegion: string;
