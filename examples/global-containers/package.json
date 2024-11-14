@@ -6,10 +6,10 @@
     "deploy": "cdk deploy --require-approval never"
   },
   "devDependencies": {
-    "@types/node": "^20",
+    "@types/node": "^20.17.6",
     "aws-cdk-lib": "2.150.0",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",
-    "tsx": "^4.7.3"
+    "tsx": "^4.19.2"
   }
 }
