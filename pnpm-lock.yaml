@@ -36,13 +36,13 @@ importers:
         specifier: ^2.1.4
         version: 2.1.4
       '@types/node':
-        specifier: ^20.17.6
+        specifier: ^20
         version: 20.17.6
       '@typescript-eslint/eslint-plugin':
-        specifier: ^7.18.0
+        specifier: ^7
         version: 7.18.0(@typescript-eslint/parser@7.18.0(eslint@8.57.1)(typescript@5.6.3))(eslint@8.57.1)(typescript@5.6.3)
       '@typescript-eslint/parser':
-        specifier: ^7.18.0
+        specifier: ^7
         version: 7.18.0(eslint@8.57.1)(typescript@5.6.3)
       aws-cdk-lib:
         specifier: 2.161.1
@@ -51,7 +51,7 @@ importers:
         specifier: ^2.33.1
         version: 2.33.1(aws-cdk-lib@2.161.1(constructs@10.0.5))(constructs@10.0.5)
       commit-and-tag-version:
-        specifier: ^12.5.0
+        specifier: ^12
         version: 12.5.0
       constructs:
         specifier: 10.0.5
@@ -60,7 +60,7 @@ importers:
         specifier: ^0.24.0
         version: 0.24.0
       eslint:
-        specifier: ^8.57.1
+        specifier: ^8
         version: 8.57.1
       eslint-config-prettier:
         specifier: ^9.1.0
@@ -78,22 +78,22 @@ importers:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@20.17.6)(ts-node@10.9.2(@types/node@20.17.6)(typescript@5.6.3))
       jest-junit:
-        specifier: ^15.0.0
+        specifier: ^15
         version: 15.0.0
       jsii:
-        specifier: ~5.5.9
+        specifier: ~5.5.0
         version: 5.5.9
       jsii-diff:
         specifier: ^1.104.0
         version: 1.104.0
       jsii-docgen:
-        specifier: ^10.5.6
+        specifier: ^10.5.0
         version: 10.5.6(jsii-rosetta@5.5.13)
       jsii-pacmak:
         specifier: ^1.104.0
         version: 1.104.0(jsii-rosetta@5.5.13)
       jsii-rosetta:
-        specifier: ~5.5.13
+        specifier: ~5.5.0
         version: 5.5.13
       mime-types:
         specifier: ^2.1.35
@@ -105,7 +105,7 @@ importers:
         specifier: ^3.3.3
         version: 3.3.3
       projen:
-        specifier: ^0.88.9
+        specifier: ^0.88.0
         version: 0.88.9(constructs@10.0.5)
       ts-jest:
         specifier: ^29.2.5
@@ -1529,6 +1529,7 @@ packages:
   constructs@10.0.5:
     resolution: {integrity: sha512-IwOwekzrASFC3qt4ozCtV09rteAIAesuCGsW0p+uBfqHd2XcvA5CXqJjgf4eUqm6g8e/noXlVCMDWwC8GaLtrg==}
     engines: {node: '>= 10.17.0'}
+    bundledDependencies: []
 
   conventional-changelog-angular@6.0.0:
     resolution: {integrity: sha512-6qLgrBF4gueoC7AFVHu51nHL9pF9FRjXrH+ceVf7WmAfH3gs+gEYOkvxhjMPjZu57I4AGUGoNTY8V7Hrgf1uqg==}
