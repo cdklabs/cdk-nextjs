@@ -4,7 +4,7 @@ name: upgrade-main
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: 0 0 1 * *
+    - cron: 0 0 * * 1
 jobs:
   upgrade:
     name: Upgrade
@@ -28,6 +28,8 @@ jobs:
           node-version: 20.0.0
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
+      - name: Compile JSII
+        run: pnpm projen compile
       - name: Upgrade dependencies
         run: pnpm dlx projen upgrade
       - name: Find mutations

@@ -12,7 +12,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   repositoryUrl: "https://github.com/cdklabs/cdk-nextjs.git",
   depsUpgradeOptions: {
     workflowOptions: {
-      schedule: UpgradeDependenciesSchedule.MONTHLY,
+      schedule: UpgradeDependenciesSchedule.WEEKLY,
     },
   },
   // package.json config
@@ -197,6 +197,23 @@ function updateGitHubWorkflows() {
         run: `pnpm projen compile`,
       },
       ...releaseJobSteps.slice(5),
+    ],
+  });
+  // .github/workflows/upgrade-main.yml
+  const upgradeMainWorkflow = project.github?.tryFindWorkflow("upgrade-main");
+  if (!upgradeMainWorkflow) return;
+  const upgradeJob = upgradeMainWorkflow.getJob("upgrade");
+  if (!upgradeJob || !("steps" in upgradeJob)) return;
+  const upgradeJobSteps = upgradeJob.steps;
+  upgradeMainWorkflow.updateJob("upgrade", {
+    ...upgradeJob,
+    steps: [
+      ...upgradeJobSteps.slice(0, 4),
+      {
+        name: "Compile JSII",
+        run: `pnpm projen compile`,
+      },
+      ...upgradeJobSteps.slice(4),
     ],
   });
 }
