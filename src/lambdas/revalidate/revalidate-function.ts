@@ -21,6 +21,5 @@ export class RevalidateFunction extends lambda.Function {
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../../assets/lambdas/revalidate/revalidate.lambda')),
     });
-    this.addEnvironment('AWS_NODEJS_CONNECTION_REUSE_ENABLED', '1', { removeInEdge: true });
   }
 }
