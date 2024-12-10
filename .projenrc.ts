@@ -3,6 +3,7 @@ import { ProjenStruct, Struct } from "@mrgrain/jsii-struct-builder";
 import { awscdk, javascript, ReleasableCommits } from "projen";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
+import { LambdaRuntime } from "projen/lib/awscdk";
 
 const project = new awscdk.AwsCdkConstructLibrary({
   // repository config
@@ -49,7 +50,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
   // tooling config
   lambdaOptions: {
-    runtime: awscdk.LambdaRuntime.NODEJS_20_X,
+    runtime: new LambdaRuntime("nodejs22.x", "node22"),
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3
   },
   projenCommand: "pnpm dlx projen",
