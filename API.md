@@ -5044,6 +5044,7 @@ const optionalClusterProps: OptionalClusterProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.defaultCloudMapNamespace">defaultCloudMapNamespace</a></code> | <code>aws-cdk-lib.aws_ecs.CloudMapNamespaceOptions</code> | The service discovery namespace created in this cluster. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.enableFargateCapacityProviders">enableFargateCapacityProviders</a></code> | <code>boolean</code> | Whether to enable Fargate Capacity Providers. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.executeCommandConfiguration">executeCommandConfiguration</a></code> | <code>aws-cdk-lib.aws_ecs.ExecuteCommandConfiguration</code> | The execute command configuration for the cluster. |
+| <code><a href="#cdk-nextjs.OptionalClusterProps.property.managedStorageConfiguration">managedStorageConfiguration</a></code> | <code>aws-cdk-lib.aws_ecs.ManagedStorageConfiguration</code> | Encryption configuration for ECS Managed storage. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | The VPC where your ECS instances will be running or your ENIs will be deployed. |
 
 ---
@@ -5123,6 +5124,19 @@ public readonly executeCommandConfiguration: ExecuteCommandConfiguration;
 - *Default:* no configuration will be provided.
 
 The execute command configuration for the cluster.
+
+---
+
+##### `managedStorageConfiguration`<sup>Optional</sup> <a name="managedStorageConfiguration" id="cdk-nextjs.OptionalClusterProps.property.managedStorageConfiguration"></a>
+
+```typescript
+public readonly managedStorageConfiguration: ManagedStorageConfiguration;
+```
+
+- *Type:* aws-cdk-lib.aws_ecs.ManagedStorageConfiguration
+- *Default:* no encryption will be applied.
+
+Encryption configuration for ECS Managed storage.
 
 ---
 
@@ -6411,7 +6425,7 @@ public readonly recursiveLoop: RecursiveLoop;
 
 Sets the Recursive Loop Protection for Lambda Function.
 
-It lets Lambda detect and terminate unintended recusrive loops.
+It lets Lambda detect and terminate unintended recursive loops.
 
 ---
 
@@ -6506,7 +6520,7 @@ public readonly snapStart: SnapStartConf;
 
 Enable SnapStart for Lambda Function.
 
-SnapStart is currently supported only for Java 11, 17 runtime
+SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime
 
 ---
 
@@ -7273,7 +7287,7 @@ public readonly recursiveLoop: RecursiveLoop;
 
 Sets the Recursive Loop Protection for Lambda Function.
 
-It lets Lambda detect and terminate unintended recusrive loops.
+It lets Lambda detect and terminate unintended recursive loops.
 
 ---
 
@@ -7385,7 +7399,7 @@ public readonly snapStart: SnapStartConf;
 
 Enable SnapStart for Lambda Function.
 
-SnapStart is currently supported only for Java 11, 17 runtime
+SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime
 
 ---
 
@@ -8164,7 +8178,7 @@ public readonly recursiveLoop: RecursiveLoop;
 
 Sets the Recursive Loop Protection for Lambda Function.
 
-It lets Lambda detect and terminate unintended recusrive loops.
+It lets Lambda detect and terminate unintended recursive loops.
 
 ---
 
@@ -8276,7 +8290,7 @@ public readonly snapStart: SnapStartConf;
 
 Enable SnapStart for Lambda Function.
 
-SnapStart is currently supported only for Java 11, 17 runtime
+SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime
 
 ---
 
