@@ -90,7 +90,7 @@
       "description": "Create a JavaScript bundle from src/lambdas/assets-deployment/assets-deployment.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/assets-deployment/assets-deployment.lambda.ts --target=\"node20\" --platform=\"node\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
+          "exec": "esbuild --bundle src/lambdas/assets-deployment/assets-deployment.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
         }
       ]
     },
@@ -99,7 +99,7 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/assets-deployment/assets-deployment.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/assets-deployment/assets-deployment.lambda.ts --target=\"node20\" --platform=\"node\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
+          "exec": "esbuild --bundle src/lambdas/assets-deployment/assets-deployment.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
@@ -108,7 +108,7 @@
       "description": "Create a JavaScript bundle from src/lambdas/revalidate/revalidate.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/revalidate/revalidate.lambda.ts --target=\"node20\" --platform=\"node\" --outfile=\"assets/lambdas/revalidate/revalidate.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
+          "exec": "esbuild --bundle src/lambdas/revalidate/revalidate.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/revalidate/revalidate.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
         }
       ]
     },
@@ -117,7 +117,7 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/revalidate/revalidate.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/revalidate/revalidate.lambda.ts --target=\"node20\" --platform=\"node\" --outfile=\"assets/lambdas/revalidate/revalidate.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
+          "exec": "esbuild --bundle src/lambdas/revalidate/revalidate.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/revalidate/revalidate.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
@@ -126,7 +126,7 @@
       "description": "Create a JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.lambda.ts --target=\"node20\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
+          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
         }
       ]
     },
@@ -135,7 +135,7 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.lambda.ts --target=\"node20\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
+          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
