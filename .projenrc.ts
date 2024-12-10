@@ -1,9 +1,9 @@
 import { join } from "node:path";
 import { ProjenStruct, Struct } from "@mrgrain/jsii-struct-builder";
 import { awscdk, javascript, ReleasableCommits } from "projen";
+import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
-import { LambdaRuntime } from "projen/lib/awscdk";
 
 const project = new awscdk.AwsCdkConstructLibrary({
   // repository config
