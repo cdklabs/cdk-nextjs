@@ -12,6 +12,12 @@ export interface OptionalClusterProps {
    */
   readonly vpc?: aws_ec2.IVpc;
   /**
+   * Encryption configuration for ECS Managed storage.
+   * @default - no encryption will be applied.
+   * @stability stable
+   */
+  readonly managedStorageConfiguration?: aws_ecs.ManagedStorageConfiguration;
+  /**
    * The execute command configuration for the cluster.
    * @default - no configuration will be provided.
    * @stability stable
