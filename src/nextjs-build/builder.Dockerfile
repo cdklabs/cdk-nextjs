@@ -1,6 +1,6 @@
 #checkov:skip=CKV_DOCKER_2: healthcheck not needed for local only container
 #checkov:skip=CKV_DOCKER_3: user not required for local builder container
-FROM public.ecr.aws/docker/library/node:20-alpine
+FROM public.ecr.aws/docker/library/node:22-alpine
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
