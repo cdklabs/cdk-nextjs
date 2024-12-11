@@ -4,7 +4,7 @@
 ARG BUILDER_IMAGE_TAG
 FROM $BUILDER_IMAGE_TAG as builder
 # Production image, copy all the files and run next
-FROM public.ecr.aws/docker/library/node:20-alpine as runner
+FROM public.ecr.aws/docker/library/node:22-alpine as runner
 WORKDIR /app
 
 ENV NODE_ENV production

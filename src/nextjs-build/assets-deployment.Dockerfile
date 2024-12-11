@@ -3,7 +3,7 @@
 #checkov:skip=CKV_DOCKER_7: latest tag is ok to use for local builder container
 ARG BUILDER_IMAGE_TAG
 FROM $BUILDER_IMAGE_TAG as builder
-FROM public.ecr.aws/lambda/nodejs:20 as runner
+FROM public.ecr.aws/lambda/nodejs:22 as runner
 
 ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/public /app/public
