@@ -35,6 +35,7 @@ import {
   S3BucketOrigin,
 } from "aws-cdk-lib/aws-cloudfront-origins";
 import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import { Code, Runtime } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { NextjsType } from "./common";
@@ -256,6 +257,10 @@ export class NextjsDistribution extends Construct {
         }),
       ],
       ...this.props.overrides?.edgeFunctionProps,
+      // runtime, code, and handler below are only to satisfy TS, they're overwritten in construct
+      runtime: new Runtime("nodejs22.x"),
+      code: Code.fromInline(""),
+      handler: "",
     });
     edgeFn.currentVersion.grantInvoke(
       new ServicePrincipal("edgelambda.amazonaws.com"),

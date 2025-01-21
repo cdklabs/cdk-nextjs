@@ -97,6 +97,18 @@ const project = new awscdk.AwsCdkConstructLibrary({
       },
     },
   },
+  versionrcOptions: {
+    types: [
+      { type: "feat", section: "Features" },
+      { type: "fix", section: "Bug Fixes" },
+      { type: "chore", section: "Chores" },
+      { type: "docs", section: "Docs" },
+      { type: "style", hidden: true },
+      { type: "refactor", hidden: true },
+      { type: "perf", section: "Performance" },
+      { type: "test", hidden: true },
+    ],
+  },
 });
 
 // by default projen ignores all tsconfigs, but we don't want do this for non-projen
