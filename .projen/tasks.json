@@ -54,7 +54,7 @@
           "spawn": "bundle:lambdas/revalidate/revalidate.lambda"
         },
         {
-          "spawn": "bundle:lambdas/sign-fn-url/sign-fn-url.lambda"
+          "spawn": "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda"
         },
         {
           "exec": "mkdir -p lib/nextjs-build"
@@ -121,21 +121,21 @@
         }
       ]
     },
-    "bundle:lambdas/sign-fn-url/sign-fn-url.lambda": {
-      "name": "bundle:lambdas/sign-fn-url/sign-fn-url.lambda",
-      "description": "Create a JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.lambda.ts",
+    "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda": {
+      "name": "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda",
+      "description": "Create a JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
+          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.edge-lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
         }
       ]
     },
-    "bundle:lambdas/sign-fn-url/sign-fn-url.lambda:watch": {
-      "name": "bundle:lambdas/sign-fn-url/sign-fn-url.lambda:watch",
-      "description": "Continuously update the JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.lambda.ts",
+    "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda:watch": {
+      "name": "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda:watch",
+      "description": "Continuously update the JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
+          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.edge-lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
