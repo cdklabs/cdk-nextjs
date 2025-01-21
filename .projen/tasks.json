@@ -33,6 +33,7 @@
         "BUMPFILE": "dist/version.txt",
         "RELEASETAG": "dist/releasetag.txt",
         "RELEASE_TAG_PREFIX": "",
+        "VERSIONRCOPTIONS": "{\"types\":[{\"type\":\"feat\",\"section\":\"Features\"},{\"type\":\"fix\",\"section\":\"Bug Fixes\"},{\"type\":\"chore\",\"section\":\"Chores\"},{\"type\":\"docs\",\"section\":\"Docs\"},{\"type\":\"style\",\"hidden\":true},{\"type\":\"refactor\",\"hidden\":true},{\"type\":\"perf\",\"section\":\"Performance\"},{\"type\":\"test\",\"hidden\":true}]}",
         "BUMP_PACKAGE": "commit-and-tag-version@^12",
         "RELEASABLE_COMMITS": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep \"^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+\""
       },
@@ -413,6 +414,7 @@
         "BUMPFILE": "dist/version.txt",
         "RELEASETAG": "dist/releasetag.txt",
         "RELEASE_TAG_PREFIX": "",
+        "VERSIONRCOPTIONS": "{\"types\":[{\"type\":\"feat\",\"section\":\"Features\"},{\"type\":\"fix\",\"section\":\"Bug Fixes\"},{\"type\":\"chore\",\"section\":\"Chores\"},{\"type\":\"docs\",\"section\":\"Docs\"},{\"type\":\"style\",\"hidden\":true},{\"type\":\"refactor\",\"hidden\":true},{\"type\":\"perf\",\"section\":\"Performance\"},{\"type\":\"test\",\"hidden\":true}]}",
         "BUMP_PACKAGE": "commit-and-tag-version@^12",
         "RELEASABLE_COMMITS": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep \"^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+\""
       },
