@@ -35,6 +35,7 @@ import {
   S3BucketOrigin,
 } from "aws-cdk-lib/aws-cloudfront-origins";
 import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import { Code, Runtime } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { NextjsType } from "./common";
@@ -43,7 +44,6 @@ import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { SignFnUrlFunction } from "./lambdas/sign-fn-url/sign-fn-url-function";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
-import { Code, Runtime } from "aws-cdk-lib/aws-lambda";
 
 export interface NextjsDistributionOverrides {
   readonly edgeFunctionProps?: OptionalFunctionProps;
