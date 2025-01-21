@@ -43,6 +43,7 @@ import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { SignFnUrlFunction } from "./lambdas/sign-fn-url/sign-fn-url-function";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import { Code, Runtime } from "aws-cdk-lib/aws-lambda";
 
 export interface NextjsDistributionOverrides {
   readonly edgeFunctionProps?: OptionalFunctionProps;
@@ -256,6 +257,10 @@ export class NextjsDistribution extends Construct {
         }),
       ],
       ...this.props.overrides?.edgeFunctionProps,
+      // runtime, code, and handler below are only to satisfy TS, they're overwritten in construct
+      runtime: new Runtime("nodejs22.x"),
+      code: Code.fromInline(""),
+      handler: "",
     });
     edgeFn.currentVersion.grantInvoke(
       new ServicePrincipal("edgelambda.amazonaws.com"),
