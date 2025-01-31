@@ -3687,7 +3687,7 @@ const nextjsGlobalFunctionsConstructOverrides: NextjsGlobalFunctionsConstructOve
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFileSystemProps">nextjsFileSystemProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps">OptionalNextjsFileSystemProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionProps">nextjsFunctionProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsInvalidationProps">nextjsInvalidationProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsInvalidationProps">OptionalNextjsInvalidationProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsRevalidationProps">nextjsRevalidationProps</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidationProps">NextjsRevalidationProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
@@ -3744,10 +3744,10 @@ public readonly nextjsDistributionProps: OptionalNextjsDistributionProps;
 
 ---
 
-##### `nextjsFunctionProps`<sup>Optional</sup> <a name="nextjsFunctionProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionProps"></a>
+##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
 
 ```typescript
-public readonly nextjsFunctionProps: NextjsFunctionsProps;
+public readonly nextjsFunctionsProps: NextjsFunctionsProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a>
@@ -3803,7 +3803,7 @@ const nextjsGlobalFunctionsOverrides: NextjsGlobalFunctionsOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFunction">nextjsFunction</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsGlobalFunctions">nextjsGlobalFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides">NextjsGlobalFunctionsConstructOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsInvalidation">nextjsInvalidation</a></code> | <code><a href="#cdk-nextjs.NextjsInvalidationOverrides">NextjsInvalidationOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsRevalidation">nextjsRevalidation</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidationOverrides">NextjsRevalidationOverrides</a></code> | *No description.* |
@@ -3861,10 +3861,10 @@ public readonly nextjsDistribution: NextjsDistributionOverrides;
 
 ---
 
-##### `nextjsFunction`<sup>Optional</sup> <a name="nextjsFunction" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFunction"></a>
+##### `nextjsFunctions`<sup>Optional</sup> <a name="nextjsFunctions" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFunctions"></a>
 
 ```typescript
-public readonly nextjsFunction: NextjsFunctionsOverrides;
+public readonly nextjsFunctions: NextjsFunctionsOverrides;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a>
@@ -5041,6 +5041,7 @@ const optionalClusterProps: OptionalClusterProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.capacity">capacity</a></code> | <code>aws-cdk-lib.aws_ecs.AddCapacityOptions</code> | The ec2 capacity to add to the cluster. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.clusterName">clusterName</a></code> | <code>string</code> | The name for the cluster. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.containerInsights">containerInsights</a></code> | <code>boolean</code> | If true CloudWatch Container Insights will be enabled for the cluster. |
+| <code><a href="#cdk-nextjs.OptionalClusterProps.property.containerInsightsV2">containerInsightsV2</a></code> | <code>aws-cdk-lib.aws_ecs.ContainerInsights</code> | The CloudWatch Container Insights configuration for the cluster. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.defaultCloudMapNamespace">defaultCloudMapNamespace</a></code> | <code>aws-cdk-lib.aws_ecs.CloudMapNamespaceOptions</code> | The service discovery namespace created in this cluster. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.enableFargateCapacityProviders">enableFargateCapacityProviders</a></code> | <code>boolean</code> | Whether to enable Fargate Capacity Providers. |
 | <code><a href="#cdk-nextjs.OptionalClusterProps.property.executeCommandConfiguration">executeCommandConfiguration</a></code> | <code>aws-cdk-lib.aws_ecs.ExecuteCommandConfiguration</code> | The execute command configuration for the cluster. |
@@ -5075,7 +5076,9 @@ The name for the cluster.
 
 ---
 
-##### `containerInsights`<sup>Optional</sup> <a name="containerInsights" id="cdk-nextjs.OptionalClusterProps.property.containerInsights"></a>
+##### ~~`containerInsights`~~<sup>Optional</sup> <a name="containerInsights" id="cdk-nextjs.OptionalClusterProps.property.containerInsights"></a>
+
+- *Deprecated:* See {@link containerInsightsV2 }
 
 ```typescript
 public readonly containerInsights: boolean;
@@ -5085,6 +5088,19 @@ public readonly containerInsights: boolean;
 - *Default:* Container Insights will be disabled for this cluster.
 
 If true CloudWatch Container Insights will be enabled for the cluster.
+
+---
+
+##### `containerInsightsV2`<sup>Optional</sup> <a name="containerInsightsV2" id="cdk-nextjs.OptionalClusterProps.property.containerInsightsV2"></a>
+
+```typescript
+public readonly containerInsightsV2: ContainerInsights;
+```
+
+- *Type:* aws-cdk-lib.aws_ecs.ContainerInsights
+- *Default:* {@link ContainerInsights.DISABLED } This may be overridden by ECS account level settings.
+
+The CloudWatch Container Insights configuration for the cluster.
 
 ---
 
@@ -8483,7 +8499,6 @@ const optionalNextjsAssetsDeploymentProps: OptionalNextjsAssetsDeploymentProps =
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.debug">debug</a></code> | <code>boolean</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.dockerImageCode">dockerImageCode</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsAssetDeploymentOverrides">NextjsAssetDeploymentOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
@@ -8541,16 +8556,6 @@ public readonly dockerImageCode: DockerImageCode;
 
 ---
 
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsAssetDeploymentOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsAssetDeploymentOverrides">NextjsAssetDeploymentOverrides</a>
-
----
-
 ##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.relativePathToWorkspace"></a>
 
 ```typescript
@@ -8603,7 +8608,6 @@ const optionalNextjsBuildProps: OptionalNextjsBuildProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildContext">buildContext</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.builderImageProps">builderImageProps</a></code> | <code><a href="#cdk-nextjs.BuilderImageProps">BuilderImageProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
 
 ---
@@ -8648,16 +8652,6 @@ public readonly nextjsType: NextjsType;
 
 ---
 
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.OptionalNextjsBuildProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsBuildOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a>
-
----
-
 ##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToWorkspace"></a>
 
 ```typescript
@@ -8690,7 +8684,6 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.fileSystem">fileSystem</a></code> | <code>aws-cdk-lib.aws_efs.FileSystem</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
 
@@ -8756,16 +8749,6 @@ public readonly nextjsType: NextjsType;
 
 ---
 
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.OptionalNextjsContainersProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsContainersOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a>
-
----
-
 ##### `relativeEntrypointPath`<sup>Optional</sup> <a name="relativeEntrypointPath" id="cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath"></a>
 
 ```typescript
@@ -8809,7 +8792,6 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.dynamicUrl">dynamicUrl</a></code> | <code>string</code> | Dynamic (Next.js server) URL to add behavior to distribution. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionArn">functionArn</a></code> | <code>string</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add static behaviors to distribution. |
 
 ---
@@ -8894,18 +8876,6 @@ public readonly nextjsType: NextjsType;
 
 ---
 
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.OptionalNextjsDistributionProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsDistributionOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a>
-
-Override props for every construct.
-
----
-
 ##### `publicDirEntries`<sup>Optional</sup> <a name="publicDirEntries" id="cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries"></a>
 
 ```typescript
@@ -8934,18 +8904,7 @@ const optionalNextjsFileSystemProps: OptionalNextjsFileSystemProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
-
----
-
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.OptionalNextjsFileSystemProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsFileSystemOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a>
 
 ---
 
@@ -8976,7 +8935,6 @@ const optionalNextjsInvalidationProps: OptionalNextjsInvalidationProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsInvalidationProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
-| <code><a href="#cdk-nextjs.OptionalNextjsInvalidationProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsInvalidationOverrides">NextjsInvalidationOverrides</a></code> | Override props for every construct. |
 
 ---
 
@@ -8989,18 +8947,6 @@ public readonly distribution: IDistribution;
 - *Type:* aws-cdk-lib.aws_cloudfront.IDistribution
 
 CloudFront Distribution to invalidate.
-
----
-
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.OptionalNextjsInvalidationProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsInvalidationOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsInvalidationOverrides">NextjsInvalidationOverrides</a>
-
-Override props for every construct.
 
 ---
 
@@ -9021,7 +8967,6 @@ const optionalNextjsVpcProps: OptionalNextjsVpcProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsVpcProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | Override any construct. |
 | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 
 ---
@@ -9033,18 +8978,6 @@ public readonly nextjsType: NextjsType;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
-
----
-
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.OptionalNextjsVpcProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsVpcOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a>
-
-Override any construct.
 
 ---
 
