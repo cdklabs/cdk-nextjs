@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, Fn, RemovalPolicy, Stack } from "aws-cdk-lib";
+import { CfnOutput, Duration, Fn, Stack } from "aws-cdk-lib";
 import { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AddBehaviorOptions,
@@ -43,6 +43,7 @@ import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { SignFnUrlFunction } from "./lambdas/sign-fn-url/sign-fn-url-function";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import { Code, Runtime } from "aws-cdk-lib/aws-lambda";
 
 export interface NextjsDistributionOverrides {
   readonly edgeFunctionProps?: OptionalFunctionProps;
@@ -255,6 +256,9 @@ export class NextjsDistribution extends Construct {
           resources: [this.props.functionArn],
         }),
       ],
+      code: Code.fromInline("export function handler() {}"),
+      handler: "handler",
+      runtime: Runtime.NODEJS_LATEST,
       ...this.props.overrides?.edgeFunctionProps,
     });
     edgeFn.currentVersion.grantInvoke(
@@ -263,8 +267,6 @@ export class NextjsDistribution extends Construct {
     edgeFn.currentVersion.grantInvoke(
       new ServicePrincipal("lambda.amazonaws.com"),
     );
-    // retain on delete b/c they take too long to delete resulting in stack failure
-    edgeFn.applyRemovalPolicy(RemovalPolicy.RETAIN);
     return [
       {
         eventType: LambdaEdgeEventType.ORIGIN_REQUEST,
@@ -383,6 +385,8 @@ export class NextjsDistribution extends Construct {
       distribution = new Distribution(this, "Distribution", {
         minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
         defaultBehavior: this.dynamicBehaviorOptions,
+        // best to use HTTP 2 and 3 for compatability (HTTP 2) and performance (HTTP3)
+        // CloudFront will choose best option for client
         httpVersion: HttpVersion.HTTP2_AND_3,
         comment: `cdk-nextjs Distribution for ${Stack.of(this).stackName}`,
         ...this.props.overrides?.distributionProps,
