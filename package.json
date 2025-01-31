@@ -60,7 +60,7 @@
     "@types/node": "^20",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
-    "aws-cdk-lib": "2.172.0",
+    "aws-cdk-lib": "2.177.0",
     "cdk-nag": "^2.35.0",
     "commit-and-tag-version": "^12",
     "constructs": "10.0.5",
