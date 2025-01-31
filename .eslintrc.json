@@ -53,7 +53,7 @@
           "**/build-tools/**",
           "src/lambdas/assets-deployment/assets-deployment.lambda.ts",
           "src/lambdas/revalidate/revalidate.lambda.ts",
-          "src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts",
+          "src/lambdas/sign-fn-url/sign-fn-url.lambda.ts",
           ".projenrc.ts",
           "projenrc/**/*.ts"
         ],
