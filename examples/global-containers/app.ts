@@ -88,7 +88,10 @@ export class GlobalContainersStack extends Stack {
 }
 
 const stack = new GlobalContainersStack(app, "glbl-cntnrs", {
-  env: { region: "us-east-1" }, // region required for ELBv2 access logging
+  env: {
+    account: process.env["CDK_DEFAULT_ACCOUNT"],
+    region: process.env["CDK_DEFAULT_REGION"],
+  },
 });
 
 suppressCommonNags(stack);

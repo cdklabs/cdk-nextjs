@@ -83,7 +83,12 @@ class GlobalFunctionsStack extends Stack {
   }
 }
 
-export const stack = new GlobalFunctionsStack(app, "glbl-fns", {});
+export const stack = new GlobalFunctionsStack(app, "glbl-fns", {
+  env: {
+    account: process.env["CDK_DEFAULT_ACCOUNT"],
+    region: process.env["CDK_DEFAULT_REGION"],
+  },
+});
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);

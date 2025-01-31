@@ -9,7 +9,7 @@
   "devDependencies": {
     "@tsconfig/node20": "^20.1.4",
     "@tsconfig/strictest": "^2.0.5",
-    "aws-cdk": "^2.172.0",
+    "aws-cdk": "^2.177.0",
     "turbo": "^1.13.4"
   },
   "pnpm": {

@@ -10,6 +10,13 @@ import {
 } from "../shared/suppress-nags";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
+import { AuthenticateCognitoAction } from "aws-cdk-lib/aws-elasticloadbalancingv2-actions";
+import {
+  UserPool,
+  UserPoolClient,
+  UserPoolDomain,
+} from "aws-cdk-lib/aws-cognito";
+import { ListenerAction } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 
 const app = new App();
 
@@ -51,6 +58,20 @@ export class RegionalContainersStack extends Stack {
       },
       relativePathToWorkspace: "./app-playground",
     });
+    const { userPool, userPoolClient, userPoolDomain } = this.#createCognito();
+    nextjs.nextjsContainers.albFargateService.listener.addAction(
+      "CognitoAction",
+      {
+        action: new AuthenticateCognitoAction({
+          userPool,
+          userPoolClient,
+          userPoolDomain,
+          next: ListenerAction.forward([
+            nextjs.nextjsContainers.albFargateService.targetGroup,
+          ]),
+        }),
+      },
+    );
     // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
     nextjs.nextjsVpc.vpc.node
       .findChild("s3FlowLogs")
@@ -77,10 +98,29 @@ export class RegionalContainersStack extends Stack {
     ]);
     return bucket;
   }
+
+  #createCognito() {
+    const userPool = new UserPool(this, "UserPool", {
+      selfSignUpEnabled: true,
+    });
+    const userPoolClient = new UserPoolClient(this, "UserPoolClient", {
+      userPool: userPool,
+    });
+    const userPoolDomain = new UserPoolDomain(this, "UserPoolDomain", {
+      userPool: userPool,
+      cognitoDomain: {
+        domainPrefix: "rgnl-cntrs",
+      },
+    });
+    return { userPool, userPoolClient, userPoolDomain };
+  }
 }
 
 const stack = new RegionalContainersStack(app, "rgnl-cntnrs", {
-  env: { region: "us-east-1" }, // region required for ELBv2 access logging
+  env: {
+    account: process.env["CDK_DEFAULT_ACCOUNT"],
+    region: process.env["CDK_DEFAULT_REGION"],
+  },
 });
 
 suppressCommonNags(stack);

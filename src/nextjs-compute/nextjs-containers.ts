@@ -5,6 +5,7 @@ import {
   CfnTaskDefinition,
   Cluster,
   ContainerImage,
+  ContainerInsights,
   CpuArchitecture,
   HealthCheck,
   LogDrivers,
@@ -59,7 +60,7 @@ export class NextjsContainers extends Construct {
   private createEcsCluster(): Cluster {
     const cluster = new Cluster(this, "EcsCluster", {
       enableFargateCapacityProviders: true,
-      containerInsights: true,
+      containerInsightsV2: ContainerInsights.ENABLED,
       vpc: this.props.vpc,
       ...this.props.overrides?.ecsClusterProps,
     });
