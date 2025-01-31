@@ -147,7 +147,7 @@ Q: How customizable is the `cdk-nextjs` package for different use cases?
 A: The `cdk-nextjs` package offers deep customization through _prop-based_ overrides. These can be accessed in the construct props, allowing you to override settings like VPC configurations, CloudFront distribution, and ECS/Fargate setup. For example, you can modify `nextjsBuildProps` to customize the build process or use `nextjsDistributionProps` to adjust how CloudFront handles caching and routing. This level of control makes it easy to adapt the infrastructure to your application’s specific performance, networking, or deployment needs.
 
 Q: How can I use a custom domain with `cdk-nextjs`?
-A: To use a custom domain, you can configure the `distribution` prop within constructs like `NextjsGlobalFunctions` or `NextjsGlobalContainers`. By providing an ACM certificate and overriding relevant properties such as `nextjsDistributionProps`, you can customize the CloudFront distribution to handle your domain. This allows CloudFront to route traffic through your custom domain while managing SSL termination for secure HTTPS connections.
+A: See [low-cost example](./examples/low-cost/app.ts).
 
 ## Acknowledgements
 
