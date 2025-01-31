@@ -40,6 +40,7 @@ export class NextjsStaticAssets extends Construct {
       enforceSSL: true,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       encryption: BucketEncryption.S3_MANAGED,
+      minimumTLSVersion: 1.2,
       ...this.props.overrides?.bucketProps,
     });
   }
