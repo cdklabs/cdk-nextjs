@@ -1,5 +1,5 @@
-import { Stack, StackProps } from "aws-cdk-lib";
-import { Construct } from "constructs";
+import { IAspect, Stack, StackProps } from "aws-cdk-lib";
+import { Construct, IConstruct } from "constructs";
 import { NextjsGlobalFunctions } from "cdk-nextjs";
 import { fileURLToPath } from "node:url";
 import { App, Aspects } from "aws-cdk-lib";
@@ -17,7 +17,7 @@ import {
 } from "aws-cdk-lib/aws-ec2";
 import { FckNatInstanceProvider } from "cdk-fck-nat";
 import { PriceClass } from "aws-cdk-lib/aws-cloudfront";
-import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
+import { CfnLogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import {
   Certificate,
   CertificateValidation,
@@ -48,7 +48,6 @@ const app = new App();
 class LowCostStack extends Stack {
   #hostedZoneDomainName = "example.com";
   #distributionDomainName = `blog.${this.#hostedZoneDomainName}`;
-  #logGroupRetention = RetentionDays.ONE_MONTH;
 
   constructor(scope: Construct, id: string, props: StackProps) {
     super(scope, id, props);
@@ -64,39 +63,6 @@ class LowCostStack extends Stack {
             certificate,
             domainNames: [this.#distributionDomainName],
             priceClass: PriceClass.PRICE_CLASS_100,
-          },
-          edgeFunctionProps: {
-            logGroup: new LogGroup(this, "NextjsDistributionEdgeFnLogGroup", {
-              retention: this.#logGroupRetention,
-            }),
-          },
-        },
-        nextjsAssetsDeployment: {
-          dockerImageFunctionProps: {
-            logGroup: new LogGroup(this, "NextjsAssetDeploymentLogGroup", {
-              retention: this.#logGroupRetention,
-            }),
-          },
-        },
-        nextjsFunctions: {
-          dockerImageFunctionProps: {
-            logGroup: new LogGroup(this, "NextjsFunctionLogGroup", {
-              retention: this.#logGroupRetention,
-            }),
-          },
-        },
-        nextjsInvalidation: {
-          awsCustomResourceProps: {
-            logGroup: new LogGroup(this, "NextjsInvalidationLogGroup", {
-              retention: this.#logGroupRetention,
-            }),
-          },
-        },
-        nextjsRevalidation: {
-          functionProps: {
-            logGroup: new LogGroup(this, "NextjsRevalidationLogGroup", {
-              retention: this.#logGroupRetention,
-            }),
           },
         },
         nextjsGlobalFunctions: {
@@ -135,7 +101,6 @@ class LowCostStack extends Stack {
     });
   }
   #createVpc() {
-    // To reduce NAT costs, using fck-nat rather than the AWS Managed NAT which is far more expensive.
     const natGatewayProvider = new FckNatInstanceProvider({
       instanceType: InstanceType.of(InstanceClass.T4G, InstanceSize.NANO),
     });
@@ -195,3 +160,13 @@ NagSuppressions.addResourceSuppressionsByPath(
 );
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
+
+class LogGroupRetentionAspect implements IAspect {
+  public visit(node: IConstruct): void {
+    if (node instanceof CfnLogGroup) {
+      node.retentionInDays = RetentionDays.ONE_MONTH;
+    }
+  }
+}
+
+Aspects.of(app).add(new LogGroupRetentionAspect());
