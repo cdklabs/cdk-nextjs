@@ -10,13 +10,10 @@ import {
 } from "../shared/suppress-nags";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
-import { AuthenticateCognitoAction } from "aws-cdk-lib/aws-elasticloadbalancingv2-actions";
 import {
-  UserPool,
-  UserPoolClient,
-  UserPoolDomain,
-} from "aws-cdk-lib/aws-cognito";
-import { ListenerAction } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+  ListenerAction,
+  ListenerCondition,
+} from "aws-cdk-lib/aws-elasticloadbalancingv2";
 
 const app = new App();
 
@@ -58,20 +55,8 @@ export class RegionalContainersStack extends Stack {
       },
       relativePathToWorkspace: "./app-playground",
     });
-    const { userPool, userPoolClient, userPoolDomain } = this.#createCognito();
-    nextjs.nextjsContainers.albFargateService.listener.addAction(
-      "CognitoAction",
-      {
-        action: new AuthenticateCognitoAction({
-          userPool,
-          userPoolClient,
-          userPoolDomain,
-          next: ListenerAction.forward([
-            nextjs.nextjsContainers.albFargateService.targetGroup,
-          ]),
-        }),
-      },
-    );
+    this.#requireCookie(nextjs);
+
     // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
     nextjs.nextjsVpc.vpc.node
       .findChild("s3FlowLogs")
@@ -81,6 +66,31 @@ export class RegionalContainersStack extends Stack {
       logsBucket,
       "alb-logs",
     );
+  }
+
+  /**
+   * Basic auth only for demo app. For real app, use `AuthenticateCognitoAction` or another
+   * more secure authentication method.
+   */
+  #requireCookie(nextjs: NextjsRegionalContainers) {
+    const requiredCookie = "cdk-nextjs=1";
+    const listener = nextjs.nextjsContainers.albFargateService.listener;
+    // override default action
+    listener.addAction("DefaultDeny", {
+      // don't add priority so added to default action
+      action: ListenerAction.fixedResponse(403, {
+        contentType: "text/plain",
+        messageBody: `Access denied. Must set cookie: ${requiredCookie}`,
+      }),
+    });
+    // Add the listener rule to check for cookie
+    listener.addAction("CookieCheck", {
+      priority: 10, // Lower number = higher priority
+      conditions: [ListenerCondition.httpHeader("cookie", [requiredCookie])],
+      action: ListenerAction.forward([
+        nextjs.nextjsContainers.albFargateService.targetGroup,
+      ]),
+    });
   }
 
   #getLogsBucket() {
@@ -97,22 +107,6 @@ export class RegionalContainersStack extends Stack {
       },
     ]);
     return bucket;
-  }
-
-  #createCognito() {
-    const userPool = new UserPool(this, "UserPool", {
-      selfSignUpEnabled: true,
-    });
-    const userPoolClient = new UserPoolClient(this, "UserPoolClient", {
-      userPool: userPool,
-    });
-    const userPoolDomain = new UserPoolDomain(this, "UserPoolDomain", {
-      userPool: userPool,
-      cognitoDomain: {
-        domainPrefix: "rgnl-cntrs",
-      },
-    });
-    return { userPool, userPoolClient, userPoolDomain };
   }
 }
 
