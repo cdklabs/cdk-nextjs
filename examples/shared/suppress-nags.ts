@@ -50,7 +50,7 @@ export function suppressLambdaNags(stack: Stack) {
   );
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
-    `/${stack.stackName}/Nextjs/NextjsDistribution/SignFnUrl/ServiceRole/Resource`,
+    `/${stack.stackName}/Nextjs/NextjsDistribution/SignFnUrl/Fn/ServiceRole/Resource`,
     [
       {
         id: "AwsSolutions-IAM4",
