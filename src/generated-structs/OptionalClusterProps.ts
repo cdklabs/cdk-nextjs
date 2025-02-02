@@ -37,9 +37,16 @@ default service discovery namespace later.
    */
   readonly defaultCloudMapNamespace?: aws_ecs.CloudMapNamespaceOptions;
   /**
+   * The CloudWatch Container Insights configuration for the cluster.
+   * @default {@link ContainerInsights.DISABLED } This may be overridden by ECS account level settings.
+   * @stability stable
+   */
+  readonly containerInsightsV2?: aws_ecs.ContainerInsights;
+  /**
    * If true CloudWatch Container Insights will be enabled for the cluster.
    * @default - Container Insights will be disabled for this cluster.
-   * @stability stable
+   * @deprecated See {@link containerInsightsV2 }
+   * @stability deprecated
    */
   readonly containerInsights?: boolean;
   /**
