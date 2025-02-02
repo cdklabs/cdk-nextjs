@@ -38,7 +38,7 @@ import { NextjsVpc } from "../nextjs-vpc";
 
 export interface NextjsGlobalFunctionsConstructOverrides
   extends BaseNextjsConstructOverrides {
-  readonly nextjsFunctionProps?: NextjsFunctionsProps;
+  readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
   readonly nextjsInvalidationProps?: OptionalNextjsInvalidationProps;
   readonly nextjsRevalidationProps?: NextjsRevalidationProps;
@@ -47,7 +47,7 @@ export interface NextjsGlobalFunctionsConstructOverrides
 
 export interface NextjsGlobalFunctionsOverrides extends BaseNextjsOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
-  readonly nextjsFunction?: NextjsFunctionsOverrides;
+  readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
   readonly nextjsRevalidation?: NextjsRevalidationOverrides;
   readonly nextjsInvalidation?: NextjsInvalidationOverrides;
@@ -164,8 +164,8 @@ export class NextjsGlobalFunctions extends Construct {
       dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
       healthCheckPath: this.props.healthCheckPath,
       vpc: this.nextjsVpc.vpc,
-      overrides: this.props.overrides?.nextjsFunction,
-      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionProps,
+      overrides: this.props.overrides?.nextjsFunctions,
+      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionsProps,
     });
   }
   private createNextjsDistribution() {
