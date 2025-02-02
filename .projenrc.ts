@@ -24,7 +24,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // prerelease: "beta",
   minNodeVersion: "20.0.0",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.172.0",
+  cdkVersion: "2.177.0",
   jsiiVersion: "~5.5.0",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion: "9",
@@ -297,42 +297,49 @@ function generateStructs() {
     filePath: getFilePath("OptionalNextjsBuildProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsBuildProps"))
+    .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsDistributionProps",
     filePath: getFilePath("OptionalNextjsDistributionProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsDistributionProps"))
+    .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsVpcProps",
     filePath: getFilePath("OptionalNextjsVpcProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsVpcProps"))
+    .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsFileSystemProps",
     filePath: getFilePath("OptionalNextjsFileSystemProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsFileSystemProps"))
+    .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsAssetsDeploymentProps",
     filePath: getFilePath("OptionalNextjsAssetsDeploymentProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsAssetsDeploymentProps"))
+    .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsContainersProps",
     filePath: getFilePath("OptionalNextjsContainersProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsContainersProps"))
+    .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsInvalidationProps",
     filePath: getFilePath("OptionalNextjsInvalidationProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsInvalidationProps"))
+    .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalApplicationLoadBalancedTaskImageOptions",
