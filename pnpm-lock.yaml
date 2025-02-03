@@ -48,8 +48,8 @@ importers:
         specifier: 2.177.0
         version: 2.177.0(constructs@10.0.5)
       cdk-nag:
-        specifier: ^2.35.5
-        version: 2.35.5(aws-cdk-lib@2.177.0(constructs@10.0.5))(constructs@10.0.5)
+        specifier: ^2.35.8
+        version: 2.35.8(aws-cdk-lib@2.177.0(constructs@10.0.5))(constructs@10.0.5)
       commit-and-tag-version:
         specifier: ^12
         version: 12.5.0
@@ -1497,8 +1497,8 @@ packages:
     resolution: {integrity: sha512-mzDSXIPaFwVDvZAHqZ9VlbyF4yyXRuX6IvB06WvPYkqJVO24kX1PPhv9bfpKNFZyxYFmmgo03HUiD8iklmJYRQ==}
     engines: {node: '>= 0.8.0'}
 
-  cdk-nag@2.35.5:
-    resolution: {integrity: sha512-k5MR6PTWMCAy0XYbguMjRh7mCVuv4P8fcAsrnEG87fEw/f4vMXyMFhsi7u5Kaknuey9BkXCkfx5tVmkdFJ39jw==}
+  cdk-nag@2.35.8:
+    resolution: {integrity: sha512-QedfME1YNw8Os7eBRVJ7Ev9mSlwnrqCIWW6L4MotfYsPIvXfCHE0k05sxv9JX/rcwNLD/q5n/TBrafn+wCW3RQ==}
     peerDependencies:
       aws-cdk-lib: ^2.156.0
       constructs: ^10.0.5
@@ -3636,8 +3636,8 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  typescript@5.8.0-dev.20250131:
-    resolution: {integrity: sha512-q7nLABAsnnq3BdqOdWnRGVhe7Gv3QkditzT6YMfWpKHsZoJ1TVo+C4ZCZHK4fCuu2vHYUwV0zUUsEZZXdnxB2w==}
+  typescript@5.8.0-dev.20250202:
+    resolution: {integrity: sha512-7utuv4a7BhkLf+HacefGv1/uM8DAGc1dQ11SuE6WbrRGFrwu/Qk9tV6T621TqtDMP0iYWamsOKMApskxx1bYJA==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -5766,7 +5766,7 @@ snapshots:
 
   case@1.6.3: {}
 
-  cdk-nag@2.35.5(aws-cdk-lib@2.177.0(constructs@10.0.5))(constructs@10.0.5):
+  cdk-nag@2.35.8(aws-cdk-lib@2.177.0(constructs@10.0.5))(constructs@10.0.5):
     dependencies:
       aws-cdk-lib: 2.177.0(constructs@10.0.5)
       constructs: 10.0.5
@@ -6093,7 +6093,7 @@ snapshots:
     dependencies:
       semver: 7.7.0
       shelljs: 0.8.5
-      typescript: 5.8.0-dev.20250131
+      typescript: 5.8.0-dev.20250202
 
   dunder-proto@1.0.1:
     dependencies:
@@ -8292,7 +8292,7 @@ snapshots:
 
   typescript@5.7.3: {}
 
-  typescript@5.8.0-dev.20250131: {}
+  typescript@5.8.0-dev.20250202: {}
 
   uglify-js@3.19.3:
     optional: true
