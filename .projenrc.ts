@@ -134,10 +134,10 @@ function bundleFunctions() {
     outfile: "../../../lib/nextjs-build/add-cache-handler.mjs",
     format: "esm",
   });
-  project.bundler.addBundle("src/nextjs-build/symlink-full-route-cache.ts", {
+  project.bundler.addBundle("src/nextjs-build/symlink.ts", {
     platform: "node",
     target,
-    outfile: "../../../lib/nextjs-build/symlink-full-route-cache.mjs",
+    outfile: "../../../lib/nextjs-build/symlink.mjs",
     format: "esm",
   });
 }

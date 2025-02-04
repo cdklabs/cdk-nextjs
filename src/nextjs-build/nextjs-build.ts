@@ -287,7 +287,7 @@ export class NextjsBuild extends Construct {
     const dockerfileName = `${dockerfileNamePrefix}-containers.Dockerfile`;
     // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
     // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
-    // and symlink-full-route-cache scripts which are in lib/nextjs-build folder.
+    // and symlink.ts script which is in lib/nextjs-build folder.
     const buildContext = join(__dirname, "..", "..", "lib", "nextjs-build");
     const dockerImageAsset = new DockerImageAsset(this, "Image", {
       buildArgs: {
@@ -302,7 +302,7 @@ export class NextjsBuild extends Construct {
       exclude: [
         "*",
         `!${dockerfileName}`,
-        "!symlink-full-route-cache.mjs",
+        "!symlink.mjs",
         "!add-cache-handler.mjs",
       ],
       extraHash: this.buildImageDigest, // rebuild when builder hash changes
@@ -317,7 +317,7 @@ export class NextjsBuild extends Construct {
     const dockerfileName = "global-functions.Dockerfile";
     // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
     // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
-    // and symlink-full-route-cache scripts which are in lib/nextjs-build folder.
+    // and symlink.ts script which is in lib/nextjs-build folder.
     const buildContext = join(__dirname, "..", "..", "lib", "nextjs-build");
     const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
       buildArgs: {
@@ -332,7 +332,7 @@ export class NextjsBuild extends Construct {
       exclude: [
         "*",
         `!${dockerfileName}`,
-        "!symlink-full-route-cache.mjs",
+        "!symlink.mjs",
         "!add-cache-handler.mjs",
         "!cache-handler.cjs",
       ],

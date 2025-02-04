@@ -6,8 +6,8 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 # It's preferrable to only copy package.json's and lockfiles, install, and then
 # copy the rest of the code to efficiently utilize build cache. We don't do that
-#$ here because it's highly customized based on a projects setup. We recommend
-# developers use `overrides.nextjsXX.nextjsBuildProps.builderImageProps.srcDockerfilePath`
+# here because it's highly customized based on a projects setup. We recommend
+# developers use `overrides.nextjs[GlobalFunctions].nextjsBuildProps.builderImageProps.srcDockerfilePath`
 # to optimize for their setup.
 COPY . .
 # Install dependencies based on the preferred package manager
