@@ -17,11 +17,6 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly functionUrl?: aws_lambda.IFunctionUrl;
   /**
-   * Required if `NextjsType.GLOBAL_FUNCTIONS`.
-   * @stability stable
-   */
-  readonly function?: aws_lambda.IFunction;
-  /**
    * @stability stable
    */
   readonly distribution?: aws_cloudfront.Distribution;

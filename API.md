@@ -2806,9 +2806,9 @@ const nextjsDistributionOverrides: NextjsDistributionOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.distributionProps">distributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalDistributionProps">OptionalDistributionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicBehaviorOptions">dynamicBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.AddBehaviorOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicCachePolicyProps">dynamicCachePolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicyProps</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicHttpOriginProps">dynamicHttpOriginProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.HttpOriginProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicFunctionUrlOriginWithOACProps">dynamicFunctionUrlOriginWithOACProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.FunctionUrlOriginWithOACProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicLoadBalancerV2OriginProps">dynamicLoadBalancerV2OriginProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.LoadBalancerV2OriginProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicResponseHeadersPolicyProps">dynamicResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.edgeFunctionProps">edgeFunctionProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageBehaviorOptions">imageBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.AddBehaviorOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageCachePolicyProps">imageCachePolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicyProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageResponseHeadersPolicyProps">imageResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
@@ -2848,13 +2848,23 @@ public readonly dynamicCachePolicyProps: CachePolicyProps;
 
 ---
 
-##### `dynamicHttpOriginProps`<sup>Optional</sup> <a name="dynamicHttpOriginProps" id="cdk-nextjs.NextjsDistributionOverrides.property.dynamicHttpOriginProps"></a>
+##### `dynamicFunctionUrlOriginWithOACProps`<sup>Optional</sup> <a name="dynamicFunctionUrlOriginWithOACProps" id="cdk-nextjs.NextjsDistributionOverrides.property.dynamicFunctionUrlOriginWithOACProps"></a>
 
 ```typescript
-public readonly dynamicHttpOriginProps: HttpOriginProps;
+public readonly dynamicFunctionUrlOriginWithOACProps: FunctionUrlOriginWithOACProps;
 ```
 
-- *Type:* aws-cdk-lib.aws_cloudfront_origins.HttpOriginProps
+- *Type:* aws-cdk-lib.aws_cloudfront_origins.FunctionUrlOriginWithOACProps
+
+---
+
+##### `dynamicLoadBalancerV2OriginProps`<sup>Optional</sup> <a name="dynamicLoadBalancerV2OriginProps" id="cdk-nextjs.NextjsDistributionOverrides.property.dynamicLoadBalancerV2OriginProps"></a>
+
+```typescript
+public readonly dynamicLoadBalancerV2OriginProps: LoadBalancerV2OriginProps;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront_origins.LoadBalancerV2OriginProps
 
 ---
 
@@ -2865,16 +2875,6 @@ public readonly dynamicResponseHeadersPolicyProps: ResponseHeadersPolicyProps;
 ```
 
 - *Type:* aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps
-
----
-
-##### `edgeFunctionProps`<sup>Optional</sup> <a name="edgeFunctionProps" id="cdk-nextjs.NextjsDistributionOverrides.property.edgeFunctionProps"></a>
-
-```typescript
-public readonly edgeFunctionProps: OptionalFunctionProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a>
 
 ---
 
@@ -2953,13 +2953,13 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.assetsBucket">assetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket containing static assets. |
-| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.dynamicUrl">dynamicUrl</a></code> | <code>string</code> | Dynamic (Next.js server) URL to add behavior to distribution. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add static behaviors to distribution. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionArn">functionArn</a></code> | <code>string</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
 
 ---
@@ -2975,18 +2975,6 @@ public readonly assetsBucket: IBucket;
 Bucket containing static assets.
 
 Must be provided if you want to serve static files.
-
----
-
-##### `dynamicUrl`<sup>Required</sup> <a name="dynamicUrl" id="cdk-nextjs.NextjsDistributionProps.property.dynamicUrl"></a>
-
-```typescript
-public readonly dynamicUrl: string;
-```
-
-- *Type:* string
-
-Dynamic (Next.js server) URL to add behavior to distribution.
 
 ---
 
@@ -3044,15 +3032,27 @@ public readonly distribution: Distribution;
 
 ---
 
-##### `functionArn`<sup>Optional</sup> <a name="functionArn" id="cdk-nextjs.NextjsDistributionProps.property.functionArn"></a>
+##### `functionUrl`<sup>Optional</sup> <a name="functionUrl" id="cdk-nextjs.NextjsDistributionProps.property.functionUrl"></a>
 
 ```typescript
-public readonly functionArn: string;
+public readonly functionUrl: IFunctionUrl;
 ```
 
-- *Type:* string
+- *Type:* aws-cdk-lib.aws_lambda.IFunctionUrl
 
 Required if `NextjsType.GLOBAL_FUNCTIONS`.
+
+---
+
+##### `loadBalancer`<sup>Optional</sup> <a name="loadBalancer" id="cdk-nextjs.NextjsDistributionProps.property.loadBalancer"></a>
+
+```typescript
+public readonly loadBalancer: ILoadBalancerV2;
+```
+
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2
+
+Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
 
 ---
 
@@ -8791,8 +8791,8 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.dynamicUrl">dynamicUrl</a></code> | <code>string</code> | Dynamic (Next.js server) URL to add behavior to distribution. |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionArn">functionArn</a></code> | <code>string</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add static behaviors to distribution. |
 
@@ -8844,27 +8844,27 @@ public readonly distribution: Distribution;
 
 ---
 
-##### `dynamicUrl`<sup>Optional</sup> <a name="dynamicUrl" id="cdk-nextjs.OptionalNextjsDistributionProps.property.dynamicUrl"></a>
+##### `functionUrl`<sup>Optional</sup> <a name="functionUrl" id="cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl"></a>
 
 ```typescript
-public readonly dynamicUrl: string;
+public readonly functionUrl: IFunctionUrl;
 ```
 
-- *Type:* string
+- *Type:* aws-cdk-lib.aws_lambda.IFunctionUrl
 
-Dynamic (Next.js server) URL to add behavior to distribution.
+Required if `NextjsType.GLOBAL_FUNCTIONS`.
 
 ---
 
-##### `functionArn`<sup>Optional</sup> <a name="functionArn" id="cdk-nextjs.OptionalNextjsDistributionProps.property.functionArn"></a>
+##### `loadBalancer`<sup>Optional</sup> <a name="loadBalancer" id="cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer"></a>
 
 ```typescript
-public readonly functionArn: string;
+public readonly loadBalancer: ILoadBalancerV2;
 ```
 
-- *Type:* string
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2
 
-Required if `NextjsType.GLOBAL_FUNCTIONS`.
+Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
 
 ---
 

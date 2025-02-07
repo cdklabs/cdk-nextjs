@@ -35,14 +35,14 @@ import {
   LoadBalancerV2OriginProps,
   S3BucketOrigin,
 } from "aws-cdk-lib/aws-cloudfront-origins";
+import { ILoadBalancerV2 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { NextjsType } from "./common";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
-import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
-import { ILoadBalancerV2 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
