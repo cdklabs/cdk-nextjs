@@ -58,7 +58,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ".idea",
     ".DS_Store",
     "cdk.out",
-    ".envrc",
+    ".env",
     "*.drawio.bkp",
     "ash_output",
     "examples/.dockerignore",

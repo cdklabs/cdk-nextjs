@@ -14,6 +14,7 @@ import {
   DATA_CACHE_DIR,
   FULL_ROUTE_CACHE_DIR,
   IMAGE_CACHE_DIR,
+  PUBLIC_DIR,
 } from "./common";
 import { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDockerImageFunctionProps";
 import { NextjsBuild } from "./nextjs-build/nextjs-build";
@@ -174,11 +175,6 @@ export class NextjsAssetsDeployment extends Construct {
     const actions: CustomResourceProperties["actions"] = [];
     if (this.props.staticAssetsBucket?.bucketName) {
       actions.push(
-        {
-          type: "fs-to-s3",
-          sourcePath: join(root, "public"),
-          destinationBucketName: this.props.staticAssetsBucket.bucketName,
-        },
         // static files
         {
           type: "fs-to-s3",
@@ -214,6 +210,12 @@ export class NextjsAssetsDeployment extends Construct {
           this.props.containerMountPathForEfs,
           FULL_ROUTE_CACHE_DIR,
         ),
+      },
+      // public dir
+      {
+        type: "fs-to-fs",
+        sourcePath: join(root, "public"),
+        destinationPath: join(this.props.containerMountPathForEfs, PUBLIC_DIR),
       },
       // images are optimized at runtime so nothing to deploy
     );

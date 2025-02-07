@@ -11,6 +11,7 @@ import {
   FULL_ROUTE_CACHE_DIR,
   IMAGE_CACHE_DIR,
   NextjsType,
+  PUBLIC_DIR,
 } from "../common";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-props";
@@ -108,10 +109,12 @@ export class NextjsBuild extends Construct {
    * Mount path in container for EFS. Next.js image optimization, data, and full
    * route cache will be symlinked to this location.
    *
-   * Must comply with pattern: ^/mnt/[a-zA-Z0-9-_.]+$
+   * Must comply with pattern: ^/mnt/[a-zA-Z0-9-_.]+$ due to lambda requirement.
+   * Fargate doesn't have this same requirement but we share code for lambda and
+   * fargate.
    * @see https://docs.aws.amazon.com/lambda/latest/api/API_FileSystemConfig.html
    */
-  containerMountPathForEfs = "/mnt/cdk-nextjs-cache";
+  containerMountPathForEfs = "/mnt/cdk-nextjs";
   /**
    * Docker image built if using Fargate.
    */
@@ -294,6 +297,7 @@ export class NextjsBuild extends Construct {
         BUILDER_IMAGE_TAG: this.builderImageTag,
         DATA_CACHE_DIR,
         FULL_ROUTE_CACHE_DIR,
+        PUBLIC_DIR,
         IMAGE_CACHE_DIR,
         MOUNT_PATH: this.containerMountPathForEfs,
         RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
@@ -324,6 +328,7 @@ export class NextjsBuild extends Construct {
         BUILDER_IMAGE_TAG: this.builderImageTag,
         DATA_CACHE_DIR,
         FULL_ROUTE_CACHE_DIR,
+        PUBLIC_DIR,
         IMAGE_CACHE_DIR,
         MOUNT_PATH: this.containerMountPathForEfs,
         RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,

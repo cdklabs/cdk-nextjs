@@ -68,7 +68,7 @@ export class NextjsFileSystem extends Construct {
     const uid = "1001";
     const gid = "1001";
     const accessPoint = new AccessPoint(this, "AccessPoint", {
-      // as /next/cache doesn't exist in a new efs filesystem, the efs will
+      // as /cdk-nextjs doesn't exist in a new efs filesystem, the efs will
       // create the directory with the following options
       createAcl: {
         ownerGid: gid,
@@ -76,7 +76,8 @@ export class NextjsFileSystem extends Construct {
         permissions: "755",
       },
       fileSystem: this.fileSystem,
-      path: "/next/cache",
+      // arbitrarily named path which is exposed to NFS clients: lambda or fargate
+      path: "/cdk-nextjs",
       // enforce POSIX identity so container wil access file system with this identity
       posixUser: {
         gid,

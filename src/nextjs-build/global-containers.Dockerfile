@@ -15,23 +15,26 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 ARG RELATIVE_PATH_TO_WORKSPACE
-# even though public is served through cloudfront, we need public for image optimization
-COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/public ./$RELATIVE_PATH_TO_WORKSPACE/public
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/standalone ./
+# public folder needed to symlink but then we delete after
+COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/public ./$RELATIVE_PATH_TO_WORKSPACE/public
 COPY --chown=nextjs:nodejs ./symlink.mjs ./
 ARG MOUNT_PATH
 ARG DATA_CACHE_DIR
 ARG FULL_ROUTE_CACHE_DIR
 ARG IMAGE_CACHE_DIR
+ARG PUBLIC_DIR
 RUN mkdir -p $MOUNT_PATH/$DATA_CACHE_DIR && \
   mkdir -p $MOUNT_PATH/$FULL_ROUTE_CACHE_DIR && \
   mkdir -p $MOUNT_PATH/$IMAGE_CACHE_DIR && \
+  mkdir -p $MOUNT_PATH/$PUBLIC_DIR && \
   chmod -R u+rw $MOUNT_PATH && \
   mkdir -p ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache && \
   ln -s $MOUNT_PATH/$DATA_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/fetch-cache && \
   ln -s $MOUNT_PATH/$IMAGE_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/images && \
   node symlink.mjs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/server/app $MOUNT_PATH/$FULL_ROUTE_CACHE_DIR "html,rsc,meta" && \
-  rm symlink.mjs
+  node symlink.mjs /app/$RELATIVE_PATH_TO_WORKSPACE/public $MOUNT_PATH/$PUBLIC_DIR && \
+  rm -r symlink.mjs
 
 USER nextjs
 

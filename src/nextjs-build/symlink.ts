@@ -2,10 +2,10 @@ import { mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { extname, join } from "node:path";
 
 /*
-  CLI Tool to create symlinks between src and dest paths optionally filtering
-  based on file extensions.
+  CLI Tool to create symlinks between src and dest paths and removing the original
+  src files. Also, optionally filters based on file extension.
 
-  Example: Used to symlink .next/server/app -> /mnt/cdk-nextjs-cache/full-route-cache.
+  Example: Used to symlink .next/server/app -> /mnt/cdk-nextjs/full-route-cache.
   See docs/dev.md for details.
 */
 
@@ -46,7 +46,7 @@ function createSymlinks(
         // Create a symbolic link for html, rsc, or meta files
         const symlink = entryPath;
         const target = join(destPath, entry.name);
-        // console.log(`linking ${symlink} -> ${target}`);
+        console.log(`linking ${symlink} -> ${target}`);
         rmSync(symlink); // symlink path must not exist in order to create
         symlinkSync(target, symlink, "file");
       }
