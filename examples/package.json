@@ -20,5 +20,8 @@
       "undici@5.26.5": "^5.28.4",
       "braces@3.0.2": "^3.0.3"
     }
+  },
+  "dependencies": {
+    "dotenv-cli": "^8.0.0"
   }
 }

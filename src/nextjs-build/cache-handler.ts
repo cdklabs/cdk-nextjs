@@ -1,3 +1,7 @@
+/*
+  This file is compiled as defined in .projenrc.ts to be used as Next.js
+  Custom Cache Handler. See: https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath
+*/
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 // eslint-disable-next-line import/no-extraneous-dependencies

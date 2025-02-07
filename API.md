@@ -273,7 +273,9 @@ public readonly containerMountPathForEfs: string;
 
 Mount path in container for EFS. Next.js image optimization, data, and full route cache will be symlinked to this location.
 
-Must comply with pattern: ^/mnt/[a-zA-Z0-9-_.]+$
+Must comply with pattern: ^/mnt/[a-zA-Z0-9-_.]+$ due to lambda requirement.
+Fargate doesn't have this same requirement but we share code for lambda and
+fargate.
 
 > [https://docs.aws.amazon.com/lambda/latest/api/API_FileSystemConfig.html](https://docs.aws.amazon.com/lambda/latest/api/API_FileSystemConfig.html)
 

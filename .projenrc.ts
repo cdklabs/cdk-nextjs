@@ -58,7 +58,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ".idea",
     ".DS_Store",
     "cdk.out",
-    ".envrc",
+    ".env",
     "*.drawio.bkp",
     "ash_output",
     "examples/.dockerignore",
@@ -134,10 +134,10 @@ function bundleFunctions() {
     outfile: "../../../lib/nextjs-build/add-cache-handler.mjs",
     format: "esm",
   });
-  project.bundler.addBundle("src/nextjs-build/symlink-full-route-cache.ts", {
+  project.bundler.addBundle("src/nextjs-build/symlink.ts", {
     platform: "node",
     target,
-    outfile: "../../../lib/nextjs-build/symlink-full-route-cache.mjs",
+    outfile: "../../../lib/nextjs-build/symlink.mjs",
     format: "esm",
   });
 }

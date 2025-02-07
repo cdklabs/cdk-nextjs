@@ -82,7 +82,7 @@
           "spawn": "bundle:nextjs-build/add-cache-handler"
         },
         {
-          "spawn": "bundle:nextjs-build/symlink-full-route-cache"
+          "spawn": "bundle:nextjs-build/symlink"
         }
       ]
     },
@@ -176,21 +176,21 @@
         }
       ]
     },
-    "bundle:nextjs-build/symlink-full-route-cache": {
-      "name": "bundle:nextjs-build/symlink-full-route-cache",
-      "description": "Create a JavaScript bundle from src/nextjs-build/symlink-full-route-cache.ts",
+    "bundle:nextjs-build/symlink": {
+      "name": "bundle:nextjs-build/symlink",
+      "description": "Create a JavaScript bundle from src/nextjs-build/symlink.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/symlink-full-route-cache.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink-full-route-cache.mjs\" --format=esm"
+          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm"
         }
       ]
     },
-    "bundle:nextjs-build/symlink-full-route-cache:watch": {
-      "name": "bundle:nextjs-build/symlink-full-route-cache:watch",
-      "description": "Continuously update the JavaScript bundle from src/nextjs-build/symlink-full-route-cache.ts",
+    "bundle:nextjs-build/symlink:watch": {
+      "name": "bundle:nextjs-build/symlink:watch",
+      "description": "Continuously update the JavaScript bundle from src/nextjs-build/symlink.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/symlink-full-route-cache.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink-full-route-cache.mjs\" --format=esm --watch"
+          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm --watch"
         }
       ]
     },

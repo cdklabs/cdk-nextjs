@@ -3,6 +3,8 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "deploy:local": "dotenv -- cdk deploy --require-approval never",
+    "destroy:local": "dotenv -- cdk destroy --force",
     "deploy": "cdk deploy --require-approval never"
   },
   "dependencies": {
