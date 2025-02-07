@@ -9,17 +9,17 @@ import { extname, join } from "node:path";
   See docs/dev.md for details.
 */
 
-const [sourcePath, destPath, _extensions] = process.argv.slice(2) as (
+const [sourcePathArg, destPathArg, _extensions] = process.argv.slice(2) as (
   | string
   | undefined
 )[];
-if (!sourcePath || !destPath) {
+if (!sourcePathArg || !destPathArg) {
   console.error("Usage: node symlink.mjs <sourcePath> <destPath> [extensions]");
   process.exit(1);
 }
 // default to all file extensions
 const extensions = _extensions ? _extensions.split(",") : ["*"];
-createSymlinks(sourcePath, destPath, extensions);
+createSymlinks(sourcePathArg, destPathArg, extensions);
 
 /**
  * Creates symbolic links recursively from `srcPath` to `destPath`.
@@ -46,7 +46,7 @@ function createSymlinks(
         // Create a symbolic link for html, rsc, or meta files
         const symlink = entryPath;
         const target = join(destPath, entry.name);
-        console.log(`linking ${symlink} -> ${target}`);
+        // console.log(`linking ${symlink} -> ${target}`);
         rmSync(symlink); // symlink path must not exist in order to create
         symlinkSync(target, symlink, "file");
       }
