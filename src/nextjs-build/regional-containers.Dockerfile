@@ -16,8 +16,6 @@ RUN adduser --system --uid 1001 nextjs
 
 ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/standalone ./
-# public folder needed to symlink but then we delete after
-COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/public ./$RELATIVE_PATH_TO_WORKSPACE/public
 # static properties needed b/c we don't have cloudfront to serve them from s3
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/static ./$RELATIVE_PATH_TO_WORKSPACE/.next/static
 COPY --chown=nextjs:nodejs ./symlink.mjs ./
@@ -34,8 +32,8 @@ RUN mkdir -p $MOUNT_PATH/$DATA_CACHE_DIR && \
   mkdir -p ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache && \
   ln -s $MOUNT_PATH/$DATA_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/fetch-cache && \
   ln -s $MOUNT_PATH/$IMAGE_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/images && \
+  ln -s $MOUNT_PATH/$PUBLIC_DIR ./$RELATIVE_PATH_TO_WORKSPACE/public && \
   node symlink.mjs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/server/app $MOUNT_PATH/$FULL_ROUTE_CACHE_DIR "html,rsc,meta" && \
-  node symlink.mjs /app/$RELATIVE_PATH_TO_WORKSPACE/public $MOUNT_PATH/$PUBLIC_DIR && \
   rm -r symlink.mjs
 
 USER nextjs

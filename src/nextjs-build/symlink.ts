@@ -18,8 +18,8 @@ if (!sourcePathArg || !destPathArg) {
   process.exit(1);
 }
 // default to all file extensions
-const extensions = _extensions ? _extensions.split(",") : ["*"];
-createSymlinks(sourcePathArg, destPathArg, extensions);
+const extensionsArg = _extensions ? _extensions.split(",") : ["*"];
+createSymlinks(sourcePathArg, destPathArg, extensionsArg);
 
 /**
  * Creates symbolic links recursively from `srcPath` to `destPath`.
