@@ -41,5 +41,4 @@
 /src/generated-structs/OptionalVpcProps.ts linguist-generated
 /src/lambdas/assets-deployment/assets-deployment-function.ts linguist-generated
 /src/lambdas/revalidate/revalidate-function.ts linguist-generated
-/src/lambdas/sign-fn-url/sign-fn-url-function.ts linguist-generated
 /tsconfig.dev.json linguist-generated

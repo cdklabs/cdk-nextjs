@@ -115,13 +115,13 @@ const project = new awscdk.AwsCdkConstructLibrary({
 // managed repo.
 project.gitignore.addPatterns("!/examples/**/tsconfig.json"); // must call method, cannot set in initial props
 copyDockerfiles();
-bundleFunctions();
+bundle();
 updateGitHubWorkflows();
 generateStructs();
 
 project.synth();
 
-function bundleFunctions() {
+function bundle() {
   const target = "node20";
   project.bundler.addBundle("src/nextjs-build/cache-handler.ts", {
     platform: "node",
@@ -133,6 +133,13 @@ function bundleFunctions() {
     target,
     outfile: "../../../lib/nextjs-build/add-cache-handler.mjs",
     format: "esm",
+  });
+  project.bundler.addBundle("src/nextjs-build/patch-fetch.js", {
+    platform: "browser",
+    // https://nextjs.org/docs/architecture/supported-browsers
+    target: "chrome64,firefox67,safari12,edge79",
+    minify: true,
+    outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
   project.bundler.addBundle("src/nextjs-build/symlink.ts", {
     platform: "node",
