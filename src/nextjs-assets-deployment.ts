@@ -117,7 +117,6 @@ export interface CustomResourceProperties {
   buildImageDigest: string;
   imageCachePath: string;
   prerenderManifestPath: string;
-  staticChunksPath: string;
   nextjsType: NextjsType;
 }
 
@@ -232,7 +231,6 @@ export class NextjsAssetsDeployment extends Construct {
       ),
       nextjsType: this.props.nextjsType,
       prerenderManifestPath: join(root, ".next", "prerender-manifest.json"),
-      staticChunksPath: join(root, ".next", "static", "chunks"),
     };
     return new CustomResource(this, "CustomResource", {
       properties,
