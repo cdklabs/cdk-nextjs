@@ -14,6 +14,7 @@ import {
   DATA_CACHE_DIR,
   FULL_ROUTE_CACHE_DIR,
   IMAGE_CACHE_DIR,
+  NextjsType,
   PUBLIC_DIR,
 } from "./common";
 import { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDockerImageFunctionProps";
@@ -31,14 +32,15 @@ export interface NextjsAssetsDeploymentProps {
    */
   readonly buildImageDigest: string;
   /**
+   * @see {@link NextjsBuild.containerMountPathForEfs}
+   */
+  readonly containerMountPathForEfs: NextjsBuild["containerMountPathForEfs"];
+  /**
    * @default true
    */
   readonly debug?: boolean;
   readonly dockerImageCode: DockerImageCode; // TODO: remove and build from common builder base?
-  /**
-   * @see {@link NextjsBuild.containerMountPathForEfs}
-   */
-  readonly containerMountPathForEfs: NextjsBuild["containerMountPathForEfs"];
+  readonly nextjsType: NextjsType;
   readonly overrides?: NextjsAssetDeploymentOverrides;
   /**
    * @see {@link NextjsBaseProps.relativePathToWorkspace}
@@ -115,6 +117,8 @@ export interface CustomResourceProperties {
   buildImageDigest: string;
   imageCachePath: string;
   prerenderManifestPath: string;
+  staticChunksPath: string;
+  nextjsType: NextjsType;
 }
 
 /**
@@ -226,7 +230,9 @@ export class NextjsAssetsDeployment extends Construct {
         this.props.containerMountPathForEfs,
         IMAGE_CACHE_DIR,
       ),
+      nextjsType: this.props.nextjsType,
       prerenderManifestPath: join(root, ".next", "prerender-manifest.json"),
+      staticChunksPath: join(root, ".next", "static", "chunks"),
     };
     return new CustomResource(this, "CustomResource", {
       properties,

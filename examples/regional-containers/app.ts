@@ -34,6 +34,7 @@ export class RegionalContainersStack extends Stack {
                 "global-containers",
                 "global-functions",
                 "regional-containers",
+                "low-cost",
                 "shared",
                 "*.md",
               ],

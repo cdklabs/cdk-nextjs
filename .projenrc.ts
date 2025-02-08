@@ -5,6 +5,7 @@ import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
+const nodeVersion = 22;
 const project = new awscdk.AwsCdkConstructLibrary({
   // repository config
   author: "Ben Stickley",
@@ -22,7 +23,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "Deploy Next.js apps on AWS with CDK" /* The description is just a string that helps people understand the purpose of the package. */,
   // majorVersion: 1,
   // prerelease: "beta",
-  minNodeVersion: "20.0.0",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
   cdkVersion: "2.177.0",
   jsiiVersion: "~5.5.0",
@@ -50,7 +50,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
   // tooling config
   lambdaOptions: {
-    runtime: new LambdaRuntime("nodejs22.x", "node22"),
+    runtime: new LambdaRuntime(`nodejs${nodeVersion}.x`, `node${nodeVersion}`),
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3
   },
   projenCommand: "pnpm dlx projen",
@@ -122,7 +122,7 @@ generateStructs();
 project.synth();
 
 function bundle() {
-  const target = "node20";
+  const target = `node${nodeVersion}`;
   project.bundler.addBundle("src/nextjs-build/cache-handler.ts", {
     platform: "node",
     target,
@@ -134,12 +134,12 @@ function bundle() {
     outfile: "../../../lib/nextjs-build/add-cache-handler.mjs",
     format: "esm",
   });
-  project.bundler.addBundle("src/nextjs-build/patch-fetch.js", {
+  project.bundler.addBundle("src/lambdas/assets-deployment/patch-fetch.js", {
     platform: "browser",
     // https://nextjs.org/docs/architecture/supported-browsers
     target: "chrome64,firefox67,safari12,edge79",
     minify: true,
-    outfile: "../../../lib/nextjs-build/patch-fetch.js",
+    outfile: "../assets-deployment.lambda/patch-fetch.js",
   });
   project.bundler.addBundle("src/nextjs-build/symlink.ts", {
     platform: "node",

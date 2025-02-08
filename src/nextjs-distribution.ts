@@ -166,6 +166,7 @@ export class NextjsDistribution extends Construct {
       const loadBalancer = this.props.loadBalancer;
       if (!loadBalancer)
         throw new Error("Missing NextjsDistributionProps.loadBalancer");
+      // TODO: use VPC Origin when L3 construct released
       return new LoadBalancerV2Origin(loadBalancer, {
         protocolPolicy: this.props.certificate
           ? OriginProtocolPolicy.HTTPS_ONLY

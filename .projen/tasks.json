@@ -79,7 +79,7 @@
           "spawn": "bundle:nextjs-build/add-cache-handler"
         },
         {
-          "spawn": "bundle:nextjs-build/patch-fetch"
+          "spawn": "bundle:lambdas/assets-deployment/patch-fetch"
         },
         {
           "spawn": "bundle:nextjs-build/symlink"
@@ -101,6 +101,24 @@
       "steps": [
         {
           "exec": "esbuild --bundle src/lambdas/assets-deployment/assets-deployment.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
+        }
+      ]
+    },
+    "bundle:lambdas/assets-deployment/patch-fetch": {
+      "name": "bundle:lambdas/assets-deployment/patch-fetch",
+      "description": "Create a JavaScript bundle from src/lambdas/assets-deployment/patch-fetch.js",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/assets-deployment/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/patch-fetch.js\" --minify"
+        }
+      ]
+    },
+    "bundle:lambdas/assets-deployment/patch-fetch:watch": {
+      "name": "bundle:lambdas/assets-deployment/patch-fetch:watch",
+      "description": "Continuously update the JavaScript bundle from src/lambdas/assets-deployment/patch-fetch.js",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/assets-deployment/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/patch-fetch.js\" --minify --watch"
         }
       ]
     },
@@ -127,7 +145,7 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/add-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm"
+          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm"
         }
       ]
     },
@@ -136,7 +154,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/add-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm --watch"
+          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm --watch"
         }
       ]
     },
@@ -145,7 +163,7 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\""
+          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\""
         }
       ]
     },
@@ -154,25 +172,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\" --watch"
-        }
-      ]
-    },
-    "bundle:nextjs-build/patch-fetch": {
-      "name": "bundle:nextjs-build/patch-fetch",
-      "description": "Create a JavaScript bundle from src/nextjs-build/patch-fetch.js",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify"
-        }
-      ]
-    },
-    "bundle:nextjs-build/patch-fetch:watch": {
-      "name": "bundle:nextjs-build/patch-fetch:watch",
-      "description": "Continuously update the JavaScript bundle from src/nextjs-build/patch-fetch.js",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify --watch"
+          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\" --watch"
         }
       ]
     },
@@ -181,7 +181,7 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/symlink.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm"
+          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm"
         }
       ]
     },
@@ -190,7 +190,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/symlink.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm --watch"
+          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm --watch"
         }
       ]
     },
