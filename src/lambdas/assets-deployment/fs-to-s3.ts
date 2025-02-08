@@ -1,4 +1,5 @@
 import { createReadStream, readFileSync, ReadStream } from "node:fs";
+import { join, relative } from "node:path";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { PutObjectCommandInput } from "@aws-sdk/client-s3";
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -6,11 +7,10 @@ import { Upload } from "@aws-sdk/lib-storage";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import * as mime from "mime-types";
 import { chunkArray, listFilePaths } from "./common";
-import { createS3Key, s3 } from "./s3";
+import { s3 } from "./s3";
 import { debug } from "./utils";
-import type { FsToS3Action } from "../../nextjs-assets-deployment";
 import { NextjsType } from "../../common";
-import { join } from "node:path";
+import type { FsToS3Action } from "../../nextjs-assets-deployment";
 
 export async function fsToS3(props: FsToS3Action, nextjsType?: NextjsType) {
   const { destinationBucketName, destinationKeyPrefix, sourcePath } = props;
@@ -53,4 +53,19 @@ export async function fsToS3(props: FsToS3Action, nextjsType?: NextjsType) {
       ),
     );
   }
+}
+
+interface CreateS3KeyProps {
+  keyPrefix?: string;
+  path: string;
+  basePath: string;
+}
+/**
+ * Create S3 Key given local path
+ */
+export function createS3Key({ keyPrefix, path, basePath }: CreateS3KeyProps) {
+  const objectKeyParts: string[] = [];
+  if (keyPrefix) objectKeyParts.push(keyPrefix);
+  objectKeyParts.push(relative(basePath, path));
+  return join(...objectKeyParts);
 }
