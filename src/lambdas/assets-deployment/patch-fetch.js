@@ -3,14 +3,14 @@
 /*
   For `NextjsFunctions`, CloudFront is configured to use Lambda Function URL OAC
   which is a managed way to sign requests to Lambda Function URLs. `NextjsFunctions`
-  configured Lambda Function URLS to require IAM_AUTH for improved security,
+  configures Lambda Function URLS to require IAM_AUTH for improved security,
   so signing requests is required. One limitation of Lambda Function URL OAC
   documented [here](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html)
   is that if you use a PUT or POST method then the client must supply the hash
   of the payload in a x-amz-content-sha256 header. This code below is prepended
-  to `next build` output to ensure `fetch` and `XMLHttpRequest` PUT and POST
-  requests include this header with the hash and therefore can be signed by OAC
-  and invoked Lambda Function URL
+  to the .next/static/chunks/main-app-***.js from `next build` output to ensure
+  `fetch` and `XMLHttpRequest` PUT and POST requests include this header with
+  the hash and therefore can be signed by OAC and invoked Lambda Function URL.
 */
 
 async function calculateSha256(content) {
