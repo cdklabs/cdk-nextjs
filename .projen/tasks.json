@@ -55,9 +55,6 @@
           "spawn": "bundle:lambdas/revalidate/revalidate.lambda"
         },
         {
-          "spawn": "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda"
-        },
-        {
           "exec": "mkdir -p lib/nextjs-build"
         },
         {
@@ -82,6 +79,9 @@
           "spawn": "bundle:nextjs-build/add-cache-handler"
         },
         {
+          "spawn": "bundle:lambdas/assets-deployment/patch-fetch"
+        },
+        {
           "spawn": "bundle:nextjs-build/symlink"
         }
       ]
@@ -104,6 +104,24 @@
         }
       ]
     },
+    "bundle:lambdas/assets-deployment/patch-fetch": {
+      "name": "bundle:lambdas/assets-deployment/patch-fetch",
+      "description": "Create a JavaScript bundle from src/lambdas/assets-deployment/patch-fetch.js",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/assets-deployment/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/patch-fetch.js\" --minify"
+        }
+      ]
+    },
+    "bundle:lambdas/assets-deployment/patch-fetch:watch": {
+      "name": "bundle:lambdas/assets-deployment/patch-fetch:watch",
+      "description": "Continuously update the JavaScript bundle from src/lambdas/assets-deployment/patch-fetch.js",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/assets-deployment/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/patch-fetch.js\" --minify --watch"
+        }
+      ]
+    },
     "bundle:lambdas/revalidate/revalidate.lambda": {
       "name": "bundle:lambdas/revalidate/revalidate.lambda",
       "description": "Create a JavaScript bundle from src/lambdas/revalidate/revalidate.lambda.ts",
@@ -122,30 +140,12 @@
         }
       ]
     },
-    "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda": {
-      "name": "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda",
-      "description": "Create a JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.edge-lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
-        }
-      ]
-    },
-    "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda:watch": {
-      "name": "bundle:lambdas/sign-fn-url/sign-fn-url.edge-lambda:watch",
-      "description": "Continuously update the JavaScript bundle from src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/lambdas/sign-fn-url/sign-fn-url.edge-lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/sign-fn-url/sign-fn-url.edge-lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
-        }
-      ]
-    },
     "bundle:nextjs-build/add-cache-handler": {
       "name": "bundle:nextjs-build/add-cache-handler",
       "description": "Create a JavaScript bundle from src/nextjs-build/add-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm"
+          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm"
         }
       ]
     },
@@ -154,7 +154,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/add-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm --watch"
+          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm --watch"
         }
       ]
     },
@@ -163,7 +163,7 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\""
+          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\""
         }
       ]
     },
@@ -172,7 +172,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\" --watch"
+          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\" --watch"
         }
       ]
     },
@@ -181,7 +181,7 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/symlink.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm"
+          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm"
         }
       ]
     },
@@ -190,7 +190,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/symlink.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node20\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm --watch"
+          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm --watch"
         }
       ]
     },

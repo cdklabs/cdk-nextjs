@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync, ReadStream } from "node:fs";
 import { join, relative } from "node:path";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { PutObjectCommandInput } from "@aws-sdk/client-s3";
@@ -9,9 +9,10 @@ import * as mime from "mime-types";
 import { chunkArray, listFilePaths } from "./common";
 import { s3 } from "./s3";
 import { debug } from "./utils";
+import { NextjsType } from "../../common";
 import type { FsToS3Action } from "../../nextjs-assets-deployment";
 
-export async function fsToS3(props: FsToS3Action) {
+export async function fsToS3(props: FsToS3Action, nextjsType?: NextjsType) {
   const { destinationBucketName, destinationKeyPrefix, sourcePath } = props;
   const sourceFilePaths = listFilePaths(sourcePath);
   for await (const filePathChunk of chunkArray(sourceFilePaths, 100)) {
@@ -23,8 +24,22 @@ export async function fsToS3(props: FsToS3Action) {
           path,
           basePath: sourcePath,
         });
+        let body: string | ReadStream;
+        if (
+          path.includes(".next/static/chunks/main-app-") &&
+          nextjsType === NextjsType.GLOBAL_FUNCTIONS
+        ) {
+          // see src/lambdas/asset-deployment/patch-fetch.js for why this is needed
+          const mainAppFileContent = readFileSync(path);
+          const patchFetchContent = readFileSync(
+            join(__dirname, "patch-fetch.js"),
+          );
+          body = patchFetchContent + "\n" + mainAppFileContent;
+        } else {
+          body = createReadStream(path);
+        }
         return {
-          Body: createReadStream(path),
+          Body: body,
           Bucket: destinationBucketName,
           ContentType: contentType,
           Key: key,
@@ -48,7 +63,7 @@ interface CreateS3KeyProps {
 /**
  * Create S3 Key given local path
  */
-function createS3Key({ keyPrefix, path, basePath }: CreateS3KeyProps) {
+export function createS3Key({ keyPrefix, path, basePath }: CreateS3KeyProps) {
   const objectKeyParts: string[] = [];
   if (keyPrefix) objectKeyParts.push(keyPrefix);
   objectKeyParts.push(relative(basePath, path));

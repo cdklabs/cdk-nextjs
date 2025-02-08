@@ -13,6 +13,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next
 # create fetch-cache if not created by next build
 RUN mkdir -p /app/.next/cache/fetch-cache
 # copy bundled custom resource handler
-COPY --chown=nextjs:nodejs ./index.js ./
+COPY --chown=nextjs:nodejs ./index.js ./patch-fetch.js ./
 
 CMD ["index.handler"]

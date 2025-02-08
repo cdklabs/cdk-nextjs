@@ -94,8 +94,9 @@ export class NextjsRegionalContainers extends Construct {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
-      dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
+      dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
+      nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsAssetsDeployment,
       relativePathToWorkspace: this.props.relativePathToWorkspace,
       vpc: this.nextjsVpc.vpc,

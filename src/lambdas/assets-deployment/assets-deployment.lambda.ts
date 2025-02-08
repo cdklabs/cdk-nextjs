@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import type { CloudFormationCustomResourceHandler } from "aws-lambda";
 import { fsToFs } from "./fs-to-fs";
 import { fsToS3 } from "./fs-to-s3";
@@ -16,16 +16,20 @@ export const handler: CloudFormationCustomResourceHandler = async (
 ) => {
   debug({ event });
   let responseStatus = CfnResponseStatus.Failed;
+  /**
+   * Related to [Draft Mode](https://nextjs.org/docs/app/building-your-application/configuring/draft-mode)
+   * and required for `NextjsRevalidation` to do [on-demand revalidation](https://nextjs.org/docs/app/building-your-application/data-fetching/incremental-static-regeneration#on-demand-revalidation-with-revalidatepath)
+   */
   let previewModeId = "";
   try {
     const props = event.ResourceProperties as ResourceProps;
     if (event.RequestType === "Create" || event.RequestType === "Update") {
-      const { actions } = props;
+      const { actions, nextjsType } = props;
       for (const action of actions) {
         if (action.type === "fs-to-fs") {
           fsToFs(action);
         } else if (action.type === "fs-to-s3") {
-          await fsToS3(action);
+          await fsToS3(action, nextjsType);
         } else if (action.type === "prune-s3") {
           await pruneS3(action);
         }
@@ -48,9 +52,13 @@ export const handler: CloudFormationCustomResourceHandler = async (
   }
 };
 
+/**
+ * On first deployment there is no directory for images to be optimized into by
+ * Next.js so this creates directory for those images. Only runs once.
+ * This is unlike other cache directories which are created at build time.
+ */
 function initImageCache(imageCachePath: string) {
   if (imageCachePath && !existsSync(imageCachePath)) {
-    // only runs first time
     mkdirSync(imageCachePath);
   }
 }
