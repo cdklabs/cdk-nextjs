@@ -13,6 +13,8 @@ import {
   InstanceClass,
   InstanceSize,
   InstanceType,
+  Peer,
+  Port,
   Vpc,
 } from "aws-cdk-lib/aws-ec2";
 import { FckNatInstanceProvider } from "cdk-fck-nat";
@@ -109,6 +111,7 @@ class LowCostStack extends Stack {
       natGatewayProvider,
       vpcName,
     });
+    natGatewayProvider.securityGroup.addIngressRule(Peer.ipv4(vpc.vpcCidrBlock), Port.allTraffic());
     return vpc;
   }
   #createDnsRecords(nextjs: NextjsGlobalFunctions, hostedZone: IHostedZone) {
