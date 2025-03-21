@@ -8,7 +8,7 @@
     "deploy": "cdk deploy --require-approval never"
   },
   "dependencies": {
-    "aws-cdk": "^2.177.0",
+    "aws-cdk": "^2.178.2",
     "aws-cdk-lib": "2.177.0",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",
