@@ -134,23 +134,26 @@ This project uses Projen, so make sure to not edit [Projen](https://projen.io/) 
 
 ## FAQ
 
-Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs)?
+Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs)?<br/>
 A: cdk-nextjs-standalone relies on [OpenNext](https://github.com/sst/open-next). OpenNext injects custom code to interact with private Next.js APIs. While OpenNext is able to make some optimizations that are great for serverless environments, this comes at an increase maintenance cost and increased chances for breaking changes. A goal of cdk-nextjs is to customize Next.js as little as possible to reduce the maintenance burden and decrease chances of breaking changes.
 
-Q: Why not offer API Gateway version of construct?
+Q: Why not offer API Gateway version of construct?<br/>
 A: API Gateway does not support streaming.
 
-Q: Why EFS instead of S3?
+Q: Why EFS instead of S3?<br/>
 A: Next.js has 3 types of server caching that are persisted to disk: [Data Cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), [Full Route Cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache), and [Image Optimization](https://nextjs.org/docs/pages/building-your-application/optimizing/images). Cached data is persisted at .next/cache/fetch-cache, cached full routes are persisted at .next/server/app, and optimized images are persisted at .next/cache/images. Next.js provides a way to customize where cached data or cached full routes are persisted through the [Custom Next.js Cache Handler](https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath), but there currently is no way to persist optimized images. Therefore, we need a way to persist cached data at the file system level which is transparent to Next.js. To do this, we use [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Benefits of EFS include being able to cache any Next.js data persisted to disk and therefore being flexible to adapt to Next.js as the framework evolves caching additional types of data. One exception to not using the Custom Next.js Cache Handler is to support [Data Cache Time-based Revalidation](https://nextjs.org/docs/app/building-your-application/caching#time-based-revalidation) when using AWS Lambda functions. Functions only run when they are responding to a request preventing time-based revalidation unlike containers with AWS Fargate which run continually. For functions, an [Amazon SQS Queue](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html) and consuming function that will make a HEAD request with x-prerender-revalidate header needed for Next.js to update cache.
 
-Q: How customizable is the `cdk-nextjs` package for different use cases?
+Q: How customizable is the `cdk-nextjs` package for different use cases?<br/>
 A: The `cdk-nextjs` package offers deep customization through _prop-based_ overrides. These can be accessed in the construct props, allowing you to override settings like VPC configurations, CloudFront distribution, and ECS/Fargate setup. For example, you can modify `nextjsBuildProps` to customize the build process or use `nextjsDistributionProps` to adjust how CloudFront handles caching and routing. This level of control makes it easy to adapt the infrastructure to your application’s specific performance, networking, or deployment needs.
 
-Q: How can I use a custom domain with `cdk-nextjs`?
+Q: How can I use a custom domain with `cdk-nextjs`?<br/>
 A: See [low-cost example](./examples/low-cost/app.ts).
 
-Q: What is difference between `NextjsGlobalFunctionsProps.overrides.nextjsDistribution` and `NextjsGlobalFunctionsProps.overrides.nextjsGlobalFunctions.nextjsDistributionProps`
+Q: What is difference between `NextjsGlobalFunctionsProps.overrides.nextjsDistribution` and `NextjsGlobalFunctionsProps.overrides.nextjsGlobalFunctions.nextjsDistributionProps`<br/>
 A: `NextjsGlobalFunctionsProps.overrides.nextjsDistribution` allows you to customize any construct's props _within_ `NextjsDistribution` and is likely what you want whereas `NextjsGlobalFunctionsProps.overrides.nextjsGlobalFunctions.nextjsDistributionProps` allows you to customize the props passed into the construct: `NextjsDistribution`. This principle also applies to other similarly named overrides.
+
+Q: Why use container image for `NextjsGlobalFunctions`?<br />
+A: Read [The case for containers on Lambda (with benchmarks)](https://aaronstuyvenberg.com/posts/containers-on-lambda).
 
 ## Acknowledgements
 
