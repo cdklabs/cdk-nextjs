@@ -7,7 +7,7 @@ export function RunCommand() {
   const [command, setCommand] = useState('');
   const [logs, setLogs] = useState<string[]>([]);
   const handleClick = useCallback(async () => {
-    setLogs((oldLogs) => [...oldLogs, `Command: ${command}`]);
+    setLogs((oldLogs) => [`Command: ${command}`, ...oldLogs]);
     setCommand('');
     let output: string;
     try {
@@ -17,7 +17,7 @@ export function RunCommand() {
         output = err.toString();
       }
     }
-    setLogs((oldLogs) => [...oldLogs, `Output: ${output}`]);
+    setLogs((oldLogs) => [`Output: ${output}`, ...oldLogs]);
   }, [command]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -28,7 +28,7 @@ export function RunCommand() {
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           onKeyUp={(e) => e.code === 'Enter' && handleClick()}
-          style={{ backgroundColor: 'black', width: '50%' }}
+          style={{ backgroundColor: 'black', width: '50%', color: 'white' }}
         />
         <button onClick={handleClick} style={{ border: '2px solid white' }}>
           Execute Command
