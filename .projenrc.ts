@@ -145,12 +145,6 @@ function bundle() {
     minify: true,
     outfile: "../assets-deployment.lambda/patch-fetch.js",
   });
-  project.bundler.addBundle("src/nextjs-build/symlink.ts", {
-    platform: "node",
-    target,
-    outfile: "../../../lib/nextjs-build/symlink.mjs",
-    format: "esm",
-  });
 }
 
 function copyDockerfiles() {

@@ -80,9 +80,6 @@
         },
         {
           "spawn": "bundle:lambdas/assets-deployment/patch-fetch"
-        },
-        {
-          "spawn": "bundle:nextjs-build/symlink"
         }
       ]
     },
@@ -173,24 +170,6 @@
       "steps": [
         {
           "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\" --watch"
-        }
-      ]
-    },
-    "bundle:nextjs-build/symlink": {
-      "name": "bundle:nextjs-build/symlink",
-      "description": "Create a JavaScript bundle from src/nextjs-build/symlink.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm"
-        }
-      ]
-    },
-    "bundle:nextjs-build/symlink:watch": {
-      "name": "bundle:nextjs-build/symlink:watch",
-      "description": "Continuously update the JavaScript bundle from src/nextjs-build/symlink.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/nextjs-build/symlink.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/symlink.mjs\" --format=esm --watch"
         }
       ]
     },
