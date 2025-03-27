@@ -10,7 +10,7 @@ export interface OptionalNextjsDistributionProps {
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
    * @stability stable
    */
-  readonly loadBalancer?: aws_elasticloadbalancingv2.ILoadBalancerV2;
+  readonly loadBalancer?: aws_elasticloadbalancingv2.ApplicationLoadBalancer;
   /**
    * Required if `NextjsType.GLOBAL_FUNCTIONS`.
    * @stability stable

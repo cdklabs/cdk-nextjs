@@ -1742,6 +1742,16 @@ public readonly bucket: Bucket;
 
 ### NextjsVpc <a name="NextjsVpc" id="cdk-nextjs.NextjsVpc"></a>
 
+cdk-nextjs requires a VPC because of the use of EFS but if you're building on AWS you probably already need one for other resources (i.e. RDS/Aurora). You can provide your own VPC via `overrides.nextjsVpc.vpc` but you'll be responsible for creating the VPC. All cdk-nextjs constructs require a `SubnetType.PRIVATE_ISOLATED` subnet for EFS and `SubnetType.PRIVATE_WITH_EGRESS` for compute. `NextjsRegionalContainers` requires a `SubnetType.PUBLIC` subnet for CloudFront to reach the ALB. `NextjsGlobalFunctions` and `NextjsGlobalContainers` don't require a `SubnetType.PUBLIC` subnet because CloudFront accesses their compute securely through Function URL and VPC Origin Access.
+
+Note, if you use `NextjsVpc` then the default CDK VPC will be created
+for you with 2 AZs of all 3 types of subnets with a NAT Gateway in your
+`SubnetType.PUBLIC` subnet to allow for secure internet access from your
+`SubnetType.PRIVATE_WITH_EGRESS` subnet. This is recommended by AWS, but
+it costs $65/month for 2 AZs. See examples/low-cost for alternative.
+
+> [https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2-readme.html#subnet-types](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2-readme.html#subnet-types)
+
 #### Initializers <a name="Initializers" id="cdk-nextjs.NextjsVpc.Initializer"></a>
 
 ```typescript
@@ -2818,8 +2828,8 @@ const nextjsDistributionOverrides: NextjsDistributionOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicBehaviorOptions">dynamicBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.AddBehaviorOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicCachePolicyProps">dynamicCachePolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicyProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicFunctionUrlOriginWithOACProps">dynamicFunctionUrlOriginWithOACProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.FunctionUrlOriginWithOACProps</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicLoadBalancerV2OriginProps">dynamicLoadBalancerV2OriginProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.LoadBalancerV2OriginProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicResponseHeadersPolicyProps">dynamicResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicVpcOriginWithEndpointProps">dynamicVpcOriginWithEndpointProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.VpcOriginWithEndpointProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageBehaviorOptions">imageBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.AddBehaviorOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageCachePolicyProps">imageCachePolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicyProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageResponseHeadersPolicyProps">imageResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
@@ -2869,16 +2879,6 @@ public readonly dynamicFunctionUrlOriginWithOACProps: FunctionUrlOriginWithOACPr
 
 ---
 
-##### `dynamicLoadBalancerV2OriginProps`<sup>Optional</sup> <a name="dynamicLoadBalancerV2OriginProps" id="cdk-nextjs.NextjsDistributionOverrides.property.dynamicLoadBalancerV2OriginProps"></a>
-
-```typescript
-public readonly dynamicLoadBalancerV2OriginProps: LoadBalancerV2OriginProps;
-```
-
-- *Type:* aws-cdk-lib.aws_cloudfront_origins.LoadBalancerV2OriginProps
-
----
-
 ##### `dynamicResponseHeadersPolicyProps`<sup>Optional</sup> <a name="dynamicResponseHeadersPolicyProps" id="cdk-nextjs.NextjsDistributionOverrides.property.dynamicResponseHeadersPolicyProps"></a>
 
 ```typescript
@@ -2886,6 +2886,16 @@ public readonly dynamicResponseHeadersPolicyProps: ResponseHeadersPolicyProps;
 ```
 
 - *Type:* aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps
+
+---
+
+##### `dynamicVpcOriginWithEndpointProps`<sup>Optional</sup> <a name="dynamicVpcOriginWithEndpointProps" id="cdk-nextjs.NextjsDistributionOverrides.property.dynamicVpcOriginWithEndpointProps"></a>
+
+```typescript
+public readonly dynamicVpcOriginWithEndpointProps: VpcOriginWithEndpointProps;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront_origins.VpcOriginWithEndpointProps
 
 ---
 
@@ -2970,7 +2980,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
-| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
 
 ---
@@ -3058,10 +3068,10 @@ Required if `NextjsType.GLOBAL_FUNCTIONS`.
 ##### `loadBalancer`<sup>Optional</sup> <a name="loadBalancer" id="cdk-nextjs.NextjsDistributionProps.property.loadBalancer"></a>
 
 ```typescript
-public readonly loadBalancer: ILoadBalancerV2;
+public readonly loadBalancer: ApplicationLoadBalancer;
 ```
 
-- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer
 
 Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
 
@@ -8814,7 +8824,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add static behaviors to distribution. |
 
@@ -8881,10 +8891,10 @@ Required if `NextjsType.GLOBAL_FUNCTIONS`.
 ##### `loadBalancer`<sup>Optional</sup> <a name="loadBalancer" id="cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer"></a>
 
 ```typescript
-public readonly loadBalancer: ILoadBalancerV2;
+public readonly loadBalancer: ApplicationLoadBalancer;
 ```
 
-- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ILoadBalancerV2
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer
 
 Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
 

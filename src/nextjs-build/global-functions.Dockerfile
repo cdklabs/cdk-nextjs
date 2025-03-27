@@ -18,7 +18,7 @@ RUN adduser --system --uid 1001 nextjs
 
 ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/standalone ./
-COPY --chown=nextjs:nodejs ./add-cache-handler.mjs ./cache-handler.cjs ./symlink.mjs ./
+COPY --chown=nextjs:nodejs ./add-cache-handler.mjs ./cache-handler.cjs ./
 ARG MOUNT_PATH
 ARG DATA_CACHE_DIR
 ARG FULL_ROUTE_CACHE_DIR
@@ -35,8 +35,7 @@ RUN node add-cache-handler.mjs ./$RELATIVE_PATH_TO_WORKSPACE/.next/required-serv
   ln -s $MOUNT_PATH/$DATA_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/fetch-cache && \
   ln -s $MOUNT_PATH/$IMAGE_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/images && \
   ln -s $MOUNT_PATH/$PUBLIC_DIR ./$RELATIVE_PATH_TO_WORKSPACE/public && \
-  node symlink.mjs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/server/app $MOUNT_PATH/$FULL_ROUTE_CACHE_DIR "html,rsc,meta" && \
-  rm -r symlink.mjs
+  ln -s $MOUNT_PATH/$FULL_ROUTE_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/server/app
 
 USER nextjs
 
