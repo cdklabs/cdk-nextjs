@@ -2,7 +2,6 @@ import { Duration } from "aws-cdk-lib";
 import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
 import {
   AwsLogDriverMode,
-  CfnTaskDefinition,
   Cluster,
   ContainerImage,
   ContainerInsights,
@@ -120,15 +119,6 @@ export class NextjsContainers extends Construct {
     albFargateService.taskDefinition.defaultContainer?.addEnvironment(
       "HOSTNAME",
       "0.0.0.0",
-    );
-    // security best practice to enforce readonly for root filesystem
-    // hopefully https://github.com/aws/aws-cdk/issues/23935 will result in
-    // easier way to set this property
-    const cfnTaskDef = albFargateService.taskDefinition.node
-      .defaultChild as CfnTaskDefinition;
-    cfnTaskDef.addPropertyOverride(
-      "ContainerDefinitions.0.ReadonlyRootFilesystem",
-      true, // TODO: figure why symlink not being created between full route cache
     );
     // speed up deployments by shortening deregistration delay
     // https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/load-balancer-connection-draining.html
