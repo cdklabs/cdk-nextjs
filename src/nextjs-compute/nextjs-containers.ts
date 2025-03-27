@@ -94,6 +94,9 @@ export class NextjsContainers extends Construct {
           https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html#RequestCustomHTTPVersion
         */
         protocolVersion: ApplicationProtocolVersion.HTTP1,
+        // if NextjsType.GLOBAL_CONTAINERS then we use VPC Origin Access which allows putting ALB in private subnet
+        publicLoadBalancer:
+          this.props.nextjsType === NextjsType.REGIONAL_CONTAINERS,
         runtimePlatform: {
           cpuArchitecture,
         },

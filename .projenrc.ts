@@ -12,11 +12,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
   authorAddress: "bestickley@gmail.com",
   defaultReleaseBranch: "main",
   repositoryUrl: "https://github.com/cdklabs/cdk-nextjs.git",
-  depsUpgradeOptions: {
-    workflowOptions: {
-      schedule: UpgradeDependenciesSchedule.WEEKLY,
-    },
-  },
   // package.json config
   name: "cdk-nextjs",
   description:
@@ -24,7 +19,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // majorVersion: 1,
   // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.177.0",
+  cdkVersion: "2.186.0",
   jsiiVersion: "~5.5.0",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion: "9",
@@ -49,6 +44,15 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ignorePatterns: ["examples/**/*"],
   },
   // tooling config
+  depsUpgradeOptions: {
+    workflowOptions: {
+      schedule: UpgradeDependenciesSchedule.WEEKLY,
+    },
+  },
+  autoApproveUpgrades: true,
+  autoApproveOptions: {
+    allowedUsernames: ["cdklabs-automation", "github-bot"],
+  },
   lambdaOptions: {
     runtime: new LambdaRuntime(`nodejs${nodeVersion}.x`, `node${nodeVersion}`),
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3

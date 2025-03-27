@@ -31,11 +31,11 @@ import {
 import {
   FunctionUrlOrigin,
   FunctionUrlOriginWithOACProps,
-  LoadBalancerV2Origin,
-  LoadBalancerV2OriginProps,
   S3BucketOrigin,
+  VpcOrigin,
+  VpcOriginWithEndpointProps,
 } from "aws-cdk-lib/aws-cloudfront-origins";
-import { ILoadBalancerV2 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -53,7 +53,7 @@ export interface NextjsDistributionOverrides {
   readonly dynamicCachePolicyProps?: CachePolicyProps;
   readonly dynamicResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly dynamicFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
-  readonly dynamicLoadBalancerV2OriginProps?: LoadBalancerV2OriginProps;
+  readonly dynamicVpcOriginWithEndpointProps?: VpcOriginWithEndpointProps;
   readonly staticBehaviorOptions?: AddBehaviorOptions;
   readonly staticResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly s3BucketOriginProps?: OptionalS3OriginBucketWithOACProps;
@@ -78,7 +78,7 @@ export interface NextjsDistributionProps {
   /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`
    */
-  readonly loadBalancer?: ILoadBalancerV2;
+  readonly loadBalancer?: ApplicationLoadBalancer;
   readonly nextjsType: NextjsType;
   /**
    * Override props for every construct.
@@ -166,12 +166,11 @@ export class NextjsDistribution extends Construct {
       const loadBalancer = this.props.loadBalancer;
       if (!loadBalancer)
         throw new Error("Missing NextjsDistributionProps.loadBalancer");
-      // TODO: use VPC Origin when L3 construct released
-      return new LoadBalancerV2Origin(loadBalancer, {
+      return VpcOrigin.withApplicationLoadBalancer(loadBalancer, {
         protocolPolicy: this.props.certificate
           ? OriginProtocolPolicy.HTTPS_ONLY
           : OriginProtocolPolicy.HTTP_ONLY,
-        ...this.props.overrides?.dynamicLoadBalancerV2OriginProps,
+        ...this.props.overrides?.dynamicVpcOriginWithEndpointProps,
       });
     }
   }

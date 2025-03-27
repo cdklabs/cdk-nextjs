@@ -24,6 +24,26 @@ export interface NextjsVpcProps {
   readonly vpc?: IVpc;
 }
 
+/**
+ * cdk-nextjs requires a VPC because of the use of EFS but if you're building on
+ * AWS you probably already need one for other resources (i.e. RDS/Aurora).
+ * You can provide your own VPC via `overrides.nextjsVpc.vpc` but you'll be
+ * responsible for creating the VPC. All cdk-nextjs constructs require a
+ * `SubnetType.PRIVATE_ISOLATED` subnet for EFS and `SubnetType.PRIVATE_WITH_EGRESS`
+ * for compute. `NextjsRegionalContainers` requires a `SubnetType.PUBLIC`
+ * subnet for CloudFront to reach the ALB. `NextjsGlobalFunctions` and
+ * `NextjsGlobalContainers` don't require a `SubnetType.PUBLIC` subnet because
+ * CloudFront accesses their compute securely through Function URL and VPC
+ * Origin Access.
+ *
+ * Note, if you use `NextjsVpc` then the default CDK VPC will be created
+ * for you with 2 AZs of all 3 types of subnets with a NAT Gateway in your
+ * `SubnetType.PUBLIC` subnet to allow for secure internet access from your
+ * `SubnetType.PRIVATE_WITH_EGRESS` subnet. This is recommended by AWS, but
+ * it costs $65/month for 2 AZs. See examples/low-cost for alternative.
+ *
+ * @see https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2-readme.html#subnet-types
+ */
 export class NextjsVpc extends Construct {
   vpc: IVpc;
 
@@ -40,24 +60,18 @@ export class NextjsVpc extends Construct {
     }
   }
 
-  /**
-   * cdk-nextjs requires a VPC because of the use of EFS. The Next.js containers
-   * or functions can be placed in "private with egress" subnets or "private isolated"
-   * subnets. "Private with egress" subnets allow for outbound traffic to the internet
-   * but require a NAT Gateway which costs $65/month for 2 AZs. "Private isolated"
-   * subnets do not require a NAT Gateway therefore they are used by default.
-   * @see https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2-readme.html#subnet-types
-   */
   private createVpc() {
     return new Vpc(this, "Vpc", {
       maxAzs: 2, // might want 3 in production
       subnetConfiguration: [
+        // NAT Gateway and ALB for NextjsRegionalContainers live in Public subnets
         { name: "Public", subnetType: SubnetType.PUBLIC },
-        // PrivateWithEgress subnet uses NAT Gateway which costs $32/az/month
+        // All compute and ALB for NextjsGlobalContainers lives in PrivateWithEgress subnets
         {
           name: "PrivateWithEgress",
           subnetType: SubnetType.PRIVATE_WITH_EGRESS,
         },
+        // EFS lives in PrivateIsolated subnets
         { name: "PrivateIsolated", subnetType: SubnetType.PRIVATE_ISOLATED },
       ],
       ...this.props.overrides?.vpcProps,
