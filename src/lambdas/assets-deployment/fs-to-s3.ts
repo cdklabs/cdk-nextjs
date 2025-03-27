@@ -33,7 +33,11 @@ export async function fsToS3(props: FsToS3Action, nextjsType?: NextjsType) {
           const mainAppFileContent = readFileSync(path);
           const patchFetchContent = readFileSync(
             join(__dirname, "patch-fetch.js"),
-          );
+          )
+            .toString()
+            // remove "use strict" because it causes: Uncaught ReferenceError: _N_E is not defined
+            // since strict mode doesn't allow webpack to define undeclared variables
+            .replace('"use strict";', "");
           body = patchFetchContent + "\n" + mainAppFileContent;
         } else {
           body = createReadStream(path);
