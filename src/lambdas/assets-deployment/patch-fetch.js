@@ -26,13 +26,23 @@ async function calculateSha256(content) {
 const originalFetch = window.fetch;
 const OriginalXHR = window.XMLHttpRequest;
 
-// Helper function to convert FormData to string
-function formDataToString(formData) {
-  const pairs = [];
-  for (const [key, value] of formData.entries()) {
-    pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-  }
-  return pairs.join("&");
+/**
+ * Helper function to get raw multipart/form-data being sent to the server.
+ * Next.js Server Actions set `encType="multipart/form-data"` on `<form>` when
+ * using `action` property instead of default `enctype="application/x-www-form-urlencoded"`.
+ * Therefore, we need to reconstruct the raw body format to hash
+ * @param {RequestInfo | URL} input
+ * @param {RequestInit | undefined} init
+ * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type#content-type_in_multipart_forms
+ */
+async function getRawMultiPartFormData(input, init) {
+  const request = new Request(input, init);
+  const clone = request.clone();
+  const reader = clone.getReader();
+  const { value } = await reader.read();
+  const decoder = new TextDecoder();
+  const rawBody = decoder.decode(value);
+  return rawBody;
 }
 
 // Patch fetch
@@ -61,7 +71,7 @@ window.fetch = async function patchedFetch(input, init) {
     if (typeof body === "string") {
       bodyContent = body;
     } else if (body instanceof FormData) {
-      bodyContent = formDataToString(body);
+      bodyContent = getRawMultiPartFormData(input, init);
     } else if (body instanceof Blob || body instanceof ArrayBuffer) {
       bodyContent = await body.text();
     } else {
