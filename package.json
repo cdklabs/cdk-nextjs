@@ -88,11 +88,7 @@
     "aws-cdk-lib": "^2.186.0",
     "constructs": "^10.0.5"
   },
-  "pnpm": {
-    "ignoredBuiltDependencies": [
-      "esbuild"
-    ]
-  },
+  "pnpm": {},
   "keywords": [
     "aws",
     "aws-cdk",
