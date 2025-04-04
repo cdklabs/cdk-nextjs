@@ -29,7 +29,7 @@ export async function fsToS3(props: FsToS3Action, nextjsType?: NextjsType) {
           path.includes(".next/static/chunks/main-app-") &&
           nextjsType === NextjsType.GLOBAL_FUNCTIONS
         ) {
-          // see src/lambdas/asset-deployment/patch-fetch.js for why this is needed
+          // see src/lambdas/assets-deployment/patch-fetch.js for why this is needed
           const mainAppFileContent = readFileSync(path);
           const patchFetchContent = readFileSync(
             join(__dirname, "patch-fetch.js"),

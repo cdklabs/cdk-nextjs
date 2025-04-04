@@ -26,6 +26,25 @@ async function calculateSha256(content) {
 const originalFetch = window.fetch;
 const OriginalXHR = window.XMLHttpRequest;
 
+/**
+ * Helper function to get raw multipart/form-data being sent to the server.
+ * Next.js Server Actions set `encType="multipart/form-data"` on `<form>` when
+ * using `action` property instead of default `enctype="application/x-www-form-urlencoded"`.
+ * Therefore, we need to reconstruct the raw body format to hash
+ * @param {RequestInfo | URL} input
+ * @param {RequestInit | undefined} init
+ * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type#content-type_in_multipart_forms
+ */
+async function getRawMultiPartFormData(input, init) {
+  const request = new Request(input, init);
+  const clone = request.clone();
+  const reader = clone.getReader();
+  const { value } = await reader.read();
+  const decoder = new TextDecoder();
+  const rawBody = decoder.decode(value);
+  return rawBody;
+}
+
 // Patch fetch
 window.fetch = async function patchedFetch(input, init) {
   if (!init) {
@@ -47,15 +66,27 @@ window.fetch = async function patchedFetch(input, init) {
   }
 
   const body = init.body;
+  let bodyContent;
   if (body) {
-    const bodyString = typeof body === "string" ? body : JSON.stringify(body);
-    const contentHash = await calculateSha256(bodyString);
-
-    // Add or update headers
-    const headers = new Headers(init.headers);
-    headers.set("x-amz-content-sha256", contentHash);
-    init.headers = headers;
+    if (typeof body === "string") {
+      bodyContent = body;
+    } else if (body instanceof FormData) {
+      bodyContent = getRawMultiPartFormData(input, init);
+    } else if (body instanceof Blob || body instanceof ArrayBuffer) {
+      bodyContent = await body.text();
+    } else {
+      bodyContent = JSON.stringify(body);
+    }
+  } else {
+    // according to AWS's SigV4 signing requirements, even requests with empty
+    // bodies must have a valid x-amz-content-sha256 header
+    bodyContent = "";
   }
+  const contentHash = await calculateSha256(bodyContent);
+  // Add or update headers
+  const headers = new Headers(init.headers);
+  headers.set("x-amz-content-sha256", contentHash);
+  init.headers = headers;
 
   return originalFetch(input, init);
 };

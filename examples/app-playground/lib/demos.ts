@@ -103,4 +103,14 @@ export const demos: { name: string; items: Item[] }[] = [
       },
     ],
   },
+  {
+    name: 'cdk-nextjs Tests',
+    items: [
+      {
+        name: 'Server Actions',
+        slug: 'server-actions',
+        description: 'Demo of different styles of calling server actions',
+      },
+    ],
+  },
 ];
