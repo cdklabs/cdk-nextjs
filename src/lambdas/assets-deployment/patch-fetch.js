@@ -26,6 +26,15 @@ async function calculateSha256(content) {
 const originalFetch = window.fetch;
 const OriginalXHR = window.XMLHttpRequest;
 
+// Helper function to convert FormData to string
+function formDataToString(formData) {
+  const pairs = [];
+  for (const [key, value] of formData.entries()) {
+    pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+  }
+  return pairs.join("&");
+}
+
 // Patch fetch
 window.fetch = async function patchedFetch(input, init) {
   if (!init) {
@@ -48,8 +57,17 @@ window.fetch = async function patchedFetch(input, init) {
 
   const body = init.body;
   if (body) {
-    const bodyString = typeof body === "string" ? body : JSON.stringify(body);
-    const contentHash = await calculateSha256(bodyString);
+    let bodyContent;
+    if (typeof body === "string") {
+      bodyContent = body;
+    } else if (body instanceof FormData) {
+      bodyContent = formDataToString(body);
+    } else if (body instanceof Blob || body instanceof ArrayBuffer) {
+      bodyContent = await body.text();
+    } else {
+      bodyContent = JSON.stringify(body);
+    }
+    const contentHash = await calculateSha256(bodyContent);
 
     // Add or update headers
     const headers = new Headers(init.headers);
