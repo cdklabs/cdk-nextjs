@@ -56,8 +56,8 @@ window.fetch = async function patchedFetch(input, init) {
   }
 
   const body = init.body;
+  let bodyContent;
   if (body) {
-    let bodyContent;
     if (typeof body === "string") {
       bodyContent = body;
     } else if (body instanceof FormData) {
@@ -67,13 +67,16 @@ window.fetch = async function patchedFetch(input, init) {
     } else {
       bodyContent = JSON.stringify(body);
     }
-    const contentHash = await calculateSha256(bodyContent);
-
-    // Add or update headers
-    const headers = new Headers(init.headers);
-    headers.set("x-amz-content-sha256", contentHash);
-    init.headers = headers;
+  } else {
+    // according to AWS's SigV4 signing requirements, even requests with empty
+    // bodies must have a valid x-amz-content-sha256 header
+    bodyContent = "";
   }
+  const contentHash = await calculateSha256(bodyContent);
+  // Add or update headers
+  const headers = new Headers(init.headers);
+  headers.set("x-amz-content-sha256", contentHash);
+  init.headers = headers;
 
   return originalFetch(input, init);
 };
