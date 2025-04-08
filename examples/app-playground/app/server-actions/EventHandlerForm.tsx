@@ -9,7 +9,7 @@ export function EventHandlerForm() {
   const [name, setName] = useState('');
   return (
     <div className="flex flex-col gap-y-1">
-      <h2>Event Handler Form5</h2>
+      <h2>Event Handler Form</h2>
       <div className="flex flex-col gap-y-2">
         <NameInput value={name} onChange={(e) => setName(e.target.value)} />
         <div>

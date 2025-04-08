@@ -27,22 +27,53 @@ const originalFetch = window.fetch;
 const OriginalXHR = window.XMLHttpRequest;
 
 /**
- * Helper function to get raw multipart/form-data being sent to the server.
- * Next.js Server Actions set `encType="multipart/form-data"` on `<form>` when
- * using `action` property instead of default `enctype="application/x-www-form-urlencoded"`.
- * Therefore, we need to reconstruct the raw body format to hash
- * @param {RequestInfo | URL} input
- * @param {RequestInit | undefined} init
+ * Create raw multipart/form-data being sent to the server. Next.js Server
+ * Actions set `encType="multipart/form-data"` on `<form>` when using `action`
+ * property instead of default `enctype="application/x-www-form-urlencoded"`.
+ * Therefore, we need to reconstruct the raw body format to hash.
+ * 
+ * @param {string} formBoundary
+ * @param {FormData} formData
  * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type#content-type_in_multipart_forms
+ * 
+ * @example
+ * createMultiPartFormBody("FormBoundary0.eb6ebcebbb9788", body)
+```
+------FormBoundary0.eb6ebcebbb9788
+Content-Disposition: form-data; name="1_$ACTION_ID_b3cccc9c44c84d9ed2c08bf67acd81674725b41b"
+
+
+------FormBoundary0.eb6ebcebbb9788
+Content-Disposition: form-data; name="1_name"
+
+Ben
+------FormBoundary0.eb6ebcebbb9788
+Content-Disposition: form-data; name="0"
+
+["$K1"]
+------FormBoundary0.eb6ebcebbb9788--
+```
  */
-async function getRawMultiPartFormData(input, init) {
-  const request = new Request(input, init);
-  const clone = request.clone();
-  const reader = clone.getReader();
-  const { value } = await reader.read();
-  const decoder = new TextDecoder();
-  const rawBody = decoder.decode(value);
-  return rawBody;
+function createMultiPartFormBody(formBoundary, formData) {
+  // Create a consistent boundary format like Next.js uses
+  let content = "";
+
+  // Iterate through FormData entries and build the multipart body
+  for (const [key, value] of formData.entries()) {
+    // Add boundary
+    content += `--${formBoundary}\r\n`;
+    // Add Content-Disposition header
+    content += `Content-Disposition: form-data; name="${key}"\r\n`;
+    // Add required empty line
+    content += "\r\n";
+    // Add value
+    content += `${value}\r\n`;
+  }
+
+  // Add closing boundary
+  content += `--${formBoundary}--`;
+
+  return content;
 }
 
 // Patch fetch
@@ -67,11 +98,22 @@ window.fetch = async function patchedFetch(input, init) {
 
   const body = init.body;
   let bodyContent;
+  const headers = new Headers(init.headers);
   if (body) {
     if (typeof body === "string") {
       bodyContent = body;
     } else if (body instanceof FormData) {
-      bodyContent = getRawMultiPartFormData(input, init);
+      const formBoundary =
+        "----FormBoundary" + Math.random().toString(16).slice(2);
+      bodyContent = createMultiPartFormBody(formBoundary, body);
+      // browser will automatically set this header if <form enctype="multipart/form-data">
+      // but then we don't have access to body to hash, so we generate ourselves
+      headers.set(
+        "content-type",
+        `multipart/form-data; boundary=${formBoundary}`,
+      );
+      // overwrite the FormData body with raw multipart form-data body
+      init.body = bodyContent;
     } else if (body instanceof Blob || body instanceof ArrayBuffer) {
       bodyContent = await body.text();
     } else {
@@ -84,7 +126,6 @@ window.fetch = async function patchedFetch(input, init) {
   }
   const contentHash = await calculateSha256(bodyContent);
   // Add or update headers
-  const headers = new Headers(init.headers);
   headers.set("x-amz-content-sha256", contentHash);
   init.headers = headers;
 
