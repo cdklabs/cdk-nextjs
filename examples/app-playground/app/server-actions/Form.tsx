@@ -4,7 +4,7 @@ import { NameInput } from './components/NameInput';
 export function Form() {
   async function formAction(formData: FormData) {
     'use server';
-    console.log('Form Input: ', formData.get('name'));
+    console.log('Form Input:', formData.get('name'));
   }
   return (
     <div className="flex flex-col gap-y-1">
