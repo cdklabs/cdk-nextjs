@@ -83,6 +83,26 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "perf",
   ]),
   githubOptions: {
+    mergifyOptions: {
+      rules: [
+        {
+          name: "Automatically merge dependency updates",
+          conditions: [
+            "author=cdklabs-automation",
+            "title~=^chore: upgrade dependencies",
+            "status-success=build",
+            "status-success=package-js",
+          ],
+          actions: {
+            merge: {
+              method: "squash",
+              strict: true,
+              commit_message: "title+body",
+            },
+          },
+        },
+      ],
+    },
     pullRequestLintOptions: {
       semanticTitleOptions: {
         types: [

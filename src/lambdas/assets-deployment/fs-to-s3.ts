@@ -50,7 +50,12 @@ export async function fsToS3(props: FsToS3Action, nextjsType?: NextjsType) {
         };
       },
     );
-    debug({ putObjectInputs });
+    debug(
+      putObjectInputs.map((i) => ({
+        bucket: i.Bucket,
+        key: i.ContentType,
+      })),
+    );
     await Promise.all(
       putObjectInputs.map((input) =>
         new Upload({ client: s3, params: input }).done(),
