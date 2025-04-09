@@ -185,6 +185,12 @@ export class NextjsAssetsDeployment extends Construct {
           destinationBucketName: this.props.staticAssetsBucket.bucketName,
           destinationKeyPrefix: "_next/static",
         },
+        // public directory to s3 for CloudFront -> S3
+        {
+          type: "fs-to-s3",
+          sourcePath: join(root, "public"),
+          destinationBucketName: this.props.staticAssetsBucket.bucketName,
+        },
       );
     }
     actions.push(
@@ -214,7 +220,7 @@ export class NextjsAssetsDeployment extends Construct {
           FULL_ROUTE_CACHE_DIR,
         ),
       },
-      // public dir
+      // public directory to EFS for needed optimizing images in public directory
       {
         type: "fs-to-fs",
         sourcePath: join(root, "public"),
