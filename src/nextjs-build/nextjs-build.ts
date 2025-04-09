@@ -277,7 +277,7 @@ export class NextjsBuild extends Construct {
       "public",
     );
     const publicDirEntriesString = execSync(
-      `${this.containerRuntime} run ${this.builderImageTag} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDir: e.isDirectory()}))))"`,
+      `${this.containerRuntime} run ${this.builderImageTag} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
       { encoding: "utf-8" },
     );
     return JSON.parse(publicDirEntriesString) as PublicDirEntry[];
