@@ -123,6 +123,28 @@ importers:
         specifier: 5.4.5
         version: 5.4.5
 
+  custom-dockerfiles:
+    dependencies:
+      aws-cdk:
+        specifier: ^2.1005.0
+        version: 2.1005.0
+      aws-cdk-lib:
+        specifier: 2.186.0
+        version: 2.186.0(constructs@10.0.5)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      constructs:
+        specifier: 10.0.5
+        version: 10.0.5
+      tsx:
+        specifier: ^4.19.3
+        version: 4.19.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.13
+        version: 22.13.13
+
   global-containers:
     dependencies:
       aws-cdk-lib:
@@ -162,6 +184,28 @@ importers:
     devDependencies:
       '@types/node':
         specifier: ^22.13.13
+        version: 22.13.13
+
+  low-cost:
+    dependencies:
+      aws-cdk-lib:
+        specifier: 2.186.0
+        version: 2.186.0(constructs@10.0.5)
+      cdk-fck-nat:
+        specifier: ^1.5.11
+        version: 1.5.17(aws-cdk-lib@2.186.0(constructs@10.0.5))(constructs@10.0.5)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      constructs:
+        specifier: 10.0.5
+        version: 10.0.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.19.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.12.0
         version: 22.13.13
 
   regional-containers:
@@ -1062,6 +1106,12 @@ packages:
 
   caniuse-lite@1.0.30001616:
     resolution: {integrity: sha512-RHVYKov7IcdNjVHJFNY/78RdG4oGVjbayxv8u5IO74Wv7Hlq4PnJE6mo/OjFijjVFNy5ijnCt6H3IIo4t+wfEw==}
+
+  cdk-fck-nat@1.5.17:
+    resolution: {integrity: sha512-ZsNSiM10FZA2Z43AS7l+Z4m36EWKny/yhWx2oWBAIlK0srPoA60PQPDbV8KVi9VxXGPRyStoZZE/RI53JJKLNQ==}
+    peerDependencies:
+      aws-cdk-lib: ^2.122.0
+      constructs: ^10.0.5
 
   chalk@4.1.2:
     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
@@ -3991,6 +4041,11 @@ snapshots:
   camelize@1.0.1: {}
 
   caniuse-lite@1.0.30001616: {}
+
+  cdk-fck-nat@1.5.17(aws-cdk-lib@2.186.0(constructs@10.0.5))(constructs@10.0.5):
+    dependencies:
+      aws-cdk-lib: 2.186.0(constructs@10.0.5)
+      constructs: 10.0.5
 
   chalk@4.1.2:
     dependencies:

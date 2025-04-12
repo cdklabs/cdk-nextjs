@@ -1,5 +1,5 @@
 {
-  "name": "global-containers",
+  "name": "cdk-nextjs-example-global-containers",
   "type": "module",
   "private": true,
   "scripts": {

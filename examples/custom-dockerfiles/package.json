@@ -1,5 +1,5 @@
 {
-  "name": "cdk-nextjs-example-regional-containers",
+  "name": "cdk-nextjs-example-custom-dockerfiles",
   "type": "module",
   "private": true,
   "scripts": {
@@ -8,6 +8,7 @@
     "deploy": "cdk deploy --require-approval never"
   },
   "dependencies": {
+    "aws-cdk": "^2.1005.0",
     "aws-cdk-lib": "2.186.0",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",
