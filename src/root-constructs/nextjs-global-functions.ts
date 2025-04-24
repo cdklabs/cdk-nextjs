@@ -143,6 +143,7 @@ export class NextjsGlobalFunctions extends Construct {
   private createNextjsAssetsDeployment() {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
+      basePath: this.props.basePath,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
