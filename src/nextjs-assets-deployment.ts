@@ -28,6 +28,11 @@ export interface NextjsAssetDeploymentOverrides {
 export interface NextjsAssetsDeploymentProps {
   readonly accessPoint: AccessPoint;
   /**
+   * Prefix to the URI path the app will be served at.
+   * @example "/my-base-path"
+   */
+  readonly basePath?: string;
+  /**
    * @see {@link NextjsBuild.buildImageDigest}
    */
   readonly buildImageDigest: string;
@@ -177,13 +182,18 @@ export class NextjsAssetsDeployment extends Construct {
     const root = "/app";
     const actions: CustomResourceProperties["actions"] = [];
     if (this.props.staticAssetsBucket?.bucketName) {
+      // Prepare the destination key prefix with basePath when available
+      const staticKeyPrefix = this.props.basePath
+        ? `${this.props.basePath.replace(/^\//, "")}/_next/static`
+        : "_next/static";
+
       actions.push(
         // static files
         {
           type: "fs-to-s3",
           sourcePath: join(root, ".next", "static"),
           destinationBucketName: this.props.staticAssetsBucket.bucketName,
-          destinationKeyPrefix: "_next/static",
+          destinationKeyPrefix: staticKeyPrefix,
         },
         // public directory to s3 for CloudFront -> S3
         {
