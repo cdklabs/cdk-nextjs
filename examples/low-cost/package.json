@@ -1,5 +1,5 @@
 {
-  "name": "low-cost",
+  "name": "cdk-nextjs-example-low-cost",
   "type": "module",
   "private": true,
   "scripts": {
