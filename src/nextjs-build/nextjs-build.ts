@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { cpSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { IgnoreMode } from "aws-cdk-lib";
 import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
@@ -66,6 +66,9 @@ export interface NextjsBuildOverrides {
   readonly nextjsContainersDockerImageAssetProps?: OptionalDockerImageAssetProps;
   readonly nextjsFunctionsAssetImageCodeProps?: AssetImageCodeProps;
   readonly nextjsAssetDeploymentAssetImageCodeProps?: AssetImageCodeProps;
+  readonly functionsImageBuildContext?: string;
+  readonly assetsDeploymentImageBuildContext?: string;
+  readonly containersImageBuildContext?: string;
 }
 
 export interface NextjsBuildProps {
@@ -205,8 +208,20 @@ export class NextjsBuild extends Construct {
     const srcDockerfilePath =
       this.props.builderImageProps?.customDockerfilePath ||
       join(__dirname, file);
-    const destDockerfilePath = join(this.props.buildContext, file);
-    cpSync(srcDockerfilePath, destDockerfilePath);
+
+    const filePathsToCopy = [
+      srcDockerfilePath,
+      join(__dirname, "add-cache-handler.mjs"),
+      join(__dirname, "cache-handler.cjs"),
+    ];
+
+    filePathsToCopy.forEach((filePathToCopy) => {
+      cpSync(
+        filePathToCopy,
+        join(this.props.buildContext, basename(filePathToCopy)),
+      );
+    });
+
     const excludeFileStr = exclude?.join("\n");
     const dockerignoreFilePath = join(this.props.buildContext, ".dockerignore");
     writeFileSync(dockerignoreFilePath, excludeFileStr);
@@ -236,8 +251,10 @@ export class NextjsBuild extends Construct {
     } catch (err) {
       error = err;
     } finally {
-      rmSync(destDockerfilePath);
-      rmSync(dockerignoreFilePath);
+      filePathsToCopy.forEach((filePathToCopy) => {
+        rmSync(join(this.props.buildContext, basename(filePathToCopy)));
+      });
+
       if (envVarNames.length) {
         rmSync(loadEnvVarsScriptPath);
       }
@@ -291,8 +308,16 @@ export class NextjsBuild extends Construct {
     // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
     // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
     // which is in lib/nextjs-build folder.
-    const buildContext = join(__dirname, "..", "..", "lib", "nextjs-build");
+    const buildContext =
+      this.props.overrides?.containersImageBuildContext ??
+      join(__dirname, "..", "..", "lib", "nextjs-build");
     const dockerImageAsset = new DockerImageAsset(this, "Image", {
+      directory: buildContext,
+      exclude: ["*", `!${dockerfileName}`, "!add-cache-handler.mjs"],
+      extraHash: this.buildImageDigest, // rebuild when builder hash changes
+      file: dockerfileName,
+      ignoreMode: IgnoreMode.DOCKER,
+      ...this.props.overrides?.nextjsContainersDockerImageAssetProps,
       buildArgs: {
         BUILDER_IMAGE_TAG: this.builderImageTag,
         DATA_CACHE_DIR,
@@ -301,13 +326,9 @@ export class NextjsBuild extends Construct {
         IMAGE_CACHE_DIR,
         MOUNT_PATH: this.containerMountPathForEfs,
         RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
+        ...this.props.overrides?.nextjsContainersDockerImageAssetProps
+          ?.buildArgs,
       },
-      directory: buildContext,
-      exclude: ["*", `!${dockerfileName}`, "!add-cache-handler.mjs"],
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsContainersDockerImageAssetProps,
     });
     return dockerImageAsset;
   }
@@ -317,8 +338,15 @@ export class NextjsBuild extends Construct {
     // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
     // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
     // which is in lib/nextjs-build folder.
-    const buildContext = join(__dirname, "..", "..", "lib", "nextjs-build");
+    const buildContext =
+      this.props.overrides?.functionsImageBuildContext ??
+      join(__dirname, "..", "..", "lib", "nextjs-build");
     const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
+      cmd: ["node", this.relativePathToEntrypoint],
+      extraHash: this.buildImageDigest, // rebuild when builder hash changes
+      file: dockerfileName,
+      ignoreMode: IgnoreMode.DOCKER,
+      ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps,
       buildArgs: {
         BUILDER_IMAGE_TAG: this.builderImageTag,
         DATA_CACHE_DIR,
@@ -327,18 +355,16 @@ export class NextjsBuild extends Construct {
         IMAGE_CACHE_DIR,
         MOUNT_PATH: this.containerMountPathForEfs,
         RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
+        ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.buildArgs,
       },
-      cmd: ["node", this.relativePathToEntrypoint],
       exclude: [
         "*",
         `!${dockerfileName}`,
         "!add-cache-handler.mjs",
         "!cache-handler.cjs",
+        ...(this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.exclude ??
+          []),
       ],
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps,
     });
     // TODO: how to clean up temp dir?
     // rmSync(tempDir, { recursive: true });
@@ -350,27 +376,31 @@ export class NextjsBuild extends Construct {
     /**
      * Path to bundled custom resource code
      */
-    const lambdaBuildContext = join(
-      __dirname,
-      "..",
-      "..",
-      "assets",
-      "lambdas",
-      "assets-deployment",
-      "assets-deployment.lambda",
-    );
+    const buildContext =
+      this.props.overrides?.assetsDeploymentImageBuildContext ??
+      join(
+        __dirname,
+        "..",
+        "..",
+        "assets",
+        "lambdas",
+        "assets-deployment",
+        "assets-deployment.lambda",
+      );
     // cdk-nextjs/builder-{hash} already contains Next.js built code which
     // we'll copy into final image. But we also need lambda code to run
     // asset deployment tasks
-    const dockerImageCode = DockerImageCode.fromImageAsset(lambdaBuildContext, {
-      buildArgs: {
-        BUILDER_IMAGE_TAG: this.builderImageTag,
-        RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
-      },
+    const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
       extraHash: this.buildImageDigest, // rebuild when builder hash changes
       file: dockerfileName,
       ignoreMode: IgnoreMode.DOCKER,
       ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps,
+      buildArgs: {
+        BUILDER_IMAGE_TAG: this.builderImageTag,
+        RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
+        ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps
+          ?.buildArgs,
+      },
     });
     return dockerImageCode;
   }

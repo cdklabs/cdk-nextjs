@@ -16,6 +16,7 @@ RUN adduser --system --uid 1001 nextjs
 
 ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/add-cache-handler.mjs /app/cache-handler.cjs ./
 # static properties needed b/c we don't have cloudfront to serve them from s3
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/static ./$RELATIVE_PATH_TO_WORKSPACE/.next/static
 ARG MOUNT_PATH

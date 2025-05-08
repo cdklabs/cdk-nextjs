@@ -2458,9 +2458,20 @@ const nextjsBuildOverrides: NextjsBuildOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.functionsImageBuildContext">functionsImageBuildContext</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.nextjsAssetDeploymentAssetImageCodeProps">nextjsAssetDeploymentAssetImageCodeProps</a></code> | <code>aws-cdk-lib.aws_lambda.AssetImageCodeProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.nextjsContainersDockerImageAssetProps">nextjsContainersDockerImageAssetProps</a></code> | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps">OptionalDockerImageAssetProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.nextjsFunctionsAssetImageCodeProps">nextjsFunctionsAssetImageCodeProps</a></code> | <code>aws-cdk-lib.aws_lambda.AssetImageCodeProps</code> | *No description.* |
+
+---
+
+##### `functionsImageBuildContext`<sup>Optional</sup> <a name="functionsImageBuildContext" id="cdk-nextjs.NextjsBuildOverrides.property.functionsImageBuildContext"></a>
+
+```typescript
+public readonly functionsImageBuildContext: string;
+```
+
+- *Type:* string
 
 ---
 
