@@ -16,6 +16,7 @@ RUN adduser --system --uid 1001 nextjs
 
 ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/add-cache-handler.mjs /app/cache-handler.cjs ./
 ARG MOUNT_PATH
 ARG DATA_CACHE_DIR
 ARG FULL_ROUTE_CACHE_DIR
