@@ -1,5 +1,2 @@
 packages:
-  - app-playground
-  - global-containers
-  - global-functions
-  - regional-containers
+  - "*"
