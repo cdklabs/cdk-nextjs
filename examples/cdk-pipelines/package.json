@@ -1,0 +1,21 @@
+{
+  "name": "cdk-pipelines",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "deploy:local": "dotenv -- cdk deploy --require-approval never",
+    "synth:local": "dotenv -- cdk synth",
+    "destroy:local": "dotenv -- cdk destroy --force",
+    "deploy": "cdk deploy --require-approval never"
+  },
+  "dependencies": {
+    "aws-cdk": "^2.1005.0",
+    "aws-cdk-lib": "2.186.0",
+    "cdk-nextjs": "link:../..",
+    "constructs": "10.0.5",
+    "tsx": "^4.19.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.13"
+  }
+}
