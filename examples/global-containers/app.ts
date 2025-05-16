@@ -1,7 +1,12 @@
-import { Aspects, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
+import {
+  Aspects,
+  CfnOutput,
+  RemovalPolicy,
+  Stack,
+  StackProps,
+} from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { NextjsGlobalContainers } from "cdk-nextjs";
-import { fileURLToPath } from "node:url";
 import { App } from "aws-cdk-lib";
 import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
 import {
@@ -11,30 +16,24 @@ import {
 } from "../shared/suppress-nags";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
+import { getStackName } from "../shared/get-stack-name";
+import { join } from "node:path";
+import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 
 const app = new App();
 
 export class GlobalContainersStack extends Stack {
-  constructor(scope: Construct, id: string, props: StackProps) {
+  constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     const logsBucket = this.#getLogsBucket();
     const nextjs = new NextjsGlobalContainers(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: fileURLToPath(new URL("..", import.meta.url)),
+      buildContext: join(import.meta.dirname, ".."),
       overrides: {
         nextjsGlobalContainers: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: [
-                "**/node_modules",
-                "**/.next",
-                "global-containers",
-                "global-functions",
-                "regional-containers",
-                "low-cost",
-                "shared",
-                "*.md",
-              ],
+              exclude: getBuilderImageExcludeDirectories("global-containers"),
             },
           },
         },
@@ -58,6 +57,10 @@ export class GlobalContainersStack extends Stack {
         },
       },
       relativePathToWorkspace: "./app-playground",
+    });
+    new CfnOutput(this, "CdkNextjsUrl", {
+      value: "https://" + nextjs.nextjsDistribution.distribution.domainName,
+      key: "CdkNextjsUrl",
     });
     // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
     nextjs.nextjsVpc.vpc.node
@@ -88,12 +91,7 @@ export class GlobalContainersStack extends Stack {
   }
 }
 
-const stack = new GlobalContainersStack(app, "glbl-cntnrs", {
-  env: {
-    account: process.env["CDK_DEFAULT_ACCOUNT"],
-    region: process.env["CDK_DEFAULT_REGION"],
-  },
-});
+const stack = new GlobalContainersStack(app, getStackName("glbl-cntnrs"));
 
 suppressCommonNags(stack);
 suppressGlobalNags(stack);

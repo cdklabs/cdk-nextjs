@@ -1,0 +1,17 @@
+{
+  "name": "e2e-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "local:deploy-iam-role": "dotenv -- cdk deploy --require-approval never",
+    "install-browser": "pnpm exec playwright install --with-deps --no-shell chromium",
+    "test": "dotenv -- playwright test",
+    "test:ui": "dotenv -- playwright test --ui",
+    "ci:test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "cdk-pipelines-github": "^0.4.130",
+    "tsx": "^4.19.3"
+  }
+}

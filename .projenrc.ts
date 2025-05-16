@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { ProjenStruct, Struct } from "@mrgrain/jsii-struct-builder";
-import { awscdk, javascript, ReleasableCommits } from "projen";
+import { awscdk, javascript, JsonPatch, ReleasableCommits } from "projen";
 import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
@@ -142,6 +142,7 @@ copyDockerfiles();
 bundle();
 updateGitHubWorkflows();
 generateStructs();
+updatePackageJson();
 
 project.synth();
 
@@ -400,4 +401,12 @@ function generateStructs() {
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.DockerImageFunctionProps"))
     .allOptional();
+}
+
+function updatePackageJson() {
+  const packageJson = project.tryFindObjectFile("package.json");
+  packageJson?.patch(
+    JsonPatch.add("/pnpm/onlyBuiltDependencies", ["esbuild", "unrs-resolver"]),
+  );
+  packageJson?.patch(JsonPatch.add("/packageManager", "pnpm@10.11.0"));
 }

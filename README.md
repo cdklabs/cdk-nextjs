@@ -52,15 +52,15 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 ```ts
 import { App, Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
-import { fileURLToPath } from "node:url";
 import { NextjsGlobalFunctions } from "cdk-nextjs";
+import { join } from "node:path";
 
 class NextjsStack extends Stack {
-  constructor(scope: Construct, id: string, props: StackProps = {}) {
+  constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: fileURLToPath(new URL("..", import.meta.url)),
+      buildContext: join(import.meta.dirname, ".."),
     });
   }
 }
