@@ -2210,6 +2210,7 @@ const nextjsAssetsDeploymentProps: NextjsAssetsDeploymentProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.dockerImageCode">dockerImageCode</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.debug">debug</a></code> | <code>boolean</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsAssetDeploymentOverrides">NextjsAssetDeploymentOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
@@ -2280,6 +2281,25 @@ public readonly vpc: IVpc;
 - *Type:* aws-cdk-lib.aws_ec2.IVpc
 
 ---
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsAssetsDeploymentProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
+
+---
+
+*Example*
+
+```typescript
+"/my-base-path"
+```
+
 
 ##### `debug`<sup>Optional</sup> <a name="debug" id="cdk-nextjs.NextjsAssetsDeploymentProps.property.debug"></a>
 
@@ -8518,6 +8538,7 @@ const optionalNextjsAssetsDeploymentProps: OptionalNextjsAssetsDeploymentProps =
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.buildImageDigest">buildImageDigest</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.debug">debug</a></code> | <code>boolean</code> | *No description.* |
@@ -8536,6 +8557,18 @@ public readonly accessPoint: AccessPoint;
 ```
 
 - *Type:* aws-cdk-lib.aws_efs.AccessPoint
+
+---
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
 
 ---
 
