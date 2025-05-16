@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: pnpm i
       - name: Deploy
-        run: >-
+        run: |
           cd global-functions
           pnpm run deploy:ci
           echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-glbl-fns\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
@@ -54,9 +54,11 @@ jobs:
   #     ENV: ${{ github.event.number || github.ref_name }}
   #   steps:
   #     - uses: actions/checkout@v4
+  #     - uses: pnpm/action-setup@v4
   #     - uses: actions/setup-node@v4
   #       with:
-  #         node-version: lts/*
+  #         node-version: 22
+  #         cache: pnpm
   #     - uses: aws-actions/configure-aws-credentials@v4.2.1
   #       with:
   #         aws-region: us-east-1
@@ -64,7 +66,7 @@ jobs:
   #     - name: Install dependencies
   #       run: pnpm i
   #     - name: Deploy
-  #       run: >-
+  #       run: |
   #         cd global-containers
   #         pnpm run deploy:ci
   #         echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-glbl-cntnrs\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
@@ -90,9 +92,11 @@ jobs:
   #     ENV: ${{ github.event.number || github.ref_name }}
   #   steps:
   #     - uses: actions/checkout@v4
+  #     - uses: pnpm/action-setup@v4
   #     - uses: actions/setup-node@v4
   #       with:
-  #         node-version: lts/*
+  #         node-version: 22
+  #         cache: pnpm
   #     - uses: aws-actions/configure-aws-credentials@v4.2.1
   #       with:
   #         aws-region: us-east-1
@@ -100,7 +104,7 @@ jobs:
   #     - name: Install dependencies
   #       run: pnpm i
   #     - name: Deploy
-  #       run: >-
+  #       run: |
   #         cd regional-containers
   #         pnpm run deploy:ci
   #         echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-rgnl-cntnrs\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
