@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: aws-actions/configure-aws-credentials@v4.2.1
         with:
           aws-region: us-east-1
