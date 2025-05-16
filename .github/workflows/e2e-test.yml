@@ -25,6 +25,9 @@ jobs:
         with:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/GitHubActionRole
+      - name: Build cdk-nextjs
+        # bundle and compile are all that's needed to run locally
+        run: cd .. && pnpm i && pnpm bundle && pnpm compile
       - name: Install dependencies
         run: pnpm i
       - name: Deploy
