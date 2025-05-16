@@ -20,7 +20,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
   cdkVersion: "2.186.0",
-  jsiiVersion: "~5.5.0",
+  jsiiVersion: "~5.8.7",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion: "9",
   projenVersion: "^0.90.6",
