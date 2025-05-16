@@ -21,6 +21,11 @@ export interface OptionalNextjsAssetsDeploymentProps {
    */
   readonly debug?: boolean;
   /**
+   * Prefix to the URI path the app will be served at.
+   * @stability stable
+   */
+  readonly basePath?: string;
+  /**
    * @stability stable
    */
   readonly vpc?: aws_ec2.IVpc;
