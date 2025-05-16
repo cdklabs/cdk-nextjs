@@ -26,7 +26,7 @@ export function suppressCommonNags(stack: Stack) {
   );
 }
 
-export function suppressLambdaNags(stack: Stack) {
+export function suppressFunctionsNags(stack: Stack) {
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
     `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/Resource`,
@@ -45,6 +45,26 @@ export function suppressLambdaNags(stack: Stack) {
         id: "AwsSolutions-IAM5",
         reason:
           "StringEquals condition enforces access through EFS Access Point so wildcard resource ok",
+      },
+    ],
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsRevalidation/Queue/Resource`,
+    [
+      {
+        id: "AwsSolutions-SQS3",
+        reason: "DLQ not required for example app",
+      },
+    ],
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsRevalidation/Fn/ServiceRole/Resource`,
+    [
+      {
+        id: "AwsSolutions-IAM4",
+        reason: "AWSLambdaBasicExecutionRole is not overly permissive",
       },
     ],
   );

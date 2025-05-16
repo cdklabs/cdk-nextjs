@@ -7,14 +7,14 @@ import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
 import {
   suppressCommonNags,
   suppressGlobalNags,
-  suppressLambdaNags,
+  suppressFunctionsNags,
 } from "../shared/suppress-nags";
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 
 const app = new App();
 
-class GlobalFunctionsStack extends Stack {
+export class GlobalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps) {
     super(scope, id, props);
     const logsBucket = this.#getLogsBucket();
@@ -90,28 +90,11 @@ export const stack = new GlobalFunctionsStack(app, "glbl-fns", {
     region: process.env["CDK_DEFAULT_REGION"],
   },
 });
-suppressCommonNags(stack);
-suppressGlobalNags(stack);
-suppressLambdaNags(stack);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Queue/Resource`,
-  [
-    {
-      id: "AwsSolutions-SQS3",
-      reason: "DLQ not required for example app",
-    },
-  ],
-);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Fn/ServiceRole/Resource`,
-  [
-    {
-      id: "AwsSolutions-IAM4",
-      reason: "AWSLambdaBasicExecutionRole is not overly permissive",
-    },
-  ],
-);
+
+export function suppressGlobalFunctionsStackNags() {
+  suppressCommonNags(stack);
+  suppressGlobalNags(stack);
+  suppressFunctionsNags(stack);
+}
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));

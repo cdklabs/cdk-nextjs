@@ -4,4 +4,10 @@
   },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
+  "search.exclude": {
+    "**/node_modules/**": true,
+    "**/cdk.out/**": true,
+    "**/.next/**": true,
+    "**/pruned/**": true
+  }
 }
