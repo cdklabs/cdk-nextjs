@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "deploy": "dotenv -- cdk deploy --require-approval never",
-    "destroy": "dotenv -- cdk destroy --force",
-    "deploy:ci": "cdk deploy --require-approval never"
+    "destroy": "dotenv -- cdk destroy --force"
   },
   "dependencies": {
     "aws-cdk-lib": "2.186.0",

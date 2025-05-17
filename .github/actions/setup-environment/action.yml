@@ -1,0 +1,26 @@
+name: 'Setup Environment'
+description: 'Sets up Node.js, PNPM, AWS credentials, and builds cdk-nextjs'
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+      shell: bash
+    - uses: pnpm/action-setup@v4
+      shell: bash
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+      shell: bash
+    - uses: aws-actions/configure-aws-credentials@v4.2.1
+      with:
+        aws-region: us-east-1
+        role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/GitHubActionRole
+      shell: bash
+    - name: Build cdk-nextjs
+      run: cd .. && pnpm i && pnpm bundle && pnpm compile
+      shell: bash
+    - name: Install dependencies
+      run: pnpm i
+      shell: bash

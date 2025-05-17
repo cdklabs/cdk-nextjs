@@ -5,7 +5,8 @@
   "scripts": {
     "deploy": "dotenv -- cdk deploy --require-approval never --outputs-file outputs.json",
     "destroy": "dotenv -- cdk destroy --force",
-    "deploy:ci": "cdk deploy --require-approval never --outputs-file outputs.json"
+    "deploy:ci": "cdk deploy --require-approval never --outputs-file outputs.json",
+    "destroy:ci": "cdk destroy --force"
   },
   "dependencies": {
     "aws-cdk": "^2.1005.0",

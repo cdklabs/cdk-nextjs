@@ -15,36 +15,15 @@ jobs:
     env:
       ENV: ${{ github.event.number || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - uses: aws-actions/configure-aws-credentials@v4.2.1
-        with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/GitHubActionRole
-      - name: Build cdk-nextjs
-        # bundle and compile are all that's needed to run locally
-        run: cd .. && pnpm i && pnpm bundle && pnpm compile
-      - name: Install dependencies
-        run: pnpm i
+      - uses: ./.github/actions/setup-environment
       - name: Deploy
         run: |
           cd global-functions
           pnpm run deploy:ci
           echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-glbl-fns\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
-      - name: Install Playwright Browsers
-        run: cd e2e-tests && pnpm install-browser
-      - name: Run Playwright tests
+      - name: Run E2E Tests
         run: pnpm test:ci
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 30
+      - uses: ./.github/actions/cleanup-environment
   # e2e-test-glbl-cntnrs:
   #   permissions:
   #     id-token: write
@@ -56,18 +35,7 @@ jobs:
   #   env:
   #     ENV: ${{ github.event.number || github.ref_name }}
   #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: pnpm/action-setup@v4
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
-  #         cache: pnpm
-  #     - uses: aws-actions/configure-aws-credentials@v4.2.1
-  #       with:
-  #         aws-region: us-east-1
-  #         role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/GitHubActionRole
-  #     - name: Install dependencies
-  #       run: pnpm i
+  #     - uses: ./.github/actions/setup-environment
   #     - name: Deploy
   #       run: |
   #         cd global-containers
@@ -77,12 +45,7 @@ jobs:
   #       run: cd e2e-tests && pnpm install-browser
   #     - name: Run Playwright tests
   #       run: pnpm test:ci
-  #     - uses: actions/upload-artifact@v4
-  #       if: ${{ !cancelled() }}
-  #       with:
-  #         name: playwright-report
-  #         path: playwright-report/
-  #         retention-days: 30
+  #     - uses: ./.github/actions/cleanup-environment
   # e2e-test-rgnl-cntnrs:
   #   permissions:
   #     id-token: write
@@ -94,18 +57,7 @@ jobs:
   #   env:
   #     ENV: ${{ github.event.number || github.ref_name }}
   #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: pnpm/action-setup@v4
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
-  #         cache: pnpm
-  #     - uses: aws-actions/configure-aws-credentials@v4.2.1
-  #       with:
-  #         aws-region: us-east-1
-  #         role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/GitHubActionRole
-  #     - name: Install dependencies
-  #       run: pnpm i
+  #     - uses: ./.github/actions/setup-environment
   #     - name: Deploy
   #       run: |
   #         cd regional-containers
@@ -115,9 +67,4 @@ jobs:
   #       run: cd e2e-tests && pnpm install-browser
   #     - name: Run Playwright tests
   #       run: pnpm test:ci
-  #     - uses: actions/upload-artifact@v4
-  #       if: ${{ !cancelled() }}
-  #       with:
-  #         name: playwright-report
-  #         path: playwright-report/
-  #         retention-days: 30
+  #     - uses: ./.github/actions/cleanup-environment
