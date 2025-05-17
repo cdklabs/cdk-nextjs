@@ -1,9 +1,9 @@
-name: 'Setup Environment'
-description: 'Sets up Node.js, PNPM, AWS credentials, and builds cdk-nextjs'
+name: "Setup Environment"
+description: "Sets up Node.js, PNPM, AWS credentials, and builds cdk-nextjs"
 
 inputs:
   aws_account:
-    description: 'AWS account ID'
+    description: "AWS account ID"
     required: true
 
 runs:
@@ -18,9 +18,9 @@ runs:
       with:
         aws-region: us-east-1
         role-to-assume: arn:aws:iam::${{ inputs.aws_account }}:role/GitHubActionRole
-    - name: Build cdk-nextjs
+    - name: Install dependencies and build cdk-nextjs
       shell: bash
-      run: cd .. && pnpm i && pnpm bundle && pnpm compile
-    - name: Install dependencies
+      run: pnpm i && pnpm bundle && pnpm compile
+    - name: Install examples dependencies
       shell: bash
-      run: pnpm i
+      run: cd examples && pnpm i && cd e2e-tests && pnpm install-browser
