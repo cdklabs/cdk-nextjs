@@ -1,7 +1,6 @@
 import { IAspect, Stack, StackProps } from "aws-cdk-lib";
 import { Construct, IConstruct } from "constructs";
 import { NextjsGlobalFunctions } from "cdk-nextjs";
-import { fileURLToPath } from "node:url";
 import { App, Aspects } from "aws-cdk-lib";
 import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
 import {
@@ -32,6 +31,9 @@ import {
   RecordTarget,
 } from "aws-cdk-lib/aws-route53";
 import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets";
+import { getStackName } from "../shared/get-stack-name";
+import { join } from "node:path";
+import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 
 const app = new App();
 
@@ -51,14 +53,14 @@ class LowCostStack extends Stack {
   #hostedZoneDomainName = "example.com";
   #distributionDomainName = `blog.${this.#hostedZoneDomainName}`;
 
-  constructor(scope: Construct, id: string, props: StackProps) {
+  constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     const vpc = this.#createVpc();
     const hostedZone = this.#getHostedZone();
     const certificate = this.#getCertificate(hostedZone);
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: fileURLToPath(new URL("..", import.meta.url)),
+      buildContext: join(import.meta.dirname, ".."),
       overrides: {
         nextjsDistribution: {
           distributionProps: {
@@ -70,15 +72,7 @@ class LowCostStack extends Stack {
         nextjsGlobalFunctions: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: [
-                "**/node_modules",
-                "**/.next",
-                "global-containers",
-                "global-functions",
-                "regional-containers",
-                "shared",
-                "*.md",
-              ],
+              exclude: getBuilderImageExcludeDirectories("low-cost"),
             },
           },
           nextjsVpcProps: {
@@ -111,7 +105,10 @@ class LowCostStack extends Stack {
       natGatewayProvider,
       vpcName,
     });
-    natGatewayProvider.securityGroup.addIngressRule(Peer.ipv4(vpc.vpcCidrBlock), Port.allTraffic());
+    natGatewayProvider.securityGroup.addIngressRule(
+      Peer.ipv4(vpc.vpcCidrBlock),
+      Port.allTraffic(),
+    );
     return vpc;
   }
   #createDnsRecords(nextjs: NextjsGlobalFunctions, hostedZone: IHostedZone) {
@@ -132,12 +129,7 @@ class LowCostStack extends Stack {
   }
 }
 
-export const stack = new LowCostStack(app, "low-cost", {
-  env: {
-    account: process.env["CDK_DEFAULT_ACCOUNT"],
-    region: process.env["CDK_DEFAULT_REGION"],
-  },
-});
+export const stack = new LowCostStack(app, getStackName("low-cost"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);

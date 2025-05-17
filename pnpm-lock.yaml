@@ -81,20 +81,20 @@ importers:
         specifier: ^15
         version: 15.0.0
       jsii:
-        specifier: ~5.5.0
-        version: 5.5.32
+        specifier: ~5.8.7
+        version: 5.8.8
       jsii-diff:
         specifier: ^1.112.0
         version: 1.112.0
       jsii-docgen:
         specifier: ^10.5.0
-        version: 10.7.3(jsii-rosetta@5.5.38)
+        version: 10.7.3(jsii-rosetta@5.8.7)
       jsii-pacmak:
         specifier: ^1.112.0
-        version: 1.112.0(jsii-rosetta@5.5.38)
+        version: 1.112.0(jsii-rosetta@5.8.7)
       jsii-rosetta:
-        specifier: ~5.5.0
-        version: 5.5.38
+        specifier: ~5.8.7
+        version: 5.8.7
       mime-types:
         specifier: ^2.1.35
         version: 2.1.35
@@ -1964,10 +1964,6 @@ packages:
     resolution: {integrity: sha512-sCm11ak2oY6DglEPpCB8TixLjWAxd3kJTs6UIcSasNYxXdFPV+YKlye92c8H4kKFqV5qYMIh7d+cYecEg0dIkA==}
     engines: {node: '>=6'}
 
-  downlevel-dts@0.11.0:
-    resolution: {integrity: sha512-vo835pntK7kzYStk7xUHDifiYJvXxVhUapt85uk2AI94gUUAQX9HNRtrcMHNSc3YHJUEHGbYIGsM99uIbgAtxw==}
-    hasBin: true
-
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
     engines: {node: '>= 0.4'}
@@ -2539,10 +2535,6 @@ packages:
     resolution: {integrity: sha512-4gd7VpWNQNB4UKKCFFVcp1AVv+FMOgs9NKzjHKusc8jTMhd5eL1NqQqOpE0KzMds804/yHlglp3uxgluOqAPLw==}
     engines: {node: '>= 0.4'}
 
-  interpret@1.4.0:
-    resolution: {integrity: sha512-agE4QfB2Lkp9uICn7BAqoscw4SZP9kTE2hxiFI3jBPmXJfdqiahTbUuKGsMoN2GtqL9AxhYioAcVvgsb1HvRbA==}
-    engines: {node: '>= 0.10'}
-
   ipaddr.js@1.9.1:
     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
     engines: {node: '>= 0.10'}
@@ -2898,13 +2890,13 @@ packages:
     engines: {node: '>= 14.17.0'}
     hasBin: true
 
-  jsii-rosetta@5.5.38:
-    resolution: {integrity: sha512-W/io2mVjt6RrwYthA3uugaENHdU8ShOrGXINfEnF+8fBIs6SSZ/QtIZwvE5K6WDtXZ9eqqFnTPLJq1bULyfgoA==}
+  jsii-rosetta@5.8.7:
+    resolution: {integrity: sha512-8Ecl+BcCUXgRvqx9wqnVRqTlADuwdjS35sYSrKuXyAyLntdwlqn1NP3kMLLn20PBGjTkeqbCt8VmRox4hBASNA==}
     engines: {node: '>= 18.12.0'}
     hasBin: true
 
-  jsii@5.5.32:
-    resolution: {integrity: sha512-4W4786lIeqJCFMWdCEv2mYYQGwMlcpL0bjPgWut3qbWBrZL08asPMwKHQhBGsRofjn7dO9ymH89ctdhtIkXd4A==}
+  jsii@5.8.8:
+    resolution: {integrity: sha512-TSgHsnYNJq1W5ILdIE3tUJ3lLjSbp2VhDolBZ4SU7IYfEbW1dg9kpFLe7J/XPgQXfHlf5eUzOPVXyV/9rXft1w==}
     engines: {node: '>= 18.12.0'}
     hasBin: true
 
@@ -3463,10 +3455,6 @@ packages:
     resolution: {integrity: sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==}
     engines: {node: '>= 6'}
 
-  rechoir@0.6.2:
-    resolution: {integrity: sha512-HFM8rkZ+i3zrV+4LQjwQ0W+ez98pApMGM3HUrN04j3CqzPOzl9nmP15Y8YXNm8QHGv/eacOVEjqhmWpkRV0NAw==}
-    engines: {node: '>= 0.10'}
-
   redent@3.0.0:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
     engines: {node: '>=8'}
@@ -3605,11 +3593,6 @@ packages:
   shebang-regex@3.0.0:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
-
-  shelljs@0.8.5:
-    resolution: {integrity: sha512-TiwcRcrkhHvbrZbnRcFYMLl30Dfov3HKqzp5tO5b4pt6G/SezKcYhmDg15zXVBswHmctSAQKznqNW2LO5tTDow==}
-    engines: {node: '>=4'}
-    hasBin: true
 
   side-channel-list@1.0.0:
     resolution: {integrity: sha512-FCLHtRD/gnpCiCHEiJLOwdmFP+wzCmDEkc9y7NsYxeF4u7Btsn1ZuwgwJGxImImHicJArLP4R0yX4c2KCrMrTA==}
@@ -3943,18 +3926,8 @@ packages:
   typedarray@0.0.6:
     resolution: {integrity: sha512-/aCDEGatGvZ2BIk+HmLf4ifCJFwvKFNb9/JeZPMulfgFracn9QFcAf5GO8B/mweUjSoblS5In0cWhqpfs/5PQA==}
 
-  typescript@5.5.4:
-    resolution: {integrity: sha512-Mtq29sKDAEYP7aljRgtPOpTvOfbwRWlS6dPRzwjdE+C0R4brX/GUyhHSecbHMFLNBLcJIPt9nl9yG5TZ1weH+Q==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
   typescript@5.8.3:
     resolution: {integrity: sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
-  typescript@5.9.0-dev.20250511:
-    resolution: {integrity: sha512-Bi2tZAqJ5wzQgj/gUIVSlGaqmejGzAacdX0gBuIvn/DwlydVBeWdbFERk7UynqG4fRdapMaWiHkMxFU8H1IhFw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -6584,12 +6557,6 @@ snapshots:
       find-up: 3.0.0
       minimatch: 3.1.2
 
-  downlevel-dts@0.11.0:
-    dependencies:
-      semver: 7.7.1
-      shelljs: 0.8.5
-      typescript: 5.9.0-dev.20250511
-
   dunder-proto@1.0.1:
     dependencies:
       call-bind-apply-helpers: 1.0.1
@@ -7295,8 +7262,6 @@ snapshots:
       hasown: 2.0.2
       side-channel: 1.1.0
 
-  interpret@1.4.0: {}
-
   ipaddr.js@1.9.1: {}
 
   is-array-buffer@3.0.5:
@@ -7850,7 +7815,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  jsii-docgen@10.7.3(jsii-rosetta@5.5.38):
+  jsii-docgen@10.7.3(jsii-rosetta@5.8.7):
     dependencies:
       '@jsii/spec': 1.112.0
       case: 1.6.3
@@ -7858,11 +7823,11 @@ snapshots:
       glob: 8.1.0
       glob-promise: 6.0.7(glob@8.1.0)
       jsii-reflect: 1.112.0
-      jsii-rosetta: 5.5.38
+      jsii-rosetta: 5.8.7
       semver: 7.7.1
       yargs: 16.2.0
 
-  jsii-pacmak@1.112.0(jsii-rosetta@5.5.38):
+  jsii-pacmak@1.112.0(jsii-rosetta@5.8.7):
     dependencies:
       '@jsii/check-node': 1.112.0
       '@jsii/spec': 1.112.0
@@ -7872,7 +7837,7 @@ snapshots:
       escape-string-regexp: 4.0.0
       fs-extra: 10.1.0
       jsii-reflect: 1.112.0
-      jsii-rosetta: 5.5.38
+      jsii-rosetta: 5.8.7
       semver: 7.7.1
       spdx-license-list: 6.10.0
       xmlbuilder: 15.1.1
@@ -7887,7 +7852,7 @@ snapshots:
       oo-ascii-tree: 1.112.0
       yargs: 16.2.0
 
-  jsii-rosetta@5.5.38:
+  jsii-rosetta@5.8.7:
     dependencies:
       '@jsii/check-node': 1.111.0
       '@jsii/spec': 1.112.0
@@ -7895,30 +7860,29 @@ snapshots:
       chalk: 4.1.2
       commonmark: 0.31.2
       fast-glob: 3.3.3
-      jsii: 5.5.32
+      jsii: 5.8.8
       semver: 7.7.1
       semver-intersect: 1.5.0
       stream-json: 1.9.1
-      typescript: 5.5.4
+      typescript: 5.8.3
       workerpool: 6.5.1
       yargs: 17.7.2
     transitivePeerDependencies:
       - supports-color
 
-  jsii@5.5.32:
+  jsii@5.8.8:
     dependencies:
       '@jsii/check-node': 1.111.0
       '@jsii/spec': 1.112.0
       case: 1.6.3
       chalk: 4.1.2
-      downlevel-dts: 0.11.0
       fast-deep-equal: 3.1.3
       log4js: 6.9.1
       semver: 7.7.1
       semver-intersect: 1.5.0
       sort-json: 2.0.1
       spdx-license-list: 6.10.0
-      typescript: 5.5.4
+      typescript: 5.8.3
       yargs: 17.7.2
     transitivePeerDependencies:
       - supports-color
@@ -8438,10 +8402,6 @@ snapshots:
       string_decoder: 1.3.0
       util-deprecate: 1.0.2
 
-  rechoir@0.6.2:
-    dependencies:
-      resolve: 1.22.10
-
   redent@3.0.0:
     dependencies:
       indent-string: 4.0.0
@@ -8608,12 +8568,6 @@ snapshots:
       shebang-regex: 3.0.0
 
   shebang-regex@3.0.0: {}
-
-  shelljs@0.8.5:
-    dependencies:
-      glob: 7.2.3
-      interpret: 1.4.0
-      rechoir: 0.6.2
 
   side-channel-list@1.0.0:
     dependencies:
@@ -8960,11 +8914,7 @@ snapshots:
 
   typedarray@0.0.6: {}
 
-  typescript@5.5.4: {}
-
   typescript@5.8.3: {}
-
-  typescript@5.9.0-dev.20250511: {}
 
   uglify-js@3.19.3:
     optional: true

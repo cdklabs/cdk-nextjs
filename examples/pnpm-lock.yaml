@@ -19,9 +19,9 @@ importers:
         specifier: ^8.0.0
         version: 8.0.0
     devDependencies:
-      '@tsconfig/node20':
-        specifier: ^20.1.5
-        version: 20.1.5
+      '@tsconfig/node22':
+        specifier: ^22.0.1
+        version: 22.0.1
       '@tsconfig/strictest':
         specifier: ^2.0.5
         version: 2.0.5
@@ -51,7 +51,7 @@ importers:
         version: 3.0.0-canary.1
       next:
         specifier: ^14.2.25
-        version: 14.2.25(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 14.2.25(@playwright/test@1.52.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react:
         specifier: 18.2.0
         version: 18.2.0
@@ -123,6 +123,18 @@ importers:
         specifier: 5.4.5
         version: 5.4.5
 
+  e2e-tests:
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.52.0
+        version: 1.52.0
+      cdk-pipelines-github:
+        specifier: ^0.4.130
+        version: 0.4.130(aws-cdk-lib@2.186.0(constructs@10.0.5))(constructs@10.0.5)
+      tsx:
+        specifier: ^4.19.3
+        version: 4.19.3
+
   global-containers:
     dependencies:
       aws-cdk-lib:
@@ -162,6 +174,28 @@ importers:
     devDependencies:
       '@types/node':
         specifier: ^22.13.13
+        version: 22.13.13
+
+  low-cost:
+    dependencies:
+      aws-cdk-lib:
+        specifier: 2.186.0
+        version: 2.186.0(constructs@10.0.5)
+      cdk-fck-nat:
+        specifier: ^1.5.11
+        version: 1.6.0(aws-cdk-lib@2.186.0(constructs@10.0.5))(constructs@10.0.5)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      constructs:
+        specifier: 10.0.5
+        version: 10.0.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.19.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.12.0
         version: 22.13.13
 
   regional-containers:
@@ -659,6 +693,11 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
+  '@playwright/test@1.52.0':
+    resolution: {integrity: sha512-uh6W7sb55hl7D6vsAeA+V2p5JnlAqzhqFyF0VcJkKZXkgnFcVG9PziERRHQfPLfNGx1C292a4JqbWzhR8L4R1g==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   '@rollup/pluginutils@4.2.1':
     resolution: {integrity: sha512-iKnFXr7NkdZAIHiIWE+BX5ULi/ucVFYWD6TbAV+rZctiRTY2PL6tsIKhoIOaoskiWAkgu+VsbXgUVDNLHf+InQ==}
     engines: {node: '>= 8.0.0'}
@@ -704,8 +743,8 @@ packages:
   '@tsconfig/node16@1.0.4':
     resolution: {integrity: sha512-vxhUy4J8lyeyinH7Azl1pdd43GJhZH/tP2weN8TntQblOY+A0XbT8DJk1/oCPuOOyg/Ja757rG0CgHcWC8OfMA==}
 
-  '@tsconfig/node20@20.1.5':
-    resolution: {integrity: sha512-Vm8e3WxDTqMGPU4GATF9keQAIy1Drd7bPwlgzKJnZtoOsTm1tduUTbDjg0W5qERvGuxPI2h9RbMufH0YdfBylA==}
+  '@tsconfig/node22@22.0.1':
+    resolution: {integrity: sha512-VkgOa3n6jvs1p+r3DiwBqeEwGAwEvnVCg/hIjiANl5IEcqP3G0u5m8cBJspe1t9qjZRlZ7WFgqq5bJrGdgAKMg==}
 
   '@tsconfig/strictest@2.0.5':
     resolution: {integrity: sha512-ec4tjL2Rr0pkZ5hww65c+EEPYwxOi4Ryv+0MtjeaSQRJyq322Q27eOQiFbuNgw2hpL4hB1/W/HBGk3VKS43osg==}
@@ -1062,6 +1101,23 @@ packages:
 
   caniuse-lite@1.0.30001616:
     resolution: {integrity: sha512-RHVYKov7IcdNjVHJFNY/78RdG4oGVjbayxv8u5IO74Wv7Hlq4PnJE6mo/OjFijjVFNy5ijnCt6H3IIo4t+wfEw==}
+
+  cdk-fck-nat@1.6.0:
+    resolution: {integrity: sha512-FXpM/RTKLfGbS/YTA7Xfvn/CgvULiRmpvk8iL7bmNamvFlEvr/6akXniGKpzhCbk5cuKBYIBrRZ1+KGRQPe4fg==}
+    peerDependencies:
+      aws-cdk-lib: ^2.122.0
+      constructs: ^10.0.5
+
+  cdk-pipelines-github@0.4.130:
+    resolution: {integrity: sha512-osebqQoT/cOhROqVAtgYT/8cohFRQQ2Of8/ZzxAJ9U0O8asFtRw6rBGShxPlK4SjCyAdbwabXm0yb8VDJYmsAw==}
+    engines: {node: '>= 18.12.0'}
+    peerDependencies:
+      aws-cdk-lib: ^2.80.0
+      constructs: ^10.0.46
+    bundledDependencies:
+      - decamelize
+      - fast-json-patch
+      - yaml
 
   chalk@4.1.2:
     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
@@ -2420,6 +2476,16 @@ packages:
     resolution: {integrity: sha512-saLsH7WeYYPiD25LDuLRRY/i+6HaPYr6G1OUlN39otzkSTxKnubR9RTxS3/Kk50s1g2JTgFwWQDQyplC5/SHZg==}
     engines: {node: '>= 6'}
 
+  playwright-core@1.52.0:
+    resolution: {integrity: sha512-l2osTgLXSMeuLZOML9qYODUQoPPnUsKsb5/P6LJ2e6uPKXUdPK5WYhN4z03G+YNbWmGDY4YENauNu4ZKczreHg==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.52.0:
+    resolution: {integrity: sha512-JAwMNMBlxJ2oD1kce4KPtMkDeKGHQstdpFPcPH3maElAXon/QZeTvtsfXmTMRyO9TslfoYOXkSsvao2nE1ilTw==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   possible-typed-array-names@1.0.0:
     resolution: {integrity: sha512-d7Uw+eZoloe0EHDIYoe+bQ5WXnGMOpmiZFTuMWCwpjzzkL2nTjcKiAk4hh8TjnGye2TwWOk3UXucZ+3rbmBa8Q==}
     engines: {node: '>= 0.4'}
@@ -3485,6 +3551,10 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
+  '@playwright/test@1.52.0':
+    dependencies:
+      playwright: 1.52.0
+
   '@rollup/pluginutils@4.2.1':
     dependencies:
       estree-walker: 2.0.2
@@ -3531,7 +3601,7 @@ snapshots:
 
   '@tsconfig/node16@1.0.4': {}
 
-  '@tsconfig/node20@20.1.5': {}
+  '@tsconfig/node22@22.0.1': {}
 
   '@tsconfig/strictest@2.0.5': {}
 
@@ -3991,6 +4061,16 @@ snapshots:
   camelize@1.0.1: {}
 
   caniuse-lite@1.0.30001616: {}
+
+  cdk-fck-nat@1.6.0(aws-cdk-lib@2.186.0(constructs@10.0.5))(constructs@10.0.5):
+    dependencies:
+      aws-cdk-lib: 2.186.0(constructs@10.0.5)
+      constructs: 10.0.5
+
+  cdk-pipelines-github@0.4.130(aws-cdk-lib@2.186.0(constructs@10.0.5))(constructs@10.0.5):
+    dependencies:
+      aws-cdk-lib: 2.186.0(constructs@10.0.5)
+      constructs: 10.0.5
 
   chalk@4.1.2:
     dependencies:
@@ -5253,7 +5333,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@14.2.25(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
+  next@14.2.25(@playwright/test@1.52.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
       '@next/env': 14.2.25
       '@swc/helpers': 0.5.5
@@ -5274,6 +5354,7 @@ snapshots:
       '@next/swc-win32-arm64-msvc': 14.2.25
       '@next/swc-win32-ia32-msvc': 14.2.25
       '@next/swc-win32-x64-msvc': 14.2.25
+      '@playwright/test': 1.52.0
     transitivePeerDependencies:
       - '@babel/core'
       - babel-plugin-macros
@@ -5449,6 +5530,14 @@ snapshots:
   pify@2.3.0: {}
 
   pirates@4.0.6: {}
+
+  playwright-core@1.52.0: {}
+
+  playwright@1.52.0:
+    dependencies:
+      playwright-core: 1.52.0
+    optionalDependencies:
+      fsevents: 2.3.2
 
   possible-typed-array-names@1.0.0: {}
 
