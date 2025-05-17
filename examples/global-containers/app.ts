@@ -91,7 +91,12 @@ export class GlobalContainersStack extends Stack {
   }
 }
 
-const stack = new GlobalContainersStack(app, getStackName("glbl-cntnrs"));
+const stack = new GlobalContainersStack(app, getStackName("glbl-cntnrs"), {
+  env: {
+    account: process.env["CDK_DEFAULT_ACCOUNT"],
+    region: process.env["CDK_DEFAULT_REGION"],
+  },
+});
 
 suppressCommonNags(stack);
 suppressGlobalNags(stack);

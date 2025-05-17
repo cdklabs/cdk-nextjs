@@ -117,7 +117,12 @@ export class RegionalContainersStack extends Stack {
   }
 }
 
-const stack = new RegionalContainersStack(app, getStackName("rgnl-cntnrs"));
+const stack = new RegionalContainersStack(app, getStackName("rgnl-cntnrs"), {
+  env: {
+    account: process.env["CDK_DEFAULT_ACCOUNT"],
+    region: process.env["CDK_DEFAULT_REGION"],
+  },
+});
 
 suppressCommonNags(stack);
 suppressContainerNags(stack);
