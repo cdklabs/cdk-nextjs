@@ -4,8 +4,6 @@ description: 'Sets up Node.js, PNPM, AWS credentials, and builds cdk-nextjs'
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@v4
-      shell: bash
     - uses: pnpm/action-setup@v4
       shell: bash
     - uses: actions/setup-node@v4
