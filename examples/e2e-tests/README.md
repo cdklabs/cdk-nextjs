@@ -41,4 +41,4 @@ This steps are only needed if you want to connect cdk-nextjs GitHub Repo to an A
 ```
 
 2. Bootstrap AWS Account with `pnpm dotenv -- pnpm dlx cdk bootstrap aws://<AWS_ACCOUNT>/us-east-1 --cloudformation-execution-policies "arn:aws:iam::<AWS_ACCOUNT>:policy/cdk-nextjs-cfn-exec-policy"`
-3. Create IAM Role by running `pnpm local:deploy-iam-role`
+3. Create IAM Role by running `pnpm deploy-iam-role`

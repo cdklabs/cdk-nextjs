@@ -1,6 +1,10 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
+/**
+ * Excludes unnecessary context from builder image docker build which results
+ * in less docker build cache busts (faster builds).
+ */
 export function getBuilderImageExcludeDirectories(example: string): string[] {
   const include = [
     "app-playground",
