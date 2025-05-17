@@ -10,14 +10,11 @@ runs:
   using: "composite"
   steps:
     - uses: pnpm/action-setup@v4
-      shell: bash
     - uses: actions/setup-node@v4
-      shell: bash
       with:
         node-version: 22
         cache: pnpm
     - uses: aws-actions/configure-aws-credentials@v4.2.1
-      shell: bash
       with:
         aws-region: us-east-1
         role-to-assume: arn:aws:iam::${{ inputs.aws_account }}:role/GitHubActionRole
