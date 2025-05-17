@@ -1,9 +1,9 @@
-name: "Setup Environment"
-description: "Sets up Node.js, PNPM, AWS credentials, and builds cdk-nextjs"
+name: 'Setup Environment'
+description: 'Sets up Node.js, PNPM, AWS credentials, and builds cdk-nextjs'
 
 inputs:
   aws_account:
-    description: "AWS Account"
+    description: 'AWS account ID'
     required: true
 
 runs:
