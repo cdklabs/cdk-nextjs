@@ -23,37 +23,37 @@ jobs:
       # - name: Destroy environment
       #   run: cd examples/global-functions && pnpm run destroy:ci
       - uses: ./.github/actions/cleanup-environment
-  # glbl-cntnrs:
-  #   permissions:
-  #     id-token: write
-  #   timeout-minutes: 60
-  #   runs-on: ubuntu-latest
-  #   env:
-  #     ENV: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./.github/actions/setup-environment
-  #       with:
-  #         aws_account: ${{ secrets.AWS_ACCOUNT }}
-  #     - name: Deploy
-  #       run: cd examples/global-containers && pnpm run deploy:ci && echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-glbl-cntnrs\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
-  #     - name: Run Playwright tests
-  #       run: cd examples/e2e-tests && pnpm test:ci
-  #     - uses: ./.github/actions/cleanup-environment
-  # rgnl-cntnrs:
-  #   permissions:
-  #     id-token: write
-  #   timeout-minutes: 60
-  #   runs-on: ubuntu-latest
-  #   env:
-  #     ENV: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./.github/actions/setup-environment
-  #       with:
-  #         aws_account: ${{ secrets.AWS_ACCOUNT }}
-  #     - name: Deploy
-  #       run: cd examples/regional-containers && pnpm run deploy:ci && echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-rgnl-cntnrs\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
-  #     - name: Run Playwright tests
-  #       run: cd examples/e2e-tests && pnpm test:ci
-  #     - uses: ./.github/actions/cleanup-environment
+  glbl-cntnrs:
+    permissions:
+      id-token: write
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    env:
+      ENV: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+        with:
+          aws_account: ${{ secrets.AWS_ACCOUNT }}
+      - name: Deploy
+        run: cd examples/global-containers && pnpm run deploy:ci && echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-glbl-cntnrs\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
+      - name: Run Playwright tests
+        run: cd examples/e2e-tests && pnpm test:ci
+      - uses: ./.github/actions/cleanup-environment
+  rgnl-cntnrs:
+    permissions:
+      id-token: write
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    env:
+      ENV: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+        with:
+          aws_account: ${{ secrets.AWS_ACCOUNT }}
+      - name: Deploy
+        run: cd examples/regional-containers && pnpm run deploy:ci && echo "E2E_BASE_URL=$(jq -r ".[\"$ENV-rgnl-cntnrs\"].CdkNextjsUrl" outputs.json)" >> $GITHUB_ENV
+      - name: Run Playwright tests
+        run: cd examples/e2e-tests && pnpm test:ci
+      - uses: ./.github/actions/cleanup-environment
