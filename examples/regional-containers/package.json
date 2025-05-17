@@ -5,7 +5,7 @@
   "scripts": {
     "deploy": "dotenv -- cdk deploy --require-approval never",
     "destroy": "dotenv -- cdk destroy --force",
-    "deploy:ci": "cdk deploy --require-approval never",
+    "deploy:ci": "cdk deploy --require-approval never --outputs-file outputs.json",
     "destroy:ci": "cdk destroy --force"
   },
   "dependencies": {
