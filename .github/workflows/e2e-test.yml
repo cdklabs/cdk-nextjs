@@ -17,6 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-environment
+        with:
+          aws_acount: ${{ secrets.AWS_ACCOUNT }}
       - name: Deploy
         run: |
           cd global-functions
