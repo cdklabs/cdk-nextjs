@@ -19,6 +19,12 @@ export default defineConfig({
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: "on-first-retry",
+
+    /* Set cookies for all requests */
+    extraHTTPHeaders: {
+      // only required for rgnl-containers example to comply with security
+      Cookie: "cdk-nextjs=1",
+    },
   },
 
   /* Configure projects for major browsers */
