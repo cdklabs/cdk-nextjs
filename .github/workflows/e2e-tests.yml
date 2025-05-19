@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
-          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          aws_account: ${{ vars.AWS_ACCOUNT }}
           example_directory: global-functions
           stack_name: ${{ env.ENV }}-glbl-fns
 
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
-          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          aws_account: ${{ vars.AWS_ACCOUNT }}
           example_directory: global-containers
           stack_name: ${{ env.ENV }}-glbl-cntnrs
 
@@ -53,6 +53,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
-          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          aws_account: ${{ vars.AWS_ACCOUNT }}
           example_directory: regional-containers
           stack_name: ${{ env.ENV }}-rgnl-cntnrs

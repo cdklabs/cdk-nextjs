@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-base
         with:
-          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup global-functions
         run: cd examples/global-functions && pnpm run destroy:ci
         continue-on-error: true
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-base
         with:
-          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup global-containers
         run: cd examples/global-containers && pnpm run destroy:ci
         continue-on-error: true
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-base
         with:
-          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup regional-containers
         run: cd examples/regional-containers && pnpm run destroy:ci
         continue-on-error: true
