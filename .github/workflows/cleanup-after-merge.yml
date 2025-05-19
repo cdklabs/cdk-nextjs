@@ -16,8 +16,6 @@ jobs:
       - uses: ./.github/actions/setup-base
         with:
           aws_account: ${{ secrets.AWS_ACCOUNT }}
-          build_cdk_nextjs: "false"
-          install_examples: "true"
       - name: Cleanup global-functions
         run: cd examples/global-functions && pnpm run destroy:ci
       - name: Cleanup global-containers

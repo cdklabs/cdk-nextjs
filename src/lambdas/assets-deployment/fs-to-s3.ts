@@ -53,7 +53,7 @@ export async function fsToS3(props: FsToS3Action, nextjsType?: NextjsType) {
     debug(
       putObjectInputs.map((i) => ({
         bucket: i.Bucket,
-        key: i.ContentType,
+        key: i.Key,
       })),
     );
     await Promise.all(
