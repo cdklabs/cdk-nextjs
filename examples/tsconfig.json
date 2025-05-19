@@ -1,5 +1,6 @@
 {
-  "extends": ["@tsconfig/strictest", "@tsconfig/node20"],
+  "extends": ["@tsconfig/strictest", "@tsconfig/node22"],
+  "exclude": ["**/.next/**", "**/cdk.out/**"],
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",

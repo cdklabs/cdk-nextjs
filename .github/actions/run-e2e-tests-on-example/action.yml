@@ -1,0 +1,41 @@
+name: "Run E2E Tests on Example"
+description: "Sets up Node.js, PNPM, AWS credentials, builds cdk-nextjs, run e2e tests, clean up"
+
+inputs:
+  aws_account:
+    description: "AWS account ID"
+    required: true
+  example_directory:
+    description: "cdk-nextjs/examples directory"
+    required: true
+  stack_name:
+    description: "CloudFormation Stack Name"
+    required: true
+  test_script:
+    description: "package.json script to run tests"
+    required: false
+    default: "test:ci"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: ./.github/actions/setup-base
+      with:
+        aws_account: ${{ inputs.aws_account }}
+    - name: Install Playwright browser
+      shell: bash
+      run: cd examples/e2e-tests && pnpm install-browser
+    - name: Deploy and Run Tests
+      shell: bash
+      run: |
+        cd examples/${{ inputs.example_directory }}
+        pnpm run deploy:ci
+        export E2E_BASE_URL=$(jq -r '."${{ inputs.stack_name }}".CdkNextjsUrl' outputs.json)
+        cd ../e2e-tests
+        pnpm ${{ inputs.test_script }}
+    - uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report-${{ inputs.stack_name }}
+        path: examples/e2e-tests/playwright-report/
+        retention-days: 30
+      if: ${{ !cancelled() }}

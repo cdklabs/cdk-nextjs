@@ -1,0 +1,56 @@
+name: e2e-tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+env:
+  ENV: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
+jobs:
+  check-if-should-run:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'need-e2e-tests') }}
+    steps:
+      - run: echo "Workflow should run"
+
+  glbl-fns:
+    needs: check-if-should-run
+    permissions:
+      id-token: write
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/run-e2e-tests-on-example
+        with:
+          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          example_directory: global-functions
+          stack_name: ${{ env.ENV }}-glbl-fns
+
+  glbl-cntnrs:
+    needs: check-if-should-run
+    permissions:
+      id-token: write
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/run-e2e-tests-on-example
+        with:
+          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          example_directory: global-containers
+          stack_name: ${{ env.ENV }}-glbl-cntnrs
+
+  rgnl-cntnrs:
+    needs: check-if-should-run
+    permissions:
+      id-token: write
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/run-e2e-tests-on-example
+        with:
+          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          example_directory: regional-containers
+          stack_name: ${{ env.ENV }}-rgnl-cntnrs

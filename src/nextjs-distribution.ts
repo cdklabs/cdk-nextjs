@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, Stack } from "aws-cdk-lib";
+import { Duration, Stack } from "aws-cdk-lib";
 import { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AddBehaviorOptions,
@@ -142,9 +142,6 @@ export class NextjsDistribution extends Construct {
     this.distribution = this.getDistribution();
     this.addStaticBehaviors();
     this.addDynamicBehaviors();
-    new CfnOutput(this, "DistributionDomainName", {
-      value: this.distribution.domainName,
-    });
   }
 
   private createStaticOrigin(): IOrigin {

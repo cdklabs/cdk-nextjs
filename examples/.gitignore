@@ -2,3 +2,4 @@ node_modules
 pruned
 .env.local
 cdk.context.json
+outputs.json
