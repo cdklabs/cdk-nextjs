@@ -1,0 +1,28 @@
+name: Cleanup After Merge
+on:
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    env:
+      ENV: pr-${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-base
+        with:
+          aws_account: ${{ secrets.AWS_ACCOUNT }}
+          build_cdk_nextjs: "false"
+          install_examples: "true"
+      - name: Cleanup global-functions
+        run: cd examples/global-functions && pnpm run destroy:ci
+      - name: Cleanup global-containers
+        run: cd examples/global-containers && pnpm run destroy:ci
+        continue-on-error: true
+      - name: Cleanup regional-containers
+        run: cd examples/regional-containers && pnpm run destroy:ci
+        continue-on-error: true

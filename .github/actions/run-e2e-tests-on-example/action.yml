@@ -19,30 +19,22 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: pnpm/action-setup@v4
-    - uses: actions/setup-node@v4
+    - uses: ./.github/actions/setup-base
       with:
-        node-version: 22
-        cache: pnpm
-    - uses: aws-actions/configure-aws-credentials@v4.2.1
-      with:
-        aws-region: us-east-1
-        role-to-assume: arn:aws:iam::${{ inputs.aws_account }}:role/GitHubActionRole
-    - name: Install dependencies and build cdk-nextjs
+        aws_account: ${{ inputs.aws_account }}
+    - name: Install Playwright browser
       shell: bash
-      run: pnpm i && pnpm bundle && pnpm compile
-    - name: Install examples dependencies
-      shell: bash
-      run: cd examples && pnpm i && cd e2e-tests && pnpm install-browser
+      run: cd examples/e2e-tests && pnpm install-browser
     - name: Deploy and Run Tests
       shell: bash
       run: |
         cd examples/${{ inputs.example_directory }}
         pnpm run deploy:ci
         cat outputs.json
-        export E2E_BASE_URL=$(jq -r ".["${{ inputs.stack_name }}"].CdkNextjsUrl" outputs.json)
+        export E2E_BASE_URL=$(jq -r '."${{ inputs.stack_name }}".CdkNextjsUrl' outputs.json)
+        echo "E2E_BASE_URL: $E2E_BASE_URL"
         cd ../e2e-tests
-        pnpm ${{ inputs.test_script }}
+        E2E_BASE_URL=$E2E_BASE_URL pnpm ${{ inputs.test_script }}
     - uses: actions/upload-artifact@v4
       with:
         name: playwright-report-${{ inputs.stack_name }}

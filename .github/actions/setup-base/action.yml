@@ -1,0 +1,39 @@
+name: "Setup Base Environment"
+description: "Sets up Node.js, PNPM, AWS credentials, and installs dependencies"
+
+inputs:
+  aws_account:
+    description: "AWS account ID"
+    required: true
+  install_examples:
+    description: "Whether to install examples dependencies"
+    required: false
+    default: "true"
+  build_cdk_nextjs:
+    description: "Whether to build cdk-nextjs"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - uses: aws-actions/configure-aws-credentials@v4.2.1
+      with:
+        aws-region: us-east-1
+        role-to-assume: arn:aws:iam::${{ inputs.aws_account }}:role/GitHubActionRole
+    - name: Install root dependencies
+      shell: bash
+      run: pnpm i
+    - name: Build cdk-nextjs
+      if: ${{ inputs.build_cdk_nextjs == 'true' }}
+      shell: bash
+      run: pnpm bundle && pnpm compile
+    - name: Install examples dependencies
+      if: ${{ inputs.install_examples == 'true' }}
+      shell: bash
+      run: cd examples && pnpm i
