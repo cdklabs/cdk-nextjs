@@ -47,10 +47,10 @@
   },
   "devDependencies": {
     "@aws-crypto/sha256-js": "^5.2.0",
-    "@aws-sdk/client-s3": "^3.806.0",
-    "@aws-sdk/client-sqs": "^3.806.0",
-    "@aws-sdk/lib-storage": "^3.806.0",
-    "@mrgrain/jsii-struct-builder": "^0.7.55",
+    "@aws-sdk/client-s3": "^3.812.0",
+    "@aws-sdk/client-sqs": "^3.812.0",
+    "@aws-sdk/lib-storage": "^3.812.0",
+    "@mrgrain/jsii-struct-builder": "^0.7.56",
     "@smithy/signature-v4": "^2.3.0",
     "@types/aws-lambda": "^8.10.149",
     "@types/jest": "^29.5.14",
@@ -59,7 +59,7 @@
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "aws-cdk-lib": "2.186.0",
-    "cdk-nag": "^2.35.95",
+    "cdk-nag": "^2.35.101",
     "commit-and-tag-version": "^12",
     "constructs": "10.0.5",
     "esbuild": "^0.25.4",
@@ -79,10 +79,10 @@
     "next": "14.2.28",
     "prettier": "^3.5.3",
     "projen": "^0.90.6",
-    "ts-jest": "^29.3.2",
+    "ts-jest": "^29.3.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
-    "undici": "^6.21.2"
+    "undici": "^6.21.3"
   },
   "peerDependencies": {
     "aws-cdk-lib": "^2.186.0",
