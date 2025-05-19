@@ -11,9 +11,9 @@
     "cdk-fck-nat": "^1.5.11",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.4"
   },
   "devDependencies": {
-    "@types/node": "^22.12.0"
+    "@types/node": "^22.15.19"
   }
 }
