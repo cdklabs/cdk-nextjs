@@ -49,3 +49,4 @@ jobs:
           aws_account: ${{ secrets.AWS_ACCOUNT }}
       - name: Cleanup regional-containers
         run: cd examples/regional-containers && pnpm run destroy:ci
+        continue-on-error: true
