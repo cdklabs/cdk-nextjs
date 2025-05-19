@@ -349,7 +349,7 @@ export class NextjsDistribution extends Construct {
   }
   private addStaticBehaviors() {
     this.distribution.addBehavior(
-      "_next/static*",
+      this.getPathPattern("_next/static*"),
       this.staticOrigin,
       this.staticBehaviorOptions,
     );
