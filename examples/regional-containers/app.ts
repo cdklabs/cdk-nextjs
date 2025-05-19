@@ -57,7 +57,7 @@ export class RegionalContainersStack extends Stack {
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value:
-        "https://" +
+        "http://" +
         nextjs.nextjsContainers.albFargateService.loadBalancer
           .loadBalancerDnsName,
       key: "CdkNextjsUrl",
