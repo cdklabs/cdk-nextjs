@@ -9,8 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      pull-requests: write
-      actions: write
     env:
       ENV: pr-${{ github.event.pull_request.number }}
     steps:
