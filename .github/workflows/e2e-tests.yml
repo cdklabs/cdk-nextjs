@@ -3,13 +3,15 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 env:
   ENV: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
   check-if-should-run:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'need-e2e-tests') }}
+    # `github.event_name == 'push'` -> will run after merge to main
+    # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
+    if: ${{ github.event_name == 'push' || !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests') }}
     steps:
       - run: echo "Workflow should run"
 
