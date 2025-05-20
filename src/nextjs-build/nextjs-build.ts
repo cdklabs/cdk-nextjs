@@ -167,6 +167,11 @@ export class NextjsBuild extends Construct {
   relativePathToEntrypoint: string;
 
   /**
+   * Repository name for the builder image.
+   */
+  private builderImageRepo = "cdk-nextjs/builder";
+
+  /**
    * Tag of builder image Next.js app which is built for other images to be
    * built `FROM`. This image isn't built with CDK Assets construct b/c it
    * doesn't need to be uploaded to ECR. We still need to include slice of
@@ -179,7 +184,7 @@ export class NextjsBuild extends Construct {
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
-    this.builderImageTag = `cdk-nextjs/builder-${this.node.addr.slice(30)}`;
+    this.builderImageTag = `${this.node.addr.slice(30)}`;
     this.relativePathToWorkspace = props.relativePathToWorkspace || ".";
     this.props = props;
     this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
@@ -264,7 +269,7 @@ export class NextjsBuild extends Construct {
     }
     const command =
       this.props.builderImageProps?.command ||
-      `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageTag} ${buildArgsStr} .`;
+      `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageRepo}:${this.builderImageTag} ${buildArgsStr} .`;
     let error: unknown;
     try {
       if (!skipBuild) {
@@ -311,7 +316,7 @@ export class NextjsBuild extends Construct {
   }
   private getBuilderImageDigest() {
     const digest = execSync(
-      `${this.containerRuntime} images --no-trunc --quiet ${this.builderImageTag}`,
+      `${this.containerRuntime} images --no-trunc --quiet ${this.builderImageRepo}:${this.builderImageTag}`,
       { encoding: "utf-8" },
     );
     return digest.slice(0, -1); // remove trailing \n
@@ -323,7 +328,7 @@ export class NextjsBuild extends Construct {
       "public",
     );
     const publicDirEntriesString = execSync(
-      `${this.containerRuntime} run ${this.builderImageTag} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
+      `${this.containerRuntime} run ${this.builderImageRepo}:${this.builderImageTag} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
       { encoding: "utf-8" },
     );
     return JSON.parse(publicDirEntriesString) as PublicDirEntry[];
@@ -347,7 +352,7 @@ export class NextjsBuild extends Construct {
       ignoreMode: IgnoreMode.DOCKER,
       ...this.props.overrides?.nextjsContainersDockerImageAssetProps,
       buildArgs: {
-        BUILDER_IMAGE_TAG: this.builderImageTag,
+        BUILDER_IMAGE_ALIAS: `${this.builderImageRepo}:${this.builderImageTag}`,
         DATA_CACHE_DIR,
         FULL_ROUTE_CACHE_DIR,
         PUBLIC_DIR,
@@ -376,7 +381,7 @@ export class NextjsBuild extends Construct {
       ignoreMode: IgnoreMode.DOCKER,
       ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps,
       buildArgs: {
-        BUILDER_IMAGE_TAG: this.builderImageTag,
+        BUILDER_IMAGE_ALIAS: `${this.builderImageRepo}:${this.builderImageTag}`,
         DATA_CACHE_DIR,
         FULL_ROUTE_CACHE_DIR,
         PUBLIC_DIR,
@@ -416,7 +421,7 @@ export class NextjsBuild extends Construct {
       ignoreMode: IgnoreMode.DOCKER,
       ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps,
       buildArgs: {
-        BUILDER_IMAGE_TAG: this.builderImageTag,
+        BUILDER_IMAGE_ALIAS: `${this.builderImageRepo}:${this.builderImageTag}`,
         RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
         ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps
           ?.buildArgs,

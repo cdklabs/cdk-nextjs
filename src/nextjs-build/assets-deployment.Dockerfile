@@ -1,9 +1,9 @@
 #checkov:skip=CKV_DOCKER_2: healthcheck not needed for Custom Resource
 #checkov:skip=CKV_DOCKER_3: lambda container creates user by default
 #checkov:skip=CKV_DOCKER_7: latest tag is ok to use for local builder container
-ARG BUILDER_IMAGE_TAG
-FROM $BUILDER_IMAGE_TAG as builder
-FROM public.ecr.aws/lambda/nodejs:22 as runner
+ARG BUILDER_IMAGE_ALIAS=cdk-nextjs/builder:latest
+FROM $BUILDER_IMAGE_ALIAS AS builder
+FROM public.ecr.aws/lambda/nodejs:22 AS runner
 
 ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/public /app/public

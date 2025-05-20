@@ -2,6 +2,7 @@
 
 ## 0.4.0
 
+- Change BUILDER_IMAE_TAG to BUILDER_IMAGE_ALIAS. This only affects you if you've used overrides to change these values. Reason for change was to resolve Docker warning, `InvalidDefaultArgInFrom`, and to improve semantics. A tag in Dockerfile reference is what comes after the :. Alias is repo:tag. Now repository (cdk-nextjs/builder) and tag (CDK's `node.addr.slice(30)`) so we can properly default to `cdk-nextjs/builder:latest` in Dockerfiles.
 - Remove `overrides.{nextjs...}.nextjsBuildProps.customDockerfilePath` in favor of `buildContext` + `overrides.{nextjs...}.nextjsBuildProps.file`. Simplies from 2 ways to 1. Default builder image Dockerfile name is now "builder.Dockerfile" too.
 
 ## 0.3.0

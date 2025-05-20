@@ -1,10 +1,10 @@
 #checkov:skip=CKV_DOCKER_2: healthcheck run by AWS Lambda Web Adapter
 #checkov:skip=CKV_DOCKER_7: latest tag is ok to use for local builder container
 # Modified from: https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
-ARG BUILDER_IMAGE_TAG
-FROM $BUILDER_IMAGE_TAG as builder
+ARG BUILDER_IMAGE_ALIAS=cdk-nextjs/builder:latest
+FROM $BUILDER_IMAGE_ALIAS AS builder
 # Production image, copy all the files and run next
-FROM public.ecr.aws/docker/library/node:22-alpine as runner
+FROM public.ecr.aws/docker/library/node:22-alpine AS runner
 ARG MOUNT_PATH
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 WORKDIR /app

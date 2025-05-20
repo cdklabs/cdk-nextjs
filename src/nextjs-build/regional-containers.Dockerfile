@@ -1,10 +1,10 @@
 #checkov:skip=CKV_DOCKER_2: healthcheck run by ALB and ECS
 #checkov:skip=CKV_DOCKER_7: latest tag is ok to use for local builder container
 # Modified from: https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
-ARG BUILDER_IMAGE_TAG
-FROM $BUILDER_IMAGE_TAG as builder
+ARG BUILDER_IMAGE_ALIAS=cdk-nextjs/builder:latest
+FROM $BUILDER_IMAGE_ALIAS AS builder
 # Production image, copy all the files and run next
-FROM public.ecr.aws/docker/library/node:22-alpine as runner
+FROM public.ecr.aws/docker/library/node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV production
