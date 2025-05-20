@@ -1,5 +1,5 @@
 {
-  "name": "global-functions",
+  "name": "cdk-nextjs-example-global-functions",
   "type": "module",
   "private": true,
   "scripts": {

@@ -2043,10 +2043,9 @@ const builderImageProps: BuilderImageProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.BuilderImageProps.property.buildArgs">buildArgs</a></code> | <code>{[ key: string ]: string}</code> | Build Args to be passed to `docker build` command. |
 | <code><a href="#cdk-nextjs.BuilderImageProps.property.command">command</a></code> | <code>string</code> | `docker build ...` command to run in {@link NextBaseProps.buildContext }. Default interpolates other props. If you override, other props will have no effect on command. |
-| <code><a href="#cdk-nextjs.BuilderImageProps.property.customDockerfilePath">customDockerfilePath</a></code> | <code>string</code> | Path to your custom builder.Dockerfile which will be copied into {@link NextBaseProps.buildContext }. It is recommended to override this prop to optimize build caching for your setup. |
 | <code><a href="#cdk-nextjs.BuilderImageProps.property.envVarNames">envVarNames</a></code> | <code>string[]</code> | Environment variables names to pass from host to container during build process. |
 | <code><a href="#cdk-nextjs.BuilderImageProps.property.exclude">exclude</a></code> | <code>string[]</code> | Lines in .dockerignore file which will be created in your {@link NextBaseProps.buildContext }. |
-| <code><a href="#cdk-nextjs.BuilderImageProps.property.file">file</a></code> | <code>string</code> | Name of Dockerfile. |
+| <code><a href="#cdk-nextjs.BuilderImageProps.property.file">file</a></code> | <code>string</code> | Name of Dockerfile in builder build context. |
 | <code><a href="#cdk-nextjs.BuilderImageProps.property.platform">platform</a></code> | <code>aws-cdk-lib.aws_ecr_assets.Platform</code> | *No description.* |
 | <code><a href="#cdk-nextjs.BuilderImageProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skip building the builder image. |
 
@@ -2076,18 +2075,6 @@ public readonly command: string;
 
 ---
 
-##### `customDockerfilePath`<sup>Optional</sup> <a name="customDockerfilePath" id="cdk-nextjs.BuilderImageProps.property.customDockerfilePath"></a>
-
-```typescript
-public readonly customDockerfilePath: string;
-```
-
-- *Type:* string
-
-Path to your custom builder.Dockerfile which will be copied into {@link NextBaseProps.buildContext }. It is recommended to override this prop to optimize build caching for your setup.
-
----
-
 ##### `envVarNames`<sup>Optional</sup> <a name="envVarNames" id="cdk-nextjs.BuilderImageProps.property.envVarNames"></a>
 
 ```typescript
@@ -2101,7 +2088,7 @@ Environment variables names to pass from host to container during build process.
 Note, a shell script, cdk-nextjs-load-env-vars.sh is created within the
 {@link NextBaseProps.buildContext } directory, which will contain all the
 environment variables defined in this prop. If you've created your own
-custom Dockerfile (passed in via {@link BuilderImageProps.customDockerfilePath})
+custom Dockerfile (passed in via {@link BuilderImageProps.customDockerfilePath })
 then you need to make sure you're copying it into the image.
 
 ---
@@ -2135,7 +2122,10 @@ public readonly file: string;
 - *Type:* string
 - *Default:* "builder.Dockerfile"
 
-Name of Dockerfile.
+Name of Dockerfile in builder build context.
+
+If specified, you are responsible
+for ensuring it exists in build context before construct is instantiated.
 
 ---
 
@@ -2377,12 +2367,18 @@ public readonly buildContext: string;
 
 [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
 
+Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
+Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
+If you override the default, then you are responsible for ensuring the
+Dockerfile is in the build context directory before cdk-nextjs construct
+is instantiated.
+
 ---
 
 *Example*
 
 ```typescript
-fileURLToPath(new URL("../..", import.meta.url)) (monorepo)
+join(import.meta.dirname, "..") (monorepo)
 ```
 
 
@@ -2478,9 +2474,9 @@ const nextjsBuildOverrides: NextjsBuildOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.assetsDeploymentImageBuildContext">assetsDeploymentImageBuildContext</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.containersImageBuildContext">containersImageBuildContext</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.functionsImageBuildContext">functionsImageBuildContext</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.assetsDeploymentImageBuildContext">assetsDeploymentImageBuildContext</a></code> | <code>string</code> | Default folder for build context is the "lib/nextjs-build" folder in the installed cdk-nextjs library which has the "assets-deployment.Dockerfile". Note, if you specify this then you're responsible for ensuring the dockerfile is present in the build context directory and any referenced files are present as well. You can specify dockerfile name with adjacent `nextjsAssetDeploymentAssetImageCodeProps.file` property. |
+| <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.containersImageBuildContext">containersImageBuildContext</a></code> | <code>string</code> | Default folder for build context is the "assets/lambdas/assets-deployment/assets-deployment.lambda" folder in the installed cdk-nextjs library which has the "{...}-containers.Dockerfile". Note, if you specify this then you're responsible for ensuring the dockerfile is present in the build context directory and any referenced files are present as well. You can specify dockerfile name with adjacent `nextjsContainersDockerImageAssetProps.file` property. |
+| <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.functionsImageBuildContext">functionsImageBuildContext</a></code> | <code>string</code> | Default folder for build context is the "lib/nextjs-build" folder in the installed cdk-nextjs library which has the "global-functions.Dockerfile". Note, if you specify this then you're responsible for ensuring the dockerfile is present in the build context directory and any referenced files are present as well. You can specify dockerfile name with adjacent `nextjsFunctionsAssetImageCodeProps.file` property. |
 | <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.nextjsAssetDeploymentAssetImageCodeProps">nextjsAssetDeploymentAssetImageCodeProps</a></code> | <code>aws-cdk-lib.aws_lambda.AssetImageCodeProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.nextjsContainersDockerImageAssetProps">nextjsContainersDockerImageAssetProps</a></code> | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps">OptionalDockerImageAssetProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildOverrides.property.nextjsFunctionsAssetImageCodeProps">nextjsFunctionsAssetImageCodeProps</a></code> | <code>aws-cdk-lib.aws_lambda.AssetImageCodeProps</code> | *No description.* |
@@ -2494,6 +2490,9 @@ public readonly assetsDeploymentImageBuildContext: string;
 ```
 
 - *Type:* string
+- *Default:* "cdk-nextjs/lib/nextjs-build"
+
+Default folder for build context is the "lib/nextjs-build" folder in the installed cdk-nextjs library which has the "assets-deployment.Dockerfile". Note, if you specify this then you're responsible for ensuring the dockerfile is present in the build context directory and any referenced files are present as well. You can specify dockerfile name with adjacent `nextjsAssetDeploymentAssetImageCodeProps.file` property.
 
 ---
 
@@ -2504,6 +2503,9 @@ public readonly containersImageBuildContext: string;
 ```
 
 - *Type:* string
+- *Default:* "cdk-nextjs/lib/nextjs-build"
+
+Default folder for build context is the "assets/lambdas/assets-deployment/assets-deployment.lambda" folder in the installed cdk-nextjs library which has the "{...}-containers.Dockerfile". Note, if you specify this then you're responsible for ensuring the dockerfile is present in the build context directory and any referenced files are present as well. You can specify dockerfile name with adjacent `nextjsContainersDockerImageAssetProps.file` property.
 
 ---
 
@@ -2514,6 +2516,9 @@ public readonly functionsImageBuildContext: string;
 ```
 
 - *Type:* string
+- *Default:* "cdk-nextjs/lib/nextjs-build"
+
+Default folder for build context is the "lib/nextjs-build" folder in the installed cdk-nextjs library which has the "global-functions.Dockerfile". Note, if you specify this then you're responsible for ensuring the dockerfile is present in the build context directory and any referenced files are present as well. You can specify dockerfile name with adjacent `nextjsFunctionsAssetImageCodeProps.file` property.
 
 ---
 
@@ -3460,6 +3465,12 @@ public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
 
 ### NextjsGlobalContainersOverrides <a name="NextjsGlobalContainersOverrides" id="cdk-nextjs.NextjsGlobalContainersOverrides"></a>
 
+Overrides for `NextjsGlobalContainers`.
+
+Overrides are lower level than
+props and are passed directly to CDK Constructs giving you more control. It's
+recommended to use caution and review source code so you know how they're used.
+
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalContainersOverrides.Initializer"></a>
 
 ```typescript
@@ -3608,12 +3619,18 @@ public readonly buildContext: string;
 
 [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
 
+Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
+Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
+If you override the default, then you are responsible for ensuring the
+Dockerfile is in the build context directory before cdk-nextjs construct
+is instantiated.
+
 ---
 
 *Example*
 
 ```typescript
-fileURLToPath(new URL("../..", import.meta.url)) (monorepo)
+join(import.meta.dirname, "..") (monorepo)
 ```
 
 
@@ -3862,6 +3879,12 @@ public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
 
 ### NextjsGlobalFunctionsOverrides <a name="NextjsGlobalFunctionsOverrides" id="cdk-nextjs.NextjsGlobalFunctionsOverrides"></a>
 
+Overrides for `NextjsGlobalFunctions`.
+
+Overrides are lower level than
+props and are passed directly to CDK Constructs giving you more control. It's
+recommended to use caution and review source code so you know how they're used.
+
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.Initializer"></a>
 
 ```typescript
@@ -4021,12 +4044,18 @@ public readonly buildContext: string;
 
 [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
 
+Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
+Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
+If you override the default, then you are responsible for ensuring the
+Dockerfile is in the build context directory before cdk-nextjs construct
+is instantiated.
+
 ---
 
 *Example*
 
 ```typescript
-fileURLToPath(new URL("../..", import.meta.url)) (monorepo)
+join(import.meta.dirname, "..") (monorepo)
 ```
 
 
@@ -4302,6 +4331,12 @@ public readonly nextjsContainerProps: OptionalNextjsContainersProps;
 
 ### NextjsRegionalContainersOverrides <a name="NextjsRegionalContainersOverrides" id="cdk-nextjs.NextjsRegionalContainersOverrides"></a>
 
+Overrides for `NextjsRegionalContainers`.
+
+Overrides are lower level than
+props and are passed directly to CDK Constructs giving you more control. It's
+recommended to use caution and review source code so you know how they're used.
+
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsRegionalContainersOverrides.Initializer"></a>
 
 ```typescript
@@ -4415,12 +4450,18 @@ public readonly buildContext: string;
 
 [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
 
+Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
+Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
+If you override the default, then you are responsible for ensuring the
+Dockerfile is in the build context directory before cdk-nextjs construct
+is instantiated.
+
 ---
 
 *Example*
 
 ```typescript
-fileURLToPath(new URL("../..", import.meta.url)) (monorepo)
+join(import.meta.dirname, "..") (monorepo)
 ```
 
 
@@ -5606,6 +5647,7 @@ const optionalDockerImageAssetProps: OptionalDockerImageAssetProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps.property.cacheFrom">cacheFrom</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerCacheOption[]</code> | Cache from options to pass to the `docker build` command. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps.property.cacheTo">cacheTo</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerCacheOption</code> | Cache to options to pass to the `docker build` command. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps.property.directory">directory</a></code> | <code>string</code> | The directory where the Dockerfile is stored. |
+| <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps.property.displayName">displayName</a></code> | <code>string</code> | A display name for this asset. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps.property.exclude">exclude</a></code> | <code>string[]</code> | File paths matching the patterns will be excluded. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps.property.extraHash">extraHash</a></code> | <code>string</code> | Extra information to encode into the fingerprint (e.g. build instructions and other inputs). |
 | <code><a href="#cdk-nextjs.OptionalDockerImageAssetProps.property.file">file</a></code> | <code>string</code> | Path to the Dockerfile (relative to the directory). |
@@ -5731,6 +5773,35 @@ public readonly directory: string;
 The directory where the Dockerfile is stored.
 
 Any directory inside with a name that matches the CDK output folder (cdk.out by default) will be excluded from the asset
+
+---
+
+##### `displayName`<sup>Optional</sup> <a name="displayName" id="cdk-nextjs.OptionalDockerImageAssetProps.property.displayName"></a>
+
+```typescript
+public readonly displayName: string;
+```
+
+- *Type:* string
+- *Default:* Stack-relative construct path
+
+A display name for this asset.
+
+If supplied, the display name will be used in locations where the asset
+identifier is printed, like in the CLI progress information. If the same
+asset is added multiple times, the display name of the first occurrence is
+used.
+
+If `assetName` is given, it will also be used as the default `displayName`.
+Otherwise, the default is the construct path of the ImageAsset construct,
+with respect to the enclosing stack. If the asset is produced by a
+construct helper function (such as `lambda.Code.fromAssetImage()`), this
+will look like `MyFunction/AssetImage`.
+
+We use the stack-relative construct path so that in the common case where
+you have multiple stacks with the same asset, we won't show something like
+`/MyBetaStack/MyFunction/Code` when you are actually deploying to
+production.
 
 ---
 
@@ -8571,6 +8642,7 @@ const optionalNextjsAssetsDeploymentProps: OptionalNextjsAssetsDeploymentProps =
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.buildImageDigest">buildImageDigest</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.debug">debug</a></code> | <code>boolean</code> | *No description.* |
@@ -8589,6 +8661,18 @@ public readonly accessPoint: AccessPoint;
 ```
 
 - *Type:* aws-cdk-lib.aws_efs.AccessPoint
+
+---
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
 
 ---
 

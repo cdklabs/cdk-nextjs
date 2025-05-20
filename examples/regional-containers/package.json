@@ -1,5 +1,5 @@
 {
-  "name": "regional-containers",
+  "name": "cdk-nextjs-example-regional-containers",
   "type": "module",
   "private": true,
   "scripts": {
