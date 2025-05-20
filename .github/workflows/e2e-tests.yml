@@ -9,19 +9,10 @@ permissions:
 env:
   ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
-  # checks if PR was created from fork
-  check-fork:
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || 'auto-approve' }}
-    steps:
-      - run: echo "Checking if PR is from fork"
-
-  # needed because for fork PRs, they need to be manually approved
+  # needed to manually approve fork PRs since they can contain malicious code
   wait-for-approval:
-    needs: [check-fork]
     runs-on: ubuntu-latest
-    environment: ${{ needs.check-fork.outputs.environment }}
+    environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || 'auto-approve' }}
     steps:
       - run: echo "Workflow Approved! Starting PR Checks."
 
