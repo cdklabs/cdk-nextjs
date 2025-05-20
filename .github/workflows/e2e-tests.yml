@@ -3,28 +3,30 @@ on:
   push:
     branches: [main]
   pull_request_target:
+    branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]
 permissions:
   id-token: write
 env:
   ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
-  # needed to manually approve fork PRs since they can contain malicious code
-  wait-for-approval:
-    runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || 'auto-approve' }}
-    steps:
-      - run: echo "Workflow Approved! Starting PR Checks."
-
-  # needed because we want ability to skip e2e tests sometimes via label
+  # needed because we want ability to skip e2e tests sometimes via label and
+  # on push to main we always want e2e tests to run
   check-if-should-run:
-    needs: [wait-for-approval]
     runs-on: ubuntu-latest
     # `github.event_name == 'push'` -> will run after merge to main
     # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
     if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
     steps:
       - run: echo "Workflow should run"
+
+  # needed to manually approve fork PRs since they can contain malicious code
+  wait-for-approval:
+    needs: [check-if-should-run]
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || null }}
+    steps:
+      - run: echo "Workflow Approved! Starting PR Checks."
 
   glbl-fns:
     needs: check-if-should-run
