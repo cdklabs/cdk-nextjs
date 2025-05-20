@@ -2,27 +2,41 @@ name: e2e-tests
 on:
   push:
     branches: [main]
-  pull_request:
+  pull_request_target:
+    branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  id-token: write
 env:
-  ENV: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.ref_name }}
+  ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
+  # needed because we want ability to skip e2e tests sometimes via label and
+  # on push to main we always want e2e tests to run
   check-if-should-run:
     runs-on: ubuntu-latest
     # `github.event_name == 'push'` -> will run after merge to main
     # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
-    if: ${{ github.event_name == 'push' || !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests') }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
     steps:
       - run: echo "Workflow should run"
 
+  # needed to manually approve fork PRs since they can contain malicious code
+  wait-for-approval:
+    needs: [check-if-should-run]
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || null }}
+    steps:
+      - run: echo "Workflow Approved! Starting PR Checks."
+
   glbl-fns:
-    needs: check-if-should-run
-    permissions:
-      id-token: write
-    timeout-minutes: 60
+    needs: wait-for-approval
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          # For pull_request_target, checkout PR head instead of merge commit
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
@@ -30,13 +44,14 @@ jobs:
           stack_name: ${{ env.ENV }}-glbl-fns
 
   glbl-cntnrs:
-    needs: check-if-should-run
-    permissions:
-      id-token: write
-    timeout-minutes: 60
+    needs: wait-for-approval
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          # For pull_request_target, checkout PR head instead of merge commit
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
@@ -44,13 +59,14 @@ jobs:
           stack_name: ${{ env.ENV }}-glbl-cntnrs
 
   rgnl-cntnrs:
-    needs: check-if-should-run
-    permissions:
-      id-token: write
-    timeout-minutes: 60
+    needs: wait-for-approval
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          # For pull_request_target, checkout PR head instead of merge commit
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
