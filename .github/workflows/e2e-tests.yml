@@ -4,23 +4,39 @@ on:
     branches: [main]
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  id-token: write
 env:
   ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
+  # checks if PR was created from fork
+  check-fork:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || 'auto-approve' }}
+    steps:
+      - run: echo "Checking if PR is from fork"
+
+  # needed because for fork PRs, they need to be manually approved
+  wait-for-approval:
+    needs: [check-fork]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.check-fork.outputs.environment }}
+    steps:
+      - run: echo "Workflow Approved! Starting PR Checks."
+
+  # needed because we want ability to skip e2e tests sometimes via label
   check-if-should-run:
+    needs: [wait-for-approval]
     runs-on: ubuntu-latest
     # `github.event_name == 'push'` -> will run after merge to main
     # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
-    # For pull_request_target, we need maintainer approval via 'approved-for-ci' label
-    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && contains(github.event.pull_request.labels.*.name, 'approved-for-ci') && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
     steps:
       - run: echo "Workflow should run"
 
   glbl-fns:
     needs: check-if-should-run
-    permissions:
-      id-token: write
-    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR
@@ -36,9 +52,6 @@ jobs:
 
   glbl-cntnrs:
     needs: check-if-should-run
-    permissions:
-      id-token: write
-    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR
@@ -54,9 +67,6 @@ jobs:
 
   rgnl-cntnrs:
     needs: check-if-should-run
-    permissions:
-      id-token: write
-    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR
