@@ -45,6 +45,11 @@ export interface NextjsGlobalFunctionsConstructOverrides
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
+/**
+ * Overrides for `NextjsGlobalFunctions`. Overrides are lower level than
+ * props and are passed directly to CDK Constructs giving you more control. It's
+ * recommended to use caution and review source code so you know how they're used.
+ */
 export interface NextjsGlobalFunctionsOverrides extends BaseNextjsOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;

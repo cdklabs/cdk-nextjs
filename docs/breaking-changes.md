@@ -1,5 +1,9 @@
 # Breaking Changes
 
+## 0.4.0
+
+- Remove `overrides.{nextjs...}.nextjsBuildProps.customDockerfilePath` in favor of `buildContext` + `overrides.{nextjs...}.nextjsBuildProps.file`. Simplies from 2 ways to 1. Default builder image Dockerfile name is now "builder.Dockerfile" too.
+
 ## 0.3.0
 
 - Change `NextjsDistributionProps.loadBalancer` type from `ILoadBalancerV2` to `ApplicationLoadBalancer`

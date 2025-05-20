@@ -6,7 +6,7 @@ FROM $BUILDER_IMAGE_TAG as builder
 # Production image, copy all the files and run next
 FROM public.ecr.aws/docker/library/node:22-alpine as runner
 ARG MOUNT_PATH
-COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.8.3 /lambda-adapter /opt/extensions/lambda-adapter
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 WORKDIR /app
 
 ENV NODE_ENV production

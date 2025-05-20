@@ -20,6 +20,11 @@ export interface NextjsRegionalContainersConstructOverrides
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
 }
 
+/**
+ * Overrides for `NextjsRegionalContainers`. Overrides are lower level than
+ * props and are passed directly to CDK Constructs giving you more control. It's
+ * recommended to use caution and review source code so you know how they're used.
+ */
 export interface NextjsRegionalContainersOverrides extends BaseNextjsOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;

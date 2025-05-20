@@ -41,6 +41,11 @@ export interface NextjsGlobalContainersConstructOverrides
   readonly nextjsInvalidationProps?: OptionalNextjsInvalidationProps;
 }
 
+/**
+ * Overrides for `NextjsGlobalContainers`. Overrides are lower level than
+ * props and are passed directly to CDK Constructs giving you more control. It's
+ * recommended to use caution and review source code so you know how they're used.
+ */
 export interface NextjsGlobalContainersOverrides extends BaseNextjsOverrides {
   readonly nextjsGlobalContainers?: NextjsGlobalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;

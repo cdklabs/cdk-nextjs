@@ -45,7 +45,8 @@ export interface BuilderImageProps {
    */
   readonly exclude?: string[];
   /**
-   * Name of Dockerfile
+   * Name of Dockerfile in builder build context. If specified, you are responsible
+   * for ensuring it exists in build context before construct is instantiated.
    * @default "builder.Dockerfile"
    */
   readonly file?: string;
@@ -55,19 +56,41 @@ export interface BuilderImageProps {
    * @default false
    */
   readonly skipBuild?: boolean;
-  /**
-   * Path to your custom builder.Dockerfile which will be copied into {@link NextBaseProps.buildContext}.
-   * It is recommended to override this prop to optimize build caching for your setup.
-   */
-  readonly customDockerfilePath?: string;
 }
 
 export interface NextjsBuildOverrides {
   readonly nextjsContainersDockerImageAssetProps?: OptionalDockerImageAssetProps;
   readonly nextjsFunctionsAssetImageCodeProps?: AssetImageCodeProps;
   readonly nextjsAssetDeploymentAssetImageCodeProps?: AssetImageCodeProps;
+  /**
+   * Default folder for build context is the "lib/nextjs-build" folder in the
+   * installed cdk-nextjs library which has the "global-functions.Dockerfile".
+   * Note, if you specify this then you're responsible for ensuring the dockerfile
+   * is present in the build context directory and any referenced files are
+   * present as well. You can specify dockerfile name with adjacent
+   * `nextjsFunctionsAssetImageCodeProps.file` property.
+   * @default "cdk-nextjs/lib/nextjs-build"
+   */
   readonly functionsImageBuildContext?: string;
+  /**
+   * Default folder for build context is the "lib/nextjs-build" folder in the
+   * installed cdk-nextjs library which has the "assets-deployment.Dockerfile".
+   * Note, if you specify this then you're responsible for ensuring the dockerfile
+   * is present in the build context directory and any referenced files are
+   * present as well. You can specify dockerfile name with adjacent
+   * `nextjsAssetDeploymentAssetImageCodeProps.file` property.
+   * @default "cdk-nextjs/lib/nextjs-build"
+   */
   readonly assetsDeploymentImageBuildContext?: string;
+  /**
+   * Default folder for build context is the "assets/lambdas/assets-deployment/assets-deployment.lambda" folder in the
+   * installed cdk-nextjs library which has the "{...}-containers.Dockerfile".
+   * Note, if you specify this then you're responsible for ensuring the dockerfile
+   * is present in the build context directory and any referenced files are
+   * present as well. You can specify dockerfile name with adjacent
+   * `nextjsContainersDockerImageAssetProps.file` property.
+   * @default "cdk-nextjs/lib/nextjs-build"
+   */
   readonly containersImageBuildContext?: string;
 }
 
@@ -205,15 +228,21 @@ export class NextjsBuild extends Construct {
       platform,
       skipBuild = false,
     } = this.props.builderImageProps || {};
-    const srcDockerfilePath =
-      this.props.builderImageProps?.customDockerfilePath ||
-      join(__dirname, file);
 
-    const filePathsToCopy = [
-      srcDockerfilePath,
+    const filePathsToCopy: string[] = [
+      // although cache-handler is only needed in runtime image, we copy into
+      // builder for convenience so that if lib consumer customizes runtime image
+      // then they can copy from builder image instead of having to copy from
+      // lib in node_modules.
       join(__dirname, "add-cache-handler.mjs"),
       join(__dirname, "cache-handler.cjs"),
     ];
+
+    if (!this.props.builderImageProps?.file) {
+      // if file is not specified by user, then we need to copy our builder.Dockerfile
+      // into builder build context.
+      filePathsToCopy.push(join(__dirname, file));
+    }
 
     filePathsToCopy.forEach((filePathToCopy) => {
       cpSync(
@@ -254,7 +283,7 @@ export class NextjsBuild extends Construct {
       filePathsToCopy.forEach((filePathToCopy) => {
         rmSync(join(this.props.buildContext, basename(filePathToCopy)));
       });
-
+      rmSync(dockerignoreFilePath);
       if (envVarNames.length) {
         rmSync(loadEnvVarsScriptPath);
       }
@@ -313,7 +342,6 @@ export class NextjsBuild extends Construct {
       join(__dirname, "..", "..", "lib", "nextjs-build");
     const dockerImageAsset = new DockerImageAsset(this, "Image", {
       directory: buildContext,
-      exclude: ["*", `!${dockerfileName}`, "!add-cache-handler.mjs"],
       extraHash: this.buildImageDigest, // rebuild when builder hash changes
       file: dockerfileName,
       ignoreMode: IgnoreMode.DOCKER,
@@ -357,14 +385,6 @@ export class NextjsBuild extends Construct {
         RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
         ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.buildArgs,
       },
-      exclude: [
-        "*",
-        `!${dockerfileName}`,
-        "!add-cache-handler.mjs",
-        "!cache-handler.cjs",
-        ...(this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.exclude ??
-          []),
-      ],
     });
     // TODO: how to clean up temp dir?
     // rmSync(tempDir, { recursive: true });

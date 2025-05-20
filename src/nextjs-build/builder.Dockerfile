@@ -19,7 +19,7 @@ RUN \
   fi
 ARG BUILD_COMMAND
 ARG RELATIVE_PATH_TO_WORKSPACE
-RUN if [ -f ./cdk-nextjs-load-env-vars.sh ]; then chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh; fi
-RUN cd $RELATIVE_PATH_TO_WORKSPACE && $BUILD_COMMAND
-# after building, node_modules aren't needed anymore. this reduces image size by over 50mb
+RUN [ -f ./cdk-nextjs-load-env-vars.sh ] && chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh && \
+    cd $RELATIVE_PATH_TO_WORKSPACE && $BUILD_COMMAND
+# after building, node_modules aren't needed anymore. this reduces image size
 RUN rm -rf node_modules

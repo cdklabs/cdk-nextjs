@@ -11,8 +11,13 @@ export interface NextjsBaseProps {
    * this will be the same directory as your Next.js app. If you are in a
    * monorepo, then this value should be the root of your monorepo. You then
    * must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}
-   *  @example fileURLToPath(new URL("../ui", import.meta.url))
-   *  @example fileURLToPath(new URL("../..", import.meta.url)) (monorepo)
+   *
+   * Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
+   * Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
+   * If you override the default, then you are responsible for ensuring the
+   * Dockerfile is in the build context directory before cdk-nextjs construct
+   * is instantiated.
+   * @example join(import.meta.dirname, "..") (monorepo)
    */
   readonly buildContext: string;
   /**
