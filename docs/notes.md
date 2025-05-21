@@ -85,9 +85,22 @@ Here is structure of EFS File System which maps similarly to Next.js build outpu
         - app
 
 You can interact with the EFS FileSystem by deploying one of the cdk-nextjs/examples
-apps (like global-functions) and visiting the /run-command path and entering in
+apps (like global-functions) and visiting the /run-command path. See [Verifying
+EFS](#verifying-efs) for more details. and entering in
 a command like `ls -a /mnt/cdk-nextjs/{BUILD_ID}`. Note `-a` is important otherwise
 dot folders don't show.
+
+## Verifying EFS
+
+Deploy one of the example apps in cdk-nextjs/examples and visit the /run-command
+path. You can run commands on your compute (Lambda or Fargate) to verify EFS.
+
+1. Command: `ls /mnt/cdk-nextjs`. Expected Output: single directory with cryptic
+   build id name like `fl3ApPOXn9eqhtodvoB98` unless during deployment you'll see 2.
+2. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}`. Expect to see .next and public directories
+3. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/public`. Expect to see your public directory contents.
+4. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/.next`. Expect to see cache and server directories.
+5. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/.next/cache`. Expect to see fetch-cache and images folder
 
 ## Blue Green Deployments
 

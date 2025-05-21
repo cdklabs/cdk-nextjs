@@ -120,10 +120,7 @@ export class NextjsPostDeploy extends Construct {
     const fn = new LambdaFunction(this, "Fn", {
       architecture: getLambdaArchitecture(),
       code: Code.fromAsset(
-        join(
-          __dirname,
-          "../../../assets/lambdas/post-deploy/post-deploy.lambda",
-        ),
+        join(__dirname, "../assets/lambdas/post-deploy/post-deploy.lambda"),
       ),
       filesystem: FileSystem.fromEfsAccessPoint(
         this.props.accessPoint,
