@@ -1,3 +1,4 @@
+import { join } from "path/posix";
 import { Duration } from "aws-cdk-lib";
 import {
   Architecture,
@@ -10,14 +11,13 @@ import {
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
-import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import {
   CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
   MOUNT_PATH,
   SERVER_DIST_PATH,
 } from "../common";
-import { join } from "path/posix";
+import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
+import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 
 export interface NextjsFunctionsOverrides {
   readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;

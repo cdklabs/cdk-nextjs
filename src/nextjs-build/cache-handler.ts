@@ -15,7 +15,7 @@ const sqsClient = new SQSClient();
 export default class CacheHandler extends FileSystemCache {
   constructor(options: ConstructorParameters<typeof FileSystemCache>[0]) {
     /**
-     * @example `/mnt/cdk-nextjs/{relativePathToPackage}/.next/server`
+     * @example `/mnt/cdk-nextjs/{relativePathToWorkspace}/.next/server`
      * This allows us to tell Next.js `FileSystemCache` to write .next/cache/fetch-cache
      * data and .next/server/app/*.{html,rsc,meta,body} data to our EFS shared
      * file system. Note, we cannot control where optimized images are cached

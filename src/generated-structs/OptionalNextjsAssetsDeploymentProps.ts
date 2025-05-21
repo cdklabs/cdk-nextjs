@@ -40,11 +40,11 @@ export interface OptionalNextjsAssetsDeploymentProps {
   /**
    * @stability stable
    */
-  readonly containerMountPathForEfs?: string;
+  readonly buildImageDigest?: string;
   /**
    * @stability stable
    */
-  readonly buildImageDigest?: string;
+  readonly buildId?: string;
   /**
    * @stability stable
    */

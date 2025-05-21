@@ -225,8 +225,9 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.builderImageAlias">builderImageAlias</a></code> | <code>string</code> | Image alias of builder image Next.js app which is built for other images to be built `FROM`. This image isn't built with CDK Assets construct b/c it doesn't need to be uploaded to ECR. We still need to include slice of `node.addr` in tag in case multiple cdk-nextjs constructs are used. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.buildId">buildId</a></code> | <code>string</code> | Unique id for Next.js build. Used to partition EFS FileSystem. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.buildImageDigest">buildImageDigest</a></code> | <code>string</code> | Hash of builder image which will change whenever the image changes. |
-| <code><a href="#cdk-nextjs.NextjsBuild.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | Mount path in container for EFS. Next.js image optimization, data, and full route cache will be symlinked to this location. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.imageForNextjsAssetsDeployment">imageForNextjsAssetsDeployment</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | Docker image built for `NextjsAssetsDeployment`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The entrypoint JavaScript file used as an argument for Node.js to run the Next.js standalone server relative to the standalone directory. |
@@ -247,6 +248,30 @@ The tree node.
 
 ---
 
+##### `builderImageAlias`<sup>Required</sup> <a name="builderImageAlias" id="cdk-nextjs.NextjsBuild.property.builderImageAlias"></a>
+
+```typescript
+public readonly builderImageAlias: string;
+```
+
+- *Type:* string
+
+Image alias of builder image Next.js app which is built for other images to be built `FROM`. This image isn't built with CDK Assets construct b/c it doesn't need to be uploaded to ECR. We still need to include slice of `node.addr` in tag in case multiple cdk-nextjs constructs are used.
+
+---
+
+##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.NextjsBuild.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
+
+Unique id for Next.js build. Used to partition EFS FileSystem.
+
+---
+
 ##### `buildImageDigest`<sup>Required</sup> <a name="buildImageDigest" id="cdk-nextjs.NextjsBuild.property.buildImageDigest"></a>
 
 ```typescript
@@ -260,24 +285,6 @@ Hash of builder image which will change whenever the image changes.
 Useful
 for passing to properties of custom resources that depend upon the builder
 image to re-run when build image changes.
-
----
-
-##### `containerMountPathForEfs`<sup>Required</sup> <a name="containerMountPathForEfs" id="cdk-nextjs.NextjsBuild.property.containerMountPathForEfs"></a>
-
-```typescript
-public readonly containerMountPathForEfs: string;
-```
-
-- *Type:* string
-
-Mount path in container for EFS. Next.js image optimization, data, and full route cache will be symlinked to this location.
-
-Must comply with pattern: ^/mnt/[a-zA-Z0-9-_.]+$ due to lambda requirement.
-Fargate doesn't have this same requirement but we share code for lambda and
-fargate.
-
-> [https://docs.aws.amazon.com/lambda/latest/api/API_FileSystemConfig.html](https://docs.aws.amazon.com/lambda/latest/api/API_FileSystemConfig.html)
 
 ---
 
@@ -2195,8 +2202,8 @@ const nextjsAssetsDeploymentProps: NextjsAssetsDeploymentProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.buildImageDigest">buildImageDigest</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.dockerImageCode">dockerImageCode</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
@@ -2218,6 +2225,16 @@ public readonly accessPoint: AccessPoint;
 
 ---
 
+##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.NextjsAssetsDeploymentProps.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
+
+---
+
 ##### `buildImageDigest`<sup>Required</sup> <a name="buildImageDigest" id="cdk-nextjs.NextjsAssetsDeploymentProps.property.buildImageDigest"></a>
 
 ```typescript
@@ -2227,18 +2244,6 @@ public readonly buildImageDigest: string;
 - *Type:* string
 
 > [{@link NextjsBuild.buildImageDigest }]({@link NextjsBuild.buildImageDigest })
-
----
-
-##### `containerMountPathForEfs`<sup>Required</sup> <a name="containerMountPathForEfs" id="cdk-nextjs.NextjsAssetsDeploymentProps.property.containerMountPathForEfs"></a>
-
-```typescript
-public readonly containerMountPathForEfs: string;
-```
-
-- *Type:* string
-
-> [{@link NextjsBuild.containerMountPathForEfs }]({@link NextjsBuild.containerMountPathForEfs })
 
 ---
 
@@ -2656,7 +2661,6 @@ const nextjsComputeBaseProps: NextjsComputeBaseProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
 
@@ -2669,16 +2673,6 @@ public readonly accessPoint: AccessPoint;
 ```
 
 - *Type:* aws-cdk-lib.aws_efs.AccessPoint
-
----
-
-##### `containerMountPathForEfs`<sup>Required</sup> <a name="containerMountPathForEfs" id="cdk-nextjs.NextjsComputeBaseProps.property.containerMountPathForEfs"></a>
-
-```typescript
-public readonly containerMountPathForEfs: string;
-```
-
-- *Type:* string
 
 ---
 
@@ -2767,9 +2761,9 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.dockerImageAsset">dockerImageAsset</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerImageAsset</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.fileSystem">fileSystem</a></code> | <code>aws-cdk-lib.aws_efs.FileSystem</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
@@ -2785,16 +2779,6 @@ public readonly accessPoint: AccessPoint;
 ```
 
 - *Type:* aws-cdk-lib.aws_efs.AccessPoint
-
----
-
-##### `containerMountPathForEfs`<sup>Required</sup> <a name="containerMountPathForEfs" id="cdk-nextjs.NextjsContainersProps.property.containerMountPathForEfs"></a>
-
-```typescript
-public readonly containerMountPathForEfs: string;
-```
-
-- *Type:* string
 
 ---
 
@@ -2815,6 +2799,16 @@ public readonly vpc: IVpc;
 ```
 
 - *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+---
+
+##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.NextjsContainersProps.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
 
 ---
 
@@ -3279,9 +3273,9 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.dockerImageCode">dockerImageCode</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
 
@@ -3294,16 +3288,6 @@ public readonly accessPoint: AccessPoint;
 ```
 
 - *Type:* aws-cdk-lib.aws_efs.AccessPoint
-
----
-
-##### `containerMountPathForEfs`<sup>Required</sup> <a name="containerMountPathForEfs" id="cdk-nextjs.NextjsFunctionsProps.property.containerMountPathForEfs"></a>
-
-```typescript
-public readonly containerMountPathForEfs: string;
-```
-
-- *Type:* string
 
 ---
 
@@ -3324,6 +3308,16 @@ public readonly vpc: IVpc;
 ```
 
 - *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+---
+
+##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.NextjsFunctionsProps.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
 
 ---
 
@@ -8643,8 +8637,8 @@ const optionalNextjsAssetsDeploymentProps: OptionalNextjsAssetsDeploymentProps =
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
+| <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.buildImageDigest">buildImageDigest</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.debug">debug</a></code> | <code>boolean</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.dockerImageCode">dockerImageCode</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
@@ -8676,20 +8670,20 @@ Prefix to the URI path the app will be served at.
 
 ---
 
-##### `buildImageDigest`<sup>Optional</sup> <a name="buildImageDigest" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.buildImageDigest"></a>
+##### `buildId`<sup>Optional</sup> <a name="buildId" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.buildId"></a>
 
 ```typescript
-public readonly buildImageDigest: string;
+public readonly buildId: string;
 ```
 
 - *Type:* string
 
 ---
 
-##### `containerMountPathForEfs`<sup>Optional</sup> <a name="containerMountPathForEfs" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.containerMountPathForEfs"></a>
+##### `buildImageDigest`<sup>Optional</sup> <a name="buildImageDigest" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.buildImageDigest"></a>
 
 ```typescript
-public readonly containerMountPathForEfs: string;
+public readonly buildImageDigest: string;
 ```
 
 - *Type:* string
@@ -8850,7 +8844,7 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.AccessPoint</code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.containerMountPathForEfs">containerMountPathForEfs</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.dockerImageAsset">dockerImageAsset</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerImageAsset</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.fileSystem">fileSystem</a></code> | <code>aws-cdk-lib.aws_efs.FileSystem</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
@@ -8870,10 +8864,10 @@ public readonly accessPoint: AccessPoint;
 
 ---
 
-##### `containerMountPathForEfs`<sup>Optional</sup> <a name="containerMountPathForEfs" id="cdk-nextjs.OptionalNextjsContainersProps.property.containerMountPathForEfs"></a>
+##### `buildId`<sup>Optional</sup> <a name="buildId" id="cdk-nextjs.OptionalNextjsContainersProps.property.buildId"></a>
 
 ```typescript
-public readonly containerMountPathForEfs: string;
+public readonly buildId: string;
 ```
 
 - *Type:* string

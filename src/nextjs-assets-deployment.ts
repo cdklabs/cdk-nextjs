@@ -222,7 +222,7 @@ export class NextjsAssetsDeployment extends Construct {
         ),
       },
       // after `next build` data cache https://nextjs.org/docs/app/building-your-application/caching#data-cache
-      // exists at top level .next/cache so we need to copy into relativePathToPackage
+      // exists at top level .next/cache so we need to copy into relativePathToWorkspace
       // normalized path
       {
         type: "fs-to-fs",

@@ -1,3 +1,4 @@
+import { join } from "path/posix";
 import { Duration } from "aws-cdk-lib";
 import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
 import {
@@ -25,7 +26,6 @@ import {
 } from "../common";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
-import { join } from "path/posix";
 
 export interface NextjsContainersOverrides {
   readonly ecsClusterProps?: OptionalClusterProps;
