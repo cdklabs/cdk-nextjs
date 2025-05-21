@@ -24,6 +24,28 @@ export function suppressCommonNags(stack: Stack) {
       },
     ],
   );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsPostDeploy/Fn/ServiceRole/Resource`,
+    [
+      {
+        id: "AwsSolutions-IAM4",
+        reason:
+          "AWSLambaBasicExecutionRole and AWSLambdaVPCAccessExecutionRole is not overly permissive",
+      },
+    ],
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsPostDeploy/Fn/ServiceRole/DefaultPolicy/Resource`,
+    [
+      {
+        id: "AwsSolutions-IAM5",
+        reason:
+          "AssetsDeployment Lambda Custom Resource can read/write any object in StaticAssets Bucket",
+      },
+    ],
+  );
 }
 
 export function suppressLambdaNags(stack: Stack) {
@@ -111,28 +133,6 @@ export function suppressGlobalNags(stack: Stack) {
         id: "AwsSolutions-CFR5",
         reason:
           "No TLS Certificate in ACM available so we must communicate via HTTP to ALB",
-      },
-    ],
-  );
-  // AWS679f53fac002430cb0da5b7982bd2287 is for CloudFront Invalidation function
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
-    `/${stack.stackName}/AWS679f53fac002430cb0da5b7982bd2287/ServiceRole/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM4",
-        reason: "AWSLambdaBasicExecutionRole is not overly permissive",
-      },
-    ],
-  );
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
-    `/${stack.stackName}/AWS679f53fac002430cb0da5b7982bd2287/Resource`,
-    [
-      {
-        id: "AwsSolutions-L1",
-        reason:
-          "AWS CDK Team manages runtime for AwsSdkCall Custom Resource and will update when necessary",
       },
     ],
   );
