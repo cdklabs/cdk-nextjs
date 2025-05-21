@@ -958,7 +958,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsInvalidation">nextjsInvalidation</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
 
@@ -1026,10 +1026,10 @@ public readonly nextjsFileSystem: NextjsFileSystem;
 
 ---
 
-##### `nextjsInvalidation`<sup>Required</sup> <a name="nextjsInvalidation" id="cdk-nextjs.NextjsGlobalContainers.property.nextjsInvalidation"></a>
+##### `nextjsPostDeploy`<sup>Required</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsGlobalContainers.property.nextjsPostDeploy"></a>
 
 ```typescript
-public readonly nextjsInvalidation: NextjsPostDeploy;
+public readonly nextjsPostDeploy: NextjsPostDeploy;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
@@ -1147,7 +1147,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsInvalidation">nextjsInvalidation</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsRevalidation">nextjsRevalidation</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidation">NextjsRevalidation</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
@@ -1216,10 +1216,10 @@ public readonly nextjsFunctions: NextjsFunctions;
 
 ---
 
-##### `nextjsInvalidation`<sup>Required</sup> <a name="nextjsInvalidation" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsInvalidation"></a>
+##### `nextjsPostDeploy`<sup>Required</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsPostDeploy"></a>
 
 ```typescript
-public readonly nextjsInvalidation: NextjsPostDeploy;
+public readonly nextjsPostDeploy: NextjsPostDeploy;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
