@@ -21,6 +21,8 @@ jobs:
       - run: echo "Workflow should run"
 
   # needed to manually approve fork PRs since they can contain malicious code
+  # "Approve workflows to run" button does not apply to pull_request_target which
+  # is required for fork PR to access OIDC for AWS access.
   wait-for-approval:
     needs: [check-if-should-run]
     runs-on: ubuntu-latest

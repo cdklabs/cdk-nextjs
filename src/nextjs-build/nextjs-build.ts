@@ -7,11 +7,18 @@ import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
 import { AssetImageCodeProps, DockerImageCode } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
-  DATA_CACHE_DIR,
-  FULL_ROUTE_CACHE_DIR,
-  IMAGE_CACHE_DIR,
+  BUILDER_IMAGE_ALIAS_ARG_NAME,
+  MOUNT_PATH,
+  IMAGE_CACHE_PATH,
+  IMAGE_CACHE_PATH_ARG_NAME,
+  MOUNT_PATH_ARG_NAME,
   NextjsType,
-  PUBLIC_DIR,
+  PUBLIC_PATH,
+  PUBLIC_PATH_ARG_NAME,
+  RELATIVE_PATH_TO_WORKSPACE_ARG_NAME,
+  SERVER_DIST_PATH,
+  SERVER_DIST_PATH_ARG_NAME,
+  BUILD_ID_ARG_NAME,
 } from "../common";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-props";
@@ -126,21 +133,22 @@ export interface PublicDirEntry {
  */
 export class NextjsBuild extends Construct {
   /**
+   * Image alias of builder image Next.js app which is built for other images to be
+   * built `FROM`. This image isn't built with CDK Assets construct b/c it
+   * doesn't need to be uploaded to ECR. We still need to include slice of
+   * `node.addr` in tag in case multiple cdk-nextjs constructs are used.
+   */
+  builderImageAlias: string;
+  /**
+   * Unique id for Next.js build. Used to partition EFS FileSystem.
+   */
+  buildId: string;
+  /**
    * Hash of builder image which will change whenever the image changes. Useful
    * for passing to properties of custom resources that depend upon the builder
    * image to re-run when build image changes.
    */
   buildImageDigest: string;
-  /**
-   * Mount path in container for EFS. Next.js image optimization, data, and full
-   * route cache will be symlinked to this location.
-   *
-   * Must comply with pattern: ^/mnt/[a-zA-Z0-9-_.]+$ due to lambda requirement.
-   * Fargate doesn't have this same requirement but we share code for lambda and
-   * fargate.
-   * @see https://docs.aws.amazon.com/lambda/latest/api/API_FileSystemConfig.html
-   */
-  containerMountPathForEfs = "/mnt/cdk-nextjs";
   /**
    * Docker image built if using Fargate.
    */
@@ -171,24 +179,19 @@ export class NextjsBuild extends Construct {
    */
   private builderImageRepo = "cdk-nextjs/builder";
 
-  /**
-   * Tag of builder image Next.js app which is built for other images to be
-   * built `FROM`. This image isn't built with CDK Assets construct b/c it
-   * doesn't need to be uploaded to ECR. We still need to include slice of
-   * `node.addr` in tag in case multiple cdk-nextjs constructs are used.
-   */
-  private builderImageTag: string;
   private containerRuntime = process.env.CDK_DOCKER || "docker";
   private props: NextjsBuildProps;
   private relativePathToWorkspace: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
-    this.builderImageTag = `${this.node.addr.slice(30)}`;
+    this.builderImageAlias = `${this.builderImageRepo}:${this.node.addr.slice(30)}`;
     this.relativePathToWorkspace = props.relativePathToWorkspace || ".";
     this.props = props;
     this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
-    this.buildImageDigest = this.createBuilderImage();
+    this.createBuilderImage();
+    this.buildImageDigest = this.getBuilderImageDigest();
+    this.buildId = this.getBuildId();
     this.publicDirEntries = this.getPublicDirEntries();
     if (
       props.nextjsType === NextjsType.GLOBAL_CONTAINERS ||
@@ -269,7 +272,7 @@ export class NextjsBuild extends Construct {
     }
     const command =
       this.props.builderImageProps?.command ||
-      `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageRepo}:${this.builderImageTag} ${buildArgsStr} .`;
+      `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageAlias} ${buildArgsStr} .`;
     let error: unknown;
     try {
       if (!skipBuild) {
@@ -294,7 +297,6 @@ export class NextjsBuild extends Construct {
       }
     }
     if (error) throw error;
-    return this.getBuilderImageDigest();
   }
   private createBuildArgStr(
     buildArgs: Required<BuilderImageProps>["buildArgs"],
@@ -316,7 +318,7 @@ export class NextjsBuild extends Construct {
   }
   private getBuilderImageDigest() {
     const digest = execSync(
-      `${this.containerRuntime} images --no-trunc --quiet ${this.builderImageRepo}:${this.builderImageTag}`,
+      `${this.containerRuntime} images --no-trunc --quiet ${this.builderImageAlias}`,
       { encoding: "utf-8" },
     );
     return digest.slice(0, -1); // remove trailing \n
@@ -328,10 +330,23 @@ export class NextjsBuild extends Construct {
       "public",
     );
     const publicDirEntriesString = execSync(
-      `${this.containerRuntime} run ${this.builderImageRepo}:${this.builderImageTag} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
+      `${this.containerRuntime} run ${this.builderImageAlias} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
       { encoding: "utf-8" },
     );
     return JSON.parse(publicDirEntriesString) as PublicDirEntry[];
+  }
+  private getBuildId() {
+    const buildIdPath = joinPosix(
+      "/app",
+      this.props.relativePathToWorkspace || "",
+      ".next",
+      "BUILD_ID",
+    );
+    const buildId = execSync(
+      `${this.containerRuntime} run ${this.builderImageAlias} /bin/sh -c "cat ${buildIdPath}"`,
+      { encoding: "utf-8" },
+    );
+    return buildId;
   }
   private createImageForNextjsContainers() {
     const dockerfileNamePrefix =
@@ -352,13 +367,13 @@ export class NextjsBuild extends Construct {
       ignoreMode: IgnoreMode.DOCKER,
       ...this.props.overrides?.nextjsContainersDockerImageAssetProps,
       buildArgs: {
-        BUILDER_IMAGE_ALIAS: `${this.builderImageRepo}:${this.builderImageTag}`,
-        DATA_CACHE_DIR,
-        FULL_ROUTE_CACHE_DIR,
-        PUBLIC_DIR,
-        IMAGE_CACHE_DIR,
-        MOUNT_PATH: this.containerMountPathForEfs,
-        RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
+        [BUILD_ID_ARG_NAME]: this.buildId,
+        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
+        [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
+        [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
+        [SERVER_DIST_PATH_ARG_NAME]: SERVER_DIST_PATH,
+        [RELATIVE_PATH_TO_WORKSPACE_ARG_NAME]: this.relativePathToWorkspace,
         ...this.props.overrides?.nextjsContainersDockerImageAssetProps
           ?.buildArgs,
       },
@@ -381,13 +396,13 @@ export class NextjsBuild extends Construct {
       ignoreMode: IgnoreMode.DOCKER,
       ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps,
       buildArgs: {
-        BUILDER_IMAGE_ALIAS: `${this.builderImageRepo}:${this.builderImageTag}`,
-        DATA_CACHE_DIR,
-        FULL_ROUTE_CACHE_DIR,
-        PUBLIC_DIR,
-        IMAGE_CACHE_DIR,
-        MOUNT_PATH: this.containerMountPathForEfs,
-        RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
+        [BUILD_ID_ARG_NAME]: this.buildId,
+        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
+        [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
+        [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
+        [SERVER_DIST_PATH_ARG_NAME]: SERVER_DIST_PATH,
+        [RELATIVE_PATH_TO_WORKSPACE_ARG_NAME]: this.relativePathToWorkspace,
         ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.buildArgs,
       },
     });
@@ -421,8 +436,9 @@ export class NextjsBuild extends Construct {
       ignoreMode: IgnoreMode.DOCKER,
       ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps,
       buildArgs: {
-        BUILDER_IMAGE_ALIAS: `${this.builderImageRepo}:${this.builderImageTag}`,
-        RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
+        [BUILD_ID_ARG_NAME]: this.buildId,
+        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [RELATIVE_PATH_TO_WORKSPACE_ARG_NAME]: this.relativePathToWorkspace,
         ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps
           ?.buildArgs,
       },

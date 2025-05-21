@@ -5,22 +5,31 @@ export enum NextjsType {
 }
 
 /**
- * Directory of [Next.js Data Cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache) in EFS
- * Path: /mnt/cdk-nextjs/data-cache
+ * Mount path in container for EFS. Next.js image optimization, data, and full
+ * route cache will be symlinked to this location.
+ *
+ * Must comply with pattern: ^/mnt/[a-zA-Z0-9-_.]+$ due to lambda requirement.
+ * Fargate doesn't have this same requirement but we share code for lambda and
+ * fargate.
+ * @see https://docs.aws.amazon.com/lambda/latest/api/API_FileSystemConfig.html
  */
-export const DATA_CACHE_DIR = "data-cache";
-/**
- * Directory of Next.js Image Cache in EFS
- * Path: /mnt/cdk-nextjs/image-cache
- */
-export const IMAGE_CACHE_DIR = "image-cache";
-/**
- * Directory of [Next.js Full Route Cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache) in EFS
- * Path: /mnt/cdk-nextjs/full-route-cache
- */
-export const FULL_ROUTE_CACHE_DIR = "full-route-cache";
-/**
- * Directory of Next.js [Public Folder](https://nextjs.org/docs/app/building-your-application/optimizing/static-assets) in EFS
- * Path: /mnt/cdk-nextjs/public
- */
-export const PUBLIC_DIR = "public";
+export const MOUNT_PATH = "/mnt/cdk-nextjs";
+
+export const CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME =
+  "CDK_NEXTJS_SERVER_DIST_DIR";
+
+// NOTE: *_ARG_NAME constants are referenced in Dockerfiles. Be sure to update
+// Dockerfiles if the values are changed
+export const BUILD_ID_ARG_NAME = "BUILD_ID";
+export const BUILDER_IMAGE_ALIAS_ARG_NAME = "BUILDER_IMAGE_ALIAS";
+export const DATA_CACHE_PATH = ".next/cache/fetch-cache";
+export const FULL_ROUTE_CACHE_PATH = ".next/server/app";
+export const IMAGE_CACHE_PATH = ".next/cache/images";
+export const IMAGE_CACHE_PATH_ARG_NAME = "IMAGE_CACHE_PATH";
+export const MOUNT_PATH_ARG_NAME = "MOUNT_PATH";
+export const PUBLIC_PATH = "public";
+export const PUBLIC_PATH_ARG_NAME = "PUBLIC_PATH";
+export const RELATIVE_PATH_TO_WORKSPACE_ARG_NAME = "RELATIVE_PATH_TO_WORKSPACE";
+export const SERVER_DIST_PATH = ".next/server";
+export const SERVER_DIST_PATH_ARG_NAME = "SERVER_DIST_PATH";
+export const STATIC_PATH = ".next/static";

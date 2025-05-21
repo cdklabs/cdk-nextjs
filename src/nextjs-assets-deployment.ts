@@ -11,11 +11,13 @@ import {
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import {
-  DATA_CACHE_DIR,
-  FULL_ROUTE_CACHE_DIR,
-  IMAGE_CACHE_DIR,
+  DATA_CACHE_PATH,
+  FULL_ROUTE_CACHE_PATH,
+  IMAGE_CACHE_PATH,
+  MOUNT_PATH,
   NextjsType,
-  PUBLIC_DIR,
+  PUBLIC_PATH,
+  STATIC_PATH,
 } from "./common";
 import { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDockerImageFunctionProps";
 import { NextjsBuild } from "./nextjs-build/nextjs-build";
@@ -32,14 +34,11 @@ export interface NextjsAssetsDeploymentProps {
    * @example "/my-base-path"
    */
   readonly basePath?: string;
+  readonly buildId: string;
   /**
    * @see {@link NextjsBuild.buildImageDigest}
    */
   readonly buildImageDigest: string;
-  /**
-   * @see {@link NextjsBuild.containerMountPathForEfs}
-   */
-  readonly containerMountPathForEfs: NextjsBuild["containerMountPathForEfs"];
   /**
    * @default true
    */
@@ -163,7 +162,7 @@ export class NextjsAssetsDeployment extends Construct {
       memorySize: 2048,
       filesystem: FileSystem.fromEfsAccessPoint(
         this.props.accessPoint,
-        this.props.containerMountPathForEfs,
+        MOUNT_PATH,
       ),
       vpc: this.props.vpc,
       timeout: Duration.minutes(5),
@@ -191,60 +190,58 @@ export class NextjsAssetsDeployment extends Construct {
         // static files
         {
           type: "fs-to-s3",
-          sourcePath: join(root, ".next", "static"),
+          sourcePath: join(root, STATIC_PATH),
           destinationBucketName: this.props.staticAssetsBucket.bucketName,
           destinationKeyPrefix: staticKeyPrefix,
         },
         // public directory to s3 for CloudFront -> S3
         {
           type: "fs-to-s3",
-          sourcePath: join(root, "public"),
+          sourcePath: join(root, PUBLIC_PATH),
           destinationBucketName: this.props.staticAssetsBucket.bucketName,
         },
       );
     }
     actions.push(
-      // data cache - https://nextjs.org/docs/app/building-your-application/caching#data-cache
-      {
-        type: "fs-to-fs",
-        sourcePath: join(root, ".next", "cache", "fetch-cache"),
-        destinationPath: join(
-          this.props.containerMountPathForEfs,
-          DATA_CACHE_DIR,
-        ),
-      },
       // full route cache - https://nextjs.org/docs/app/building-your-application/caching#full-route-cache
       {
         type: "fs-to-fs",
+        // TODO: lots of .js and .nft.json files in here we don't need in EFS
+        // so consider filtering them out?
         sourcePath: join(
           root,
           ".next",
           "standalone",
           this.props.relativePathToWorkspace || "",
-          ".next",
-          "server",
-          "app",
+          FULL_ROUTE_CACHE_PATH,
         ),
         destinationPath: join(
-          this.props.containerMountPathForEfs,
-          FULL_ROUTE_CACHE_DIR,
+          MOUNT_PATH,
+          this.props.buildId,
+          FULL_ROUTE_CACHE_PATH,
         ),
       },
-      // public directory to EFS for needed optimizing images in public directory
+      // after `next build` data cache https://nextjs.org/docs/app/building-your-application/caching#data-cache
+      // exists at top level .next/cache so we need to copy into relativePathToPackage
+      // normalized path
       {
         type: "fs-to-fs",
-        sourcePath: join(root, "public"),
-        destinationPath: join(this.props.containerMountPathForEfs, PUBLIC_DIR),
+        sourcePath: join(root, DATA_CACHE_PATH),
+        destinationPath: join(MOUNT_PATH, this.props.buildId, DATA_CACHE_PATH),
+      },
+      // public directory to EFS for needed optimizing images in public directory
+      // we don't load these into compute to save on image size
+      {
+        type: "fs-to-fs",
+        sourcePath: join(root, PUBLIC_PATH),
+        destinationPath: join(MOUNT_PATH, this.props.buildId, PUBLIC_PATH),
       },
       // images are optimized at runtime so nothing to deploy
     );
     const properties: CustomResourceProperties = {
       actions,
       buildImageDigest: this.props.buildImageDigest,
-      imageCachePath: join(
-        this.props.containerMountPathForEfs,
-        IMAGE_CACHE_DIR,
-      ),
+      imageCachePath: join(MOUNT_PATH, this.props.buildId, IMAGE_CACHE_PATH),
       nextjsType: this.props.nextjsType,
       prerenderManifestPath: join(root, ".next", "prerender-manifest.json"),
     };

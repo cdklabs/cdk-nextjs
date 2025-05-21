@@ -1,28 +1,91 @@
 # Development Notes
 
-## Verify EFS FileSystem Cache
+## Mapping Next.js output to EFS and S3
 
-EFS FileSystem acts as a shared cache between all containers/functions for the data, image, and full route cache and shared storage to reduce container (lambda and fargate) size for the public folder and sharp image optimization binaries (@img/sharp-libvips-linux\*) (~30MB). The folder structure should looks like:
-
-- /mnt/cdk-nextjs/data-cache
-- /mnt/cdk-nextjs/full-route-cache
-- /mnt/cdk-nextjs/image-cache
-- /mnt/cdk-nextjs/public
-- /mnt/cdk-nextjs/sharp
-
-Directory names are defined in src/common.ts.
-
-To verify cache is working, deploy one of the example apps and visit the /run-command page. Then enter the following commands and ensure they create a similar output.
+When a Next.js app is built with `next build` with standalone mode it's output looks like:
 
 ```
-Command: readlink .next/cache/images
-Output: /mnt/cdk-nextjs/image-cache
-Command: readlink .next/cache/fetch-cache
-Output: /mnt/cdk-nextjs/data-cache
-Command: ls /mnt/cdk-nextjs/data-cache
-Output: 1c5e7e075ef14fa7ed6ffe8ddc77bb5ba682a0d32e11acbe88fe0e997141343e 7219caec2df443d9c8453d2d63f9893f701fcc35e6a25a9d227652a1860296a1 7d6a754bbf6a88893a7123d28dc4d99c0813c646abbb712ad85d949bbd528618 8fd064b67046e3d373dd7c2bc22e20d58fd95ef2491850ab77e9799d8b6d7735 de9b0bb0b5134c02dc2ff1dc9b2188f6216d4e811186fd985cd1cbaa6e9d0a1f
-Command: ls /mnt/cdk-nextjs/image-cache
-Output: JYUtmef0DjkFQBxgsZ4K51CyobxYqyXBOvpSFb3ef7A= W6NDSUrhApOUZ4FyFWfd9v9X2cg7z8q0yMXrZJXKukg= cDAs51Uqt+J3vNO04jH5dabjvVQCZTnpDXhoTP33MZ0= e+zuNPfk4gSKu7yTQM9sQdYvumEtD2PdVMrTiufiMZQ= l5tUrCT-iGRZlDIrNy1hz8efSOKpZwGyWBNiRrXaWVk= ylPcKFlKY2WHZ2w4sxKad3Lz8XcBPm2WyaOReb9Nkts= zH4wuKm9DtE-hgBK4G06DUDXNgdbaYeoGwidFJUkYUI=
-Command: ls -l .next/server/app
-Output: total 112 drwxr-xr-x 2 nextjs nodejs 4096 Jun 7 10:37 _not-found lrwxrwxrwx 1 root root 54 Jun 7 12:37 _not-found.html -> /mnt/cdk-nextjs/full-route-cache/_not-found.html lrwxrwxrwx 1 root root 54 Jun 7 12:37 _not-found.meta -> /mnt/cdk-nextjs/full-route-cache/_not-found.meta lrwxrwxrwx 1 root root 53 Jun 7 12:37 _not-found.rsc -> /mnt/cdk-nextjs/full-route-cache/_not-found.rsc drwxr-xr-x 1 nextjs nodejs 4096 Jun 7 12:37 api drwxr-xr-x 3 nextjs nodejs 4096 Jun 7 10:37 context lrwxrwxrwx 1 root root 51 Jun 7 12:37 context.html -> /mnt/cdk-nextjs/full-route-cache/context.html lrwxrwxrwx 1 root root 51 Jun 7 12:37 context.meta -> /mnt/cdk-nextjs/full-route-cache/context.meta lrwxrwxrwx 1 root root 50 Jun 7 12:37 context.rsc -> /mnt/cdk-nextjs/full-route-cache/context.rsc drwxr-xr-x 3 nextjs nodejs 4096 Jun 7 10:37 error-handling lrwxrwxrwx 1 root root 58 Jun 7 12:37 error-handling.html -> /mnt/cdk-nextjs/full-route-cache/error-handling.html lrwxrwxrwx 1 root root 58 Jun 7 12:37 error-handling.meta -> /mnt/cdk-nextjs/full-route-cache/error-handling.meta lrwxrwxrwx 1 root root 57 Jun 7 12:37 error-handling.rsc -> /mnt/cdk-nextjs/full-route-cache/error-handling.rsc drwxr-xr-x 2 nextjs nodejs 4096 Jun 7 10:37 favicon.ico -rw-r--r-- 1 nextjs nodejs 15086 Jun 7 10:37 favicon.ico.body lrwxrwxrwx 1 root root 55 Jun 7 12:37 favicon.ico.meta -> /mnt/cdk-nextjs/full-route-cache/favicon.ico.meta drwxr-xr-x 3 nextjs nodejs 4096 Jun 7 10:37 hooks lrwxrwxrwx 1 root root 49 Jun 7 12:37 hooks.html -> /mnt/cdk-nextjs/full-route-cache/hooks.html lrwxrwxrwx 1 root root 49 Jun 7 12:37 hooks.meta -> /mnt/cdk-nextjs/full-route-cache/hooks.meta lrwxrwxrwx 1 root root 48 Jun 7 12:37 hooks.rsc -> /mnt/cdk-nextjs/full-route-cache/hooks.rsc lrwxrwxrwx 1 root root 49 Jun 7 12:37 index.html -> /mnt/cdk-nextjs/full-route-cache/index.html lrwxrwxrwx 1 root root 49 Jun 7 12:37 index.meta -> /mnt/cdk-nextjs/full-route-cache/index.meta lrwxrwxrwx 1 root root 48 Jun 7 12:37 index.rsc -> /mnt/cdk-nextjs/full-route-cache/index.rsc drwxr-xr-x 1 nextjs nodejs 4096 Jun 7 12:37 isr lrwxrwxrwx 1 root root 47 Jun 7 12:37 isr.html -> /mnt/cdk-nextjs/full-route-cache/isr.html lrwxrwxrwx 1 root root 47 Jun 7 12:37 isr.meta -> /mnt/cdk-nextjs/full-route-cache/isr.meta lrwxrwxrwx 1 root root 46 Jun 7 12:37 isr.rsc -> /mnt/cdk-nextjs/full-route-cache/isr.rsc drwxr-xr-x 3 nextjs nodejs 4096 Jun 7 10:37 layouts lrwxrwxrwx 1 root root 51 Jun 7 12:37 layouts.html -> /mnt/cdk-nextjs/full-route-cache/layouts.html lrwxrwxrwx 1 root root 51 Jun 7 12:37 layouts.meta -> /mnt/cdk-nextjs/full-route-cache/layouts.meta lrwxrwxrwx 1 root root 50 Jun 7 12:37 layouts.rsc -> /mnt/cdk-nextjs/full-route-cache/layouts.rsc drwxr-xr-x 3 nextjs nodejs 4096 Jun 7 10:37 loading lrwxrwxrwx 1 root root 51 Jun 7 12:37 loading.html -> /mnt/cdk-nextjs/full-route-cache/loading.html lrwxrwxrwx 1 root root 51 Jun 7 12:37 loading.meta -> /mnt/cdk-nextjs/full-route-cache/loading.meta lrwxrwxrwx 1 root root 50 Jun 7 12:37 loading.rsc -> /mnt/cdk-nextjs/full-route-cache/loading.rsc drwxr-xr-x 3 nextjs nodejs 4096 Jun 7 10:37 not-found lrwxrwxrwx 1 root root 53 Jun 7 12:37 not-found.html -> /mnt/cdk-nextjs/full-route-cache/not-found.html lrwxrwxrwx 1 root root 53 Jun 7 12:37 not-found.meta -> /mnt/cdk-nextjs/full-route-cache/not-found.meta lrwxrwxrwx 1 root root 52 Jun 7 12:37 not-found.rsc -> /mnt/cdk-nextjs/full-route-cache/not-found.rsc -rw-r--r-- 1 nextjs nodejs 5076 Jun 7 10:37 page.js -rw-r--r-- 1 nextjs nodejs 2390 Jun 7 10:37 page.js.nft.json -rw-r--r-- 1 nextjs nodejs 12281 Jun 7 10:37 page_client-reference-manifest.js drwxr-xr-x 1 nextjs nodejs 4096 Jun 7 12:37 parallel-routes lrwxrwxrwx 1 root root 59 Jun 7 12:37 parallel-routes.html -> /mnt/cdk-nextjs/full-route-cache/parallel-routes.html lrwxrwxrwx 1 root root 59 Jun 7 12:37 parallel-routes.meta -> /mnt/cdk-nextjs/full-route-cache/parallel-routes.meta lrwxrwxrwx 1 root root 58 Jun 7 12:37 parallel-routes.rsc -> /mnt/cdk-nextjs/full-route-cache/parallel-routes.rsc drwxr-xr-x 1 nextjs nodejs 4096 Jun 7 12:37 patterns lrwxrwxrwx 1 root root 52 Jun 7 12:37 patterns.html -> /mnt/cdk-nextjs/full-route-cache/patterns.html lrwxrwxrwx 1 root root 52 Jun 7 12:37 patterns.meta -> /mnt/cdk-nextjs/full-route-cache/patterns.meta lrwxrwxrwx 1 root root 51 Jun 7 12:37 patterns.rsc -> /mnt/cdk-nextjs/full-route-cache/patterns.rsc drwxr-xr-x 1 nextjs nodejs 4096 Jun 7 12:37 route-groups lrwxrwxrwx 1 root root 56 Jun 7 12:37 route-groups.html -> /mnt/cdk-nextjs/full-route-cache/route-groups.html lrwxrwxrwx 1 root root 56 Jun 7 12:37 route-groups.meta -> /mnt/cdk-nextjs/full-route-cache/route-groups.meta lrwxrwxrwx 1 root root 55 Jun 7 12:37 route-groups.rsc -> /mnt/cdk-nextjs/full-route-cache/route-groups.rsc drwxr-xr-x 2 nextjs nodejs 4096 Jun 7 10:37 run-command lrwxrwxrwx 1 root root 55 Jun 7 12:37 run-command.html -> /mnt/cdk-nextjs/full-route-cache/run-command.html lrwxrwxrwx 1 root root 55 Jun 7 12:37 run-command.meta -> /mnt/cdk-nextjs/full-route-cache/run-command.meta lrwxrwxrwx 1 root root 54 Jun 7 12:37 run-command.rsc -> /mnt/cdk-nextjs/full-route-cache/run-command.rsc drwxr-xr-x 1 nextjs nodejs 4096 Jun 7 12:37 ssg lrwxrwxrwx 1 root root 47 Jun 7 12:37 ssg.html -> /mnt/cdk-nextjs/full-route-cache/ssg.html lrwxrwxrwx 1 root root 47 Jun 7 12:37 ssg.meta -> /mnt/cdk-nextjs/full-route-cache/ssg.meta lrwxrwxrwx 1 root root 46 Jun 7 12:37 ssg.rsc -> /mnt/cdk-nextjs/full-route-cache/ssg.rsc drwxr-xr-x 3 nextjs nodejs 4096 Jun 7 10:37 ssr lrwxrwxrwx 1 root root 47 Jun 7 12:37 ssr.html -> /mnt/cdk-nextjs/full-route-cache/ssr.html lrwxrwxrwx 1 root root 47 Jun 7 12:37 ssr.meta -> /mnt/cdk-nextjs/full-route-cache/ssr.meta lrwxrwxrwx 1 root root 46 Jun 7 12:37 ssr.rsc -> /mnt/cdk-nextjs/full-route-cache/ssr.rsc drwxr-xr-x 4 nextjs nodejs 4096 Jun 7 10:37 streaming lrwxrwxrwx 1 root root 53 Jun 7 12:37 streaming.html -> /mnt/cdk-nextjs/full-route-cache/streaming.html lrwxrwxrwx 1 root root 53 Jun 7 12:37 streaming.meta -> /mnt/cdk-nextjs/full-route-cache/streaming.meta lrwxrwxrwx 1 root root 52 Jun 7 12:37 streaming.rsc -> /mnt/cdk-nextjs/full-route-cache/streaming.rsc drwxr-xr-x 1 nextjs nodejs 4096 Jun 7 12:37 styling lrwxrwxrwx 1 root root 51 Jun 7 12:37 styling.html -> /mnt/cdk-nextjs/full-route-cache/styling.html lrwxrwxrwx 1 root root 51 Jun 7 12:37 styling.meta -> /mnt/cdk-nextjs/full-route-cache/styling.meta lrwxrwxrwx 1 root root 50 Jun 7 12:37 styling.rsc -> /mnt/cdk-nextjs/full-route-cache/styling.rsc
+- public
+- .next
+  - cache
+    - fetch-cache
+    - images
+  - standalone
+    - relative-path-to-workspace
+      - .next
+        - server
+          - app
+  - static
 ```
+
+Notes:
+
+- .next/cache/images won't show up at first, it's written to as app is used
+- .next/cache/fetch-cache will only show up if you have `fetch` data to cache
+
+We could ship this off to Lambda/Fargate and call it a day, but then we wouldn't
+have a content delivery network serving our static assets nor a shared cache
+between compute containers. We use S3/CloudFront for serving static assets
+and EFS for shared cache between compute containers.
+
+## S3
+
+.next/static is simply copied to S3 and then CloudFront is configured to forward
+\_next/static requests to S3. We'd prefer to prefix the S3 path with Next.js BUILD_ID
+to prevent static assets from leaking into future deployments but this is difficult
+to coordinate with deploying compute.
+
+## EFS
+
+EFS is mounted to either Lambda or Fargate at `/mnt/cdk-nextjs/BUILD_ID`. `BUILD_ID`
+is important because it lets us have deployment 1 serving users while we
+run deployment 2 in background and the new cache files uploaded into EFS don't
+affect deployment 1. Next.js has several cache types:
+
+- Data Cache (.next/cache/fetch-cache)
+- Image Optimization Cache (.next/cache/images)
+- Full Route Cache (.next/standalone/relative-path-to-workspace/.next/server/app)
+
+While data cache and image optimization cache when built are located at .next/cache,
+for standalone output they need to be moved to .next/standalone/relative-path-to-workspace/.next/cache
+to be used while running in standalone mode. public folder is required because
+images are often optimized from the public folder and we'd rather store the
+public folder in EFS than in compute container to reduce image size to save on
+cold start. The full route cache contains .html, .rsc, .meta, and .body files
+that can be updated overtime as a part of Incremental Static Regeneration (ISR).
+
+Next.js exports a `FileSystemCache` that we customize to support the Data Cache
+and Full Route Cache being updated in EFS mount path instead of where the
+Next.js app is running from. We customize the `serverDistDir` key of the object
+input parameter. See below
+
+```ts
+export default class CacheHandler extends FileSystemCache {
+  constructor(options: ConstructorParameters<typeof FileSystemCache>[0]) {
+    super({ ...options, serverDistDir: process.env.CDK_NEXTJS_SERVER_DIST_DIR });
+  }
+```
+
+We can customize the location of the image optimization cache or public folder
+this way so we have to use symlinks.
+
+The way we initialize the EFS Mount on deployment is via `NextjsAssetDeployment`
+custom resource. We copy files from the custom resource lambda functions image
+to EFS which is mounted so that the runtime compute conatiners can access
+the pre-initialized caches.
+
+Here is structure of EFS File System which maps similarly to Next.js build output:
+
+- root
+  - {BUILD_ID}
+    - public
+    - .next
+      - cache
+        - fetch-cache
+        - images
+      - server
+        - app
+
+You can interact with the EFS FileSystem by deploying one of the cdk-nextjs/examples
+apps (like global-functions) and visiting the /run-command path and entering in
+a command like `ls /mnt/{BUILD_ID}`.

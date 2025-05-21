@@ -18,20 +18,20 @@ ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/add-cache-handler.mjs /app/cache-handler.cjs ./
 ARG MOUNT_PATH
-ARG DATA_CACHE_DIR
-ARG FULL_ROUTE_CACHE_DIR
-ARG IMAGE_CACHE_DIR
-ARG PUBLIC_DIR
-RUN mkdir -p $MOUNT_PATH/$DATA_CACHE_DIR && \
-  mkdir -p $MOUNT_PATH/$FULL_ROUTE_CACHE_DIR && \
-  mkdir -p $MOUNT_PATH/$IMAGE_CACHE_DIR && \
-  mkdir -p $MOUNT_PATH/$PUBLIC_DIR && \
-  chmod -R u+rw $MOUNT_PATH && \
-  mkdir -p ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache && \
-  ln -s $MOUNT_PATH/$DATA_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/fetch-cache && \
-  ln -s $MOUNT_PATH/$IMAGE_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/cache/images && \
-  ln -s $MOUNT_PATH/$PUBLIC_DIR ./$RELATIVE_PATH_TO_WORKSPACE/public && \
-  ln -s $MOUNT_PATH/$FULL_ROUTE_CACHE_DIR ./$RELATIVE_PATH_TO_WORKSPACE/.next/server/app
+ARG BUILD_ID
+ARG SERVER_DIST_PATH
+ARG IMAGE_CACHE_PATH
+ARG PUBLIC_PATH
+RUN node add-cache-handler.mjs ./$RELATIVE_PATH_TO_WORKSPACE/.next/required-server-files.json && \
+  rm add-cache-handler.mjs && \
+  mkdir -p $MOUNT_PATH/$BUILD_ID/$SERVER_DIST_PATH && \
+  mkdir -p $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH && \
+  mkdir -p $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH && \
+  chmod -R u+rw $MOUNT_PATH/$BUILD_ID && \
+  mkdir -p ./$RELATIVE_PATH_TO_WORKSPACE/$IMAGE_CACHE_PATH && \
+  ln -s $MOUNT_PATH/$BUILD_ID/$SERVER_DIST_PATH ./$RELATIVE_PATH_TO_WORKSPACE/$SERVER_DIST_PATH && \
+  ln -s $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH ./$RELATIVE_PATH_TO_WORKSPACE/$IMAGE_CACHE_PATH && \
+  ln -s $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH ./$RELATIVE_PATH_TO_WORKSPACE/$PUBLIC_PATH
 
 USER nextjs
 

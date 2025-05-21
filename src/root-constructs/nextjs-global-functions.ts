@@ -149,9 +149,9 @@ export class NextjsGlobalFunctions extends Construct {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
       basePath: this.props.basePath,
+      buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsAssetsDeployment,
       relativePathToWorkspace: this.props.relativePathToWorkspace,
@@ -167,7 +167,7 @@ export class NextjsGlobalFunctions extends Construct {
     }
     return new NextjsFunctions(this, "NextjsFunctions", {
       accessPoint: this.nextjsFileSystem.accessPoint,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
+      buildId: this.nextjsBuild.buildId,
       dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
       healthCheckPath: this.props.healthCheckPath,
       vpc: this.nextjsVpc.vpc,

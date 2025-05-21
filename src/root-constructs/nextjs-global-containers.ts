@@ -146,8 +146,8 @@ export class NextjsGlobalContainers extends Construct {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
       basePath: this.props.basePath,
+      buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsAssetsDeployment,
@@ -164,7 +164,7 @@ export class NextjsGlobalContainers extends Construct {
     }
     return new NextjsContainers(this, "NextjsContainers", {
       accessPoint: this.nextjsFileSystem.accessPoint,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
+      buildId: this.nextjsBuild.buildId,
       dockerImageAsset: this.nextjsBuild.imageForNextjsContainers,
       fileSystem: this.nextjsFileSystem.fileSystem,
       healthCheckPath: this.props.healthCheckPath,
