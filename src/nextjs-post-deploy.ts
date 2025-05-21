@@ -122,7 +122,7 @@ export class NextjsPostDeploy extends Construct {
       code: Code.fromAsset(
         join(
           __dirname,
-          "../../../assets/lambdas/assets-deployment/assets-deployment.lambda",
+          "../../../assets/lambdas/post-deploy/post-deploy.lambda",
         ),
       ),
       filesystem: FileSystem.fromEfsAccessPoint(
