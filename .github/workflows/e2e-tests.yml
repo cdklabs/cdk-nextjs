@@ -13,7 +13,7 @@ jobs:
   # needed because we want ability to skip e2e tests sometimes via label and
   # on push to main we always want e2e tests to run
   check-if-should-run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     # `github.event_name == 'push'` -> will run after merge to main
     # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
     if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
@@ -25,14 +25,14 @@ jobs:
   # is required for fork PR to access OIDC for AWS access.
   wait-for-approval:
     needs: [check-if-should-run]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || null }}
     steps:
       - run: echo "Workflow Approved! Starting PR Checks."
 
   glbl-fns:
     needs: wait-for-approval
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
 
   glbl-cntnrs:
     needs: wait-for-approval
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
@@ -62,7 +62,7 @@ jobs:
 
   rgnl-cntnrs:
     needs: wait-for-approval
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
