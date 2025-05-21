@@ -11,7 +11,7 @@ When a Next.js app is built with `next build` with standalone mode it's output l
     - fetch-cache
     - images
   - standalone
-    - relative-path-to-workspace
+    - relative/path/to/workspace
       - .next
         - server
           - app
@@ -31,7 +31,7 @@ and EFS for shared cache between compute containers.
 ### S3
 
 .next/static is simply copied to S3 and then CloudFront is configured to forward
-\_next/static requests to S3.
+`\_next/static` requests to S3.
 
 ### EFS
 
@@ -101,6 +101,7 @@ path. You can run commands on your compute (Lambda or Fargate) to verify EFS.
 3. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/public`. Expect to see your public directory contents.
 4. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/.next`. Expect to see cache and server directories.
 5. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/.next/cache`. Expect to see fetch-cache and images folder
+6. Command: `readlink /mnt/cdk-nextjs/{BUILD_ID}/.next/server`. Expect: `/app/.next/server`
 
 ## Blue Green Deployments
 

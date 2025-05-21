@@ -4,6 +4,7 @@ import {
   ListObjectsV2Command,
   DeleteObjectsCommand,
   HeadObjectCommand,
+  ListObjectsV2CommandInput,
 } from "@aws-sdk/client-s3";
 import { debug } from "../utils";
 
@@ -29,15 +30,16 @@ export async function pruneS3(props: PruneS3Props) {
   const cutoffDate = new Date(Date.now() - msTtl);
   const objectsToDelete: { Key: string }[] = [];
 
-  let continuationToken = "";
+  let continuationToken: string | undefined = undefined;
 
   do {
     // List objects in the bucket
+    const listObjectsV2Input: ListObjectsV2CommandInput = {
+      Bucket: bucketName,
+      ContinuationToken: continuationToken,
+    };
     const listResponse = await s3Client.send(
-      new ListObjectsV2Command({
-        Bucket: bucketName,
-        ContinuationToken: continuationToken,
-      }),
+      new ListObjectsV2Command(listObjectsV2Input),
     );
 
     if (!listResponse.Contents || listResponse.Contents.length === 0) {
