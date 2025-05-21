@@ -183,7 +183,7 @@ export class NextjsGlobalContainers extends Construct {
     });
   }
   private createNextjsPostDeploy() {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+    const nextjsPostDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
       accessPoint: this.nextjsFileSystem.accessPoint,
       buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
@@ -194,5 +194,8 @@ export class NextjsGlobalContainers extends Construct {
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
+    // ensure NextjsAssetsDeployment finishes before NextjsPostDeploy
+    nextjsPostDeploy.node.addDependency(this.nextjsAssetsDeployment);
+    return nextjsPostDeploy;
   }
 }
