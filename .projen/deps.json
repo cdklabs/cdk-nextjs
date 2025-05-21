@@ -5,6 +5,10 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-cloudfront",
+      "type": "build"
+    },
+    {
       "name": "@aws-sdk/client-s3",
       "type": "build"
     },

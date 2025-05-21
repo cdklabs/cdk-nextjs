@@ -1,9 +1,14 @@
 import { cpSync } from "node:fs";
-import { debug } from "./utils";
+import { extname } from "node:path";
 import { FsToFsAction } from "../../nextjs-assets-deployment";
+import { debug } from "../utils";
 
 export function fsToFs(props: FsToFsAction) {
-  const { sourcePath, destinationPath } = props;
+  const { sourcePath, destinationPath, includeExtensions } = props;
   debug(`Copying ${sourcePath} to ${destinationPath} recursively`);
-  cpSync(sourcePath, destinationPath, { recursive: true });
+  cpSync(sourcePath, destinationPath, {
+    recursive: true,
+    filter: (_src, dest) =>
+      includeExtensions ? includeExtensions.includes(extname(dest)) : true,
+  });
 }

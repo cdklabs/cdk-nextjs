@@ -52,6 +52,9 @@
           "spawn": "bundle:lambdas/assets-deployment/assets-deployment.lambda"
         },
         {
+          "spawn": "bundle:lambdas/post-deploy/post-deploy.lambda"
+        },
+        {
           "spawn": "bundle:lambdas/revalidate/revalidate.lambda"
         },
         {
@@ -116,6 +119,24 @@
       "steps": [
         {
           "exec": "esbuild --bundle src/lambdas/assets-deployment/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/patch-fetch.js\" --minify --watch"
+        }
+      ]
+    },
+    "bundle:lambdas/post-deploy/post-deploy.lambda": {
+      "name": "bundle:lambdas/post-deploy/post-deploy.lambda",
+      "description": "Create a JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
+        }
+      ]
+    },
+    "bundle:lambdas/post-deploy/post-deploy.lambda:watch": {
+      "name": "bundle:lambdas/post-deploy/post-deploy.lambda:watch",
+      "description": "Continuously update the JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
@@ -411,13 +432,13 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-s3,@aws-sdk/client-sqs,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,next,prettier,ts-jest,ts-node,typescript,undici"
+          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-s3,@aws-sdk/client-sqs,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,next,prettier,ts-jest,ts-node,typescript,undici"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-s3 @aws-sdk/client-sqs @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
+          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-s3 @aws-sdk/client-sqs @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
         },
         {
           "exec": "pnpm dlx projen"

@@ -1,3 +1,5 @@
+import { Architecture } from "aws-cdk-lib/aws-lambda";
+
 export enum NextjsType {
   GLOBAL_CONTAINERS = "GLOBAL_CONTAINERS",
   GLOBAL_FUNCTIONS = "GLOBAL_FUNCTIONS",
@@ -33,3 +35,7 @@ export const RELATIVE_PATH_TO_WORKSPACE_ARG_NAME = "RELATIVE_PATH_TO_WORKSPACE";
 export const SERVER_DIST_PATH = ".next/server";
 export const SERVER_DIST_PATH_ARG_NAME = "SERVER_DIST_PATH";
 export const STATIC_PATH = ".next/static";
+
+export function getLambdaArchitecture(): Architecture {
+  return process.arch === "x64" ? Architecture.X86_64 : Architecture.ARM_64;
+}

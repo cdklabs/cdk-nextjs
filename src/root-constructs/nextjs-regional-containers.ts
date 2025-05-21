@@ -13,6 +13,7 @@ import {
   NextjsContainersOverrides,
 } from "../nextjs-compute/nextjs-containers";
 import { NextjsFileSystem } from "../nextjs-file-system";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { NextjsVpc } from "../nextjs-vpc";
 
 export interface NextjsRegionalContainersConstructOverrides
@@ -49,6 +50,7 @@ export class NextjsRegionalContainers extends Construct {
   nextjsFileSystem: NextjsFileSystem;
   nextjsAssetsDeployment: NextjsAssetsDeployment;
   nextjsContainers: NextjsContainers;
+  nextjsPostDeploy: NextjsPostDeploy;
 
   private nextjsType = NextjsType.REGIONAL_CONTAINERS;
   private props: NextjsRegionalContainersProps;
@@ -69,6 +71,7 @@ export class NextjsRegionalContainers extends Construct {
       connections: this.nextjsContainers.albFargateService.service.connections,
       role: this.nextjsContainers.albFargateService.taskDefinition.taskRole,
     });
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   private createNextjsBuild() {
@@ -124,6 +127,17 @@ export class NextjsRegionalContainers extends Construct {
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
+    });
+  }
+  private createNextjsPostDeploy() {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      accessPoint: this.nextjsFileSystem.accessPoint,
+      buildId: this.nextjsBuild.buildId,
+      buildImageDigest: this.nextjsBuild.buildImageDigest,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      vpc: this.nextjsVpc.vpc,
+      ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
     });
   }
 }

@@ -8,7 +8,6 @@ import { NextjsBaseProps } from "./nextjs-base-props";
 import { NextjsType } from "../common";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
-import { OptionalNextjsInvalidationProps } from "../generated-structs/OptionalNextjsInvalidationProps";
 import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import {
@@ -20,10 +19,7 @@ import {
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
 import { NextjsFileSystem } from "../nextjs-file-system";
-import {
-  NextjsInvalidation,
-  NextjsInvalidationOverrides,
-} from "../nextjs-invalidation";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { NextjsRevalidationProps } from "../nextjs-revalidation";
 import {
   NextjsStaticAssets,
@@ -38,7 +34,6 @@ export interface NextjsGlobalContainersConstructOverrides
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
   readonly nextjsRevalidationProps?: NextjsRevalidationProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
-  readonly nextjsInvalidationProps?: OptionalNextjsInvalidationProps;
 }
 
 /**
@@ -50,7 +45,6 @@ export interface NextjsGlobalContainersOverrides extends BaseNextjsOverrides {
   readonly nextjsGlobalContainers?: NextjsGlobalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
-  readonly nextjsInvalidation?: NextjsInvalidationOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
 
@@ -86,7 +80,7 @@ export class NextjsGlobalContainers extends Construct {
   nextjsAssetsDeployment: NextjsAssetsDeployment;
   nextjsContainers: NextjsContainers;
   nextjsDistribution: NextjsDistribution;
-  nextjsInvalidation: NextjsInvalidation;
+  nextjsPostDeploy: NextjsPostDeploy;
 
   private nextjsType = NextjsType.GLOBAL_CONTAINERS;
   private props: NextjsGlobalContainersProps;
@@ -109,7 +103,7 @@ export class NextjsGlobalContainers extends Construct {
       role: this.nextjsContainers.albFargateService.taskDefinition.taskRole,
     });
     this.nextjsDistribution = this.createNextjsDistribution();
-    this.nextjsInvalidation = this.createNextjsInvalidation();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   private createNextjsBuild() {
@@ -188,11 +182,17 @@ export class NextjsGlobalContainers extends Construct {
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsDistributionProps,
     });
   }
-  private createNextjsInvalidation() {
-    return new NextjsInvalidation(this, "NextjsInvalidation", {
+  private createNextjsPostDeploy() {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      accessPoint: this.nextjsFileSystem.accessPoint,
+      buildId: this.nextjsBuild.buildId,
+      buildImageDigest: this.nextjsBuild.buildImageDigest,
       distribution: this.nextjsDistribution.distribution,
-      overrides: this.props.overrides?.nextjsInvalidation,
-      ...this.props.overrides?.nextjsGlobalContainers?.nextjsInvalidationProps,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      vpc: this.nextjsVpc.vpc,
+      ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
   }
 }

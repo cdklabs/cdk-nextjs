@@ -26,6 +26,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   projenVersion: "^0.90.6",
   devDeps: [
     "@aws-crypto/sha256-js",
+    "@aws-sdk/client-cloudfront",
     "@aws-sdk/client-sqs",
     "@aws-sdk/client-s3",
     "@aws-sdk/lib-storage",
@@ -275,6 +276,25 @@ function generateStructs() {
   const getFilePath = (fileName: string) =>
     "src/generated-structs/" + fileName + ".ts";
   new ProjenStruct(project, {
+    name: "OptionalNextjsPostDeployProps",
+    filePath: getFilePath("OptionalNextjsPostDeployProps"),
+  })
+    .mixin(Struct.fromFqn("cdk-nextjs.NextjsPostDeployProps"))
+    .omit("overrides")
+    .allOptional();
+  new ProjenStruct(project, {
+    name: "OptionalPostDeployCustomResourceProperties",
+    filePath: getFilePath("OptionalPostDeployCustomResourceProperties"),
+  })
+    .mixin(Struct.fromFqn("cdk-nextjs.PostDeployCustomResourceProperties"))
+    .allOptional();
+  new ProjenStruct(project, {
+    name: "OptionalCustomResourceProps",
+    filePath: getFilePath("OptionalCustomResourceProps"),
+  })
+    .mixin(Struct.fromFqn("aws-cdk-lib.CustomResourceProps"))
+    .allOptional();
+  new ProjenStruct(project, {
     name: "OptionalS3OriginBucketWithOACProps",
     filePath: getFilePath("OptionalS3OriginBucketWithOACProps"),
   })
@@ -358,13 +378,6 @@ function generateStructs() {
     filePath: getFilePath("OptionalNextjsContainersProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsContainersProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsInvalidationProps",
-    filePath: getFilePath("OptionalNextjsInvalidationProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsInvalidationProps"))
     .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {

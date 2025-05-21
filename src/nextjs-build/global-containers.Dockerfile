@@ -16,6 +16,8 @@ RUN adduser --system --uid 1001 nextjs
 
 ARG RELATIVE_PATH_TO_WORKSPACE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_WORKSPACE/.next/standalone ./
+# .rsc, .html, .body, and .meta files not needed because they're cached in EFS
+RUN find ./ -type f \( -name "*.rsc" -o -name "*.html" -o -name "*.body" -o -name "*.meta" \) -delete
 COPY --from=builder --chown=nextjs:nodejs /app/add-cache-handler.mjs /app/cache-handler.cjs ./
 ARG MOUNT_PATH
 ARG BUILD_ID

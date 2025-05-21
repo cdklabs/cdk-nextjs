@@ -1,7 +1,6 @@
 import { join } from "path/posix";
 import { Duration } from "aws-cdk-lib";
 import {
-  Architecture,
   DockerImageCode,
   DockerImageFunction,
   FileSystem,
@@ -13,6 +12,7 @@ import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
 import {
   CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
+  getLambdaArchitecture,
   MOUNT_PATH,
   SERVER_DIST_PATH,
 } from "../common";
@@ -54,14 +54,8 @@ export class NextjsFunctions extends Construct {
   }
 
   private createFunction() {
-    let architecture: Architecture | undefined = undefined;
-    if (process.arch === "x64") {
-      architecture = Architecture.X86_64;
-    } else if (process.arch === "arm64") {
-      architecture = Architecture.ARM_64;
-    }
     const fn = new DockerImageFunction(this, "Functions", {
-      architecture,
+      architecture: getLambdaArchitecture(),
       code: this.props.dockerImageCode,
       filesystem: FileSystem.fromEfsAccessPoint(
         this.props.accessPoint,

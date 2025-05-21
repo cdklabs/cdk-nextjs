@@ -7,7 +7,6 @@ import {
 import { NextjsBaseProps } from "./nextjs-base-props";
 import { NextjsType } from "../common";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
-import { OptionalNextjsInvalidationProps } from "../generated-structs/OptionalNextjsInvalidationProps";
 import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import {
@@ -20,10 +19,7 @@ import {
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
 import { NextjsFileSystem } from "../nextjs-file-system";
-import {
-  NextjsInvalidation,
-  NextjsInvalidationOverrides,
-} from "../nextjs-invalidation";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import {
   NextjsRevalidation,
   NextjsRevalidationOverrides,
@@ -40,7 +36,6 @@ export interface NextjsGlobalFunctionsConstructOverrides
   extends BaseNextjsConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
-  readonly nextjsInvalidationProps?: OptionalNextjsInvalidationProps;
   readonly nextjsRevalidationProps?: NextjsRevalidationProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
@@ -55,7 +50,6 @@ export interface NextjsGlobalFunctionsOverrides extends BaseNextjsOverrides {
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
   readonly nextjsRevalidation?: NextjsRevalidationOverrides;
-  readonly nextjsInvalidation?: NextjsInvalidationOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
 
@@ -92,7 +86,7 @@ export class NextjsGlobalFunctions extends Construct {
   nextjsFunctions: NextjsFunctions;
   nextjsDistribution: NextjsDistribution;
   nextjsRevalidation: NextjsRevalidation;
-  nextjsInvalidation: NextjsInvalidation;
+  nextjsPostDeploy: NextjsPostDeploy;
 
   private nextjsType = NextjsType.GLOBAL_FUNCTIONS;
   private props: NextjsGlobalFunctionsProps;
@@ -112,7 +106,7 @@ export class NextjsGlobalFunctions extends Construct {
     });
     this.nextjsDistribution = this.createNextjsDistribution();
     this.nextjsRevalidation = this.createNextjsRevalidation();
-    this.nextjsInvalidation = this.createNextjsInvalidation();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   private createNextjsBuild() {
@@ -194,11 +188,17 @@ export class NextjsGlobalFunctions extends Construct {
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsRevalidationProps,
     });
   }
-  private createNextjsInvalidation() {
-    return new NextjsInvalidation(this, "NextjsInvalidation", {
+  private createNextjsPostDeploy() {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      accessPoint: this.nextjsFileSystem.accessPoint,
+      buildId: this.nextjsBuild.buildId,
+      buildImageDigest: this.nextjsBuild.buildImageDigest,
       distribution: this.nextjsDistribution.distribution,
-      overrides: this.props.overrides?.nextjsInvalidation,
-      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsInvalidationProps,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      vpc: this.nextjsVpc.vpc,
+      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsPostDeployProps,
     });
   }
 }

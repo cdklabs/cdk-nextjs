@@ -189,7 +189,9 @@ export class NextjsBuild extends Construct {
     this.relativePathToWorkspace = props.relativePathToWorkspace || ".";
     this.props = props;
     this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
-    this.createBuilderImage();
+    if (!props.builderImageProps?.skipBuild) {
+      this.createBuilderImage();
+    }
     this.buildImageDigest = this.getBuilderImageDigest();
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getPublicDirEntries();
@@ -234,7 +236,6 @@ export class NextjsBuild extends Construct {
       ],
       file = "builder.Dockerfile",
       platform,
-      skipBuild = false,
     } = this.props.builderImageProps || {};
 
     const filePathsToCopy: string[] = [
@@ -275,16 +276,14 @@ export class NextjsBuild extends Construct {
       `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageAlias} ${buildArgsStr} .`;
     let error: unknown;
     try {
-      if (!skipBuild) {
-        console.log(
-          `Building image with command: ${command} in directory: ${this.props.buildContext}`,
-        );
-        execSync(command, {
-          stdio: "inherit",
-          cwd: this.props.buildContext,
-          env: process.env,
-        });
-      }
+      console.log(
+        `Building image with command: ${command} in directory: ${this.props.buildContext}`,
+      );
+      execSync(command, {
+        stdio: "inherit",
+        cwd: this.props.buildContext,
+        env: process.env,
+      });
     } catch (err) {
       error = err;
     } finally {

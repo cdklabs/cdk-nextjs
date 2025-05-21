@@ -2,11 +2,10 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import type { CloudFormationCustomResourceHandler } from "aws-lambda";
 import { fsToFs } from "./fs-to-fs";
 import { fsToS3 } from "./fs-to-s3";
-import { pruneS3 } from "./prune-s3";
-import { cfnResponse, CfnResponseStatus, debug } from "./utils";
-import type { CustomResourceProperties } from "../../nextjs-assets-deployment";
+import type { StaticAssetsCustomResourceProperties } from "../../nextjs-assets-deployment";
+import { cfnResponse, CfnResponseStatus, debug } from "../utils";
 
-type ResourceProps = CustomResourceProperties & {
+type ResourceProps = StaticAssetsCustomResourceProperties & {
   ServiceToken: string;
 };
 
@@ -24,14 +23,12 @@ export const handler: CloudFormationCustomResourceHandler = async (
   try {
     const props = event.ResourceProperties as ResourceProps;
     if (event.RequestType === "Create" || event.RequestType === "Update") {
-      const { actions, nextjsType } = props;
+      const { actions, buildId, nextjsType } = props;
       for (const action of actions) {
         if (action.type === "fs-to-fs") {
           fsToFs(action);
         } else if (action.type === "fs-to-s3") {
-          await fsToS3(action, nextjsType);
-        } else if (action.type === "prune-s3") {
-          await pruneS3(action);
+          await fsToS3({ ...action, nextjsType, buildId });
         }
       }
       initImageCache(props.imageCachePath);
