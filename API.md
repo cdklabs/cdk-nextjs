@@ -2285,7 +2285,7 @@ const nextjsAssetsDeploymentProps: NextjsAssetsDeploymentProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsAssetDeploymentOverrides">NextjsAssetDeploymentOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeploymentProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
 ---
@@ -2394,15 +2394,15 @@ public readonly overrides: NextjsAssetDeploymentOverrides;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsAssetsDeploymentProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsAssetsDeploymentProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
 
-> [{@link NextjsBaseProps.relativePathToWorkspace }]({@link NextjsBaseProps.relativePathToWorkspace })
+> [{@link NextjsBaseProps.relativePathToPackage }]({@link NextjsBaseProps.relativePathToPackage })
 
 ---
 
@@ -2432,10 +2432,10 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsBaseProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 
 ---
 
@@ -2447,7 +2447,7 @@ public readonly buildContext: string;
 
 - *Type:* string
 
-[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
+[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}.
 
 Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
 Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
@@ -2501,10 +2501,10 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsBaseProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsBaseProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
@@ -2512,7 +2512,7 @@ public readonly relativePathToWorkspace: string;
 Use this if building in monorepo.
 
 This is the relative path from
-{@link NextjsBaseProps.buildContext} or root workspace to nested workspace
+{@link NextjsBaseProps.buildContext} or root workspace to nested package
 containing Next.js app. See example below:
 
 Let's say you have a monorepo with the following folder structure:
@@ -2523,15 +2523,14 @@ Let's say you have a monorepo with the following folder structure:
   - package.json (root)
 
 And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildContext}
-to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToWorkspace}
+to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToPackage}
 to `"./packages/ui"`.
 
 Note, setting {@link NextjsBaseProps.buildContext} to the root of your
 monorepo will invalidate container runtime (i.e. docker) build cache when any file is
 changed in your monorepo. This is slows down deployments. Checkout how you
 can use [turbo](https://turbo.build/) in [Deploying with Docker Guide](https://turbo.build/repo/docs/handbook/deploying-with-docker)
-to achieve better build caching. It's as easy as running
-`turbo prune my-app --docker` - no config file required.
+in the cdk-nextjs/examples/turbo.
 
 ---
 
@@ -2653,7 +2652,7 @@ const nextjsBuildProps: NextjsBuildProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.builderImageProps">builderImageProps</a></code> | <code><a href="#cdk-nextjs.BuilderImageProps">BuilderImageProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsBuildProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBuildProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 
 ---
 
@@ -2711,15 +2710,15 @@ public readonly overrides: NextjsBuildOverrides;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsBuildProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsBuildProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
 
-> [{@link NextjsBaseProps.relativePathToWorkspace }]({@link NextjsBaseProps.relativePathToWorkspace })
+> [{@link NextjsBaseProps.relativePathToPackage }]({@link NextjsBaseProps.relativePathToPackage })
 
 ---
 
@@ -3670,10 +3669,10 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
@@ -3688,7 +3687,7 @@ public readonly buildContext: string;
 
 - *Type:* string
 
-[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
+[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}.
 
 Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
 Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
@@ -3742,10 +3741,10 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
@@ -3753,7 +3752,7 @@ public readonly relativePathToWorkspace: string;
 Use this if building in monorepo.
 
 This is the relative path from
-{@link NextjsBaseProps.buildContext} or root workspace to nested workspace
+{@link NextjsBaseProps.buildContext} or root workspace to nested package
 containing Next.js app. See example below:
 
 Let's say you have a monorepo with the following folder structure:
@@ -3764,15 +3763,14 @@ Let's say you have a monorepo with the following folder structure:
   - package.json (root)
 
 And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildContext}
-to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToWorkspace}
+to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToPackage}
 to `"./packages/ui"`.
 
 Note, setting {@link NextjsBaseProps.buildContext} to the root of your
 monorepo will invalidate container runtime (i.e. docker) build cache when any file is
 changed in your monorepo. This is slows down deployments. Checkout how you
 can use [turbo](https://turbo.build/) in [Deploying with Docker Guide](https://turbo.build/repo/docs/handbook/deploying-with-docker)
-to achieve better build caching. It's as easy as running
-`turbo prune my-app --docker` - no config file required.
+in the cdk-nextjs/examples/turbo.
 
 ---
 
@@ -4095,10 +4093,10 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
@@ -4113,7 +4111,7 @@ public readonly buildContext: string;
 
 - *Type:* string
 
-[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
+[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}.
 
 Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
 Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
@@ -4167,10 +4165,10 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
@@ -4178,7 +4176,7 @@ public readonly relativePathToWorkspace: string;
 Use this if building in monorepo.
 
 This is the relative path from
-{@link NextjsBaseProps.buildContext} or root workspace to nested workspace
+{@link NextjsBaseProps.buildContext} or root workspace to nested package
 containing Next.js app. See example below:
 
 Let's say you have a monorepo with the following folder structure:
@@ -4189,15 +4187,14 @@ Let's say you have a monorepo with the following folder structure:
   - package.json (root)
 
 And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildContext}
-to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToWorkspace}
+to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToPackage}
 to `"./packages/ui"`.
 
 Note, setting {@link NextjsBaseProps.buildContext} to the root of your
 monorepo will invalidate container runtime (i.e. docker) build cache when any file is
 changed in your monorepo. This is slows down deployments. Checkout how you
 can use [turbo](https://turbo.build/) in [Deploying with Docker Guide](https://turbo.build/repo/docs/handbook/deploying-with-docker)
-to achieve better build caching. It's as easy as running
-`turbo prune my-app --docker` - no config file required.
+in the cdk-nextjs/examples/turbo.
 
 ---
 
@@ -4332,7 +4329,7 @@ const nextjsPostDeployProps: NextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | Override props for every construct. |
-| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
 ---
@@ -4416,15 +4413,15 @@ Override props for every construct.
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsPostDeployProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsPostDeployProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
 
-> [{@link NextjsBaseProps.relativePathToWorkspace }]({@link NextjsBaseProps.relativePathToWorkspace })
+> [{@link NextjsBaseProps.relativePathToPackage }]({@link NextjsBaseProps.relativePathToPackage })
 
 ---
 
@@ -4637,10 +4634,10 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides">NextjsRegionalContainersOverrides</a></code> | Override props of any construct. |
 
 ---
@@ -4653,7 +4650,7 @@ public readonly buildContext: string;
 
 - *Type:* string
 
-[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToWorkspace}.
+[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}.
 
 Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
 Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
@@ -4707,10 +4704,10 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
@@ -4718,7 +4715,7 @@ public readonly relativePathToWorkspace: string;
 Use this if building in monorepo.
 
 This is the relative path from
-{@link NextjsBaseProps.buildContext} or root workspace to nested workspace
+{@link NextjsBaseProps.buildContext} or root workspace to nested package
 containing Next.js app. See example below:
 
 Let's say you have a monorepo with the following folder structure:
@@ -4729,15 +4726,14 @@ Let's say you have a monorepo with the following folder structure:
   - package.json (root)
 
 And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildContext}
-to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToWorkspace}
+to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToPackage}
 to `"./packages/ui"`.
 
 Note, setting {@link NextjsBaseProps.buildContext} to the root of your
 monorepo will invalidate container runtime (i.e. docker) build cache when any file is
 changed in your monorepo. This is slows down deployments. Checkout how you
 can use [turbo](https://turbo.build/) in [Deploying with Docker Guide](https://turbo.build/repo/docs/handbook/deploying-with-docker)
-to achieve better build caching. It's as easy as running
-`turbo prune my-app --docker` - no config file required.
+in the cdk-nextjs/examples/turbo.
 
 ---
 
@@ -9022,7 +9018,7 @@ const optionalNextjsAssetsDeploymentProps: OptionalNextjsAssetsDeploymentProps =
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.dockerImageCode">dockerImageCode</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
 
@@ -9103,10 +9099,10 @@ public readonly nextjsType: NextjsType;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.OptionalNextjsAssetsDeploymentProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
@@ -9155,7 +9151,7 @@ const optionalNextjsBuildProps: OptionalNextjsBuildProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildContext">buildContext</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.builderImageProps">builderImageProps</a></code> | <code><a href="#cdk-nextjs.BuilderImageProps">BuilderImageProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 
 ---
 
@@ -9199,10 +9195,10 @@ public readonly nextjsType: NextjsType;
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string
@@ -9486,7 +9482,7 @@ const optionalNextjsPostDeployProps: OptionalNextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.buildImageDigest">buildImageDigest</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
-| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
 
@@ -9547,10 +9543,10 @@ CloudFront Distribution to invalidate.
 
 ---
 
-##### `relativePathToWorkspace`<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.relativePathToWorkspace"></a>
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.relativePathToPackage"></a>
 
 ```typescript
-public readonly relativePathToWorkspace: string;
+public readonly relativePathToPackage: string;
 ```
 
 - *Type:* string

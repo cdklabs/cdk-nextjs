@@ -14,7 +14,7 @@ export interface OptionalNextjsAssetsDeploymentProps {
   /**
    * @stability stable
    */
-  readonly relativePathToWorkspace?: string;
+  readonly relativePathToPackage?: string;
   /**
    * If true, logs details in custom resource lambda.
    * @default true

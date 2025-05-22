@@ -16,7 +16,7 @@ RUN mkdir -p /etc/ssl/certs/rds \
     && wget -q -O /etc/ssl/certs/rds/us-east-1-bundle.pem https://truststore.pki.rds.amazonaws.com/us-east-1/us-east-1-bundle.pem \
     && chmod 644 /etc/ssl/certs/rds/us-east-1-bundle.pem
 # postgres.js will pick up on tls ssl/tls certs via this env var
-ENV PGSSLROOTCERT=/etc/ssl/certs/rds/us-east-1-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/rds/us-east-1-bundle.pem
 
 ENV NODE_ENV production
 # Uncomment the following line in case you want to disable telemetry during runtime.

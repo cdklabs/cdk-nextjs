@@ -13,7 +13,7 @@ export interface OptionalNextjsPostDeployProps {
   /**
    * @stability stable
    */
-  readonly relativePathToWorkspace?: string;
+  readonly relativePathToPackage?: string;
   /**
    * CloudFront Distribution to invalidate.
    * @stability stable
