@@ -268,9 +268,7 @@ export class NextjsBuild extends Construct {
       this.props.buildContext,
       "cdk-nextjs-load-env-vars.sh",
     );
-    if (envVarNames.length) {
-      this.createLoadEnvVarsScript(envVarNames, loadEnvVarsScriptPath);
-    }
+    this.createLoadEnvVarsScript(envVarNames, loadEnvVarsScriptPath);
     const command =
       this.props.builderImageProps?.command ||
       `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageAlias} ${buildArgsStr} .`;

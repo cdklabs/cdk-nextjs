@@ -7,6 +7,7 @@ import {
   suppressCommonNags,
   suppressGlobalNags,
   suppressLambdaNags,
+  suppressRevalidationNags,
 } from "../shared/suppress-nags";
 import {
   InstanceClass,
@@ -133,26 +134,7 @@ export const stack = new LowCostStack(app, getStackName("low-cost"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Queue/Resource`,
-  [
-    {
-      id: "AwsSolutions-SQS3",
-      reason: "DLQ not required for example app",
-    },
-  ],
-);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Fn/ServiceRole/Resource`,
-  [
-    {
-      id: "AwsSolutions-IAM4",
-      reason: "AWSLambdaBasicExecutionRole is not overly permissive",
-    },
-  ],
-);
+suppressRevalidationNags(stack);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
 

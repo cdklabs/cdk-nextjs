@@ -101,7 +101,9 @@ path. You can run commands on your compute (Lambda or Fargate) to verify EFS.
 3. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/public`. Expect to see your public directory contents.
 4. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/.next`. Expect to see cache and server directories.
 5. Command: `ls -a /mnt/cdk-nextjs/{BUILD_ID}/.next/cache`. Expect to see fetch-cache and images folder
-6. Command: `readlink /mnt/cdk-nextjs/{BUILD_ID}/.next/server`. Expect: `/app/.next/server`
+6. Command: `readlink public`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/public`.
+7. Command: `readlink .next/server`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/.next/server`.
+8. Command: `readlink .next/cache/images`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/.next/cache/images`.
 
 ## Blue Green Deployments
 

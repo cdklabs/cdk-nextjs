@@ -12,24 +12,76 @@ import {
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 import { getStackName } from "../shared/get-stack-name";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import { join } from "node:path";
+import { cpSync, readFileSync, rmSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 const app = new App();
 
-class GlobalFunctionsStack extends Stack {
+class TurborepoStack extends Stack {
+  #workspaceRootPath = join(import.meta.dirname, "..");
+  #builderDockerfile = "builder.Dockerfile";
+
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
+    const prunedOutDirPath = this.#createPrunedOutDir();
+    this.#createNextjs(prunedOutDirPath);
+  }
+
+  /**
+   * @see https://turbo.build/repo/docs/guides/tools/docker
+   */
+  #createPrunedOutDir() {
+    const workspacePackageName = this.#getWorkspacePackageName();
+    const outDirPath = join(
+      this.#workspaceRootPath,
+      "pruned",
+      workspacePackageName,
+    );
+    // prevent stale files being in pruned folder
+    rmSync(outDirPath, { recursive: true, force: true });
+    //  --out-dir pruned/... results in pruned directory at root of monorepo
+    execSync(
+      `pnpm turbo prune ${workspacePackageName} --docker --out-dir pruned/${workspacePackageName}`,
+      { stdio: "inherit" },
+    );
+    cpSync(
+      join(import.meta.dirname, this.#builderDockerfile),
+      join(outDirPath, this.#builderDockerfile),
+    );
+    return outDirPath;
+  }
+
+  #getWorkspacePackageName(): string {
+    const packageJsonPath = join(
+      this.#workspaceRootPath,
+      "app-playground", // make this a variable passed in via construct if you want this to be reusable
+      "package.json",
+    );
+    const packageJsonStr = readFileSync(packageJsonPath, {
+      encoding: "utf-8",
+    });
+    const packageJsonObj = JSON.parse(packageJsonStr) as { name: string };
+    return packageJsonObj.name;
+  }
+
+  #createNextjs(buildContext: string) {
     const logsBucket = this.#getLogsBucket();
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildContext,
       overrides: {
         nextjsGlobalFunctions: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("global-functions"),
+              file: this.#builderDockerfile,
             },
+          },
+        },
+        nextjsBuild: {
+          functionsImageBuildContext: import.meta.dirname,
+          nextjsFunctionsAssetImageCodeProps: {
+            file: "global-functions.Dockerfile",
           },
         },
         nextjsDistribution: {
@@ -82,7 +134,7 @@ class GlobalFunctionsStack extends Stack {
   }
 }
 
-export const stack = new GlobalFunctionsStack(app, getStackName("glbl-fns"));
+export const stack = new TurborepoStack(app, getStackName("turbo"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);
