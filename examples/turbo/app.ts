@@ -32,17 +32,13 @@ class TurborepoStack extends Stack {
    * @see https://turbo.build/repo/docs/guides/tools/docker
    */
   #createPrunedOutDir() {
-    const workspacePackageName = this.#getWorkspacePackageName();
-    const outDirPath = join(
-      this.#workspaceRootPath,
-      "pruned",
-      workspacePackageName,
-    );
+    const packageName = this.#getPackageName();
+    const outDirPath = join(this.#workspaceRootPath, "pruned", packageName);
     // prevent stale files being in pruned folder
     rmSync(outDirPath, { recursive: true, force: true });
     //  --out-dir pruned/... results in pruned directory at root of monorepo
     execSync(
-      `pnpm turbo prune ${workspacePackageName} --docker --out-dir pruned/${workspacePackageName}`,
+      `pnpm turbo prune ${packageName} --docker --out-dir pruned/${packageName}`,
       { stdio: "inherit" },
     );
     cpSync(
@@ -52,7 +48,7 @@ class TurborepoStack extends Stack {
     return outDirPath;
   }
 
-  #getWorkspacePackageName(): string {
+  #getPackageName(): string {
     const packageJsonPath = join(
       this.#workspaceRootPath,
       "app-playground", // make this a variable passed in via construct if you want this to be reusable
@@ -103,7 +99,7 @@ class TurborepoStack extends Stack {
           },
         },
       },
-      relativePathToWorkspace: "./app-playground",
+      relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value: "https://" + nextjs.nextjsDistribution.distribution.domainName,

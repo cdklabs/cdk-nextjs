@@ -111,7 +111,7 @@ export class NextjsGlobalContainers extends Construct {
       buildCommand: this.props.buildCommand,
       buildContext: this.props.buildContext,
       nextjsType: this.nextjsType,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       overrides: this.props.overrides?.nextjsBuild,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsBuildProps,
     });
@@ -145,7 +145,7 @@ export class NextjsGlobalContainers extends Construct {
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsAssetsDeployment,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsGlobalContainers
@@ -189,7 +189,7 @@ export class NextjsGlobalContainers extends Construct {
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       distribution: this.nextjsDistribution.distribution,
       overrides: this.props.overrides?.nextjsPostDeploy,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,

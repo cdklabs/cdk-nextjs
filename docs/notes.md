@@ -11,7 +11,7 @@ When a Next.js app is built with `next build` with standalone mode it's output l
     - fetch-cache
     - images
   - standalone
-    - relative/path/to/workspace
+    - relative/path/to/package
       - .next
         - server
           - app
@@ -42,10 +42,10 @@ affect deployment 1. Next.js has several cache types:
 
 - Data Cache (.next/cache/fetch-cache)
 - Image Optimization Cache (.next/cache/images)
-- Full Route Cache (.next/standalone/relative-path-to-workspace/.next/server/app)
+- Full Route Cache (.next/standalone/relative/path/to/package/.next/server/app)
 
 While data cache and image optimization cache when built are located at .next/cache,
-for standalone output they need to be moved to .next/standalone/relative-path-to-workspace/.next/cache
+for standalone output they need to be moved to .next/standalone/relative/path/to/package/.next/cache
 to be used while running in standalone mode. public folder is required because
 images are often optimized from the public folder and we'd rather store the
 public folder in EFS than in compute container to reduce image size to save on

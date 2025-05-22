@@ -79,7 +79,7 @@ export class NextjsRegionalContainers extends Construct {
       buildCommand: this.props.buildCommand,
       buildContext: this.props.buildContext,
       nextjsType: this.nextjsType,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       overrides: this.props.overrides?.nextjsBuild,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsBuildProps,
     });
@@ -106,7 +106,7 @@ export class NextjsRegionalContainers extends Construct {
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsAssetsDeployment,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsRegionalContainers
         ?.nextjsAssetsDeploymentProps,
@@ -135,7 +135,7 @@ export class NextjsRegionalContainers extends Construct {
       buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       overrides: this.props.overrides?.nextjsPostDeploy,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
     });

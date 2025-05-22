@@ -15,7 +15,7 @@ import {
   NextjsType,
   PUBLIC_PATH,
   PUBLIC_PATH_ARG_NAME,
-  RELATIVE_PATH_TO_WORKSPACE_ARG_NAME,
+  RELATIVE_PATH_TO_PACKAGE_ARG_NAME,
   SERVER_DIST_PATH,
   SERVER_DIST_PATH_ARG_NAME,
   BUILD_ID_ARG_NAME,
@@ -117,9 +117,9 @@ export interface NextjsBuildProps {
    */
   readonly builderImageProps?: BuilderImageProps;
   /**
-   * @see {@link NextjsBaseProps.relativePathToWorkspace}
+   * @see {@link NextjsBaseProps.relativePathToPackage}
    */
-  readonly relativePathToWorkspace?: NextjsBaseProps["relativePathToWorkspace"];
+  readonly relativePathToPackage?: NextjsBaseProps["relativePathToPackage"];
   readonly nextjsType: NextjsType;
   readonly overrides?: NextjsBuildOverrides;
 }
@@ -183,12 +183,12 @@ export class NextjsBuild extends Construct {
 
   private containerRuntime = process.env.CDK_DOCKER || "docker";
   private props: NextjsBuildProps;
-  private relativePathToWorkspace: string;
+  private relativePathToPackage: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
     this.builderImageAlias = `${this.builderImageRepo}:${this.node.addr.slice(30)}`;
-    this.relativePathToWorkspace = props.relativePathToWorkspace || ".";
+    this.relativePathToPackage = props.relativePathToPackage || ".";
     this.props = props;
     this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
     if (!props.builderImageProps?.skipBuild) {
@@ -211,7 +211,7 @@ export class NextjsBuild extends Construct {
 
   private getRelativeEntrypointPath() {
     // joinPosix b/c this will be used in linux container
-    return joinPosix(this.props.relativePathToWorkspace || "", "server.js");
+    return joinPosix(this.props.relativePathToPackage || "", "server.js");
   }
   /**
    * A builder or base image needs to be created so that the same image can be
@@ -224,7 +224,7 @@ export class NextjsBuild extends Construct {
     const {
       buildArgs = {
         BUILD_COMMAND: buildCommand,
-        RELATIVE_PATH_TO_WORKSPACE: this.relativePathToWorkspace,
+        RELATIVE_PATH_TO_PACKAGE: this.relativePathToPackage,
         ...this.props.builderImageProps?.buildArgs,
       },
       envVarNames = [],
@@ -323,7 +323,7 @@ export class NextjsBuild extends Construct {
   private getPublicDirEntries(): PublicDirEntry[] {
     const publicDirPath = joinPosix(
       "/app",
-      this.props.relativePathToWorkspace || "",
+      this.props.relativePathToPackage || "",
       "public",
     );
     const publicDirEntriesString = execSync(
@@ -335,7 +335,7 @@ export class NextjsBuild extends Construct {
   private getBuildId() {
     const buildIdPath = joinPosix(
       "/app",
-      this.props.relativePathToWorkspace || "",
+      this.props.relativePathToPackage || "",
       ".next",
       "BUILD_ID",
     );
@@ -371,7 +371,7 @@ export class NextjsBuild extends Construct {
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
         [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
         [SERVER_DIST_PATH_ARG_NAME]: SERVER_DIST_PATH,
-        [RELATIVE_PATH_TO_WORKSPACE_ARG_NAME]: this.relativePathToWorkspace,
+        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
         ...this.props.overrides?.nextjsContainersDockerImageAssetProps
           ?.buildArgs,
       },
@@ -401,7 +401,7 @@ export class NextjsBuild extends Construct {
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
         [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
         [SERVER_DIST_PATH_ARG_NAME]: SERVER_DIST_PATH,
-        [RELATIVE_PATH_TO_WORKSPACE_ARG_NAME]: this.relativePathToWorkspace,
+        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
         ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.buildArgs,
       },
     });
@@ -437,7 +437,7 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [RELATIVE_PATH_TO_WORKSPACE_ARG_NAME]: this.relativePathToWorkspace,
+        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
         ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps
           ?.buildArgs,
       },

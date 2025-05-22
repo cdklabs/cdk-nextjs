@@ -18,8 +18,8 @@ RUN \
   else echo "Lockfile not found." && exit 1; \
   fi
 ARG BUILD_COMMAND
-ARG RELATIVE_PATH_TO_WORKSPACE
+ARG RELATIVE_PATH_TO_PACKAGE
 RUN chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh && \
-    cd $RELATIVE_PATH_TO_WORKSPACE && $BUILD_COMMAND
+    cd $RELATIVE_PATH_TO_PACKAGE && $BUILD_COMMAND
 # after building, node_modules aren't needed anymore. this reduces image size
 RUN rm -rf node_modules

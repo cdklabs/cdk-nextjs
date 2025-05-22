@@ -2,6 +2,7 @@
 
 ## 0.4.0
 
+- Change `Nextjs{...}Props.relativePathToWorkspace` -> `Nextjs{...}Props.relativePathToPackage` because workspace references entire monorepo not a package in the monorepo.
 - Refactor `NextjsInvalidation` to `NextjsPostDeploy` which now does not use `AwsCustomResource` but is `CustomResource` which calls `CreateInvalidation` API within, in addition to pruning EFS old BUILD_ID folder and old S3 static assets
   - Relevant but not user facing change is that EFS Mounts are now segmented by BUILD_ID and S3 objects are now tagged with "next-build-id" metadata which are a step towards Blue/Green deployments.
 - Change BUILDER_IMAGE_TAG to BUILDER_IMAGE_ALIAS in `NextjsBuild` and Dockerfiles. This change is mostly internal and will only affect you if you used overrides. Reason for change was to resolve Docker warning, `InvalidDefaultArgInFrom`, and to improve semantics. A tag in Dockerfile reference is what comes after the :. Alias is repo:tag. Now repository (cdk-nextjs/builder) and tag (CDK's `node.addr.slice(30)`) so we can properly default to `cdk-nextjs/builder:latest` in Dockerfiles.

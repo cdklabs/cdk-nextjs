@@ -55,9 +55,9 @@ export interface NextjsAssetsDeploymentProps {
   readonly nextjsType: NextjsType;
   readonly overrides?: NextjsAssetDeploymentOverrides;
   /**
-   * @see {@link NextjsBaseProps.relativePathToWorkspace}
+   * @see {@link NextjsBaseProps.relativePathToPackage}
    */
-  readonly relativePathToWorkspace?: string;
+  readonly relativePathToPackage?: string;
   /**
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`
    */
@@ -179,7 +179,7 @@ export class NextjsAssetsDeployment extends Construct {
           root,
           ".next",
           "standalone",
-          this.props.relativePathToWorkspace || "",
+          this.props.relativePathToPackage || "",
           FULL_ROUTE_CACHE_PATH,
         ),
         destinationPath: join(
@@ -193,7 +193,7 @@ export class NextjsAssetsDeployment extends Construct {
         includeExtensions: ["body", "html", "rsc", "meta"],
       },
       // after `next build` data cache https://nextjs.org/docs/app/building-your-application/caching#data-cache
-      // exists at top level .next/cache so we need to copy into relativePathToWorkspace
+      // exists at top level .next/cache so we need to copy into relativePathToPackage
       // normalized path
       {
         type: "fs-to-fs",
