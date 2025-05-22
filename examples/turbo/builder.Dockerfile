@@ -10,7 +10,7 @@ RUN npm install -g corepack@latest && corepack enable pnpm && pnpm install --fro
 COPY ./full/ ./
 ARG BUILD_COMMAND
 ARG RELATIVE_PATH_TO_WORKSPACE
-RUN [ -f ./cdk-nextjs-load-env-vars.sh ] && chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh && \
+RUN chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh && \
     cd $RELATIVE_PATH_TO_WORKSPACE && $BUILD_COMMAND
 # after building, node_modules aren't needed anymore. this reduces image size
 RUN rm -rf node_modules

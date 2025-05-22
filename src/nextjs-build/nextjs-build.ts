@@ -19,6 +19,8 @@ import {
   SERVER_DIST_PATH,
   SERVER_DIST_PATH_ARG_NAME,
   BUILD_ID_ARG_NAME,
+  CACHE_PATH_ARG_NAME,
+  CACHE_PATH,
 } from "../common";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-props";
@@ -289,9 +291,7 @@ export class NextjsBuild extends Construct {
         rmSync(join(this.props.buildContext, basename(filePathToCopy)));
       });
       rmSync(dockerignoreFilePath);
-      if (envVarNames.length) {
-        rmSync(loadEnvVarsScriptPath);
-      }
+      rmSync(loadEnvVarsScriptPath);
     }
     if (error) throw error;
   }
@@ -366,6 +366,7 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
         [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
         [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
@@ -395,6 +396,7 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
         [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
         [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,

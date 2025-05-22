@@ -23,14 +23,20 @@ ARG MOUNT_PATH
 ARG BUILD_ID
 ARG SERVER_DIST_PATH
 ARG IMAGE_CACHE_PATH
+ARG CACHE_PATH
 ARG PUBLIC_PATH
 RUN node add-cache-handler.mjs ./$RELATIVE_PATH_TO_WORKSPACE/.next/required-server-files.json && \
   rm add-cache-handler.mjs && \
+  # locally in this docker image these directories need to exists for symlinks but they'll be mounted by EFS later
   mkdir -p $MOUNT_PATH/$BUILD_ID/$SERVER_DIST_PATH && \
   mkdir -p $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH && \
   mkdir -p $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH && \
   chmod -R u+rw $MOUNT_PATH/$BUILD_ID && \
-  mkdir -p ./$RELATIVE_PATH_TO_WORKSPACE/$IMAGE_CACHE_PATH && \
+  # parent directory to ./$RELATIVE_PATH_TO_WORKSPACE/$IMAGE_CACHE_PATH needs to exist for symlink to be made
+  mkdir -p ./$RELATIVE_PATH_TO_WORKSPACE/$CACHE_PATH && \
+  # in order to soft link, target directory needs to be removed. $IMAGE_CACHE_PATH doesn't exist initially
+  rm -rf ./$RELATIVE_PATH_TO_WORKSPACE/$SERVER_DIST_PATH && \
+  rm -rf ./$RELATIVE_PATH_TO_WORKSPACE/$PUBLIC_PATH && \
   ln -s $MOUNT_PATH/$BUILD_ID/$SERVER_DIST_PATH ./$RELATIVE_PATH_TO_WORKSPACE/$SERVER_DIST_PATH && \
   ln -s $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH ./$RELATIVE_PATH_TO_WORKSPACE/$IMAGE_CACHE_PATH && \
   ln -s $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH ./$RELATIVE_PATH_TO_WORKSPACE/$PUBLIC_PATH

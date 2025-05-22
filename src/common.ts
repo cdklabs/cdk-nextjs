@@ -24,9 +24,11 @@ export const CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME =
 // Dockerfiles if the values are changed
 export const BUILD_ID_ARG_NAME = "BUILD_ID";
 export const BUILDER_IMAGE_ALIAS_ARG_NAME = "BUILDER_IMAGE_ALIAS";
-export const DATA_CACHE_PATH = ".next/cache/fetch-cache";
+export const CACHE_PATH_ARG_NAME = "CACHE_PATH";
+export const CACHE_PATH = ".next/cache";
+export const DATA_CACHE_PATH = `${CACHE_PATH}/fetch-cache`;
 export const FULL_ROUTE_CACHE_PATH = ".next/server/app";
-export const IMAGE_CACHE_PATH = ".next/cache/images";
+export const IMAGE_CACHE_PATH = `${DATA_CACHE_PATH}/images`;
 export const IMAGE_CACHE_PATH_ARG_NAME = "IMAGE_CACHE_PATH";
 export const MOUNT_PATH_ARG_NAME = "MOUNT_PATH";
 export const PUBLIC_PATH = "public";
