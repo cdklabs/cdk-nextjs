@@ -89,6 +89,8 @@ Deploy one of the example apps in cdk-nextjs/examples and visit the /run-command
 9. Command `ls .next/server/app`. Expect folders of your app. Go to static page and verify .html, .rsc, .body, .meta files exist.
 10. Command: `readlink .next/server/app/api/health`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/.next/server/app/api/health`.
 
+Note, for `.next/cache/fetch-cache` and `.next/cache/images` you may expect to be able to do `readlink` on nested files but it will fail. You can verify they're symlinked by using `state` and ensuring same inode number (although verifying the symlinked parent directory is sufficient).
+
 ## Blue Green Deployments
 
 In a blue green deployment, you have blue already running and then you deploy a green set of resources that can handle traffic separately from blue and then you instantly or gradually switch from blue to green. Finally you decommission blue and green now becomes blue.
@@ -149,6 +151,8 @@ We omit storing .js and .nft.json files in EFS because they're static and don't 
 ## Debugging Containers
 
 If you want to debug the cdk-nextjs builder image and you've run `cdk deploy` locally, then you can run `docker run -it cdk-nextjs/builder:<HASH> /bin/sh` replacing `<HASH>`. You can find out what this is by looking at the logs after you run `cdk deploy`. Note, the builder image is not uploaded to ECR. The built Next.js app inside this container is copied from by the runtime image and assets deployment image.
+
+If you want to debug the assets deployment image you need to run something like: `docker run -it --entrypoint /bin/bash <AWS_ACCOUNT>.dkr.ecr.<AWS_REGION>.amazonaws.com/cdk-hnb659fds-container-assets-<AWS_ACCOUNT>-<AWS_REGION>:<HASH>`. `--entrypoint` is required because the base image is `public.ecr.aws/lambda/nodejs:22`.
 
 ### Authenticating to ECR For Non-Local Built Containers
 

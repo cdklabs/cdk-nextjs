@@ -437,6 +437,7 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
         [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
         ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps
           ?.buildArgs,

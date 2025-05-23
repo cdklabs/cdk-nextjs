@@ -181,9 +181,9 @@ export class NextjsAssetsDeployment extends Construct {
           this.props.buildId,
           FULL_ROUTE_CACHE_PATH,
         ),
-        // .nft.json and .js files are not needed since they're in compute image
-        // and run directly from there. customization in nextjs-build/cache-handler.ts
-        // serverDistDir tell Next.js to use EFS to look for these files. see notes.md
+        // only files with these extensions are needed in EFS FileSystem cache
+        // since these files are the only ones updated by Next.js during runtime.
+        // other files like .js and .nft.json files are static per deployment
         includeExtensions: ["body", "html", "rsc", "meta"],
       },
       // after `next build` data cache https://nextjs.org/docs/app/building-your-application/caching#data-cache

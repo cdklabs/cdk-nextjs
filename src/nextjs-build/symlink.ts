@@ -67,7 +67,7 @@ function createSymlinks(props: CreateSymlinksProps): void {
       if (includeExtensions.includes("*") || includeExtensions.includes(ext)) {
         const _targetPath = targetEntryPath;
         const _srcPath = join(srcPath, targetEntry.name);
-        console.log(`linking ${_targetPath} -> ${_srcPath}`);
+        // console.log(`linking ${_targetPath} -> ${_srcPath}`);
         rmSync(_targetPath); // target must be removed in order to symlink
         // like `ln -s _srcPath _targetPath`
         symlinkSync(_srcPath, _targetPath);

@@ -8,7 +8,16 @@ export function fsToFs(props: FsToFsAction) {
   debug(`Copying ${sourcePath} to ${destinationPath} recursively`);
   cpSync(sourcePath, destinationPath, {
     recursive: true,
-    filter: (_src, dest) =>
-      includeExtensions ? includeExtensions.includes(extname(dest)) : true,
+    filter: (_src, dest) => {
+      // console.log({ _src, dest });
+      const isDirectory = extname(dest) === "";
+      if (isDirectory) {
+        return true;
+      }
+      return includeExtensions
+        ? includeExtensions.includes(extname(dest))
+        : true;
+    },
+    errorOnExist: true,
   });
 }

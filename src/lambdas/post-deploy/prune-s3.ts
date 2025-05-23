@@ -33,6 +33,7 @@ export async function pruneS3(props: PruneS3Props) {
   const objectsToDelete: { Key: string }[] = [];
 
   let continuationToken: string | undefined = undefined;
+  let i = 0;
 
   do {
     // List objects in the bucket
@@ -49,11 +50,17 @@ export async function pruneS3(props: PruneS3Props) {
     }
 
     // Filter out objects without keys
-    const validObjects = listResponse.Contents.filter((obj) => obj.Key);
+    const oldObjects = listResponse.Contents.filter((obj) => {
+      const lastModified = obj.LastModified || new Date();
+      return obj.Key && lastModified < cutoffDate;
+    });
+    debug(
+      `Checking old objects metadata to determine pruning: ${oldObjects.map((o) => o.Key)}`,
+    );
 
     // Process objects in parallel with controlled concurrency
     const checkResults = await processBatch(
-      validObjects,
+      oldObjects,
       MAX_CONCURRENT_OPERATIONS,
       async (object) => {
         if (!object.Key) return null;
@@ -67,10 +74,9 @@ export async function pruneS3(props: PruneS3Props) {
           );
 
           const objectBuildId = headResponse.Metadata?.["next-build-id"];
-          const lastModified = headResponse.LastModified || new Date();
 
           // Return the key if it should be deleted
-          if (objectBuildId !== currentBuildId && lastModified < cutoffDate) {
+          if (objectBuildId !== currentBuildId) {
             return { Key: object.Key };
           }
         } catch (error) {
@@ -89,7 +95,9 @@ export async function pruneS3(props: PruneS3Props) {
     if (listResponse.NextContinuationToken) {
       continuationToken = listResponse.NextContinuationToken;
     }
-  } while (continuationToken);
+    i++;
+    // assume less than 100K objects (100 * 1K objects per ListObjectsV2Command = 100K)
+  } while (continuationToken && i <= 100);
 
   // Delete objects in parallel batches (respecting S3's 1000 objects per request limit)
   if (objectsToDelete.length > 0) {
@@ -105,6 +113,9 @@ export async function pruneS3(props: PruneS3Props) {
       5, // Process up to 5 delete batches in parallel
       async (batch) => {
         try {
+          debug(
+            `Deleting objects: ${batch.map((b) => b.Key)} from ${bucketName}`,
+          );
           await s3Client.send(
             new DeleteObjectsCommand({
               Bucket: bucketName,
