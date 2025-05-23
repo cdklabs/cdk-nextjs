@@ -9,6 +9,8 @@ import {
 import { debug } from "../utils";
 
 const s3Client = new S3Client();
+// Maximum number of concurrent operations
+const MAX_CONCURRENT_OPERATIONS = 50;
 
 interface PruneS3Props {
   bucketName: string;
@@ -46,55 +48,97 @@ export async function pruneS3(props: PruneS3Props) {
       break;
     }
 
-    // Check each object
-    for (const object of listResponse.Contents) {
-      if (!object.Key) continue;
+    // Filter out objects without keys
+    const validObjects = listResponse.Contents.filter((obj) => obj.Key);
 
-      // Get object metadata
-      const headCommand = new HeadObjectCommand({
-        Bucket: bucketName,
-        Key: object.Key,
-      });
+    // Process objects in parallel with controlled concurrency
+    const checkResults = await processBatch(
+      validObjects,
+      MAX_CONCURRENT_OPERATIONS,
+      async (object) => {
+        if (!object.Key) return null;
 
-      try {
-        const headResponse = await s3Client.send(headCommand);
-        const objectBuildId = headResponse.Metadata?.["next-build-id"];
-        const lastModified = headResponse.LastModified || new Date();
+        try {
+          const headResponse = await s3Client.send(
+            new HeadObjectCommand({
+              Bucket: bucketName,
+              Key: object.Key,
+            }),
+          );
 
-        // Delete if not current build ID and older than cutoff
-        if (objectBuildId !== currentBuildId && lastModified < cutoffDate) {
-          objectsToDelete.push({ Key: object.Key });
+          const objectBuildId = headResponse.Metadata?.["next-build-id"];
+          const lastModified = headResponse.LastModified || new Date();
+
+          // Return the key if it should be deleted
+          if (objectBuildId !== currentBuildId && lastModified < cutoffDate) {
+            return { Key: object.Key };
+          }
+        } catch (error) {
+          console.error(`Error checking object ${object.Key}:`, error);
         }
-      } catch (error) {
-        console.error(`Error checking object ${object.Key}:`, error);
-      }
-    }
+
+        return null;
+      },
+    );
+
+    // Add valid objects to delete list
+    objectsToDelete.push(
+      ...(checkResults.filter(Boolean) as { Key: string }[]),
+    );
 
     if (listResponse.NextContinuationToken) {
       continuationToken = listResponse.NextContinuationToken;
     }
   } while (continuationToken);
 
-  // Delete objects in batches of 1000 (S3 limit)
+  // Delete objects in parallel batches (respecting S3's 1000 objects per request limit)
   if (objectsToDelete.length > 0) {
+    const deleteBatches = [];
+
     for (let i = 0; i < objectsToDelete.length; i += 1000) {
       const batch = objectsToDelete.slice(i, i + 1000);
-
-      const deleteCommand = new DeleteObjectsCommand({
-        Bucket: bucketName,
-        Delete: { Objects: batch },
-      });
-
-      try {
-        await s3Client.send(deleteCommand);
-        debug(`Deleted ${batch.length} objects from ${bucketName}`);
-      } catch (error) {
-        console.error("Error deleting objects:", error);
-      }
+      deleteBatches.push(batch);
     }
+
+    await processBatch(
+      deleteBatches,
+      5, // Process up to 5 delete batches in parallel
+      async (batch) => {
+        try {
+          await s3Client.send(
+            new DeleteObjectsCommand({
+              Bucket: bucketName,
+              Delete: { Objects: batch },
+            }),
+          );
+          debug(`Deleted ${batch.length} objects from ${bucketName}`);
+        } catch (error) {
+          console.error("Error deleting objects:", error);
+        }
+      },
+    );
   }
 
   debug(
     `Pruning complete. Deleted ${objectsToDelete.length} objects from ${bucketName}`,
   );
+}
+
+/**
+ * Process objects in batches to avoid overwhelming the system
+ */
+async function processBatch<T, R>(
+  items: T[],
+  batchSize: number,
+  processFn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(processFn));
+    results.push(...batchResults);
+  }
+
+  return results;
 }

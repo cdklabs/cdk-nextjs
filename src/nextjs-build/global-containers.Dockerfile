@@ -16,30 +16,33 @@ RUN adduser --system --uid 1001 nextjs
 
 ARG RELATIVE_PATH_TO_PACKAGE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_PACKAGE/.next/standalone ./
-# .rsc, .html, .body, and .meta files not needed because they're cached in EFS
-RUN find ./ -type f \( -name "*.rsc" -o -name "*.html" -o -name "*.body" -o -name "*.meta" \) -delete
-COPY --from=builder --chown=nextjs:nodejs /app/add-cache-handler.mjs /app/cache-handler.cjs ./
-ARG MOUNT_PATH
+COPY --from=builder --chown=nextjs:nodejs /app/symlink.mjs ./
 ARG BUILD_ID
-ARG SERVER_DIST_PATH
+ARG DATA_CACHE_PATH
+ARG FULL_ROUTE_CACHE_PATH
 ARG IMAGE_CACHE_PATH
-ARG CACHE_PATH
+ARG MOUNT_PATH
 ARG PUBLIC_PATH
-RUN node add-cache-handler.mjs ./$RELATIVE_PATH_TO_PACKAGE/.next/required-server-files.json && \
-  rm add-cache-handler.mjs && \
-  # locally in this docker image these directories need to exists for symlinks but they'll be mounted by EFS later
-  mkdir -p $MOUNT_PATH/$BUILD_ID/$SERVER_DIST_PATH && \
+RUN echo "Creating symlinks" && \
+  # locally in this docker image the paths where EFS will be mounted need to exist for symlinks to be made
+  mkdir -p $MOUNT_PATH/$BUILD_ID/$DATA_CACHE_PATH && \
+  mkdir -p $MOUNT_PATH/$BUILD_ID/$FULL_ROUTE_CACHE_PATH && \
   mkdir -p $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH && \
   mkdir -p $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH && \
   chmod -R u+rw $MOUNT_PATH/$BUILD_ID && \
-  # parent directory to ./$RELATIVE_PATH_TO_PACKAGE/$IMAGE_CACHE_PATH needs to exist for symlink to be made
-  mkdir -p ./$RELATIVE_PATH_TO_PACKAGE/$CACHE_PATH && \
-  # in order to soft link, target directory needs to be removed. $IMAGE_CACHE_PATH doesn't exist initially
-  rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$SERVER_DIST_PATH && \
+  # delete if exists so that symlinks can be made; image cache doesn't exist at build time
+  rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH && \
+  rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$FULL_ROUTE_CACHE_PATH && \
   rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH && \
-  ln -s $MOUNT_PATH/$BUILD_ID/$SERVER_DIST_PATH ./$RELATIVE_PATH_TO_PACKAGE/$SERVER_DIST_PATH && \
+  # create .next/cache if doesn't exist. won't exist if no cached fetch data.
+  mkdir -p ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH/.. && \
+  # `ln -s <src_file> <target_file>` such that accessing <target_file> accesses <src_file>
+  ln -s $MOUNT_PATH/$BUILD_ID/$DATA_CACHE_PATH ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH && \
   ln -s $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH ./$RELATIVE_PATH_TO_PACKAGE/$IMAGE_CACHE_PATH && \
-  ln -s $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH ./$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH
+  ln -s $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH ./$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH && \
+  # symlink each file in /app/$RELATIVE_PATH_TO_PACKAGE/$FULL_ROUTE_CACHE_PATH that is potentially updated by Next.js
+  node symlink.mjs $MOUNT_PATH/$BUILD_ID/$FULL_ROUTE_CACHE_PATH /app/$RELATIVE_PATH_TO_PACKAGE/$FULL_ROUTE_CACHE_PATH "html,rsc,meta,body" && \
+  rm -r symlink.mjs
 
 USER nextjs
 

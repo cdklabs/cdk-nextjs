@@ -34,12 +34,8 @@ jspm_packages/
 .cache
 .idea
 .DS_Store
-cdk.out
-.env
 *.drawio.bkp
 ash_output
-examples/.dockerignore
-examples/builder.Dockerfile
 /test-reports/
 junit.xml
 /coverage/
@@ -62,7 +58,6 @@ tsconfig.json
 /assets/
 !/src/lambdas/assets-deployment/assets-deployment-function.ts
 !/src/lambdas/post-deploy/post-deploy-function.ts
-!/src/lambdas/revalidate/revalidate-function.ts
 !/examples/**/tsconfig.json
 !/.projenrc.ts
 !/src/generated-structs/OptionalNextjsPostDeployProps.ts

@@ -33,7 +33,7 @@ export class GlobalContainersStack extends Stack {
         nextjsGlobalContainers: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("global-containers"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
         },

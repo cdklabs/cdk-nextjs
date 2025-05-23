@@ -13,10 +13,6 @@
       "type": "build"
     },
     {
-      "name": "@aws-sdk/client-sqs",
-      "type": "build"
-    },
-    {
       "name": "@aws-sdk/lib-storage",
       "type": "build"
     },
@@ -123,10 +119,6 @@
     },
     {
       "name": "mime-types",
-      "type": "build"
-    },
-    {
-      "name": "next",
       "type": "build"
     },
     {

@@ -5,7 +5,7 @@ import {
   BaseNextjsOverrides,
 } from "./nextjs-base-overrides";
 import { NextjsBaseProps } from "./nextjs-base-props";
-import { NextjsType } from "../common";
+import { handleDeprecatedProperties, NextjsType } from "../common";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
 import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
@@ -20,7 +20,6 @@ import {
 } from "../nextjs-distribution";
 import { NextjsFileSystem } from "../nextjs-file-system";
 import { NextjsPostDeploy } from "../nextjs-post-deploy";
-import { NextjsRevalidationProps } from "../nextjs-revalidation";
 import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
@@ -32,7 +31,6 @@ export interface NextjsGlobalContainersConstructOverrides
   extends BaseNextjsConstructOverrides {
   readonly nextjsContainersProps?: OptionalNextjsContainersProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
-  readonly nextjsRevalidationProps?: NextjsRevalidationProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
@@ -91,7 +89,7 @@ export class NextjsGlobalContainers extends Construct {
     props: NextjsGlobalContainersProps,
   ) {
     super(scope, id);
-    this.props = props;
+    this.props = handleDeprecatedProperties(props);
     this.nextjsBuild = this.createNextjsBuild();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
     this.nextjsVpc = this.createVpc();

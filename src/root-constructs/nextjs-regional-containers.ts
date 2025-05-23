@@ -4,7 +4,7 @@ import {
   BaseNextjsOverrides,
 } from "./nextjs-base-overrides";
 import { NextjsBaseProps } from "./nextjs-base-props";
-import { NextjsType } from "../common";
+import { handleDeprecatedProperties, NextjsType } from "../common";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
@@ -61,7 +61,7 @@ export class NextjsRegionalContainers extends Construct {
     props: NextjsRegionalContainersProps,
   ) {
     super(scope, id);
-    this.props = props;
+    this.props = handleDeprecatedProperties(props);
     this.nextjsBuild = this.createNextjsBuild();
     this.nextjsVpc = this.createVpc();
     this.nextjsFileSystem = this.createNextjsFileSystem();

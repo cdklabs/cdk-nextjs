@@ -57,4 +57,8 @@ export interface NextjsBaseProps {
    * @example "./packages/ui"
    */
   readonly relativePathToPackage?: string;
+  /**
+   * @deprecated use relativePathToPackage
+   */
+  readonly relativePathToWorkspace?: string;
 }

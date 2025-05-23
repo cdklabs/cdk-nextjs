@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import type { CloudFormationCustomResourceHandler } from "aws-lambda";
 import { fsToFs } from "./fs-to-fs";
 import { fsToS3 } from "./fs-to-s3";
@@ -15,11 +15,6 @@ export const handler: CloudFormationCustomResourceHandler = async (
 ) => {
   debug({ event });
   let responseStatus = CfnResponseStatus.Failed;
-  /**
-   * Related to [Draft Mode](https://nextjs.org/docs/app/building-your-application/configuring/draft-mode)
-   * and required for `NextjsRevalidation` to do [on-demand revalidation](https://nextjs.org/docs/app/building-your-application/data-fetching/incremental-static-regeneration#on-demand-revalidation-with-revalidatepath)
-   */
-  let previewModeId = "";
   try {
     const props = event.ResourceProperties as ResourceProps;
     if (event.RequestType === "Create" || event.RequestType === "Update") {
@@ -32,7 +27,6 @@ export const handler: CloudFormationCustomResourceHandler = async (
         }
       }
       initImageCache(props.imageCachePath);
-      previewModeId = getPreviewModeId(props.prerenderManifestPath);
       responseStatus = CfnResponseStatus.Success;
     } else {
       responseStatus = CfnResponseStatus.Success;
@@ -44,7 +38,7 @@ export const handler: CloudFormationCustomResourceHandler = async (
       event,
       context,
       responseStatus,
-      responseData: { previewModeId },
+      responseData: {},
     });
   }
 };
@@ -58,15 +52,4 @@ function initImageCache(imageCachePath: string) {
   if (imageCachePath && !existsSync(imageCachePath)) {
     mkdirSync(imageCachePath);
   }
-}
-
-/**
- * Only need preview mode id for `NextjsGlobalFunctions`, but easy to get
- * so we do it each time.
- */
-function getPreviewModeId(prerenderManifestPath: string): string {
-  const prerenderManifest = JSON.parse(
-    readFileSync(prerenderManifestPath, { encoding: "utf-8" }),
-  );
-  return prerenderManifest.preview.previewModeId;
 }

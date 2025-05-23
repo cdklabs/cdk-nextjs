@@ -7,7 +7,6 @@ import {
   suppressCommonNags,
   suppressGlobalNags,
   suppressLambdaNags,
-  suppressRevalidationNags,
 } from "../shared/suppress-nags";
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
@@ -28,7 +27,7 @@ class GlobalFunctionsStack extends Stack {
         nextjsGlobalFunctions: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("global-functions"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
         },
@@ -86,6 +85,5 @@ export const stack = new GlobalFunctionsStack(app, getStackName("glbl-fns"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);
-suppressRevalidationNags(stack);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));

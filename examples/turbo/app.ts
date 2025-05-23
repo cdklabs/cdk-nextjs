@@ -7,7 +7,6 @@ import {
   suppressCommonNags,
   suppressGlobalNags,
   suppressLambdaNags,
-  suppressRevalidationNags,
 } from "../shared/suppress-nags";
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
@@ -134,6 +133,5 @@ export const stack = new TurborepoStack(app, getStackName("turbo"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);
-suppressRevalidationNags(stack);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));

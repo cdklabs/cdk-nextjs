@@ -2,12 +2,11 @@ import { IAspect, Stack, StackProps } from "aws-cdk-lib";
 import { Construct, IConstruct } from "constructs";
 import { NextjsGlobalFunctions } from "cdk-nextjs";
 import { App, Aspects } from "aws-cdk-lib";
-import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
+import { AwsSolutionsChecks } from "cdk-nag";
 import {
   suppressCommonNags,
   suppressGlobalNags,
   suppressLambdaNags,
-  suppressRevalidationNags,
 } from "../shared/suppress-nags";
 import {
   InstanceClass,
@@ -73,7 +72,7 @@ class LowCostStack extends Stack {
         nextjsGlobalFunctions: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("low-cost"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
           nextjsVpcProps: {
@@ -134,7 +133,6 @@ export const stack = new LowCostStack(app, getStackName("low-cost"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);
-suppressRevalidationNags(stack);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
 

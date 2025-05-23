@@ -36,7 +36,7 @@ export class RegionalContainersStack extends Stack {
         nextjsRegionalContainers: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("regional-containers"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
         },

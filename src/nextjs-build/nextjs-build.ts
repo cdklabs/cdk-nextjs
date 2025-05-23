@@ -16,11 +16,11 @@ import {
   PUBLIC_PATH,
   PUBLIC_PATH_ARG_NAME,
   RELATIVE_PATH_TO_PACKAGE_ARG_NAME,
-  SERVER_DIST_PATH,
-  SERVER_DIST_PATH_ARG_NAME,
   BUILD_ID_ARG_NAME,
-  CACHE_PATH_ARG_NAME,
-  CACHE_PATH,
+  FULL_ROUTE_CACHE_PATH_ARG_NAME,
+  FULL_ROUTE_CACHE_PATH,
+  DATA_CACHE_PATH_ARG_NAME,
+  DATA_CACHE_PATH,
 } from "../common";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-props";
@@ -240,19 +240,22 @@ export class NextjsBuild extends Construct {
       platform,
     } = this.props.builderImageProps || {};
 
-    const filePathsToCopy: string[] = [
-      // although cache-handler is only needed in runtime image, we copy into
-      // builder for convenience so that if lib consumer customizes runtime image
-      // then they can copy from builder image instead of having to copy from
-      // lib in node_modules.
-      join(__dirname, "add-cache-handler.mjs"),
-      join(__dirname, "cache-handler.cjs"),
+    const filePathsToCopy: string[] = [join(__dirname, "symlink.mjs")];
+    const filePathsToRemove: string[] = [
+      join(this.props.buildContext, "symlink.mjs"),
     ];
 
+    // if custom file (Dockerfile) is not specified then use library's default builder.Dockerfile + .dockerignore
     if (!this.props.builderImageProps?.file) {
-      // if file is not specified by user, then we need to copy our builder.Dockerfile
-      // into builder build context.
       filePathsToCopy.push(join(__dirname, file));
+      filePathsToRemove.push(join(this.props.buildContext, file));
+      const excludeFileStr = exclude?.join("\n");
+      const dockerignoreFilePath = join(
+        this.props.buildContext,
+        ".dockerignore",
+      );
+      writeFileSync(dockerignoreFilePath, excludeFileStr);
+      filePathsToRemove.push(dockerignoreFilePath);
     }
 
     filePathsToCopy.forEach((filePathToCopy) => {
@@ -262,15 +265,14 @@ export class NextjsBuild extends Construct {
       );
     });
 
-    const excludeFileStr = exclude?.join("\n");
-    const dockerignoreFilePath = join(this.props.buildContext, ".dockerignore");
-    writeFileSync(dockerignoreFilePath, excludeFileStr);
     const buildArgsStr = this.createBuildArgStr(buildArgs);
     const loadEnvVarsScriptPath = join(
       this.props.buildContext,
       "cdk-nextjs-load-env-vars.sh",
     );
+    // even if no env vars, we create this file to keep Dockerfiles simpler.
     this.createLoadEnvVarsScript(envVarNames, loadEnvVarsScriptPath);
+    filePathsToRemove.push(loadEnvVarsScriptPath);
     const command =
       this.props.builderImageProps?.command ||
       `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageAlias} ${buildArgsStr} .`;
@@ -287,11 +289,9 @@ export class NextjsBuild extends Construct {
     } catch (err) {
       error = err;
     } finally {
-      filePathsToCopy.forEach((filePathToCopy) => {
-        rmSync(join(this.props.buildContext, basename(filePathToCopy)));
-      });
-      rmSync(dockerignoreFilePath);
-      rmSync(loadEnvVarsScriptPath);
+      for (const filePathToRemove of filePathsToRemove) {
+        rmSync(filePathToRemove);
+      }
     }
     if (error) throw error;
   }
@@ -366,11 +366,11 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
+        [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
         [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
         [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
-        [SERVER_DIST_PATH_ARG_NAME]: SERVER_DIST_PATH,
+        [FULL_ROUTE_CACHE_PATH_ARG_NAME]: FULL_ROUTE_CACHE_PATH,
         [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
         ...this.props.overrides?.nextjsContainersDockerImageAssetProps
           ?.buildArgs,
@@ -396,11 +396,11 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
+        [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
         [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
         [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
-        [SERVER_DIST_PATH_ARG_NAME]: SERVER_DIST_PATH,
+        [FULL_ROUTE_CACHE_PATH_ARG_NAME]: FULL_ROUTE_CACHE_PATH,
         [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
         ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.buildArgs,
       },

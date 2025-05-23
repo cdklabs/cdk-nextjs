@@ -1,4 +1,3 @@
-import { join } from "path/posix";
 import { Duration } from "aws-cdk-lib";
 import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
 import {
@@ -18,12 +17,7 @@ import { FileSystem } from "aws-cdk-lib/aws-efs";
 import { ApplicationProtocolVersion } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import {
-  CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-  MOUNT_PATH,
-  NextjsType,
-  SERVER_DIST_PATH,
-} from "../common";
+import { MOUNT_PATH, NextjsType } from "../common";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
 
@@ -126,10 +120,6 @@ export class NextjsContainers extends Construct {
     albFargateService.taskDefinition.defaultContainer?.addEnvironment(
       "HOSTNAME",
       "0.0.0.0",
-    );
-    albFargateService.taskDefinition.defaultContainer?.addEnvironment(
-      CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-      join(MOUNT_PATH, this.props.buildId, SERVER_DIST_PATH),
     );
     // speed up deployments by shortening deregistration delay
     // https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/load-balancer-connection-draining.html

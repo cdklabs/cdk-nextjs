@@ -64,11 +64,6 @@ export {
   PostDeployCustomResourceProperties,
 } from "./nextjs-post-deploy";
 export {
-  NextjsRevalidation,
-  NextjsRevalidationProps,
-  NextjsRevalidationOverrides,
-} from "./nextjs-revalidation";
-export {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,

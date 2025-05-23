@@ -89,7 +89,6 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsAssetsDeployment.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeployment.property.customResource">customResource</a></code> | <code>aws-cdk-lib.CustomResource</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeployment.property.dockerImageFunction">dockerImageFunction</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageFunction</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsAssetsDeployment.property.previewModeId">previewModeId</a></code> | <code>string</code> | Only used for `NextjsGlobalFunctions`. |
 
 ---
 
@@ -122,18 +121,6 @@ public readonly dockerImageFunction: DockerImageFunction;
 ```
 
 - *Type:* aws-cdk-lib.aws_lambda.DockerImageFunction
-
----
-
-##### `previewModeId`<sup>Required</sup> <a name="previewModeId" id="cdk-nextjs.NextjsAssetsDeployment.property.previewModeId"></a>
-
-```typescript
-public readonly previewModeId: string;
-```
-
-- *Type:* string
-
-Only used for `NextjsGlobalFunctions`.
 
 ---
 
@@ -1148,7 +1135,6 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsRevalidation">nextjsRevalidation</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidation">NextjsRevalidation</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
 
@@ -1223,16 +1209,6 @@ public readonly nextjsPostDeploy: NextjsPostDeploy;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
-
----
-
-##### `nextjsRevalidation`<sup>Required</sup> <a name="nextjsRevalidation" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsRevalidation"></a>
-
-```typescript
-public readonly nextjsRevalidation: NextjsRevalidation;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsRevalidation">NextjsRevalidation</a>
 
 ---
 
@@ -1548,129 +1524,6 @@ public readonly nextjsVpc: NextjsVpc;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
-
----
-
-
-### NextjsRevalidation <a name="NextjsRevalidation" id="cdk-nextjs.NextjsRevalidation"></a>
-
-[On-Demand Revalidation](https://nextjs.org/docs/app/building-your-application/caching#on-demand-revalidation) (i.e. `revalidateTag`, `revlidatePath`) doesn't work by default in Lambda environment because it tries to run every request completes when Lambda spins down. Therefore, we use a SQS Queue and Lambda function to run revalidation async.
-
-#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsRevalidation.Initializer"></a>
-
-```typescript
-import { NextjsRevalidation } from 'cdk-nextjs'
-
-new NextjsRevalidation(scope: Construct, id: string, props: NextjsRevalidationProps)
-```
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidationProps">NextjsRevalidationProps</a></code> | *No description.* |
-
----
-
-##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsRevalidation.Initializer.parameter.scope"></a>
-
-- *Type:* constructs.Construct
-
----
-
-##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsRevalidation.Initializer.parameter.id"></a>
-
-- *Type:* string
-
----
-
-##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsRevalidation.Initializer.parameter.props"></a>
-
-- *Type:* <a href="#cdk-nextjs.NextjsRevalidationProps">NextjsRevalidationProps</a>
-
----
-
-#### Methods <a name="Methods" id="Methods"></a>
-
-| **Name** | **Description** |
-| --- | --- |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.toString">toString</a></code> | Returns a string representation of this construct. |
-
----
-
-##### `toString` <a name="toString" id="cdk-nextjs.NextjsRevalidation.toString"></a>
-
-```typescript
-public toString(): string
-```
-
-Returns a string representation of this construct.
-
-#### Static Functions <a name="Static Functions" id="Static Functions"></a>
-
-| **Name** | **Description** |
-| --- | --- |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
-
----
-
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsRevalidation.isConstruct"></a>
-
-```typescript
-import { NextjsRevalidation } from 'cdk-nextjs'
-
-NextjsRevalidation.isConstruct(x: any)
-```
-
-Checks if `x` is a construct.
-
-###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsRevalidation.isConstruct.parameter.x"></a>
-
-- *Type:* any
-
-Any object.
-
----
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.property.fn">fn</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRevalidation.property.queue">queue</a></code> | <code>aws-cdk-lib.aws_sqs.Queue</code> | *No description.* |
-
----
-
-##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsRevalidation.property.node"></a>
-
-```typescript
-public readonly node: Node;
-```
-
-- *Type:* constructs.Node
-
-The tree node.
-
----
-
-##### `fn`<sup>Required</sup> <a name="fn" id="cdk-nextjs.NextjsRevalidation.property.fn"></a>
-
-```typescript
-public readonly fn: Function;
-```
-
-- *Type:* aws-cdk-lib.aws_lambda.Function
-
----
-
-##### `queue`<sup>Required</sup> <a name="queue" id="cdk-nextjs.NextjsRevalidation.property.queue"></a>
-
-```typescript
-public readonly queue: Queue;
-```
-
-- *Type:* aws-cdk-lib.aws_sqs.Queue
 
 ---
 
@@ -2436,6 +2289,7 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
 
 ---
 
@@ -2540,6 +2394,18 @@ in the cdk-nextjs/examples/turbo.
 "./packages/ui"
 ```
 
+
+##### ~~`relativePathToWorkspace`~~<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsBaseProps.property.relativePathToWorkspace"></a>
+
+- *Deprecated:* use relativePathToPackage
+
+```typescript
+public readonly relativePathToWorkspace: string;
+```
+
+- *Type:* string
+
+---
 
 ### NextjsBuildOverrides <a name="NextjsBuildOverrides" id="cdk-nextjs.NextjsBuildOverrides"></a>
 
@@ -3438,7 +3304,6 @@ const nextjsGlobalContainersConstructOverrides: NextjsGlobalContainersConstructO
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsContainersProps">nextjsContainersProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps">OptionalNextjsContainersProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsRevalidationProps">nextjsRevalidationProps</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidationProps">NextjsRevalidationProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 
 ---
@@ -3510,16 +3375,6 @@ public readonly nextjsDistributionProps: OptionalNextjsDistributionProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a>
-
----
-
-##### `nextjsRevalidationProps`<sup>Optional</sup> <a name="nextjsRevalidationProps" id="cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsRevalidationProps"></a>
-
-```typescript
-public readonly nextjsRevalidationProps: NextjsRevalidationProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsRevalidationProps">NextjsRevalidationProps</a>
 
 ---
 
@@ -3673,6 +3528,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
@@ -3781,6 +3637,18 @@ in the cdk-nextjs/examples/turbo.
 ```
 
 
+##### ~~`relativePathToWorkspace`~~<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToWorkspace"></a>
+
+- *Deprecated:* use relativePathToPackage
+
+```typescript
+public readonly relativePathToWorkspace: string;
+```
+
+- *Type:* string
+
+---
+
 ##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsGlobalContainersProps.property.basePath"></a>
 
 ```typescript
@@ -3851,7 +3719,6 @@ const nextjsGlobalFunctionsConstructOverrides: NextjsGlobalFunctionsConstructOve
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsRevalidationProps">nextjsRevalidationProps</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidationProps">NextjsRevalidationProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 
 ---
@@ -3926,16 +3793,6 @@ public readonly nextjsFunctionsProps: NextjsFunctionsProps;
 
 ---
 
-##### `nextjsRevalidationProps`<sup>Optional</sup> <a name="nextjsRevalidationProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsRevalidationProps"></a>
-
-```typescript
-public readonly nextjsRevalidationProps: NextjsRevalidationProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsRevalidationProps">NextjsRevalidationProps</a>
-
----
-
 ##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
 
 ```typescript
@@ -3974,7 +3831,6 @@ const nextjsGlobalFunctionsOverrides: NextjsGlobalFunctionsOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsGlobalFunctions">nextjsGlobalFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides">NextjsGlobalFunctionsConstructOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsRevalidation">nextjsRevalidation</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidationOverrides">NextjsRevalidationOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 
 ---
@@ -4059,16 +3915,6 @@ public readonly nextjsGlobalFunctions: NextjsGlobalFunctionsConstructOverrides;
 
 ---
 
-##### `nextjsRevalidation`<sup>Optional</sup> <a name="nextjsRevalidation" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsRevalidation"></a>
-
-```typescript
-public readonly nextjsRevalidation: NextjsRevalidationOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsRevalidationOverrides">NextjsRevalidationOverrides</a>
-
----
-
 ##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsStaticAssets"></a>
 
 ```typescript
@@ -4097,6 +3943,7 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
@@ -4204,6 +4051,18 @@ in the cdk-nextjs/examples/turbo.
 "./packages/ui"
 ```
 
+
+##### ~~`relativePathToWorkspace`~~<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToWorkspace"></a>
+
+- *Deprecated:* use relativePathToPackage
+
+```typescript
+public readonly relativePathToWorkspace: string;
+```
+
+- *Type:* string
+
+---
 
 ##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath"></a>
 
@@ -4638,6 +4497,7 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides">NextjsRegionalContainersOverrides</a></code> | Override props of any construct. |
 
 ---
@@ -4744,6 +4604,18 @@ in the cdk-nextjs/examples/turbo.
 ```
 
 
+##### ~~`relativePathToWorkspace`~~<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToWorkspace"></a>
+
+- *Deprecated:* use relativePathToPackage
+
+```typescript
+public readonly relativePathToWorkspace: string;
+```
+
+- *Type:* string
+
+---
+
 ##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsRegionalContainersProps.property.overrides"></a>
 
 ```typescript
@@ -4753,106 +4625,6 @@ public readonly overrides: NextjsRegionalContainersOverrides;
 - *Type:* <a href="#cdk-nextjs.NextjsRegionalContainersOverrides">NextjsRegionalContainersOverrides</a>
 
 Override props of any construct.
-
----
-
-### NextjsRevalidationOverrides <a name="NextjsRevalidationOverrides" id="cdk-nextjs.NextjsRevalidationOverrides"></a>
-
-#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsRevalidationOverrides.Initializer"></a>
-
-```typescript
-import { NextjsRevalidationOverrides } from 'cdk-nextjs'
-
-const nextjsRevalidationOverrides: NextjsRevalidationOverrides = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsRevalidationOverrides.property.functionProps">functionProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRevalidationOverrides.property.queueProps">queueProps</a></code> | <code>aws-cdk-lib.aws_sqs.QueueProps</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRevalidationOverrides.property.sqsEventSourceProps">sqsEventSourceProps</a></code> | <code>aws-cdk-lib.aws_lambda_event_sources.SqsEventSourceProps</code> | *No description.* |
-
----
-
-##### `functionProps`<sup>Optional</sup> <a name="functionProps" id="cdk-nextjs.NextjsRevalidationOverrides.property.functionProps"></a>
-
-```typescript
-public readonly functionProps: OptionalFunctionProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a>
-
----
-
-##### `queueProps`<sup>Optional</sup> <a name="queueProps" id="cdk-nextjs.NextjsRevalidationOverrides.property.queueProps"></a>
-
-```typescript
-public readonly queueProps: QueueProps;
-```
-
-- *Type:* aws-cdk-lib.aws_sqs.QueueProps
-
----
-
-##### `sqsEventSourceProps`<sup>Optional</sup> <a name="sqsEventSourceProps" id="cdk-nextjs.NextjsRevalidationOverrides.property.sqsEventSourceProps"></a>
-
-```typescript
-public readonly sqsEventSourceProps: SqsEventSourceProps;
-```
-
-- *Type:* aws-cdk-lib.aws_lambda_event_sources.SqsEventSourceProps
-
----
-
-### NextjsRevalidationProps <a name="NextjsRevalidationProps" id="cdk-nextjs.NextjsRevalidationProps"></a>
-
-#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsRevalidationProps.Initializer"></a>
-
-```typescript
-import { NextjsRevalidationProps } from 'cdk-nextjs'
-
-const nextjsRevalidationProps: NextjsRevalidationProps = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsRevalidationProps.property.fn">fn</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRevalidationProps.property.previewModeId">previewModeId</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRevalidationProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRevalidationOverrides">NextjsRevalidationOverrides</a></code> | *No description.* |
-
----
-
-##### `fn`<sup>Required</sup> <a name="fn" id="cdk-nextjs.NextjsRevalidationProps.property.fn"></a>
-
-```typescript
-public readonly fn: Function;
-```
-
-- *Type:* aws-cdk-lib.aws_lambda.Function
-
----
-
-##### `previewModeId`<sup>Required</sup> <a name="previewModeId" id="cdk-nextjs.NextjsRevalidationProps.property.previewModeId"></a>
-
-```typescript
-public readonly previewModeId: string;
-```
-
-- *Type:* string
-
----
-
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsRevalidationProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsRevalidationOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsRevalidationOverrides">NextjsRevalidationOverrides</a>
 
 ---
 

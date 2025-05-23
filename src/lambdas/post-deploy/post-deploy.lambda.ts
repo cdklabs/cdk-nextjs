@@ -10,6 +10,13 @@ type ResourceProps = PostDeployCustomResourceProperties & {
   ServiceToken: string;
 };
 
+/**
+ * Performs:
+ * 1. CloudFront Invalidation
+ * 2. Prune EFS old BUILD_ID directories
+ * 3. Prunes objects in S3 that do not have metadata with current BUILD_ID and
+ * were modified over `msTtl` ago (default 30 days).
+ */
 export const handler: CloudFormationCustomResourceHandler = async (
   event,
   context,
@@ -26,7 +33,6 @@ export const handler: CloudFormationCustomResourceHandler = async (
         staticAssetsBucketName,
       } = props;
       const promises: Promise<unknown>[] = [];
-      // TODO: 1/ cf invalidation 2/ prune old buildid efs mount path 3/ prune s3 if build id doesn't match and older than 1 month
       if (createInvalidationCommandInput) {
         promises.push(createInvalidation(createInvalidationCommandInput));
       }

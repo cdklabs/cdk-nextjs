@@ -27,7 +27,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-cloudfront",
-    "@aws-sdk/client-sqs",
     "@aws-sdk/client-s3",
     "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
@@ -38,7 +37,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "cdk-nag",
     "esbuild",
     "mime-types",
-    "next", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   npmIgnoreOptions: {
@@ -59,16 +57,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3
   },
   projenCommand: "pnpm dlx projen",
-  gitignore: [
-    ".idea",
-    ".DS_Store",
-    "cdk.out",
-    ".env",
-    "*.drawio.bkp",
-    "ash_output",
-    "examples/.dockerignore",
-    "examples/builder.Dockerfile",
-  ],
+  gitignore: [".idea", ".DS_Store", "*.drawio.bkp", "ash_output"],
   projenrcTs: true,
   eslintOptions: {
     prettier: true,
@@ -149,23 +138,18 @@ project.synth();
 
 function bundle() {
   const target = `node${nodeVersion}`;
-  project.bundler.addBundle("src/nextjs-build/cache-handler.ts", {
-    platform: "node",
-    target,
-    outfile: "../../../lib/nextjs-build/cache-handler.cjs",
-  });
-  project.bundler.addBundle("src/nextjs-build/add-cache-handler.ts", {
-    platform: "node",
-    target,
-    outfile: "../../../lib/nextjs-build/add-cache-handler.mjs",
-    format: "esm",
-  });
   project.bundler.addBundle("src/lambdas/assets-deployment/patch-fetch.js", {
     platform: "browser",
     // https://nextjs.org/docs/architecture/supported-browsers
     target: "chrome64,firefox67,safari12,edge79",
     minify: true,
     outfile: "../assets-deployment.lambda/patch-fetch.js",
+  });
+  project.bundler.addBundle("src/nextjs-build/symlink.ts", {
+    platform: "node",
+    target,
+    outfile: "../../../lib/nextjs-build/symlink.mjs",
+    format: "esm",
   });
 }
 

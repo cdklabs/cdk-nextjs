@@ -6,9 +6,7 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 # It's preferrable to only copy package.json's and lockfiles, install, and then
 # copy the rest of the code to efficiently utilize build cache. We don't do that
-# here because it's highly customized based on a projects setup. We recommend
-# developers use `overrides.nextjs[GlobalFunctions].nextjsBuildProps.builderImageProps.srcDockerfilePath`
-# to optimize for their setup.
+# here because it's highly customized based on a projects setup. See cdk-nextjs/examples/turbo.
 COPY . .
 # Install dependencies based on the preferred package manager
 RUN \
@@ -19,7 +17,9 @@ RUN \
   fi
 ARG BUILD_COMMAND
 ARG RELATIVE_PATH_TO_PACKAGE
-RUN chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh && \
-    cd $RELATIVE_PATH_TO_PACKAGE && $BUILD_COMMAND
+RUN chmod u+x ./cdk-nextjs-load-env-vars.sh && \
+  . ./cdk-nextjs-load-env-vars.sh && \
+  rm  ./cdk-nextjs-load-env-vars.sh && \
+  cd $RELATIVE_PATH_TO_PACKAGE && $BUILD_COMMAND
 # after building, node_modules aren't needed anymore. this reduces image size
 RUN rm -rf node_modules

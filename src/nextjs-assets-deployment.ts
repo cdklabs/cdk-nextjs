@@ -95,7 +95,6 @@ export interface StaticAssetsCustomResourceProperties {
    */
   buildImageDigest: string;
   imageCachePath: string;
-  prerenderManifestPath: string;
   nextjsType: NextjsType;
 }
 
@@ -105,10 +104,6 @@ export interface StaticAssetsCustomResourceProperties {
 export class NextjsAssetsDeployment extends Construct {
   customResource: CustomResource;
   dockerImageFunction: DockerImageFunction;
-  /**
-   * Only used for `NextjsGlobalFunctions`
-   */
-  previewModeId: string;
 
   private props: NextjsAssetsDeploymentProps;
 
@@ -121,7 +116,6 @@ export class NextjsAssetsDeployment extends Construct {
     this.props = props;
     this.dockerImageFunction = this.createFunction();
     this.customResource = this.createCustomResource();
-    this.previewModeId = this.customResource.getAttString("previewModeId");
   }
 
   private createFunction() {
@@ -216,7 +210,6 @@ export class NextjsAssetsDeployment extends Construct {
       buildImageDigest: this.props.buildImageDigest,
       imageCachePath: join(MOUNT_PATH, this.props.buildId, IMAGE_CACHE_PATH),
       nextjsType: this.props.nextjsType,
-      prerenderManifestPath: join(root, ".next", "prerender-manifest.json"),
     };
     return new CustomResource(this, "CustomResource", {
       properties,

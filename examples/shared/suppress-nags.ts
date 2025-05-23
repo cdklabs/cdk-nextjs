@@ -137,26 +137,3 @@ export function suppressGlobalNags(stack: Stack) {
     ],
   );
 }
-
-export function suppressRevalidationNags(stack: Stack) {
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsRevalidation/Queue/Resource`,
-    [
-      {
-        id: "AwsSolutions-SQS3",
-        reason: "DLQ not required for example app",
-      },
-    ],
-  );
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsRevalidation/Fn/ServiceRole/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM4",
-        reason: "AWSLambdaBasicExecutionRole is not overly permissive",
-      },
-    ],
-  );
-}

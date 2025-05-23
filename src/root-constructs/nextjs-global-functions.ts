@@ -5,7 +5,7 @@ import {
   BaseNextjsOverrides,
 } from "./nextjs-base-overrides";
 import { NextjsBaseProps } from "./nextjs-base-props";
-import { NextjsType } from "../common";
+import { handleDeprecatedProperties, NextjsType } from "../common";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
 import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
@@ -21,11 +21,6 @@ import {
 import { NextjsFileSystem } from "../nextjs-file-system";
 import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import {
-  NextjsRevalidation,
-  NextjsRevalidationOverrides,
-  NextjsRevalidationProps,
-} from "../nextjs-revalidation";
-import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
@@ -36,7 +31,6 @@ export interface NextjsGlobalFunctionsConstructOverrides
   extends BaseNextjsConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
-  readonly nextjsRevalidationProps?: NextjsRevalidationProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
@@ -49,7 +43,6 @@ export interface NextjsGlobalFunctionsOverrides extends BaseNextjsOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
-  readonly nextjsRevalidation?: NextjsRevalidationOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
 
@@ -85,7 +78,6 @@ export class NextjsGlobalFunctions extends Construct {
   nextjsAssetsDeployment: NextjsAssetsDeployment;
   nextjsFunctions: NextjsFunctions;
   nextjsDistribution: NextjsDistribution;
-  nextjsRevalidation: NextjsRevalidation;
   nextjsPostDeploy: NextjsPostDeploy;
 
   private nextjsType = NextjsType.GLOBAL_FUNCTIONS;
@@ -93,7 +85,7 @@ export class NextjsGlobalFunctions extends Construct {
 
   constructor(scope: Construct, id: string, props: NextjsGlobalFunctionsProps) {
     super(scope, id);
-    this.props = props;
+    this.props = handleDeprecatedProperties(props);
     this.nextjsBuild = this.createNextjsBuild();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
     this.nextjsVpc = this.createVpc();
@@ -105,7 +97,6 @@ export class NextjsGlobalFunctions extends Construct {
       role: this.nextjsFunctions.function.role!,
     });
     this.nextjsDistribution = this.createNextjsDistribution();
-    this.nextjsRevalidation = this.createNextjsRevalidation();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
@@ -178,14 +169,6 @@ export class NextjsGlobalFunctions extends Construct {
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsDistributionProps,
-    });
-  }
-  private createNextjsRevalidation() {
-    return new NextjsRevalidation(this, "NextjsRevalidation", {
-      fn: this.nextjsFunctions.function,
-      overrides: this.props.overrides?.nextjsRevalidation,
-      previewModeId: this.nextjsAssetsDeployment.previewModeId,
-      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsRevalidationProps,
     });
   }
   private createNextjsPostDeploy() {
