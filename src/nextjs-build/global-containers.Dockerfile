@@ -32,7 +32,6 @@ RUN echo "Creating symlinks" && \
   chmod -R u+rw $MOUNT_PATH/$BUILD_ID && \
   # delete if exists so that symlinks can be made; image cache doesn't exist at build time
   rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH && \
-  rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$FULL_ROUTE_CACHE_PATH && \
   rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH && \
   # create .next/cache if doesn't exist. won't exist if no cached fetch data.
   mkdir -p ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH/.. && \

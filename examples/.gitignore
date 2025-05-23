@@ -7,6 +7,7 @@ cdk.out
 .env
 # files copied into examples folder when cdk-nextjs is building
 .dockerignore
-builder.Dockerfile
-cdk-nextjs-load-vars.sh
+# /*.Dockerfile only ignores .Dockerfiles in examples folder
+/*.Dockerfile
+cdk-nextjs-load-env-vars.sh
 symlink.mjs
