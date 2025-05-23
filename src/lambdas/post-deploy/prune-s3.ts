@@ -33,7 +33,7 @@ export async function pruneS3(props: PruneS3Props) {
   const objectsToDelete: { Key: string }[] = [];
 
   let continuationToken: string | undefined = undefined;
-  let i = 0;
+  let listObjectsCount = 0;
 
   do {
     // List objects in the bucket
@@ -95,9 +95,9 @@ export async function pruneS3(props: PruneS3Props) {
     if (listResponse.NextContinuationToken) {
       continuationToken = listResponse.NextContinuationToken;
     }
-    i++;
+    listObjectsCount++;
     // assume less than 100K objects (100 * 1K objects per ListObjectsV2Command = 100K)
-  } while (continuationToken && i <= 100);
+  } while (continuationToken && listObjectsCount <= 100);
 
   // Delete objects in parallel batches (respecting S3's 1000 objects per request limit)
   if (objectsToDelete.length > 0) {

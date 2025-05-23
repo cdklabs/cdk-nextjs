@@ -18,6 +18,5 @@ export function fsToFs(props: FsToFsAction) {
         ? includeExtensions.includes(extname(dest))
         : true;
     },
-    errorOnExist: true,
   });
 }

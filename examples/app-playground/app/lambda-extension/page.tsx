@@ -4,7 +4,7 @@ import { LambdaSsmParameterValue } from './LambdaExtension';
 export default function Page() {
   return (
     <div>
-      <h1>AWS Lambda Parameters and Secrets Extension Example 1</h1>
+      <h1>AWS Lambda Parameters and Secrets Extension Example</h1>
       <p>
         /cdk-bootstrap/hnb659fds/version:{' '}
         <Suspense

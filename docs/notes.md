@@ -86,10 +86,15 @@ Deploy one of the example apps in cdk-nextjs/examples and visit the /run-command
 6. Command: `readlink public`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/public`.
 7. Command: `readlink .next/cache/fetch-cache`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/.next/cache/fetch-cache`.
 8. Command: `readlink .next/cache/images`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/.next/cache/images`.
-9. Command `ls .next/server/app`. Expect folders of your app. Go to static page and verify .html, .rsc, .body, .meta files exist.
-10. Command: `readlink .next/server/app/api/health`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/.next/server/app/api/health`.
+9. Command `readlink .next/server/app`. Expect: `/mnt/cdk-nextjs/{BUILD_ID}/.next/server/app`.
 
 Note, for `.next/cache/fetch-cache` and `.next/cache/images` you may expect to be able to do `readlink` on nested files but it will fail. You can verify they're symlinked by using `state` and ensuring same inode number (although verifying the symlinked parent directory is sufficient).
+
+~~Note, in the past cdk-nextjs tried to only symlink html,rsc,meta,body files from compute container to EFS but this will not work because it doesn't allow for Next.js to generate static html,rsc,meta,body files at runtime which happens with on-demand SSG. See ssg/[id]/page.tsx in examples/app-playground.~~
+
+Actually, we cannot do above because .next/server/app code depends upon .next/server/\*.js and node_modules and if .next/server/app code lives in EFS and .next/server/\*.js and node_modules do not you'll get MODULE_NOT_FOUND error. So we have to superclass `FileSystemCache`.
+
+WHY DID I REMOVE `cache-handler.ts`?
 
 ## Blue Green Deployments
 

@@ -21,6 +21,8 @@ import {
   FULL_ROUTE_CACHE_PATH,
   DATA_CACHE_PATH_ARG_NAME,
   DATA_CACHE_PATH,
+  CACHE_PATH,
+  CACHE_PATH_ARG_NAME,
 } from "../common";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-props";
@@ -366,6 +368,7 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
         [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
         [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
@@ -396,6 +399,7 @@ export class NextjsBuild extends Construct {
       buildArgs: {
         [BUILD_ID_ARG_NAME]: this.buildId,
         [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
+        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
         [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
         [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
         [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,

@@ -29,6 +29,7 @@ ARG RELATIVE_PATH_TO_PACKAGE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_PACKAGE/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/symlink.mjs ./
 ARG BUILD_ID
+ARG CACHE_PATH
 ARG DATA_CACHE_PATH
 ARG FULL_ROUTE_CACHE_PATH
 ARG IMAGE_CACHE_PATH
@@ -40,19 +41,20 @@ RUN echo "Creating symlinks" && \
   mkdir -p $MOUNT_PATH/$BUILD_ID/$FULL_ROUTE_CACHE_PATH && \
   mkdir -p $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH && \
   mkdir -p $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH && \
-  chmod -R u+rw $MOUNT_PATH/$BUILD_ID && \
   # delete if exists so that symlinks can be made; image cache doesn't exist at build time
   rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH && \
   rm -rf ./$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH && \
   # create .next/cache if doesn't exist. won't exist if no cached fetch data.
-  mkdir -p ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH/.. && \
+  mkdir -p ./$RELATIVE_PATH_TO_PACKAGE/$CACHE_PATH && \
   # `ln -s <src_file> <target_file>` such that accessing <target_file> accesses <src_file>
   ln -s $MOUNT_PATH/$BUILD_ID/$DATA_CACHE_PATH ./$RELATIVE_PATH_TO_PACKAGE/$DATA_CACHE_PATH && \
   ln -s $MOUNT_PATH/$BUILD_ID/$IMAGE_CACHE_PATH ./$RELATIVE_PATH_TO_PACKAGE/$IMAGE_CACHE_PATH && \
   ln -s $MOUNT_PATH/$BUILD_ID/$PUBLIC_PATH ./$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH && \
-  # symlink each file in /app/$RELATIVE_PATH_TO_PACKAGE/$FULL_ROUTE_CACHE_PATH that is potentially updated by Next.js
+  # symlink each updateable cache file in /app/$RELATIVE_PATH_TO_PACKAGE/$FULL_ROUTE_CACHE_PATH
   node symlink.mjs $MOUNT_PATH/$BUILD_ID/$FULL_ROUTE_CACHE_PATH /app/$RELATIVE_PATH_TO_PACKAGE/$FULL_ROUTE_CACHE_PATH "html,rsc,meta,body" && \
-  rm -r symlink.mjs
+  rm symlink.mjs && \
+  # chown needs to be at end after all files are added so that nextjs:nodejs can access all files
+  chown -R nextjs:nodejs $MOUNT_PATH/$BUILD_ID
 
 USER nextjs
 
