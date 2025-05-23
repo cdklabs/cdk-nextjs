@@ -17,7 +17,7 @@ import { FileSystem } from "aws-cdk-lib/aws-efs";
 import { ApplicationProtocolVersion } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import { NextjsType } from "../common";
+import { MOUNT_PATH, NextjsType } from "../common";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
 
@@ -33,6 +33,7 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
   readonly nextjsType: NextjsType;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
+  readonly buildId: string;
 }
 
 /**
@@ -180,7 +181,7 @@ export class NextjsContainers extends Construct {
     });
     container?.addMountPoints({
       sourceVolume: volumeName,
-      containerPath: this.props.containerMountPathForEfs,
+      containerPath: MOUNT_PATH,
       readOnly: false,
     });
   }

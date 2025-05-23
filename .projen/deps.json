@@ -5,11 +5,11 @@
       "type": "build"
     },
     {
-      "name": "@aws-sdk/client-s3",
+      "name": "@aws-sdk/client-cloudfront",
       "type": "build"
     },
     {
-      "name": "@aws-sdk/client-sqs",
+      "name": "@aws-sdk/client-s3",
       "type": "build"
     },
     {
@@ -122,10 +122,6 @@
       "type": "build"
     },
     {
-      "name": "next",
-      "type": "build"
-    },
-    {
       "name": "prettier",
       "type": "build"
     },
@@ -152,7 +148,7 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "^2.186.0",
+      "version": "^2.196.0",
       "type": "peer"
     },
     {

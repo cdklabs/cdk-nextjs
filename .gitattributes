@@ -25,6 +25,7 @@
 /src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts linguist-generated
 /src/generated-structs/OptionalCloudFrontFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalClusterProps.ts linguist-generated
+/src/generated-structs/OptionalCustomResourceProps.ts linguist-generated
 /src/generated-structs/OptionalDistributionProps.ts linguist-generated
 /src/generated-structs/OptionalDockerImageAssetProps.ts linguist-generated
 /src/generated-structs/OptionalDockerImageFunctionProps.ts linguist-generated
@@ -36,10 +37,11 @@
 /src/generated-structs/OptionalNextjsContainersProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsDistributionProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsFileSystemProps.ts linguist-generated
-/src/generated-structs/OptionalNextjsInvalidationProps.ts linguist-generated
+/src/generated-structs/OptionalNextjsPostDeployProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsVpcProps.ts linguist-generated
+/src/generated-structs/OptionalPostDeployCustomResourceProperties.ts linguist-generated
 /src/generated-structs/OptionalS3OriginBucketWithOACProps.ts linguist-generated
 /src/generated-structs/OptionalVpcProps.ts linguist-generated
 /src/lambdas/assets-deployment/assets-deployment-function.ts linguist-generated
-/src/lambdas/revalidate/revalidate-function.ts linguist-generated
+/src/lambdas/post-deploy/post-deploy-function.ts linguist-generated
 /tsconfig.dev.json linguist-generated

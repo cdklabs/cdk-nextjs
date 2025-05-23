@@ -2,15 +2,15 @@
   "name": "cdk-nextjs-examples",
   "type": "module",
   "private": true,
-  "scripts": {
-    "prune": "turbo prune app-playground --docker --out-dir pruned/app-playground"
-  },
   "packageManager": "pnpm@10.11.0",
+  "dependencies": {
+    "dotenv-cli": "^8.0.0"
+  },
   "devDependencies": {
     "@tsconfig/node22": "^22.0.1",
     "@tsconfig/strictest": "^2.0.5",
-    "aws-cdk": "^2.1005.0",
-    "turbo": "^1.13.4"
+    "aws-cdk": "^2.1016.0",
+    "turbo": "^2.5.3"
   },
   "pnpm": {
     "overrides": {
@@ -19,9 +19,14 @@
       "tar@4.4.18": "^6.2.1",
       "undici@5.26.5": "^5.28.4",
       "braces@3.0.2": "^3.0.3"
-    }
-  },
-  "dependencies": {
-    "dotenv-cli": "^8.0.0"
+    },
+    "ignoredBuiltDependencies": [
+      "@vercel/git-hooks"
+    ],
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
   }
 }

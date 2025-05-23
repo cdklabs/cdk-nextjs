@@ -36,7 +36,7 @@ export class RegionalContainersStack extends Stack {
         nextjsRegionalContainers: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("regional-containers"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
         },
@@ -53,7 +53,7 @@ export class RegionalContainersStack extends Stack {
           },
         },
       },
-      relativePathToWorkspace: "./app-playground",
+      relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value:

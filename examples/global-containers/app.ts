@@ -33,7 +33,7 @@ export class GlobalContainersStack extends Stack {
         nextjsGlobalContainers: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("global-containers"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
         },
@@ -56,7 +56,7 @@ export class GlobalContainersStack extends Stack {
           },
         },
       },
-      relativePathToWorkspace: "./app-playground",
+      relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value: "https://" + nextjs.nextjsDistribution.distribution.domainName,

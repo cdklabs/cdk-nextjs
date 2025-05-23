@@ -50,6 +50,27 @@ export interface OptionalDockerImageAssetProps {
    */
   readonly file?: string;
   /**
+   * A display name for this asset.
+   * If supplied, the display name will be used in locations where the asset
+   * identifier is printed, like in the CLI progress information. If the same
+   * asset is added multiple times, the display name of the first occurrence is
+   * used.
+   *
+   * If `assetName` is given, it will also be used as the default `displayName`.
+   * Otherwise, the default is the construct path of the ImageAsset construct,
+   * with respect to the enclosing stack. If the asset is produced by a
+   * construct helper function (such as `lambda.Code.fromAssetImage()`), this
+   * will look like `MyFunction/AssetImage`.
+   *
+   * We use the stack-relative construct path so that in the common case where
+   * you have multiple stacks with the same asset, we won't show something like
+   * `/MyBetaStack/MyFunction/Code` when you are actually deploying to
+   * production.
+   * @default - Stack-relative construct path
+   * @stability stable
+   */
+  readonly displayName?: string;
+  /**
    * Cache to options to pass to the `docker build` command.
    * @default - no cache to options are passed to the build command
    * @stability stable

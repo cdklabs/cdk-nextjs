@@ -13,7 +13,7 @@ jobs:
   # needed because we want ability to skip e2e tests sometimes via label and
   # on push to main we always want e2e tests to run
   check-if-should-run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     # `github.event_name == 'push'` -> will run after merge to main
     # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
     if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
@@ -21,22 +21,26 @@ jobs:
       - run: echo "Workflow should run"
 
   # needed to manually approve fork PRs since they can contain malicious code
+  # "Approve workflows to run" button does not apply to pull_request_target which
+  # is required for fork PR to access OIDC for AWS access.
   wait-for-approval:
     needs: [check-if-should-run]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.fork && 'manual-approval' || null }}
     steps:
       - run: echo "Workflow Approved! Starting PR Checks."
 
   glbl-fns:
     needs: wait-for-approval
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
         with:
           # For pull_request_target, checkout PR head instead of merge commit
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+      - name: Set ARM environment flag
+        run: echo "FORCE_ARM_ARCHITECTURE=true" >> $GITHUB_ENV
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
@@ -45,13 +49,15 @@ jobs:
 
   glbl-cntnrs:
     needs: wait-for-approval
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-arm
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
         with:
           # For pull_request_target, checkout PR head instead of merge commit
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+      - name: Set ARM environment flag
+        run: echo "FORCE_ARM_ARCHITECTURE=true" >> $GITHUB_ENV
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
@@ -60,7 +66,7 @@ jobs:
 
   rgnl-cntnrs:
     needs: wait-for-approval
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # run regional containers on x64 arch for thorough testing
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4

@@ -2,7 +2,7 @@ import { IAspect, Stack, StackProps } from "aws-cdk-lib";
 import { Construct, IConstruct } from "constructs";
 import { NextjsGlobalFunctions } from "cdk-nextjs";
 import { App, Aspects } from "aws-cdk-lib";
-import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
+import { AwsSolutionsChecks } from "cdk-nag";
 import {
   suppressCommonNags,
   suppressGlobalNags,
@@ -72,7 +72,7 @@ class LowCostStack extends Stack {
         nextjsGlobalFunctions: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("low-cost"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
           nextjsVpcProps: {
@@ -80,7 +80,7 @@ class LowCostStack extends Stack {
           },
         },
       },
-      relativePathToWorkspace: "./app-playground",
+      relativePathToPackage: "./app-playground",
     });
     this.#createDnsRecords(nextjs, hostedZone);
   }
@@ -133,26 +133,6 @@ export const stack = new LowCostStack(app, getStackName("low-cost"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Queue/Resource`,
-  [
-    {
-      id: "AwsSolutions-SQS3",
-      reason: "DLQ not required for example app",
-    },
-  ],
-);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Fn/ServiceRole/Resource`,
-  [
-    {
-      id: "AwsSolutions-IAM4",
-      reason: "AWSLambdaBasicExecutionRole is not overly permissive",
-    },
-  ],
-);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
 
