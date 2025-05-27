@@ -1,6 +1,6 @@
-export { NextjsType } from "./common";
+export { NextjsType } from "./constants";
 export {
-  CustomResourceProperties,
+  StaticAssetsCustomResourceProperties,
   NextjsAssetsDeployment,
   NextjsAssetDeploymentOverrides,
   NextjsAssetsDeploymentProps,
@@ -58,15 +58,11 @@ export {
   NextjsRegionalContainersProps,
 } from "./root-constructs/nextjs-regional-containers";
 export {
-  NextjsInvalidation,
-  NextjsInvalidationOverrides,
-  NextjsInvalidationProps,
-} from "./nextjs-invalidation";
-export {
-  NextjsRevalidation,
-  NextjsRevalidationProps,
-  NextjsRevalidationOverrides,
-} from "./nextjs-revalidation";
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+  NextjsPostDeployProps,
+  PostDeployCustomResourceProperties,
+} from "./nextjs-post-deploy";
 export {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
@@ -78,7 +74,6 @@ export { OptionalNextjsBuildProps } from "./generated-structs/OptionalNextjsBuil
 export { OptionalNextjsContainersProps } from "./generated-structs/OptionalNextjsContainersProps";
 export { OptionalNextjsDistributionProps } from "./generated-structs/OptionalNextjsDistributionProps";
 export { OptionalNextjsFileSystemProps } from "./generated-structs/OptionalNextjsFileSystemProps";
-export { OptionalNextjsInvalidationProps } from "./generated-structs/OptionalNextjsInvalidationProps";
 export { OptionalNextjsVpcProps } from "./generated-structs/OptionalNextjsVpcProps";
 export { OptionalApplicationLoadBalancedTaskImageOptions } from "./generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 export { OptionalCloudFrontFunctionProps } from "./generated-structs/OptionalCloudFrontFunctionProps";
@@ -91,3 +86,6 @@ export { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps
 export { OptionalFunctionUrlProps } from "./generated-structs/OptionalFunctionUrlProps";
 export { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 export { OptionalVpcProps } from "./generated-structs/OptionalVpcProps";
+export { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
+export { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
+export { OptionalNextjsPostDeployProps } from "./generated-structs/OptionalNextjsPostDeployProps";

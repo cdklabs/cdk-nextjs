@@ -1,5 +1,5 @@
 {
-  "name": "global-functions",
+  "name": "cdk-nextjs-example-global-functions",
   "type": "module",
   "private": true,
   "scripts": {
@@ -9,13 +9,13 @@
     "destroy:ci": "cdk destroy --force"
   },
   "dependencies": {
-    "aws-cdk": "^2.1005.0",
+    "aws-cdk": "^2.1016.0",
     "aws-cdk-lib": "2.186.0",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",
-    "tsx": "^4.19.3"
+    "tsx": "^4.19.4"
   },
   "devDependencies": {
-    "@types/node": "^22.13.13"
+    "@types/node": "^22.15.19"
   }
 }

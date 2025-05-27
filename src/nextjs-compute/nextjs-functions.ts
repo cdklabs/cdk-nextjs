@@ -1,6 +1,6 @@
+import { join } from "path/posix";
 import { Duration } from "aws-cdk-lib";
 import {
-  Architecture,
   DockerImageCode,
   DockerImageFunction,
   FileSystem,
@@ -10,8 +10,14 @@ import {
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
+import {
+  CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
+  MOUNT_PATH,
+  SERVER_DIST_PATH,
+} from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
+import { getLambdaArchitecture } from "../utils/get-architecture";
 
 export interface NextjsFunctionsOverrides {
   readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;
@@ -21,6 +27,7 @@ export interface NextjsFunctionsOverrides {
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
   readonly dockerImageCode: DockerImageCode;
   readonly overrides?: NextjsFunctionsOverrides;
+  readonly buildId: string;
 }
 
 /**
@@ -47,18 +54,12 @@ export class NextjsFunctions extends Construct {
   }
 
   private createFunction() {
-    let architecture: Architecture | undefined = undefined;
-    if (process.arch === "x64") {
-      architecture = Architecture.X86_64;
-    } else if (process.arch === "arm64") {
-      architecture = Architecture.ARM_64;
-    }
     const fn = new DockerImageFunction(this, "Functions", {
-      architecture,
+      architecture: getLambdaArchitecture(),
       code: this.props.dockerImageCode,
       filesystem: FileSystem.fromEfsAccessPoint(
         this.props.accessPoint,
-        this.props.containerMountPathForEfs,
+        MOUNT_PATH,
       ),
       memorySize: 2048,
       timeout: Duration.seconds(30),
@@ -70,6 +71,11 @@ export class NextjsFunctions extends Construct {
         AWS_LWA_READINESS_CHECK_PATH: this.props.healthCheckPath,
         AWS_LWA_READINESS_CHECK_PORT: "3000",
         READINESS_CHECK_PATH: `http://127.0.0.1:3000${this.props.healthCheckPath}`,
+        [CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME]: join(
+          MOUNT_PATH,
+          this.props.buildId,
+          SERVER_DIST_PATH,
+        ),
         ...this.props.overrides?.dockerImageFunctionProps?.environment,
       },
     });

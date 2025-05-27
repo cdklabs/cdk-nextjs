@@ -1,5 +1,4 @@
 import Button from '#/ui/button';
-import { NameInput } from './components/NameInput';
 
 export function FormWithAdditionalArgument() {
   async function formAction(id: number, formData: FormData) {
@@ -9,17 +8,19 @@ export function FormWithAdditionalArgument() {
   }
   const id = 1;
   return (
-    <div className="flex flex-col gap-y-1">
-      <h2>Form with Additional Argument</h2>
-      <form
-        action={formAction.bind(null, id)}
-        className="flex flex-col gap-y-2"
-      >
-        <NameInput />
-        <div>
-          <Button type="submit">Submit</Button>
-        </div>
-      </form>
-    </div>
+    <form action={formAction.bind(null, id)} className="flex flex-col gap-y-2">
+      <label htmlFor="name-for-additional-arguments-form">
+        Name for Additional Arguments Form
+      </label>
+      <input
+        className="text-black"
+        id="name-for-additional-arguments-form"
+        name="name"
+        placeholder="Name for Additional Arguments Form"
+      ></input>
+      <div>
+        <Button type="submit">Submit for Additional Arguments Form</Button>
+      </div>
+    </form>
   );
 }

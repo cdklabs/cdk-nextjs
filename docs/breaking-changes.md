@@ -1,5 +1,14 @@
 # Breaking Changes
 
+## 0.4.0
+
+- Change `Nextjs{...}Props.relativePathToWorkspace` -> `Nextjs{...}Props.relativePathToPackage` because workspace references entire monorepo not a package in the monorepo.
+- [NextjsGlobalFunctions] Remove `NextjsRevalidation`. `NextjsRevalidation` was an initial effor to support ISR. This wasn't working as intended. With [RFC: Deployment Adapters API](https://github.com/vercel/next.js/discussions/77740) specifically addressing the pain point, "No signal for when background work like revalidating is complete", cdk-nextjs will support ISR once the `waitFor` callback is officially supported by Next.js instead of using internal workaround. This is inline with the design principles of cdk-nextjs. Removing this construct simplifies cdk-nextjs and makes it more maintainable long term.
+- [NextjsGlobal...] Refactor `NextjsInvalidation` to `NextjsPostDeploy` which now does not use `AwsCustomResource` but is `CustomResource` which calls `CreateInvalidation` API within, in addition to pruning EFS old BUILD_ID folder and old S3 static assets
+  - Relevant but not user facing change is that EFS Mounts are now segmented by BUILD_ID and S3 objects are now tagged with "next-build-id" metadata which are a step towards Blue/Green deployments.
+- Change BUILDER_IMAGE_TAG to BUILDER_IMAGE_ALIAS in `NextjsBuild` and Dockerfiles. This change is mostly internal and will only affect you if you used overrides. Reason for change was to resolve Docker warning, `InvalidDefaultArgInFrom`, and to improve semantics. A tag in Dockerfile reference is what comes after the :. Alias is repo:tag. Now repository (cdk-nextjs/builder) and tag (CDK's `node.addr.slice(30)`) so we can properly default to `cdk-nextjs/builder:latest` in Dockerfiles.
+- Remove `overrides.{nextjs...}.nextjsBuildProps.customDockerfilePath` in favor of `buildContext` + `overrides.{nextjs...}.nextjsBuildProps.file`. Simplies from 2 ways to 1. Default builder image Dockerfile name is now "builder.Dockerfile" too.
+
 ## 0.3.0
 
 - Change `NextjsDistributionProps.loadBalancer` type from `ILoadBalancerV2` to `ApplicationLoadBalancer`

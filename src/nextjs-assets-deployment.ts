@@ -3,7 +3,6 @@ import { CustomResource, Duration } from "aws-cdk-lib";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { AccessPoint } from "aws-cdk-lib/aws-efs";
 import {
-  Architecture,
   DockerImageCode,
   DockerImageFunction,
   FileSystem,
@@ -11,17 +10,27 @@ import {
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import {
-  DATA_CACHE_DIR,
-  FULL_ROUTE_CACHE_DIR,
-  IMAGE_CACHE_DIR,
+  DATA_CACHE_PATH,
+  FULL_ROUTE_CACHE_PATH,
+  IMAGE_CACHE_PATH,
+  MOUNT_PATH,
   NextjsType,
-  PUBLIC_DIR,
-} from "./common";
+  PUBLIC_PATH,
+  STATIC_PATH,
+} from "./constants";
+import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDockerImageFunctionProps";
 import { NextjsBuild } from "./nextjs-build/nextjs-build";
 import { NextjsBaseProps } from "./root-constructs/nextjs-base-props";
+import { getLambdaArchitecture } from "./utils/get-architecture";
 
 export interface NextjsAssetDeploymentOverrides {
+  /**
+   * Props that define the custom resource
+   */
+  readonly customResourceProps?: OptionalCustomResourceProps;
+  // NOTE: we don't offer overriding `customResourceProperties` since jsii doesn't support union types
+  // readonly customResourceProperties?: OptionalStaticAssetsCustomResourceProperties
   readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;
 }
 
@@ -32,15 +41,13 @@ export interface NextjsAssetsDeploymentProps {
    * @example "/my-base-path"
    */
   readonly basePath?: string;
+  readonly buildId: string;
   /**
    * @see {@link NextjsBuild.buildImageDigest}
    */
   readonly buildImageDigest: string;
   /**
-   * @see {@link NextjsBuild.containerMountPathForEfs}
-   */
-  readonly containerMountPathForEfs: NextjsBuild["containerMountPathForEfs"];
-  /**
+   * If true, logs details in custom resource lambda
    * @default true
    */
   readonly debug?: boolean;
@@ -48,9 +55,9 @@ export interface NextjsAssetsDeploymentProps {
   readonly nextjsType: NextjsType;
   readonly overrides?: NextjsAssetDeploymentOverrides;
   /**
-   * @see {@link NextjsBaseProps.relativePathToWorkspace}
+   * @see {@link NextjsBaseProps.relativePathToPackage}
    */
-  readonly relativePathToWorkspace?: string;
+  readonly relativePathToPackage?: string;
   /**
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`
    */
@@ -74,54 +81,20 @@ export interface FsToFsAction {
   type: "fs-to-fs";
   sourcePath: string;
   destinationPath: string;
-}
-/**
- * @internal
- */
-export interface PruneS3Action {
-  type: "prune-s3";
-  /**
-   * The minimum previous deployment count to prune
-   * @default 3
-   */
-  minPreviousDeployCountToPrune: number;
-  /**
-   * The minimum previous deployment date to prune
-   * @default new Date(new Date().setMonth(new Date().getMonth() - 1))
-   */
-  minPreviousDeployDateToPrune: string;
-  bucketName: string;
-  bucketPrefix?: string;
-}
-/**
- * @internal
- */
-export interface PruneFsAction {
-  type: "prune-fs";
-  /**
-   * The minimum previous deployment count to prune
-   * @default 3
-   */
-  minPreviousDeployCountToPrune: number;
-  /**
-   * The minimum previous deployment date to prune
-   * @default new Date(new Date().setMonth(new Date().getMonth() - 1))
-   */
-  minPreviousDeployDateToPrune: string;
-  directory: string;
+  includeExtensions?: string[];
 }
 
 /**
  * @internal
  */
-export interface CustomResourceProperties {
-  actions: (FsToS3Action | FsToFsAction | PruneS3Action | PruneFsAction)[];
+export interface StaticAssetsCustomResourceProperties {
+  actions: (FsToS3Action | FsToFsAction)[];
+  buildId: string;
   /**
-   * {@link NextjsAssetDeploymentProps.builderImageDigest}
+   * @see {@link NextjsBuild.buildImageDigest}
    */
   buildImageDigest: string;
   imageCachePath: string;
-  prerenderManifestPath: string;
   nextjsType: NextjsType;
 }
 
@@ -131,10 +104,6 @@ export interface CustomResourceProperties {
 export class NextjsAssetsDeployment extends Construct {
   customResource: CustomResource;
   dockerImageFunction: DockerImageFunction;
-  /**
-   * Only used for `NextjsGlobalFunctions`
-   */
-  previewModeId: string;
 
   private props: NextjsAssetsDeploymentProps;
 
@@ -147,23 +116,16 @@ export class NextjsAssetsDeployment extends Construct {
     this.props = props;
     this.dockerImageFunction = this.createFunction();
     this.customResource = this.createCustomResource();
-    this.previewModeId = this.customResource.getAttString("previewModeId");
   }
 
   private createFunction() {
-    let architecture: Architecture | undefined = undefined;
-    if (process.arch === "x64") {
-      architecture = Architecture.X86_64;
-    } else if (process.arch === "arm64") {
-      architecture = Architecture.ARM_64;
-    }
     const fn = new DockerImageFunction(this, "Fn", {
-      architecture,
+      architecture: getLambdaArchitecture(),
       code: this.props.dockerImageCode,
       memorySize: 2048,
       filesystem: FileSystem.fromEfsAccessPoint(
         this.props.accessPoint,
-        this.props.containerMountPathForEfs,
+        MOUNT_PATH,
       ),
       vpc: this.props.vpc,
       timeout: Duration.minutes(5),
@@ -180,7 +142,7 @@ export class NextjsAssetsDeployment extends Construct {
 
   private createCustomResource() {
     const root = "/app";
-    const actions: CustomResourceProperties["actions"] = [];
+    const actions: StaticAssetsCustomResourceProperties["actions"] = [];
     if (this.props.staticAssetsBucket?.bucketName) {
       // Prepare the destination key prefix with basePath when available
       const staticKeyPrefix = this.props.basePath
@@ -191,28 +153,19 @@ export class NextjsAssetsDeployment extends Construct {
         // static files
         {
           type: "fs-to-s3",
-          sourcePath: join(root, ".next", "static"),
+          sourcePath: join(root, STATIC_PATH),
           destinationBucketName: this.props.staticAssetsBucket.bucketName,
           destinationKeyPrefix: staticKeyPrefix,
         },
         // public directory to s3 for CloudFront -> S3
         {
           type: "fs-to-s3",
-          sourcePath: join(root, "public"),
+          sourcePath: join(root, PUBLIC_PATH),
           destinationBucketName: this.props.staticAssetsBucket.bucketName,
         },
       );
     }
     actions.push(
-      // data cache - https://nextjs.org/docs/app/building-your-application/caching#data-cache
-      {
-        type: "fs-to-fs",
-        sourcePath: join(root, ".next", "cache", "fetch-cache"),
-        destinationPath: join(
-          this.props.containerMountPathForEfs,
-          DATA_CACHE_DIR,
-        ),
-      },
       // full route cache - https://nextjs.org/docs/app/building-your-application/caching#full-route-cache
       {
         type: "fs-to-fs",
@@ -220,38 +173,49 @@ export class NextjsAssetsDeployment extends Construct {
           root,
           ".next",
           "standalone",
-          this.props.relativePathToWorkspace || "",
-          ".next",
-          "server",
-          "app",
+          this.props.relativePathToPackage || "",
+          FULL_ROUTE_CACHE_PATH,
         ),
         destinationPath: join(
-          this.props.containerMountPathForEfs,
-          FULL_ROUTE_CACHE_DIR,
+          MOUNT_PATH,
+          this.props.buildId,
+          FULL_ROUTE_CACHE_PATH,
         ),
+        // only files with these extensions are needed in EFS FileSystem cache
+        // since these files are the only ones updated by Next.js during runtime.
+        // other files like .js and .nft.json files are static per deployment
+        includeExtensions: ["body", "html", "rsc", "meta"],
       },
-      // public directory to EFS for needed optimizing images in public directory
+      // after `next build` data cache https://nextjs.org/docs/app/building-your-application/caching#data-cache
+      // exists at top level .next/cache so we need to copy into relativePathToPackage
+      // normalized path
       {
         type: "fs-to-fs",
-        sourcePath: join(root, "public"),
-        destinationPath: join(this.props.containerMountPathForEfs, PUBLIC_DIR),
+        sourcePath: join(root, DATA_CACHE_PATH),
+        destinationPath: join(MOUNT_PATH, this.props.buildId, DATA_CACHE_PATH),
+      },
+      // public directory to EFS for needed optimizing images in public directory
+      // we don't load these into compute to save on image size
+      {
+        type: "fs-to-fs",
+        sourcePath: join(root, PUBLIC_PATH),
+        destinationPath: join(MOUNT_PATH, this.props.buildId, PUBLIC_PATH),
       },
       // images are optimized at runtime so nothing to deploy
     );
-    const properties: CustomResourceProperties = {
+    const properties: StaticAssetsCustomResourceProperties = {
       actions,
+      buildId: this.props.buildId,
+      // ensures this CR runs each time new builder image
       buildImageDigest: this.props.buildImageDigest,
-      imageCachePath: join(
-        this.props.containerMountPathForEfs,
-        IMAGE_CACHE_DIR,
-      ),
+      imageCachePath: join(MOUNT_PATH, this.props.buildId, IMAGE_CACHE_PATH),
       nextjsType: this.props.nextjsType,
-      prerenderManifestPath: join(root, ".next", "prerender-manifest.json"),
     };
     return new CustomResource(this, "CustomResource", {
       properties,
       resourceType: "Custom::NextjsAssetsDeployment",
       serviceToken: this.dockerImageFunction.functionArn,
+      ...this.props.overrides?.customResourceProps,
     });
   }
 }

@@ -7,10 +7,9 @@ env:
 
 jobs:
   check-if-should-run:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Workflow should run"
+      - run: echo "Workflow should run for closed PR ${{ github.event.pull_request.number }}"
   cleanup-global-functions:
     needs: check-if-should-run
     runs-on: ubuntu-latest

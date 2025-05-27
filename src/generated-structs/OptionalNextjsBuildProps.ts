@@ -8,7 +8,7 @@ export interface OptionalNextjsBuildProps {
   /**
    * @stability stable
    */
-  readonly relativePathToWorkspace?: string;
+  readonly relativePathToPackage?: string;
   /**
    * @stability stable
    */

@@ -5,10 +5,9 @@ import {
   BaseNextjsOverrides,
 } from "./nextjs-base-overrides";
 import { NextjsBaseProps } from "./nextjs-base-props";
-import { NextjsType } from "../common";
+import { NextjsType } from "../constants";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
-import { OptionalNextjsInvalidationProps } from "../generated-structs/OptionalNextjsInvalidationProps";
 import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import {
@@ -20,32 +19,31 @@ import {
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
 import { NextjsFileSystem } from "../nextjs-file-system";
-import {
-  NextjsInvalidation,
-  NextjsInvalidationOverrides,
-} from "../nextjs-invalidation";
-import { NextjsRevalidationProps } from "../nextjs-revalidation";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
 import { NextjsVpc } from "../nextjs-vpc";
+import { handleDeprecatedProperties } from "../utils/handle-deprecated-properties";
 
 export interface NextjsGlobalContainersConstructOverrides
   extends BaseNextjsConstructOverrides {
   readonly nextjsContainersProps?: OptionalNextjsContainersProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
-  readonly nextjsRevalidationProps?: NextjsRevalidationProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
-  readonly nextjsInvalidationProps?: OptionalNextjsInvalidationProps;
 }
 
+/**
+ * Overrides for `NextjsGlobalContainers`. Overrides are lower level than
+ * props and are passed directly to CDK Constructs giving you more control. It's
+ * recommended to use caution and review source code so you know how they're used.
+ */
 export interface NextjsGlobalContainersOverrides extends BaseNextjsOverrides {
   readonly nextjsGlobalContainers?: NextjsGlobalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
-  readonly nextjsInvalidation?: NextjsInvalidationOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
 
@@ -81,7 +79,7 @@ export class NextjsGlobalContainers extends Construct {
   nextjsAssetsDeployment: NextjsAssetsDeployment;
   nextjsContainers: NextjsContainers;
   nextjsDistribution: NextjsDistribution;
-  nextjsInvalidation: NextjsInvalidation;
+  nextjsPostDeploy: NextjsPostDeploy;
 
   private nextjsType = NextjsType.GLOBAL_CONTAINERS;
   private props: NextjsGlobalContainersProps;
@@ -92,7 +90,7 @@ export class NextjsGlobalContainers extends Construct {
     props: NextjsGlobalContainersProps,
   ) {
     super(scope, id);
-    this.props = props;
+    this.props = handleDeprecatedProperties(props);
     this.nextjsBuild = this.createNextjsBuild();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
     this.nextjsVpc = this.createVpc();
@@ -104,7 +102,7 @@ export class NextjsGlobalContainers extends Construct {
       role: this.nextjsContainers.albFargateService.taskDefinition.taskRole,
     });
     this.nextjsDistribution = this.createNextjsDistribution();
-    this.nextjsInvalidation = this.createNextjsInvalidation();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   private createNextjsBuild() {
@@ -112,7 +110,7 @@ export class NextjsGlobalContainers extends Construct {
       buildCommand: this.props.buildCommand,
       buildContext: this.props.buildContext,
       nextjsType: this.nextjsType,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       overrides: this.props.overrides?.nextjsBuild,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsBuildProps,
     });
@@ -141,12 +139,12 @@ export class NextjsGlobalContainers extends Construct {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
       basePath: this.props.basePath,
+      buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsAssetsDeployment,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsGlobalContainers
@@ -159,7 +157,7 @@ export class NextjsGlobalContainers extends Construct {
     }
     return new NextjsContainers(this, "NextjsContainers", {
       accessPoint: this.nextjsFileSystem.accessPoint,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
+      buildId: this.nextjsBuild.buildId,
       dockerImageAsset: this.nextjsBuild.imageForNextjsContainers,
       fileSystem: this.nextjsFileSystem.fileSystem,
       healthCheckPath: this.props.healthCheckPath,
@@ -183,11 +181,20 @@ export class NextjsGlobalContainers extends Construct {
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsDistributionProps,
     });
   }
-  private createNextjsInvalidation() {
-    return new NextjsInvalidation(this, "NextjsInvalidation", {
+  private createNextjsPostDeploy() {
+    const nextjsPostDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      accessPoint: this.nextjsFileSystem.accessPoint,
+      buildId: this.nextjsBuild.buildId,
+      buildImageDigest: this.nextjsBuild.buildImageDigest,
       distribution: this.nextjsDistribution.distribution,
-      overrides: this.props.overrides?.nextjsInvalidation,
-      ...this.props.overrides?.nextjsGlobalContainers?.nextjsInvalidationProps,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      relativePathToPackage: this.props.relativePathToPackage,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      vpc: this.nextjsVpc.vpc,
+      ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
+    // ensure NextjsAssetsDeployment finishes before NextjsPostDeploy
+    nextjsPostDeploy.node.addDependency(this.nextjsAssetsDeployment);
+    return nextjsPostDeploy;
   }
 }

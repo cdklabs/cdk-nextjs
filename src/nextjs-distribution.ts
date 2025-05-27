@@ -39,7 +39,7 @@ import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2"
 import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { NextjsType } from "./common";
+import { NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";

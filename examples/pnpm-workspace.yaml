@@ -1,2 +1,7 @@
 packages:
   - "**"
+  # prevent pnpm from trying to install dependencies in cdk asset directories
+  - "!**/cdk.out/**"
+  # prevent turbo from thinking package already exists and erroring
+  - "!**/.next/**"
+  - "!pruned/**"
