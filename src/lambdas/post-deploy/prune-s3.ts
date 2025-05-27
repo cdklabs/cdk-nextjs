@@ -22,9 +22,9 @@ interface PruneS3Props {
 }
 
 /**
- * Given `bucketName`, `currentBuildId`, and `msOldToPrune`, list all objects
+ * Given `bucketName`, `currentBuildId`, and `msTtl`, list all objects
  * in the bucket and delete any that 1/ do not have a metadata key of "next-build-id"
- * and value of `currentBuildId` and 2/ were created more than `msOldToPrune` ago
+ * and value of `currentBuildId` and 2/ were created more than `msTtl` ago
  */
 export async function pruneS3(props: PruneS3Props) {
   const { bucketName, currentBuildId, msTtl } = props;
