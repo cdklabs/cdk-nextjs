@@ -4,7 +4,7 @@ import {
   BaseNextjsOverrides,
 } from "./nextjs-base-overrides";
 import { NextjsBaseProps } from "./nextjs-base-props";
-import { NextjsType } from "../common";
+import { NextjsType } from "../constants";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
@@ -13,13 +13,20 @@ import {
   NextjsContainersOverrides,
 } from "../nextjs-compute/nextjs-containers";
 import { NextjsFileSystem } from "../nextjs-file-system";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { NextjsVpc } from "../nextjs-vpc";
+import { handleDeprecatedProperties } from "../utils/handle-deprecated-properties";
 
 export interface NextjsRegionalContainersConstructOverrides
   extends BaseNextjsConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
 }
 
+/**
+ * Overrides for `NextjsRegionalContainers`. Overrides are lower level than
+ * props and are passed directly to CDK Constructs giving you more control. It's
+ * recommended to use caution and review source code so you know how they're used.
+ */
 export interface NextjsRegionalContainersOverrides extends BaseNextjsOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
@@ -44,6 +51,7 @@ export class NextjsRegionalContainers extends Construct {
   nextjsFileSystem: NextjsFileSystem;
   nextjsAssetsDeployment: NextjsAssetsDeployment;
   nextjsContainers: NextjsContainers;
+  nextjsPostDeploy: NextjsPostDeploy;
 
   private nextjsType = NextjsType.REGIONAL_CONTAINERS;
   private props: NextjsRegionalContainersProps;
@@ -54,7 +62,7 @@ export class NextjsRegionalContainers extends Construct {
     props: NextjsRegionalContainersProps,
   ) {
     super(scope, id);
-    this.props = props;
+    this.props = handleDeprecatedProperties(props);
     this.nextjsBuild = this.createNextjsBuild();
     this.nextjsVpc = this.createVpc();
     this.nextjsFileSystem = this.createNextjsFileSystem();
@@ -64,6 +72,7 @@ export class NextjsRegionalContainers extends Construct {
       connections: this.nextjsContainers.albFargateService.service.connections,
       role: this.nextjsContainers.albFargateService.taskDefinition.taskRole,
     });
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   private createNextjsBuild() {
@@ -71,7 +80,7 @@ export class NextjsRegionalContainers extends Construct {
       buildCommand: this.props.buildCommand,
       buildContext: this.props.buildContext,
       nextjsType: this.nextjsType,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       overrides: this.props.overrides?.nextjsBuild,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsBuildProps,
     });
@@ -93,12 +102,12 @@ export class NextjsRegionalContainers extends Construct {
   private createNextjsAssetsDeployment() {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
+      buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsAssetsDeployment,
-      relativePathToWorkspace: this.props.relativePathToWorkspace,
+      relativePathToPackage: this.props.relativePathToPackage,
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsRegionalContainers
         ?.nextjsAssetsDeploymentProps,
@@ -110,7 +119,7 @@ export class NextjsRegionalContainers extends Construct {
     }
     return new NextjsContainers(this, "NextjsContainers", {
       accessPoint: this.nextjsFileSystem.accessPoint,
-      containerMountPathForEfs: this.nextjsBuild.containerMountPathForEfs,
+      buildId: this.nextjsBuild.buildId,
       dockerImageAsset: this.nextjsBuild.imageForNextjsContainers,
       fileSystem: this.nextjsFileSystem.fileSystem,
       healthCheckPath: this.props.healthCheckPath,
@@ -120,5 +129,19 @@ export class NextjsRegionalContainers extends Construct {
       vpc: this.nextjsVpc.vpc,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
     });
+  }
+  private createNextjsPostDeploy() {
+    const nextjsPostDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      accessPoint: this.nextjsFileSystem.accessPoint,
+      buildId: this.nextjsBuild.buildId,
+      buildImageDigest: this.nextjsBuild.buildImageDigest,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      relativePathToPackage: this.props.relativePathToPackage,
+      vpc: this.nextjsVpc.vpc,
+      ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
+    });
+    // ensure NextjsAssetsDeployment finishes before NextjsPostDeploy
+    nextjsPostDeploy.node.addDependency(this.nextjsAssetsDeployment);
+    return nextjsPostDeploy;
   }
 }
