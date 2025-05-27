@@ -34,12 +34,8 @@ jspm_packages/
 .cache
 .idea
 .DS_Store
-cdk.out
-.env
 *.drawio.bkp
 ash_output
-examples/.dockerignore
-examples/builder.Dockerfile
 /test-reports/
 junit.xml
 /coverage/
@@ -61,9 +57,12 @@ tsconfig.json
 !/API.md
 /assets/
 !/src/lambdas/assets-deployment/assets-deployment-function.ts
-!/src/lambdas/revalidate/revalidate-function.ts
+!/src/lambdas/post-deploy/post-deploy-function.ts
 !/examples/**/tsconfig.json
 !/.projenrc.ts
+!/src/generated-structs/OptionalNextjsPostDeployProps.ts
+!/src/generated-structs/OptionalPostDeployCustomResourceProperties.ts
+!/src/generated-structs/OptionalCustomResourceProps.ts
 !/src/generated-structs/OptionalS3OriginBucketWithOACProps.ts
 !/src/generated-structs/OptionalEdgeFunctionProps.ts
 !/src/generated-structs/OptionalCloudFrontFunctionProps.ts
@@ -76,7 +75,6 @@ tsconfig.json
 !/src/generated-structs/OptionalNextjsFileSystemProps.ts
 !/src/generated-structs/OptionalNextjsAssetsDeploymentProps.ts
 !/src/generated-structs/OptionalNextjsContainersProps.ts
-!/src/generated-structs/OptionalNextjsInvalidationProps.ts
 !/src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts
 !/src/generated-structs/OptionalVpcProps.ts
 !/src/generated-structs/OptionalFunctionProps.ts

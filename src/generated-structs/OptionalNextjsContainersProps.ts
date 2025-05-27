@@ -25,15 +25,15 @@ export interface OptionalNextjsContainersProps {
   /**
    * @stability stable
    */
+  readonly buildId?: string;
+  /**
+   * @stability stable
+   */
   readonly vpc?: aws_ec2.IVpc;
   /**
    * @stability stable
    */
   readonly healthCheckPath?: string;
-  /**
-   * @stability stable
-   */
-  readonly containerMountPathForEfs?: string;
   /**
    * @stability stable
    */

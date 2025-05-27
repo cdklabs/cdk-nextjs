@@ -52,7 +52,7 @@
           "spawn": "bundle:lambdas/assets-deployment/assets-deployment.lambda"
         },
         {
-          "spawn": "bundle:lambdas/revalidate/revalidate.lambda"
+          "spawn": "bundle:lambdas/post-deploy/post-deploy.lambda"
         },
         {
           "exec": "mkdir -p lib/nextjs-build"
@@ -73,10 +73,7 @@
           "exec": "cp src/nextjs-build/regional-containers.Dockerfile lib/nextjs-build"
         },
         {
-          "spawn": "bundle:nextjs-build/cache-handler"
-        },
-        {
-          "spawn": "bundle:nextjs-build/add-cache-handler"
+          "spawn": "bundle:nextjs-build/cdk-nextjs-cache-handler"
         },
         {
           "spawn": "bundle:lambdas/assets-deployment/patch-fetch"
@@ -119,57 +116,39 @@
         }
       ]
     },
-    "bundle:lambdas/revalidate/revalidate.lambda": {
-      "name": "bundle:lambdas/revalidate/revalidate.lambda",
-      "description": "Create a JavaScript bundle from src/lambdas/revalidate/revalidate.lambda.ts",
+    "bundle:lambdas/post-deploy/post-deploy.lambda": {
+      "name": "bundle:lambdas/post-deploy/post-deploy.lambda",
+      "description": "Create a JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/revalidate/revalidate.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/revalidate/revalidate.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
         }
       ]
     },
-    "bundle:lambdas/revalidate/revalidate.lambda:watch": {
-      "name": "bundle:lambdas/revalidate/revalidate.lambda:watch",
-      "description": "Continuously update the JavaScript bundle from src/lambdas/revalidate/revalidate.lambda.ts",
+    "bundle:lambdas/post-deploy/post-deploy.lambda:watch": {
+      "name": "bundle:lambdas/post-deploy/post-deploy.lambda:watch",
+      "description": "Continuously update the JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/revalidate/revalidate.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/revalidate/revalidate.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node22\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
-    "bundle:nextjs-build/add-cache-handler": {
-      "name": "bundle:nextjs-build/add-cache-handler",
-      "description": "Create a JavaScript bundle from src/nextjs-build/add-cache-handler.ts",
+    "bundle:nextjs-build/cdk-nextjs-cache-handler": {
+      "name": "bundle:nextjs-build/cdk-nextjs-cache-handler",
+      "description": "Create a JavaScript bundle from src/nextjs-build/cdk-nextjs-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm"
+          "exec": "esbuild --bundle src/nextjs-build/cdk-nextjs-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-cache-handler.cjs\" --external:next"
         }
       ]
     },
-    "bundle:nextjs-build/add-cache-handler:watch": {
-      "name": "bundle:nextjs-build/add-cache-handler:watch",
-      "description": "Continuously update the JavaScript bundle from src/nextjs-build/add-cache-handler.ts",
+    "bundle:nextjs-build/cdk-nextjs-cache-handler:watch": {
+      "name": "bundle:nextjs-build/cdk-nextjs-cache-handler:watch",
+      "description": "Continuously update the JavaScript bundle from src/nextjs-build/cdk-nextjs-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/add-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/add-cache-handler.mjs\" --format=esm --watch"
-        }
-      ]
-    },
-    "bundle:nextjs-build/cache-handler": {
-      "name": "bundle:nextjs-build/cache-handler",
-      "description": "Create a JavaScript bundle from src/nextjs-build/cache-handler.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\""
-        }
-      ]
-    },
-    "bundle:nextjs-build/cache-handler:watch": {
-      "name": "bundle:nextjs-build/cache-handler:watch",
-      "description": "Continuously update the JavaScript bundle from src/nextjs-build/cache-handler.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/nextjs-build/cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cache-handler.cjs\" --watch"
+          "exec": "esbuild --bundle src/nextjs-build/cdk-nextjs-cache-handler.ts --target=\"node22\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-cache-handler.cjs\" --external:next --watch"
         }
       ]
     },
@@ -411,13 +390,13 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-s3,@aws-sdk/client-sqs,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,next,prettier,ts-jest,ts-node,typescript,undici"
+          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,prettier,ts-jest,ts-node,typescript,undici"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-s3 @aws-sdk/client-sqs @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
+          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
         },
         {
           "exec": "pnpm dlx projen"

@@ -5,7 +5,7 @@ import {
   Vpc,
 } from "aws-cdk-lib/aws-ec2";
 import { Construct } from "constructs";
-import { NextjsType } from "./common";
+import { NextjsType } from "./constants";
 import { OptionalVpcProps } from "./generated-structs/OptionalVpcProps";
 
 export interface NextjsVpcOverrides {

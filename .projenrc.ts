@@ -19,14 +19,14 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // majorVersion: 1,
   // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.186.0",
+  cdkVersion: "2.196.0",
   jsiiVersion: "~5.8.7",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion: "9",
   projenVersion: "^0.90.6",
   devDeps: [
     "@aws-crypto/sha256-js",
-    "@aws-sdk/client-sqs",
+    "@aws-sdk/client-cloudfront",
     "@aws-sdk/client-s3",
     "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
@@ -37,7 +37,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "cdk-nag",
     "esbuild",
     "mime-types",
-    "next", // bundled in src/nextjs-build/cache-handler.ts
+    "next@14", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   npmIgnoreOptions: {
@@ -58,16 +58,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3
   },
   projenCommand: "pnpm dlx projen",
-  gitignore: [
-    ".idea",
-    ".DS_Store",
-    "cdk.out",
-    ".env",
-    "*.drawio.bkp",
-    "ash_output",
-    "examples/.dockerignore",
-    "examples/builder.Dockerfile",
-  ],
+  gitignore: [".idea", ".DS_Store", "*.drawio.bkp", "ash_output"],
   projenrcTs: true,
   eslintOptions: {
     prettier: true,
@@ -148,16 +139,11 @@ project.synth();
 
 function bundle() {
   const target = `node${nodeVersion}`;
-  project.bundler.addBundle("src/nextjs-build/cache-handler.ts", {
+  project.bundler.addBundle("src/nextjs-build/cdk-nextjs-cache-handler.ts", {
     platform: "node",
     target,
-    outfile: "../../../lib/nextjs-build/cache-handler.cjs",
-  });
-  project.bundler.addBundle("src/nextjs-build/add-cache-handler.ts", {
-    platform: "node",
-    target,
-    outfile: "../../../lib/nextjs-build/add-cache-handler.mjs",
-    format: "esm",
+    outfile: "../../../lib/nextjs-build/cdk-nextjs-cache-handler.cjs",
+    externals: ["next"],
   });
   project.bundler.addBundle("src/lambdas/assets-deployment/patch-fetch.js", {
     platform: "browser",
@@ -275,6 +261,25 @@ function generateStructs() {
   const getFilePath = (fileName: string) =>
     "src/generated-structs/" + fileName + ".ts";
   new ProjenStruct(project, {
+    name: "OptionalNextjsPostDeployProps",
+    filePath: getFilePath("OptionalNextjsPostDeployProps"),
+  })
+    .mixin(Struct.fromFqn("cdk-nextjs.NextjsPostDeployProps"))
+    .omit("overrides")
+    .allOptional();
+  new ProjenStruct(project, {
+    name: "OptionalPostDeployCustomResourceProperties",
+    filePath: getFilePath("OptionalPostDeployCustomResourceProperties"),
+  })
+    .mixin(Struct.fromFqn("cdk-nextjs.PostDeployCustomResourceProperties"))
+    .allOptional();
+  new ProjenStruct(project, {
+    name: "OptionalCustomResourceProps",
+    filePath: getFilePath("OptionalCustomResourceProps"),
+  })
+    .mixin(Struct.fromFqn("aws-cdk-lib.CustomResourceProps"))
+    .allOptional();
+  new ProjenStruct(project, {
     name: "OptionalS3OriginBucketWithOACProps",
     filePath: getFilePath("OptionalS3OriginBucketWithOACProps"),
   })
@@ -358,13 +363,6 @@ function generateStructs() {
     filePath: getFilePath("OptionalNextjsContainersProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsContainersProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsInvalidationProps",
-    filePath: getFilePath("OptionalNextjsInvalidationProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsInvalidationProps"))
     .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
