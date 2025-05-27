@@ -39,8 +39,6 @@ jobs:
         with:
           # For pull_request_target, checkout PR head instead of merge commit
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-      - name: Set ARM environment flag
-        run: echo "FORCE_ARM_ARCHITECTURE=true" >> $GITHUB_ENV
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
@@ -56,8 +54,6 @@ jobs:
         with:
           # For pull_request_target, checkout PR head instead of merge commit
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-      - name: Set ARM environment flag
-        run: echo "FORCE_ARM_ARCHITECTURE=true" >> $GITHUB_ENV
       - uses: ./.github/actions/run-e2e-tests-on-example
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
