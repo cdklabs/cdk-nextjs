@@ -17,9 +17,15 @@ import { FileSystem } from "aws-cdk-lib/aws-efs";
 import { ApplicationProtocolVersion } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import { NextjsType } from "../common";
+import {
+  CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
+  MOUNT_PATH,
+  NextjsType,
+  SERVER_DIST_PATH,
+} from "../constants";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
+import { join } from "node:path/posix";
 
 export interface NextjsContainersOverrides {
   readonly ecsClusterProps?: OptionalClusterProps;
@@ -33,6 +39,7 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
   readonly nextjsType: NextjsType;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
+  readonly buildId: string;
 }
 
 /**
@@ -120,6 +127,10 @@ export class NextjsContainers extends Construct {
       "HOSTNAME",
       "0.0.0.0",
     );
+    albFargateService.taskDefinition.defaultContainer?.addEnvironment(
+      CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
+      join(MOUNT_PATH, this.props.buildId, SERVER_DIST_PATH),
+    );
     // speed up deployments by shortening deregistration delay
     // https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/load-balancer-connection-draining.html
     // TODO: document that this should be increased if long lived connections are expected
@@ -180,7 +191,7 @@ export class NextjsContainers extends Construct {
     });
     container?.addMountPoints({
       sourceVolume: volumeName,
-      containerPath: this.props.containerMountPathForEfs,
+      containerPath: MOUNT_PATH,
       readOnly: false,
     });
   }
