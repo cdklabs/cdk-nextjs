@@ -1,20 +1,27 @@
+'use client';
+
 import Button from '#/ui/button';
-import { NameInput } from './components/NameInput';
+import { useFormState } from 'react-dom';
+import { formAction } from './form-action';
 
 export function Form() {
-  async function formAction(formData: FormData) {
-    'use server';
-    console.log('Form Input:', formData.get('name'));
-  }
+  const [state, formAction2] = useFormState(formAction, { message: '' });
+
   return (
-    <div className="flex flex-col gap-y-1">
-      <h2>Form</h2>
-      <form action={formAction} className="flex flex-col gap-y-2">
-        <NameInput />
-        <div>
-          <Button type="submit">Submit</Button>
-        </div>
-      </form>
-    </div>
+    <form action={formAction2} className="flex flex-col gap-y-2">
+      <label htmlFor="name-for-action-input">Name for Action Input</label>
+      <input
+        className="text-black"
+        id="name-for-action-input"
+        name="name"
+        placeholder="Name for Action Input"
+      />
+      <div>
+        <Button type="submit">Submit for Action Form</Button>
+      </div>
+      {state?.message && (
+        <div className="mt-2 text-green-600">{state.message}</div>
+      )}
+    </form>
   );
 }

@@ -17,7 +17,7 @@ The App Router can coexist with the existing `pages` directory for incrementa
 pnpm install
 ```
 
-2. Start the dev server:
+2. Start the dev server!!:
 
 ```sh
 pnpm dev

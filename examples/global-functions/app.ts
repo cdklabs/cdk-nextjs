@@ -27,7 +27,7 @@ class GlobalFunctionsStack extends Stack {
         nextjsGlobalFunctions: {
           nextjsBuildProps: {
             builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories("global-functions"),
+              exclude: getBuilderImageExcludeDirectories(),
             },
           },
         },
@@ -50,7 +50,7 @@ class GlobalFunctionsStack extends Stack {
           },
         },
       },
-      relativePathToWorkspace: "./app-playground",
+      relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value: "https://" + nextjs.nextjsDistribution.distribution.domainName,
@@ -85,25 +85,5 @@ export const stack = new GlobalFunctionsStack(app, getStackName("glbl-fns"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
 suppressLambdaNags(stack);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Queue/Resource`,
-  [
-    {
-      id: "AwsSolutions-SQS3",
-      reason: "DLQ not required for example app",
-    },
-  ],
-);
-NagSuppressions.addResourceSuppressionsByPath(
-  stack,
-  `/${stack.stackName}/Nextjs/NextjsRevalidation/Fn/ServiceRole/Resource`,
-  [
-    {
-      id: "AwsSolutions-IAM4",
-      reason: "AWSLambdaBasicExecutionRole is not overly permissive",
-    },
-  ],
-);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));

@@ -111,6 +111,12 @@ export const demos: { name: string; items: Item[] }[] = [
         slug: 'server-actions',
         description: 'Demo of different styles of calling server actions',
       },
+      {
+        name: 'AWS Lambda Extension',
+        slug: 'lambda-extension',
+        description:
+          'Demo of using AWS Lambda Parameters and Secrets Extension',
+      },
     ],
   },
 ];
