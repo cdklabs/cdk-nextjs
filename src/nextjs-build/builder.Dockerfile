@@ -6,9 +6,7 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 # It's preferrable to only copy package.json's and lockfiles, install, and then
 # copy the rest of the code to efficiently utilize build cache. We don't do that
-# here because it's highly customized based on a projects setup. We recommend
-# developers use `overrides.nextjs[GlobalFunctions].nextjsBuildProps.builderImageProps.srcDockerfilePath`
-# to optimize for their setup.
+# here because it's highly customized based on a projects setup. See cdk-nextjs/examples/turbo.
 COPY . .
 # Install dependencies based on the preferred package manager
 RUN \
@@ -18,8 +16,14 @@ RUN \
   else echo "Lockfile not found." && exit 1; \
   fi
 ARG BUILD_COMMAND
-ARG RELATIVE_PATH_TO_WORKSPACE
-RUN if [ -f ./cdk-nextjs-load-env-vars.sh ]; then chmod u+x ./cdk-nextjs-load-env-vars.sh && . ./cdk-nextjs-load-env-vars.sh; fi
-RUN cd $RELATIVE_PATH_TO_WORKSPACE && $BUILD_COMMAND
-# after building, node_modules aren't needed anymore. this reduces image size by over 50mb
-RUN rm -rf node_modules
+ARG RELATIVE_PATH_TO_PACKAGE
+RUN cd $RELATIVE_PATH_TO_PACKAGE && {{INJECT_CDK_NEXTJS_BUILD_ENV_VARS}} $BUILD_COMMAND
+RUN rm -rf node_modules && \
+  # remove pnpm cache if exists
+  command -v pnpm >/dev/null 2>&1 && rm -rf $(pnpm store path) || echo "pnpm not installed, skipping cache cleanup" && \
+  # .next/cache/webpack used to speed up builds on subsequent `next build`
+  rm -rf $RELATIVE_PATH_TO_PACKAGE/.next/cache/webpack && \
+  # .next/trace used for debugging purposes
+  rm $RELATIVE_PATH_TO_PACKAGE/.next/trace && \
+  # not needed since we use .next/server in standalone
+  rm -rf $RELATIVE_PATH_TO_PACKAGE/.next/server
