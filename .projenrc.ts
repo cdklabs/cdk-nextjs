@@ -58,7 +58,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3
   },
   projenCommand: "pnpm dlx projen",
-  gitignore: [".idea", ".DS_Store", "*.drawio.bkp", "ash_output"],
+  gitignore: [".idea", ".DS_Store", "*.drawio.bkp", "ash_output", "~$*.xlsx"],
   projenrcTs: true,
   eslintOptions: {
     prettier: true,
