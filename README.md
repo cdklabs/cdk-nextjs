@@ -122,7 +122,7 @@ This construct by default implements all AWS security best practices that a CDK 
 
 ### Assumptions
 
-For cost estimation purposes, we'll use the following basic assumptions for a typical medium Next.js app. See [docs/usage.xlsx](./docs/usage.xlsx) for detailed assumptions and usage per construct type that you can plug in AWS Pricing Calculator. Assume ARM architecture and us-east-1 AWS region.
+For cost estimation purposes, the following basic assumptions were used for a typical medium Next.js app. See [docs/usage.xlsx](./docs/usage.xlsx) for detailed assumptions and usage per construct type that you can plug in AWS Pricing Calculator.
 
 | Metric                                                       | Value |
 | ------------------------------------------------------------ | ----- |
@@ -138,9 +138,23 @@ For cost estimation purposes, we'll use the following basic assumptions for a ty
 | Dynamic Cache Data Size                                      | 10GB  |
 | Average Dynamic Cache Request Size                           | 100KB |
 
+More Details:
+
+- Assume ARM architecture for compute
+- AWS Region: us-east-1
+- Excludes charges related to: CloudWatch Logs, NAT Gateway data processing
+
+#### NAT Gateway and Alternatives
+
+[NAT Gateways](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html) enable compute within private subnets to access the internet without directly exposing that compute to the internet. NAT Gateways prevent you from having to managed your own NAT Instances however they're expensive at $0.045/hr/AZ resulting in charge of $64.80/month for 2 AZs (.045 x 24 x 30 x 2). While NAT Gateways are recommended by AWS to ensure maximum reliability and scalability, some customers may desire less expensive alternatives:
+
+1. $0.00 - if you're Next.js app does not need to access the internet, remove the NAT Gateway.
+2. $6.05 - managing your own [NAT Instance](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html). See [examples/low-cost](./examples/low-cost/) for how to use [fck-nat](https://fck-nat.dev/stable/).
+3. $32.40 - use 1 AZ instead of 2.
+
 ### NextjsGlobalFunctions
 
-[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=a3c5895a77cfe4f50be0c5a4c14a31670106920f)
+[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=cbabcb1142ad9b29345b82b33b3cf552eddc966a)
 
 | Service    | Monthly Usage                                  | Estimated Monthly Cost (USD) |
 | ---------- | ---------------------------------------------- | ---------------------------- |
@@ -148,11 +162,12 @@ For cost estimation purposes, we'll use the following basic assumptions for a ty
 | CloudFront | 2M requests, 100 GB transfer to internet       | $0.00 (Always Free Tier)     |
 | S3         | 10 GB storage, 750K GET requests               | $0.53                        |
 | EFS        | 10 GB storage, 25/2.5 GB Read/Write Throughput | $3.90                        |
-| Total      |                                                | $4.43                        |
+| VPC        | NAT Gateway, 2 AZs                             | $64.80                       |
+| Total      |                                                | $69.32                       |
 
 ### NextjsGlobalContainers
 
-[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=fef584636ca26cd88861a40f21429e17f8d3999a)
+[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=1354220e3d611a726139bee4af4277debacd365c)
 
 | Service     | Monthly Usage                                  | Estimated Monthly Cost (USD) |
 | ----------- | ---------------------------------------------- | ---------------------------- |
@@ -161,18 +176,20 @@ For cost estimation purposes, we'll use the following basic assumptions for a ty
 | CloudFront  | 2M requests, 100 GB transfer to internet       | $0.00 (Always Free Tier)     |
 | S3          | 10 GB storage, 750K GET requests               | $0.53                        |
 | EFS         | 10 GB storage, 25/2.5 GB Read/Write Throughput | $3.90                        |
-| Total       |                                                | $55.73                       |
+| VPC         | NAT Gateway, 2 AZs                             | $64.80                       |
+| Total       |                                                | $120.53                      |
 
 ### NextjsRegionalContainers
 
-[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=5be93cc50d174cd97e1d73a26be85a88cc7eb689)
+[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=f53440707350f74cf478ca9e45a3ad32f5e16710)
 
 | Service     | Monthly Usage                                  | Estimated Monthly Cost (USD) |
 | ----------- | ---------------------------------------------- | ---------------------------- |
 | ECS Fargate | 1 task (2 vCPU, 4 GB), always on               | $28.44                       |
 | ALB         | 1 LB, 4.17 GB/hr, 23.15 conn/sec               | $40.78                       |
 | EFS         | 10 GB storage, 25/2.5 GB Read/Write Throughput | $4.05                        |
-| Total       |                                                | $73.27                       |
+| VPC         | NAT Gateway, 2 AZs                             | $64.80                       |
+| Total       |                                                | $138.07                      |
 
 ## Performance
 
