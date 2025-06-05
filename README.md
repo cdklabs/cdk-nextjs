@@ -122,7 +122,7 @@ This construct by default implements all AWS security best practices that a CDK 
 
 ### Assumptions
 
-For cost estimation purposes, the following basic assumptions were used for a typical medium Next.js app. See [docs/usage.xlsx](./docs/usage.xlsx) for detailed assumptions and usage per construct type that you can plug in AWS Pricing Calculator.
+The following basic assumptions were used for a typical medium Next.js app. See [docs/usage.xlsx](./docs/usage.xlsx) for detailed assumptions and usage per construct type that you can plug into AWS Pricing Calculator.
 
 | Metric                                                       | Value |
 | ------------------------------------------------------------ | ----- |
@@ -131,7 +131,7 @@ For cost estimation purposes, the following basic assumptions were used for a ty
 | Avg Request Size                                             | 50KB  |
 | Static Requests Per Page (js, css, etc)                      | 15    |
 | Static Requests Cache Hit %                                  | 50%   |
-| Static Assets Size                                           | 1GB   |
+| Static Assets Size                                           | 10GB  |
 | Dynamic Requests Per Page (document, optimized images, etc.) | 5     |
 | Dynamic Cache Read %                                         | 50%   |
 | Dynamic Cache Write %                                        | 5%    |
@@ -146,7 +146,7 @@ More Details:
 
 #### NAT Gateway and Alternatives
 
-[NAT Gateways](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html) enable compute within private subnets to access the internet without directly exposing that compute to the internet. NAT Gateways prevent you from having to managed your own NAT Instances however they're expensive at $0.045/hr/AZ resulting in charge of $64.80/month for 2 AZs (.045 x 24 x 30 x 2). While NAT Gateways are recommended by AWS to ensure maximum reliability and scalability, some customers may desire less expensive alternatives:
+[NAT Gateways](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html) enable compute within private subnets to access the internet without directly exposing that compute to the internet. NAT Gateways prevent you from having to manage your own NAT Instances however they cost $0.045/hr/AZ resulting in charge of $64.80/month for 2 AZs (.045 x 24 x 30 x 2). While NAT Gateways are recommended by AWS to ensure maximum reliability and scalability, some customers may desire less expensive alternatives:
 
 1. $0.00 - if you're Next.js app does not need to access the internet, remove the NAT Gateway.
 2. $6.05 - managing your own [NAT Instance](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html). See [examples/low-cost](./examples/low-cost/) for how to use [fck-nat](https://fck-nat.dev/stable/).
@@ -310,10 +310,11 @@ A: cdk-nextjs-standalone relies on [OpenNext](https://github.com/sst/open-next).
 Q: Why not offer API Gateway version of construct?<br/>
 A: API Gateway does not support streaming.
 
-Q: Why EFS instead of S3?<br/>
-A: Next.js has 3 types of server caching that are persisted to disk: [Data Cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), [Full Route Cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache), and [Image Optimization](https://nextjs.org/docs/pages/building-your-application/optimizing/images). Cached data is persisted at .next/cache/fetch-cache, cached full routes are persisted at .next/server/app, and optimized images are persisted at .next/cache/images. Next.js provides a way to customize where cached data or cached full routes are persisted through the [Custom Next.js Cache Handler](https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath), but there currently is no way to persist optimized images. Therefore, we need a way to persist cached data at the file system level which is transparent to Next.js. To do this, we use [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Benefits of EFS include being able to cache any Next.js data persisted to disk and therefore being flexible to adapt to Next.js as the framework evolves caching additional types of data.
+Q: How does cdk-nextjs support caching in Next.js?<br/>
+A: Next.js has 3 types of server caching that are persisted to disk: [data cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), [full route cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache), and [image optimization cache](https://nextjs.org/docs/pages/building-your-application/optimizing/images). By default this cached data is persisted on individual compute instances and is not shared - reducing cache hits. cdk-nextjs uses the [custom Next.js cache handler](https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath) for data and full route cache and symlinking for image optimization cache to modify Next.js to read/write from a mounted file system
 
-Other points to compare:
+Q: Why EFS instead of S3?<br/>
+A: cdk-nextjs uses [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/) to mount a file system to functions or containers as a shared cache. The custom Next.js cache handler could be modified to read/write data to [Amazon S3](https://aws.amazon.com/pm/serv-s3), but there is no way to modify the location of the image optimization cache without modifying Next.js internals. Other factors to compare:
 
 | Factor                        | EFS                       | S3                    |
 | ----------------------------- | ------------------------- | --------------------- |
