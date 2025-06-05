@@ -1,0 +1,20 @@
+{
+  "name": "cdk-nextjs-load-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test:local": "dotenv -- artillery run src/load-tests.ts",
+    "_test-fargate:sm": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 7 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
+    "test-fargate:sm": "dotenv -- pnpm _test-fargate:sm",
+    "_test-fargate:md": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 32 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
+    "test-fargate:md": "dotenv -- pnpm _test-fargate:md",
+    "_test-fargate:lg": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 63 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
+    "test-fargate:lg": "dotenv -- pnpm _test-fargate:lg",
+    "_test-fargate:xl": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 625 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
+    "test-fargate:xl": "dotenv -- pnpm _test-fargate:xl"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "artillery": "^2.0.23",
+    "dotenv-cli": "^8.0.0"
+  }
+}

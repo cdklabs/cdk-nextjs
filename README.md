@@ -120,7 +120,177 @@ This construct by default implements all AWS security best practices that a CDK 
 
 ## Estimated Costs
 
-WIP
+### Assumptions
+
+The following basic assumptions were used for a typical medium Next.js app. See [docs/usage.xlsx](./docs/usage.xlsx) for detailed assumptions and usage per construct type that you can plug into AWS Pricing Calculator.
+
+| Metric                                                       | Value |
+| ------------------------------------------------------------ | ----- |
+| Monthly Active Users                                         | 1K    |
+| Pages Visited Per Month Per User                             | 100   |
+| Avg Request Size                                             | 50KB  |
+| Static Requests Per Page (js, css, etc)                      | 15    |
+| Static Requests Cache Hit %                                  | 50%   |
+| Static Assets Size                                           | 10GB  |
+| Dynamic Requests Per Page (document, optimized images, etc.) | 5     |
+| Dynamic Cache Read %                                         | 50%   |
+| Dynamic Cache Write %                                        | 5%    |
+| Dynamic Cache Data Size                                      | 10GB  |
+| Average Dynamic Cache Request Size                           | 100KB |
+
+More Details:
+
+- Assume ARM architecture for compute
+- AWS Region: us-east-1
+- Excludes charges related to: CloudWatch Logs, NAT Gateway data processing
+
+#### NAT Gateway and Alternatives
+
+[NAT Gateways](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html) enable compute within private subnets to access the internet without directly exposing that compute to the internet. NAT Gateways prevent you from having to manage your own NAT Instances however they cost $0.045/hr/AZ resulting in charge of $64.80/month for 2 AZs (.045 x 24 x 30 x 2). While NAT Gateways are recommended by AWS to ensure maximum reliability and scalability, some customers may desire less expensive alternatives:
+
+1. $0.00 - if you're Next.js app does not need to access the internet, remove the NAT Gateway.
+2. $6.05 - managing your own [NAT Instance](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html). See [examples/low-cost](./examples/low-cost/) for how to use [fck-nat](https://fck-nat.dev/stable/).
+3. $32.40 - use 1 AZ instead of 2.
+
+### NextjsGlobalFunctions
+
+[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=cbabcb1142ad9b29345b82b33b3cf552eddc966a)
+
+| Service    | Monthly Usage                                  | Estimated Monthly Cost (USD) |
+| ---------- | ---------------------------------------------- | ---------------------------- |
+| Lambda     | 500K requests, 2 GB memory, 150ms avg duration | $0.00 (Always Free Tier)     |
+| CloudFront | 2M requests, 100 GB transfer to internet       | $0.00 (Always Free Tier)     |
+| S3         | 10 GB storage, 750K GET requests               | $0.53                        |
+| EFS        | 10 GB storage, 25/2.5 GB Read/Write Throughput | $3.90                        |
+| VPC        | NAT Gateway, 2 AZs                             | $64.80                       |
+| Total      |                                                | $69.32                       |
+
+### NextjsGlobalContainers
+
+[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=1354220e3d611a726139bee4af4277debacd365c)
+
+| Service     | Monthly Usage                                  | Estimated Monthly Cost (USD) |
+| ----------- | ---------------------------------------------- | ---------------------------- |
+| ECS Fargate | 1 task (1 vCPU, 2 GB)                          | $28.44                       |
+| ALB         | 1 LB, 1.04GB/hr, 5.79 conn/sec                 | $22.50                       |
+| CloudFront  | 2M requests, 100 GB transfer to internet       | $0.00 (Always Free Tier)     |
+| S3          | 10 GB storage, 750K GET requests               | $0.53                        |
+| EFS         | 10 GB storage, 25/2.5 GB Read/Write Throughput | $3.90                        |
+| VPC         | NAT Gateway, 2 AZs                             | $64.80                       |
+| Total       |                                                | $120.53                      |
+
+### NextjsRegionalContainers
+
+[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=f53440707350f74cf478ca9e45a3ad32f5e16710)
+
+| Service     | Monthly Usage                                  | Estimated Monthly Cost (USD) |
+| ----------- | ---------------------------------------------- | ---------------------------- |
+| ECS Fargate | 1 task (2 vCPU, 4 GB), always on               | $28.44                       |
+| ALB         | 1 LB, 4.17 GB/hr, 23.15 conn/sec               | $40.78                       |
+| EFS         | 10 GB storage, 25/2.5 GB Read/Write Throughput | $4.05                        |
+| VPC         | NAT Gateway, 2 AZs                             | $64.80                       |
+| Total       |                                                | $138.07                      |
+
+## Performance
+
+[Artillery Playwright](https://www.artillery.io/docs/reference/engines/playwright#overview) app playground example load tests results with 1K concurrent users. Reproduce with `pnpm test-fargate:lg` within `examples/load-tests`.
+
+### NextjsGlobalFunctions
+
+<details>
+<summary>`NextjsGlobalFunctions` Performance Details</summary>
+
+```bash
+browser.page.TTFB.https://abc123.cloudfront.net/isr:
+  min: ......................................................................... 6.3
+  max: ......................................................................... 5017.4
+  mean: ........................................................................ 11.5
+  median: ...................................................................... 10.3
+  p95: ......................................................................... 15.6
+  p99: ......................................................................... 22.9
+browser.page.TTFB.https://abc123.cloudfront.net/isr/1:
+  min: ......................................................................... 3.2
+  max: ......................................................................... 560.6
+  mean: ........................................................................ 9.4
+  median: ...................................................................... 5.4
+  p95: ......................................................................... 11.1
+  p99: ......................................................................... 162.4
+browser.page.TTFB.https://abc123.cloudfront.net/isr/2:
+  min: ......................................................................... 3.1
+  max: ......................................................................... 1511.9
+  mean: ........................................................................ 9.2
+  median: ...................................................................... 5.2
+  p95: ......................................................................... 10.7
+  p99: ......................................................................... 149.9
+browser.page.TTFB.https://abc123.cloudfront.net/isr/3:
+  min: ......................................................................... 3.4
+  max: ......................................................................... 131.1
+  mean: ........................................................................ 7.1
+  median: ...................................................................... 5.3
+  p95: ......................................................................... 10.1
+  p99: ......................................................................... 64.7
+browser.page.TTFB.https://abc123.cloudfront.net/ssg:
+  min: ......................................................................... 6.4
+  max: ......................................................................... 5015.1
+  mean: ........................................................................ 11.5
+  median: ...................................................................... 10.3
+  p95: ......................................................................... 15.6
+  p99: ......................................................................... 23.3
+browser.page.TTFB.https://abc123.cloudfront.net/ssg/3:
+  min: ......................................................................... 2.9
+  max: ......................................................................... 98
+  mean: ........................................................................ 5.1
+  median: ...................................................................... 4.6
+  p95: ......................................................................... 8.2
+  p99: ......................................................................... 12.8
+browser.page.TTFB.https://abc123.cloudfront.net/ssr:
+  min: ......................................................................... 6.4
+  max: ......................................................................... 5018.6
+  mean: ........................................................................ 11.3
+  median: ...................................................................... 10.3
+  p95: ......................................................................... 15.6
+  p99: ......................................................................... 23.3
+browser.page.TTFB.https://abc123.cloudfront.net/ssr/2:
+  min: ......................................................................... 83.4
+  max: ......................................................................... 150.7
+  mean: ........................................................................ 119
+  median: ...................................................................... 111.1
+  p95: ......................................................................... 147
+  p99: ......................................................................... 147
+browser.page.TTFB.https://abc123.cloudfront.net/streaming:
+  min: ......................................................................... 6.4
+  max: ......................................................................... 5015.2
+  mean: ........................................................................ 11.8
+  median: ...................................................................... 10.3
+  p95: ......................................................................... 15.6
+  p99: ......................................................................... 23.3
+```
+
+</details>
+
+![1K concurrent users](./docs/1k-concurrent-users-executions.png)
+
+### NextjsGlobalContainers
+
+<details>
+<summary>`NextjsGlobalContainers` Performance Details</summary>
+
+```bash
+TODO
+```
+
+</details>
+
+### NextjsRegionalContainers
+
+<details>
+<summary>`NextjsRegionalContainers` Performance Details</summary>
+
+```bash
+TODO
+```
+
+</details>
 
 ## Contributing
 
@@ -140,8 +310,19 @@ A: cdk-nextjs-standalone relies on [OpenNext](https://github.com/sst/open-next).
 Q: Why not offer API Gateway version of construct?<br/>
 A: API Gateway does not support streaming.
 
+Q: How does cdk-nextjs support caching in Next.js?<br/>
+A: Next.js has 3 types of server caching that are persisted to disk: [data cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), [full route cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache), and [image optimization cache](https://nextjs.org/docs/pages/building-your-application/optimizing/images). By default this cached data is persisted on individual compute instances and is not shared - reducing cache hits. cdk-nextjs uses the [custom Next.js cache handler](https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath) for data and full route cache and symlinking for image optimization cache to modify Next.js to read/write from a mounted file system
+
 Q: Why EFS instead of S3?<br/>
-A: Next.js has 3 types of server caching that are persisted to disk: [Data Cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), [Full Route Cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache), and [Image Optimization](https://nextjs.org/docs/pages/building-your-application/optimizing/images). Cached data is persisted at .next/cache/fetch-cache, cached full routes are persisted at .next/server/app, and optimized images are persisted at .next/cache/images. Next.js provides a way to customize where cached data or cached full routes are persisted through the [Custom Next.js Cache Handler](https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath), but there currently is no way to persist optimized images. Therefore, we need a way to persist cached data at the file system level which is transparent to Next.js. To do this, we use [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/). Benefits of EFS include being able to cache any Next.js data persisted to disk and therefore being flexible to adapt to Next.js as the framework evolves caching additional types of data. One exception to not using the Custom Next.js Cache Handler is to support [Data Cache Time-based Revalidation](https://nextjs.org/docs/app/building-your-application/caching#time-based-revalidation) when using AWS Lambda functions. Functions only run when they are responding to a request preventing time-based revalidation unlike containers with AWS Fargate which run continually. For functions, an [Amazon SQS Queue](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html) and consuming function that will make a HEAD request with x-prerender-revalidate header needed for Next.js to update cache.
+A: cdk-nextjs uses [Amazon Elastic File System (EFS)](https://aws.amazon.com/efs/) to mount a file system to functions or containers as a shared cache. The custom Next.js cache handler could be modified to read/write data to [Amazon S3](https://aws.amazon.com/pm/serv-s3), but there is no way to modify the location of the image optimization cache without modifying Next.js internals. Other factors to compare:
+
+| Factor                        | EFS                       | S3                    |
+| ----------------------------- | ------------------------- | --------------------- |
+| Performance                   | 1-10ms per file operation | 100-200ms per request |
+| Cold Start Impact             | 50-100ms to mount         | No impact             |
+| Storage Cost                  | $0.30 / GB-month          | $0.023 / GB-month     |
+| Read Throughput/Request Cost  | $0.03 / GB-month          | $0.04 / M requests    |
+| Write Throughput/Request Cost | $0.06 / GB-month          | $5.00 / M requests    |
 
 Q: How customizable is the `cdk-nextjs` package for different use cases?<br/>
 A: The `cdk-nextjs` package offers deep customization through _prop-based_ overrides. These can be accessed in the construct props, allowing you to override settings like VPC configurations, CloudFront distribution, and ECS/Fargate setup. For example, you can modify `nextjsBuildProps` to customize the build process or use `nextjsDistributionProps` to adjust how CloudFront handles caching and routing. This level of control makes it easy to adapt the infrastructure to your application’s specific performance, networking, or deployment needs.

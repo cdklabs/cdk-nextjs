@@ -7,7 +7,7 @@
     "destroy": "dotenv -- cdk destroy --force"
   },
   "dependencies": {
-    "aws-cdk-lib": "2.186.0",
+    "aws-cdk-lib": "2.196.0",
     "cdk-fck-nat": "^1.5.11",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",

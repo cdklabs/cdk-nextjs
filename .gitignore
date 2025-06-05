@@ -36,6 +36,7 @@ jspm_packages/
 .DS_Store
 *.drawio.bkp
 ash_output
+~$*.xlsx
 /test-reports/
 junit.xml
 /coverage/

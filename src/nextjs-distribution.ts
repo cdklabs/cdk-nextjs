@@ -183,7 +183,7 @@ export class NextjsDistribution extends Construct {
   }
   /**
    * Ensures Next.js `request.url` will be correct domain instead of URL of
-   * compute option (App Runner, Fargate, or Lambda)
+   * compute (Lambda or Fargate)
    * @see https://open-next.js.org/advanced/workaround#workaround-set-x-forwarded-host-header-aws-specific
    */
   private createDynamicCloudFrontFunctionAssociations(): FunctionAssociation[] {

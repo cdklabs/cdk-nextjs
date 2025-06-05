@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "aws-cdk": "^2.1016.0",
-    "aws-cdk-lib": "2.186.0",
+    "aws-cdk-lib": "2.196.0",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",
     "tsx": "^4.19.4"
