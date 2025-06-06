@@ -336,6 +336,9 @@ A: `NextjsGlobalFunctionsProps.overrides.nextjsDistribution` allows you to custo
 Q: Why use container image for `NextjsGlobalFunctions`?<br />
 A: Read [The case for containers on Lambda (with benchmarks)](https://aaronstuyvenberg.com/posts/containers-on-lambda).
 
+Q: How can I `cdk bootstrap --cloudformation-execution-policies ...` my AWS Account with limited permissions for cdk-nextjs to deploy?<br />
+A: See [docs/cdk-nextjs-cfn-exec-policy.json](./docs/cdk-nextjs-cfn-exec-policy.json). Note, this IAM Policy is scoped to all cdk-nextjs constructs so you can remove services if you know the construct you're using doesn't use that service.
+
 ## Acknowledgements
 
 This construct was built on the shoulders of giants. Thank you to the contributors of [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs) and [open-next](https://github.com/sst/open-next).

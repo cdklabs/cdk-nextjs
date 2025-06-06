@@ -56,10 +56,7 @@ export class RegionalContainersStack extends Stack {
       relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
-      value:
-        "http://" +
-        nextjs.nextjsContainers.albFargateService.loadBalancer
-          .loadBalancerDnsName,
+      value: nextjs.url,
       key: "CdkNextjsUrl",
     });
     this.#requireCookie(nextjs);

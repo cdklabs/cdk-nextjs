@@ -24,7 +24,7 @@ import {
   INJECT_CDK_NEXTJS_BUILD_ENV_VARS,
 } from "../constants";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
-import { NextjsBaseProps } from "../root-constructs/nextjs-base-props";
+import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 
 export interface BuilderImageProps {
   /**
