@@ -1,5 +1,10 @@
 export interface NextjsBaseProps {
   /**
+   * Prefix to the URI path the app will be served at.
+   * @example "/my-base-path"
+   */
+  // readonly basePath?: string; // TODO: Uncomment after ALB removed
+  /**
    * Command to generate optimized version of your Next.js app in container;
    * @default "npm run build"
    */
