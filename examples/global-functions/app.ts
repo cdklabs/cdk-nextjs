@@ -53,7 +53,7 @@ class GlobalFunctionsStack extends Stack {
       relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
-      value: "https://" + nextjs.nextjsDistribution.distribution.domainName,
+      value: nextjs.url,
       key: "CdkNextjsUrl",
     });
     // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
