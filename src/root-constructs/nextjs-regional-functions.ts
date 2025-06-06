@@ -5,7 +5,7 @@ import {
   NextjsFunctionsOverrides,
   NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
-import { NextjsApi, NextjsApiProps } from "../nextjs-api";
+import { NextjsApi, NextjsApiOverrides, NextjsApiProps } from "../nextjs-api";
 import { Stack } from "aws-cdk-lib";
 import {
   NextjsBaseConstruct,
@@ -28,6 +28,7 @@ export interface NextjsRegionalFunctionsConstructOverrides
 export interface NextjsRegionalFunctionsOverrides extends BaseNextjsOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
+  readonly nextjsApi?: NextjsApiOverrides;
 }
 
 export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
@@ -44,10 +45,11 @@ export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
 export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
   nextjsApi: NextjsApi;
-  props: NextjsRegionalFunctionsProps;
   get url() {
     return `https://${this.nextjsApi.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com/${this.nextjsApi.api.deploymentStage.stageName}`;
   }
+
+  private props: NextjsRegionalFunctionsProps;
 
   constructor(
     scope: Construct,
@@ -64,6 +66,10 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     );
     this.props = props;
     this.nextjsFunctions = this.createNextjsFunctions();
+    this.nextjsFileSystem.allowCompute({
+      connections: this.nextjsFunctions.function.connections,
+      role: this.nextjsFunctions.function.role!,
+    });
     this.nextjsApi = this.createNextjsApi();
   }
 
@@ -75,7 +81,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       accessPoint: this.nextjsFileSystem.accessPoint,
       buildId: this.nextjsBuild.buildId,
       dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
-      healthCheckPath: this.props.healthCheckPath,
+      healthCheckPath: this.baseProps.healthCheckPath,
       vpc: this.nextjsVpc.vpc,
       overrides: this.props.overrides?.nextjsFunctions,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsFunctionsProps,
@@ -86,8 +92,10 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     return new NextjsApi(this, "NextjsApi", {
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       serverFunction: this.nextjsFunctions.function,
-      basePath: this.props.basePath,
+      basePath: this.baseProps.basePath,
+      overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
     });
   }
 }

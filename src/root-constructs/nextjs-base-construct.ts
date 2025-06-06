@@ -130,7 +130,8 @@ export abstract class NextjsBaseConstruct extends Construct {
   abstract get url(): string;
 
   protected readonly nextjsType: NextjsType;
-  protected readonly props: NextjsBaseProps;
+  // use baseProps instead of props so that child classes can use props
+  protected readonly baseProps: NextjsBaseProps;
   protected readonly overrides?: BaseNextjsOverrides;
   protected readonly constructOverrides?: BaseNextjsConstructOverrides;
 
@@ -143,7 +144,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     constructOverrides?: BaseNextjsConstructOverrides,
   ) {
     super(scope, id);
-    this.props = handleDeprecatedProperties(props);
+    this.baseProps = handleDeprecatedProperties(props);
     this.nextjsType = nextjsType;
     this.overrides = overrides;
     this.constructOverrides = constructOverrides;
@@ -158,10 +159,10 @@ export abstract class NextjsBaseConstruct extends Construct {
 
   protected createNextjsBuild(): NextjsBuild {
     return new NextjsBuild(this, "NextjsBuild", {
-      buildCommand: this.props.buildCommand,
-      buildContext: this.props.buildContext,
+      buildCommand: this.baseProps.buildCommand,
+      buildContext: this.baseProps.buildContext,
       nextjsType: this.nextjsType,
-      relativePathToPackage: this.props.relativePathToPackage,
+      relativePathToPackage: this.baseProps.relativePathToPackage,
       overrides: this.overrides?.nextjsBuild,
       ...this.constructOverrides?.nextjsBuildProps,
     });
@@ -193,13 +194,13 @@ export abstract class NextjsBaseConstruct extends Construct {
   protected createNextjsAssetsDeployment(): NextjsAssetsDeployment {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
-      basePath: (this.props as any).basePath,
+      basePath: (this.baseProps as any).basePath,
       buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       nextjsType: this.nextjsType,
       overrides: this.overrides?.nextjsAssetsDeployment,
-      relativePathToPackage: this.props.relativePathToPackage,
+      relativePathToPackage: this.baseProps.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.nextjsVpc.vpc,
       ...this.constructOverrides?.nextjsAssetsDeploymentProps,
@@ -212,7 +213,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       overrides: this.overrides?.nextjsPostDeploy,
-      relativePathToPackage: this.props.relativePathToPackage,
+      relativePathToPackage: this.baseProps.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.nextjsVpc.vpc,
       ...this.constructOverrides?.nextjsPostDeployProps,

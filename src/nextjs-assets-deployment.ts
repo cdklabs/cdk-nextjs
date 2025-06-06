@@ -21,8 +21,8 @@ import {
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDockerImageFunctionProps";
 import { NextjsBuild } from "./nextjs-build/nextjs-build";
-import { NextjsBaseProps } from "./root-constructs/nextjs-base-props";
 import { getLambdaArchitecture } from "./utils/get-architecture";
+import { NextjsBaseProps } from "./root-constructs/nextjs-base-construct";
 
 export interface NextjsAssetDeploymentOverrides {
   /**
