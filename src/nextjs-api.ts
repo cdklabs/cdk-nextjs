@@ -1,4 +1,4 @@
-import { Construct } from "constructs";
+import { Size, Stack } from "aws-cdk-lib";
 import {
   RestApi,
   LambdaIntegration,
@@ -10,12 +10,12 @@ import {
   AwsIntegrationProps,
   LambdaIntegrationOptions,
 } from "aws-cdk-lib/aws-apigateway";
-import { IBucket } from "aws-cdk-lib/aws-s3";
-import { IFunction } from "aws-cdk-lib/aws-lambda";
-import { Role, ServicePrincipal, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
+import { Role, ServicePrincipal, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { IFunction } from "aws-cdk-lib/aws-lambda";
+import { IBucket } from "aws-cdk-lib/aws-s3";
+import { Construct } from "constructs";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
-import { Size, Stack } from "aws-cdk-lib";
 
 export interface NextjsApiOverrides {
   readonly restApiProps?: RestApiProps;

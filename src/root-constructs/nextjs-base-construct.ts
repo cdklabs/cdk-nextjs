@@ -1,26 +1,33 @@
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
-import { NextjsAssetsDeployment } from "../nextjs-assets-deployment";
-import { NextjsBuild } from "../nextjs-build/nextjs-build";
-import { NextjsFileSystem } from "../nextjs-file-system";
-import { NextjsPostDeploy } from "../nextjs-post-deploy";
-import {
-  NextjsStaticAssets,
-  NextjsStaticAssetsOverrides,
-  NextjsStaticAssetsProps,
-} from "../nextjs-static-assets";
-import { NextjsVpc } from "../nextjs-vpc";
-import { handleDeprecatedProperties } from "../utils/handle-deprecated-properties";
 import { OptionalNextjsAssetsDeploymentProps } from "../generated-structs/OptionalNextjsAssetsDeploymentProps";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsFileSystemProps } from "../generated-structs/OptionalNextjsFileSystemProps";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import { OptionalNextjsVpcProps } from "../generated-structs/OptionalNextjsVpcProps";
-import { NextjsAssetDeploymentOverrides } from "../nextjs-assets-deployment";
-import { NextjsBuildOverrides } from "../nextjs-build/nextjs-build";
-import { NextjsFileSystemOverrides } from "../nextjs-file-system";
-import { NextjsPostDeployOverrides } from "../nextjs-post-deploy";
-import { NextjsVpcOverrides } from "../nextjs-vpc";
+import {
+  NextjsAssetsDeployment,
+  NextjsAssetDeploymentOverrides,
+} from "../nextjs-assets-deployment";
+import {
+  NextjsBuild,
+  NextjsBuildOverrides,
+} from "../nextjs-build/nextjs-build";
+import {
+  NextjsFileSystem,
+  NextjsFileSystemOverrides,
+} from "../nextjs-file-system";
+import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
+import {
+  NextjsStaticAssets,
+  NextjsStaticAssetsOverrides,
+  NextjsStaticAssetsProps,
+} from "../nextjs-static-assets";
+import { NextjsVpc, NextjsVpcOverrides } from "../nextjs-vpc";
+import { handleDeprecatedProperties } from "../utils/handle-deprecated-properties";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs

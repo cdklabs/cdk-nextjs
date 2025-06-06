@@ -2,6 +2,120 @@
 
 ## Constructs <a name="Constructs" id="Constructs"></a>
 
+### NextjsApi <a name="NextjsApi" id="cdk-nextjs.NextjsApi"></a>
+
+Creates an API Gateway REST API for Next.js applications.
+
+#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsApi.Initializer"></a>
+
+```typescript
+import { NextjsApi } from 'cdk-nextjs'
+
+new NextjsApi(scope: Construct, id: string, props: NextjsApiProps)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsApi.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApi.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApi.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsApiProps">NextjsApiProps</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsApi.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsApi.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsApi.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#cdk-nextjs.NextjsApiProps">NextjsApiProps</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsApi.toString">toString</a></code> | Returns a string representation of this construct. |
+
+---
+
+##### `toString` <a name="toString" id="cdk-nextjs.NextjsApi.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsApi.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+
+---
+
+##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsApi.isConstruct"></a>
+
+```typescript
+import { NextjsApi } from 'cdk-nextjs'
+
+NextjsApi.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsApi.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsApi.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsApi.property.api">api</a></code> | <code>aws-cdk-lib.aws_apigateway.RestApi</code> | The API Gateway REST API. |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsApi.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+##### `api`<sup>Required</sup> <a name="api" id="cdk-nextjs.NextjsApi.property.api"></a>
+
+```typescript
+public readonly api: RestApi;
+```
+
+- *Type:* aws-cdk-lib.aws_apigateway.RestApi
+
+The API Gateway REST API.
+
+---
+
+
 ### NextjsAssetsDeployment <a name="NextjsAssetsDeployment" id="cdk-nextjs.NextjsAssetsDeployment"></a>
 
 Deploys static assets to S3 and cache assets to EFS in Lambda Custom Resource.
@@ -121,6 +235,205 @@ public readonly dockerImageFunction: DockerImageFunction;
 ```
 
 - *Type:* aws-cdk-lib.aws_lambda.DockerImageFunction
+
+---
+
+
+### NextjsBaseConstruct <a name="NextjsBaseConstruct" id="cdk-nextjs.NextjsBaseConstruct"></a>
+
+Base class for all Next.js root constructs.
+
+#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsBaseConstruct.Initializer"></a>
+
+```typescript
+import { NextjsBaseConstruct } from 'cdk-nextjs'
+
+new NextjsBaseConstruct(scope: Construct, id: string, props: NextjsBaseProps, nextjsType: NextjsType, overrides?: BaseNextjsOverrides, constructOverrides?: BaseNextjsConstructOverrides)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsBaseProps">NextjsBaseProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.BaseNextjsOverrides">BaseNextjsOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.constructOverrides">constructOverrides</a></code> | <code><a href="#cdk-nextjs.BaseNextjsConstructOverrides">BaseNextjsConstructOverrides</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#cdk-nextjs.NextjsBaseProps">NextjsBaseProps</a>
+
+---
+
+##### `nextjsType`<sup>Required</sup> <a name="nextjsType" id="cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.nextjsType"></a>
+
+- *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
+
+---
+
+##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.overrides"></a>
+
+- *Type:* <a href="#cdk-nextjs.BaseNextjsOverrides">BaseNextjsOverrides</a>
+
+---
+
+##### `constructOverrides`<sup>Optional</sup> <a name="constructOverrides" id="cdk-nextjs.NextjsBaseConstruct.Initializer.parameter.constructOverrides"></a>
+
+- *Type:* <a href="#cdk-nextjs.BaseNextjsConstructOverrides">BaseNextjsConstructOverrides</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.toString">toString</a></code> | Returns a string representation of this construct. |
+
+---
+
+##### `toString` <a name="toString" id="cdk-nextjs.NextjsBaseConstruct.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+
+---
+
+##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsBaseConstruct.isConstruct"></a>
+
+```typescript
+import { NextjsBaseConstruct } from 'cdk-nextjs'
+
+NextjsBaseConstruct.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsBaseConstruct.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.url">url</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.nextjsAssetsDeployment">nextjsAssetsDeployment</a></code> | <code><a href="#cdk-nextjs.NextjsAssetsDeployment">NextjsAssetsDeployment</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsBaseConstruct.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+##### `url`<sup>Required</sup> <a name="url" id="cdk-nextjs.NextjsBaseConstruct.property.url"></a>
+
+```typescript
+public readonly url: string;
+```
+
+- *Type:* string
+
+---
+
+##### `nextjsAssetsDeployment`<sup>Required</sup> <a name="nextjsAssetsDeployment" id="cdk-nextjs.NextjsBaseConstruct.property.nextjsAssetsDeployment"></a>
+
+```typescript
+public readonly nextjsAssetsDeployment: NextjsAssetsDeployment;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsAssetsDeployment">NextjsAssetsDeployment</a>
+
+---
+
+##### `nextjsBuild`<sup>Required</sup> <a name="nextjsBuild" id="cdk-nextjs.NextjsBaseConstruct.property.nextjsBuild"></a>
+
+```typescript
+public readonly nextjsBuild: NextjsBuild;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a>
+
+---
+
+##### `nextjsFileSystem`<sup>Required</sup> <a name="nextjsFileSystem" id="cdk-nextjs.NextjsBaseConstruct.property.nextjsFileSystem"></a>
+
+```typescript
+public readonly nextjsFileSystem: NextjsFileSystem;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a>
+
+---
+
+##### `nextjsPostDeploy`<sup>Required</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsBaseConstruct.property.nextjsPostDeploy"></a>
+
+```typescript
+public readonly nextjsPostDeploy: NextjsPostDeploy;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
+
+---
+
+##### `nextjsStaticAssets`<sup>Required</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsBaseConstruct.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssets;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a>
+
+---
+
+##### `nextjsVpc`<sup>Required</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsBaseConstruct.property.nextjsVpc"></a>
+
+```typescript
+public readonly nextjsVpc: NextjsVpc;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
 
 ---
 
@@ -940,14 +1253,15 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.url">url</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsAssetsDeployment">nextjsAssetsDeployment</a></code> | <code><a href="#cdk-nextjs.NextjsAssetsDeployment">NextjsAssetsDeployment</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
 
 ---
 
@@ -960,6 +1274,16 @@ public readonly node: Node;
 - *Type:* constructs.Node
 
 The tree node.
+
+---
+
+##### `url`<sup>Required</sup> <a name="url" id="cdk-nextjs.NextjsGlobalContainers.property.url"></a>
+
+```typescript
+public readonly url: string;
+```
+
+- *Type:* string
 
 ---
 
@@ -980,26 +1304,6 @@ public readonly nextjsBuild: NextjsBuild;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a>
-
----
-
-##### `nextjsContainers`<sup>Required</sup> <a name="nextjsContainers" id="cdk-nextjs.NextjsGlobalContainers.property.nextjsContainers"></a>
-
-```typescript
-public readonly nextjsContainers: NextjsContainers;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a>
-
----
-
-##### `nextjsDistribution`<sup>Required</sup> <a name="nextjsDistribution" id="cdk-nextjs.NextjsGlobalContainers.property.nextjsDistribution"></a>
-
-```typescript
-public readonly nextjsDistribution: NextjsDistribution;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a>
 
 ---
 
@@ -1040,6 +1344,26 @@ public readonly nextjsVpc: NextjsVpc;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
+
+---
+
+##### `nextjsContainers`<sup>Required</sup> <a name="nextjsContainers" id="cdk-nextjs.NextjsGlobalContainers.property.nextjsContainers"></a>
+
+```typescript
+public readonly nextjsContainers: NextjsContainers;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a>
+
+---
+
+##### `nextjsDistribution`<sup>Required</sup> <a name="nextjsDistribution" id="cdk-nextjs.NextjsGlobalContainers.property.nextjsDistribution"></a>
+
+```typescript
+public readonly nextjsDistribution: NextjsDistribution;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a>
 
 ---
 
@@ -1129,14 +1453,15 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.url">url</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsAssetsDeployment">nextjsAssetsDeployment</a></code> | <code><a href="#cdk-nextjs.NextjsAssetsDeployment">NextjsAssetsDeployment</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a></code> | *No description.* |
 
 ---
 
@@ -1149,6 +1474,16 @@ public readonly node: Node;
 - *Type:* constructs.Node
 
 The tree node.
+
+---
+
+##### `url`<sup>Required</sup> <a name="url" id="cdk-nextjs.NextjsGlobalFunctions.property.url"></a>
+
+```typescript
+public readonly url: string;
+```
+
+- *Type:* string
 
 ---
 
@@ -1172,16 +1507,6 @@ public readonly nextjsBuild: NextjsBuild;
 
 ---
 
-##### `nextjsDistribution`<sup>Required</sup> <a name="nextjsDistribution" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsDistribution"></a>
-
-```typescript
-public readonly nextjsDistribution: NextjsDistribution;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a>
-
----
-
 ##### `nextjsFileSystem`<sup>Required</sup> <a name="nextjsFileSystem" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsFileSystem"></a>
 
 ```typescript
@@ -1189,16 +1514,6 @@ public readonly nextjsFileSystem: NextjsFileSystem;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a>
-
----
-
-##### `nextjsFunctions`<sup>Required</sup> <a name="nextjsFunctions" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsFunctions"></a>
-
-```typescript
-public readonly nextjsFunctions: NextjsFunctions;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a>
 
 ---
 
@@ -1229,6 +1544,26 @@ public readonly nextjsVpc: NextjsVpc;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
+
+---
+
+##### `nextjsDistribution`<sup>Required</sup> <a name="nextjsDistribution" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsDistribution"></a>
+
+```typescript
+public readonly nextjsDistribution: NextjsDistribution;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a>
+
+---
+
+##### `nextjsFunctions`<sup>Required</sup> <a name="nextjsFunctions" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsFunctions"></a>
+
+```typescript
+public readonly nextjsFunctions: NextjsFunctions;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a>
 
 ---
 
@@ -1446,12 +1781,14 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.url">url</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsAssetsDeployment">nextjsAssetsDeployment</a></code> | <code><a href="#cdk-nextjs.NextjsAssetsDeployment">NextjsAssetsDeployment</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a></code> | *No description.* |
 
 ---
 
@@ -1464,6 +1801,16 @@ public readonly node: Node;
 - *Type:* constructs.Node
 
 The tree node.
+
+---
+
+##### `url`<sup>Required</sup> <a name="url" id="cdk-nextjs.NextjsRegionalContainers.property.url"></a>
+
+```typescript
+public readonly url: string;
+```
+
+- *Type:* string
 
 ---
 
@@ -1487,16 +1834,6 @@ public readonly nextjsBuild: NextjsBuild;
 
 ---
 
-##### `nextjsContainers`<sup>Required</sup> <a name="nextjsContainers" id="cdk-nextjs.NextjsRegionalContainers.property.nextjsContainers"></a>
-
-```typescript
-public readonly nextjsContainers: NextjsContainers;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a>
-
----
-
 ##### `nextjsFileSystem`<sup>Required</sup> <a name="nextjsFileSystem" id="cdk-nextjs.NextjsRegionalContainers.property.nextjsFileSystem"></a>
 
 ```typescript
@@ -1517,6 +1854,16 @@ public readonly nextjsPostDeploy: NextjsPostDeploy;
 
 ---
 
+##### `nextjsStaticAssets`<sup>Required</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsRegionalContainers.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssets;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a>
+
+---
+
 ##### `nextjsVpc`<sup>Required</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsRegionalContainers.property.nextjsVpc"></a>
 
 ```typescript
@@ -1524,6 +1871,216 @@ public readonly nextjsVpc: NextjsVpc;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
+
+---
+
+##### `nextjsContainers`<sup>Required</sup> <a name="nextjsContainers" id="cdk-nextjs.NextjsRegionalContainers.property.nextjsContainers"></a>
+
+```typescript
+public readonly nextjsContainers: NextjsContainers;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a>
+
+---
+
+
+### NextjsRegionalFunctions <a name="NextjsRegionalFunctions" id="cdk-nextjs.NextjsRegionalFunctions"></a>
+
+Deploy Next.js regionally with functions. Uses API Gateway REST API for routing requests and AWS Lambda Functions for server-side rendering.
+
+#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsRegionalFunctions.Initializer"></a>
+
+```typescript
+import { NextjsRegionalFunctions } from 'cdk-nextjs'
+
+new NextjsRegionalFunctions(scope: Construct, id: string, props: NextjsRegionalFunctionsProps)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps">NextjsRegionalFunctionsProps</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsRegionalFunctions.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsRegionalFunctions.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsRegionalFunctions.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#cdk-nextjs.NextjsRegionalFunctionsProps">NextjsRegionalFunctionsProps</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.toString">toString</a></code> | Returns a string representation of this construct. |
+
+---
+
+##### `toString` <a name="toString" id="cdk-nextjs.NextjsRegionalFunctions.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+
+---
+
+##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsRegionalFunctions.isConstruct"></a>
+
+```typescript
+import { NextjsRegionalFunctions } from 'cdk-nextjs'
+
+NextjsRegionalFunctions.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsRegionalFunctions.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.url">url</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsAssetsDeployment">nextjsAssetsDeployment</a></code> | <code><a href="#cdk-nextjs.NextjsAssetsDeployment">NextjsAssetsDeployment</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsApi">nextjsApi</a></code> | <code><a href="#cdk-nextjs.NextjsApi">NextjsApi</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a></code> | *No description.* |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsRegionalFunctions.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+##### `url`<sup>Required</sup> <a name="url" id="cdk-nextjs.NextjsRegionalFunctions.property.url"></a>
+
+```typescript
+public readonly url: string;
+```
+
+- *Type:* string
+
+---
+
+##### `nextjsAssetsDeployment`<sup>Required</sup> <a name="nextjsAssetsDeployment" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsAssetsDeployment"></a>
+
+```typescript
+public readonly nextjsAssetsDeployment: NextjsAssetsDeployment;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsAssetsDeployment">NextjsAssetsDeployment</a>
+
+---
+
+##### `nextjsBuild`<sup>Required</sup> <a name="nextjsBuild" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsBuild"></a>
+
+```typescript
+public readonly nextjsBuild: NextjsBuild;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a>
+
+---
+
+##### `nextjsFileSystem`<sup>Required</sup> <a name="nextjsFileSystem" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsFileSystem"></a>
+
+```typescript
+public readonly nextjsFileSystem: NextjsFileSystem;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFileSystem">NextjsFileSystem</a>
+
+---
+
+##### `nextjsPostDeploy`<sup>Required</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsPostDeploy"></a>
+
+```typescript
+public readonly nextjsPostDeploy: NextjsPostDeploy;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
+
+---
+
+##### `nextjsStaticAssets`<sup>Required</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssets;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a>
+
+---
+
+##### `nextjsVpc`<sup>Required</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsVpc"></a>
+
+```typescript
+public readonly nextjsVpc: NextjsVpc;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
+
+---
+
+##### `nextjsApi`<sup>Required</sup> <a name="nextjsApi" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsApi"></a>
+
+```typescript
+public readonly nextjsApi: NextjsApi;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsApi">NextjsApi</a>
+
+---
+
+##### `nextjsFunctions`<sup>Required</sup> <a name="nextjsFunctions" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsFunctions"></a>
+
+```typescript
+public readonly nextjsFunctions: NextjsFunctions;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a>
 
 ---
 
@@ -1821,6 +2378,7 @@ const baseNextjsConstructOverrides: BaseNextjsConstructOverrides = { ... }
 | <code><a href="#cdk-nextjs.BaseNextjsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.BaseNextjsConstructOverrides.property.nextjsFileSystemProps">nextjsFileSystemProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps">OptionalNextjsFileSystemProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.BaseNextjsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.BaseNextjsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.BaseNextjsConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 
 ---
@@ -1865,6 +2423,16 @@ public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
 
 ---
 
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.BaseNextjsConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
 ##### `nextjsVpcProps`<sup>Optional</sup> <a name="nextjsVpcProps" id="cdk-nextjs.BaseNextjsConstructOverrides.property.nextjsVpcProps"></a>
 
 ```typescript
@@ -1895,6 +2463,7 @@ const baseNextjsOverrides: BaseNextjsOverrides = { ... }
 | <code><a href="#cdk-nextjs.BaseNextjsOverrides.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.BaseNextjsOverrides.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.BaseNextjsOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.BaseNextjsOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.BaseNextjsOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
 
 ---
@@ -1936,6 +2505,16 @@ public readonly nextjsPostDeploy: NextjsPostDeployOverrides;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a>
+
+---
+
+##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.BaseNextjsOverrides.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
 
 ---
 
@@ -2071,6 +2650,164 @@ public readonly skipBuild: boolean;
 - *Default:* false
 
 Skip building the builder image.
+
+---
+
+### NextjsApiOverrides <a name="NextjsApiOverrides" id="cdk-nextjs.NextjsApiOverrides"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsApiOverrides.Initializer"></a>
+
+```typescript
+import { NextjsApiOverrides } from 'cdk-nextjs'
+
+const nextjsApiOverrides: NextjsApiOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.lambdaIntegrationProps">lambdaIntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.LambdaIntegrationOptions</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.restApiProps">restApiProps</a></code> | <code>aws-cdk-lib.aws_apigateway.RestApiProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.s3IntegrationProps">s3IntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.AwsIntegrationProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.s3MethodOptions">s3MethodOptions</a></code> | <code>aws-cdk-lib.aws_apigateway.MethodOptions</code> | *No description.* |
+
+---
+
+##### `lambdaIntegrationProps`<sup>Optional</sup> <a name="lambdaIntegrationProps" id="cdk-nextjs.NextjsApiOverrides.property.lambdaIntegrationProps"></a>
+
+```typescript
+public readonly lambdaIntegrationProps: LambdaIntegrationOptions;
+```
+
+- *Type:* aws-cdk-lib.aws_apigateway.LambdaIntegrationOptions
+
+---
+
+##### `restApiProps`<sup>Optional</sup> <a name="restApiProps" id="cdk-nextjs.NextjsApiOverrides.property.restApiProps"></a>
+
+```typescript
+public readonly restApiProps: RestApiProps;
+```
+
+- *Type:* aws-cdk-lib.aws_apigateway.RestApiProps
+
+---
+
+##### `s3IntegrationProps`<sup>Optional</sup> <a name="s3IntegrationProps" id="cdk-nextjs.NextjsApiOverrides.property.s3IntegrationProps"></a>
+
+```typescript
+public readonly s3IntegrationProps: AwsIntegrationProps;
+```
+
+- *Type:* aws-cdk-lib.aws_apigateway.AwsIntegrationProps
+
+---
+
+##### `s3MethodOptions`<sup>Optional</sup> <a name="s3MethodOptions" id="cdk-nextjs.NextjsApiOverrides.property.s3MethodOptions"></a>
+
+```typescript
+public readonly s3MethodOptions: MethodOptions;
+```
+
+- *Type:* aws-cdk-lib.aws_apigateway.MethodOptions
+
+---
+
+### NextjsApiProps <a name="NextjsApiProps" id="cdk-nextjs.NextjsApiProps"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsApiProps.Initializer"></a>
+
+```typescript
+import { NextjsApiProps } from 'cdk-nextjs'
+
+const nextjsApiProps: NextjsApiProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add resources to API Gateway REST API for public directory to go directly to S3. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | The S3 bucket containing static assets. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.basePath">basePath</a></code> | <code>string</code> | Optional base path for the application. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `Nextjs*Containers`. |
+
+---
+
+##### `publicDirEntries`<sup>Required</sup> <a name="publicDirEntries" id="cdk-nextjs.NextjsApiProps.property.publicDirEntries"></a>
+
+```typescript
+public readonly publicDirEntries: PublicDirEntry[];
+```
+
+- *Type:* <a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]
+
+Path to directory of Next.js app's public directory. Used to add resources to API Gateway REST API for public directory to go directly to S3.
+
+---
+
+##### `staticAssetsBucket`<sup>Required</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsApiProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+The S3 bucket containing static assets.
+
+---
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsApiProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Optional base path for the application.
+
+---
+
+##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsApiProps.property.overrides"></a>
+
+```typescript
+public readonly overrides: NextjsApiOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a>
+
+---
+
+##### `serverFunction`<sup>Optional</sup> <a name="serverFunction" id="cdk-nextjs.NextjsApiProps.property.serverFunction"></a>
+
+```typescript
+public readonly serverFunction: IFunction;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IFunction
+
+Required if `NextjsRegionalFunctions`.
+
+The Lambda function for server-side rendering
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsApiProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+[Future] Required if `Nextjs*Containers`.
+
+VPC to create VPC Link and ECS Service Discovery
 
 ---
 
@@ -2287,6 +3024,7 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
@@ -2339,6 +3077,25 @@ import { NextResponse } from "next/server";
 export function GET() {
   return NextResponse.json("");
 }
+```
+
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsBaseProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
+
+---
+
+*Example*
+
+```typescript
+"/my-base-path"
 ```
 
 
@@ -3301,10 +4058,10 @@ const nextjsGlobalContainersConstructOverrides: NextjsGlobalContainersConstructO
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsFileSystemProps">nextjsFileSystemProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps">OptionalNextjsFileSystemProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsContainersProps">nextjsContainersProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps">OptionalNextjsContainersProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 
 ---
 
@@ -3348,6 +4105,16 @@ public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
 
 ---
 
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
 ##### `nextjsVpcProps`<sup>Optional</sup> <a name="nextjsVpcProps" id="cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsVpcProps"></a>
 
 ```typescript
@@ -3378,16 +4145,6 @@ public readonly nextjsDistributionProps: OptionalNextjsDistributionProps;
 
 ---
 
-##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsStaticAssetsProps"></a>
-
-```typescript
-public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
-
----
-
 ### NextjsGlobalContainersOverrides <a name="NextjsGlobalContainersOverrides" id="cdk-nextjs.NextjsGlobalContainersOverrides"></a>
 
 Overrides for `NextjsGlobalContainers`.
@@ -3412,11 +4169,11 @@ const nextjsGlobalContainersOverrides: NextjsGlobalContainersOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsGlobalContainers">nextjsGlobalContainers</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides">NextjsGlobalContainersConstructOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 
 ---
 
@@ -3460,6 +4217,16 @@ public readonly nextjsPostDeploy: NextjsPostDeployOverrides;
 
 ---
 
+##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
+
+---
+
 ##### `nextjsVpc`<sup>Optional</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsVpc"></a>
 
 ```typescript
@@ -3500,16 +4267,6 @@ public readonly nextjsGlobalContainers: NextjsGlobalContainersConstructOverrides
 
 ---
 
-##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsStaticAssets"></a>
-
-```typescript
-public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
-
----
-
 ### NextjsGlobalContainersProps <a name="NextjsGlobalContainersProps" id="cdk-nextjs.NextjsGlobalContainersProps"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalContainersProps.Initializer"></a>
@@ -3526,10 +4283,10 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
 
@@ -3581,6 +4338,25 @@ import { NextResponse } from "next/server";
 export function GET() {
   return NextResponse.json("");
 }
+```
+
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsGlobalContainersProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
+
+---
+
+*Example*
+
+```typescript
+"/my-base-path"
 ```
 
 
@@ -3649,28 +4425,6 @@ public readonly relativePathToWorkspace: string;
 
 ---
 
-##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsGlobalContainersProps.property.basePath"></a>
-
-```typescript
-public readonly basePath: string;
-```
-
-- *Type:* string
-
-Prefix to the URI path the app will be served at.
-
-Especially useful when
-passing in your own `distribution`.
-
----
-
-*Example*
-
-```typescript
-"/my-base-path"
-```
-
-
 ##### `distribution`<sup>Optional</sup> <a name="distribution" id="cdk-nextjs.NextjsGlobalContainersProps.property.distribution"></a>
 
 ```typescript
@@ -3716,10 +4470,10 @@ const nextjsGlobalFunctionsConstructOverrides: NextjsGlobalFunctionsConstructOve
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFileSystemProps">nextjsFileSystemProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps">OptionalNextjsFileSystemProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 
 ---
 
@@ -3763,6 +4517,16 @@ public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
 
 ---
 
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
 ##### `nextjsVpcProps`<sup>Optional</sup> <a name="nextjsVpcProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsVpcProps"></a>
 
 ```typescript
@@ -3793,16 +4557,6 @@ public readonly nextjsFunctionsProps: NextjsFunctionsProps;
 
 ---
 
-##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
-
-```typescript
-public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
-
----
-
 ### NextjsGlobalFunctionsOverrides <a name="NextjsGlobalFunctionsOverrides" id="cdk-nextjs.NextjsGlobalFunctionsOverrides"></a>
 
 Overrides for `NextjsGlobalFunctions`.
@@ -3827,11 +4581,11 @@ const nextjsGlobalFunctionsOverrides: NextjsGlobalFunctionsOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsGlobalFunctions">nextjsGlobalFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides">NextjsGlobalFunctionsConstructOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 
 ---
 
@@ -3875,6 +4629,16 @@ public readonly nextjsPostDeploy: NextjsPostDeployOverrides;
 
 ---
 
+##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
+
+---
+
 ##### `nextjsVpc`<sup>Optional</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsVpc"></a>
 
 ```typescript
@@ -3915,16 +4679,6 @@ public readonly nextjsGlobalFunctions: NextjsGlobalFunctionsConstructOverrides;
 
 ---
 
-##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsGlobalFunctionsOverrides.property.nextjsStaticAssets"></a>
-
-```typescript
-public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
-
----
-
 ### NextjsGlobalFunctionsProps <a name="NextjsGlobalFunctionsProps" id="cdk-nextjs.NextjsGlobalFunctionsProps"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalFunctionsProps.Initializer"></a>
@@ -3941,10 +4695,10 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
 
@@ -3996,6 +4750,25 @@ import { NextResponse } from "next/server";
 export function GET() {
   return NextResponse.json("");
 }
+```
+
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
+
+---
+
+*Example*
+
+```typescript
+"/my-base-path"
 ```
 
 
@@ -4063,28 +4836,6 @@ public readonly relativePathToWorkspace: string;
 - *Type:* string
 
 ---
-
-##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath"></a>
-
-```typescript
-public readonly basePath: string;
-```
-
-- *Type:* string
-
-Prefix to the URI path the app will be served at.
-
-Especially useful when
-passing in your own `distribution`.
-
----
-
-*Example*
-
-```typescript
-"/my-base-path"
-```
-
 
 ##### `distribution`<sup>Optional</sup> <a name="distribution" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution"></a>
 
@@ -4314,6 +5065,7 @@ const nextjsRegionalContainersConstructOverrides: NextjsRegionalContainersConstr
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsFileSystemProps">nextjsFileSystemProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps">OptionalNextjsFileSystemProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsContainerProps">nextjsContainerProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps">OptionalNextjsContainersProps</a></code> | *No description.* |
 
@@ -4356,6 +5108,16 @@ public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a>
+
+---
+
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
 
 ---
 
@@ -4403,6 +5165,7 @@ const nextjsRegionalContainersOverrides: NextjsRegionalContainersOverrides = { .
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsRegionalContainers">nextjsRegionalContainers</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides">NextjsRegionalContainersConstructOverrides</a></code> | *No description.* |
@@ -4446,6 +5209,16 @@ public readonly nextjsPostDeploy: NextjsPostDeployOverrides;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a>
+
+---
+
+##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
 
 ---
 
@@ -4495,6 +5268,7 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
@@ -4548,6 +5322,25 @@ import { NextResponse } from "next/server";
 export function GET() {
   return NextResponse.json("");
 }
+```
+
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsRegionalContainersProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
+
+---
+
+*Example*
+
+```typescript
+"/my-base-path"
 ```
 
 
@@ -4628,6 +5421,402 @@ Override props of any construct.
 
 ---
 
+### NextjsRegionalFunctionsConstructOverrides <a name="NextjsRegionalFunctionsConstructOverrides" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.Initializer"></a>
+
+```typescript
+import { NextjsRegionalFunctionsConstructOverrides } from 'cdk-nextjs'
+
+const nextjsRegionalFunctionsConstructOverrides: NextjsRegionalFunctionsConstructOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsAssetsDeploymentProps">nextjsAssetsDeploymentProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps">OptionalNextjsAssetsDeploymentProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFileSystemProps">nextjsFileSystemProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFileSystemProps">OptionalNextjsFileSystemProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsApiProps">nextjsApiProps</a></code> | <code><a href="#cdk-nextjs.NextjsApiProps">NextjsApiProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
+
+---
+
+##### `nextjsAssetsDeploymentProps`<sup>Optional</sup> <a name="nextjsAssetsDeploymentProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsAssetsDeploymentProps"></a>
+
+```typescript
+public readonly nextjsAssetsDeploymentProps: OptionalNextjsAssetsDeploymentProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsAssetsDeploymentProps">OptionalNextjsAssetsDeploymentProps</a>
+
+---
+
+##### `nextjsBuildProps`<sup>Optional</sup> <a name="nextjsBuildProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsBuildProps"></a>
+
+```typescript
+public readonly nextjsBuildProps: OptionalNextjsBuildProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a>
+
+---
+
+##### `nextjsFileSystemProps`<sup>Optional</sup> <a name="nextjsFileSystemProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFileSystemProps"></a>
+
+```typescript
+public readonly nextjsFileSystemProps: OptionalNextjsFileSystemProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsFileSystemProps">OptionalNextjsFileSystemProps</a>
+
+---
+
+##### `nextjsPostDeployProps`<sup>Optional</sup> <a name="nextjsPostDeployProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsPostDeployProps"></a>
+
+```typescript
+public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a>
+
+---
+
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
+##### `nextjsVpcProps`<sup>Optional</sup> <a name="nextjsVpcProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsVpcProps"></a>
+
+```typescript
+public readonly nextjsVpcProps: OptionalNextjsVpcProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a>
+
+---
+
+##### `nextjsApiProps`<sup>Optional</sup> <a name="nextjsApiProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsApiProps"></a>
+
+```typescript
+public readonly nextjsApiProps: NextjsApiProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsApiProps">NextjsApiProps</a>
+
+---
+
+##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
+
+```typescript
+public readonly nextjsFunctionsProps: NextjsFunctionsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a>
+
+---
+
+### NextjsRegionalFunctionsOverrides <a name="NextjsRegionalFunctionsOverrides" id="cdk-nextjs.NextjsRegionalFunctionsOverrides"></a>
+
+Overrides for `NextjsRegionalFunctions`.
+
+Overrides are lower level than
+props and are passed directly to CDK Constructs giving you more control. It's
+recommended to use caution and review source code so you know how they're used.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.Initializer"></a>
+
+```typescript
+import { NextjsRegionalFunctionsOverrides } from 'cdk-nextjs'
+
+const nextjsRegionalFunctionsOverrides: NextjsRegionalFunctionsOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsAssetsDeployment">nextjsAssetsDeployment</a></code> | <code><a href="#cdk-nextjs.NextjsAssetDeploymentOverrides">NextjsAssetDeploymentOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsFileSystem">nextjsFileSystem</a></code> | <code><a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsApi">nextjsApi</a></code> | <code><a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsRegionalFunctions">nextjsRegionalFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides">NextjsRegionalFunctionsConstructOverrides</a></code> | *No description.* |
+
+---
+
+##### `nextjsAssetsDeployment`<sup>Optional</sup> <a name="nextjsAssetsDeployment" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsAssetsDeployment"></a>
+
+```typescript
+public readonly nextjsAssetsDeployment: NextjsAssetDeploymentOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsAssetDeploymentOverrides">NextjsAssetDeploymentOverrides</a>
+
+---
+
+##### `nextjsBuild`<sup>Optional</sup> <a name="nextjsBuild" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsBuild"></a>
+
+```typescript
+public readonly nextjsBuild: NextjsBuildOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsBuildOverrides">NextjsBuildOverrides</a>
+
+---
+
+##### `nextjsFileSystem`<sup>Optional</sup> <a name="nextjsFileSystem" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsFileSystem"></a>
+
+```typescript
+public readonly nextjsFileSystem: NextjsFileSystemOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFileSystemOverrides">NextjsFileSystemOverrides</a>
+
+---
+
+##### `nextjsPostDeploy`<sup>Optional</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsPostDeploy"></a>
+
+```typescript
+public readonly nextjsPostDeploy: NextjsPostDeployOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a>
+
+---
+
+##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
+
+---
+
+##### `nextjsVpc`<sup>Optional</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsVpc"></a>
+
+```typescript
+public readonly nextjsVpc: NextjsVpcOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a>
+
+---
+
+##### `nextjsApi`<sup>Optional</sup> <a name="nextjsApi" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsApi"></a>
+
+```typescript
+public readonly nextjsApi: NextjsApiOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a>
+
+---
+
+##### `nextjsFunctions`<sup>Optional</sup> <a name="nextjsFunctions" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsFunctions"></a>
+
+```typescript
+public readonly nextjsFunctions: NextjsFunctionsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a>
+
+---
+
+##### `nextjsRegionalFunctions`<sup>Optional</sup> <a name="nextjsRegionalFunctions" id="cdk-nextjs.NextjsRegionalFunctionsOverrides.property.nextjsRegionalFunctions"></a>
+
+```typescript
+public readonly nextjsRegionalFunctions: NextjsRegionalFunctionsConstructOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides">NextjsRegionalFunctionsConstructOverrides</a>
+
+---
+
+### NextjsRegionalFunctionsProps <a name="NextjsRegionalFunctionsProps" id="cdk-nextjs.NextjsRegionalFunctionsProps"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsRegionalFunctionsProps.Initializer"></a>
+
+```typescript
+import { NextjsRegionalFunctionsProps } from 'cdk-nextjs'
+
+const nextjsRegionalFunctionsProps: NextjsRegionalFunctionsProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildContext">buildContext</a></code> | <code>string</code> | [Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.relativePathToWorkspace">relativePathToWorkspace</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides">NextjsRegionalFunctionsOverrides</a></code> | Override props of any construct. |
+
+---
+
+##### `buildContext`<sup>Required</sup> <a name="buildContext" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.buildContext"></a>
+
+```typescript
+public readonly buildContext: string;
+```
+
+- *Type:* string
+
+[Build context](https://docs.docker.com/build/building/context/) for `docker build`. This directory should contain your lockfile (i.e. pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then this will be the same directory as your Next.js app. If you are in a monorepo, then this value should be the root of your monorepo. You then must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}.
+
+Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
+Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
+If you override the default, then you are responsible for ensuring the
+Dockerfile is in the build context directory before cdk-nextjs construct
+is instantiated.
+
+---
+
+*Example*
+
+```typescript
+join(import.meta.dirname, "..") (monorepo)
+```
+
+
+##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.healthCheckPath"></a>
+
+```typescript
+public readonly healthCheckPath: string;
+```
+
+- *Type:* string
+
+Path to API Route Handler that returns HTTP 200 to ensure compute health.
+
+---
+
+*Example*
+
+```typescript
+// api/health/route.ts
+import { NextResponse } from "next/server";
+
+export function GET() {
+  return NextResponse.json("");
+}
+```
+
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
+
+---
+
+*Example*
+
+```typescript
+"/my-base-path"
+```
+
+
+##### `buildCommand`<sup>Optional</sup> <a name="buildCommand" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.buildCommand"></a>
+
+```typescript
+public readonly buildCommand: string;
+```
+
+- *Type:* string
+- *Default:* "npm run build"
+
+Command to generate optimized version of your Next.js app in container;
+
+---
+
+##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.relativePathToPackage"></a>
+
+```typescript
+public readonly relativePathToPackage: string;
+```
+
+- *Type:* string
+
+Use this if building in monorepo.
+
+This is the relative path from
+{@link NextjsBaseProps.buildContext} or root workspace to nested package
+containing Next.js app. See example below:
+
+Let's say you have a monorepo with the following folder structure:
+- my-monorepo/
+  - packages/
+    - ui/
+      - package.json (nested)
+  - package.json (root)
+
+And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildContext}
+to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToPackage}
+to `"./packages/ui"`.
+
+Note, setting {@link NextjsBaseProps.buildContext} to the root of your
+monorepo will invalidate container runtime (i.e. docker) build cache when any file is
+changed in your monorepo. This is slows down deployments. Checkout how you
+can use [turbo](https://turbo.build/) in [Deploying with Docker Guide](https://turbo.build/repo/docs/handbook/deploying-with-docker)
+in the cdk-nextjs/examples/turbo.
+
+---
+
+*Example*
+
+```typescript
+"./packages/ui"
+```
+
+
+##### ~~`relativePathToWorkspace`~~<sup>Optional</sup> <a name="relativePathToWorkspace" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.relativePathToWorkspace"></a>
+
+- *Deprecated:* use relativePathToPackage
+
+```typescript
+public readonly relativePathToWorkspace: string;
+```
+
+- *Type:* string
+
+---
+
+##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.overrides"></a>
+
+```typescript
+public readonly overrides: NextjsRegionalFunctionsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides">NextjsRegionalFunctionsOverrides</a>
+
+Override props of any construct.
+
+---
+
 ### NextjsStaticAssetsOverrides <a name="NextjsStaticAssetsOverrides" id="cdk-nextjs.NextjsStaticAssetsOverrides"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsStaticAssetsOverrides.Initializer"></a>
@@ -4671,7 +5860,6 @@ const nextjsStaticAssetsProps: NextjsStaticAssetsProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.vpcId">vpcId</a></code> | <code>string</code> | Required if `NextjsType.REGIONAL_CONTAINERS`. |
 
 ---
 
@@ -4682,18 +5870,6 @@ public readonly overrides: NextjsStaticAssetsOverrides;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
-
----
-
-##### `vpcId`<sup>Optional</sup> <a name="vpcId" id="cdk-nextjs.NextjsStaticAssetsProps.property.vpcId"></a>
-
-```typescript
-public readonly vpcId: string;
-```
-
-- *Type:* string
-
-Required if `NextjsType.REGIONAL_CONTAINERS`.
 
 ---
 
@@ -10205,6 +11381,7 @@ public readonly name: string;
 | <code><a href="#cdk-nextjs.NextjsType.GLOBAL_CONTAINERS">GLOBAL_CONTAINERS</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsType.GLOBAL_FUNCTIONS">GLOBAL_FUNCTIONS</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsType.REGIONAL_CONTAINERS">REGIONAL_CONTAINERS</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsType.REGIONAL_FUNCTIONS">REGIONAL_FUNCTIONS</a></code> | *No description.* |
 
 ---
 
@@ -10219,6 +11396,11 @@ public readonly name: string;
 
 
 ##### `REGIONAL_CONTAINERS` <a name="REGIONAL_CONTAINERS" id="cdk-nextjs.NextjsType.REGIONAL_CONTAINERS"></a>
+
+---
+
+
+##### `REGIONAL_FUNCTIONS` <a name="REGIONAL_FUNCTIONS" id="cdk-nextjs.NextjsType.REGIONAL_FUNCTIONS"></a>
 
 ---
 

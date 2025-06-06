@@ -1,16 +1,16 @@
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
-import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
-import {
-  NextjsContainers,
-  NextjsContainersOverrides,
-} from "../nextjs-compute/nextjs-containers";
 import {
   BaseNextjsConstructOverrides,
   BaseNextjsOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
+import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
+import {
+  NextjsContainers,
+  NextjsContainersOverrides,
+} from "../nextjs-compute/nextjs-containers";
 
 export interface NextjsRegionalContainersConstructOverrides
   extends BaseNextjsConstructOverrides {

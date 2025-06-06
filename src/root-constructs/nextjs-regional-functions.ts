@@ -1,18 +1,18 @@
+import { Stack } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
-import {
-  NextjsFunctions,
-  NextjsFunctionsOverrides,
-  NextjsFunctionsProps,
-} from "../nextjs-compute/nextjs-functions";
 import { NextjsApi, NextjsApiOverrides, NextjsApiProps } from "../nextjs-api";
-import { Stack } from "aws-cdk-lib";
 import {
   NextjsBaseConstruct,
   NextjsBaseProps,
   BaseNextjsConstructOverrides,
   BaseNextjsOverrides,
 } from "./nextjs-base-construct";
+import {
+  NextjsFunctions,
+  NextjsFunctionsOverrides,
+  NextjsFunctionsProps,
+} from "../nextjs-compute/nextjs-functions";
 
 export interface NextjsRegionalFunctionsConstructOverrides
   extends BaseNextjsConstructOverrides {
