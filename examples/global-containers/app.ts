@@ -1,6 +1,7 @@
 import {
   Aspects,
   CfnOutput,
+  Duration,
   RemovalPolicy,
   Stack,
   StackProps,
@@ -76,6 +77,11 @@ export class GlobalContainersStack extends Stack {
   #getLogsBucket() {
     const bucket = new Bucket(this, "LogsBucket", {
       enforceSSL: true,
+      lifecycleRules: [
+        {
+          expiration: Duration.days(30),
+        },
+      ],
       objectOwnership: ObjectOwnership.OBJECT_WRITER, // required for CloudFront to write logs
       // auto delete and destroy on removal only for example, remove these for prod!
       autoDeleteObjects: true,

@@ -1,6 +1,7 @@
 import {
   Aspects,
   CfnOutput,
+  Duration,
   RemovalPolicy,
   Stack,
   StackProps,
@@ -21,10 +22,12 @@ import { join } from "node:path";
 import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import {
   AccessLogFormat,
+  CfnAccount,
   LogGroupLogDestination,
   MethodLoggingLevel,
 } from "aws-cdk-lib/aws-apigateway";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
+import { ManagedPolicy, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 
 const app = new App();
 
@@ -32,6 +35,7 @@ export class RegionalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     const logsBucket = this.#getLogsBucket();
+    this.#createCloudWatchRoleForApiGw();
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
       buildContext: join(import.meta.dirname, ".."),
@@ -45,6 +49,10 @@ export class RegionalFunctionsStack extends Stack {
         },
         nextjsApi: {
           restApiProps: {
+            // there can only be a single apigateway.CfnAccount per AWS environment
+            // so cloud watch role should be created independently of each REST API
+            // see: https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigateway-readme.html#deployments
+            cloudWatchRole: false, // recommended
             deployOptions: {
               accessLogDestination: new LogGroupLogDestination(
                 new LogGroup(this, "ApiAccessLogs", {
@@ -78,16 +86,19 @@ export class RegionalFunctionsStack extends Stack {
       key: "CdkNextjsUrl",
     });
 
-    // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
-    nextjs.nextjsVpc.vpc.node
-      .findChild("s3FlowLogs")
-      .node.findChild("FlowLog")
-      .node.addDependency(logsBucket);
+    nextjs.nextjsVpc.vpc.addFlowLog("FlowLogs", {
+      destination: FlowLogDestination.toCloudWatchLogs(),
+    });
   }
 
   #getLogsBucket() {
     const bucket = new Bucket(this, "LogsBucket", {
       enforceSSL: true,
+      lifecycleRules: [
+        {
+          expiration: Duration.days(30),
+        },
+      ],
       // auto delete and destroy on removal only for example, remove these for prod!
       autoDeleteObjects: true,
       removalPolicy: RemovalPolicy.DESTROY,
@@ -99,6 +110,25 @@ export class RegionalFunctionsStack extends Stack {
       },
     ]);
     return bucket;
+  }
+
+  #createCloudWatchRoleForApiGw() {
+    // Create a single CloudWatch role for all API Gateways in this environment
+    const cloudWatchRoleForApiGw = new Role(this, "ApiGatewayCloudWatchRole", {
+      assumedBy: new ServicePrincipal("apigateway.amazonaws.com"),
+      managedPolicies: [
+        ManagedPolicy.fromAwsManagedPolicyName(
+          "service-role/AmazonAPIGatewayPushToCloudWatchLogs",
+        ),
+      ],
+    });
+    // Create a single CfnAccount resource to enable CloudWatch logs
+    // You can only create 1 per region and account
+    // see: https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigateway-readme.html#deployments
+    new CfnAccount(this, "ApiGatewayAccount", {
+      cloudWatchRoleArn: cloudWatchRoleForApiGw.roleArn,
+    });
+    return cloudWatchRoleForApiGw;
   }
 }
 
