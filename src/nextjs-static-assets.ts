@@ -13,10 +13,6 @@ export interface NextjsStaticAssetsOverrides {
 
 export interface NextjsStaticAssetsProps {
   readonly overrides?: NextjsStaticAssetsOverrides;
-  /**
-   * Required if `NextjsType.REGIONAL_CONTAINERS`
-   */
-  readonly vpcId?: string;
 }
 
 /**

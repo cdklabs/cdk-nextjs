@@ -1,6 +1,7 @@
 import {
   Aspects,
   CfnOutput,
+  Duration,
   RemovalPolicy,
   Stack,
   StackProps,
@@ -56,10 +57,7 @@ export class RegionalContainersStack extends Stack {
       relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
-      value:
-        "http://" +
-        nextjs.nextjsContainers.albFargateService.loadBalancer
-          .loadBalancerDnsName,
+      value: nextjs.url,
       key: "CdkNextjsUrl",
     });
     this.#requireCookie(nextjs);
@@ -103,6 +101,11 @@ export class RegionalContainersStack extends Stack {
   #getLogsBucket() {
     const bucket = new Bucket(this, "LogsBucket", {
       enforceSSL: true,
+      lifecycleRules: [
+        {
+          expiration: Duration.days(30),
+        },
+      ],
       // auto delete and destroy on removal only for example, remove these for prod!
       autoDeleteObjects: true,
       removalPolicy: RemovalPolicy.DESTROY,

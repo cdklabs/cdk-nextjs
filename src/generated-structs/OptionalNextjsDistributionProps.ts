@@ -30,7 +30,7 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly basePath?: string;
   /**
-   * Path to directory of Next.js app's public directory. Used to add static behaviors to distribution.
+   * Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
    * @stability stable
    */
   readonly publicDirEntries?: Array<PublicDirEntry>;

@@ -229,6 +229,25 @@ importers:
         specifier: ^22.15.19
         version: 22.15.21
 
+  regional-functions:
+    dependencies:
+      aws-cdk-lib:
+        specifier: 2.196.0
+        version: 2.196.0(constructs@10.0.5)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      constructs:
+        specifier: 10.0.5
+        version: 10.0.5
+      tsx:
+        specifier: ^4.19.4
+        version: 4.19.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.19
+        version: 22.15.21
+
   turbo:
     dependencies:
       aws-cdk:
@@ -2715,7 +2734,6 @@ packages:
   constructs@10.0.5:
     resolution: {integrity: sha512-IwOwekzrASFC3qt4ozCtV09rteAIAesuCGsW0p+uBfqHd2XcvA5CXqJjgf4eUqm6g8e/noXlVCMDWwC8GaLtrg==}
     engines: {node: '>= 10.17.0'}
-    bundledDependencies: []
 
   content-type@1.0.4:
     resolution: {integrity: sha512-hIP3EEPs8tB9AT1L+NUqtwOAps4mk2Zob89MWXMHjHWg9milF/j4osnnQLXBCBFBk/tvIG/tUc9mOUJiPBhPXA==}

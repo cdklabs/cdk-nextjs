@@ -85,8 +85,8 @@ export interface NextjsDistributionProps {
    */
   readonly overrides?: NextjsDistributionOverrides;
   /**
-   * Path to directory of Next.js app's public directory. Used to add static
-   * behaviors to distribution.
+   * Entries (files/directories) within Next.js app's public directory. Used to
+   * add static behaviors to distribution.
    */
   readonly publicDirEntries: PublicDirEntry[];
 }
