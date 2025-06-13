@@ -7,10 +7,11 @@ export {
   NextjsAssetsDeploymentProps,
 } from "./nextjs-assets-deployment";
 export {
-  BaseNextjsConstructOverrides,
-  BaseNextjsOverrides,
+  NextjsBaseConstructOverrides,
+  NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
+  NextjsBaseConstructProps,
 } from "./root-constructs/nextjs-base-construct";
 export {
   NextjsBuild,

@@ -12,14 +12,14 @@ import {
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
 import {
-  BaseNextjsConstructOverrides,
-  BaseNextjsOverrides,
+  NextjsBaseConstructOverrides,
+  NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 
 export interface NextjsGlobalFunctionsConstructOverrides
-  extends BaseNextjsConstructOverrides {
+  extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
 }
@@ -29,7 +29,7 @@ export interface NextjsGlobalFunctionsConstructOverrides
  * props and are passed directly to CDK Constructs giving you more control. It's
  * recommended to use caution and review source code so you know how they're used.
  */
-export interface NextjsGlobalFunctionsOverrides extends BaseNextjsOverrides {
+export interface NextjsGlobalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
@@ -63,14 +63,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   private props: NextjsGlobalFunctionsProps;
 
   constructor(scope: Construct, id: string, props: NextjsGlobalFunctionsProps) {
-    super(
-      scope,
-      id,
-      props,
-      NextjsType.GLOBAL_FUNCTIONS,
-      props.overrides,
-      props.overrides?.nextjsGlobalFunctions,
-    );
+    super(scope, id, props, NextjsType.GLOBAL_FUNCTIONS);
     this.props = props;
     this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsFileSystem.allowCompute({

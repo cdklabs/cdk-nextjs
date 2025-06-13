@@ -85,10 +85,6 @@ export class RegionalFunctionsStack extends Stack {
       value: nextjs.url,
       key: "CdkNextjsUrl",
     });
-
-    nextjs.nextjsVpc.vpc.addFlowLog("FlowLogs", {
-      destination: FlowLogDestination.toCloudWatchLogs(),
-    });
   }
 
   #getLogsBucket() {

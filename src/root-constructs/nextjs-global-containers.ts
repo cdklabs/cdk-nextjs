@@ -12,14 +12,14 @@ import {
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
 import {
-  BaseNextjsConstructOverrides,
-  BaseNextjsOverrides,
+  NextjsBaseConstructOverrides,
+  NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 
 export interface NextjsGlobalContainersConstructOverrides
-  extends BaseNextjsConstructOverrides {
+  extends NextjsBaseConstructOverrides {
   readonly nextjsContainersProps?: OptionalNextjsContainersProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
 }
@@ -29,7 +29,7 @@ export interface NextjsGlobalContainersConstructOverrides
  * props and are passed directly to CDK Constructs giving you more control. It's
  * recommended to use caution and review source code so you know how they're used.
  */
-export interface NextjsGlobalContainersOverrides extends BaseNextjsOverrides {
+export interface NextjsGlobalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalContainers?: NextjsGlobalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
@@ -67,14 +67,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     id: string,
     props: NextjsGlobalContainersProps,
   ) {
-    super(
-      scope,
-      id,
-      props,
-      NextjsType.GLOBAL_CONTAINERS,
-      props.overrides,
-      props.overrides?.nextjsGlobalContainers,
-    );
+    super(scope, id, props, NextjsType.GLOBAL_CONTAINERS);
     this.props = props;
     this.nextjsContainers = this.createNextjsContainers();
     this.nextjsFileSystem.allowCompute({

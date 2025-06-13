@@ -32,7 +32,7 @@ import { handleDeprecatedProperties } from "../utils/handle-deprecated-propertie
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
  */
-export interface BaseNextjsConstructOverrides {
+export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsVpcProps?: OptionalNextjsVpcProps;
   readonly nextjsFileSystemProps?: OptionalNextjsFileSystemProps;
@@ -44,7 +44,7 @@ export interface BaseNextjsConstructOverrides {
 /**
  * Base overrides for constructs shared between all root/top-level Next.js constructs.
  */
-export interface BaseNextjsOverrides {
+export interface NextjsBaseOverrides {
   readonly nextjsBuild?: NextjsBuildOverrides;
   readonly nextjsFileSystem?: NextjsFileSystemOverrides;
   readonly nextjsVpc?: NextjsVpcOverrides;
@@ -124,6 +124,14 @@ export interface NextjsBaseProps {
 }
 
 /**
+ * Required because if we add `overrides` onto `NextjsBaseProps` we get jsii
+ * error: `Interface ... re-declares member "overrides"`
+ */
+export interface NextjsBaseConstructProps extends NextjsBaseProps {
+  readonly overrides?: NextjsBaseOverrides;
+}
+
+/**
  * Base class for all Next.js root constructs
  */
 export abstract class NextjsBaseConstruct extends Construct {
@@ -138,23 +146,20 @@ export abstract class NextjsBaseConstruct extends Construct {
 
   protected readonly nextjsType: NextjsType;
   // use baseProps instead of props so that child classes can use props
-  protected readonly baseProps: NextjsBaseProps;
-  protected readonly overrides?: BaseNextjsOverrides;
-  protected readonly constructOverrides?: BaseNextjsConstructOverrides;
+  protected readonly baseProps: NextjsBaseConstructProps;
+  protected readonly constructOverrides?: NextjsBaseConstructOverrides;
 
   constructor(
     scope: Construct,
     id: string,
-    props: NextjsBaseProps,
+    props: NextjsBaseConstructProps,
     nextjsType: NextjsType,
-    overrides?: BaseNextjsOverrides,
-    constructOverrides?: BaseNextjsConstructOverrides,
   ) {
     super(scope, id);
+    console.log("constructor name: ", this.constructor.name);
     this.baseProps = handleDeprecatedProperties(props);
     this.nextjsType = nextjsType;
-    this.overrides = overrides;
-    this.constructOverrides = constructOverrides;
+    this.constructOverrides = this.getConstructOverrides(nextjsType);
 
     this.nextjsBuild = this.createNextjsBuild();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
@@ -164,20 +169,40 @@ export abstract class NextjsBaseConstruct extends Construct {
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
+  /**
+   * Finds construct overrides on props from any `NextjsType`
+   */
+  private getConstructOverrides(nextjsType: NextjsType) {
+    const nextjsTypeToKey: Record<NextjsType, string> = {
+      [NextjsType.GLOBAL_CONTAINERS]: "nextjsGlobalContainers",
+      [NextjsType.GLOBAL_FUNCTIONS]: "nextjsGlobalFunctions",
+      [NextjsType.REGIONAL_CONTAINERS]: "nextjsRegionalContainers",
+      [NextjsType.REGIONAL_FUNCTIONS]: "nextjsRegionalFunctions",
+    };
+    const key = nextjsTypeToKey[nextjsType];
+    const overrides = this.baseProps.overrides as
+      | Record<string, unknown>
+      | undefined;
+    if (overrides && key in overrides) {
+      return overrides[key] as NextjsBaseConstructOverrides;
+    }
+    return;
+  }
+
   protected createNextjsBuild(): NextjsBuild {
     return new NextjsBuild(this, "NextjsBuild", {
       buildCommand: this.baseProps.buildCommand,
       buildContext: this.baseProps.buildContext,
       nextjsType: this.nextjsType,
       relativePathToPackage: this.baseProps.relativePathToPackage,
-      overrides: this.overrides?.nextjsBuild,
+      overrides: this.baseProps.overrides?.nextjsBuild,
       ...this.constructOverrides?.nextjsBuildProps,
     });
   }
 
   protected createNextjsStaticAssets(): NextjsStaticAssets {
     return new NextjsStaticAssets(this, "NextjsStaticAssets", {
-      overrides: this.overrides?.nextjsStaticAssets,
+      overrides: this.baseProps.overrides?.nextjsStaticAssets,
       ...this.constructOverrides?.nextjsStaticAssetsProps,
     });
   }
@@ -185,7 +210,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   protected createVpc(): NextjsVpc {
     return new NextjsVpc(this, "NextjsVpc", {
       nextjsType: this.nextjsType,
-      overrides: this.overrides?.nextjsVpc,
+      overrides: this.baseProps.overrides?.nextjsVpc,
       ...this.constructOverrides?.nextjsVpcProps,
     });
   }
@@ -193,7 +218,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   protected createNextjsFileSystem(): NextjsFileSystem {
     return new NextjsFileSystem(this, "NextjsFileSystem", {
       vpc: this.nextjsVpc.vpc,
-      overrides: this.overrides?.nextjsFileSystem,
+      overrides: this.baseProps.overrides?.nextjsFileSystem,
       ...this.constructOverrides?.nextjsFileSystemProps,
     });
   }
@@ -206,7 +231,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
       nextjsType: this.nextjsType,
-      overrides: this.overrides?.nextjsAssetsDeployment,
+      overrides: this.baseProps.overrides?.nextjsAssetsDeployment,
       relativePathToPackage: this.baseProps.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.nextjsVpc.vpc,
@@ -219,7 +244,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       accessPoint: this.nextjsFileSystem.accessPoint,
       buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
-      overrides: this.overrides?.nextjsPostDeploy,
+      overrides: this.baseProps.overrides?.nextjsPostDeploy,
       relativePathToPackage: this.baseProps.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.nextjsVpc.vpc,

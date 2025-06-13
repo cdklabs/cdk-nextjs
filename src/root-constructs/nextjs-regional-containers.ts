@@ -1,8 +1,8 @@
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import {
-  BaseNextjsConstructOverrides,
-  BaseNextjsOverrides,
+  NextjsBaseConstructOverrides,
+  NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
@@ -13,7 +13,7 @@ import {
 } from "../nextjs-compute/nextjs-containers";
 
 export interface NextjsRegionalContainersConstructOverrides
-  extends BaseNextjsConstructOverrides {
+  extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
 }
 
@@ -22,7 +22,7 @@ export interface NextjsRegionalContainersConstructOverrides
  * props and are passed directly to CDK Constructs giving you more control. It's
  * recommended to use caution and review source code so you know how they're used.
  */
-export interface NextjsRegionalContainersOverrides extends BaseNextjsOverrides {
+export interface NextjsRegionalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
 }
@@ -55,14 +55,7 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
     id: string,
     props: NextjsRegionalContainersProps,
   ) {
-    super(
-      scope,
-      id,
-      props,
-      NextjsType.REGIONAL_CONTAINERS,
-      props.overrides,
-      props.overrides?.nextjsRegionalContainers,
-    );
+    super(scope, id, props, NextjsType.REGIONAL_CONTAINERS);
     this.props = props;
     this.nextjsContainers = this.createNextjsLoadBalancedContainers();
     this.nextjsFileSystem.allowCompute({

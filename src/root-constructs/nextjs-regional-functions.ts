@@ -5,8 +5,8 @@ import { NextjsApi, NextjsApiOverrides, NextjsApiProps } from "../nextjs-api";
 import {
   NextjsBaseConstruct,
   NextjsBaseProps,
-  BaseNextjsConstructOverrides,
-  BaseNextjsOverrides,
+  NextjsBaseConstructOverrides,
+  NextjsBaseOverrides,
 } from "./nextjs-base-construct";
 import {
   NextjsFunctions,
@@ -15,7 +15,7 @@ import {
 } from "../nextjs-compute/nextjs-functions";
 
 export interface NextjsRegionalFunctionsConstructOverrides
-  extends BaseNextjsConstructOverrides {
+  extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsApiProps?: NextjsApiProps;
 }
@@ -25,7 +25,7 @@ export interface NextjsRegionalFunctionsConstructOverrides
  * props and are passed directly to CDK Constructs giving you more control. It's
  * recommended to use caution and review source code so you know how they're used.
  */
-export interface NextjsRegionalFunctionsOverrides extends BaseNextjsOverrides {
+export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsApi?: NextjsApiOverrides;
@@ -56,14 +56,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     id: string,
     props: NextjsRegionalFunctionsProps,
   ) {
-    super(
-      scope,
-      id,
-      props,
-      NextjsType.REGIONAL_FUNCTIONS,
-      props.overrides,
-      props.overrides?.nextjsRegionalFunctions,
-    );
+    super(scope, id, props, NextjsType.REGIONAL_FUNCTIONS);
     this.props = props;
     this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsFileSystem.allowCompute({

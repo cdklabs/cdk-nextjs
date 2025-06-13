@@ -29,6 +29,9 @@ export interface NextjsApiProps {
    * Optional base path for the application
    */
   readonly basePath?: string;
+  /**
+   * Override props for every construct.
+   */
   readonly overrides?: NextjsApiOverrides;
   /**
    * Path to directory of Next.js app's public directory. Used to add resources
@@ -72,7 +75,7 @@ export class NextjsApi extends Construct {
     if (props.serverFunction) {
       this.createLambdaIntegration(props.serverFunction);
     } else {
-      //
+      // [Future] create integration with ECS via VPC Link and ECS Service Discovery
     }
   }
 
@@ -86,9 +89,6 @@ export class NextjsApi extends Construct {
     return new RestApi(this, "RestApi", {
       binaryMediaTypes: ["*/*"],
       description: `cdk-nextjs REST API for ${Stack.of(this).stackName}`,
-      deployOptions: {
-        stageName: "prod",
-      },
       endpointTypes: [EndpointType.REGIONAL],
       minCompressionSize: Size.bytes(0), // compress all responses for better perf
       ...this.props.overrides?.restApiProps,
