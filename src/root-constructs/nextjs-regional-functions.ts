@@ -75,6 +75,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       buildId: this.nextjsBuild.buildId,
       dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
       healthCheckPath: this.baseProps.healthCheckPath,
+      nextjsType: this.nextjsType,
       vpc: this.nextjsVpc.vpc,
       overrides: this.props.overrides?.nextjsFunctions,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsFunctionsProps,

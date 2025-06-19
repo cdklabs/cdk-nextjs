@@ -9,9 +9,15 @@ import {
   RestApiProps,
   AwsIntegrationProps,
   LambdaIntegrationOptions,
+  PassthroughBehavior,
 } from "aws-cdk-lib/aws-apigateway";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
-import { Role, ServicePrincipal, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import {
+  Role,
+  ServicePrincipal,
+  PolicyStatement,
+  IRole,
+} from "aws-cdk-lib/aws-iam";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -63,6 +69,7 @@ export class NextjsApi extends Construct {
 
   private readonly baseResource: IResource;
   private readonly props: NextjsApiProps;
+  private staticIntegrationRole: IRole;
 
   constructor(scope: Construct, id: string, props: NextjsApiProps) {
     super(scope, id);
@@ -71,9 +78,10 @@ export class NextjsApi extends Construct {
     this.validateProps(props);
     this.api = this.createRestApi();
     this.baseResource = this.createBaseResource(props.basePath);
-    this.createS3Integration();
+    this.staticIntegrationRole = this.createStaticIntegrationRole();
+    this.createStaticIntegrations();
     if (props.serverFunction) {
-      this.createLambdaIntegration(props.serverFunction);
+      this.createDynamicIntegration(props.serverFunction);
     } else {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
     }
@@ -111,31 +119,76 @@ export class NextjsApi extends Construct {
     return baseResource;
   }
 
-  /**
-   * Create S3 integration for static assets
-   */
-  private createS3Integration() {
+  private createStaticIntegrationRole() {
     // Create S3 integration role
-    const s3IntegrationRole = new Role(this, "S3IntegrationRole", {
+    const staticIntegrationRole = new Role(this, "StaticIntegrationRole", {
       assumedBy: new ServicePrincipal("apigateway.amazonaws.com"),
     });
 
-    s3IntegrationRole.addToPolicy(
+    staticIntegrationRole.addToPolicy(
       new PolicyStatement({
-        actions: ["s3:GetObject"],
-        resources: [`${this.props.staticAssetsBucket.bucketArn}/*`],
+        actions: ["s3:GetObject", "s3:ListBucket"],
+        resources: [
+          this.props.staticAssetsBucket.bucketArn,
+          `${this.props.staticAssetsBucket.bucketArn}/*`,
+        ],
       }),
     );
-    // Create S3 integration for static assets
+    return staticIntegrationRole;
+  }
+
+  private createStaticIntegrations() {
+    // Add static assets route (_next/static/*)
+    this.baseResource
+      .addResource("_next")
+      .addResource("static")
+      .addResource("{proxy+}")
+      .addMethod(
+        "GET",
+        this.createS3Integration({ key: "_next/static/{key}" }),
+        this.getStaticMethodOptions({ proxy: true }),
+      );
+    // add public directory files/directories that exist at top level but need to go to S3.
+    for (const publicDirEntry of this.props.publicDirEntries) {
+      if (publicDirEntry.isDirectory) {
+        this.baseResource
+          .addResource(publicDirEntry.name)
+          .addResource("{proxy+}")
+          .addMethod(
+            "GET",
+            this.createS3Integration({ key: `${publicDirEntry.name}/{key}` }),
+            this.getStaticMethodOptions({ proxy: true }),
+          );
+      } else {
+        this.baseResource
+          .addResource(publicDirEntry.name)
+          .addMethod(
+            "GET",
+            this.createS3Integration({ key: publicDirEntry.name }),
+            this.getStaticMethodOptions(),
+          );
+      }
+    }
+  }
+
+  /**
+   * Maps API request to S3 request.
+   * @see https://docs.aws.amazon.com/apigateway/latest/developerguide/rest-api-parameter-mapping-sources.html
+   * @see https://docs.aws.amazon.com/apigateway/latest/developerguide/integrating-api-with-aws-services-s3.html#api-items-in-folder-as-s3-objects-in-bucket
+   */
+  private createS3Integration({ key }: { key: string }) {
     const s3Integration = new AwsIntegration({
       service: "s3",
       integrationHttpMethod: "GET",
-      path: `${this.props.staticAssetsBucket.bucketName}/{key}`,
+      path: `${this.props.staticAssetsBucket.bucketName}/${key}`,
       options: {
-        credentialsRole: s3IntegrationRole,
-        requestParameters: {
-          "integration.request.path.key": "method.request.path.proxy",
-        },
+        credentialsRole: this.staticIntegrationRole,
+        passthroughBehavior: PassthroughBehavior.WHEN_NO_TEMPLATES, // recommended
+        requestParameters: key.includes("{key}")
+          ? {
+              "integration.request.path.key": "method.request.path.proxy",
+            }
+          : undefined,
         integrationResponses: [
           {
             statusCode: "200",
@@ -156,11 +209,16 @@ export class NextjsApi extends Construct {
       },
       ...this.props.overrides?.s3IntegrationProps,
     });
-    // Create method options for static assets
-    const staticMethodOptions: MethodOptions = {
-      requestParameters: {
-        "method.request.path.proxy": true,
-      },
+    return s3Integration;
+  }
+
+  private getStaticMethodOptions({ proxy } = { proxy: false }): MethodOptions {
+    return {
+      requestParameters: proxy
+        ? {
+            "method.request.path.proxy": true,
+          }
+        : undefined,
       methodResponses: [
         {
           statusCode: "200",
@@ -176,35 +234,17 @@ export class NextjsApi extends Construct {
       ],
       ...this.props.overrides?.s3MethodOptions,
     };
-
-    // Add static assets route (_next/static/*)
-    this.baseResource
-      .addResource("_next")
-      .addResource("static")
-      .addResource("{proxy+}")
-      .addMethod("GET", s3Integration, staticMethodOptions);
-    // add public directory files/directories that exist at top level but need to go to S3.
-    for (const publicDirEntry of this.props.publicDirEntries) {
-      let publicDirResource: IResource;
-      if (publicDirEntry.isDirectory) {
-        publicDirResource = this.baseResource
-          .addResource(publicDirEntry.name)
-          .addResource("{proxy+}");
-      } else {
-        publicDirResource = this.baseResource.addResource(publicDirEntry.name);
-      }
-      publicDirResource.addMethod("GET", s3Integration, staticMethodOptions);
-    }
   }
 
   /**
    * Create Lambda Proxy integration for all other routes
    */
-  private createLambdaIntegration(serverFunction: IFunction) {
+  private createDynamicIntegration(serverFunction: IFunction) {
     const lambdaIntegration = new LambdaIntegration(serverFunction, {
       ...this.props.overrides?.lambdaIntegrationProps,
     });
     // Add catch-all route for server-side rendering
+    this.baseResource.addMethod("ANY", lambdaIntegration);
     const proxyResource = this.baseResource.addResource("{proxy+}");
     proxyResource.addMethod("ANY", lambdaIntegration);
   }

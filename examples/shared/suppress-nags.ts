@@ -167,7 +167,7 @@ export function suppressApiNags(stack: Stack) {
   );
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
-    `/${stack.stackName}/Nextjs/NextjsApi/S3IntegrationRole/DefaultPolicy/Resource`,
+    `/${stack.stackName}/Nextjs/NextjsApi/StaticIntegrationRole/DefaultPolicy/Resource`,
     [
       {
         id: "AwsSolutions-IAM5",

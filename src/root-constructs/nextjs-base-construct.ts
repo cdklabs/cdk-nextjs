@@ -156,7 +156,6 @@ export abstract class NextjsBaseConstruct extends Construct {
     nextjsType: NextjsType,
   ) {
     super(scope, id);
-    console.log("constructor name: ", this.constructor.name);
     this.baseProps = handleDeprecatedProperties(props);
     this.nextjsType = nextjsType;
     this.constructOverrides = this.getConstructOverrides(nextjsType);
