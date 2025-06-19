@@ -1143,7 +1143,7 @@ public readonly function: DockerImageFunction;
 
 ---
 
-##### `functionUrl`<sup>Required</sup> <a name="functionUrl" id="cdk-nextjs.NextjsFunctions.property.functionUrl"></a>
+##### `functionUrl`<sup>Optional</sup> <a name="functionUrl" id="cdk-nextjs.NextjsFunctions.property.functionUrl"></a>
 
 ```typescript
 public readonly functionUrl: FunctionUrl;
@@ -4133,6 +4133,7 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.dockerImageCode">dockerImageCode</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
 
 ---
@@ -4184,6 +4185,16 @@ public readonly dockerImageCode: DockerImageCode;
 ```
 
 - *Type:* aws-cdk-lib.aws_lambda.DockerImageCode
+
+---
+
+##### `nextjsType`<sup>Required</sup> <a name="nextjsType" id="cdk-nextjs.NextjsFunctionsProps.property.nextjsType"></a>
+
+```typescript
+public readonly nextjsType: NextjsType;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
 
 ---
 
