@@ -3,7 +3,7 @@ import { waitXSec } from "./utils/wait-5-sec";
 
 test.describe("ssr", () => {
   test("should dynamically render at request time", async ({ page }) => {
-    await page.goto("/ssr/1");
+    await page.goto("./ssr/1");
     expect(page.getByText("0s ago")).toBeVisible();
     await waitXSec(5);
     await page.reload();

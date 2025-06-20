@@ -86,7 +86,8 @@ export class RegionalFunctionsStack extends Stack {
     // workaround b/c not using custom domain. see examples/app-playground/middleware.ts
     nextjs.nextjsFunctions.function.addEnvironment("PREPEND_APIGW_STAGE", "1");
     new CfnOutput(this, "CdkNextjsUrl", {
-      value: nextjs.url,
+      // trailing slash is critical for e2e tests to pass to preserve stage name in path
+      value: nextjs.url + "/",
       key: "CdkNextjsUrl",
     });
   }
