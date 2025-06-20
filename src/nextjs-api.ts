@@ -25,9 +25,9 @@ import { PublicDirEntry } from "./nextjs-build/nextjs-build";
 
 export interface NextjsApiOverrides {
   readonly restApiProps?: RestApiProps;
-  readonly s3IntegrationProps?: AwsIntegrationProps;
+  readonly staticIntegrationProps?: AwsIntegrationProps;
   readonly s3MethodOptions?: MethodOptions;
-  readonly lambdaIntegrationProps?: LambdaIntegrationOptions;
+  readonly dynamicIntegrationProps?: LambdaIntegrationOptions;
 }
 
 export interface NextjsApiProps {
@@ -207,7 +207,7 @@ export class NextjsApi extends Construct {
           },
         ],
       },
-      ...this.props.overrides?.s3IntegrationProps,
+      ...this.props.overrides?.staticIntegrationProps,
     });
     return s3Integration;
   }
@@ -241,7 +241,7 @@ export class NextjsApi extends Construct {
    */
   private createDynamicIntegration(serverFunction: IFunction) {
     const lambdaIntegration = new LambdaIntegration(serverFunction, {
-      ...this.props.overrides?.lambdaIntegrationProps,
+      ...this.props.overrides?.dynamicIntegrationProps,
     });
     // Add catch-all route for server-side rendering
     this.baseResource.addMethod("ANY", lambdaIntegration);

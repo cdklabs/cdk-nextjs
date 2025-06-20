@@ -36,6 +36,7 @@ export class RegionalFunctionsStack extends Stack {
     super(scope, id, props);
     const logsBucket = this.#getLogsBucket();
     this.#createCloudWatchRoleForApiGw();
+    process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
       buildContext: join(import.meta.dirname, ".."),
@@ -44,6 +45,7 @@ export class RegionalFunctionsStack extends Stack {
           nextjsBuildProps: {
             builderImageProps: {
               exclude: getBuilderImageExcludeDirectories(),
+              envVarNames: ["NEXTJS_BASE_PATH"],
             },
           },
         },
@@ -81,6 +83,8 @@ export class RegionalFunctionsStack extends Stack {
       },
       relativePathToPackage: "./app-playground",
     });
+    // workaround b/c not using custom domain. see examples/app-playground/middleware.ts
+    nextjs.nextjsFunctions.function.addEnvironment("PREPEND_APIGW_STAGE", "1");
     new CfnOutput(this, "CdkNextjsUrl", {
       value: nextjs.url,
       key: "CdkNextjsUrl",
