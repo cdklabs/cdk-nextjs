@@ -2483,17 +2483,17 @@ const nextjsApiOverrides: NextjsApiOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.lambdaIntegrationProps">lambdaIntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.LambdaIntegrationOptions</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.dynamicIntegrationProps">dynamicIntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.LambdaIntegrationOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsApiOverrides.property.restApiProps">restApiProps</a></code> | <code>aws-cdk-lib.aws_apigateway.RestApiProps</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.s3IntegrationProps">s3IntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.AwsIntegrationProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsApiOverrides.property.s3MethodOptions">s3MethodOptions</a></code> | <code>aws-cdk-lib.aws_apigateway.MethodOptions</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.staticIntegrationProps">staticIntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.AwsIntegrationProps</code> | *No description.* |
 
 ---
 
-##### `lambdaIntegrationProps`<sup>Optional</sup> <a name="lambdaIntegrationProps" id="cdk-nextjs.NextjsApiOverrides.property.lambdaIntegrationProps"></a>
+##### `dynamicIntegrationProps`<sup>Optional</sup> <a name="dynamicIntegrationProps" id="cdk-nextjs.NextjsApiOverrides.property.dynamicIntegrationProps"></a>
 
 ```typescript
-public readonly lambdaIntegrationProps: LambdaIntegrationOptions;
+public readonly dynamicIntegrationProps: LambdaIntegrationOptions;
 ```
 
 - *Type:* aws-cdk-lib.aws_apigateway.LambdaIntegrationOptions
@@ -2510,16 +2510,6 @@ public readonly restApiProps: RestApiProps;
 
 ---
 
-##### `s3IntegrationProps`<sup>Optional</sup> <a name="s3IntegrationProps" id="cdk-nextjs.NextjsApiOverrides.property.s3IntegrationProps"></a>
-
-```typescript
-public readonly s3IntegrationProps: AwsIntegrationProps;
-```
-
-- *Type:* aws-cdk-lib.aws_apigateway.AwsIntegrationProps
-
----
-
 ##### `s3MethodOptions`<sup>Optional</sup> <a name="s3MethodOptions" id="cdk-nextjs.NextjsApiOverrides.property.s3MethodOptions"></a>
 
 ```typescript
@@ -2527,6 +2517,16 @@ public readonly s3MethodOptions: MethodOptions;
 ```
 
 - *Type:* aws-cdk-lib.aws_apigateway.MethodOptions
+
+---
+
+##### `staticIntegrationProps`<sup>Optional</sup> <a name="staticIntegrationProps" id="cdk-nextjs.NextjsApiOverrides.property.staticIntegrationProps"></a>
+
+```typescript
+public readonly staticIntegrationProps: AwsIntegrationProps;
+```
+
+- *Type:* aws-cdk-lib.aws_apigateway.AwsIntegrationProps
 
 ---
 
