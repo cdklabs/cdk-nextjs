@@ -95,7 +95,7 @@ Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest
 
 Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) Functions to respond to dynamic requests and [API Gateway REST API](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-rest-api.html) to regionally serve requests and distribute static assets. Use this options when you cannot use Amazon CloudFront (i.e. [AWS GovCloud](https://aws.amazon.com/govcloud-us/?whats-new.sort-by=item.additionalFields.postDateTime&whats-new.sort-order=desc)). ([code](./src/root-constructs/nextjs-regional-functions.ts))
 
-![NextjsRegionalContainers](./docs/cdk-nextjs-NextjsRegionalContainers.png)
+![NextjsRegionalFunctions](./docs/cdk-nextjs-NextjsRegionalFunctions.png)
 
 ## Why
 
