@@ -169,7 +169,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * Finds construct overrides on props from any `NextjsType`
+   * Finds construct overrides (if present) on props for any `NextjsType`
    */
   private getConstructOverrides(nextjsType: NextjsType) {
     const nextjsTypeToKey: Record<NextjsType, string> = {
@@ -188,7 +188,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     return;
   }
 
-  protected createNextjsBuild(): NextjsBuild {
+  private createNextjsBuild(): NextjsBuild {
     return new NextjsBuild(this, "NextjsBuild", {
       buildCommand: this.baseProps.buildCommand,
       buildContext: this.baseProps.buildContext,
@@ -199,14 +199,14 @@ export abstract class NextjsBaseConstruct extends Construct {
     });
   }
 
-  protected createNextjsStaticAssets(): NextjsStaticAssets {
+  private createNextjsStaticAssets(): NextjsStaticAssets {
     return new NextjsStaticAssets(this, "NextjsStaticAssets", {
       overrides: this.baseProps.overrides?.nextjsStaticAssets,
       ...this.constructOverrides?.nextjsStaticAssetsProps,
     });
   }
 
-  protected createVpc(): NextjsVpc {
+  private createVpc(): NextjsVpc {
     return new NextjsVpc(this, "NextjsVpc", {
       nextjsType: this.nextjsType,
       overrides: this.baseProps.overrides?.nextjsVpc,
@@ -214,7 +214,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     });
   }
 
-  protected createNextjsFileSystem(): NextjsFileSystem {
+  private createNextjsFileSystem(): NextjsFileSystem {
     return new NextjsFileSystem(this, "NextjsFileSystem", {
       vpc: this.nextjsVpc.vpc,
       overrides: this.baseProps.overrides?.nextjsFileSystem,
@@ -222,10 +222,10 @@ export abstract class NextjsBaseConstruct extends Construct {
     });
   }
 
-  protected createNextjsAssetsDeployment(): NextjsAssetsDeployment {
+  private createNextjsAssetsDeployment(): NextjsAssetsDeployment {
     return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
       accessPoint: this.nextjsFileSystem.accessPoint,
-      basePath: (this.baseProps as any).basePath,
+      basePath: this.baseProps.basePath,
       buildId: this.nextjsBuild.buildId,
       buildImageDigest: this.nextjsBuild.buildImageDigest,
       dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
@@ -238,7 +238,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     });
   }
 
-  protected createNextjsPostDeploy(): NextjsPostDeploy {
+  private createNextjsPostDeploy(): NextjsPostDeploy {
     const nextjsPostDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
       accessPoint: this.nextjsFileSystem.accessPoint,
       buildId: this.nextjsBuild.buildId,

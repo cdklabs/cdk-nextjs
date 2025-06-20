@@ -68,7 +68,10 @@ export class NextjsFunctions extends Construct {
       ...this.props.overrides?.dockerImageFunctionProps,
       environment: {
         AWS_LWA_ENABLE_COMPRESSION: "true",
-        AWS_LWA_INVOKE_MODE: "buffered", // does this need to be "buffered"
+        AWS_LWA_INVOKE_MODE:
+          this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS
+            ? "response_stream"
+            : "buffered", // API GW doesn't support response streaming yet so must buffer
         AWS_LWA_READINESS_CHECK_PATH: this.props.healthCheckPath,
         AWS_LWA_READINESS_CHECK_PORT: "3000",
         READINESS_CHECK_PATH: `http://127.0.0.1:3000${this.props.healthCheckPath}`,
