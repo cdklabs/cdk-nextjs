@@ -16,8 +16,8 @@ queue_rules:
 pull_request_rules:
   - name: Automatically merge dependency updates
     conditions:
-      - author=cdklabs-automation
-      - "title~=^chore: upgrade dependencies"
+      - author=github-actions[bot]
+      - "title~=^chore\\(deps\\): upgrade dependencies"
       - status-success=build
       - status-success=package-js
     actions:

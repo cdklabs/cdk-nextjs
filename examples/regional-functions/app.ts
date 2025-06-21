@@ -22,12 +22,9 @@ import { join } from "node:path";
 import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import {
   AccessLogFormat,
-  CfnAccount,
   LogGroupLogDestination,
-  MethodLoggingLevel,
 } from "aws-cdk-lib/aws-apigateway";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
-import { ManagedPolicy, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 
 const app = new App();
 
@@ -35,7 +32,6 @@ export class RegionalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     const logsBucket = this.#getLogsBucket();
-    this.#createCloudWatchRoleForApiGw();
     process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
@@ -63,7 +59,6 @@ export class RegionalFunctionsStack extends Stack {
                 }),
               ),
               accessLogFormat: AccessLogFormat.jsonWithStandardFields(),
-              loggingLevel: MethodLoggingLevel.INFO,
               metricsEnabled: true,
             },
           },
@@ -111,25 +106,6 @@ export class RegionalFunctionsStack extends Stack {
       },
     ]);
     return bucket;
-  }
-
-  #createCloudWatchRoleForApiGw() {
-    // Create a single CloudWatch role for all API Gateways in this environment
-    const cloudWatchRoleForApiGw = new Role(this, "ApiGatewayCloudWatchRole", {
-      assumedBy: new ServicePrincipal("apigateway.amazonaws.com"),
-      managedPolicies: [
-        ManagedPolicy.fromAwsManagedPolicyName(
-          "service-role/AmazonAPIGatewayPushToCloudWatchLogs",
-        ),
-      ],
-    });
-    // Create a single CfnAccount resource to enable CloudWatch logs
-    // You can only create 1 per region and account
-    // see: https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigateway-readme.html#deployments
-    new CfnAccount(this, "ApiGatewayAccount", {
-      cloudWatchRoleArn: cloudWatchRoleForApiGw.roleArn,
-    });
-    return cloudWatchRoleForApiGw;
   }
 }
 
