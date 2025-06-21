@@ -53,7 +53,7 @@ export interface NextjsApiProps {
    */
   readonly staticAssetsBucket: IBucket;
   /**
-   * [Future] Required if `Nextjs*Containers`. VPC to create VPC Link and ECS Service Discovery
+   * [Future] Required if `NextjsRegionalContainers`. VPC to create VPC Link and ECS Service Discovery
    */
   readonly vpc?: IVpc;
 }
@@ -82,7 +82,7 @@ export class NextjsApi extends Construct {
     this.createStaticIntegrations();
     if (props.serverFunction) {
       this.createDynamicIntegration(props.serverFunction);
-    } else {
+    } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
     }
   }
@@ -199,6 +199,9 @@ export class NextjsApi extends Construct {
                 "integration.response.header.Content-Length",
               "method.response.header.Cache-Control":
                 "integration.response.header.Cache-Control",
+              "method.response.header.ETag": "integration.response.header.ETag",
+              "method.response.header.Last-Modified":
+                "integration.response.header.Last-Modified",
             },
           },
           {
@@ -226,6 +229,8 @@ export class NextjsApi extends Construct {
             "method.response.header.Content-Type": true,
             "method.response.header.Content-Length": true,
             "method.response.header.Cache-Control": true,
+            "method.response.header.ETag": true,
+            "method.response.header.Last-Modified": true,
           },
         },
         {
