@@ -176,4 +176,15 @@ export function suppressApiNags(stack: Stack) {
       },
     ],
   );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsApi/RestApi/DeploymentStage.prod/Resource`,
+    [
+      {
+        id: "AwsSolutions-APIG6",
+        reason:
+          "Execution logs intentionally disabled b/c of annoying CfnAccount resource which only allows 1 per account-region, only access logs enabled",
+      },
+    ],
+  );
 }
