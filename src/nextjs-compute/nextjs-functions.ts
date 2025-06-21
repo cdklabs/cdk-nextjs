@@ -13,6 +13,7 @@ import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
 import {
   CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
   MOUNT_PATH,
+  NextjsType,
   SERVER_DIST_PATH,
 } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
@@ -28,6 +29,7 @@ export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
   readonly dockerImageCode: DockerImageCode;
   readonly overrides?: NextjsFunctionsOverrides;
   readonly buildId: string;
+  readonly nextjsType: NextjsType;
 }
 
 /**
@@ -35,7 +37,7 @@ export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
  */
 export class NextjsFunctions extends Construct {
   function: DockerImageFunction;
-  functionUrl: FunctionUrl;
+  functionUrl?: FunctionUrl;
 
   private props: NextjsFunctionsProps;
 
@@ -43,13 +45,12 @@ export class NextjsFunctions extends Construct {
     super(scope, id);
     this.props = props;
     this.function = this.createFunction();
-    this.functionUrl = this.function.addFunctionUrl({
-      authType: FunctionUrlAuthType.AWS_IAM,
-      invokeMode: InvokeMode.RESPONSE_STREAM,
-      ...this.props.overrides?.functionUrlProps,
-    });
-    if (!this.function.role) {
-      throw new Error("Function role is undefined");
+    if (props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
+      this.functionUrl = this.function.addFunctionUrl({
+        authType: FunctionUrlAuthType.AWS_IAM,
+        invokeMode: InvokeMode.RESPONSE_STREAM,
+        ...this.props.overrides?.functionUrlProps,
+      });
     }
   }
 
@@ -67,7 +68,10 @@ export class NextjsFunctions extends Construct {
       ...this.props.overrides?.dockerImageFunctionProps,
       environment: {
         AWS_LWA_ENABLE_COMPRESSION: "true",
-        AWS_LWA_INVOKE_MODE: "response_stream",
+        AWS_LWA_INVOKE_MODE:
+          this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS
+            ? "response_stream"
+            : "buffered", // API GW doesn't support response streaming yet so must buffer
         AWS_LWA_READINESS_CHECK_PATH: this.props.healthCheckPath,
         AWS_LWA_READINESS_CHECK_PORT: "3000",
         READINESS_CHECK_PATH: `http://127.0.0.1:3000${this.props.healthCheckPath}`,

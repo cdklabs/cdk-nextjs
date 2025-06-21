@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CfnExecCdkNextjs",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:*",
+        "application-autoscaling:*",
+        "cloudformation:*",
+        "cloudfront:*",
+        "cloudwatch:*",
+        "ecs:*",
+        "ec2:*",
+        "elasticfilesystem:*",
+        "elasticloadbalancing:*",
+        "iam:*",
+        "lambda:*",
+        "logs:*",
+        "s3:*",
+        "servicediscovery:*",
+        "ssm:*"
+      ],
+      "Resource": ["*"]
+    }
+  ]
+}

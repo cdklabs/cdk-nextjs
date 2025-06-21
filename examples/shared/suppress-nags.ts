@@ -46,6 +46,18 @@ export function suppressCommonNags(stack: Stack) {
       },
     ],
   );
+  ("/NextjsStaticAssets/Bucket/Resource");
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsStaticAssets/Bucket/Resource`,
+    [
+      {
+        id: "AwsSolutions-S1",
+        reason:
+          "Static Assets Bucket does not need server access logs as it's serving public assets",
+      },
+    ],
+  );
 }
 
 export function suppressLambdaNags(stack: Stack) {
@@ -111,17 +123,6 @@ export function suppressContainerNags(stack: Stack) {
 export function suppressGlobalNags(stack: Stack) {
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
-    `/${stack.stackName}/Nextjs/NextjsStaticAssets/Bucket/Resource`,
-    [
-      {
-        id: "AwsSolutions-S1",
-        reason:
-          "Server access logs are not required for Next.js Static Assets because they're public web assets",
-      },
-    ],
-  );
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
     `/${stack.stackName}/Nextjs/NextjsDistribution/Distribution/Resource`,
     [
       {
@@ -133,6 +134,45 @@ export function suppressGlobalNags(stack: Stack) {
         id: "AwsSolutions-CFR5",
         reason:
           "No TLS Certificate in ACM available so we must communicate via HTTP to ALB",
+      },
+    ],
+  );
+}
+
+export function suppressApiNags(stack: Stack) {
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsApi/RestApi/Resource`,
+    [
+      {
+        id: "AwsSolutions-APIG2",
+        reason: "Request validation is not required for demo",
+      },
+    ],
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    [`/${stack.stackName}/Nextjs/NextjsApi/RestApi/Default`],
+    [
+      {
+        id: "AwsSolutions-APIG4",
+        reason: "Authorization is not required for demo",
+      },
+      {
+        id: "AwsSolutions-COG4",
+        reason: "Cognito is not required for demo",
+      },
+    ],
+    true,
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsApi/StaticIntegrationRole/DefaultPolicy/Resource`,
+    [
+      {
+        id: "AwsSolutions-IAM5",
+        reason:
+          "API Gateway has permission to read all objects in Static Assets bucket",
       },
     ],
   );

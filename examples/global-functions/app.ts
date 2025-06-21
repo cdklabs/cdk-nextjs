@@ -1,4 +1,10 @@
-import { CfnOutput, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
+import {
+  CfnOutput,
+  Duration,
+  RemovalPolicy,
+  Stack,
+  StackProps,
+} from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { NextjsGlobalFunctions } from "cdk-nextjs";
 import { App, Aspects } from "aws-cdk-lib";
@@ -53,7 +59,7 @@ class GlobalFunctionsStack extends Stack {
       relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
-      value: "https://" + nextjs.nextjsDistribution.distribution.domainName,
+      value: nextjs.url,
       key: "CdkNextjsUrl",
     });
     // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
@@ -66,6 +72,11 @@ class GlobalFunctionsStack extends Stack {
   #getLogsBucket() {
     const bucket = new Bucket(this, "LogsBucket", {
       enforceSSL: true,
+      lifecycleRules: [
+        {
+          expiration: Duration.days(30),
+        },
+      ],
       objectOwnership: ObjectOwnership.OBJECT_WRITER, // required for CloudFront to write logs
       // auto delete and destroy on removal only for example, remove these for prod!
       autoDeleteObjects: true,

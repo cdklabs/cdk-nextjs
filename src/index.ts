@@ -1,10 +1,18 @@
 export { NextjsType } from "./constants";
+export { NextjsApi, NextjsApiProps, NextjsApiOverrides } from "./nextjs-api";
 export {
   StaticAssetsCustomResourceProperties,
   NextjsAssetsDeployment,
   NextjsAssetDeploymentOverrides,
   NextjsAssetsDeploymentProps,
 } from "./nextjs-assets-deployment";
+export {
+  NextjsBaseConstructOverrides,
+  NextjsBaseOverrides,
+  NextjsBaseConstruct,
+  NextjsBaseProps,
+  NextjsBaseConstructProps,
+} from "./root-constructs/nextjs-base-construct";
 export {
   NextjsBuild,
   NextjsBuildProps,
@@ -35,11 +43,6 @@ export {
   AllowComputeProps,
 } from "./nextjs-file-system";
 export {
-  BaseNextjsConstructOverrides,
-  BaseNextjsOverrides,
-} from "./root-constructs/nextjs-base-overrides";
-export { NextjsBaseProps } from "./root-constructs/nextjs-base-props";
-export {
   NextjsGlobalContainers,
   NextjsGlobalContainersConstructOverrides,
   NextjsGlobalContainersOverrides,
@@ -57,6 +60,12 @@ export {
   NextjsRegionalContainersOverrides,
   NextjsRegionalContainersProps,
 } from "./root-constructs/nextjs-regional-containers";
+export {
+  NextjsRegionalFunctions,
+  NextjsRegionalFunctionsConstructOverrides,
+  NextjsRegionalFunctionsOverrides,
+  NextjsRegionalFunctionsProps,
+} from "./root-constructs/nextjs-regional-functions";
 export {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,

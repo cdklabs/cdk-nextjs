@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("server-actions", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/server-actions");
+    await page.goto("./server-actions");
   });
 
   test("form should successfully submit", async ({ page }) => {

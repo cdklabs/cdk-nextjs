@@ -1,0 +1,20 @@
+{
+  "name": "cdk-nextjs-example-regional-functions",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "deploy": "dotenv -- cdk deploy --require-approval never",
+    "destroy": "dotenv -- cdk destroy --force",
+    "deploy:ci": "cdk deploy --require-approval never --outputs-file outputs.json",
+    "destroy:ci": "cdk destroy --force"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.196.0",
+    "cdk-nextjs": "link:../..",
+    "constructs": "10.0.5",
+    "tsx": "^4.19.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.19"
+  }
+}
