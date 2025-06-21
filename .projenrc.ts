@@ -51,7 +51,11 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
   autoApproveUpgrades: true,
   autoApproveOptions: {
-    allowedUsernames: ["cdklabs-automation", "github-bot", "github-actions[bot]"],
+    allowedUsernames: [
+      "cdklabs-automation",
+      "github-bot",
+      "github-actions[bot]",
+    ],
   },
   lambdaOptions: {
     runtime: new LambdaRuntime(`nodejs${nodeVersion}.x`, `node${nodeVersion}`),
