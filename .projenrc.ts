@@ -51,7 +51,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
   autoApproveUpgrades: true,
   autoApproveOptions: {
-    allowedUsernames: ["cdklabs-automation", "github-bot"],
+    allowedUsernames: ["cdklabs-automation", "github-bot", "github-actions[bot]"],
   },
   lambdaOptions: {
     runtime: new LambdaRuntime(`nodejs${nodeVersion}.x`, `node${nodeVersion}`),
@@ -79,8 +79,8 @@ const project = new awscdk.AwsCdkConstructLibrary({
         {
           name: "Automatically merge dependency updates",
           conditions: [
-            "author=cdklabs-automation",
-            "title~=^chore: upgrade dependencies",
+            "author=github-actions[bot]",
+            "title~=^chore\\(deps\\): upgrade dependencies",
             "status-success=build",
             "status-success=package-js",
           ],
