@@ -78,6 +78,11 @@ export class RegionalFunctionsStack extends Stack {
       },
       relativePathToPackage: "./app-playground",
     });
+    // prevents race condition where lambda s3 auto delete objects custom resource
+    // creates bucket policy for LogsBucket before its created at which time
+    // it tries to create its own s3 bucket policy and fails
+    // prevents error: `LogsBucket/Policy (LogsBucketPolicyD70D9252) The bucket policy already exists on bucket main-rgnl-fns-logsbucket9c4d8843...`
+    nextjs.nextjsStaticAssets.bucket.node.addDependency(logsBucket);
     // workaround b/c not using custom domain. see examples/app-playground/middleware.ts
     nextjs.nextjsFunctions.function.addEnvironment("PREPEND_APIGW_STAGE", "1");
     new CfnOutput(this, "CdkNextjsUrl", {

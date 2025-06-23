@@ -308,7 +308,7 @@ export class NextjsBuild extends Construct {
       }
     }
     const content = Object.entries(envVars)
-      .map(([name, value]) => `${name}=${value}`)
+      .map(([name, value]) => `${name}="${value}"`)
       .join(" ");
     const oldFile = readFileSync(builderDockerfilePath).toString();
     const newFile = oldFile.replace(INJECT_CDK_NEXTJS_BUILD_ENV_VARS, content);
