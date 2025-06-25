@@ -4,6 +4,8 @@
 ARG BUILDER_IMAGE_ALIAS=cdk-nextjs/builder:latest
 FROM $BUILDER_IMAGE_ALIAS AS builder
 FROM public.ecr.aws/lambda/nodejs:22 AS runner
+# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
+RUN apk add --no-cache libc6-compat
 # do not set WORKDIR b/c it's configured by public.ecr.aws/lambda/nodejs:22 to be /var/task for lambda to run
 
 ARG RELATIVE_PATH_TO_PACKAGE
