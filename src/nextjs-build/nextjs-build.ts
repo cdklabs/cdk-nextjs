@@ -1,5 +1,11 @@
 import { execSync } from "node:child_process";
-import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { IgnoreMode } from "aws-cdk-lib";
@@ -29,6 +35,7 @@ import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 export interface BuilderImageProps {
   /**
    * Build Args to be passed to `docker build` command.
+   * @see https://docs.docker.com/build/building/variables/#build-arguments
    */
   readonly buildArgs?: Record<string, string>;
   /**
@@ -40,11 +47,8 @@ export interface BuilderImageProps {
   /**
    * Environment variables names to pass from host to container during build process.
    *
-   * Note, a shell script, cdk-nextjs-load-env-vars.sh is created within the
-   * {@link NextBaseProps.buildContext} directory, which will contain all the
-   * environment variables defined in this prop. If you've created your own
-   * custom Dockerfile (passed in via {@link BuilderImageProps.customDockerfilePath})
-   * then you need to make sure you're copying it into the image.
+   * These variable names will be set before the build command in builder.Dockerfile
+   * like: `API_KEY="MY_API_KEY" npm run build`
    *
    * @example ["MY_API_KEY"]
    */
@@ -334,11 +338,15 @@ export class NextjsBuild extends Construct {
       this.props.relativePathToPackage || "",
       "public",
     );
-    const publicDirEntriesString = execSync(
-      `${this.containerRuntime} run ${this.builderImageAlias} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
-      { encoding: "utf-8" },
-    );
-    return JSON.parse(publicDirEntriesString) as PublicDirEntry[];
+    if (existsSync(publicDirPath)) {
+      const publicDirEntriesString = execSync(
+        `${this.containerRuntime} run ${this.builderImageAlias} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
+        { encoding: "utf-8" },
+      );
+      return JSON.parse(publicDirEntriesString) as PublicDirEntry[];
+    } else {
+      return [];
+    }
   }
   private getBuildId() {
     const buildIdPath = joinPosix(
