@@ -2378,6 +2378,8 @@ public readonly buildArgs: {[ key: string ]: string};
 
 Build Args to be passed to `docker build` command.
 
+> [https://docs.docker.com/build/building/variables/#build-arguments](https://docs.docker.com/build/building/variables/#build-arguments)
+
 ---
 
 ##### `command`<sup>Optional</sup> <a name="command" id="cdk-nextjs.BuilderImageProps.property.command"></a>
@@ -2402,11 +2404,8 @@ public readonly envVarNames: string[];
 
 Environment variables names to pass from host to container during build process.
 
-Note, a shell script, cdk-nextjs-load-env-vars.sh is created within the
-{@link NextBaseProps.buildContext } directory, which will contain all the
-environment variables defined in this prop. If you've created your own
-custom Dockerfile (passed in via {@link BuilderImageProps.customDockerfilePath })
-then you need to make sure you're copying it into the image.
+These variable names will be set before the build command in builder.Dockerfile
+like: `API_KEY="MY_API_KEY" npm run build`
 
 ---
 
