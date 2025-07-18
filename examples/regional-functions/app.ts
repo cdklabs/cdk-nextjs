@@ -1,7 +1,6 @@
 import {
   Aspects,
   CfnOutput,
-  Duration,
   RemovalPolicy,
   Stack,
   StackProps,
@@ -9,14 +8,12 @@ import {
 import { Construct } from "constructs";
 import { NextjsRegionalFunctions } from "cdk-nextjs";
 import { App } from "aws-cdk-lib";
-import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
+import { AwsSolutionsChecks } from "cdk-nag";
 import {
   suppressApiNags,
   suppressCommonNags,
   suppressLambdaNags,
 } from "../shared/suppress-nags";
-import { Bucket } from "aws-cdk-lib/aws-s3";
-import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
 import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
@@ -31,7 +28,6 @@ const app = new App();
 export class RegionalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
-    const logsBucket = this.#getLogsBucket();
     process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
@@ -63,26 +59,9 @@ export class RegionalFunctionsStack extends Stack {
             },
           },
         },
-        nextjsVpc: {
-          vpcProps: {
-            flowLogs: {
-              s3FlowLogs: {
-                destination: FlowLogDestination.toS3(
-                  logsBucket,
-                  "vpc-flow-logs",
-                ),
-              },
-            },
-          },
-        },
       },
       relativePathToPackage: "./app-playground",
     });
-    // prevents race condition where lambda s3 auto delete objects custom resource
-    // creates bucket policy for LogsBucket before its created at which time
-    // it tries to create its own s3 bucket policy and fails
-    // prevents error: `LogsBucket/Policy (LogsBucketPolicyD70D9252) The bucket policy already exists on bucket main-rgnl-fns-logsbucket9c4d8843...`
-    nextjs.nextjsStaticAssets.bucket.node.addDependency(logsBucket);
     // workaround b/c not using custom domain. see examples/app-playground/middleware.ts
     nextjs.nextjsFunctions.function.addEnvironment("PREPEND_APIGW_STAGE", "1");
     new CfnOutput(this, "CdkNextjsUrl", {
@@ -90,27 +69,6 @@ export class RegionalFunctionsStack extends Stack {
       value: nextjs.url + "/",
       key: "CdkNextjsUrl",
     });
-  }
-
-  #getLogsBucket() {
-    const bucket = new Bucket(this, "LogsBucket", {
-      enforceSSL: true,
-      lifecycleRules: [
-        {
-          expiration: Duration.days(30),
-        },
-      ],
-      // auto delete and destroy on removal only for example, remove these for prod!
-      autoDeleteObjects: true,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-    NagSuppressions.addResourceSuppressions(bucket, [
-      {
-        id: "AwsSolutions-S1",
-        reason: "Logs bucket doesn't need server access logs",
-      },
-    ]);
-    return bucket;
   }
 }
 
