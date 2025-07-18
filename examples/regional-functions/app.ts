@@ -8,7 +8,7 @@ import {
 import { Construct } from "constructs";
 import { NextjsRegionalFunctions } from "cdk-nextjs";
 import { App } from "aws-cdk-lib";
-import { AwsSolutionsChecks } from "cdk-nag";
+import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
 import {
   suppressApiNags,
   suppressCommonNags,
@@ -69,6 +69,14 @@ export class RegionalFunctionsStack extends Stack {
       value: nextjs.url + "/",
       key: "CdkNextjsUrl",
     });
+
+    NagSuppressions.addResourceSuppressions(nextjs.nextjsVpc.vpc, [
+      {
+        id: "AwsSolutions-VPC7",
+        reason:
+          "Adding flow logs s3 bucket prevent this demo stack from being ephemeral",
+      },
+    ]);
   }
 }
 
