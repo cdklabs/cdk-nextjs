@@ -49,3 +49,16 @@ jobs:
       - name: Cleanup regional-containers
         run: cd examples/regional-containers && pnpm run destroy:ci
         continue-on-error: true
+  cleanup-regional-functions:
+    needs: check-if-should-run
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-base
+        with:
+          aws_account: ${{ vars.AWS_ACCOUNT }}
+      - name: Cleanup regional-functions
+        run: cd examples/regional-function && pnpm run destroy:ci
+        continue-on-error: true
