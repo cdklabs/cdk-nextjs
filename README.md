@@ -156,9 +156,10 @@ More Details:
 
 [NAT Gateways](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html) enable compute within private subnets to access the internet without directly exposing that compute to the internet. NAT Gateways prevent you from having to manage your own NAT Instances however they cost $0.045/hr/AZ resulting in charge of $64.80/month for 2 AZs (.045 x 24 x 30 x 2). While NAT Gateways are recommended by AWS to ensure maximum reliability and scalability, some customers may desire less expensive alternatives:
 
-1. $0.00 - if you're Next.js app does not need to access the internet, remove the NAT Gateway.
-2. $6.05 - managing your own [NAT Instance](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html). See [examples/low-cost](./examples/low-cost/) for how to use [fck-nat](https://fck-nat.dev/stable/).
-3. $32.40 - use 1 AZ instead of 2.
+1. $0.00 - move all resources (including EFS) into public subnet. This is not recommended from security perspective but is an option. Trade-off: less secure.
+2. $0.00 - if you're Next.js app does not need to access the internet, remove the NAT Gateway. Trade-off: less functionality.
+3. $6.05 - managing your own [NAT Instance](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html). See [examples/low-cost](./examples/low-cost/) for how to use [fck-nat](https://fck-nat.dev/stable/). Trade-off: less reliable.
+4. $32.40 - use 1 AZ instead of 2. Trade-off: less reliable.
 
 ### NextjsGlobalFunctions
 

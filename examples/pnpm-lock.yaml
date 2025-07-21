@@ -210,6 +210,25 @@ importers:
         specifier: ^22.15.19
         version: 22.15.21
 
+  private-containers:
+    dependencies:
+      aws-cdk-lib:
+        specifier: 2.196.0
+        version: 2.196.0(constructs@10.0.5)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      constructs:
+        specifier: 10.0.5
+        version: 10.0.5
+      tsx:
+        specifier: ^4.19.4
+        version: 4.19.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.19
+        version: 22.15.21
+
   regional-containers:
     dependencies:
       aws-cdk-lib:
