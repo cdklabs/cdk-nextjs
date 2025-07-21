@@ -3,7 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "connect": "dotenv -- bash -c 'aws ssm start-session --target \"$BASTION_ID\" --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters host=\"$PRIVATE_URL\",portNumber=443,localPortNumber=3000'",
+    "connect": "dotenv -- bash -c 'aws ssm start-session --target \"$BASTION_ID\" --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters host=\"$PRIVATE_URL\",portNumber=80,localPortNumber=3000'",
     "deploy": "dotenv -- cdk deploy --require-approval never",
     "destroy": "dotenv -- cdk destroy --force",
     "deploy:ci": "cdk deploy --require-approval never --outputs-file outputs.json",
