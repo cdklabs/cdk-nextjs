@@ -70,6 +70,8 @@ window.fetch = async function patchedFetch(input, init) {
     } else if (body instanceof ArrayBuffer) {
       // Pass the ArrayBuffer directly as a Uint8Array which is needed to hash
       bodyContent = new Uint8Array(body);
+    } else if (body instanceof URLSearchParams) {
+      bodyContent = body.toString();
     } else {
       bodyContent = JSON.stringify(body);
     }
