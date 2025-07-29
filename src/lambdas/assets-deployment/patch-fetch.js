@@ -51,6 +51,7 @@ window.fetch = async function patchedFetch(input, init) {
   let bodyContent;
   const headers = new Headers(init.headers);
   if (body) {
+    // NOTE: this needs to handle all body types listed here: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_a_body
     if (typeof body === "string") {
       bodyContent = body;
     } else if (body instanceof FormData) {
@@ -65,11 +66,41 @@ window.fetch = async function patchedFetch(input, init) {
       );
       // overwrite the FormData body with raw multipart form-data body
       init.body = bodyContent;
+    } else if (body instanceof URLSearchParams) {
+      bodyContent = body.toString();
     } else if (body instanceof Blob) {
+      // handles files too
       bodyContent = await body.text();
     } else if (body instanceof ArrayBuffer) {
       // Pass the ArrayBuffer directly as a Uint8Array which is needed to hash
       bodyContent = new Uint8Array(body);
+    } else if (ArrayBuffer.isView(body)) {
+      // handles all TypedArray types (Uint8Array, Int16Array, etc.)
+      bodyContent = new Uint8Array(
+        body.buffer,
+        body.byteOffset,
+        body.byteLength,
+      );
+    } else if (body instanceof ReadableStream) {
+      // convert stream to Uint8Array and replace body
+      const reader = body.getReader();
+      const chunks = [];
+      let done = false;
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        done = streamDone;
+        if (value) chunks.push(value);
+      }
+      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+      bodyContent = combined;
+      // replace the consumed stream with the combined data
+      init.body = combined;
     } else {
       bodyContent = JSON.stringify(body);
     }
