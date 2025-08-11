@@ -8,15 +8,15 @@ FROM public.ecr.aws/lambda/nodejs:22 AS runner
 
 ARG RELATIVE_PATH_TO_PACKAGE
 ARG PUBLIC_PATH
-COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH /app/$PUBLIC_PATH
+COPY --from=builder /app/$RELATIVE_PATH_TO_PACKAGE/$PUBLIC_PATH /app/$PUBLIC_PATH
 # 1. see src/nextjs-assets-deployment.ts's #createCustomResource method to see what
 # we copy from this resulting image to S3 and EFS
 # 2. we don't copy from /app/$RELATIVE_PATH_TO_PACKAGE/.next/standalone like in
 # compute images because we need .next/cache folder which doesn't exist within standalone
-COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_PACKAGE/.next /app/.next
+COPY --from=builder /app/$RELATIVE_PATH_TO_PACKAGE/.next /app/.next
 # create fetch-cache if not created by next build
 RUN mkdir -p /app/.next/cache/fetch-cache
 # copy bundled custom resource handler
-COPY --chown=nextjs:nodejs ./index.js ./patch-fetch.js ./
+COPY ./index.js ./patch-fetch.js ./
 
 CMD ["index.handler"]
