@@ -36,13 +36,13 @@ importers:
         specifier: ^2.1.4
         version: 2.1.4
       '@types/node':
-        specifier: ^20.19.10
+        specifier: ^20
         version: 20.19.10
       '@typescript-eslint/eslint-plugin':
-        specifier: ^8.39.1
+        specifier: ^8
         version: 8.39.1(@typescript-eslint/parser@8.39.1(eslint@9.33.0)(typescript@5.9.2))(eslint@9.33.0)(typescript@5.9.2)
       '@typescript-eslint/parser':
-        specifier: ^8.39.1
+        specifier: ^8
         version: 8.39.1(eslint@9.33.0)(typescript@5.9.2)
       aws-cdk-lib:
         specifier: 2.196.0
@@ -51,7 +51,7 @@ importers:
         specifier: ^2.37.0
         version: 2.37.0(aws-cdk-lib@2.196.0(constructs@10.0.5))(constructs@10.0.5)
       commit-and-tag-version:
-        specifier: ^12.5.2
+        specifier: ^12
         version: 12.5.2
       constructs:
         specifier: 10.0.5
@@ -60,7 +60,7 @@ importers:
         specifier: ^0.25.8
         version: 0.25.8
       eslint:
-        specifier: ^9.33.0
+        specifier: ^9
         version: 9.33.0
       eslint-config-prettier:
         specifier: ^9.1.2
@@ -78,28 +78,28 @@ importers:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@20.19.10)(ts-node@10.9.2(@types/node@20.19.10)(typescript@5.9.2))
       jest-junit:
-        specifier: ^15.0.0
+        specifier: ^15
         version: 15.0.0
       jsii:
-        specifier: ~5.8.17
+        specifier: ~5.8.7
         version: 5.8.17
       jsii-diff:
         specifier: ^1.113.0
         version: 1.113.0
       jsii-docgen:
-        specifier: ^10.8.0
+        specifier: ^10.5.0
         version: 10.8.0(jsii-rosetta@5.8.14)
       jsii-pacmak:
         specifier: ^1.113.0
         version: 1.113.0(jsii-rosetta@5.8.14)
       jsii-rosetta:
-        specifier: ~5.8.14
+        specifier: ~5.8.7
         version: 5.8.14
       mime-types:
         specifier: ^2.1.35
         version: 2.1.35
       next:
-        specifier: ^14.2.31
+        specifier: '14'
         version: 14.2.31(@babel/core@7.28.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       prettier:
         specifier: ^3.6.2
@@ -2306,10 +2306,12 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
+    deprecated: Glob versions prior to v9 are no longer supported
 
   glob@8.1.0:
     resolution: {integrity: sha512-r8hpEjiQEYlF2QU0df3dS+nxxSIreXQS1qRhMJM0Q5NDdR386C7jb7Hwwod8Fgiuex+k0GFjgft18yvxm5XoCQ==}
     engines: {node: '>=12'}
+    deprecated: Glob versions prior to v9 are no longer supported
 
   globals@14.0.0:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
@@ -2429,6 +2431,7 @@ packages:
 
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
+    deprecated: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
