@@ -144,12 +144,23 @@ export class NextjsDistribution extends Construct {
     this.addDynamicBehaviors();
   }
 
+  /**
+   * Creates a CloudFront comment that is safe for the 128 character limit.
+   * If the full comment with stack name exceeds 128 characters, returns the base comment only.
+   * @param baseComment The base comment text
+   * @param stackName The stack name to append
+   * @returns A comment string that is guaranteed to be < 128 characters
+   */
+  private getComment(baseComment: string, stackName: string): string {
+    const fullComment = `${baseComment} for ${stackName}`;
+    return fullComment.length < 128 ? fullComment : baseComment;
+  }
+
   private createStaticOrigin(): IOrigin {
-    const s3Origin = S3BucketOrigin.withOriginAccessControl(
+    return S3BucketOrigin.withOriginAccessControl(
       this.props.assetsBucket,
       this.props.overrides?.s3BucketOriginProps,
     );
-    return s3Origin;
   }
   private createDynamicOrigin(): IOrigin {
     if (this.isFunctionCompute) {
@@ -211,7 +222,10 @@ export class NextjsDistribution extends Construct {
       staticBehaviorOptions?.responseHeadersPolicy ??
       new ResponseHeadersPolicy(this, "StaticResponseHeadersPolicy", {
         securityHeadersBehavior: this.commonSecurityHeadersBehavior,
-        comment: `Nextjs Static Response Headers Policy for ${Stack.of(this).stackName}`,
+        comment: this.getComment(
+          "NextJS Static Response Headers Policy",
+          Stack.of(this).stackName,
+        ),
         ...this.props.overrides?.staticResponseHeadersPolicyProps,
       });
     return {
@@ -242,17 +256,23 @@ export class NextjsDistribution extends Construct {
         cookieBehavior: CacheCookieBehavior.all(),
         enableAcceptEncodingBrotli: true,
         enableAcceptEncodingGzip: true,
-        comment: `Nextjs Dynamic Cache Policy for ${Stack.of(this).stackName}`,
+        comment: this.getComment(
+          "NextJS Dynamic Cache Policy",
+          Stack.of(this).stackName,
+        ),
         ...this.props.overrides?.dynamicCachePolicyProps,
       });
     const responseHeadersPolicy =
       dynamicBehaviorOptions?.responseHeadersPolicy ??
       new ResponseHeadersPolicy(this, "DynamicResponseHeadersPolicy", {
         securityHeadersBehavior: this.commonSecurityHeadersBehavior,
-        comment: `Nextjs Dynamic Response Headers Policy for ${Stack.of(this).stackName}`,
+        comment: this.getComment(
+          "NextJS Dynamic Response Headers Policy",
+          Stack.of(this).stackName,
+        ),
         ...this.props.overrides?.dynamicBehaviorOptions?.responseHeadersPolicy,
       });
-    const behaviorOptions: BehaviorOptions = {
+    return {
       allowedMethods: AllowedMethods.ALLOW_ALL,
       cachePolicy,
       functionAssociations: this.dynamicCloudFrontFunctionAssociations,
@@ -262,7 +282,6 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...dynamicBehaviorOptions,
     };
-    return behaviorOptions;
   }
   private createImageBehaviorOptions(): BehaviorOptions {
     const imageBehaviorOptions = this.props.overrides?.imageBehaviorOptions;
@@ -279,7 +298,10 @@ export class NextjsDistribution extends Construct {
         cookieBehavior: CacheCookieBehavior.none(),
         enableAcceptEncodingBrotli: true,
         enableAcceptEncodingGzip: true,
-        comment: `Nextjs Image Cache Policy for ${Stack.of(this).stackName}`,
+        comment: this.getComment(
+          "NextJS Image Cache Policy",
+          Stack.of(this).stackName,
+        ),
         ...this.props.overrides?.imageCachePolicyProps,
       });
     // add default response headers policy if not provided
@@ -287,7 +309,10 @@ export class NextjsDistribution extends Construct {
       imageBehaviorOptions?.responseHeadersPolicy ??
       new ResponseHeadersPolicy(this, "ImageResponseHeadersPolicy", {
         securityHeadersBehavior: this.commonSecurityHeadersBehavior,
-        comment: `Nextjs Image Response Headers Policy for ${Stack.of(this).stackName}`,
+        comment: this.getComment(
+          "NextJS Image Response Headers Policy",
+          Stack.of(this).stackName,
+        ),
         ...this.props.overrides?.imageResponseHeadersPolicyProps,
       });
     return {
@@ -316,7 +341,10 @@ export class NextjsDistribution extends Construct {
         // best to use HTTP 2 and 3 for compatability (HTTP 2) and performance (HTTP3)
         // CloudFront will choose best option for client
         httpVersion: HttpVersion.HTTP2_AND_3,
-        comment: `cdk-nextjs Distribution for ${Stack.of(this).stackName}`,
+        comment: this.getComment(
+          "NextJS Distribution",
+          Stack.of(this).stackName,
+        ),
         ...this.props.overrides?.distributionProps,
       });
     }
