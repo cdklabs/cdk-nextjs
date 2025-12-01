@@ -8,8 +8,8 @@ FROM public.ecr.aws/docker/library/node:22-alpine as runner
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 RUN apk add --no-cache libc6-compat
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
-# Add SSM Parameter Store and Secrets Manager extensions
-COPY --from=public.ecr.aws/aws-lambda-extensions/aws-lambda-parameters-and-secrets-extension:latest-arm64 /opt/extensions/ /opt/extensions/
+# Add SSM Parameter Store and Secrets Manager extensions. See README for where this was downloaded from
+COPY ./extensions/ /opt/extensions/
 WORKDIR /app
 
 # Below is not needed for this demo but still helpful for reference
