@@ -12,8 +12,7 @@ import {
   NextjsContainersOverrides,
 } from "../nextjs-compute/nextjs-containers";
 
-export interface NextjsRegionalContainersConstructOverrides
-  extends NextjsBaseConstructOverrides {
+export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
 }
 
