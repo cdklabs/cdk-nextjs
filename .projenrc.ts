@@ -92,8 +92,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
           actions: {
             merge: {
               method: "squash",
-              strict: true,
-              commit_message: "title+body",
+              commit_message_template: `{{ title }} (#{{ number }})
+
+{{ body }}`,
             },
           },
         },

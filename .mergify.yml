@@ -23,8 +23,10 @@ pull_request_rules:
     actions:
       merge:
         method: squash
-        strict: true
-        commit_message: title+body
+        commit_message_template: |-
+          {{ title }} (#{{ number }})
+
+          {{ body }}
   - name: Automatic merge on approval and successful build
     actions:
       delete_head_branch: {}
