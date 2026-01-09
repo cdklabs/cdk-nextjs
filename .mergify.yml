@@ -3,7 +3,7 @@
 queue_rules:
   - name: default
     update_method: merge
-    conditions:
+    queue_conditions:
       - "#approved-reviews-by>=1"
       - -label~=(do-not-merge)
       - status-success=build
@@ -35,3 +35,5 @@ pull_request_rules:
       - -label~=(do-not-merge)
       - status-success=build
       - status-success=package-js
+merge_queue:
+  max_parallel_checks: 1

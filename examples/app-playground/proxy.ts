@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 
-export default function middleware(request: NextRequest) {
+export default function proxy(request: NextRequest) {
   if (process.env.PREPEND_APIGW_STAGE) {
     // this is needed because we don't have API GW REST API custom domain.
     // therefore must use stage name (default: /prod). next.config.js has `basePath`

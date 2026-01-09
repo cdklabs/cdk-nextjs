@@ -1,11 +1,11 @@
+import { useActionState } from "react";
 'use client';
 
 import Button from '#/ui/button';
-import { useFormState } from 'react-dom';
 import { formAction } from './form-action';
 
 export function Form() {
-  const [state, formAction2] = useFormState(formAction, { message: '' });
+  const [state, formAction2] = useActionState(formAction, { message: '' });
 
   return (
     <form action={formAction2} className="flex flex-col gap-y-2">

@@ -4,4 +4,12 @@
   },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
+  "kiroAgent.configureMCP": "Disabled",
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/bower_components": true,
+    "**/*.code-search": true,
+    "**/pruned": true,
+    "**/cdk.out": true
+  }
 }

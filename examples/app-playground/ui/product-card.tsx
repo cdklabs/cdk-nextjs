@@ -16,6 +16,7 @@ export const ProductCard = ({
   product: Product;
   href: string;
 }) => {
+  // eslint-disable-next-line react-hooks/immutability
   product.image = `static/${product.image}`;
   const price = dinero(product.price as DineroSnapshot<number>);
 

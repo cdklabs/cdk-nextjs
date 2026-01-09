@@ -38,7 +38,7 @@
     },
     {
       "name": "@types/node",
-      "version": "^20",
+      "version": "^24",
       "type": "build"
     },
     {
@@ -91,7 +91,7 @@
     },
     {
       "name": "jest-junit",
-      "version": "^15",
+      "version": "^16",
       "type": "build"
     },
     {
@@ -109,12 +109,12 @@
     },
     {
       "name": "jsii-rosetta",
-      "version": "~5.8.7",
+      "version": "~5.9.22",
       "type": "build"
     },
     {
       "name": "jsii",
-      "version": "~5.8.7",
+      "version": "~5.9.22",
       "type": "build"
     },
     {
@@ -123,7 +123,7 @@
     },
     {
       "name": "next",
-      "version": "14",
+      "version": "16.1.1-canary.19",
       "type": "build"
     },
     {
@@ -132,7 +132,7 @@
     },
     {
       "name": "projen",
-      "version": "^0.90.6",
+      "version": "^0.99.1",
       "type": "build"
     },
     {
@@ -153,7 +153,7 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "^2.196.0",
+      "version": "^2.234.1",
       "type": "peer"
     },
     {

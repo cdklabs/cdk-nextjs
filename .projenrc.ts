@@ -5,7 +5,7 @@ import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
-const nodeVersion = 22;
+const nodeVersion = 24;
 const project = new awscdk.AwsCdkConstructLibrary({
   // repository config
   author: "Ben Stickley",
@@ -19,11 +19,11 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // majorVersion: 1,
   // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.196.0",
-  jsiiVersion: "~5.8.7",
+  cdkVersion: "2.234.1",
+  jsiiVersion: "~5.9.22",
   packageManager: javascript.NodePackageManager.PNPM,
-  pnpmVersion: "9",
-  projenVersion: "^0.90.6",
+  pnpmVersion: "10",
+  projenVersion: "^0.99.1",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-cloudfront",
@@ -33,20 +33,21 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "@smithy/signature-v4",
     "@types/aws-lambda",
     "@types/mime-types",
-    "@types/node@^20",
+    "@types/node@^24",
     "cdk-nag",
     "esbuild",
     "mime-types",
-    "next@14", // bundled in src/nextjs-build/cache-handler.ts
+    // require canary as of 1/9/26, remove as soon as 16.2 is released
+    "next@16.1.1-canary.19", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   npmIgnoreOptions: {
-    ignorePatterns: ["examples/**/*"],
+    ignorePatterns: ["examples/**/*", ".kiro"],
   },
   // tooling config
   depsUpgradeOptions: {
     workflowOptions: {
-      schedule: UpgradeDependenciesSchedule.WEEKLY,
+      schedule: UpgradeDependenciesSchedule.MONTHLY,
     },
   },
   autoApproveUpgrades: true,
@@ -408,7 +409,11 @@ function generateStructs() {
 function updatePackageJson() {
   const packageJson = project.tryFindObjectFile("package.json");
   packageJson?.patch(
-    JsonPatch.add("/pnpm/onlyBuiltDependencies", ["esbuild", "unrs-resolver"]),
+    JsonPatch.add("/pnpm/onlyBuiltDependencies", [
+      "esbuild",
+      "unrs-resolver",
+      "sharp",
+    ]),
   );
   packageJson?.patch(JsonPatch.add("/packageManager", "pnpm@10.11.0"));
 }
