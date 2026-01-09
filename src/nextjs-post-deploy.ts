@@ -129,7 +129,7 @@ export class NextjsPostDeploy extends Construct {
       ),
       handler: "index.handler",
       memorySize: 2048,
-      runtime: new Runtime("nodejs22.x", RuntimeFamily.NODEJS),
+      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
       timeout: Duration.minutes(5),
       vpc: this.props.vpc,
       ...this.props.overrides?.functionProps,
