@@ -8,8 +8,11 @@ import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import FileSystemCache from "next/dist/server/lib/incremental-cache/file-system-cache";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import {
-  IncrementalCacheKindHint,
   IncrementalCacheValue,
+  GetIncrementalFetchCacheContext,
+  GetIncrementalResponseCacheContext,
+  SetIncrementalFetchCacheContext,
+  SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME } from "../constants";
 
@@ -39,16 +42,7 @@ export default class CdkNextjsCacheHandler extends FileSystemCache {
 
   get(
     cacheKey: string,
-    ctx?:
-      | {
-          kindHint?: IncrementalCacheKindHint;
-          revalidate?: number | false;
-          fetchUrl?: string;
-          fetchIdx?: number;
-          tags?: string[];
-          softTags?: string[];
-        }
-      | undefined,
+    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null> {
     // console.log(JSON.stringify({ cacheKey, ctx }, null, 2));
     return super.get(cacheKey, ctx);
@@ -57,13 +51,7 @@ export default class CdkNextjsCacheHandler extends FileSystemCache {
   set(
     pathname: string,
     data: IncrementalCacheValue | null,
-    ctx: {
-      revalidate?: number | false;
-      fetchCache?: boolean;
-      fetchUrl?: string;
-      fetchIdx?: number;
-      tags?: string[];
-    },
+    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void> {
     // console.log(
     //   JSON.stringify(

@@ -6,6 +6,9 @@ const rootWorkspace = path.join(fileURLToPath(import.meta.url), '..', '..');
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  images: {
+    customCacheHandler: true,
+  },
   // needed for NextjsRegionalFunctions without custom domain. see examples/regiona-functions/app.ts
   basePath: process.env['NEXTJS_BASE_PATH'],
   reactCompiler: true,
