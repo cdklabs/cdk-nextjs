@@ -37,6 +37,7 @@ jspm_packages/
 *.drawio.bkp
 ash_output
 ~$*.xlsx
+.kiro
 /test-reports/
 junit.xml
 /coverage/

@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   const collection =
     request.nextUrl.searchParams.get('collection') || 'collection';
   revalidatePath(path);
-  revalidateTag(collection);
+  revalidateTag(collection, 'max');
   console.log('revalidated', path, collection);
   return NextResponse.json({
     revalidated: true,

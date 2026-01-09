@@ -6,6 +6,9 @@ const rootWorkspace = path.join(fileURLToPath(import.meta.url), '..', '..');
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // experimental: {
+  //   adapterPath: path.join(rootWorkspace, 'app-playground/adapter.js'),
+  // },
   images: {
     customCacheHandler: true,
   },
