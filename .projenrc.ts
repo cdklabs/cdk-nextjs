@@ -6,6 +6,7 @@ import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
 const nodeVersion = 24;
+const pnpmVersion = "10.27.0";
 const project = new awscdk.AwsCdkConstructLibrary({
   // repository config
   author: "Ben Stickley",
@@ -22,7 +23,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   cdkVersion: "2.234.1",
   jsiiVersion: "~5.9.22",
   packageManager: javascript.NodePackageManager.PNPM,
-  pnpmVersion: "10.27.0",
+  pnpmVersion,
   projenVersion: "^0.99.1",
   devDeps: [
     "@aws-crypto/sha256-js",
@@ -416,5 +417,5 @@ function updatePackageJson() {
       "sharp",
     ]),
   );
-  packageJson?.patch(JsonPatch.add("/packageManager", "pnpm@10.11.0"));
+  packageJson?.patch(JsonPatch.add("/packageManager", `pnpm@${pnpmVersion}`));
 }
