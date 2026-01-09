@@ -18,8 +18,7 @@ import {
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 
-export interface NextjsGlobalFunctionsConstructOverrides
-  extends NextjsBaseConstructOverrides {
+export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
 }

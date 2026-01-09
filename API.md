@@ -6370,7 +6370,7 @@ const optionalCloudFrontFunctionProps: OptionalCloudFrontFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalCloudFrontFunctionProps.property.code">code</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | The source code of the function. |
 | <code><a href="#cdk-nextjs.OptionalCloudFrontFunctionProps.property.comment">comment</a></code> | <code>string</code> | A comment to describe the function. |
 | <code><a href="#cdk-nextjs.OptionalCloudFrontFunctionProps.property.functionName">functionName</a></code> | <code>string</code> | A name to identify the function. |
-| <code><a href="#cdk-nextjs.OptionalCloudFrontFunctionProps.property.keyValueStore">keyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | The Key Value Store to associate with this function. |
+| <code><a href="#cdk-nextjs.OptionalCloudFrontFunctionProps.property.keyValueStore">keyValueStore</a></code> | <code>aws-cdk-lib.interfaces.aws_cloudfront.IKeyValueStoreRef</code> | The Key Value Store to associate with this function. |
 | <code><a href="#cdk-nextjs.OptionalCloudFrontFunctionProps.property.runtime">runtime</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionRuntime</code> | The runtime environment for the function. |
 
 ---
@@ -6429,10 +6429,10 @@ A name to identify the function.
 ##### `keyValueStore`<sup>Optional</sup> <a name="keyValueStore" id="cdk-nextjs.OptionalCloudFrontFunctionProps.property.keyValueStore"></a>
 
 ```typescript
-public readonly keyValueStore: IKeyValueStore;
+public readonly keyValueStore: IKeyValueStoreRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_cloudfront.IKeyValueStore
+- *Type:* aws-cdk-lib.interfaces.aws_cloudfront.IKeyValueStoreRef
 - *Default:* no key value store is associated
 
 The Key Value Store to associate with this function.
@@ -7451,14 +7451,15 @@ const optionalDockerImageFunctionProps: OptionalDockerImageFunctionProps = { ...
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.applicationLogLevelV2">applicationLogLevelV2</a></code> | <code>aws-cdk-lib.aws_lambda.ApplicationLogLevel</code> | Sets the application log level for the function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | The system architectures compatible with this lambda function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.code">code</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageCode</code> | The source code of your Lambda function. |
-| <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.codeSigningConfig">codeSigningConfig</a></code> | <code>aws-cdk-lib.aws_lambda.ICodeSigningConfig</code> | Code signing config associated with this function. |
+| <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.codeSigningConfig">codeSigningConfig</a></code> | <code>aws-cdk-lib.interfaces.aws_lambda.ICodeSigningConfigRef</code> | Code signing config associated with this function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.currentVersionOptions">currentVersionOptions</a></code> | <code>aws-cdk-lib.aws_lambda.VersionOptions</code> | Options for the `lambda.Version` resource automatically created by the `fn.currentVersion` method. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.deadLetterQueue">deadLetterQueue</a></code> | <code>aws-cdk-lib.aws_sqs.IQueue</code> | The SQS queue to use if DLQ is enabled. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.deadLetterQueueEnabled">deadLetterQueueEnabled</a></code> | <code>boolean</code> | Enabled DLQ. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.deadLetterTopic">deadLetterTopic</a></code> | <code>aws-cdk-lib.aws_sns.ITopic</code> | The SNS topic to use as a DLQ. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.description">description</a></code> | <code>string</code> | A description of the function. |
+| <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.durableConfig">durableConfig</a></code> | <code>aws-cdk-lib.aws_lambda.DurableConfig</code> | The durable configuration for the function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.environment">environment</a></code> | <code>{[ key: string ]: string}</code> | Key-value pairs that Lambda caches and makes available for your Lambda functions. |
-| <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.environmentEncryption">environmentEncryption</a></code> | <code>aws-cdk-lib.aws_kms.IKey</code> | The AWS KMS key that's used to encrypt your function's environment variables. |
+| <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.environmentEncryption">environmentEncryption</a></code> | <code>aws-cdk-lib.interfaces.aws_kms.IKeyRef</code> | The AWS KMS key that's used to encrypt your function's environment variables. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.ephemeralStorageSize">ephemeralStorageSize</a></code> | <code>aws-cdk-lib.Size</code> | The size of the function’s /tmp directory in MiB. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.events">events</a></code> | <code>aws-cdk-lib.aws_lambda.IEventSource[]</code> | Event sources for this function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.filesystem">filesystem</a></code> | <code>aws-cdk-lib.aws_lambda.FileSystem</code> | The filesystem configuration for the lambda function. |
@@ -7470,6 +7471,7 @@ const optionalDockerImageFunctionProps: OptionalDockerImageFunctionProps = { ...
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.logFormat">logFormat</a></code> | <code>string</code> | Sets the logFormat for the function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.loggingFormat">loggingFormat</a></code> | <code>aws-cdk-lib.aws_lambda.LoggingFormat</code> | Sets the loggingFormat for the function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.aws_logs.ILogGroup</code> | The log group the function sends logs to. |
+| <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.logRemovalPolicy">logRemovalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | Determine the removal policy of the log group that is auto-created by this construct. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.logRetention">logRetention</a></code> | <code>aws-cdk-lib.aws_logs.RetentionDays</code> | The number of days log events are kept in CloudWatch Logs. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.logRetentionRetryOptions">logRetentionRetryOptions</a></code> | <code>aws-cdk-lib.aws_lambda.LogRetentionRetryOptions</code> | When log retention is specified, a custom resource attempts to create the CloudWatch log group. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.logRetentionRole">logRetentionRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The IAM role for the Lambda function associated with the custom resource that sets the retention policy. |
@@ -7489,6 +7491,7 @@ const optionalDockerImageFunctionProps: OptionalDockerImageFunctionProps = { ...
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.snapStart">snapStart</a></code> | <code>aws-cdk-lib.aws_lambda.SnapStartConf</code> | Enable SnapStart for Lambda Function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.systemLogLevel">systemLogLevel</a></code> | <code>string</code> | Sets the system log level for the function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.systemLogLevelV2">systemLogLevelV2</a></code> | <code>aws-cdk-lib.aws_lambda.SystemLogLevel</code> | Sets the system log level for the function. |
+| <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.tenancyConfig">tenancyConfig</a></code> | <code>aws-cdk-lib.aws_lambda.TenancyConfig</code> | The tenancy configuration for the function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.timeout">timeout</a></code> | <code>aws-cdk-lib.Duration</code> | The function execution time (in seconds) after which Lambda terminates the function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.tracing">tracing</a></code> | <code>aws-cdk-lib.aws_lambda.Tracing</code> | Enable AWS X-Ray Tracing for Lambda Function. |
 | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | VPC network to place Lambda network interfaces. |
@@ -7623,10 +7626,10 @@ code as inline text.
 ##### `codeSigningConfig`<sup>Optional</sup> <a name="codeSigningConfig" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.codeSigningConfig"></a>
 
 ```typescript
-public readonly codeSigningConfig: ICodeSigningConfig;
+public readonly codeSigningConfig: ICodeSigningConfigRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_lambda.ICodeSigningConfig
+- *Type:* aws-cdk-lib.interfaces.aws_lambda.ICodeSigningConfigRef
 - *Default:* Not Sign the Code
 
 Code signing config associated with this function.
@@ -7706,6 +7709,22 @@ A description of the function.
 
 ---
 
+##### `durableConfig`<sup>Optional</sup> <a name="durableConfig" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.durableConfig"></a>
+
+```typescript
+public readonly durableConfig: DurableConfig;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.DurableConfig
+- *Default:* No durable configuration
+
+The durable configuration for the function.
+
+If durability is added to an existing function, a resource replacement will be triggered.
+See the 'durableConfig' section in the module README for more details.
+
+---
+
 ##### `environment`<sup>Optional</sup> <a name="environment" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.environment"></a>
 
 ```typescript
@@ -7726,10 +7745,10 @@ Lambda function source code.
 ##### `environmentEncryption`<sup>Optional</sup> <a name="environmentEncryption" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.environmentEncryption"></a>
 
 ```typescript
-public readonly environmentEncryption: IKey;
+public readonly environmentEncryption: IKeyRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_kms.IKey
+- *Type:* aws-cdk-lib.interfaces.aws_kms.IKeyRef
 - *Default:* AWS Lambda creates and uses an AWS managed customer master key (CMK).
 
 The AWS KMS key that's used to encrypt your function's environment variables.
@@ -7899,7 +7918,29 @@ If you are deploying to another type of region, please check regional availabili
 
 ---
 
-##### `logRetention`<sup>Optional</sup> <a name="logRetention" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.logRetention"></a>
+##### ~~`logRemovalPolicy`~~<sup>Optional</sup> <a name="logRemovalPolicy" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.logRemovalPolicy"></a>
+
+- *Deprecated:* use `logGroup` instead
+
+```typescript
+public readonly logRemovalPolicy: RemovalPolicy;
+```
+
+- *Type:* aws-cdk-lib.RemovalPolicy
+- *Default:* RemovalPolicy.Retain
+
+Determine the removal policy of the log group that is auto-created by this construct.
+
+Normally you want to retain the log group so you can diagnose issues
+from logs even after a deployment that no longer includes the log group.
+In that case, use the normal date-based retention policy to age out your
+logs.
+
+---
+
+##### ~~`logRetention`~~<sup>Optional</sup> <a name="logRetention" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.logRetention"></a>
+
+- *Deprecated:* use `logGroup` instead
 
 ```typescript
 public readonly logRetention: RetentionDays;
@@ -8200,6 +8241,19 @@ Sets the system log level for the function.
 
 ---
 
+##### `tenancyConfig`<sup>Optional</sup> <a name="tenancyConfig" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.tenancyConfig"></a>
+
+```typescript
+public readonly tenancyConfig: TenancyConfig;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.TenancyConfig
+- *Default:* Tenant isolation is not enabled
+
+The tenancy configuration for the function.
+
+---
+
 ##### `timeout`<sup>Optional</sup> <a name="timeout" id="cdk-nextjs.OptionalDockerImageFunctionProps.property.timeout"></a>
 
 ```typescript
@@ -8288,14 +8342,15 @@ const optionalEdgeFunctionProps: OptionalEdgeFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.applicationLogLevelV2">applicationLogLevelV2</a></code> | <code>aws-cdk-lib.aws_lambda.ApplicationLogLevel</code> | Sets the application log level for the function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | The system architectures compatible with this lambda function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.code">code</a></code> | <code>aws-cdk-lib.aws_lambda.Code</code> | The source code of your Lambda function. |
-| <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.codeSigningConfig">codeSigningConfig</a></code> | <code>aws-cdk-lib.aws_lambda.ICodeSigningConfig</code> | Code signing config associated with this function. |
+| <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.codeSigningConfig">codeSigningConfig</a></code> | <code>aws-cdk-lib.interfaces.aws_lambda.ICodeSigningConfigRef</code> | Code signing config associated with this function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.currentVersionOptions">currentVersionOptions</a></code> | <code>aws-cdk-lib.aws_lambda.VersionOptions</code> | Options for the `lambda.Version` resource automatically created by the `fn.currentVersion` method. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.deadLetterQueue">deadLetterQueue</a></code> | <code>aws-cdk-lib.aws_sqs.IQueue</code> | The SQS queue to use if DLQ is enabled. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.deadLetterQueueEnabled">deadLetterQueueEnabled</a></code> | <code>boolean</code> | Enabled DLQ. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.deadLetterTopic">deadLetterTopic</a></code> | <code>aws-cdk-lib.aws_sns.ITopic</code> | The SNS topic to use as a DLQ. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.description">description</a></code> | <code>string</code> | A description of the function. |
+| <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.durableConfig">durableConfig</a></code> | <code>aws-cdk-lib.aws_lambda.DurableConfig</code> | The durable configuration for the function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.environment">environment</a></code> | <code>{[ key: string ]: string}</code> | Key-value pairs that Lambda caches and makes available for your Lambda functions. |
-| <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.environmentEncryption">environmentEncryption</a></code> | <code>aws-cdk-lib.aws_kms.IKey</code> | The AWS KMS key that's used to encrypt your function's environment variables. |
+| <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.environmentEncryption">environmentEncryption</a></code> | <code>aws-cdk-lib.interfaces.aws_kms.IKeyRef</code> | The AWS KMS key that's used to encrypt your function's environment variables. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.ephemeralStorageSize">ephemeralStorageSize</a></code> | <code>aws-cdk-lib.Size</code> | The size of the function’s /tmp directory in MiB. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.events">events</a></code> | <code>aws-cdk-lib.aws_lambda.IEventSource[]</code> | Event sources for this function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.filesystem">filesystem</a></code> | <code>aws-cdk-lib.aws_lambda.FileSystem</code> | The filesystem configuration for the lambda function. |
@@ -8308,6 +8363,7 @@ const optionalEdgeFunctionProps: OptionalEdgeFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.logFormat">logFormat</a></code> | <code>string</code> | Sets the logFormat for the function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.loggingFormat">loggingFormat</a></code> | <code>aws-cdk-lib.aws_lambda.LoggingFormat</code> | Sets the loggingFormat for the function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.aws_logs.ILogGroup</code> | The log group the function sends logs to. |
+| <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.logRemovalPolicy">logRemovalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | Determine the removal policy of the log group that is auto-created by this construct. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.logRetention">logRetention</a></code> | <code>aws-cdk-lib.aws_logs.RetentionDays</code> | The number of days log events are kept in CloudWatch Logs. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.logRetentionRetryOptions">logRetentionRetryOptions</a></code> | <code>aws-cdk-lib.aws_lambda.LogRetentionRetryOptions</code> | When log retention is specified, a custom resource attempts to create the CloudWatch log group. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.logRetentionRole">logRetentionRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The IAM role for the Lambda function associated with the custom resource that sets the retention policy. |
@@ -8329,6 +8385,7 @@ const optionalEdgeFunctionProps: OptionalEdgeFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.stackId">stackId</a></code> | <code>string</code> | The stack ID of Lambda@Edge function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.systemLogLevel">systemLogLevel</a></code> | <code>string</code> | Sets the system log level for the function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.systemLogLevelV2">systemLogLevelV2</a></code> | <code>aws-cdk-lib.aws_lambda.SystemLogLevel</code> | Sets the system log level for the function. |
+| <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.tenancyConfig">tenancyConfig</a></code> | <code>aws-cdk-lib.aws_lambda.TenancyConfig</code> | The tenancy configuration for the function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.timeout">timeout</a></code> | <code>aws-cdk-lib.Duration</code> | The function execution time (in seconds) after which Lambda terminates the function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.tracing">tracing</a></code> | <code>aws-cdk-lib.aws_lambda.Tracing</code> | Enable AWS X-Ray Tracing for Lambda Function. |
 | <code><a href="#cdk-nextjs.OptionalEdgeFunctionProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | VPC network to place Lambda network interfaces. |
@@ -8463,10 +8520,10 @@ code as inline text.
 ##### `codeSigningConfig`<sup>Optional</sup> <a name="codeSigningConfig" id="cdk-nextjs.OptionalEdgeFunctionProps.property.codeSigningConfig"></a>
 
 ```typescript
-public readonly codeSigningConfig: ICodeSigningConfig;
+public readonly codeSigningConfig: ICodeSigningConfigRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_lambda.ICodeSigningConfig
+- *Type:* aws-cdk-lib.interfaces.aws_lambda.ICodeSigningConfigRef
 - *Default:* Not Sign the Code
 
 Code signing config associated with this function.
@@ -8546,6 +8603,22 @@ A description of the function.
 
 ---
 
+##### `durableConfig`<sup>Optional</sup> <a name="durableConfig" id="cdk-nextjs.OptionalEdgeFunctionProps.property.durableConfig"></a>
+
+```typescript
+public readonly durableConfig: DurableConfig;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.DurableConfig
+- *Default:* No durable configuration
+
+The durable configuration for the function.
+
+If durability is added to an existing function, a resource replacement will be triggered.
+See the 'durableConfig' section in the module README for more details.
+
+---
+
 ##### `environment`<sup>Optional</sup> <a name="environment" id="cdk-nextjs.OptionalEdgeFunctionProps.property.environment"></a>
 
 ```typescript
@@ -8566,10 +8639,10 @@ Lambda function source code.
 ##### `environmentEncryption`<sup>Optional</sup> <a name="environmentEncryption" id="cdk-nextjs.OptionalEdgeFunctionProps.property.environmentEncryption"></a>
 
 ```typescript
-public readonly environmentEncryption: IKey;
+public readonly environmentEncryption: IKeyRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_kms.IKey
+- *Type:* aws-cdk-lib.interfaces.aws_kms.IKeyRef
 - *Default:* AWS Lambda creates and uses an AWS managed customer master key (CMK).
 
 The AWS KMS key that's used to encrypt your function's environment variables.
@@ -8761,7 +8834,29 @@ If you are deploying to another type of region, please check regional availabili
 
 ---
 
-##### `logRetention`<sup>Optional</sup> <a name="logRetention" id="cdk-nextjs.OptionalEdgeFunctionProps.property.logRetention"></a>
+##### ~~`logRemovalPolicy`~~<sup>Optional</sup> <a name="logRemovalPolicy" id="cdk-nextjs.OptionalEdgeFunctionProps.property.logRemovalPolicy"></a>
+
+- *Deprecated:* use `logGroup` instead
+
+```typescript
+public readonly logRemovalPolicy: RemovalPolicy;
+```
+
+- *Type:* aws-cdk-lib.RemovalPolicy
+- *Default:* RemovalPolicy.Retain
+
+Determine the removal policy of the log group that is auto-created by this construct.
+
+Normally you want to retain the log group so you can diagnose issues
+from logs even after a deployment that no longer includes the log group.
+In that case, use the normal date-based retention policy to age out your
+logs.
+
+---
+
+##### ~~`logRetention`~~<sup>Optional</sup> <a name="logRetention" id="cdk-nextjs.OptionalEdgeFunctionProps.property.logRetention"></a>
+
+- *Deprecated:* use `logGroup` instead
 
 ```typescript
 public readonly logRetention: RetentionDays;
@@ -9092,6 +9187,19 @@ Sets the system log level for the function.
 
 ---
 
+##### `tenancyConfig`<sup>Optional</sup> <a name="tenancyConfig" id="cdk-nextjs.OptionalEdgeFunctionProps.property.tenancyConfig"></a>
+
+```typescript
+public readonly tenancyConfig: TenancyConfig;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.TenancyConfig
+- *Default:* Tenant isolation is not enabled
+
+The tenancy configuration for the function.
+
+---
+
 ##### `timeout`<sup>Optional</sup> <a name="timeout" id="cdk-nextjs.OptionalEdgeFunctionProps.property.timeout"></a>
 
 ```typescript
@@ -9180,14 +9288,15 @@ const optionalFunctionProps: OptionalFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.applicationLogLevelV2">applicationLogLevelV2</a></code> | <code>aws-cdk-lib.aws_lambda.ApplicationLogLevel</code> | Sets the application log level for the function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | The system architectures compatible with this lambda function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.code">code</a></code> | <code>aws-cdk-lib.aws_lambda.Code</code> | The source code of your Lambda function. |
-| <code><a href="#cdk-nextjs.OptionalFunctionProps.property.codeSigningConfig">codeSigningConfig</a></code> | <code>aws-cdk-lib.aws_lambda.ICodeSigningConfig</code> | Code signing config associated with this function. |
+| <code><a href="#cdk-nextjs.OptionalFunctionProps.property.codeSigningConfig">codeSigningConfig</a></code> | <code>aws-cdk-lib.interfaces.aws_lambda.ICodeSigningConfigRef</code> | Code signing config associated with this function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.currentVersionOptions">currentVersionOptions</a></code> | <code>aws-cdk-lib.aws_lambda.VersionOptions</code> | Options for the `lambda.Version` resource automatically created by the `fn.currentVersion` method. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.deadLetterQueue">deadLetterQueue</a></code> | <code>aws-cdk-lib.aws_sqs.IQueue</code> | The SQS queue to use if DLQ is enabled. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.deadLetterQueueEnabled">deadLetterQueueEnabled</a></code> | <code>boolean</code> | Enabled DLQ. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.deadLetterTopic">deadLetterTopic</a></code> | <code>aws-cdk-lib.aws_sns.ITopic</code> | The SNS topic to use as a DLQ. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.description">description</a></code> | <code>string</code> | A description of the function. |
+| <code><a href="#cdk-nextjs.OptionalFunctionProps.property.durableConfig">durableConfig</a></code> | <code>aws-cdk-lib.aws_lambda.DurableConfig</code> | The durable configuration for the function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.environment">environment</a></code> | <code>{[ key: string ]: string}</code> | Key-value pairs that Lambda caches and makes available for your Lambda functions. |
-| <code><a href="#cdk-nextjs.OptionalFunctionProps.property.environmentEncryption">environmentEncryption</a></code> | <code>aws-cdk-lib.aws_kms.IKey</code> | The AWS KMS key that's used to encrypt your function's environment variables. |
+| <code><a href="#cdk-nextjs.OptionalFunctionProps.property.environmentEncryption">environmentEncryption</a></code> | <code>aws-cdk-lib.interfaces.aws_kms.IKeyRef</code> | The AWS KMS key that's used to encrypt your function's environment variables. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.ephemeralStorageSize">ephemeralStorageSize</a></code> | <code>aws-cdk-lib.Size</code> | The size of the function’s /tmp directory in MiB. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.events">events</a></code> | <code>aws-cdk-lib.aws_lambda.IEventSource[]</code> | Event sources for this function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.filesystem">filesystem</a></code> | <code>aws-cdk-lib.aws_lambda.FileSystem</code> | The filesystem configuration for the lambda function. |
@@ -9200,6 +9309,7 @@ const optionalFunctionProps: OptionalFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.logFormat">logFormat</a></code> | <code>string</code> | Sets the logFormat for the function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.loggingFormat">loggingFormat</a></code> | <code>aws-cdk-lib.aws_lambda.LoggingFormat</code> | Sets the loggingFormat for the function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.aws_logs.ILogGroup</code> | The log group the function sends logs to. |
+| <code><a href="#cdk-nextjs.OptionalFunctionProps.property.logRemovalPolicy">logRemovalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | Determine the removal policy of the log group that is auto-created by this construct. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.logRetention">logRetention</a></code> | <code>aws-cdk-lib.aws_logs.RetentionDays</code> | The number of days log events are kept in CloudWatch Logs. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.logRetentionRetryOptions">logRetentionRetryOptions</a></code> | <code>aws-cdk-lib.aws_lambda.LogRetentionRetryOptions</code> | When log retention is specified, a custom resource attempts to create the CloudWatch log group. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.logRetentionRole">logRetentionRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The IAM role for the Lambda function associated with the custom resource that sets the retention policy. |
@@ -9220,6 +9330,7 @@ const optionalFunctionProps: OptionalFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.snapStart">snapStart</a></code> | <code>aws-cdk-lib.aws_lambda.SnapStartConf</code> | Enable SnapStart for Lambda Function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.systemLogLevel">systemLogLevel</a></code> | <code>string</code> | Sets the system log level for the function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.systemLogLevelV2">systemLogLevelV2</a></code> | <code>aws-cdk-lib.aws_lambda.SystemLogLevel</code> | Sets the system log level for the function. |
+| <code><a href="#cdk-nextjs.OptionalFunctionProps.property.tenancyConfig">tenancyConfig</a></code> | <code>aws-cdk-lib.aws_lambda.TenancyConfig</code> | The tenancy configuration for the function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.timeout">timeout</a></code> | <code>aws-cdk-lib.Duration</code> | The function execution time (in seconds) after which Lambda terminates the function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.tracing">tracing</a></code> | <code>aws-cdk-lib.aws_lambda.Tracing</code> | Enable AWS X-Ray Tracing for Lambda Function. |
 | <code><a href="#cdk-nextjs.OptionalFunctionProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | VPC network to place Lambda network interfaces. |
@@ -9354,10 +9465,10 @@ code as inline text.
 ##### `codeSigningConfig`<sup>Optional</sup> <a name="codeSigningConfig" id="cdk-nextjs.OptionalFunctionProps.property.codeSigningConfig"></a>
 
 ```typescript
-public readonly codeSigningConfig: ICodeSigningConfig;
+public readonly codeSigningConfig: ICodeSigningConfigRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_lambda.ICodeSigningConfig
+- *Type:* aws-cdk-lib.interfaces.aws_lambda.ICodeSigningConfigRef
 - *Default:* Not Sign the Code
 
 Code signing config associated with this function.
@@ -9437,6 +9548,22 @@ A description of the function.
 
 ---
 
+##### `durableConfig`<sup>Optional</sup> <a name="durableConfig" id="cdk-nextjs.OptionalFunctionProps.property.durableConfig"></a>
+
+```typescript
+public readonly durableConfig: DurableConfig;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.DurableConfig
+- *Default:* No durable configuration
+
+The durable configuration for the function.
+
+If durability is added to an existing function, a resource replacement will be triggered.
+See the 'durableConfig' section in the module README for more details.
+
+---
+
 ##### `environment`<sup>Optional</sup> <a name="environment" id="cdk-nextjs.OptionalFunctionProps.property.environment"></a>
 
 ```typescript
@@ -9457,10 +9584,10 @@ Lambda function source code.
 ##### `environmentEncryption`<sup>Optional</sup> <a name="environmentEncryption" id="cdk-nextjs.OptionalFunctionProps.property.environmentEncryption"></a>
 
 ```typescript
-public readonly environmentEncryption: IKey;
+public readonly environmentEncryption: IKeyRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_kms.IKey
+- *Type:* aws-cdk-lib.interfaces.aws_kms.IKeyRef
 - *Default:* AWS Lambda creates and uses an AWS managed customer master key (CMK).
 
 The AWS KMS key that's used to encrypt your function's environment variables.
@@ -9652,7 +9779,29 @@ If you are deploying to another type of region, please check regional availabili
 
 ---
 
-##### `logRetention`<sup>Optional</sup> <a name="logRetention" id="cdk-nextjs.OptionalFunctionProps.property.logRetention"></a>
+##### ~~`logRemovalPolicy`~~<sup>Optional</sup> <a name="logRemovalPolicy" id="cdk-nextjs.OptionalFunctionProps.property.logRemovalPolicy"></a>
+
+- *Deprecated:* use `logGroup` instead
+
+```typescript
+public readonly logRemovalPolicy: RemovalPolicy;
+```
+
+- *Type:* aws-cdk-lib.RemovalPolicy
+- *Default:* RemovalPolicy.Retain
+
+Determine the removal policy of the log group that is auto-created by this construct.
+
+Normally you want to retain the log group so you can diagnose issues
+from logs even after a deployment that no longer includes the log group.
+In that case, use the normal date-based retention policy to age out your
+logs.
+
+---
+
+##### ~~`logRetention`~~<sup>Optional</sup> <a name="logRetention" id="cdk-nextjs.OptionalFunctionProps.property.logRetention"></a>
+
+- *Deprecated:* use `logGroup` instead
 
 ```typescript
 public readonly logRetention: RetentionDays;
@@ -9967,6 +10116,19 @@ public readonly systemLogLevelV2: SystemLogLevel;
 - *Default:* SystemLogLevel.INFO
 
 Sets the system log level for the function.
+
+---
+
+##### `tenancyConfig`<sup>Optional</sup> <a name="tenancyConfig" id="cdk-nextjs.OptionalFunctionProps.property.tenancyConfig"></a>
+
+```typescript
+public readonly tenancyConfig: TenancyConfig;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.TenancyConfig
+- *Default:* Tenant isolation is not enabled
+
+The tenancy configuration for the function.
 
 ---
 
@@ -10837,13 +10999,14 @@ const optionalS3OriginBucketWithOACProps: OptionalS3OriginBucketWithOACProps = {
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.connectionAttempts">connectionAttempts</a></code> | <code>number</code> | The number of times that CloudFront attempts to connect to the origin; |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.connectionTimeout">connectionTimeout</a></code> | <code>aws-cdk-lib.Duration</code> | The number of seconds that CloudFront waits when trying to establish a connection to the origin. |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.customHeaders">customHeaders</a></code> | <code>{[ key: string ]: string}</code> | A list of HTTP header names and values that CloudFront adds to requests it sends to the origin. |
-| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControl">originAccessControl</a></code> | <code>aws-cdk-lib.aws_cloudfront.IOriginAccessControl</code> | An optional Origin Access Control. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControl">originAccessControl</a></code> | <code>aws-cdk-lib.interfaces.aws_cloudfront.IOriginAccessControlRef</code> | An optional Origin Access Control. |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControlId">originAccessControlId</a></code> | <code>string</code> | The unique identifier of an origin access control for this origin. |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessLevels">originAccessLevels</a></code> | <code>aws-cdk-lib.aws_cloudfront.AccessLevel[]</code> | The level of permissions granted in the bucket policy and key policy (if applicable) to the CloudFront distribution. |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originId">originId</a></code> | <code>string</code> | A unique identifier for the origin. |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originPath">originPath</a></code> | <code>string</code> | An optional path that CloudFront appends to the origin domain name when CloudFront requests content from the origin. |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originShieldEnabled">originShieldEnabled</a></code> | <code>boolean</code> | Origin Shield is enabled by setting originShieldRegion to a valid region, after this to disable Origin Shield again you must set this flag to false. |
 | <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originShieldRegion">originShieldRegion</a></code> | <code>string</code> | When you enable Origin Shield in the AWS Region that has the lowest latency to your origin, you can get better network performance. |
+| <code><a href="#cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.responseCompletionTimeout">responseCompletionTimeout</a></code> | <code>aws-cdk-lib.Duration</code> | The time that a request from CloudFront to the origin can stay open and wait for a response. |
 
 ---
 
@@ -10893,10 +11056,10 @@ A list of HTTP header names and values that CloudFront adds to requests it sends
 ##### `originAccessControl`<sup>Optional</sup> <a name="originAccessControl" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.originAccessControl"></a>
 
 ```typescript
-public readonly originAccessControl: IOriginAccessControl;
+public readonly originAccessControl: IOriginAccessControlRef;
 ```
 
-- *Type:* aws-cdk-lib.aws_cloudfront.IOriginAccessControl
+- *Type:* aws-cdk-lib.interfaces.aws_cloudfront.IOriginAccessControlRef
 - *Default:* an Origin Access Control will be created.
 
 An optional Origin Access Control.
@@ -10982,6 +11145,23 @@ public readonly originShieldRegion: string;
 - *Default:* origin shield not enabled
 
 When you enable Origin Shield in the AWS Region that has the lowest latency to your origin, you can get better network performance.
+
+---
+
+##### `responseCompletionTimeout`<sup>Optional</sup> <a name="responseCompletionTimeout" id="cdk-nextjs.OptionalS3OriginBucketWithOACProps.property.responseCompletionTimeout"></a>
+
+```typescript
+public readonly responseCompletionTimeout: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* undefined -  AWS CloudFront default is not enforcing a maximum value
+
+The time that a request from CloudFront to the origin can stay open and wait for a response.
+
+If the complete response isn't received from the origin by this time, CloudFront ends the connection.
+
+Valid values are 1-3600 seconds, inclusive.
 
 ---
 
