@@ -172,7 +172,3 @@ Sometimes you'll want to run the containers built by cdk-nextjs that were not bu
 ```
 
 NOTE, you'll need to remove `credsHelpers` when you want to use `cdk deploy` again because CDK is not compatible with `amazon-ecr-credential-helper`. I recommend just renaming to `_credsHelpers` so you can quickly use it again if needed.
-
-## builder.Dockerfile
-
-It's recommended by Docker [here](https://docs.docker.com/reference/dockerfile/#env) to limit scope of env vars. So for builder.Dockerfile injection, we don't do `ENV {{INJECT_CDK_NEXTJS_BUILD_ENV_VARS}}`, rather we do `RUN {{INJECT_CDK_NEXTJS_BUILD_ENV_VARS}} next build`.

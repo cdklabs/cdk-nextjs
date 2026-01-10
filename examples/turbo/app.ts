@@ -66,19 +66,6 @@ class TurborepoStack extends Stack {
       healthCheckPath: "/api/health",
       buildContext,
       overrides: {
-        nextjsGlobalFunctions: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              file: this.#builderDockerfile,
-            },
-          },
-        },
-        nextjsBuild: {
-          functionsImageBuildContext: import.meta.dirname,
-          nextjsFunctionsAssetImageCodeProps: {
-            file: "global-functions.Dockerfile",
-          },
-        },
         nextjsDistribution: {
           distributionProps: {
             logBucket: logsBucket,

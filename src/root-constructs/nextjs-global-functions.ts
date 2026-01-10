@@ -55,7 +55,7 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
 export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
   nextjsDistribution: NextjsDistribution;
-  get url() {
+  get url(): string {
     return `https://${this.nextjsDistribution.distribution.domainName}`;
   }
 
@@ -64,29 +64,20 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   constructor(scope: Construct, id: string, props: NextjsGlobalFunctionsProps) {
     super(scope, id, props, NextjsType.GLOBAL_FUNCTIONS);
     this.props = props;
+
     this.nextjsFunctions = this.createNextjsFunctions();
-    this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsFunctions.function.connections,
-      role: this.nextjsFunctions.function.role!,
-    });
     this.nextjsDistribution = this.createNextjsDistribution();
   }
 
-  private createNextjsFunctions() {
-    if (!this.nextjsBuild.imageForNextjsFunctions) {
-      throw new Error("nextjsBuild.dockerImageCode is undefined");
-    }
+  private createNextjsFunctions(): NextjsFunctions {
+    // Create functions with local build output
     return new NextjsFunctions(this, "NextjsFunctions", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
-      buildId: this.nextjsBuild.buildId,
-      dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
-      healthCheckPath: this.baseProps.healthCheckPath,
-      nextjsType: this.nextjsType,
-      vpc: this.nextjsVpc.vpc,
+      ...this.computeBaseProps(),
       overrides: this.props.overrides?.nextjsFunctions,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionsProps,
     });
   }
+
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,

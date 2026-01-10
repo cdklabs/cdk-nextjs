@@ -1,3 +1,4 @@
+import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import {
@@ -7,13 +8,16 @@ import {
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
+import { OptionalNextjsVpcProps } from "../generated-structs/OptionalNextjsVpcProps";
 import {
   NextjsContainers,
   NextjsContainersOverrides,
 } from "../nextjs-compute/nextjs-containers";
+import { NextjsVpc, NextjsVpcOverrides } from "../nextjs-vpc";
 
 export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
+  readonly nextjsVpcProps?: OptionalNextjsVpcProps;
 }
 
 /**
@@ -24,6 +28,7 @@ export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseCo
 export interface NextjsRegionalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
+  readonly nextjsVpc?: NextjsVpcOverrides;
 }
 
 export interface NextjsRegionalContainersProps extends NextjsBaseProps {
@@ -40,11 +45,10 @@ export interface NextjsRegionalContainersProps extends NextjsBaseProps {
  * for containers.
  */
 export class NextjsRegionalContainers extends NextjsBaseConstruct {
+  nextjsVpc: NextjsVpc;
   nextjsContainers: NextjsContainers;
-  get url() {
-    return `http://${
-      this.nextjsContainers.albFargateService.loadBalancer.loadBalancerDnsName
-    }`;
+  get url(): string {
+    return `http://${this.nextjsContainers.albFargateService.loadBalancer.loadBalancerDnsName}`;
   }
 
   private props: NextjsRegionalContainersProps;
@@ -56,27 +60,33 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
   ) {
     super(scope, id, props, NextjsType.REGIONAL_CONTAINERS);
     this.props = props;
+
+    this.nextjsVpc = this.createVpc();
     this.nextjsContainers = this.createNextjsLoadBalancedContainers();
-    this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsContainers.albFargateService.service.connections,
-      role: this.nextjsContainers.albFargateService.taskDefinition.taskRole,
+  }
+
+  /**
+   * Get VPC for container deployments. Containers require VPC for networking.
+   */
+  private vpcForContainers(): IVpc {
+    return this.nextjsVpc.vpc;
+  }
+
+  private createVpc(): NextjsVpc {
+    return new NextjsVpc(this, "NextjsVpc", {
+      nextjsType: this.nextjsType,
+      overrides: this.props.overrides?.nextjsVpc,
+      ...this.props.overrides?.nextjsRegionalContainers?.nextjsVpcProps,
     });
   }
 
-  private createNextjsLoadBalancedContainers() {
-    if (!this.nextjsBuild.imageForNextjsContainers) {
-      throw new Error("nextjsBuild.imageForNextjsContainers is undefined");
-    }
+  private createNextjsLoadBalancedContainers(): NextjsContainers {
+    // Create containers with local build output
     return new NextjsContainers(this, "NextjsContainers", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
-      buildId: this.nextjsBuild.buildId,
-      dockerImageAsset: this.nextjsBuild.imageForNextjsContainers,
-      fileSystem: this.nextjsFileSystem.fileSystem,
-      healthCheckPath: this.baseProps.healthCheckPath,
-      nextjsType: this.nextjsType,
-      overrides: this.props.overrides?.nextjsContainers,
+      ...this.computeBaseProps(),
+      vpc: this.vpcForContainers(),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
-      vpc: this.nextjsVpc.vpc,
+      overrides: this.props.overrides?.nextjsContainers,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
     });
   }

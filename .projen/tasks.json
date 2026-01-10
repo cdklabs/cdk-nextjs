@@ -49,19 +49,10 @@
       "description": "Prepare assets",
       "steps": [
         {
-          "spawn": "bundle:lambdas/assets-deployment/assets-deployment.lambda"
-        },
-        {
           "spawn": "bundle:lambdas/post-deploy/post-deploy.lambda"
         },
         {
           "exec": "mkdir -p lib/nextjs-build"
-        },
-        {
-          "exec": "cp src/nextjs-build/assets-deployment.Dockerfile assets/lambdas/assets-deployment/assets-deployment.lambda"
-        },
-        {
-          "exec": "cp src/nextjs-build/builder.Dockerfile lib/nextjs-build"
         },
         {
           "exec": "cp src/nextjs-build/global-containers.Dockerfile lib/nextjs-build"
@@ -73,46 +64,10 @@
           "exec": "cp src/nextjs-build/regional-containers.Dockerfile lib/nextjs-build"
         },
         {
-          "spawn": "bundle:nextjs-build/cdk-nextjs-cache-handler"
+          "exec": "cp src/nextjs-build/regional-functions.Dockerfile lib/nextjs-build"
         },
         {
-          "spawn": "bundle:lambdas/assets-deployment/patch-fetch"
-        }
-      ]
-    },
-    "bundle:lambdas/assets-deployment/assets-deployment.lambda": {
-      "name": "bundle:lambdas/assets-deployment/assets-deployment.lambda",
-      "description": "Create a JavaScript bundle from src/lambdas/assets-deployment/assets-deployment.lambda.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/lambdas/assets-deployment/assets-deployment.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
-        }
-      ]
-    },
-    "bundle:lambdas/assets-deployment/assets-deployment.lambda:watch": {
-      "name": "bundle:lambdas/assets-deployment/assets-deployment.lambda:watch",
-      "description": "Continuously update the JavaScript bundle from src/lambdas/assets-deployment/assets-deployment.lambda.ts",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/lambdas/assets-deployment/assets-deployment.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
-        }
-      ]
-    },
-    "bundle:lambdas/assets-deployment/patch-fetch": {
-      "name": "bundle:lambdas/assets-deployment/patch-fetch",
-      "description": "Create a JavaScript bundle from src/lambdas/assets-deployment/patch-fetch.js",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/lambdas/assets-deployment/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/patch-fetch.js\" --minify"
-        }
-      ]
-    },
-    "bundle:lambdas/assets-deployment/patch-fetch:watch": {
-      "name": "bundle:lambdas/assets-deployment/patch-fetch:watch",
-      "description": "Continuously update the JavaScript bundle from src/lambdas/assets-deployment/patch-fetch.js",
-      "steps": [
-        {
-          "exec": "esbuild --bundle src/lambdas/assets-deployment/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"assets/lambdas/assets-deployment/assets-deployment.lambda/patch-fetch.js\" --minify --watch"
+          "spawn": "bundle:nextjs-build/cdk-nextjs-cache-handler"
         }
       ]
     },
@@ -391,13 +346,13 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,prettier,ts-jest,ts-node,typescript,undici"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
+          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-dynamodb @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
         },
         {
           "exec": "pnpm dlx projen"

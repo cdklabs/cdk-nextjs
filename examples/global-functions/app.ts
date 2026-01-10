@@ -17,7 +17,6 @@ import {
 import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 import { getStackName } from "../shared/get-stack-name";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import { join } from "node:path";
 
 const app = new App();
@@ -30,13 +29,6 @@ class GlobalFunctionsStack extends Stack {
       healthCheckPath: "/api/health",
       buildContext: join(import.meta.dirname, ".."),
       overrides: {
-        nextjsGlobalFunctions: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-            },
-          },
-        },
         nextjsDistribution: {
           distributionProps: {
             logBucket: logsBucket,

@@ -1,11 +1,6 @@
 export { NextjsType } from "./constants";
 export { NextjsApi, NextjsApiProps, NextjsApiOverrides } from "./nextjs-api";
-export {
-  StaticAssetsCustomResourceProperties,
-  NextjsAssetsDeployment,
-  NextjsAssetDeploymentOverrides,
-  NextjsAssetsDeploymentProps,
-} from "./nextjs-assets-deployment";
+
 export {
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
@@ -16,8 +11,6 @@ export {
 export {
   NextjsBuild,
   NextjsBuildProps,
-  NextjsBuildOverrides,
-  BuilderImageProps,
   PublicDirEntry,
 } from "./nextjs-build/nextjs-build";
 export { NextjsComputeBaseProps } from "./nextjs-compute/nextjs-compute-base-props";
@@ -37,11 +30,11 @@ export {
   NextjsFunctionsProps,
 } from "./nextjs-compute/nextjs-functions";
 export {
-  NextjsFileSystem,
-  NextjsFileSystemOverrides,
-  NextjsFileSystemProps,
-  AllowComputeProps,
-} from "./nextjs-file-system";
+  NextjsCache,
+  NextjsCacheOverrides,
+  NextjsCacheProps,
+  ICacheOperationsInterface,
+} from "./nextjs-cache";
 export {
   NextjsGlobalContainers,
   NextjsGlobalContainersConstructOverrides,
@@ -78,11 +71,11 @@ export {
   NextjsStaticAssetsProps,
 } from "./nextjs-static-assets";
 export { NextjsVpc, NextjsVpcOverrides, NextjsVpcProps } from "./nextjs-vpc";
-export { OptionalNextjsAssetsDeploymentProps } from "./generated-structs/OptionalNextjsAssetsDeploymentProps";
+
 export { OptionalNextjsBuildProps } from "./generated-structs/OptionalNextjsBuildProps";
 export { OptionalNextjsContainersProps } from "./generated-structs/OptionalNextjsContainersProps";
 export { OptionalNextjsDistributionProps } from "./generated-structs/OptionalNextjsDistributionProps";
-export { OptionalNextjsFileSystemProps } from "./generated-structs/OptionalNextjsFileSystemProps";
+export { OptionalNextjsCacheProps } from "./generated-structs/OptionalNextjsCacheProps";
 export { OptionalNextjsVpcProps } from "./generated-structs/OptionalNextjsVpcProps";
 export { OptionalApplicationLoadBalancedTaskImageOptions } from "./generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 export { OptionalCloudFrontFunctionProps } from "./generated-structs/OptionalCloudFrontFunctionProps";

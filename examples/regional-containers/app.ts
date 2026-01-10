@@ -22,7 +22,6 @@ import {
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 
 const app = new App();
 
@@ -34,13 +33,6 @@ export class RegionalContainersStack extends Stack {
       healthCheckPath: "/api/health",
       buildContext: join(import.meta.dirname, ".."),
       overrides: {
-        nextjsRegionalContainers: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-            },
-          },
-        },
         nextjsVpc: {
           vpcProps: {
             flowLogs: {

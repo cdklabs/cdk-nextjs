@@ -58,7 +58,6 @@ junit.xml
 tsconfig.json
 !/API.md
 /assets/
-!/src/lambdas/assets-deployment/assets-deployment-function.ts
 !/src/lambdas/post-deploy/post-deploy-function.ts
 !/examples/**/tsconfig.json
 !/.projenrc.ts
@@ -74,8 +73,6 @@ tsconfig.json
 !/src/generated-structs/OptionalNextjsBuildProps.ts
 !/src/generated-structs/OptionalNextjsDistributionProps.ts
 !/src/generated-structs/OptionalNextjsVpcProps.ts
-!/src/generated-structs/OptionalNextjsFileSystemProps.ts
-!/src/generated-structs/OptionalNextjsAssetsDeploymentProps.ts
 !/src/generated-structs/OptionalNextjsContainersProps.ts
 !/src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts
 !/src/generated-structs/OptionalVpcProps.ts

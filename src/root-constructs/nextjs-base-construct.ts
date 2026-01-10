@@ -1,22 +1,11 @@
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
-import { OptionalNextjsAssetsDeploymentProps } from "../generated-structs/OptionalNextjsAssetsDeploymentProps";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
-import { OptionalNextjsFileSystemProps } from "../generated-structs/OptionalNextjsFileSystemProps";
+import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
-import { OptionalNextjsVpcProps } from "../generated-structs/OptionalNextjsVpcProps";
-import {
-  NextjsAssetsDeployment,
-  NextjsAssetDeploymentOverrides,
-} from "../nextjs-assets-deployment";
-import {
-  NextjsBuild,
-  NextjsBuildOverrides,
-} from "../nextjs-build/nextjs-build";
-import {
-  NextjsFileSystem,
-  NextjsFileSystemOverrides,
-} from "../nextjs-file-system";
+import { NextjsBuild } from "../nextjs-build/nextjs-build";
+import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
+import { NextjsComputeBaseProps } from "../nextjs-compute/nextjs-compute-base-props";
 import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
@@ -26,17 +15,13 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
-import { NextjsVpc, NextjsVpcOverrides } from "../nextjs-vpc";
-import { handleDeprecatedProperties } from "../utils/handle-deprecated-properties";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
  */
 export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
-  readonly nextjsVpcProps?: OptionalNextjsVpcProps;
-  readonly nextjsFileSystemProps?: OptionalNextjsFileSystemProps;
-  readonly nextjsAssetsDeploymentProps?: OptionalNextjsAssetsDeploymentProps;
+  readonly nextjsCacheProps?: OptionalNextjsCacheProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
@@ -45,10 +30,7 @@ export interface NextjsBaseConstructOverrides {
  * Base overrides for constructs shared between all root/top-level Next.js constructs.
  */
 export interface NextjsBaseOverrides {
-  readonly nextjsBuild?: NextjsBuildOverrides;
-  readonly nextjsFileSystem?: NextjsFileSystemOverrides;
-  readonly nextjsVpc?: NextjsVpcOverrides;
-  readonly nextjsAssetsDeployment?: NextjsAssetDeploymentOverrides;
+  readonly nextjsCache?: NextjsCacheOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
@@ -72,14 +54,20 @@ export interface NextjsBaseProps {
    * monorepo, then this value should be the root of your monorepo. You then
    * must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}
    *
-   * Note, by default cdk-nextjs' `builder.Dockerfile` is used to build your
-   * Next.js app. You can customize this by specifying `overrides.{nextjs...}.nextjsBuildProps.builderImageProps.file`.
-   * If you override the default, then you are responsible for ensuring the
-   * Dockerfile is in the build context directory before cdk-nextjs construct
+   * Note: cdk-nextjs now uses local builds instead of Docker-based builds.
+   * Specify `buildCommand` and `buildDirectory` to configure the build process.
    * is instantiated.
    * @example join(import.meta.dirname, "..") (monorepo)
+   * @deprecated Docker builds are no longer supported, use buildDirectory instead for local builds
    */
-  readonly buildContext: string;
+  readonly buildContext?: string;
+  /**
+   * Directory where the Next.js application is located for local builds.
+   * This should contain the package.json and Next.js application files.
+   * When specified, the build will run locally instead of in a Docker container.
+   * @example join(import.meta.dirname, "..")
+   */
+  readonly buildDirectory: string;
   /**
    * Path to API Route Handler that returns HTTP 200 to ensure compute health.
    * @example "/api/health"
@@ -94,7 +82,7 @@ export interface NextjsBaseProps {
   readonly healthCheckPath: string;
   /**
    * Use this if building in monorepo. This is the relative path from
-   * {@link NextjsBaseProps.buildContext} or root workspace to nested package
+   * {@link NextjsBaseProps.buildDirectory} or root workspace to nested package
    * containing Next.js app. See example below:
    *
    * Let's say you have a monorepo with the following folder structure:
@@ -104,23 +92,13 @@ export interface NextjsBaseProps {
    *       - package.json (nested)
    *   - package.json (root)
    *
-   * And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildContext}
+   * And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildDirectory}
    * to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToPackage}
    * to `"./packages/ui"`.
-   *
-   * Note, setting {@link NextjsBaseProps.buildContext} to the root of your
-   * monorepo will invalidate container runtime (i.e. docker) build cache when any file is
-   * changed in your monorepo. This is slows down deployments. Checkout how you
-   * can use [turbo](https://turbo.build/) in [Deploying with Docker Guide](https://turbo.build/repo/docs/handbook/deploying-with-docker)
-   * in the cdk-nextjs/examples/turbo.
    *
    * @example "./packages/ui"
    */
   readonly relativePathToPackage?: string;
-  /**
-   * @deprecated use relativePathToPackage
-   */
-  readonly relativePathToWorkspace?: string;
 }
 
 /**
@@ -137,9 +115,7 @@ export interface NextjsBaseConstructProps extends NextjsBaseProps {
 export abstract class NextjsBaseConstruct extends Construct {
   nextjsBuild: NextjsBuild;
   nextjsStaticAssets: NextjsStaticAssets;
-  nextjsVpc: NextjsVpc;
-  nextjsFileSystem: NextjsFileSystem;
-  nextjsAssetsDeployment: NextjsAssetsDeployment;
+  nextjsCache: NextjsCache;
   nextjsPostDeploy: NextjsPostDeploy;
 
   abstract get url(): string;
@@ -156,15 +132,13 @@ export abstract class NextjsBaseConstruct extends Construct {
     nextjsType: NextjsType,
   ) {
     super(scope, id);
-    this.baseProps = handleDeprecatedProperties(props);
+    this.baseProps = props;
     this.nextjsType = nextjsType;
     this.constructOverrides = this.getConstructOverrides(nextjsType);
 
     this.nextjsBuild = this.createNextjsBuild();
+    this.nextjsCache = this.createNextjsCache();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
-    this.nextjsVpc = this.createVpc();
-    this.nextjsFileSystem = this.createNextjsFileSystem();
-    this.nextjsAssetsDeployment = this.createNextjsAssetsDeployment();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
@@ -188,69 +162,60 @@ export abstract class NextjsBaseConstruct extends Construct {
     return;
   }
 
+  /**
+   * Get compute base props for both Lambda functions and containers
+   */
+  protected computeBaseProps(): NextjsComputeBaseProps {
+    return {
+      healthCheckPath: this.baseProps.healthCheckPath,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      buildId: this.nextjsBuild.buildId,
+      buildOutputPath: this.baseProps.buildDirectory,
+      nextjsType: this.nextjsType,
+      relativePathToPackage: this.baseProps.relativePathToPackage,
+    };
+  }
+
   private createNextjsBuild(): NextjsBuild {
     return new NextjsBuild(this, "NextjsBuild", {
       buildCommand: this.baseProps.buildCommand,
-      buildContext: this.baseProps.buildContext,
+      buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
       relativePathToPackage: this.baseProps.relativePathToPackage,
-      overrides: this.baseProps.overrides?.nextjsBuild,
       ...this.constructOverrides?.nextjsBuildProps,
+    });
+  }
+
+  private createNextjsCache(): NextjsCache {
+    return new NextjsCache(this, "NextjsCache", {
+      buildId: this.nextjsBuild.buildId,
+      overrides: this.baseProps.overrides?.nextjsCache,
+      ...this.constructOverrides?.nextjsCacheProps,
     });
   }
 
   private createNextjsStaticAssets(): NextjsStaticAssets {
     return new NextjsStaticAssets(this, "NextjsStaticAssets", {
+      buildOutputPath:
+        this.nextjsBuild.nextOutputPath || this.baseProps.buildDirectory,
+      buildId: this.nextjsBuild.buildId,
+      basePath: this.baseProps.basePath,
       overrides: this.baseProps.overrides?.nextjsStaticAssets,
       ...this.constructOverrides?.nextjsStaticAssetsProps,
     });
   }
 
-  private createVpc(): NextjsVpc {
-    return new NextjsVpc(this, "NextjsVpc", {
-      nextjsType: this.nextjsType,
-      overrides: this.baseProps.overrides?.nextjsVpc,
-      ...this.constructOverrides?.nextjsVpcProps,
-    });
-  }
-
-  private createNextjsFileSystem(): NextjsFileSystem {
-    return new NextjsFileSystem(this, "NextjsFileSystem", {
-      vpc: this.nextjsVpc.vpc,
-      overrides: this.baseProps.overrides?.nextjsFileSystem,
-      ...this.constructOverrides?.nextjsFileSystemProps,
-    });
-  }
-
-  private createNextjsAssetsDeployment(): NextjsAssetsDeployment {
-    return new NextjsAssetsDeployment(this, "NextjsAssetsDeployment", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
-      basePath: this.baseProps.basePath,
-      buildId: this.nextjsBuild.buildId,
-      buildImageDigest: this.nextjsBuild.buildImageDigest,
-      dockerImageCode: this.nextjsBuild.imageForNextjsAssetsDeployment,
-      nextjsType: this.nextjsType,
-      overrides: this.baseProps.overrides?.nextjsAssetsDeployment,
-      relativePathToPackage: this.baseProps.relativePathToPackage,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      vpc: this.nextjsVpc.vpc,
-      ...this.constructOverrides?.nextjsAssetsDeploymentProps,
-    });
-  }
-
   private createNextjsPostDeploy(): NextjsPostDeploy {
     const nextjsPostDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
       buildId: this.nextjsBuild.buildId,
-      buildImageDigest: this.nextjsBuild.buildImageDigest,
       overrides: this.baseProps.overrides?.nextjsPostDeploy,
       relativePathToPackage: this.baseProps.relativePathToPackage,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      vpc: this.nextjsVpc.vpc,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
       ...this.constructOverrides?.nextjsPostDeployProps,
     });
-    // ensure NextjsAssetsDeployment finishes before NextjsPostDeploy
-    nextjsPostDeploy.node.addDependency(this.nextjsAssetsDeployment);
     return nextjsPostDeploy;
   }
 }

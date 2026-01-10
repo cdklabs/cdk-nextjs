@@ -1,8 +1,29 @@
-import { IVpc } from "aws-cdk-lib/aws-ec2";
-import { AccessPoint } from "aws-cdk-lib/aws-efs";
+import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
+import { Bucket } from "aws-cdk-lib/aws-s3";
+import { NextjsType } from "../constants";
 
 export interface NextjsComputeBaseProps {
-  readonly accessPoint: AccessPoint;
   readonly healthCheckPath: string;
-  readonly vpc: IVpc;
+  /**
+   * S3 bucket for cache storage
+   */
+  readonly cacheBucket: Bucket;
+  /**
+   * DynamoDB table for revalidation metadata
+   */
+  readonly revalidationTable: TableV2;
+  /**
+   * Build ID for cache key prefixing
+   */
+  readonly buildId: string;
+  /**
+   * Build output directory containing .next folder with standalone build
+   * Required for local builds
+   */
+  readonly buildOutputPath: string;
+  readonly nextjsType: NextjsType;
+  /**
+   * Relative path from buildOutputPath to the package containing Next.js app
+   */
+  readonly relativePathToPackage?: string;
 }

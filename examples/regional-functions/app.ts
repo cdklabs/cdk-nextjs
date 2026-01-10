@@ -16,7 +16,6 @@ import {
 } from "../shared/suppress-nags";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import {
   AccessLogFormat,
   LogGroupLogDestination,
@@ -33,14 +32,6 @@ export class RegionalFunctionsStack extends Stack {
       healthCheckPath: "/api/health",
       buildContext: join(import.meta.dirname, ".."),
       overrides: {
-        nextjsRegionalFunctions: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-              envVarNames: ["NEXTJS_BASE_PATH"],
-            },
-          },
-        },
         nextjsApi: {
           restApiProps: {
             // there can only be a single apigateway.CfnAccount per AWS environment

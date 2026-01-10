@@ -28,6 +28,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-cloudfront",
+    "@aws-sdk/client-dynamodb",
     "@aws-sdk/client-s3",
     "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
@@ -159,25 +160,13 @@ function bundle() {
     outfile: "../../../lib/nextjs-build/cdk-nextjs-cache-handler.cjs",
     externals: ["next"],
   });
-  project.bundler.addBundle("src/lambdas/assets-deployment/patch-fetch.js", {
-    platform: "browser",
-    // https://nextjs.org/docs/architecture/supported-browsers
-    target: "chrome64,firefox67,safari12,edge79",
-    minify: true,
-    outfile: "../assets-deployment.lambda/patch-fetch.js",
-  });
 }
 
 function copyDockerfiles() {
   const bundleTask = project.tasks.tryFind("bundle");
   if (bundleTask) {
     bundleTask.exec(`mkdir -p ${join("lib", "nextjs-build")}`);
-    bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "assets-deployment.Dockerfile")} ${join("assets", "lambdas", "assets-deployment", "assets-deployment.lambda")}`,
-    );
-    bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "builder.Dockerfile")} ${join("lib", "nextjs-build")}`,
-    );
+    // Note: Docker-based builds removed for local builds
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "global-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
@@ -186,6 +175,9 @@ function copyDockerfiles() {
     );
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "regional-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
+    );
+    bundleTask.exec(
+      `cp ${join("src", "nextjs-build", "regional-functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
   }
 }
@@ -356,20 +348,6 @@ function generateStructs() {
     filePath: getFilePath("OptionalNextjsVpcProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsVpcProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsFileSystemProps",
-    filePath: getFilePath("OptionalNextjsFileSystemProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsFileSystemProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsAssetsDeploymentProps",
-    filePath: getFilePath("OptionalNextjsAssetsDeploymentProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsAssetsDeploymentProps"))
     .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {

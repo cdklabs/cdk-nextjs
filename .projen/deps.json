@@ -9,6 +9,10 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-dynamodb",
+      "type": "build"
+    },
+    {
       "name": "@aws-sdk/client-s3",
       "type": "build"
     },

@@ -1,5 +1,6 @@
 import { join } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
+import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
 import {
   AwsLogDriverMode,
@@ -14,32 +15,35 @@ import {
   ApplicationLoadBalancedFargateService,
   ApplicationLoadBalancedFargateServiceProps,
 } from "aws-cdk-lib/aws-ecs-patterns";
-import { FileSystem } from "aws-cdk-lib/aws-efs";
 import { ApplicationProtocolVersion } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
 import {
-  CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-  MOUNT_PATH,
+  CACHE_PATH,
+  DATA_CACHE_PATH,
+  IMAGE_CACHE_PATH,
   NextjsType,
-  SERVER_DIST_PATH,
+  PUBLIC_PATH,
 } from "../constants";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
+import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
 
 export interface NextjsContainersOverrides {
   readonly ecsClusterProps?: OptionalClusterProps;
   readonly albFargateServiceProps?: ApplicationLoadBalancedFargateServiceProps;
   readonly taskImageOptions?: OptionalApplicationLoadBalancedTaskImageOptions;
+  readonly dockerImageAssetProps?: OptionalDockerImageAssetProps;
 }
 
 export interface NextjsContainersProps extends NextjsComputeBaseProps {
-  readonly dockerImageAsset: DockerImageAsset;
-  readonly fileSystem: FileSystem;
-  readonly nextjsType: NextjsType;
+  /**
+   * VPC is required for container deployments.
+   * Containers need VPC for networking.
+   */
+  readonly vpc: IVpc;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
-  readonly buildId: string;
 }
 
 /**
@@ -50,16 +54,19 @@ export class NextjsContainers extends Construct {
   albFargateService: ApplicationLoadBalancedFargateService;
   ecsCluster: Cluster;
   url: string;
+  dockerImageAsset: DockerImageAsset;
 
   private props: NextjsContainersProps;
 
   constructor(scope: Construct, id: string, props: NextjsContainersProps) {
     super(scope, id);
     this.props = props;
+
+    // Always create Docker image asset from local build output
+    this.dockerImageAsset = this.createDockerImageAsset();
     this.ecsCluster = this.createEcsCluster();
     this.albFargateService = this.createAlbFargateSevice();
     this.configureHealthCheck();
-    this.attachFileSystem();
     this.url = this.getUrl();
   }
 
@@ -67,10 +74,52 @@ export class NextjsContainers extends Construct {
     const cluster = new Cluster(this, "EcsCluster", {
       enableFargateCapacityProviders: true,
       containerInsightsV2: ContainerInsights.ENABLED,
-      vpc: this.props.vpc,
+      vpc: this.props.vpc, // VPC is required in interface
       ...this.props.overrides?.ecsClusterProps,
     });
     return cluster;
+  }
+
+  private createDockerImageAsset(): DockerImageAsset {
+    const dockerfilePath = this.getDockerfilePath();
+    const buildContext = this.getBuildContext();
+
+    return new DockerImageAsset(this, "DockerImageAsset", {
+      directory: buildContext,
+      file: dockerfilePath,
+      buildArgs: {
+        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+        BUILD_ID: this.props.buildId,
+        CACHE_PATH,
+        DATA_CACHE_PATH,
+        IMAGE_CACHE_PATH,
+        PUBLIC_PATH,
+      },
+      ...this.props.overrides?.dockerImageAssetProps,
+    });
+  }
+
+  private getDockerfilePath(): string {
+    // Use the appropriate Dockerfile based on deployment type
+    const dockerfileName =
+      this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+        ? "global-containers.Dockerfile"
+        : "regional-containers.Dockerfile";
+
+    // Dockerfiles are located in lib/nextjs-build after build process
+    // Path is relative to build context
+    return `../lib/nextjs-build/${dockerfileName}`;
+  }
+
+  private getBuildContext(): string {
+    if (!this.props.buildOutputPath) {
+      throw new Error("buildOutputPath is required for local builds");
+    }
+
+    // Build context is the directory containing the .next folder
+    // This allows the Dockerfile to access both .next output and lib/nextjs-build
+    const packagePath = this.props.relativePathToPackage || ".";
+    return join(this.props.buildOutputPath, packagePath);
   }
   private createAlbFargateSevice(): ApplicationLoadBalancedFargateService {
     let cpuArchitecture: CpuArchitecture | undefined = undefined;
@@ -110,13 +159,17 @@ export class NextjsContainers extends Construct {
           command: ["node", this.props.relativeEntrypointPath],
           containerName: "nextjs",
           containerPort: 3000,
-          image: ContainerImage.fromDockerImageAsset(
-            this.props.dockerImageAsset,
-          ),
+          image: ContainerImage.fromDockerImageAsset(this.dockerImageAsset),
           logDriver: LogDrivers.awsLogs({
             streamPrefix: "nextjs",
             mode: AwsLogDriverMode.NON_BLOCKING,
           }),
+          environment: {
+            // Cache configuration environment variables
+            CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
+            REVALIDATION_TABLE_NAME: this.props.revalidationTable.tableName,
+            BUILD_ID: this.props.buildId,
+          },
           ...this.props.overrides?.taskImageOptions,
         },
         ...this.props.overrides?.albFargateServiceProps,
@@ -127,10 +180,15 @@ export class NextjsContainers extends Construct {
       "HOSTNAME",
       "0.0.0.0",
     );
-    albFargateService.taskDefinition.defaultContainer?.addEnvironment(
-      CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-      join(MOUNT_PATH, this.props.buildId, SERVER_DIST_PATH),
+
+    // Grant cache access permissions
+    this.props.cacheBucket.grantReadWrite(
+      albFargateService.taskDefinition.taskRole,
     );
+    this.props.revalidationTable.grantReadWriteData(
+      albFargateService.taskDefinition.taskRole,
+    );
+
     // speed up deployments by shortening deregistration delay
     // https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/load-balancer-connection-draining.html
     // TODO: document that this should be increased if long lived connections are expected
@@ -174,26 +232,6 @@ export class NextjsContainers extends Construct {
       // @ts-expect-error must use internal "props" attribute b/c no other way to add health check
       defaultContainer.props.healthCheck = healthCheck;
     }
-  }
-  private attachFileSystem() {
-    const container = this.albFargateService.taskDefinition.defaultContainer;
-    const volumeName = "cdk-nextjs-volume";
-    this.albFargateService.taskDefinition.addVolume({
-      name: volumeName,
-      efsVolumeConfiguration: {
-        fileSystemId: this.props.fileSystem.fileSystemId,
-        transitEncryption: "ENABLED",
-        authorizationConfig: {
-          accessPointId: this.props.accessPoint.accessPointId,
-          iam: "ENABLED",
-        },
-      },
-    });
-    container?.addMountPoints({
-      sourceVolume: volumeName,
-      containerPath: MOUNT_PATH,
-      readOnly: false,
-    });
   }
   private getUrl(): string {
     const protocol = this.albFargateService.certificate ? "https" : "http";

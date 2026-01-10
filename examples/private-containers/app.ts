@@ -9,7 +9,6 @@ import {
 } from "../shared/suppress-nags";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import {
   AmazonLinuxCpuType,
   BastionHostLinux,
@@ -31,13 +30,6 @@ export class PrivateContainersStack extends Stack {
       healthCheckPath: "/api/health",
       buildContext: join(import.meta.dirname, ".."),
       overrides: {
-        nextjsRegionalContainers: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-            },
-          },
-        },
         nextjsContainers: {
           albFargateServiceProps: {
             publicLoadBalancer: false,

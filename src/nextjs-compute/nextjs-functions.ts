@@ -3,7 +3,7 @@ import { Duration } from "aws-cdk-lib";
 import {
   DockerImageCode,
   DockerImageFunction,
-  FileSystem,
+  DockerImageFunctionProps,
   FunctionUrl,
   FunctionUrlAuthType,
   InvokeMode,
@@ -11,10 +11,11 @@ import {
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
 import {
-  CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-  MOUNT_PATH,
+  CACHE_PATH,
+  DATA_CACHE_PATH,
+  IMAGE_CACHE_PATH,
   NextjsType,
-  SERVER_DIST_PATH,
+  PUBLIC_PATH,
 } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
@@ -26,10 +27,7 @@ export interface NextjsFunctionsOverrides {
 }
 
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
-  readonly dockerImageCode: DockerImageCode;
   readonly overrides?: NextjsFunctionsOverrides;
-  readonly buildId: string;
-  readonly nextjsType: NextjsType;
 }
 
 /**
@@ -55,16 +53,14 @@ export class NextjsFunctions extends Construct {
   }
 
   private createFunction() {
-    const fn = new DockerImageFunction(this, "Functions", {
+    // Create DockerImageCode from local build output or use provided dockerImageCode
+    const dockerImageCode = this.createDockerImageCode();
+
+    const functionProps: DockerImageFunctionProps = {
       architecture: getLambdaArchitecture(),
-      code: this.props.dockerImageCode,
-      filesystem: FileSystem.fromEfsAccessPoint(
-        this.props.accessPoint,
-        MOUNT_PATH,
-      ),
+      code: dockerImageCode,
       memorySize: 2048,
       timeout: Duration.seconds(30),
-      vpc: this.props.vpc,
       ...this.props.overrides?.dockerImageFunctionProps,
       environment: {
         AWS_LWA_ENABLE_COMPRESSION: "true",
@@ -75,14 +71,64 @@ export class NextjsFunctions extends Construct {
         AWS_LWA_READINESS_CHECK_PATH: this.props.healthCheckPath,
         AWS_LWA_READINESS_CHECK_PORT: "3000",
         READINESS_CHECK_PATH: `http://127.0.0.1:3000${this.props.healthCheckPath}`,
-        [CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME]: join(
-          MOUNT_PATH,
-          this.props.buildId,
-          SERVER_DIST_PATH,
-        ),
+        // Cache configuration environment variables
+        CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
+        REVALIDATION_TABLE_NAME: this.props.revalidationTable.tableName,
+        BUILD_ID: this.props.buildId,
         ...this.props.overrides?.dockerImageFunctionProps?.environment,
       },
-    });
+    };
+
+    const fn = new DockerImageFunction(this, "Functions", functionProps);
+
+    // Grant cache access permissions
+    this.props.cacheBucket.grantReadWrite(fn);
+    this.props.revalidationTable.grantReadWriteData(fn);
+
     return fn;
+  }
+
+  private createDockerImageCode(): DockerImageCode {
+    if (!this.props.buildOutputPath) {
+      throw new Error("buildOutputPath is required for local builds");
+    }
+
+    const dockerfilePath = this.getDockerfilePath();
+    const buildContext = this.getBuildContext();
+
+    return DockerImageCode.fromImageAsset(buildContext, {
+      file: dockerfilePath,
+      buildArgs: {
+        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+        BUILD_ID: this.props.buildId,
+        CACHE_PATH,
+        DATA_CACHE_PATH,
+        IMAGE_CACHE_PATH,
+        PUBLIC_PATH,
+      },
+    });
+  }
+
+  private getDockerfilePath(): string {
+    // Use the appropriate Dockerfile based on deployment type
+    const dockerfileName =
+      this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS
+        ? "global-functions.Dockerfile"
+        : "regional-functions.Dockerfile";
+
+    // Dockerfiles are located in lib/nextjs-build after build process
+    // Path is relative to build context
+    return `../lib/nextjs-build/${dockerfileName}`;
+  }
+
+  private getBuildContext(): string {
+    if (!this.props.buildOutputPath) {
+      throw new Error("buildOutputPath is required for local builds");
+    }
+
+    // Build context is the directory containing the .next folder
+    // This allows the Dockerfile to access both .next output and lib/nextjs-build
+    const packagePath = this.props.relativePathToPackage || ".";
+    return join(this.props.buildOutputPath, packagePath);
   }
 }

@@ -44,7 +44,7 @@ export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
 export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
   nextjsApi: NextjsApi;
-  get url() {
+  get url(): string {
     return `https://${this.nextjsApi.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com/${this.nextjsApi.api.deploymentStage.stageName}`;
   }
 
@@ -57,25 +57,15 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   ) {
     super(scope, id, props, NextjsType.REGIONAL_FUNCTIONS);
     this.props = props;
+
     this.nextjsFunctions = this.createNextjsFunctions();
-    this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsFunctions.function.connections,
-      role: this.nextjsFunctions.function.role!,
-    });
     this.nextjsApi = this.createNextjsApi();
   }
 
-  private createNextjsFunctions() {
-    if (!this.nextjsBuild.imageForNextjsFunctions) {
-      throw new Error("nextjsBuild.imageForNextjsFunctions is undefined");
-    }
+  private createNextjsFunctions(): NextjsFunctions {
+    // Create functions with local build output
     return new NextjsFunctions(this, "NextjsFunctions", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
-      buildId: this.nextjsBuild.buildId,
-      dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
-      healthCheckPath: this.baseProps.healthCheckPath,
-      nextjsType: this.nextjsType,
-      vpc: this.nextjsVpc.vpc,
+      ...this.computeBaseProps(),
       overrides: this.props.overrides?.nextjsFunctions,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsFunctionsProps,
     });

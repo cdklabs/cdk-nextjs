@@ -1,18 +1,15 @@
 import { join } from "node:path";
 import { CustomResource, Duration } from "aws-cdk-lib";
 import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
-import { IVpc } from "aws-cdk-lib/aws-ec2";
-import { AccessPoint } from "aws-cdk-lib/aws-efs";
+import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
 import {
   Code,
-  FileSystem,
   Function as LambdaFunction,
   Runtime,
   RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { MOUNT_PATH } from "./constants";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
@@ -31,12 +28,15 @@ export interface NextjsPostDeployOverrides {
 }
 
 export interface NextjsPostDeployProps {
-  readonly accessPoint: AccessPoint;
   readonly buildId: string;
   /**
-   * @see {@link NextjsBuild.buildImageDigest}
+   * Cache bucket for cleaning up old BUILD_ID prefixed objects
    */
-  readonly buildImageDigest: string;
+  readonly cacheBucket?: Bucket;
+  /**
+   * DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries
+   */
+  readonly revalidationTable?: TableV2;
   /**
    * If true, logs details in custom resource lambda
    * @default true
@@ -58,19 +58,23 @@ export interface NextjsPostDeployProps {
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`
    */
   readonly staticAssetsBucket?: Bucket;
-  readonly vpc: IVpc;
 }
 
 export interface PostDeployCustomResourceProperties {
   /**
-   * Build ID of current deployment. Used to prune FileSystem of directories
-   * with old build ids and prune S3 based on metadat and `msTtl`
+   * Build ID of current deployment. Used to prune cache bucket of objects
+   * with old build ids, prune DynamoDB revalidation entries with old build ids,
+   * and prune S3 static assets based on metadata and `msTtl`
    */
   readonly buildId: string;
   /**
-   * @see {@link NextjsBuild.buildImageDigest}
+   * Cache bucket name for cleaning up old BUILD_ID prefixed objects
    */
-  readonly buildImageDigest: string;
+  readonly cacheBucketName?: string;
+  /**
+   * DynamoDB revalidation table name for cleaning up old BUILD_ID prefixed entries
+   */
+  readonly revalidationTableName?: string;
   /**
    * @see https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/cloudfront/command/CreateInvalidationCommand/
    * @default
@@ -100,8 +104,9 @@ export interface PostDeployCustomResourceProperties {
  * Performs post deployment tasks in custom resource.
  *
  * 1. CloudFront Invalidation (defaults to /*)
- * 2. Prunes FileSystem by removing directories that don't match this deployments BUILD_ID
- * 3. Prune S3 by removing objects that don't have next-build-id metadata of
+ * 2. Prune cache bucket by removing objects with old BUILD_ID prefixes
+ * 3. Prune DynamoDB revalidation table by removing entries with old BUILD_ID prefixes
+ * 4. Prune static assets S3 by removing objects that don't have next-build-id metadata of
  * current build id AND are older than `msTtl`
  */
 export class NextjsPostDeploy extends Construct {
@@ -123,15 +128,10 @@ export class NextjsPostDeploy extends Construct {
       code: Code.fromAsset(
         join(__dirname, "../assets/lambdas/post-deploy/post-deploy.lambda"),
       ),
-      filesystem: FileSystem.fromEfsAccessPoint(
-        this.props.accessPoint,
-        MOUNT_PATH,
-      ),
       handler: "index.handler",
       memorySize: 2048,
       runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
       timeout: Duration.minutes(5),
-      vpc: this.props.vpc,
       ...this.props.overrides?.functionProps,
     });
     this.props.distribution?.grantCreateInvalidation(fn);
@@ -139,14 +139,17 @@ export class NextjsPostDeploy extends Construct {
       fn.addEnvironment("DEBUG", "1");
     }
     this.props.staticAssetsBucket?.grantReadWrite(fn);
+    this.props.cacheBucket?.grantReadWrite(fn);
+    this.props.revalidationTable?.grantReadWriteData(fn);
     return fn;
   }
 
   private createCustomResource() {
     const properties: PostDeployCustomResourceProperties = {
-      // ensures this CR runs each time new builder image
+      // ensures this CR runs each time new build
       buildId: this.props.buildId,
-      buildImageDigest: this.props.buildImageDigest,
+      cacheBucketName: this.props.cacheBucket?.bucketName,
+      revalidationTableName: this.props.revalidationTable?.tableName,
       msTtl: (1000 * 60 * 60 * 24 * 30).toString(), // 1 month
       staticAssetsBucketName: this.props.staticAssetsBucket?.bucketName,
       createInvalidationCommandInput: this.props.distribution

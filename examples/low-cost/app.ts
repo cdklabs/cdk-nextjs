@@ -33,7 +33,6 @@ import {
 import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 
 const app = new App();
 
@@ -70,11 +69,6 @@ class LowCostStack extends Stack {
           },
         },
         nextjsGlobalFunctions: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-            },
-          },
           nextjsVpcProps: {
             vpc,
           },

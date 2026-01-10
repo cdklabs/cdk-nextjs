@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { RemovalPolicy } from "aws-cdk-lib";
 import {
   BlockPublicAccess,
@@ -5,21 +8,42 @@ import {
   BucketEncryption,
   BucketProps,
 } from "aws-cdk-lib/aws-s3";
+import {
+  BucketDeployment,
+  BucketDeploymentProps,
+  Source,
+} from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;
+  readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
 
 export interface NextjsStaticAssetsProps {
+  /**
+   * Path to the local .next directory containing built assets
+   */
+  readonly buildOutputPath: string;
+  /**
+   * Build ID from NextjsBuild to track asset versions
+   */
+  readonly buildId: string;
+  /**
+   * Prefix to the URI path the app will be served at.
+   * @example "/my-base-path"
+   */
+  readonly basePath?: string;
   readonly overrides?: NextjsStaticAssetsOverrides;
 }
 
 /**
- * Creates S3 Bucket for public and _next/static assets.
+ * Creates S3 Bucket for public and _next/static assets and deploys them using S3Deployment.
  */
 export class NextjsStaticAssets extends Construct {
   bucket: Bucket;
+  deployment: BucketDeployment;
+  private stagingDir?: string;
 
   private props: NextjsStaticAssetsProps;
 
@@ -27,6 +51,7 @@ export class NextjsStaticAssets extends Construct {
     super(scope, id);
     this.props = props;
     this.bucket = this.createBucket();
+    this.deployment = this.createDeployment();
   }
 
   private createBucket() {
@@ -39,5 +64,119 @@ export class NextjsStaticAssets extends Construct {
       minimumTLSVersion: 1.2,
       ...this.props.overrides?.bucketProps,
     });
+  }
+
+  private createDeployment() {
+    // Create a staging directory with the correct structure
+    this.stagingDir = this.createStagingDirectory();
+
+    if (!this.stagingDir) {
+      // No assets to deploy - this is a valid scenario for some Next.js apps
+      // Don't create a deployment at all
+      throw new Error(
+        `No static assets found to deploy. Ensure your Next.js build output contains either:
+        - A 'public' directory at: ${path.join(this.props.buildOutputPath, "public")}
+        - A '.next/static' directory at: ${path.join(this.props.buildOutputPath, ".next", "static")}
+        
+        If your app has no static assets, you may not need NextjsStaticAssets.`,
+      );
+    }
+
+    const destinationKeyPrefix = this.props.basePath
+      ? this.props.basePath.replace(/^\//, "")
+      : undefined;
+
+    return new BucketDeployment(this, "Deployment", {
+      sources: [Source.asset(this.stagingDir)],
+      destinationBucket: this.bucket,
+      destinationKeyPrefix,
+      // Add BUILD_ID as metadata to all objects for version tracking
+      metadata: {
+        BUILD_ID: this.props.buildId,
+      },
+      // S3Deployment automatically detects content types based on file extensions
+      ...this.props.overrides?.bucketDeploymentProps,
+    });
+  }
+
+  /**
+   * Create a staging directory with the correct structure:
+   * - public/ files go to root
+   * - .next/static/ files go to _next/static/
+   */
+  private createStagingDirectory(): string | undefined {
+    const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "nextjs-assets-"));
+    let hasAssets = false;
+
+    try {
+      // Copy public directory contents to staging root
+      const publicPath = path.join(this.props.buildOutputPath, "public");
+      if (this.directoryExists(publicPath)) {
+        this.copyDirectoryContents(publicPath, stagingDir);
+        hasAssets = true;
+      }
+
+      // Copy .next/static to staging/_next/static
+      const staticPath = path.join(
+        this.props.buildOutputPath,
+        ".next",
+        "static",
+      );
+      if (this.directoryExists(staticPath)) {
+        const nextDir = path.join(stagingDir, "_next");
+        const staticDestDir = path.join(nextDir, "static");
+
+        // Create _next directory
+        fs.mkdirSync(nextDir, { recursive: true });
+
+        // Copy static assets
+        this.copyDirectoryContents(staticPath, staticDestDir);
+        hasAssets = true;
+      }
+
+      return hasAssets ? stagingDir : undefined;
+    } catch (error) {
+      console.error("Error creating staging directory:", error);
+      // Clean up on error
+      try {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+      return undefined;
+    }
+  }
+
+  /**
+   * Copy directory contents recursively
+   */
+  private copyDirectoryContents(srcDir: string, destDir: string): void {
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+    }
+
+    const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const srcPath = path.join(srcDir, entry.name);
+      const destPath = path.join(destDir, entry.name);
+
+      if (entry.isDirectory()) {
+        this.copyDirectoryContents(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+
+  /**
+   * Check if a directory exists
+   */
+  private directoryExists(dirPath: string): boolean {
+    try {
+      return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory();
+    } catch {
+      return false;
+    }
   }
 }

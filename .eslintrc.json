@@ -54,7 +54,6 @@
         "devDependencies": [
           "**/test/**",
           "**/build-tools/**",
-          "src/lambdas/assets-deployment/assets-deployment.lambda.ts",
           "src/lambdas/post-deploy/post-deploy.lambda.ts",
           ".projenrc.ts",
           "projenrc/**/*.ts"

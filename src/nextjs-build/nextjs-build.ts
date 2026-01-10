@@ -1,112 +1,12 @@
 import { execSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { basename, join } from "node:path";
+import * as fs from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import * as path from "node:path";
+import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
-import { IgnoreMode } from "aws-cdk-lib";
-import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
-import { AssetImageCodeProps, DockerImageCode } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
-import {
-  BUILDER_IMAGE_ALIAS_ARG_NAME,
-  MOUNT_PATH,
-  IMAGE_CACHE_PATH,
-  IMAGE_CACHE_PATH_ARG_NAME,
-  MOUNT_PATH_ARG_NAME,
-  NextjsType,
-  PUBLIC_PATH,
-  PUBLIC_PATH_ARG_NAME,
-  RELATIVE_PATH_TO_PACKAGE_ARG_NAME,
-  BUILD_ID_ARG_NAME,
-  DATA_CACHE_PATH_ARG_NAME,
-  DATA_CACHE_PATH,
-  CACHE_PATH,
-  CACHE_PATH_ARG_NAME,
-  INJECT_CDK_NEXTJS_BUILD_ENV_VARS,
-} from "../constants";
-import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
+import { NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
-
-export interface BuilderImageProps {
-  /**
-   * Build Args to be passed to `docker build` command.
-   * @see https://docs.docker.com/build/building/variables/#build-arguments
-   */
-  readonly buildArgs?: Record<string, string>;
-  /**
-   * `docker build ...` command to run in {@link NextBaseProps.buildContext}.
-   * Default interpolates other props. If you override, other props will have
-   * no effect on command.
-   */
-  readonly command?: string;
-  /**
-   * Environment variables names to pass from host to container during build process.
-   *
-   * These variable names will be set before the build command in builder.Dockerfile
-   * like: `API_KEY="MY_API_KEY" npm run build`
-   *
-   * @example ["MY_API_KEY"]
-   */
-  readonly envVarNames?: string[];
-  /**
-   * Lines in .dockerignore file which will be created in your {@link NextBaseProps.buildContext}
-   * @default ["node_modules", ".git", ".gitignore", ".md"]
-   */
-  readonly exclude?: string[];
-  /**
-   * Name of Dockerfile in builder build context. If specified, you are responsible
-   * for ensuring it exists in build context before construct is instantiated.
-   * @default "builder.Dockerfile"
-   */
-  readonly file?: string;
-  readonly platform?: Platform;
-  /**
-   * Skip building the builder image.
-   * @default false
-   */
-  readonly skipBuild?: boolean;
-}
-
-export interface NextjsBuildOverrides {
-  readonly nextjsContainersDockerImageAssetProps?: OptionalDockerImageAssetProps;
-  readonly nextjsFunctionsAssetImageCodeProps?: AssetImageCodeProps;
-  readonly nextjsAssetDeploymentAssetImageCodeProps?: AssetImageCodeProps;
-  /**
-   * Default folder for build context is the "lib/nextjs-build" folder in the
-   * installed cdk-nextjs library which has the "global-functions.Dockerfile".
-   * Note, if you specify this then you're responsible for ensuring the dockerfile
-   * is present in the build context directory and any referenced files are
-   * present as well. You can specify dockerfile name with adjacent
-   * `nextjsFunctionsAssetImageCodeProps.file` property.
-   * @default "cdk-nextjs/lib/nextjs-build"
-   */
-  readonly functionsImageBuildContext?: string;
-  /**
-   * Default folder for build context is the "lib/nextjs-build" folder in the
-   * installed cdk-nextjs library which has the "assets-deployment.Dockerfile".
-   * Note, if you specify this then you're responsible for ensuring the dockerfile
-   * is present in the build context directory and any referenced files are
-   * present as well. You can specify dockerfile name with adjacent
-   * `nextjsAssetDeploymentAssetImageCodeProps.file` property.
-   * @default "cdk-nextjs/lib/nextjs-build"
-   */
-  readonly assetsDeploymentImageBuildContext?: string;
-  /**
-   * Default folder for build context is the "assets/lambdas/assets-deployment/assets-deployment.lambda" folder in the
-   * installed cdk-nextjs library which has the "{...}-containers.Dockerfile".
-   * Note, if you specify this then you're responsible for ensuring the dockerfile
-   * is present in the build context directory and any referenced files are
-   * present as well. You can specify dockerfile name with adjacent
-   * `nextjsContainersDockerImageAssetProps.file` property.
-   * @default "cdk-nextjs/lib/nextjs-build"
-   */
-  readonly containersImageBuildContext?: string;
-}
 
 export interface NextjsBuildProps {
   /**
@@ -114,19 +14,15 @@ export interface NextjsBuildProps {
    */
   readonly buildCommand: NextjsBaseProps["buildCommand"];
   /**
-   * @see {@link NextjsBaseProps["buildContext"]}
+   * Directory where the Next.js application is located for local builds.
+   * This should contain the package.json and Next.js application files.
    */
-  readonly buildContext: NextjsBaseProps["buildContext"];
-  /**
-   *
-   */
-  readonly builderImageProps?: BuilderImageProps;
+  readonly buildDirectory: string;
   /**
    * @see {@link NextjsBaseProps.relativePathToPackage}
    */
   readonly relativePathToPackage?: NextjsBaseProps["relativePathToPackage"];
   readonly nextjsType: NextjsType;
-  readonly overrides?: NextjsBuildOverrides;
 }
 
 export interface PublicDirEntry {
@@ -140,34 +36,10 @@ export interface PublicDirEntry {
  */
 export class NextjsBuild extends Construct {
   /**
-   * Image alias of builder image Next.js app which is built for other images to be
-   * built `FROM`. This image isn't built with CDK Assets construct b/c it
-   * doesn't need to be uploaded to ECR. We still need to include slice of
-   * `node.addr` in tag in case multiple cdk-nextjs constructs are used.
-   */
-  builderImageAlias: string;
-  /**
-   * Unique id for Next.js build. Used to partition EFS FileSystem.
+   * Unique id for Next.js build. Used to partition cache storage and as
+   * metadata for static assets in S3 bucket.
    */
   buildId: string;
-  /**
-   * Hash of builder image which will change whenever the image changes. Useful
-   * for passing to properties of custom resources that depend upon the builder
-   * image to re-run when build image changes.
-   */
-  buildImageDigest: string;
-  /**
-   * Docker image built if using Fargate.
-   */
-  imageForNextjsContainers?: DockerImageAsset;
-  /**
-   * Docker image built if using Lambda.
-   */
-  imageForNextjsFunctions?: DockerImageCode;
-  /**
-   * Docker image built for `NextjsAssetsDeployment`
-   */
-  imageForNextjsAssetsDeployment: DockerImageCode;
   /**
    * Absolute path to public. Use by CloudFront/ALB to create behaviors/rules
    * @example "/Users/john/myapp/public"
@@ -180,285 +52,218 @@ export class NextjsBuild extends Construct {
    * @example "./packages/ui/server.js" (monorepo)
    */
   relativePathToEntrypoint: string;
-
   /**
-   * Repository name for the builder image.
+   * Absolute path to the .next directory containing build output
    */
-  private builderImageRepo = "cdk-nextjs/builder";
-
-  private containerRuntime = process.env.CDK_DOCKER || "docker";
+  nextOutputPath?: string;
   private props: NextjsBuildProps;
   private relativePathToPackage: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
-    this.builderImageAlias = `${this.builderImageRepo}:${this.node.addr.slice(30)}`;
     this.relativePathToPackage = props.relativePathToPackage || ".";
     this.props = props;
     this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
-    if (!props.builderImageProps?.skipBuild) {
-      this.createBuilderImage();
-    }
-    this.buildImageDigest = this.getBuilderImageDigest();
-    this.buildId = this.getBuildId();
-    this.publicDirEntries = this.getPublicDirEntries();
-    if (
-      props.nextjsType === NextjsType.GLOBAL_CONTAINERS ||
-      props.nextjsType === NextjsType.REGIONAL_CONTAINERS
-    ) {
-      this.imageForNextjsContainers = this.createImageForNextjsContainers();
-    } else {
-      this.imageForNextjsFunctions = this.createImageForNextjsFunctions();
-    }
-    this.imageForNextjsAssetsDeployment =
-      this.createImageForNextjsAssetsDeployment();
+
+    this.nextOutputPath = join(
+      props.buildDirectory,
+      this.relativePathToPackage,
+      ".next",
+    );
+
+    // Execute local build process
+    this.executeLocalBuild();
+    this.verifyBuildOutput();
+    this.buildId = this.getLocalBuildId();
+    this.publicDirEntries = this.getLocalPublicDirEntries();
+
+    // Docker images are no longer created for local builds
+    // Container and function images will be handled differently in future tasks
   }
 
   private getRelativeEntrypointPath() {
     // joinPosix b/c this will be used in linux container
     return joinPosix(this.props.relativePathToPackage || "", "server.js");
   }
+
   /**
-   * A builder or base image needs to be created so that the same image can be
-   * built `FROM` for `NextjsFunctions` or `NextjsContainers` and `NextjsAssetsDeployment`.
-   * This image doesn't need to be uploaded to ECR so we're "manually" creating
-   * it with `execSync` and other images will be built `FROM` it.
+   * Execute local build command in the specified directory
    */
-  private createBuilderImage() {
+  private executeLocalBuild() {
     const buildCommand = this.props.buildCommand || "npm run build";
-    const {
-      buildArgs = {
-        BUILD_COMMAND: buildCommand,
-        RELATIVE_PATH_TO_PACKAGE: this.relativePathToPackage,
-        ...this.props.builderImageProps?.buildArgs,
-      },
-      envVarNames = [],
-      exclude = [
-        "**/node_modules",
-        ".git",
-        "**/cdk.out",
-        "**/.next",
-        ".gitignore",
-        "*.md",
-      ],
-      file = "builder.Dockerfile",
-      platform,
-    } = this.props.builderImageProps || {};
-
-    // to be added to user provided build context before builder image is built
-    const filePathsToCopy: string[] = [
-      join(__dirname, "cdk-nextjs-cache-handler.cjs"),
-    ];
-    // to be removed from user provided build context after builder image is built
-    const filePathsToRemove: string[] = [
-      join(this.props.buildContext, "cdk-nextjs-cache-handler.cjs"),
-    ];
-
-    // if custom file (Dockerfile) is not specified then use library's default builder.Dockerfile + .dockerignore
-    if (!this.props.builderImageProps?.file) {
-      filePathsToCopy.push(join(__dirname, file));
-      filePathsToRemove.push(join(this.props.buildContext, file));
-      const excludeFileStr = exclude?.join("\n");
-      const dockerignoreFilePath = join(
-        this.props.buildContext,
-        ".dockerignore",
-      );
-      writeFileSync(dockerignoreFilePath, excludeFileStr);
-      filePathsToRemove.push(dockerignoreFilePath);
-    }
-
-    for (const filePathToCopy of filePathsToCopy) {
-      cpSync(
-        filePathToCopy,
-        join(this.props.buildContext, basename(filePathToCopy)),
-      );
-    }
-
-    const buildArgsStr = this.createBuildArgStr(buildArgs);
-    this.injectBuilderDockerfileEnvVars(
-      join(this.props.buildContext, file),
-      envVarNames,
+    const buildDirectory = join(
+      this.props.buildDirectory,
+      this.relativePathToPackage,
     );
-    const command =
-      this.props.builderImageProps?.command ||
-      `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageAlias} ${buildArgsStr} .`;
-    let error: unknown;
+
+    console.log(
+      `Executing local build: ${buildCommand} in directory: ${buildDirectory}`,
+    );
+
     try {
-      console.log(
-        `Building image with command: ${command} in directory: ${this.props.buildContext}`,
-      );
-      execSync(command, {
+      execSync(buildCommand, {
         stdio: "inherit",
-        cwd: this.props.buildContext,
+        cwd: buildDirectory,
         env: process.env,
       });
-    } catch (err) {
-      error = err;
-    } finally {
-      for (const filePathToRemove of filePathsToRemove) {
-        rmSync(filePathToRemove);
-      }
+
+      // Execute patch-fetch.js logic locally after build
+      this.executePatchFetchLogic();
+    } catch (error) {
+      throw new Error(`Local build failed: ${error}`);
     }
-    if (error) throw error;
   }
-  private injectBuilderDockerfileEnvVars(
-    builderDockerfilePath: string,
-    envVarNames: string[],
-  ) {
-    const envVars: Record<string, string> = {};
-    for (const envVarName of envVarNames) {
-      if (process.env[envVarName]) {
-        envVars[envVarName] = process.env[envVarName];
-      }
+
+  /**
+   * Execute patch-fetch.js logic locally during build instead of in Lambda runtime
+   */
+  private executePatchFetchLogic() {
+    if (!this.nextOutputPath) {
+      console.warn(
+        "Next output path not available, skipping patch-fetch logic",
+      );
+      return;
     }
-    const content = Object.entries(envVars)
-      .map(([name, value]) => `${name}="${value}"`)
-      .join(" ");
-    const oldFile = readFileSync(builderDockerfilePath).toString();
-    const newFile = oldFile.replace(INJECT_CDK_NEXTJS_BUILD_ENV_VARS, content);
-    writeFileSync(builderDockerfilePath, newFile);
+
+    const nextOutputPath = this.nextOutputPath;
+    const staticChunksPath = join(nextOutputPath, "static", "chunks");
+
+    if (!existsSync(staticChunksPath)) {
+      console.warn(
+        "Static chunks directory not found, skipping patch-fetch logic",
+      );
+      return;
+    }
+
+    try {
+      // Find main-app-*.js files
+      const chunkFiles = fs.readdirSync(staticChunksPath).filter(
+        (file: string) =>
+          // main-app for webpack, turbopack for turbo
+          file.startsWith("main-app-") ||
+          (file.startsWith("turbopack-") && file.endsWith(".js")),
+      );
+
+      if (chunkFiles.length === 0) {
+        console.warn(
+          "No main-app-*.js files found, skipping patch-fetch logic",
+        );
+        return;
+      }
+
+      // Read the patch-fetch.js content
+      const patchFetchPath = join(__dirname, "patch-fetch.js");
+      if (!existsSync(patchFetchPath)) {
+        console.warn("patch-fetch.js not found, skipping patch logic");
+        return;
+      }
+
+      const patchFetchContent = fs.readFileSync(patchFetchPath, "utf-8");
+
+      // Prepend patch-fetch logic to each main-app-*.js file
+      for (const chunkFile of chunkFiles) {
+        const chunkFilePath = path.join(staticChunksPath, chunkFile);
+        const originalContent = fs.readFileSync(chunkFilePath, "utf-8");
+        const patchedContent = patchFetchContent + "\n" + originalContent;
+        fs.writeFileSync(chunkFilePath, patchedContent);
+        console.log(`Patched ${chunkFile} with fetch logic`);
+      }
+    } catch (error) {
+      console.warn(`Failed to execute patch-fetch logic: ${error}`);
+    }
   }
-  private createBuildArgStr(
-    buildArgs: Required<BuilderImageProps>["buildArgs"],
-  ) {
-    return Object.entries(buildArgs).reduce((acc, [key, value]) => {
-      return `${acc} --build-arg ${key}="${value}"`;
-    }, "");
+
+  /**
+   * Get build ID from local .next directory
+   */
+  private getLocalBuildId(): string {
+    if (!this.nextOutputPath) {
+      throw new Error("Next output path not available for local build ID");
+    }
+    const buildIdPath = join(this.nextOutputPath, "BUILD_ID");
+    if (!existsSync(buildIdPath)) {
+      throw new Error(
+        `BUILD_ID file not found at ${buildIdPath}. Ensure Next.js build completed successfully.`,
+      );
+    }
+    return readFileSync(buildIdPath, "utf-8").trim();
   }
-  private getBuilderImageDigest() {
-    const digest = execSync(
-      `${this.containerRuntime} images --no-trunc --quiet ${this.builderImageAlias}`,
-      { encoding: "utf-8" },
-    );
-    return digest.slice(0, -1); // remove trailing \n
-  }
-  private getPublicDirEntries(): PublicDirEntry[] {
-    const publicDirPath = joinPosix(
-      "/app",
-      this.props.relativePathToPackage || "",
+
+  /**
+   * Get public directory entries from local filesystem
+   */
+  private getLocalPublicDirEntries(): PublicDirEntry[] {
+    const publicDirPath = join(
+      this.props.buildDirectory!,
+      this.relativePathToPackage,
       "public",
     );
-    if (existsSync(publicDirPath)) {
-      const publicDirEntriesString = execSync(
-        `${this.containerRuntime} run ${this.builderImageAlias} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
-        { encoding: "utf-8" },
-      );
-      return JSON.parse(publicDirEntriesString) as PublicDirEntry[];
-    } else {
+
+    if (!existsSync(publicDirPath)) {
+      return [];
+    }
+
+    try {
+      return fs
+        .readdirSync(publicDirPath, { withFileTypes: true })
+        .map((entry: any) => ({
+          name: entry.name,
+          isDirectory: entry.isDirectory(),
+        }));
+    } catch (error) {
+      console.warn(`Failed to read public directory: ${error}`);
       return [];
     }
   }
-  private getBuildId() {
-    const buildIdPath = joinPosix(
-      "/app",
-      this.props.relativePathToPackage || "",
-      ".next",
-      "BUILD_ID",
-    );
-    const buildId = execSync(
-      `${this.containerRuntime} run ${this.builderImageAlias} /bin/sh -c "cat ${buildIdPath}"`,
-      { encoding: "utf-8" },
-    );
-    return buildId;
-  }
-  private createImageForNextjsContainers() {
-    const dockerfileNamePrefix =
-      this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
-        ? "global"
-        : "regional";
-    const dockerfileName = `${dockerfileNamePrefix}-containers.Dockerfile`;
-    // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
-    // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
-    // which is in lib/nextjs-build folder.
-    const buildContext =
-      this.props.overrides?.containersImageBuildContext ??
-      join(__dirname, "..", "..", "lib", "nextjs-build");
-    const dockerImageAsset = new DockerImageAsset(this, "Image", {
-      directory: buildContext,
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsContainersDockerImageAssetProps,
-      buildArgs: {
-        [BUILD_ID_ARG_NAME]: this.buildId,
-        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
-        [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
-        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
-        [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
-        [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
-        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
-        ...this.props.overrides?.nextjsContainersDockerImageAssetProps
-          ?.buildArgs,
-      },
-    });
-    return dockerImageAsset;
-  }
 
-  private createImageForNextjsFunctions() {
-    const dockerfileName = "global-functions.Dockerfile";
-    // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
-    // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
-    // which is in lib/nextjs-build folder.
-    const buildContext =
-      this.props.overrides?.functionsImageBuildContext ??
-      join(__dirname, "..", "..", "lib", "nextjs-build");
-    const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
-      cmd: ["node", this.relativePathToEntrypoint],
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps,
-      buildArgs: {
-        [BUILD_ID_ARG_NAME]: this.buildId,
-        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
-        [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
-        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
-        [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
-        [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
-        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
-        ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.buildArgs,
-      },
-    });
-    // TODO: how to clean up temp dir?
-    // rmSync(tempDir, { recursive: true });
-    return dockerImageCode;
-  }
+  /**
+   * Verify that the .next directory contains all required files for a successful build
+   */
+  private verifyBuildOutput(): void {
+    if (!this.nextOutputPath) {
+      // Skip verification when output path is not available
+      return;
+    }
 
-  private createImageForNextjsAssetsDeployment() {
-    const dockerfileName = "assets-deployment.Dockerfile";
-    /**
-     * Path to bundled custom resource code
-     */
-    const buildContext =
-      this.props.overrides?.assetsDeploymentImageBuildContext ??
-      join(
-        __dirname,
-        "..",
-        "..",
-        "assets",
-        "lambdas",
-        "assets-deployment",
-        "assets-deployment.lambda",
+    const requiredFiles = ["BUILD_ID", "package.json", "server.js"];
+
+    const requiredDirectories = ["static", "server"];
+
+    // Check required files
+    for (const file of requiredFiles) {
+      const filePath = join(this.nextOutputPath, file);
+      if (!existsSync(filePath)) {
+        throw new Error(
+          `Required build file missing: ${filePath}. Ensure Next.js build completed successfully with output: 'standalone'.`,
+        );
+      }
+    }
+
+    // Check required directories
+    for (const dir of requiredDirectories) {
+      const dirPath = join(this.nextOutputPath, dir);
+      if (!existsSync(dirPath)) {
+        throw new Error(
+          `Required build directory missing: ${dirPath}. Ensure Next.js build completed successfully.`,
+        );
+      }
+    }
+
+    // Verify standalone output configuration
+    const packageJsonPath = join(this.nextOutputPath, "package.json");
+    try {
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+      if (!packageJson.scripts || !packageJson.scripts.start) {
+        console.warn(
+          "Warning: package.json in .next directory does not contain a start script. This may indicate the build was not configured for standalone output.",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `Warning: Could not verify package.json in .next directory: ${error}`,
       );
-    // cdk-nextjs/builder-{hash} already contains Next.js built code which
-    // we'll copy into final image. But we also need lambda code to run
-    // asset deployment tasks
-    const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps,
-      buildArgs: {
-        [BUILD_ID_ARG_NAME]: this.buildId,
-        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
-        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
-        ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps
-          ?.buildArgs,
-      },
-    });
-    return dockerImageCode;
+    }
+
+    console.log("Build output verification completed successfully.");
   }
 }
