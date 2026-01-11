@@ -4,6 +4,7 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -63,6 +64,8 @@ export class NextjsBuild extends Construct {
 
   private props: NextjsBuildProps;
   private relativePathToPackage: string;
+  private tempCacheHandlerPath: string;
+  private tempAdapterPath: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
@@ -72,6 +75,16 @@ export class NextjsBuild extends Construct {
     this.relativePathToEntrypoint = joinPosix(
       this.props.relativePathToPackage || "",
       "server.js",
+    );
+
+    // Initialize temporary file paths
+    this.tempCacheHandlerPath = join(
+      this.props.buildDirectory,
+      "cdk-nextjs-cache-handler.mjs",
+    );
+    this.tempAdapterPath = join(
+      this.props.buildDirectory,
+      "cdk-nextjs-adapter.mjs",
     );
 
     // Execute local build process
@@ -111,6 +124,9 @@ export class NextjsBuild extends Construct {
       }
     } catch (error) {
       throw new Error(`Local build failed: ${error}`);
+    } finally {
+      // Always clean up temporary files, regardless of success or failure
+      this.cleanupTemporaryFiles();
     }
   }
 
@@ -180,16 +196,8 @@ export class NextjsBuild extends Construct {
       );
     }
 
-    const targetCacheHandler = join(
-      this.props.buildDirectory,
-      "cdk-nextjs-cache-handler.mjs",
-    );
-
     try {
-      copyFileSync(sourceCacheHandler, targetCacheHandler);
-      console.log(
-        `Copied cache handler to build directory: ${targetCacheHandler}`,
-      );
+      copyFileSync(sourceCacheHandler, this.tempCacheHandlerPath);
     } catch (error) {
       throw new Error(
         `Failed to copy cache handler to build directory: ${error}`,
@@ -210,16 +218,31 @@ export class NextjsBuild extends Construct {
       );
     }
 
-    const targetAdapter = join(
-      this.props.buildDirectory,
-      "cdk-nextjs-adapter.mjs",
-    );
-
     try {
-      copyFileSync(sourceAdapter, targetAdapter);
-      console.log(`Copied adapter to build directory: ${targetAdapter}`);
+      copyFileSync(sourceAdapter, this.tempAdapterPath);
     } catch (error) {
       throw new Error(`Failed to copy adapter to build directory: ${error}`);
+    }
+  }
+
+  /**
+   * Clean up temporary files that were copied to the build directory
+   */
+  private cleanupTemporaryFiles() {
+    try {
+      if (existsSync(this.tempCacheHandlerPath)) {
+        unlinkSync(this.tempCacheHandlerPath);
+      }
+    } catch (error) {
+      console.warn(`Failed to remove cache handler: ${error}`);
+    }
+
+    try {
+      if (existsSync(this.tempAdapterPath)) {
+        unlinkSync(this.tempAdapterPath);
+      }
+    } catch (error) {
+      console.warn(`Failed to remove adapter: ${error}`);
     }
   }
 

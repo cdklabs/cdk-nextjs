@@ -15,7 +15,6 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-ARG RELATIVE_PATH_TO_PACKAGE
 # Copy from local build output instead of builder image
 COPY --chown=nextjs:nodejs .next/standalone ./
 # html,rsc,body,meta files don't need to be in compute container b/c they're handled by cdk-nextjs-cache-handler.cjs
@@ -27,5 +26,3 @@ USER nextjs
 EXPOSE 3000
 
 ENV PORT=3000
-
-# CMD will be overwritten by Lambda IaC
