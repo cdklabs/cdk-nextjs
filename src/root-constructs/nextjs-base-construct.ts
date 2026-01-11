@@ -2,14 +2,9 @@ import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
-import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
 import { NextjsComputeBaseProps } from "../nextjs-compute/nextjs-compute-base-props";
-import {
-  NextjsPostDeploy,
-  NextjsPostDeployOverrides,
-} from "../nextjs-post-deploy";
 import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
@@ -22,7 +17,6 @@ import {
 export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsCacheProps?: OptionalNextjsCacheProps;
-  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
@@ -31,7 +25,6 @@ export interface NextjsBaseConstructOverrides {
  */
 export interface NextjsBaseOverrides {
   readonly nextjsCache?: NextjsCacheOverrides;
-  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
 
@@ -102,7 +95,6 @@ export abstract class NextjsBaseConstruct extends Construct {
   nextjsBuild: NextjsBuild;
   nextjsStaticAssets: NextjsStaticAssets;
   nextjsCache: NextjsCache;
-  nextjsPostDeploy: NextjsPostDeploy;
 
   abstract get url(): string;
 
@@ -125,7 +117,6 @@ export abstract class NextjsBaseConstruct extends Construct {
     this.nextjsBuild = this.createNextjsBuild();
     this.nextjsCache = this.createNextjsCache();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
-    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   /**
@@ -189,18 +180,5 @@ export abstract class NextjsBaseConstruct extends Construct {
       overrides: this.baseProps.overrides?.nextjsStaticAssets,
       ...this.constructOverrides?.nextjsStaticAssetsProps,
     });
-  }
-
-  private createNextjsPostDeploy(): NextjsPostDeploy {
-    const nextjsPostDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
-      buildId: this.nextjsBuild.buildId,
-      overrides: this.baseProps.overrides?.nextjsPostDeploy,
-      relativePathToPackage: this.baseProps.relativePathToPackage,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      cacheBucket: this.nextjsCache.cacheBucket,
-      revalidationTable: this.nextjsCache.revalidationTable,
-      ...this.constructOverrides?.nextjsPostDeployProps,
-    });
-    return nextjsPostDeploy;
   }
 }

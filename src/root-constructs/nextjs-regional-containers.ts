@@ -8,15 +8,21 @@ import {
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import { OptionalNextjsVpcProps } from "../generated-structs/OptionalNextjsVpcProps";
 import {
   NextjsContainers,
   NextjsContainersOverrides,
 } from "../nextjs-compute/nextjs-containers";
+import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
 import { NextjsVpc, NextjsVpcOverrides } from "../nextjs-vpc";
 
 export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
   readonly nextjsVpcProps?: OptionalNextjsVpcProps;
 }
 
@@ -28,6 +34,7 @@ export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseCo
 export interface NextjsRegionalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
   readonly nextjsVpc?: NextjsVpcOverrides;
 }
 
@@ -47,6 +54,7 @@ export interface NextjsRegionalContainersProps extends NextjsBaseProps {
 export class NextjsRegionalContainers extends NextjsBaseConstruct {
   nextjsVpc: NextjsVpc;
   nextjsContainers: NextjsContainers;
+  nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
     return `http://${this.nextjsContainers.albFargateService.loadBalancer.loadBalancerDnsName}`;
   }
@@ -63,6 +71,7 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
 
     this.nextjsVpc = this.createVpc();
     this.nextjsContainers = this.createNextjsLoadBalancedContainers();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   /**
@@ -88,6 +97,18 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
       overrides: this.props.overrides?.nextjsContainers,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
+    });
+  }
+
+  private createNextjsPostDeploy(): NextjsPostDeploy {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      buildId: this.nextjsBuild.buildId,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      relativePathToPackage: this.baseProps.relativePathToPackage,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
     });
   }
 }

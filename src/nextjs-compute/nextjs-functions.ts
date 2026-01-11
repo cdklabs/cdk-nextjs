@@ -93,10 +93,14 @@ export class NextjsFunctions extends Construct {
     // Copy Dockerfile to build context to avoid path resolution issues
     this.copyDockerfileToContext(buildContext, dockerfileName);
 
+    const relativeEntrypointPath = this.props.relativePathToPackage
+      ? `${this.props.relativePathToPackage}/server.js`
+      : "server.js";
+
     return DockerImageCode.fromImageAsset(buildContext, {
       file: dockerfileName, // Now it's just the filename in the build context
+      cmd: ["node", relativeEntrypointPath],
       buildArgs: {
-        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
         BUILD_ID: this.props.buildId,
       },
     });

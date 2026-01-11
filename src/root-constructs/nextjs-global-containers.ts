@@ -4,6 +4,7 @@ import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import { OptionalNextjsVpcProps } from "../generated-structs/OptionalNextjsVpcProps";
 import {
   NextjsContainers,
@@ -13,6 +14,10 @@ import {
   NextjsDistribution,
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
+import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
 import { NextjsVpc, NextjsVpcOverrides } from "../nextjs-vpc";
 import {
   NextjsBaseConstructOverrides,
@@ -24,6 +29,7 @@ import {
 export interface NextjsGlobalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainersProps?: OptionalNextjsContainersProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
   readonly nextjsVpcProps?: OptionalNextjsVpcProps;
 }
 
@@ -36,6 +42,7 @@ export interface NextjsGlobalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalContainers?: NextjsGlobalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
   readonly nextjsVpc?: NextjsVpcOverrides;
 }
 
@@ -61,6 +68,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   nextjsVpc: NextjsVpc;
   nextjsContainers: NextjsContainers;
   nextjsDistribution: NextjsDistribution;
+  nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
     return `https://${this.nextjsDistribution.distribution.domainName}`;
   }
@@ -78,6 +86,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     this.nextjsVpc = this.createVpc();
     this.nextjsContainers = this.createNextjsContainers();
     this.nextjsDistribution = this.createNextjsDistribution();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   /**
@@ -117,6 +126,19 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsDistributionProps,
+    });
+  }
+
+  private createNextjsPostDeploy(): NextjsPostDeploy {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      buildId: this.nextjsBuild.buildId,
+      distribution: this.nextjsDistribution.distribution,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      relativePathToPackage: this.baseProps.relativePathToPackage,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
   }
 }

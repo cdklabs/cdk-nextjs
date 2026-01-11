@@ -8,15 +8,21 @@ import {
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
 } from "./nextjs-base-construct";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsFunctions,
   NextjsFunctionsOverrides,
   NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
+import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
 
 export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsApiProps?: NextjsApiProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -28,6 +34,7 @@ export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsApi?: NextjsApiOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
@@ -44,6 +51,7 @@ export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
 export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
   nextjsApi: NextjsApi;
+  nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
     return `https://${this.nextjsApi.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com/${this.nextjsApi.api.deploymentStage.stageName}`;
   }
@@ -60,6 +68,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
 
     this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsApi = this.createNextjsApi();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   private createNextjsFunctions(): NextjsFunctions {
@@ -79,6 +88,18 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
+    });
+  }
+
+  private createNextjsPostDeploy(): NextjsPostDeploy {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      buildId: this.nextjsBuild.buildId,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      relativePathToPackage: this.baseProps.relativePathToPackage,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      ...this.props.overrides?.nextjsRegionalFunctions?.nextjsPostDeployProps,
     });
   }
 }
