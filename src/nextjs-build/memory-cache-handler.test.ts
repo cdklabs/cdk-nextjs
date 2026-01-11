@@ -83,6 +83,7 @@ describe("MemoryCacheHandler", () => {
     it("should return null for non-existent cache key", async () => {
       const result = await handler.get("non-existent", {
         kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
       expect(result).toBeNull();
     });
@@ -91,12 +92,17 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>test</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await handler.set("test-key", testData, { tags: [] });
       const result = await handler.get("test-key", {
         kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
 
       expect(result).not.toBeNull();
@@ -107,7 +113,11 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>fallback</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       // Store directly in fallback handler
@@ -115,6 +125,7 @@ describe("MemoryCacheHandler", () => {
 
       const result = await handler.get("fallback-key", {
         kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
 
       expect(result).not.toBeNull();
@@ -125,23 +136,40 @@ describe("MemoryCacheHandler", () => {
     });
 
     it("should respect TTL and expire entries", async () => {
+      // Create handler without fallback for this test
+      const handlerWithoutFallback = new MemoryCacheHandler({
+        context: mockContext,
+        ttlMs: 1000,
+      });
+
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>expired</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
-      await handler.set("expire-key", testData, { tags: [] });
+      await handlerWithoutFallback.set("expire-key", testData, { tags: [] });
+
+      // Verify it's in memory cache
+      expect(handlerWithoutFallback.getCacheSize()).toBe(1);
 
       // Wait for TTL to expire
       await new Promise((resolve) => setTimeout(resolve, 1100));
 
-      const result = await handler.get("expire-key", {
-        kind: CachedRouteKind.APP_PAGE,
+      const result = await handlerWithoutFallback.get("expire-key", {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
 
-      // Should be null since TTL expired and not in fallback
+      // Should be null since TTL expired and no fallback
       expect(result).toBeNull();
+
+      // Cache should be cleaned up
+      expect(handlerWithoutFallback.getCacheSize()).toBe(0);
     });
   });
 
@@ -150,7 +178,11 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>set test</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await handler.set("set-key", testData, { tags: ["tag1"] });
@@ -158,7 +190,8 @@ describe("MemoryCacheHandler", () => {
       expect(handler.getCacheSize()).toBe(1);
 
       const result = await handler.get("set-key", {
-        kind: CachedRouteKind.APP_PAGE,
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
       expect(result?.value).toEqual(testData);
     });
@@ -167,7 +200,11 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>tagged</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await handler.set("tagged-key", testData, { tags: ["tag1", "tag2"] });
@@ -179,15 +216,17 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>forwarded</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await handler.set("forward-key", testData, { tags: [] });
 
       // Should be in fallback handler
-      const fallbackResult = await mockFallback.get("forward-key", {
-        kind: CachedRouteKind.APP_PAGE,
-      });
+      const fallbackResult = await mockFallback.get("forward-key");
       expect(fallbackResult?.value).toEqual(testData);
     });
   });
@@ -197,7 +236,11 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>tagged</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await handler.set("tagged-key-1", testData, { tags: ["revalidate-tag"] });
@@ -211,7 +254,8 @@ describe("MemoryCacheHandler", () => {
       expect(handler.getCacheSize()).toBe(1);
 
       const result = await handler.get("other-key", {
-        kind: CachedRouteKind.APP_PAGE,
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
       expect(result).not.toBeNull();
     });
@@ -220,7 +264,11 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>fallback tagged</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await mockFallback.set("fallback-tagged", testData, {
@@ -229,9 +277,7 @@ describe("MemoryCacheHandler", () => {
 
       await handler.revalidateTag("fallback-tag");
 
-      const result = await mockFallback.get("fallback-tagged", {
-        kind: CachedRouteKind.APP_PAGE,
-      });
+      const result = await mockFallback.get("fallback-tagged");
       expect(result).toBeNull();
     });
   });
@@ -241,7 +287,11 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>reset test</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await handler.set("reset-key", testData, { tags: ["reset-tag"] });
@@ -281,12 +331,17 @@ describe("MemoryCacheHandler", () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>no fallback</html>",
-        pageData: {},
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
       };
 
       await handler.set("no-fallback-key", testData, { tags: [] });
       const result = await handler.get("no-fallback-key", {
-        kind: CachedRouteKind.APP_PAGE,
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
 
       expect(result?.value).toEqual(testData);
@@ -294,7 +349,8 @@ describe("MemoryCacheHandler", () => {
 
     it("should return null for cache miss without fallback", async () => {
       const result = await handler.get("missing-key", {
-        kind: CachedRouteKind.APP_PAGE,
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
       });
       expect(result).toBeNull();
     });

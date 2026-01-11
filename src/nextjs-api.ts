@@ -247,7 +247,7 @@ export class NextjsApi extends Construct {
    */
   private createDynamicIntegration(serverFunction: IFunction) {
     const lambdaIntegration = new LambdaIntegration(serverFunction, {
-      responseTransferMode: ResponseTransferMode.STREAM
+      responseTransferMode: ResponseTransferMode.STREAM,
       ...this.props.overrides?.dynamicIntegrationProps,
     });
     // Add catch-all route for server-side rendering

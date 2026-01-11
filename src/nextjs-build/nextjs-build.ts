@@ -6,7 +6,7 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
@@ -194,14 +194,7 @@ export class NextjsBuild extends Construct {
    * This allows the adapter to reference the cache handler during Next.js build
    */
   private copyCacheHandlerToBuildDirectory() {
-    // Find the cache handler file in the cdk-nextjs package
-    const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
-    const sourceCacheHandler = join(
-      packageRoot,
-      "lib",
-      "nextjs-build",
-      "cdk-nextjs-cache-handler.mjs",
-    );
+    const sourceCacheHandler = join(__dirname, "cdk-nextjs-cache-handler.mjs");
 
     if (!existsSync(sourceCacheHandler)) {
       throw new Error(
@@ -231,14 +224,7 @@ export class NextjsBuild extends Construct {
    * This allows Next.js to use the adapter during the build process
    */
   private copyAdapterToBuildDirectory() {
-    // Find the adapter file in the cdk-nextjs package
-    const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
-    const sourceAdapter = join(
-      packageRoot,
-      "lib",
-      "nextjs-build",
-      "cdk-nextjs-adapter.mjs",
-    );
+    const sourceAdapter = join(__dirname, "cdk-nextjs-adapter.mjs");
 
     if (!existsSync(sourceAdapter)) {
       throw new Error(
