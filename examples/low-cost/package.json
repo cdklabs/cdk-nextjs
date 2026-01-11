@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "aws-cdk-lib": "catalog:",
-    "cdk-fck-nat": "catalog:",
     "cdk-nextjs": "link:../..",
     "constructs": "catalog:",
     "tsx": "catalog:"

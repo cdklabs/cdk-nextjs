@@ -8,7 +8,6 @@ import {
   suppressGlobalNags,
   suppressLambdaNags,
 } from "../shared/suppress-nags";
-import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
@@ -18,7 +17,7 @@ import { execSync } from "node:child_process";
 const app = new App();
 
 class TurborepoStack extends Stack {
-  #workspaceRootPath = join(import.meta.dirname, "..");
+  #workspaceRootPath = join(import.meta.dirname, "..", "app-playground");
   #builderDockerfile = "builder.Dockerfile";
 
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -72,18 +71,6 @@ class TurborepoStack extends Stack {
             logFilePrefix: "cloudfront-logs",
           },
         },
-        nextjsVpc: {
-          vpcProps: {
-            flowLogs: {
-              s3FlowLogs: {
-                destination: FlowLogDestination.toS3(
-                  logsBucket,
-                  "vpc-flow-logs",
-                ),
-              },
-            },
-          },
-        },
       },
       relativePathToPackage: "./app-playground",
     });
@@ -91,11 +78,6 @@ class TurborepoStack extends Stack {
       value: "https://" + nextjs.nextjsDistribution.distribution.domainName,
       key: "CdkNextjsUrl",
     });
-    // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
-    nextjs.nextjsVpc.vpc.node
-      .findChild("s3FlowLogs")
-      .node.findChild("FlowLog")
-      .node.addDependency(logsBucket);
   }
 
   #getLogsBucket() {

@@ -50,7 +50,7 @@ export interface NextjsBaseProps {
    * Directory where the Next.js application is located for local builds.
    * This should contain the package.json and Next.js application files.
    * This is where {@link NextjsBaseProps.buildCommand} is run.
-   * @example join(import.meta.dirname, "..") or "/path/to/nextjs/app"
+   * @example join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
    */
   readonly buildDirectory: string;
   /**
@@ -79,7 +79,7 @@ export interface NextjsBaseProps {
    *   - package.json (root)
    *
    * And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-   * to `"/absolute/path/to/nextjs/package"` and {@link NextjsBaseProps.relativePathToPackage}
+   * to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
    * to `"./apps/web"`.
    *
    * @example "./apps/web"

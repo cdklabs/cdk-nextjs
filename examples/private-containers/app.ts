@@ -28,7 +28,7 @@ export class PrivateContainersStack extends Stack {
     super(scope, id, props);
     const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildDirectory: join(import.meta.dirname, ".."),
+      buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       overrides: {
         nextjsContainers: {
           albFargateServiceProps: {
