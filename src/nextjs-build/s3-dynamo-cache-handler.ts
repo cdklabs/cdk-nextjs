@@ -21,6 +21,7 @@ import {
 } from "next/dist/server/response-cache";
 import { CacheHandler, CacheHandlerOptions } from "./cache-handler-interface";
 import getDebug from "debug";
+import { join } from "path";
 
 /**
  * Check if code is running as a result of `next build`
@@ -186,6 +187,14 @@ export class S3DynamoCacheHandler implements CacheHandler {
       return cacheValue;
     } catch (error) {
       const errorType = this.categorizeError(error);
+
+      // Cache misses are normal behavior, not errors
+      if (errorType === "cache-miss") {
+        this.debug(`Cache miss for key: ${cacheKey}`);
+        return null;
+      }
+
+      // Only log actual errors and handle circuit breaker for real failures
       console.error(`Error retrieving cache from S3 (${errorType}):`, error);
       this.handleS3Failure();
       return null;
@@ -353,9 +362,22 @@ export class S3DynamoCacheHandler implements CacheHandler {
   }
 
   private buildS3Key(cacheKey: string): string {
-    // Use BUILD_ID prefixing: /{buildId}/{cacheKey}
+    // Use BUILD_ID prefixing: {buildId}/{cacheKey}
     // Next.js provides the cacheKey, we just add BUILD_ID isolation
-    return `/${this.s3Config.buildId}/${cacheKey}`;
+
+    // Handle edge cases:
+    // - Root path "/" should become "index" or similar
+    // - Remove leading slashes to prevent empty folders
+    let cleanCacheKey = cacheKey;
+
+    if (cacheKey === "/" || cacheKey === "") {
+      cleanCacheKey = "index";
+    } else if (cacheKey.startsWith("/")) {
+      cleanCacheKey = cacheKey.slice(1);
+    }
+
+    // Use path.join() for proper path handling
+    return join(this.s3Config.buildId, cleanCacheKey);
   }
 
   private async storeDynamoDBTagMappings(
@@ -474,7 +496,18 @@ export class S3DynamoCacheHandler implements CacheHandler {
   // Enhanced error categorization
   private categorizeError(
     error: any,
-  ): "network" | "permission" | "throttling" | "unknown" {
+  ): "network" | "permission" | "throttling" | "cache-miss" | "unknown" {
+    // Cache miss is not an error - it's expected behavior
+    // Check multiple ways NoSuchKey can be represented
+    if (
+      error.name === "NoSuchKey" ||
+      error.Code === "NoSuchKey" ||
+      error.$metadata?.httpStatusCode === 404 ||
+      (error.message && error.message.includes("NoSuchKey"))
+    ) {
+      return "cache-miss";
+    }
+
     if (
       error.name === "NetworkingError" ||
       error.code === "ENOTFOUND" ||
