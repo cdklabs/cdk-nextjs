@@ -67,9 +67,10 @@ export class NextjsFunctions extends Construct {
         AWS_LWA_READINESS_CHECK_PORT: "3000",
         READINESS_CHECK_PATH: `http://127.0.0.1:3000${this.props.healthCheckPath}`,
         // Cache configuration environment variables
-        CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
-        REVALIDATION_TABLE_NAME: this.props.revalidationTable.tableName,
-        BUILD_ID: this.props.buildId,
+        CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
+        CDK_NEXTJS_REVALIDATION_TABLE_NAME:
+          this.props.revalidationTable.tableName,
+        CDK_NEXTJS_BUILD_ID: this.props.buildId,
         ...this.props.overrides?.dockerImageFunctionProps?.environment,
       },
     };

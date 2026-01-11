@@ -31,8 +31,6 @@ ARG RELATIVE_PATH_TO_PACKAGE
 COPY --from=builder --chown=nextjs:nodejs /app/$RELATIVE_PATH_TO_PACKAGE/.next/standalone ./
 # html,rsc,body,meta files don't need to be in compute container b/c they're handled by cdk-nextjs-cache-handler.cjs
 RUN find . -type f \( -name "*.html" -o -name "*.rsc" -name "*.body" -name "*.meta" \) -delete
-ARG BUILD_ID
-RUN sed -i 's/"env":{},/"env":{},cacheHandler:"\.\.\/cdk-nextjs-cache-handler.cjs",/g' ./$RELATIVE_PATH_TO_PACKAGE/server.js
 
 USER nextjs
 

@@ -60,11 +60,11 @@ class TurborepoStack extends Stack {
     return packageJsonObj.name;
   }
 
-  #createNextjs(buildContext: string) {
+  #createNextjs(buildDirectory: string) {
     const logsBucket = this.#getLogsBucket();
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext,
+      buildDirectory,
       overrides: {
         nextjsDistribution: {
           distributionProps: {

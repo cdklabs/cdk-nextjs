@@ -191,9 +191,10 @@ export class NextjsContainers extends Construct {
           }),
           environment: {
             // Cache configuration environment variables
-            CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
-            REVALIDATION_TABLE_NAME: this.props.revalidationTable.tableName,
-            BUILD_ID: this.props.buildId,
+            CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
+            CDK_NEXTJS_REVALIDATION_TABLE_NAME:
+              this.props.revalidationTable.tableName,
+            CDK_NEXTJS_BUILD_ID: this.props.buildId,
           },
           ...this.props.overrides?.taskImageOptions,
         },

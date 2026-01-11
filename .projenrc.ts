@@ -157,8 +157,18 @@ function bundle() {
   project.bundler.addBundle("src/nextjs-build/cdk-nextjs-cache-handler.ts", {
     platform: "node",
     target,
-    outfile: "../../../lib/nextjs-build/cdk-nextjs-cache-handler.cjs",
+    outfile: "../../../lib/nextjs-build/cdk-nextjs-cache-handler.mjs",
     externals: ["next"],
+    format: "esm",
+    banner:
+      "const require = (await import('node:module')).createRequire(import.meta.url);",
+  });
+  project.bundler.addBundle("src/nextjs-build/adapter.ts", {
+    platform: "node",
+    target,
+    outfile: "../../../lib/nextjs-build/cdk-nextjs-adapter.mjs",
+    externals: ["next"],
+    format: "esm",
   });
 }
 

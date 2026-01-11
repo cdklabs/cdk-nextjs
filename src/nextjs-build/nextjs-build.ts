@@ -115,17 +115,20 @@ export class NextjsBuild extends Construct {
     );
 
     try {
+      // Copy cache handler and adapter to build directory before build
+      this.copyCacheHandlerToBuildDirectory();
+      this.copyAdapterToBuildDirectory();
+
       execSync(buildCommand, {
         stdio: "inherit",
         cwd: buildDirectory,
         env: process.env,
       });
 
-      // Execute patch-fetch.js logic locally after build
-      this.executePatchFetchLogic();
-
-      // Copy cache handler to standalone directory
-      this.copyCacheHandlerToStandalone();
+      // Copy patch-fetch.js into client JS bundle after build only for NextjsGlobalFunctions
+      if (this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
+        this.patchFetchInClientJs();
+      }
     } catch (error) {
       throw new Error(`Local build failed: ${error}`);
     }
@@ -200,30 +203,20 @@ export class NextjsBuild extends Construct {
           `Ensure Next.js build completed successfully.`,
       );
     }
-
-    console.log("Standalone build validation completed successfully.");
   }
   /**
-   * Copy the cache handler file to the standalone directory
+   * Copy the cache handler file to the build directory before build
+   * This allows the adapter to reference the cache handler during Next.js build
    */
-  private copyCacheHandlerToStandalone() {
+  private copyCacheHandlerToBuildDirectory() {
     // Find the cache handler file in the cdk-nextjs package
-    // Use require.resolve to find the package location regardless of installation method
-    let sourceCacheHandler: string;
-    try {
-      // This will work both in development and when installed as a package
-      const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
-      sourceCacheHandler = join(
-        packageRoot,
-        "lib",
-        "nextjs-build",
-        "cdk-nextjs-cache-handler.cjs",
-      );
-    } catch (error) {
-      throw new Error(
-        `Could not locate cdk-nextjs package: ${error}. Ensure cdk-nextjs is properly installed.`,
-      );
-    }
+    const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
+    const sourceCacheHandler = join(
+      packageRoot,
+      "lib",
+      "nextjs-build",
+      "cdk-nextjs-cache-handler.mjs",
+    );
 
     if (!existsSync(sourceCacheHandler)) {
       throw new Error(
@@ -231,26 +224,69 @@ export class NextjsBuild extends Construct {
       );
     }
 
-    // Copy to the same directory where server.js is located in standalone
-    // This matches the RELATIVE_PATH_TO_PACKAGE structure used in Dockerfiles
-    const targetCacheHandler = join(
-      this.standaloneDir,
+    // Copy to the build directory (where package.json is located)
+    const buildDirectory = join(
+      this.props.buildDirectory,
       this.relativePathToPackage,
-      "cdk-nextjs-cache-handler.cjs",
+    );
+
+    const targetCacheHandler = join(
+      buildDirectory,
+      "cdk-nextjs-cache-handler.mjs",
     );
 
     try {
       copyFileSync(sourceCacheHandler, targetCacheHandler);
-      console.log(`Copied cache handler to: ${targetCacheHandler}`);
+      console.log(
+        `Copied cache handler to build directory: ${targetCacheHandler}`,
+      );
     } catch (error) {
-      throw new Error(`Failed to copy cache handler: ${error}`);
+      throw new Error(
+        `Failed to copy cache handler to build directory: ${error}`,
+      );
+    }
+  }
+
+  /**
+   * Copy the adapter file to the build directory before build
+   * This allows Next.js to use the adapter during the build process
+   */
+  private copyAdapterToBuildDirectory() {
+    // Find the adapter file in the cdk-nextjs package
+    const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
+    const sourceAdapter = join(
+      packageRoot,
+      "lib",
+      "nextjs-build",
+      "cdk-nextjs-adapter.mjs",
+    );
+
+    if (!existsSync(sourceAdapter)) {
+      throw new Error(
+        `Adapter not found: ${sourceAdapter}. Ensure the cdk-nextjs package is properly built.`,
+      );
+    }
+
+    // Copy to the build directory (where package.json is located)
+    const buildDirectory = join(
+      this.props.buildDirectory,
+      this.relativePathToPackage,
+    );
+
+    const targetAdapter = join(buildDirectory, "cdk-nextjs-adapter.mjs");
+
+    try {
+      copyFileSync(sourceAdapter, targetAdapter);
+      console.log(`Copied adapter to build directory: ${targetAdapter}`);
+    } catch (error) {
+      throw new Error(`Failed to copy adapter to build directory: ${error}`);
     }
   }
 
   /**
    * Find entrypoint client side js files to patch `fetch` only for NextjsGlobalFunctions
    */
-  private executePatchFetchLogic() {
+  private patchFetchInClientJs() {
     if (!existsSync(this.staticChunksPath)) {
       console.warn(
         "Static chunks directory not found, skipping patch-fetch logic",

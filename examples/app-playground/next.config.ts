@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
   experimental: {
     turbopackFileSystemCacheForBuild: true,
     // TODO: leverage in future to avoid having to use build a container and use lambda-web-adapter for Nextjs***Functions constructs
-    //adapterPath: path.join(rootWorkspace, 'app-playground/adapter.js'),
+    adapterPath: import.meta.resolve('./cdk-nextjs-adapter.mjs'),
   },
   images: {
     customCacheHandler: true,

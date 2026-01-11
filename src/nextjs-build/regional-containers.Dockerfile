@@ -23,7 +23,6 @@ RUN find . -type f \( -name "*.html" -o -name "*.rsc" -name "*.body" -name "*.me
 # static properties needed b/c we don't have cloudfront to serve them from s3
 COPY --chown=nextjs:nodejs .next/static ./$RELATIVE_PATH_TO_PACKAGE/.next/static
 ARG BUILD_ID
-RUN sed -i 's/"env":{},/"env":{},cacheHandler:"\.\.\/cdk-nextjs-cache-handler.cjs",/g' ./$RELATIVE_PATH_TO_PACKAGE/server.js
 
 USER nextjs
 

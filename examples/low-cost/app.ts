@@ -59,7 +59,7 @@ class LowCostStack extends Stack {
     const certificate = this.#getCertificate(hostedZone);
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildDirectory: join(import.meta.dirname, ".."),
       overrides: {
         nextjsDistribution: {
           distributionProps: {

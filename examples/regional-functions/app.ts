@@ -30,7 +30,7 @@ export class RegionalFunctionsStack extends Stack {
     process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildDirectory: join(import.meta.dirname, ".."),
       overrides: {
         nextjsApi: {
           restApiProps: {

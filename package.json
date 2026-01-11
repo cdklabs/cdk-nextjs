@@ -11,6 +11,8 @@
     "bundle": "pnpm dlx projen bundle",
     "bundle:lambdas/post-deploy/post-deploy.lambda": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda",
     "bundle:lambdas/post-deploy/post-deploy.lambda:watch": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda:watch",
+    "bundle:nextjs-build/adapter": "pnpm dlx projen bundle:nextjs-build/adapter",
+    "bundle:nextjs-build/adapter:watch": "pnpm dlx projen bundle:nextjs-build/adapter:watch",
     "bundle:nextjs-build/cdk-nextjs-cache-handler": "pnpm dlx projen bundle:nextjs-build/cdk-nextjs-cache-handler",
     "bundle:nextjs-build/cdk-nextjs-cache-handler:watch": "pnpm dlx projen bundle:nextjs-build/cdk-nextjs-cache-handler:watch",
     "clobber": "pnpm dlx projen clobber",

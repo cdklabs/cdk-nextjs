@@ -40,7 +40,8 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 1. If you don’t have a Next.js project yet, follow [these steps](https://nextjs.org/docs/getting-started) to create one.
 1. Install [Docker](https://www.docker.com/). We recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby) container engine enabled.
 1. Install [Node.js](https://nodejs.org/en). We recommend the long term support (LTS) version.
-1. Set your [next.config.js](https://nextjs.org/docs/pages/api-reference/next-config-js) [output](https://nextjs.org/docs/pages/api-reference/next-config-js/output) key to `"standalone"`. Learn more here about [Standalone Output](https://nextjs.org/docs/pages/api-reference/next-config-js/output#automatically-copying-traced-files).
+1. Pin Next.js version to version that includes [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching). `"next": "16.1.1-canary.20",` in package.json.
+1. Set your [next.config.js](https://nextjs.org/docs/pages/api-reference/next-config-js) [experimental.adapterPath](https://nextjs.org/docs/app/api-reference/config/next-config-js/adapterPath) key to `import.meta.resolve("./cdk-nextjs-adapter-path.mjs")`. cdk-nextjs will copy this file into your `buildDirectory` so that it will be available during `next build`.
 1. Setup [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app.
 1. Install the construct package: `npm install cdk-nextjs`
 1. `cdk deploy`

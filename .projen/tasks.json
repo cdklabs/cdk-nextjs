@@ -68,6 +68,9 @@
         },
         {
           "spawn": "bundle:nextjs-build/cdk-nextjs-cache-handler"
+        },
+        {
+          "spawn": "bundle:nextjs-build/adapter"
         }
       ]
     },
@@ -89,12 +92,30 @@
         }
       ]
     },
+    "bundle:nextjs-build/adapter": {
+      "name": "bundle:nextjs-build/adapter",
+      "description": "Create a JavaScript bundle from src/nextjs-build/adapter.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/nextjs-build/adapter.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-adapter.mjs\" --external:next --format=esm"
+        }
+      ]
+    },
+    "bundle:nextjs-build/adapter:watch": {
+      "name": "bundle:nextjs-build/adapter:watch",
+      "description": "Continuously update the JavaScript bundle from src/nextjs-build/adapter.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/nextjs-build/adapter.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-adapter.mjs\" --external:next --format=esm --watch"
+        }
+      ]
+    },
     "bundle:nextjs-build/cdk-nextjs-cache-handler": {
       "name": "bundle:nextjs-build/cdk-nextjs-cache-handler",
       "description": "Create a JavaScript bundle from src/nextjs-build/cdk-nextjs-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/cdk-nextjs-cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-cache-handler.cjs\" --external:next"
+          "exec": "esbuild --bundle src/nextjs-build/cdk-nextjs-cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-cache-handler.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\""
         }
       ]
     },
@@ -103,7 +124,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/cdk-nextjs-cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/cdk-nextjs-cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-cache-handler.cjs\" --external:next --watch"
+          "exec": "esbuild --bundle src/nextjs-build/cdk-nextjs-cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/nextjs-build/cdk-nextjs-cache-handler.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\" --watch"
         }
       ]
     },

@@ -2,13 +2,13 @@
 import { NextAdapter } from "next";
 
 const adapter: NextAdapter = {
-  name: "cdk-nextjs-cache-handler",
+  name: "cdk-nextjs-adapter",
   async modifyConfig(config, { phase }) {
     if (phase === "phase-production-build") {
       return {
         ...config,
         output: "standalone",
-        cacheHandler: require.resolve("./cdk-nextjs-cache-handler.js"),
+        cacheHandler: "./cdk-nextjs-cache-handler.mjs",
       };
     }
     return config;
