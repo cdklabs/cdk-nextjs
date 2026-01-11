@@ -60,7 +60,7 @@ class NextjsStack extends Stack {
     super(scope, id, props);
     new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildDirectory: import.meta.dirname,
     });
   }
 }

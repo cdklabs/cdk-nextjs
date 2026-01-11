@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
@@ -47,21 +46,6 @@ export interface NextjsBaseProps {
    * @default "npm run build"
    */
   readonly buildCommand?: string;
-  /**
-   * [Build context](https://docs.docker.com/build/building/context/) for
-   * `docker build`. This directory should contain your lockfile (i.e.
-   * pnpm-lock.yaml) for your Next.js app. If you're not in a monorepo, then
-   * this will be the same directory as your Next.js app. If you are in a
-   * monorepo, then this value should be the root of your monorepo. You then
-   * must pass the relative path to your Next.js app via {@link NextjsBaseProps.relativePathToPackage}
-   *
-   * Note: cdk-nextjs now uses local builds instead of Docker-based builds.
-   * Specify `buildCommand` and `buildDirectory` to configure the build process.
-   * is instantiated.
-   * @example join(import.meta.dirname, "..") (monorepo)
-   * @deprecated Docker builds are no longer supported, use buildDirectory instead for local builds
-   */
-  readonly buildContext?: string;
   /**
    * Directory where the Next.js application is located for local builds.
    * This should contain the package.json and Next.js application files.
@@ -198,14 +182,8 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   private createNextjsStaticAssets(): NextjsStaticAssets {
-    // For static assets, we need the package directory, not the .next directory
-    const packagePath = join(
-      this.baseProps.buildDirectory,
-      this.baseProps.relativePathToPackage || ".",
-    );
-
     return new NextjsStaticAssets(this, "NextjsStaticAssets", {
-      buildOutputPath: packagePath,
+      buildOutputPath: this.baseProps.buildDirectory,
       buildId: this.nextjsBuild.buildId,
       basePath: this.baseProps.basePath,
       overrides: this.baseProps.overrides?.nextjsStaticAssets,

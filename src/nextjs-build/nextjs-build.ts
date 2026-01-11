@@ -57,9 +57,9 @@ export class NextjsBuild extends Construct {
    */
   relativePathToEntrypoint: string;
   /**
-   * Absolute path to the .next directory containing build output
+   * Absolute path to the .next directory containing Next.js build artifacts
    */
-  nextOutputPath: string;
+  dotNextPath: string;
 
   // Validated build paths - set by validateNextBuildOutput()
   private buildIdPath!: string;
@@ -76,11 +76,7 @@ export class NextjsBuild extends Construct {
     this.props = props;
     this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
 
-    this.nextOutputPath = join(
-      props.buildDirectory,
-      this.relativePathToPackage,
-      ".next",
-    );
+    this.dotNextPath = join(props.buildDirectory, ".next");
 
     // Execute local build process
     this.executeLocalBuild();
@@ -90,9 +86,6 @@ export class NextjsBuild extends Construct {
 
     this.buildId = this.getLocalBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
-
-    // Docker images are no longer created for local builds
-    // Container and function images will be handled differently in future tasks
   }
 
   private getRelativeEntrypointPath() {
@@ -105,13 +98,9 @@ export class NextjsBuild extends Construct {
    */
   private executeLocalBuild() {
     const buildCommand = this.props.buildCommand || "npm run build";
-    const buildDirectory = join(
-      this.props.buildDirectory,
-      this.relativePathToPackage,
-    );
 
     console.log(
-      `Executing local build: ${buildCommand} in directory: ${buildDirectory}`,
+      `Executing local build: ${buildCommand} in directory: ${this.props.buildDirectory}`,
     );
 
     try {
@@ -121,7 +110,7 @@ export class NextjsBuild extends Construct {
 
       execSync(buildCommand, {
         stdio: "inherit",
-        cwd: buildDirectory,
+        cwd: this.props.buildDirectory,
         env: process.env,
       });
 
@@ -140,14 +129,10 @@ export class NextjsBuild extends Construct {
    */
   private validateNextBuildOutput(): void {
     // Set up all the paths we'll need
-    this.buildIdPath = join(this.nextOutputPath, "BUILD_ID");
-    this.standaloneDir = join(this.nextOutputPath, "standalone");
-    this.staticChunksPath = join(this.nextOutputPath, "static", "chunks");
-    this.publicDirPath = join(
-      this.props.buildDirectory,
-      this.relativePathToPackage,
-      "public",
-    );
+    this.buildIdPath = join(this.dotNextPath, "BUILD_ID");
+    this.standaloneDir = join(this.dotNextPath, "standalone");
+    this.staticChunksPath = join(this.dotNextPath, "static", "chunks");
+    this.publicDirPath = join(this.props.buildDirectory, "public");
 
     // Standalone directory is mandatory
     if (!existsSync(this.standaloneDir)) {
@@ -224,14 +209,8 @@ export class NextjsBuild extends Construct {
       );
     }
 
-    // Copy to the build directory (where package.json is located)
-    const buildDirectory = join(
-      this.props.buildDirectory,
-      this.relativePathToPackage,
-    );
-
     const targetCacheHandler = join(
-      buildDirectory,
+      this.props.buildDirectory,
       "cdk-nextjs-cache-handler.mjs",
     );
 
@@ -267,13 +246,10 @@ export class NextjsBuild extends Construct {
       );
     }
 
-    // Copy to the build directory (where package.json is located)
-    const buildDirectory = join(
+    const targetAdapter = join(
       this.props.buildDirectory,
-      this.relativePathToPackage,
+      "cdk-nextjs-adapter.mjs",
     );
-
-    const targetAdapter = join(buildDirectory, "cdk-nextjs-adapter.mjs");
 
     try {
       copyFileSync(sourceAdapter, targetAdapter);

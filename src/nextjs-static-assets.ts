@@ -84,9 +84,7 @@ export class NextjsStaticAssets extends Construct {
       throw new Error(
         `No static assets found to deploy. Ensure your Next.js build output contains either:
         - A 'public' directory at: ${join(this.props.buildOutputPath, "public")}
-        - A '.next/static' directory at: ${join(this.props.buildOutputPath, ".next", "static")}
-        
-        If your app has no static assets, you may not need NextjsStaticAssets.`,
+        - A '.next/static' directory at: ${join(this.props.buildOutputPath, ".next", "static")}`,
       );
     }
 
