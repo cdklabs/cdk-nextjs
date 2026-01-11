@@ -10,6 +10,7 @@ import {
   AwsIntegrationProps,
   LambdaIntegrationOptions,
   PassthroughBehavior,
+  ResponseTransferMode,
 } from "aws-cdk-lib/aws-apigateway";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import {
@@ -246,6 +247,7 @@ export class NextjsApi extends Construct {
    */
   private createDynamicIntegration(serverFunction: IFunction) {
     const lambdaIntegration = new LambdaIntegration(serverFunction, {
+      responseTransferMode: ResponseTransferMode.STREAM
       ...this.props.overrides?.dynamicIntegrationProps,
     });
     // Add catch-all route for server-side rendering
