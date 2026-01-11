@@ -9,6 +9,7 @@ const adapter: NextAdapter = {
         ...config,
         output: "standalone",
         cacheHandler: "./cdk-nextjs-cache-handler.mjs",
+        serverExternalPackages: ["@aws-sdk/*"],
       };
     }
     return config;

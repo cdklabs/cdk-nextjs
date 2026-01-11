@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync } from "node:fs";
-import { dirname, join as joinPath } from "node:path";
+import { join as joinPath } from "node:path";
 import { Duration } from "aws-cdk-lib";
 import {
   DockerImageCode,
@@ -121,22 +121,12 @@ export class NextjsFunctions extends Construct {
         `Using existing Dockerfile: ${dockerfileName} (developer can customize this file)`,
       );
     } else {
-      // First run: copy the default Dockerfile from lib directory
-      // Use require.resolve to find the package location regardless of installation method
-      let sourceDockerfile: string;
-      try {
-        const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
-        sourceDockerfile = joinPath(
-          packageRoot,
-          "lib",
-          "nextjs-build",
-          dockerfileName,
-        );
-      } catch (error) {
-        throw new Error(
-          `Could not locate cdk-nextjs package: ${error}. Ensure cdk-nextjs is properly installed.`,
-        );
-      }
+      const sourceDockerfile = joinPath(
+        __dirname,
+        "..",
+        "nextjs-build",
+        dockerfileName,
+      );
 
       if (!existsSync(sourceDockerfile)) {
         throw new Error(

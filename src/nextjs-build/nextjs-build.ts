@@ -61,12 +61,6 @@ export class NextjsBuild extends Construct {
    */
   dotNextPath: string;
 
-  // Validated build paths - set by validateNextBuildOutput()
-  private buildIdPath!: string;
-  private standaloneDir!: string;
-  private staticChunksPath!: string;
-  private publicDirPath!: string;
-
   private props: NextjsBuildProps;
   private relativePathToPackage: string;
 
@@ -74,33 +68,30 @@ export class NextjsBuild extends Construct {
     super(scope, id);
     this.relativePathToPackage = props.relativePathToPackage || ".";
     this.props = props;
-    this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
-
     this.dotNextPath = join(props.buildDirectory, ".next");
+    this.relativePathToEntrypoint = joinPosix(
+      this.props.relativePathToPackage || "",
+      "server.js",
+    );
 
     // Execute local build process
-    this.executeLocalBuild();
+    this.runNextBuild();
 
     // Validate build output and set validated paths
     this.validateNextBuildOutput();
 
-    this.buildId = this.getLocalBuildId();
+    this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
-  }
-
-  private getRelativeEntrypointPath() {
-    // joinPosix b/c this will be used in linux container
-    return joinPosix(this.props.relativePathToPackage || "", "server.js");
   }
 
   /**
    * Execute local build command in the specified directory
    */
-  private executeLocalBuild() {
+  private runNextBuild() {
     const buildCommand = this.props.buildCommand || "npm run build";
 
     console.log(
-      `Executing local build: ${buildCommand} in directory: ${this.props.buildDirectory}`,
+      `Running: "${buildCommand}" in directory: ${this.props.buildDirectory}`,
     );
 
     try {
@@ -128,16 +119,11 @@ export class NextjsBuild extends Construct {
    * All builds must be standalone - no fallback to regular builds
    */
   private validateNextBuildOutput(): void {
-    // Set up all the paths we'll need
-    this.buildIdPath = join(this.dotNextPath, "BUILD_ID");
-    this.standaloneDir = join(this.dotNextPath, "standalone");
-    this.staticChunksPath = join(this.dotNextPath, "static", "chunks");
-    this.publicDirPath = join(this.props.buildDirectory, "public");
-
+    const standaloneDir = join(this.dotNextPath, "standalone");
     // Standalone directory is mandatory
-    if (!existsSync(this.standaloneDir)) {
+    if (!existsSync(standaloneDir)) {
       throw new Error(
-        `Standalone build directory not found: ${this.standaloneDir}. ` +
+        `Standalone build directory not found: ${standaloneDir}. ` +
           `All builds must be configured for standalone output. ` +
           `Please ensure your next.config.js includes 'output: "standalone"'.`,
       );
@@ -146,7 +132,7 @@ export class NextjsBuild extends Construct {
     // Validate standalone build structure
     // Use relativePathToPackage directly instead of just the package name
     const standalonePackageDir = join(
-      this.standaloneDir,
+      standaloneDir,
       this.relativePathToPackage,
     );
 
@@ -179,14 +165,6 @@ export class NextjsBuild extends Construct {
             `Ensure Next.js build completed successfully.`,
         );
       }
-    }
-
-    // Verify BUILD_ID exists (needed for cache partitioning)
-    if (!existsSync(this.buildIdPath)) {
-      throw new Error(
-        `BUILD_ID file not found at ${this.buildIdPath}. ` +
-          `Ensure Next.js build completed successfully.`,
-      );
     }
   }
   /**
@@ -249,68 +227,62 @@ export class NextjsBuild extends Construct {
    * Find entrypoint client side js files to patch `fetch` only for NextjsGlobalFunctions
    */
   private patchFetchInClientJs() {
-    if (!existsSync(this.staticChunksPath)) {
-      console.warn(
-        "Static chunks directory not found, skipping patch-fetch logic",
-      );
-      return;
+    const staticChunksPath = join(this.dotNextPath, "static", "chunks");
+    const chunkFiles = readdirSync(staticChunksPath).filter(
+      (file: string) =>
+        // main-app- for webpack, turbopack- for turbo
+        file.startsWith("main-app-") ||
+        (file.startsWith("turbopack-") && file.endsWith(".js")),
+    );
+
+    if (chunkFiles.length === 0) {
+      throw new Error("No client side js entrypoint files found");
     }
 
-    try {
-      const chunkFiles = readdirSync(this.staticChunksPath).filter(
-        (file: string) =>
-          // main-app- for webpack, turbopack- for turbo
-          file.startsWith("main-app-") ||
-          (file.startsWith("turbopack-") && file.endsWith(".js")),
-      );
+    // Read the patch-fetch.js content
+    const patchFetchPath = join(__dirname, "patch-fetch.js");
+    if (!existsSync(patchFetchPath)) {
+      throw new Error("patch-fetch.js not found");
+    }
 
-      if (chunkFiles.length === 0) {
-        console.warn(
-          "No main-app-*.js files found, skipping patch-fetch logic",
-        );
-        return;
-      }
+    const patchFetchContent = readFileSync(patchFetchPath, "utf-8");
 
-      // Read the patch-fetch.js content
-      const patchFetchPath = join(__dirname, "patch-fetch.js");
-      if (!existsSync(patchFetchPath)) {
-        console.warn("patch-fetch.js not found, skipping patch logic");
-        return;
-      }
-
-      const patchFetchContent = readFileSync(patchFetchPath, "utf-8");
-
-      // Prepend patch-fetch logic to each main-app-*.js file
-      for (const chunkFile of chunkFiles) {
-        const chunkFilePath = join(this.staticChunksPath, chunkFile);
-        const originalContent = readFileSync(chunkFilePath, "utf-8");
-        const patchedContent = patchFetchContent + "\n" + originalContent;
-        writeFileSync(chunkFilePath, patchedContent);
-        console.log(`Patched ${chunkFile} with fetch logic`);
-      }
-    } catch (error) {
-      console.warn(`Failed to execute patch-fetch logic: ${error}`);
+    // Prepend patch-fetch logic to each entrypoint
+    for (const chunkFile of chunkFiles) {
+      const chunkFilePath = join(staticChunksPath, chunkFile);
+      const originalContent = readFileSync(chunkFilePath, "utf-8");
+      const patchedContent = patchFetchContent + "\n" + originalContent;
+      writeFileSync(chunkFilePath, patchedContent);
     }
   }
 
   /**
-   * Get build ID from local .next directory
+   * Get build ID from .next directory
    */
-  private getLocalBuildId(): string {
+  private getBuildId(): string {
+    const buildIdPath = join(this.dotNextPath, "BUILD_ID");
+    // Verify BUILD_ID exists (needed for cache partitioning)
+    if (!existsSync(buildIdPath)) {
+      throw new Error(
+        `BUILD_ID file not found at ${buildIdPath}. ` +
+          `Ensure Next.js build completed successfully.`,
+      );
+    }
     // BUILD_ID existence is already validated in validateNextBuildOutput()
-    return readFileSync(this.buildIdPath, "utf-8").trim();
+    return readFileSync(buildIdPath, "utf-8").trim();
   }
 
   /**
    * Get public directory entries from local filesystem
    */
   private getLocalPublicDirEntries(): PublicDirEntry[] {
-    if (!existsSync(this.publicDirPath)) {
+    const publicDirPath = join(this.props.buildDirectory, "public");
+    if (!existsSync(publicDirPath)) {
       return [];
     }
 
     try {
-      return readdirSync(this.publicDirPath, { withFileTypes: true }).map(
+      return readdirSync(publicDirPath, { withFileTypes: true }).map(
         (entry: any) => ({
           name: entry.name,
           isDirectory: entry.isDirectory(),

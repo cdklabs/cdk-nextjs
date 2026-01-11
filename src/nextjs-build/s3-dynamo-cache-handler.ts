@@ -20,7 +20,14 @@ import {
   GetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { CacheHandler, CacheHandlerOptions } from "./cache-handler-interface";
-import { getDebug } from "./debug";
+import getDebug from "debug";
+
+/**
+ * Check if code is running as a result of `next build`
+ */
+function isNextBuild() {
+  return process.env["NEXT_PHASE"] === "phase-production-build";
+}
 
 interface S3CacheConfig {
   bucketName: string;
@@ -95,22 +102,25 @@ export class S3DynamoCacheHandler implements CacheHandler {
       region: this.dynamoConfig.region,
     });
 
-    if (!this.s3Config.bucketName) {
-      console.warn(
-        "CDK_NEXTJS_CACHE_BUCKET_NAME environment variable not set, S3 cache disabled",
-      );
-    }
+    // Only show warnings during runtime, not during Next.js build
+    if (!isNextBuild()) {
+      if (!this.s3Config.bucketName) {
+        console.warn(
+          "CDK_NEXTJS_CACHE_BUCKET_NAME environment variable not set, S3 cache disabled",
+        );
+      }
 
-    if (!this.dynamoConfig.tableName) {
-      console.warn(
-        "CDK_NEXTJS_REVALIDATION_TABLE_NAME environment variable not set, revalidation tracking disabled",
-      );
-    }
+      if (!this.dynamoConfig.tableName) {
+        console.warn(
+          "CDK_NEXTJS_REVALIDATION_TABLE_NAME environment variable not set, revalidation tracking disabled",
+        );
+      }
 
-    if (!buildId) {
-      console.warn(
-        "CDK_NEXTJS_BUILD_ID environment variable not set, cache isolation may not work correctly",
-      );
+      if (!buildId) {
+        console.warn(
+          "CDK_NEXTJS_BUILD_ID environment variable not set, cache isolation may not work correctly",
+        );
+      }
     }
 
     // Log the options for debugging (optional usage to avoid unused parameter warning)

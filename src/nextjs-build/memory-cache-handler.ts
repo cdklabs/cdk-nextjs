@@ -9,7 +9,7 @@ import {
   GetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { CacheHandler, CacheHandlerOptions } from "./cache-handler-interface";
-import { getDebug } from "./debug";
+import getDebug from "debug";
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
