@@ -34,9 +34,11 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "@mrgrain/jsii-struct-builder",
     "@smithy/signature-v4",
     "@types/aws-lambda",
+    "@types/debug",
     "@types/mime-types",
     "@types/node@^24",
     "cdk-nag",
+    "debug",
     "esbuild",
     "mime-types",
     // require canary as of 1/9/26, remove as soon as 16.2 is released

@@ -33,6 +33,10 @@
       "type": "build"
     },
     {
+      "name": "@types/debug",
+      "type": "build"
+    },
+    {
       "name": "@types/jest",
       "type": "build"
     },
@@ -62,6 +66,10 @@
     {
       "name": "commit-and-tag-version",
       "version": "^12",
+      "type": "build"
+    },
+    {
+      "name": "debug",
       "type": "build"
     },
     {
