@@ -1,6 +1,14 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RemovalPolicy } from "aws-cdk-lib";
 import {
   BlockPublicAccess,
@@ -75,8 +83,8 @@ export class NextjsStaticAssets extends Construct {
       // Don't create a deployment at all
       throw new Error(
         `No static assets found to deploy. Ensure your Next.js build output contains either:
-        - A 'public' directory at: ${path.join(this.props.buildOutputPath, "public")}
-        - A '.next/static' directory at: ${path.join(this.props.buildOutputPath, ".next", "static")}
+        - A 'public' directory at: ${join(this.props.buildOutputPath, "public")}
+        - A '.next/static' directory at: ${join(this.props.buildOutputPath, ".next", "static")}
         
         If your app has no static assets, you may not need NextjsStaticAssets.`,
       );
@@ -105,29 +113,25 @@ export class NextjsStaticAssets extends Construct {
    * - .next/static/ files go to _next/static/
    */
   private createStagingDirectory(): string | undefined {
-    const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "nextjs-assets-"));
+    const stagingDir = mkdtempSync(join(tmpdir(), "nextjs-assets-"));
     let hasAssets = false;
 
     try {
       // Copy public directory contents to staging root
-      const publicPath = path.join(this.props.buildOutputPath, "public");
+      const publicPath = join(this.props.buildOutputPath, "public");
       if (this.directoryExists(publicPath)) {
         this.copyDirectoryContents(publicPath, stagingDir);
         hasAssets = true;
       }
 
       // Copy .next/static to staging/_next/static
-      const staticPath = path.join(
-        this.props.buildOutputPath,
-        ".next",
-        "static",
-      );
+      const staticPath = join(this.props.buildOutputPath, ".next", "static");
       if (this.directoryExists(staticPath)) {
-        const nextDir = path.join(stagingDir, "_next");
-        const staticDestDir = path.join(nextDir, "static");
+        const nextDir = join(stagingDir, "_next");
+        const staticDestDir = join(nextDir, "static");
 
         // Create _next directory
-        fs.mkdirSync(nextDir, { recursive: true });
+        mkdirSync(nextDir, { recursive: true });
 
         // Copy static assets
         this.copyDirectoryContents(staticPath, staticDestDir);
@@ -139,7 +143,7 @@ export class NextjsStaticAssets extends Construct {
       console.error("Error creating staging directory:", error);
       // Clean up on error
       try {
-        fs.rmSync(stagingDir, { recursive: true, force: true });
+        rmSync(stagingDir, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors
       }
@@ -151,20 +155,20 @@ export class NextjsStaticAssets extends Construct {
    * Copy directory contents recursively
    */
   private copyDirectoryContents(srcDir: string, destDir: string): void {
-    if (!fs.existsSync(destDir)) {
-      fs.mkdirSync(destDir, { recursive: true });
+    if (!existsSync(destDir)) {
+      mkdirSync(destDir, { recursive: true });
     }
 
-    const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+    const entries = readdirSync(srcDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const srcPath = path.join(srcDir, entry.name);
-      const destPath = path.join(destDir, entry.name);
+      const srcPath = join(srcDir, entry.name);
+      const destPath = join(destDir, entry.name);
 
       if (entry.isDirectory()) {
         this.copyDirectoryContents(srcPath, destPath);
       } else {
-        fs.copyFileSync(srcPath, destPath);
+        copyFileSync(srcPath, destPath);
       }
     }
   }
@@ -174,7 +178,7 @@ export class NextjsStaticAssets extends Construct {
    */
   private directoryExists(dirPath: string): boolean {
     try {
-      return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory();
+      return existsSync(dirPath) && statSync(dirPath).isDirectory();
     } catch {
       return false;
     }

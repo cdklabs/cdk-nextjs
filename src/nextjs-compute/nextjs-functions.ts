@@ -1,6 +1,5 @@
 import { copyFileSync, existsSync } from "node:fs";
-import { join as joinPath } from "node:path";
-import { join } from "path/posix";
+import { dirname, join as joinPath } from "node:path";
 import { Duration } from "aws-cdk-lib";
 import {
   DockerImageCode,
@@ -12,13 +11,7 @@ import {
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import {
-  CACHE_PATH,
-  DATA_CACHE_PATH,
-  IMAGE_CACHE_PATH,
-  NextjsType,
-  PUBLIC_PATH,
-} from "../constants";
+import { NextjsType } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { getLambdaArchitecture } from "../utils/get-architecture";
@@ -95,7 +88,8 @@ export class NextjsFunctions extends Construct {
       throw new Error("buildOutputPath is required for local builds");
     }
 
-    const buildContext = this.getBuildContext();
+    // Build context is the buildDirectory (where the Next.js app is located)
+    const buildContext = this.props.buildOutputPath;
     const dockerfileName = this.getDockerfileName();
 
     // Copy Dockerfile to build context to avoid path resolution issues
@@ -106,10 +100,6 @@ export class NextjsFunctions extends Construct {
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
         BUILD_ID: this.props.buildId,
-        CACHE_PATH,
-        DATA_CACHE_PATH,
-        IMAGE_CACHE_PATH,
-        PUBLIC_PATH,
       },
     });
   }
@@ -134,21 +124,21 @@ export class NextjsFunctions extends Construct {
       );
     } else {
       // First run: copy the default Dockerfile from lib directory
-      const buildDirectory = this.props.buildOutputPath!;
-      let projectRoot = buildDirectory;
-      if (
-        buildDirectory.endsWith("/examples") ||
-        buildDirectory.endsWith("\\examples")
-      ) {
-        projectRoot = joinPath(buildDirectory, "..");
+      // Use require.resolve to find the package location regardless of installation method
+      let sourceDockerfile: string;
+      try {
+        const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
+        sourceDockerfile = joinPath(
+          packageRoot,
+          "lib",
+          "nextjs-build",
+          dockerfileName,
+        );
+      } catch (error) {
+        throw new Error(
+          `Could not locate cdk-nextjs package: ${error}. Ensure cdk-nextjs is properly installed.`,
+        );
       }
-
-      const sourceDockerfile = joinPath(
-        projectRoot,
-        "lib",
-        "nextjs-build",
-        dockerfileName,
-      );
 
       if (!existsSync(sourceDockerfile)) {
         throw new Error(
@@ -161,45 +151,5 @@ export class NextjsFunctions extends Construct {
         `Created ${dockerfileName} in your project directory. You can customize this file for your deployment needs.`,
       );
     }
-
-    // Always copy the cache handler file (this should be managed by cdk-nextjs)
-    const buildDirectory = this.props.buildOutputPath!;
-    let projectRoot = buildDirectory;
-    if (
-      buildDirectory.endsWith("/examples") ||
-      buildDirectory.endsWith("\\examples")
-    ) {
-      projectRoot = joinPath(buildDirectory, "..");
-    }
-
-    const sourceCacheHandler = joinPath(
-      projectRoot,
-      "lib",
-      "nextjs-build",
-      "cdk-nextjs-cache-handler.cjs",
-    );
-    const targetCacheHandler = joinPath(
-      buildContext,
-      "cdk-nextjs-cache-handler.cjs",
-    );
-
-    if (!existsSync(sourceCacheHandler)) {
-      throw new Error(
-        `Source cache handler not found: ${sourceCacheHandler}. Ensure the cdk-nextjs package is properly built.`,
-      );
-    }
-
-    copyFileSync(sourceCacheHandler, targetCacheHandler);
-  }
-
-  private getBuildContext(): string {
-    if (!this.props.buildOutputPath) {
-      throw new Error("buildOutputPath is required for local builds");
-    }
-
-    // Build context is the directory containing the .next folder
-    // This allows the Dockerfile to access both .next output and lib/nextjs-build
-    const packagePath = this.props.relativePathToPackage || ".";
-    return join(this.props.buildOutputPath, packagePath);
   }
 }

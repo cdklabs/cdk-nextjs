@@ -1,8 +1,12 @@
 import { execSync } from "node:child_process";
-import * as fs from "node:fs";
-import { existsSync, readFileSync } from "node:fs";
-import * as path from "node:path";
-import { basename, join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
@@ -55,7 +59,14 @@ export class NextjsBuild extends Construct {
   /**
    * Absolute path to the .next directory containing build output
    */
-  nextOutputPath?: string;
+  nextOutputPath: string;
+
+  // Validated build paths - set by validateNextBuildOutput()
+  private buildIdPath!: string;
+  private standaloneDir!: string;
+  private staticChunksPath!: string;
+  private publicDirPath!: string;
+
   private props: NextjsBuildProps;
   private relativePathToPackage: string;
 
@@ -73,7 +84,10 @@ export class NextjsBuild extends Construct {
 
     // Execute local build process
     this.executeLocalBuild();
-    this.verifyBuildOutput();
+
+    // Validate build output and set validated paths
+    this.validateNextBuildOutput();
+
     this.buildId = this.getLocalBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
 
@@ -109,8 +123,127 @@ export class NextjsBuild extends Construct {
 
       // Execute patch-fetch.js logic locally after build
       this.executePatchFetchLogic();
+
+      // Copy cache handler to standalone directory
+      this.copyCacheHandlerToStandalone();
     } catch (error) {
       throw new Error(`Local build failed: ${error}`);
+    }
+  }
+
+  /**
+   * Validate Next.js build output and set validated paths as class variables
+   * All builds must be standalone - no fallback to regular builds
+   */
+  private validateNextBuildOutput(): void {
+    // Set up all the paths we'll need
+    this.buildIdPath = join(this.nextOutputPath, "BUILD_ID");
+    this.standaloneDir = join(this.nextOutputPath, "standalone");
+    this.staticChunksPath = join(this.nextOutputPath, "static", "chunks");
+    this.publicDirPath = join(
+      this.props.buildDirectory,
+      this.relativePathToPackage,
+      "public",
+    );
+
+    // Standalone directory is mandatory
+    if (!existsSync(this.standaloneDir)) {
+      throw new Error(
+        `Standalone build directory not found: ${this.standaloneDir}. ` +
+          `All builds must be configured for standalone output. ` +
+          `Please ensure your next.config.js includes 'output: "standalone"'.`,
+      );
+    }
+
+    // Validate standalone build structure
+    // Use relativePathToPackage directly instead of just the package name
+    const standalonePackageDir = join(
+      this.standaloneDir,
+      this.relativePathToPackage,
+    );
+
+    if (!existsSync(standalonePackageDir)) {
+      throw new Error(
+        `Standalone package directory not found: ${standalonePackageDir}. ` +
+          `Ensure Next.js build completed successfully with output: 'standalone'.`,
+      );
+    }
+
+    // Check required files in standalone package directory
+    const requiredFiles = ["server.js"];
+    for (const file of requiredFiles) {
+      const filePath = join(standalonePackageDir, file);
+      if (!existsSync(filePath)) {
+        throw new Error(
+          `Required standalone build file missing: ${filePath}. ` +
+            `Ensure Next.js build completed successfully with output: 'standalone'.`,
+        );
+      }
+    }
+
+    // Check required directories in standalone package directory
+    const requiredDirectories = [".next"];
+    for (const dir of requiredDirectories) {
+      const dirPath = join(standalonePackageDir, dir);
+      if (!existsSync(dirPath)) {
+        throw new Error(
+          `Required standalone build directory missing: ${dirPath}. ` +
+            `Ensure Next.js build completed successfully.`,
+        );
+      }
+    }
+
+    // Verify BUILD_ID exists (needed for cache partitioning)
+    if (!existsSync(this.buildIdPath)) {
+      throw new Error(
+        `BUILD_ID file not found at ${this.buildIdPath}. ` +
+          `Ensure Next.js build completed successfully.`,
+      );
+    }
+
+    console.log("Standalone build validation completed successfully.");
+  }
+  /**
+   * Copy the cache handler file to the standalone directory
+   */
+  private copyCacheHandlerToStandalone() {
+    // Find the cache handler file in the cdk-nextjs package
+    // Use require.resolve to find the package location regardless of installation method
+    let sourceCacheHandler: string;
+    try {
+      // This will work both in development and when installed as a package
+      const packageRoot = dirname(require.resolve("cdk-nextjs/package.json"));
+      sourceCacheHandler = join(
+        packageRoot,
+        "lib",
+        "nextjs-build",
+        "cdk-nextjs-cache-handler.cjs",
+      );
+    } catch (error) {
+      throw new Error(
+        `Could not locate cdk-nextjs package: ${error}. Ensure cdk-nextjs is properly installed.`,
+      );
+    }
+
+    if (!existsSync(sourceCacheHandler)) {
+      throw new Error(
+        `Cache handler not found: ${sourceCacheHandler}. Ensure the cdk-nextjs package is properly built.`,
+      );
+    }
+
+    // Copy to the same directory where server.js is located in standalone
+    // This matches the RELATIVE_PATH_TO_PACKAGE structure used in Dockerfiles
+    const targetCacheHandler = join(
+      this.standaloneDir,
+      this.relativePathToPackage,
+      "cdk-nextjs-cache-handler.cjs",
+    );
+
+    try {
+      copyFileSync(sourceCacheHandler, targetCacheHandler);
+      console.log(`Copied cache handler to: ${targetCacheHandler}`);
+    } catch (error) {
+      throw new Error(`Failed to copy cache handler: ${error}`);
     }
   }
 
@@ -118,17 +251,7 @@ export class NextjsBuild extends Construct {
    * Find entrypoint client side js files to patch `fetch` only for NextjsGlobalFunctions
    */
   private executePatchFetchLogic() {
-    if (!this.nextOutputPath) {
-      console.warn(
-        "Next output path not available, skipping patch-fetch logic",
-      );
-      return;
-    }
-
-    const nextOutputPath = this.nextOutputPath;
-    const staticChunksPath = join(nextOutputPath, "static", "chunks");
-
-    if (!existsSync(staticChunksPath)) {
+    if (!existsSync(this.staticChunksPath)) {
       console.warn(
         "Static chunks directory not found, skipping patch-fetch logic",
       );
@@ -136,7 +259,7 @@ export class NextjsBuild extends Construct {
     }
 
     try {
-      const chunkFiles = fs.readdirSync(staticChunksPath).filter(
+      const chunkFiles = readdirSync(this.staticChunksPath).filter(
         (file: string) =>
           // main-app- for webpack, turbopack- for turbo
           file.startsWith("main-app-") ||
@@ -157,14 +280,14 @@ export class NextjsBuild extends Construct {
         return;
       }
 
-      const patchFetchContent = fs.readFileSync(patchFetchPath, "utf-8");
+      const patchFetchContent = readFileSync(patchFetchPath, "utf-8");
 
       // Prepend patch-fetch logic to each main-app-*.js file
       for (const chunkFile of chunkFiles) {
-        const chunkFilePath = path.join(staticChunksPath, chunkFile);
-        const originalContent = fs.readFileSync(chunkFilePath, "utf-8");
+        const chunkFilePath = join(this.staticChunksPath, chunkFile);
+        const originalContent = readFileSync(chunkFilePath, "utf-8");
         const patchedContent = patchFetchContent + "\n" + originalContent;
-        fs.writeFileSync(chunkFilePath, patchedContent);
+        writeFileSync(chunkFilePath, patchedContent);
         console.log(`Patched ${chunkFile} with fetch logic`);
       }
     } catch (error) {
@@ -176,120 +299,28 @@ export class NextjsBuild extends Construct {
    * Get build ID from local .next directory
    */
   private getLocalBuildId(): string {
-    if (!this.nextOutputPath) {
-      throw new Error("Next output path not available for local build ID");
-    }
-    const buildIdPath = join(this.nextOutputPath, "BUILD_ID");
-    if (!existsSync(buildIdPath)) {
-      throw new Error(
-        `BUILD_ID file not found at ${buildIdPath}. Ensure Next.js build completed successfully.`,
-      );
-    }
-    return readFileSync(buildIdPath, "utf-8").trim();
+    // BUILD_ID existence is already validated in validateNextBuildOutput()
+    return readFileSync(this.buildIdPath, "utf-8").trim();
   }
 
   /**
    * Get public directory entries from local filesystem
    */
   private getLocalPublicDirEntries(): PublicDirEntry[] {
-    const publicDirPath = join(
-      this.props.buildDirectory!,
-      this.relativePathToPackage,
-      "public",
-    );
-
-    if (!existsSync(publicDirPath)) {
+    if (!existsSync(this.publicDirPath)) {
       return [];
     }
 
     try {
-      return fs
-        .readdirSync(publicDirPath, { withFileTypes: true })
-        .map((entry: any) => ({
+      return readdirSync(this.publicDirPath, { withFileTypes: true }).map(
+        (entry: any) => ({
           name: entry.name,
           isDirectory: entry.isDirectory(),
-        }));
+        }),
+      );
     } catch (error) {
       console.warn(`Failed to read public directory: ${error}`);
       return [];
     }
-  }
-
-  /**
-   * Verify that the .next directory contains all required files for a successful build
-   */
-  private verifyBuildOutput(): void {
-    if (!this.nextOutputPath) {
-      // Skip verification when output path is not available
-      return;
-    }
-
-    // For standalone builds, check the standalone directory structure
-    const standaloneDir = join(this.nextOutputPath, "standalone");
-    const packageName = basename(
-      join(this.props.buildDirectory, this.relativePathToPackage),
-    );
-    const standalonePackageDir = join(standaloneDir, packageName);
-
-    if (existsSync(standaloneDir) && existsSync(standalonePackageDir)) {
-      // Standalone build verification
-      const requiredFiles = ["server.js", "package.json"];
-      const requiredDirectories = [".next"];
-
-      // Check required files in standalone package directory
-      for (const file of requiredFiles) {
-        const filePath = join(standalonePackageDir, file);
-        if (!existsSync(filePath)) {
-          throw new Error(
-            `Required standalone build file missing: ${filePath}. Ensure Next.js build completed successfully with output: 'standalone'.`,
-          );
-        }
-      }
-
-      // Check required directories in standalone package directory
-      for (const dir of requiredDirectories) {
-        const dirPath = join(standalonePackageDir, dir);
-        if (!existsSync(dirPath)) {
-          throw new Error(
-            `Required standalone build directory missing: ${dirPath}. Ensure Next.js build completed successfully.`,
-          );
-        }
-      }
-    } else {
-      // Regular build verification (fallback)
-      const requiredFiles = ["BUILD_ID", "package.json"];
-      const requiredDirectories = ["static", "server"];
-
-      // Check required files
-      for (const file of requiredFiles) {
-        const filePath = join(this.nextOutputPath, file);
-        if (!existsSync(filePath)) {
-          throw new Error(
-            `Required build file missing: ${filePath}. Ensure Next.js build completed successfully.`,
-          );
-        }
-      }
-
-      // Check required directories
-      for (const dir of requiredDirectories) {
-        const dirPath = join(this.nextOutputPath, dir);
-        if (!existsSync(dirPath)) {
-          throw new Error(
-            `Required build directory missing: ${dirPath}. Ensure Next.js build completed successfully.`,
-          );
-        }
-      }
-    }
-
-    // Verify standalone output configuration
-    const standaloneOutputDir = join(this.nextOutputPath, "standalone");
-    if (!existsSync(standaloneOutputDir)) {
-      console.warn(
-        "Warning: .next/standalone directory not found. This indicates the build was not configured for standalone output. " +
-          "Please ensure your next.config.js includes 'output: \"standalone\"' for optimal deployment performance.",
-      );
-    }
-
-    console.log("Build output verification completed successfully.");
   }
 }

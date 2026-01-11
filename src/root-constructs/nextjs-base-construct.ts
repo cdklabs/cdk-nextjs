@@ -65,7 +65,7 @@ export interface NextjsBaseProps {
   /**
    * Directory where the Next.js application is located for local builds.
    * This should contain the package.json and Next.js application files.
-   * When specified, the build will run locally instead of in a Docker container.
+   * This is where {@link NextjsBaseProps.buildCommand} is run.
    * @example join(import.meta.dirname, "..")
    */
   readonly buildDirectory: string;
@@ -83,21 +83,20 @@ export interface NextjsBaseProps {
   readonly healthCheckPath: string;
   /**
    * Use this if building in monorepo. This is the relative path from
-   * {@link NextjsBaseProps.buildDirectory} or root workspace to nested package
-   * containing Next.js app. See example below:
+   * root package to nested package containing Next.js app. See example below:
    *
    * Let's say you have a monorepo with the following folder structure:
    * - my-monorepo/
    *   - packages/
-   *     - ui/
+   *     - web/
    *       - package.json (nested)
    *   - package.json (root)
    *
-   * And your Next.js app directory is the ui folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-   * to `"/absolute/path/to/my-monorepo"` and {@link NextjsBaseProps.relativePathToPackage}
-   * to `"./packages/ui"`.
+   * And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
+   * to `"/absolute/path/to/nextjs/package"` and {@link NextjsBaseProps.relativePathToPackage}
+   * to `"./packages/web"`.
    *
-   * @example "./packages/ui"
+   * @example "./packages/web"
    */
   readonly relativePathToPackage?: string;
 }

@@ -16,17 +16,5 @@ export enum NextjsType {
  */
 export const MOUNT_PATH = "/mnt/cdk-nextjs";
 
-// NOTE: *_ARG_NAME constants are referenced in Dockerfiles so they can be reused
 export const BUILD_ID_ARG_NAME = "BUILD_ID";
-export const CACHE_PATH_ARG_NAME = "CACHE_PATH";
-export const DATA_CACHE_PATH_ARG_NAME = "DATA_CACHE_PATH";
-export const IMAGE_CACHE_PATH_ARG_NAME = "IMAGE_CACHE_PATH";
-export const MOUNT_PATH_ARG_NAME = "MOUNT_PATH";
-export const PUBLIC_PATH_ARG_NAME = "PUBLIC_PATH";
 export const RELATIVE_PATH_TO_PACKAGE_ARG_NAME = "RELATIVE_PATH_TO_PACKAGE";
-
-export const CACHE_PATH = ".next/cache";
-export const DATA_CACHE_PATH = `${CACHE_PATH}/fetch-cache`;
-export const IMAGE_CACHE_PATH = `${CACHE_PATH}/images`;
-export const PUBLIC_PATH = "public";
-export const SERVER_DIST_PATH = ".next/server";

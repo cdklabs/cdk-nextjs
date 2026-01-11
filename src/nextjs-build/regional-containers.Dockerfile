@@ -20,15 +20,9 @@ ARG RELATIVE_PATH_TO_PACKAGE
 COPY --chown=nextjs:nodejs .next/standalone ./
 # html,rsc,body,meta files don't need to be in compute container b/c they're handled by cdk-nextjs-cache-handler.cjs
 RUN find . -type f \( -name "*.html" -o -name "*.rsc" -name "*.body" -name "*.meta" \) -delete
-# Copy cache handler from lib directory (built by esbuild)
-COPY --chown=nextjs:nodejs ../lib/nextjs-build/cdk-nextjs-cache-handler.cjs ./$RELATIVE_PATH_TO_PACKAGE/
 # static properties needed b/c we don't have cloudfront to serve them from s3
 COPY --chown=nextjs:nodejs .next/static ./$RELATIVE_PATH_TO_PACKAGE/.next/static
 ARG BUILD_ID
-ARG CACHE_PATH
-ARG DATA_CACHE_PATH
-ARG IMAGE_CACHE_PATH
-ARG PUBLIC_PATH
 RUN sed -i 's/"env":{},/"env":{},cacheHandler:"\.\.\/cdk-nextjs-cache-handler.cjs",/g' ./$RELATIVE_PATH_TO_PACKAGE/server.js
 
 USER nextjs
