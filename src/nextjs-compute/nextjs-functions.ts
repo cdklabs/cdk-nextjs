@@ -1,3 +1,5 @@
+import { copyFileSync, existsSync } from "node:fs";
+import { join as joinPath } from "node:path";
 import { join } from "path/posix";
 import { Duration } from "aws-cdk-lib";
 import {
@@ -93,11 +95,14 @@ export class NextjsFunctions extends Construct {
       throw new Error("buildOutputPath is required for local builds");
     }
 
-    const dockerfilePath = this.getDockerfilePath();
     const buildContext = this.getBuildContext();
+    const dockerfileName = this.getDockerfileName();
+
+    // Copy Dockerfile to build context to avoid path resolution issues
+    this.copyDockerfileToContext(buildContext, dockerfileName);
 
     return DockerImageCode.fromImageAsset(buildContext, {
-      file: dockerfilePath,
+      file: dockerfileName, // Now it's just the filename in the build context
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
         BUILD_ID: this.props.buildId,
@@ -109,16 +114,82 @@ export class NextjsFunctions extends Construct {
     });
   }
 
-  private getDockerfilePath(): string {
+  private getDockerfileName(): string {
     // Use the appropriate Dockerfile based on deployment type
-    const dockerfileName =
-      this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS
-        ? "global-functions.Dockerfile"
-        : "regional-functions.Dockerfile";
+    return this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS
+      ? "global-functions.Dockerfile"
+      : "regional-functions.Dockerfile";
+  }
 
-    // Dockerfiles are located in lib/nextjs-build after build process
-    // Path is relative to build context
-    return `../lib/nextjs-build/${dockerfileName}`;
+  private copyDockerfileToContext(
+    buildContext: string,
+    dockerfileName: string,
+  ): void {
+    const targetDockerfile = joinPath(buildContext, dockerfileName);
+
+    // Check if Dockerfile already exists - if so, use the existing one (developer control)
+    if (existsSync(targetDockerfile)) {
+      console.log(
+        `Using existing Dockerfile: ${dockerfileName} (developer can customize this file)`,
+      );
+    } else {
+      // First run: copy the default Dockerfile from lib directory
+      const buildDirectory = this.props.buildOutputPath!;
+      let projectRoot = buildDirectory;
+      if (
+        buildDirectory.endsWith("/examples") ||
+        buildDirectory.endsWith("\\examples")
+      ) {
+        projectRoot = joinPath(buildDirectory, "..");
+      }
+
+      const sourceDockerfile = joinPath(
+        projectRoot,
+        "lib",
+        "nextjs-build",
+        dockerfileName,
+      );
+
+      if (!existsSync(sourceDockerfile)) {
+        throw new Error(
+          `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
+        );
+      }
+
+      copyFileSync(sourceDockerfile, targetDockerfile);
+      console.log(
+        `Created ${dockerfileName} in your project directory. You can customize this file for your deployment needs.`,
+      );
+    }
+
+    // Always copy the cache handler file (this should be managed by cdk-nextjs)
+    const buildDirectory = this.props.buildOutputPath!;
+    let projectRoot = buildDirectory;
+    if (
+      buildDirectory.endsWith("/examples") ||
+      buildDirectory.endsWith("\\examples")
+    ) {
+      projectRoot = joinPath(buildDirectory, "..");
+    }
+
+    const sourceCacheHandler = joinPath(
+      projectRoot,
+      "lib",
+      "nextjs-build",
+      "cdk-nextjs-cache-handler.cjs",
+    );
+    const targetCacheHandler = joinPath(
+      buildContext,
+      "cdk-nextjs-cache-handler.cjs",
+    );
+
+    if (!existsSync(sourceCacheHandler)) {
+      throw new Error(
+        `Source cache handler not found: ${sourceCacheHandler}. Ensure the cdk-nextjs package is properly built.`,
+      );
+    }
+
+    copyFileSync(sourceCacheHandler, targetCacheHandler);
   }
 
   private getBuildContext(): string {

@@ -10,6 +10,7 @@
         "cloudformation:*",
         "cloudfront:*",
         "cloudwatch:*",
+        "dynamodb:*",
         "ecs:*",
         "ec2:*",
         "elasticfilesystem:*",

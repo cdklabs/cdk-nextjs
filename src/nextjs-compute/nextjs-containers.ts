@@ -1,3 +1,5 @@
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join as joinPath } from "node:path";
 import { join } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
@@ -81,12 +83,14 @@ export class NextjsContainers extends Construct {
   }
 
   private createDockerImageAsset(): DockerImageAsset {
-    const dockerfilePath = this.getDockerfilePath();
     const buildContext = this.getBuildContext();
+    const dockerfileName = this.getDockerfileName();
+
+    this.copyDockerfileToContext(buildContext, dockerfileName);
 
     return new DockerImageAsset(this, "DockerImageAsset", {
       directory: buildContext,
-      file: dockerfilePath,
+      file: dockerfileName,
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
         BUILD_ID: this.props.buildId,
@@ -99,16 +103,90 @@ export class NextjsContainers extends Construct {
     });
   }
 
-  private getDockerfilePath(): string {
+  private getDockerfileName(): string {
     // Use the appropriate Dockerfile based on deployment type
-    const dockerfileName =
-      this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
-        ? "global-containers.Dockerfile"
-        : "regional-containers.Dockerfile";
+    return this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+      ? "global-containers.Dockerfile"
+      : "regional-containers.Dockerfile";
+  }
 
-    // Dockerfiles are located in lib/nextjs-build after build process
-    // Path is relative to build context
-    return `../lib/nextjs-build/${dockerfileName}`;
+  private copyDockerfileToContext(
+    buildContext: string,
+    dockerfileName: string,
+  ): void {
+    const targetDockerfile = joinPath(buildContext, dockerfileName);
+
+    // Check if Dockerfile already exists - if so, use the existing one (developer control)
+    if (existsSync(targetDockerfile)) {
+      console.log(
+        `Using existing Dockerfile: ${dockerfileName} (developer can customize this file)`,
+      );
+    } else {
+      // First run: copy the default Dockerfile from lib directory
+      const buildDirectory = this.props.buildOutputPath!;
+      let projectRoot = buildDirectory;
+      if (
+        buildDirectory.endsWith("/examples") ||
+        buildDirectory.endsWith("\\examples")
+      ) {
+        projectRoot = joinPath(buildDirectory, "..");
+      }
+
+      const sourceDockerfile = joinPath(
+        projectRoot,
+        "lib",
+        "nextjs-build",
+        dockerfileName,
+      );
+
+      if (!existsSync(sourceDockerfile)) {
+        throw new Error(
+          `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
+        );
+      }
+
+      copyFileSync(sourceDockerfile, targetDockerfile);
+      console.log(
+        `Created ${dockerfileName} in your project directory. You can customize this file for your deployment needs.`,
+      );
+
+      // Update the Dockerfile to use the local cache handler file (only on first copy)
+      let dockerfileContent = readFileSync(targetDockerfile, "utf8");
+      dockerfileContent = dockerfileContent.replace(
+        "../lib/nextjs-build/cdk-nextjs-cache-handler.cjs",
+        "./cdk-nextjs-cache-handler.cjs",
+      );
+      writeFileSync(targetDockerfile, dockerfileContent);
+    }
+
+    // Always copy the cache handler file (this should be managed by cdk-nextjs)
+    const buildDirectory = this.props.buildOutputPath!;
+    let projectRoot = buildDirectory;
+    if (
+      buildDirectory.endsWith("/examples") ||
+      buildDirectory.endsWith("\\examples")
+    ) {
+      projectRoot = joinPath(buildDirectory, "..");
+    }
+
+    const sourceCacheHandler = joinPath(
+      projectRoot,
+      "lib",
+      "nextjs-build",
+      "cdk-nextjs-cache-handler.cjs",
+    );
+    const targetCacheHandler = joinPath(
+      buildContext,
+      "cdk-nextjs-cache-handler.cjs",
+    );
+
+    if (!existsSync(sourceCacheHandler)) {
+      throw new Error(
+        `Source cache handler not found: ${sourceCacheHandler}. Ensure the cdk-nextjs package is properly built.`,
+      );
+    }
+
+    copyFileSync(sourceCacheHandler, targetCacheHandler);
   }
 
   private getBuildContext(): string {
@@ -121,6 +199,7 @@ export class NextjsContainers extends Construct {
     const packagePath = this.props.relativePathToPackage || ".";
     return join(this.props.buildOutputPath, packagePath);
   }
+
   private createAlbFargateSevice(): ApplicationLoadBalancedFargateService {
     let cpuArchitecture: CpuArchitecture | undefined = undefined;
     if (process.arch === "x64") {

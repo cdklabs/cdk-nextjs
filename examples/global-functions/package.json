@@ -9,13 +9,13 @@
     "destroy:ci": "cdk destroy --force"
   },
   "dependencies": {
-    "aws-cdk": "^2.1100.3",
-    "aws-cdk-lib": "2.196.0",
+    "aws-cdk": "catalog:",
+    "aws-cdk-lib": "catalog:",
     "cdk-nextjs": "link:../..",
-    "constructs": "10.0.5",
-    "tsx": "^4.21.0"
+    "constructs": "catalog:",
+    "tsx": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "^22.19.3"
+    "@types/node": "catalog:"
   }
 }

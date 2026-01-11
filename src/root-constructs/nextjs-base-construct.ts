@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
@@ -196,9 +197,14 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   private createNextjsStaticAssets(): NextjsStaticAssets {
+    // For static assets, we need the package directory, not the .next directory
+    const packagePath = join(
+      this.baseProps.buildDirectory,
+      this.baseProps.relativePathToPackage || ".",
+    );
+
     return new NextjsStaticAssets(this, "NextjsStaticAssets", {
-      buildOutputPath:
-        this.nextjsBuild.nextOutputPath || this.baseProps.buildDirectory,
+      buildOutputPath: packagePath,
       buildId: this.nextjsBuild.buildId,
       basePath: this.baseProps.basePath,
       overrides: this.baseProps.overrides?.nextjsStaticAssets,

@@ -4,13 +4,13 @@
   "private": true,
   "packageManager": "pnpm@10.27.0",
   "dependencies": {
-    "@tsconfig/node24": "^24.0.3",
-    "dotenv-cli": "^8.0.0"
+    "@tsconfig/node24": "catalog:",
+    "dotenv-cli": "catalog:"
   },
   "devDependencies": {
-    "@tsconfig/strictest": "^2.0.8",
-    "aws-cdk": "^2.1100.3",
-    "turbo": "^2.7.3"
+    "@tsconfig/strictest": "catalog:",
+    "aws-cdk": "catalog:",
+    "turbo": "catalog:"
   },
   "pnpm": {
     "overrides": {

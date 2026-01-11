@@ -14,7 +14,6 @@ import {
   suppressGlobalNags,
   suppressLambdaNags,
 } from "../shared/suppress-nags";
-import { FlowLogDestination } from "aws-cdk-lib/aws-ec2";
 import { Bucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
@@ -27,24 +26,12 @@ class GlobalFunctionsStack extends Stack {
     const logsBucket = this.#getLogsBucket();
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildDirectory: join(import.meta.dirname, ".."),
       overrides: {
         nextjsDistribution: {
           distributionProps: {
             logBucket: logsBucket,
             logFilePrefix: "cloudfront-logs",
-          },
-        },
-        nextjsVpc: {
-          vpcProps: {
-            flowLogs: {
-              s3FlowLogs: {
-                destination: FlowLogDestination.toS3(
-                  logsBucket,
-                  "vpc-flow-logs",
-                ),
-              },
-            },
           },
         },
       },
@@ -54,11 +41,6 @@ class GlobalFunctionsStack extends Stack {
       value: nextjs.url,
       key: "CdkNextjsUrl",
     });
-    // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
-    nextjs.nextjsVpc.vpc.node
-      .findChild("s3FlowLogs")
-      .node.findChild("FlowLog")
-      .node.addDependency(logsBucket);
   }
 
   #getLogsBucket() {

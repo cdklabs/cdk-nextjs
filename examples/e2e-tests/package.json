@@ -12,6 +12,6 @@
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "cdk-pipelines-github": "^0.4.133",
-    "tsx": "^4.21.0"
+    "tsx": "catalog:"
   }
 }

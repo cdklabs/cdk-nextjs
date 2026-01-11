@@ -6,9 +6,11 @@ const rootWorkspace = path.join(fileURLToPath(import.meta.url), '..', '..');
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  // experimental: {
-  //   adapterPath: path.join(rootWorkspace, 'app-playground/adapter.js'),
-  // },
+  experimental: {
+    turbopackFileSystemCacheForBuild: true,
+    // TODO: leverage in future to avoid having to use build a container and use lambda-web-adapter for Nextjs***Functions constructs
+    //adapterPath: path.join(rootWorkspace, 'app-playground/adapter.js'),
+  },
   images: {
     customCacheHandler: true,
   },
