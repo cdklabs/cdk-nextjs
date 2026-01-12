@@ -52,11 +52,13 @@ export class MemoryCacheHandler implements CacheHandler {
     // Check in-memory cache first
     const memoryEntry = this.inMemoryCache.get(cacheKey);
     if (memoryEntry && this.isEntryValid(memoryEntry)) {
+      this.debug(`MEMORY CACHE HIT: ${cacheKey}`);
       return memoryEntry.value;
     }
 
     // Remove expired entry
     if (memoryEntry && !this.isEntryValid(memoryEntry)) {
+      this.debug(`MEMORY CACHE EXPIRED: ${cacheKey}`);
       this.inMemoryCache.delete(cacheKey);
     }
 
@@ -64,13 +66,19 @@ export class MemoryCacheHandler implements CacheHandler {
     if (this.fallbackHandler) {
       const fallbackValue = await this.fallbackHandler.get(cacheKey, ctx);
       if (fallbackValue) {
+        this.debug(`MEMORY FALLBACK HIT: ${cacheKey}`);
+
         // Store the fallback result in memory for future requests
         this.inMemoryCache.set(cacheKey, {
           value: fallbackValue,
           timestamp: Date.now(),
         });
         return fallbackValue;
+      } else {
+        this.debug(`MEMORY FALLBACK MISS: ${cacheKey}`);
       }
+    } else {
+      this.debug(`MEMORY CACHE MISS: ${cacheKey} (no fallback)`);
     }
 
     return null;
@@ -90,6 +98,9 @@ export class MemoryCacheHandler implements CacheHandler {
       this.debug(`Memory cache entry for ${cacheKey} has tags:`, ctx.tags);
     }
 
+    // Debug logging for memory cache set
+    this.debug(`MEMORY CACHE SET: ${cacheKey} (${data.kind})`);
+
     // Store in memory cache with proper CacheHandlerValue structure
     const cacheHandlerValue: CacheHandlerValue = {
       lastModified: Date.now(),
@@ -103,6 +114,7 @@ export class MemoryCacheHandler implements CacheHandler {
 
     // Track tags for this cache entry
     if (ctx.tags && ctx.tags.length > 0) {
+      this.debug(`MEMORY TAGS: ${cacheKey} -> [${ctx.tags.join(", ")}]`);
       for (const tag of ctx.tags) {
         let tagSet = this.inMemoryTagCache.get(tag);
         if (!tagSet) {
@@ -121,6 +133,7 @@ export class MemoryCacheHandler implements CacheHandler {
 
   async revalidateTag(tag: string | string[]): Promise<void> {
     const tags = Array.isArray(tag) ? tag : [tag];
+    this.debug(`MEMORY REVALIDATING TAGS: [${tags.join(", ")}]`);
 
     // Clear memory cache for these tags
     for (const t of tags) {
@@ -152,6 +165,8 @@ export class MemoryCacheHandler implements CacheHandler {
     // Get all cache keys associated with this tag
     const cacheKeys = this.inMemoryTagCache.get(tag);
     if (cacheKeys) {
+      this.debug(`MEMORY TAG ${tag}: Clearing ${cacheKeys.size} cache entries`);
+
       // Remove each cache entry
       for (const cacheKey of cacheKeys) {
         this.inMemoryCache.delete(cacheKey);

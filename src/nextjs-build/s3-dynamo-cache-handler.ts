@@ -139,6 +139,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
       // that can't be properly serialized/deserialized
       if (ctx.kind === "APP_PAGE") {
         this.debug(`Skipping S3 cache for APP_PAGE route: ${cacheKey}`);
+        this.debug("GET APP_PAGE", JSON.stringify({ ctx }));
         return null;
       }
 
@@ -193,7 +194,26 @@ export class S3DynamoCacheHandler implements CacheHandler {
           return value;
         });
 
-        cacheValue = parsedValue;
+        // Extract the actual CacheHandlerValue (without tags) for return
+        cacheValue = {
+          lastModified: parsedValue.lastModified,
+          value: parsedValue.value,
+        };
+
+        // Check if cache has been invalidated by tag revalidation
+        const storedTags = parsedValue.tags || [];
+        if (storedTags.length > 0 && this.dynamoConfig.tableName) {
+          const isInvalidated = await this.checkIfRevalidated(
+            cacheValue.lastModified,
+            storedTags,
+          );
+          if (isInvalidated) {
+            this.debug(`S3 CACHE INVALIDATED BY TAG: ${cacheKey}`);
+            // Delete the stale S3 entry
+            await this.deleteS3Entry(s3Key);
+            return null;
+          }
+        }
       } else {
         // This shouldn't happen since we always store as JSON now, but handle legacy data
         // Since we don't know the exact structure, return null for legacy non-JSON data
@@ -203,13 +223,15 @@ export class S3DynamoCacheHandler implements CacheHandler {
       // Reset S3 circuit breaker on success
       this.circuitBreaker.s3Failures = 0;
 
+      this.debug(`S3 CACHE HIT: ${cacheKey} (${s3Key})`);
+
       return cacheValue;
     } catch (error) {
       const errorType = this.categorizeError(error);
 
       // Cache misses are normal behavior, not errors
       if (errorType === "cache-miss") {
-        this.debug(`Cache miss for key: ${cacheKey}`);
+        this.debug(`S3 CACHE MISS: ${cacheKey}`);
         return null;
       }
 
@@ -230,12 +252,16 @@ export class S3DynamoCacheHandler implements CacheHandler {
         return;
       }
 
-      // Skip caching for APP_PAGE routes as they contain complex streaming objects
+      // Skip S3 cache for APP_PAGE routes as they contain complex streaming objects
       // that can't be properly serialized/deserialized
       if (data.kind === "APP_PAGE") {
         this.debug(`Skipping S3 cache for APP_PAGE route: ${cacheKey}`);
+        this.debug("SET APP_PAGE", JSON.stringify({ data, ctx }));
         return;
       }
+
+      // Debug logging to understand what data is being cached
+      this.debug(`S3 CACHE SET: Key: ${cacheKey}, tags: ${ctx.tags}`);
 
       // Note: ctx.tags are available but revalidation is handled separately in revalidateTag method
       // Log tags for debugging if present
@@ -255,14 +281,20 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
       const s3Key = this.buildS3Key(cacheKey, data.kind);
 
-      // Create CacheHandlerValue structure for S3 storage
+      // Create CacheHandlerValue structure for S3 storage with tags
       const cacheHandlerValue: CacheHandlerValue = {
         lastModified: Date.now(),
         value: data,
       };
 
+      // Store tags with the cache entry for revalidation checking
+      const cacheEntryWithTags = {
+        ...cacheHandlerValue,
+        tags: ctx.tags || [],
+      };
+
       // Custom serialization to handle Map and Buffer objects
-      const body = JSON.stringify(cacheHandlerValue, (_key, value) => {
+      const body = JSON.stringify(cacheEntryWithTags, (_key, value) => {
         // Convert Map objects to plain objects for JSON serialization
         if (value instanceof Map) {
           return {
@@ -295,8 +327,11 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
       await this.s3Client.send(command);
 
+      this.debug(`S3 CACHE STORED: ${cacheKey} (${data.kind})`);
+
       // Store tag-to-cache-key mappings in DynamoDB for revalidation
       if (ctx.tags && ctx.tags.length > 0 && this.dynamoConfig.tableName) {
+        this.debug(`STORING TAGS: ${cacheKey} -> [${ctx.tags.join(", ")}]`);
         await this.storeDynamoDBTagMappings(s3Key, ctx.tags);
       }
 
@@ -311,6 +346,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
   async revalidateTag(tag: string | string[]): Promise<void> {
     const tags = Array.isArray(tag) ? tag : [tag];
+    this.debug(`REVALIDATING TAGS: [${tags.join(", ")}]`);
 
     try {
       if (this.isDynamoCircuitOpen()) {
@@ -349,6 +385,13 @@ export class S3DynamoCacheHandler implements CacheHandler {
     const queryResponse = await this.dynamoClient.send(queryCommand);
 
     if (queryResponse.Items) {
+      const cacheKeys = queryResponse.Items.map(
+        (item) => item.cacheKey?.S,
+      ).filter(Boolean);
+      this.debug(
+        `TAG ${tag}: Found ${cacheKeys.length} cache entries to invalidate`,
+      );
+
       // Update revalidation timestamp for all cache keys with this tag
       const updatePromises = queryResponse.Items.map(async (item) => {
         const cacheKey = item.cacheKey?.S;
@@ -460,6 +503,70 @@ export class S3DynamoCacheHandler implements CacheHandler {
       console.error("Error storing DynamoDB tag mappings:", error);
       this.handleDynamoFailure();
       // Don't throw - cache storage should continue even if tag mapping fails
+    }
+  }
+
+  private async checkIfRevalidated(
+    cacheLastModified: number,
+    tags: string[],
+  ): Promise<boolean> {
+    try {
+      if (this.isDynamoCircuitOpen()) {
+        this.debug("DynamoDB circuit breaker is open, assuming cache is valid");
+        return false;
+      }
+
+      // Check each tag to see if it has been revalidated after the cache was created
+      for (const tag of tags) {
+        const tagWithBuildId = `${this.dynamoConfig.buildId}#${tag}`;
+        const queryCommand = new QueryCommand({
+          TableName: this.dynamoConfig.tableName,
+          KeyConditionExpression: "tag = :tag",
+          ExpressionAttributeValues: {
+            ":tag": { S: tagWithBuildId },
+          },
+          ProjectionExpression: "revalidatedAt",
+          Limit: 1, // We only need to check if any entry exists with this tag
+        });
+
+        const queryResponse = await this.dynamoClient.send(queryCommand);
+
+        if (queryResponse.Items && queryResponse.Items.length > 0) {
+          const revalidatedAt = queryResponse.Items[0].revalidatedAt?.N;
+          if (revalidatedAt && parseInt(revalidatedAt) > cacheLastModified) {
+            this.debug(
+              `Tag ${tag} was revalidated at ${revalidatedAt}, cache created at ${cacheLastModified}`,
+            );
+            return true; // Cache is invalidated
+          }
+        }
+      }
+
+      return false; // Cache is still valid
+    } catch (error) {
+      console.error("Error checking cache revalidation:", error);
+      this.handleDynamoFailure();
+      // On error, assume cache is valid to avoid unnecessary cache misses
+      return false;
+    }
+  }
+
+  private async deleteS3Entry(s3Key: string): Promise<void> {
+    try {
+      if (!this.s3Config.bucketName) {
+        return;
+      }
+
+      const deleteCommand = new DeleteObjectCommand({
+        Bucket: this.s3Config.bucketName,
+        Key: s3Key,
+      });
+
+      await this.s3Client.send(deleteCommand);
+      this.debug(`Deleted stale S3 cache entry: ${s3Key}`);
+    } catch (error) {
+      // Log but don't fail - the entry might not exist in S3
+      console.warn(`Failed to delete stale S3 cache entry ${s3Key}:`, error);
     }
   }
 

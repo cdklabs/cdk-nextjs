@@ -135,7 +135,7 @@ PK: "build-abc123#product-images"  SK: "build-abc123/image/product-123-thumb"
 
 ### Custom Cache Handler
 
-The S3DynamoCacheHandler implements Next.js's cache interface with kind-based organization:
+The S3DynamoCacheHandler implements Next.js's cache interface with comprehensive tag-based revalidation:
 
 ```typescript
 export class S3DynamoCacheHandler {
@@ -155,45 +155,44 @@ export class S3DynamoCacheHandler {
 }
 ```
 
-**Cache Kind Examples**:
+**Cache Entry Structure**:
+
+Each cache entry stored in S3 includes both the cached data and associated tags for revalidation checking:
 
 ```json
-// FETCH cache entry
+// S3 cache entry structure
 {
-  "kind": "FETCH",
-  "data": {
-    "headers": { "content-type": "application/json" },
-    "body": "{\"users\": [...]}",
-    "url": "https://api.example.com/users"
+  "lastModified": 1704067200000,
+  "value": {
+    "kind": "FETCH",
+    "data": {
+      "headers": { "content-type": "application/json" },
+      "body": "{\"users\": [...]}",
+      "url": "https://api.example.com/users"
+    },
+    "revalidate": 3600
   },
-  "revalidate": 3600
-}
-
-// IMAGE cache entry
-{
-  "kind": "IMAGE",
-  "buffer": { "type": "Buffer", "data": [255, 216, 255, ...] },
-  "etag": "Vy8iOGRmMC0xOWJhZmFlMjA1OCI",
-  "extension": "jpeg",
-  "revalidate": 14400
-}
-
-// APP_PAGE cache entry
-{
-  "kind": "APP_PAGE",
-  "html": "<html>...</html>",
-  "rscData": { "type": "Buffer", "data": [...] },
-  "status": 200
+  "tags": ["user-profile", "user-list"]
 }
 ```
+
+**Cache Retrieval Process**:
+
+1. **Fetch from S3**: Retrieve cache entry with embedded tags
+2. **Revalidation Check**: Query DynamoDB to check if any tag has been revalidated since cache creation
+3. **Timestamp Comparison**: Compare `revalidatedAt` with cache entry's `lastModified`
+4. **Invalidation**: If any tag was revalidated after cache creation, delete S3 entry and return cache miss
+5. **Return**: If valid, return cached data without tags
 
 **Key Features**:
 
 - **BUILD_ID Isolation**: All cache keys prefixed with `{buildId}/`
 - **Kind-based Organization**: S3 keys include cache type for better structure
+- **Tag Storage**: Tags stored with cache entries for revalidation checking
+- **Timestamp Validation**: Prevents serving stale data after tag revalidation
 - **Circuit Breaker**: Graceful degradation when S3/DynamoDB unavailable
 - **In-Memory Fallback**: Local cache when cloud services fail
-- **Tag-based Revalidation**: Efficient cache invalidation using DynamoDB
+- **Bulletproof Consistency**: Even if S3 deletions fail, stale data won't be served
 
 ## Static Assets vs Cache Assets
 
@@ -230,9 +229,19 @@ export class S3DynamoCacheHandler {
 When `revalidateTag("user-profile")` is called:
 
 1. **Query DynamoDB**: Find all cache keys tagged with `{buildId}#user-profile`
-2. **Delete S3 Objects**: Remove corresponding cache files from S3
-3. **Update Timestamps**: Mark revalidation time in DynamoDB
+2. **Update Timestamps**: Mark revalidation time in DynamoDB for each cache entry
+3. **Delete S3 Objects**: Remove corresponding cache files from S3
 4. **Clear Memory**: Remove entries from in-memory cache
+
+**Revalidation Safety**: Even if S3 deletions fail due to network issues or race conditions, the cache handler will detect stale data during the next `get()` operation by comparing timestamps and automatically remove invalid entries.
+
+**Cache Retrieval After Revalidation**:
+
+1. **Fetch Cache Entry**: Retrieve from S3 with embedded tags
+2. **Check Revalidation**: Query DynamoDB for each tag's `revalidatedAt` timestamp
+3. **Compare Timestamps**: If any `revalidatedAt` > cache `lastModified`, cache is invalid
+4. **Auto-cleanup**: Delete stale S3 entry and return cache miss
+5. **Fresh Data**: Next request will fetch fresh data and create new cache entry
 
 ### Time-based Revalidation
 
@@ -270,9 +279,11 @@ export async function updateUser(userId: string) {
 ### DynamoDB Revalidation
 
 - **Query Latency**: ~1-5ms (single partition key lookup)
+- **Revalidation Check**: Additional 1-5ms per tag during cache retrieval
 - **Scalability**: Handles millions of cache entries
 - **Cost**: Minimal - only pays for actual reads/writes
 - **Consistency**: Eventually consistent (sufficient for cache invalidation)
+- **Safety**: Timestamp-based validation prevents serving stale data
 
 ### Circuit Breaker Protection
 
@@ -296,6 +307,8 @@ export async function updateUser(userId: string) {
 2. Check DynamoDB for tag-to-cache-key mappings
 3. Ensure revalidateTag() calls are working
 4. Monitor S3 object deletions
+5. Check CloudWatch logs for "CACHE INVALIDATED BY TAG" messages
+6. Verify timestamp comparisons in DynamoDB revalidation entries
 
 ### Performance Problems
 
