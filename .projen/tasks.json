@@ -58,13 +58,10 @@
           "exec": "cp src/nextjs-build/global-containers.Dockerfile lib/nextjs-build"
         },
         {
-          "exec": "cp src/nextjs-build/global-functions.Dockerfile lib/nextjs-build"
+          "exec": "cp src/nextjs-build/functions.Dockerfile lib/nextjs-build"
         },
         {
           "exec": "cp src/nextjs-build/regional-containers.Dockerfile lib/nextjs-build"
-        },
-        {
-          "exec": "cp src/nextjs-build/regional-functions.Dockerfile lib/nextjs-build"
         },
         {
           "spawn": "bundle:nextjs-build/cdk-nextjs-cache-handler"

@@ -131,7 +131,7 @@ export class NextjsFunctions extends Construct {
 
       copyFileSync(sourceDockerfile, targetDockerfile);
       console.log(
-        `${LOG_PREFIX} Created ${dockerfileName} in your project directory. You can customize this file for your deployment needs.`,
+        `${LOG_PREFIX} Created ${dockerfileName} in your project directory.`,
       );
     }
   }

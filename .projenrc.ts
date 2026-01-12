@@ -194,13 +194,10 @@ function copyDockerfiles() {
       `cp ${join("src", "nextjs-build", "global-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
     bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "global-functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
+      `cp ${join("src", "nextjs-build", "functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "regional-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
-    );
-    bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "regional-functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
   }
 }
