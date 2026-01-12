@@ -107,6 +107,25 @@ export default class S3CacheHandler {
 }
 ```
 
+**Example `data` Values**
+
+```json
+{
+  "kind": "IMAGE",
+  "buffer": {
+    "type": "Buffer",
+    "data": [
+      255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 72, 0, 72, 0,
+      ...
+    ]
+  },
+  "etag": "Vy8iOGRmMC0xOWJhZmFlMjA1OCI",
+  "extension": "jpeg",
+  "upstreamEtag": "Vy8iOGRmMC0xOWJhZmFlMjA1OCI",
+  "revalidate": 14400
+}
+```
+
 **Key Features**:
 
 - **BUILD_ID Isolation**: All cache keys prefixed with `/{buildId}/`

@@ -11,7 +11,7 @@ import {
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import { NextjsType } from "../constants";
+import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { getLambdaArchitecture } from "../utils/get-architecture";
@@ -121,9 +121,7 @@ export class NextjsFunctions extends Construct {
 
     // Check if Dockerfile already exists - if so, use the existing one (developer control)
     if (existsSync(targetDockerfile)) {
-      console.log(
-        `Using existing Dockerfile: ${dockerfileName} (developer can customize this file)`,
-      );
+      console.log(`${LOG_PREFIX} Using existing Dockerfile: ${dockerfileName}`);
     } else {
       const sourceDockerfile = joinPath(
         __dirname,
@@ -140,7 +138,7 @@ export class NextjsFunctions extends Construct {
 
       copyFileSync(sourceDockerfile, targetDockerfile);
       console.log(
-        `Created ${dockerfileName} in your project directory. You can customize this file for your deployment needs.`,
+        `${LOG_PREFIX} Created ${dockerfileName} in your project directory. You can customize this file for your deployment needs.`,
       );
     }
   }

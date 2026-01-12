@@ -10,7 +10,7 @@ import {
 import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
-import { NextjsType } from "../constants";
+import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 
 export interface NextjsBuildProps {
@@ -28,6 +28,10 @@ export interface NextjsBuildProps {
    */
   readonly relativePathToPackage?: NextjsBaseProps["relativePathToPackage"];
   readonly nextjsType: NextjsType;
+  /**
+   * @see {@link NextjsBaseProps.skipBuild}
+   */
+  readonly skipBuild?: boolean;
 }
 
 export interface PublicDirEntry {
@@ -66,6 +70,7 @@ export class NextjsBuild extends Construct {
   private relativePathToPackage: string;
   private tempCacheHandlerPath: string;
   private tempAdapterPath: string;
+  private buildCommand: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
@@ -76,7 +81,6 @@ export class NextjsBuild extends Construct {
       this.props.relativePathToPackage || "",
       "server.js",
     );
-
     // Initialize temporary file paths
     this.tempCacheHandlerPath = join(
       this.props.buildDirectory,
@@ -86,15 +90,20 @@ export class NextjsBuild extends Construct {
       this.props.buildDirectory,
       "cdk-nextjs-adapter.mjs",
     );
+    this.buildCommand = props.buildCommand || "npm run build";
 
     // Execute local build process
-    this.runNextBuild();
+    if (props.skipBuild !== true) {
+      this.runNextBuild();
+    } else {
+      console.log(`${LOG_PREFIX} Skipping: ${this.buildCommand}`);
+    }
 
     // Validate build output and set validated paths
     this.validateNextBuildOutput();
 
     // Replace Sharp binary with Linux-compatible version for cloud deployment
-    this.replaceSharpBinaryWithCloudComputeCompatibleArch();
+    // this.replaceSharpBinaryWithCloudComputeCompatibleArch();
 
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
@@ -104,10 +113,8 @@ export class NextjsBuild extends Construct {
    * Execute local build command in the specified directory
    */
   private runNextBuild() {
-    const buildCommand = this.props.buildCommand || "npm run build";
-
     console.log(
-      `Running: "${buildCommand}" in directory: ${this.props.buildDirectory}`,
+      `${LOG_PREFIX} Running: "${this.buildCommand}" in directory: ${this.props.buildDirectory}`,
     );
 
     try {
@@ -115,7 +122,7 @@ export class NextjsBuild extends Construct {
       this.copyCacheHandlerToBuildDirectory();
       this.copyAdapterToBuildDirectory();
 
-      execSync(buildCommand, {
+      execSync(this.buildCommand, {
         stdio: "inherit",
         cwd: this.props.buildDirectory,
         env: process.env,
@@ -237,7 +244,7 @@ export class NextjsBuild extends Construct {
         unlinkSync(this.tempCacheHandlerPath);
       }
     } catch (error) {
-      console.warn(`Failed to remove cache handler: ${error}`);
+      console.warn(`${LOG_PREFIX} Failed to remove cache handler: ${error}`);
     }
 
     try {
@@ -245,7 +252,7 @@ export class NextjsBuild extends Construct {
         unlinkSync(this.tempAdapterPath);
       }
     } catch (error) {
-      console.warn(`Failed to remove adapter: ${error}`);
+      console.warn(`${LOG_PREFIX} Failed to remove adapter: ${error}`);
     }
   }
 
@@ -315,202 +322,107 @@ export class NextjsBuild extends Construct {
         }),
       );
     } catch (error) {
-      console.warn(`Failed to read public directory: ${error}`);
+      console.warn(`${LOG_PREFIX} Failed to read public directory: ${error}`);
       return [];
     }
   }
 
-  private replaceSharpBinaryWithCloudComputeCompatibleArch() {
-    try {
-      // Find Sharp binary in the standalone build
-      const standaloneDir = join(this.dotNextPath, "standalone");
-      const packageDir = join(standaloneDir, this.relativePathToPackage);
+  /**
+   * In cloud, Next.js runs on linux, but developer's machine is sometimes
+   * macOS or windows. Need to update .next/standalone/node_modules sharp binaries
+   * to be correct for the right platform/architecture. Note, we don't need to
+   * include `relativePathToPackage` because top level node_modules is symlinked to it.
+   *
+   * Sharp binaries can be found in different naming patterns:
+   * - New format: `standalone/node_modules/@img/sharp-darwin-arm64`
+   * - Old format: `standalone/node_modules/@img+sharp-darwin-arm64@0.34.5`
+   * - Libvips: `standalone/node_modules/@img+sharp-libvips-darwin-arm64@1.2.4`
+   */
+  // private replaceSharpBinaryWithCloudComputeCompatibleArch() {
+  //   try {
+  //     // Find Sharp binary in the standalone build
+  //     const standaloneDir = join(this.dotNextPath, "standalone");
+  //     const packageDir = join(standaloneDir, this.relativePathToPackage);
 
-      // Look for Sharp in node_modules
-      const sharpModulePath = join(packageDir, "node_modules", "sharp");
+  //     // Look for Sharp in node_modules
+  //     const sharpModulePath = join(packageDir, "node_modules", "sharp");
 
-      if (!existsSync(sharpModulePath)) {
-        // Sharp not found, skip replacement
-        console.log(
-          "Sharp module not found in standalone build, skipping binary replacement",
-        );
-        return;
-      }
+  //     if (!existsSync(sharpModulePath)) {
+  //       // Sharp not found, skip replacement
+  //       console.log(
+  //         `${LOG_PREFIX} Sharp module not found in standalone build, skipping binary replacement`,
+  //       );
+  //       return;
+  //     }
 
-      // Detect current platform
-      const currentPlatform = process.platform;
-      const currentArch = process.arch;
+  //     // Detect current platform
+  //     const currentPlatform = process.platform;
+  //     const currentArch = process.arch;
 
-      console.log(
-        `Detected platform: ${currentPlatform}-${currentArch}, replacing Sharp binary for Linux deployment`,
-      );
+  //     console.log(
+  //       `${LOG_PREFIX} Detected platform: ${currentPlatform}-${currentArch}, replacing Sharp binary for Linux deployment`,
+  //     );
 
-      // Find current Sharp binary directory
-      const sharpBinaryPattern = this.getSharpBinaryPattern(
-        currentPlatform,
-        currentArch,
-      );
-      const nodeModulesDir = join(packageDir, "node_modules");
+  //     const nodeModulesDir = join(packageDir, "node_modules");
 
-      // Find the current platform's Sharp binary directory
-      const currentSharpBinaryDir = this.findSharpBinaryDir(
-        nodeModulesDir,
-        sharpBinaryPattern,
-      );
+  //     // Find current platform's Sharp binaries (try both naming patterns)
+  //     const currentSharpBinaries = this.findAllSharpBinaries(
+  //       nodeModulesDir,
+  //       currentPlatform,
+  //       currentArch,
+  //     );
 
-      if (!currentSharpBinaryDir) {
-        console.warn(
-          `Current platform Sharp binary not found for ${currentPlatform}-${currentArch}`,
-        );
-        return;
-      }
+  //     // Determine target Linux architecture based on container architecture
+  //     const targetLinuxArch = "x64"; // Could be made configurable if needed
 
-      // Determine target Linux architecture based on container architecture
-      // From the Dockerfile, we're using Node 22 Alpine, which is typically x64
-      const targetLinuxArch = "x64"; // Could be made configurable if needed
-      const targetSharpBinaryPattern = `@img/sharp-linux-${targetLinuxArch}`;
+  //     // Find Linux Sharp binaries or download them if not available
+  //     let targetSharpBinaries = this.findAllSharpBinaries(
+  //       nodeModulesDir,
+  //       "linux",
+  //       targetLinuxArch,
+  //     );
 
-      // Find the Linux Sharp binary directory
-      const targetSharpBinaryDir = this.findSharpBinaryDir(
-        nodeModulesDir,
-        targetSharpBinaryPattern,
-      );
+  //     if (targetSharpBinaries.length === 0) {
+  //       console.log(
+  //         `${LOG_PREFIX} Linux Sharp binaries not found, attempting to download for linux-${targetLinuxArch}`,
+  //       );
 
-      if (!targetSharpBinaryDir) {
-        console.warn(
-          `Target Linux Sharp binary not found for linux-${targetLinuxArch}`,
-        );
-        console.log("Available Sharp binaries:");
-        this.listAvailableSharpBinaries(nodeModulesDir);
-        return;
-      }
+  //       // Re-scan for the downloaded binaries
+  //       targetSharpBinaries = this.findAllSharpBinaries(
+  //         nodeModulesDir,
+  //         "linux",
+  //         targetLinuxArch,
+  //       );
+  //     }
 
-      // Replace the binary files
-      this.replaceSharpBinaryFiles(currentSharpBinaryDir, targetSharpBinaryDir);
+  //     // Replace the binary files for each Sharp binary found
+  //     for (const currentBinary of currentSharpBinaries) {
+  //       // Find corresponding Linux binary (match sharp vs sharp-libvips)
+  //       const isLibvips = currentBinary.name.includes("libvips");
+  //       const targetBinary = targetSharpBinaries.find((target) =>
+  //         isLibvips
+  //           ? target.name.includes("libvips")
+  //           : !target.name.includes("libvips"),
+  //       );
 
-      console.log(
-        `Successfully replaced Sharp binary from ${currentPlatform}-${currentArch} to linux-${targetLinuxArch}`,
-      );
-    } catch (error) {
-      console.warn(`Failed to replace Sharp binary: ${error}`);
-      // Don't throw - this is not critical for deployment
-    }
-  }
+  //       if (targetBinary) {
+  //         this.replaceSharpBinaryFiles(currentBinary.path, targetBinary.path);
+  //         console.log(
+  //           `${LOG_PREFIX} Replaced ${currentBinary.name} with ${targetBinary.name}`,
+  //         );
+  //       } else {
+  //         console.warn(
+  //           `${LOG_PREFIX} No matching Linux binary found for ${currentBinary.name}`,
+  //         );
+  //       }
+  //     }
 
-  private getSharpBinaryPattern(platform: string, arch: string): string {
-    const platformMap: Record<string, string> = {
-      darwin: "darwin",
-      win32: "win32",
-      linux: "linux",
-    };
-
-    const archMap: Record<string, string> = {
-      x64: "x64",
-      arm64: "arm64",
-      ia32: "ia32",
-    };
-
-    const mappedPlatform = platformMap[platform] || platform;
-    const mappedArch = archMap[arch] || arch;
-
-    return `@img/sharp-${mappedPlatform}-${mappedArch}`;
-  }
-
-  private findSharpBinaryDir(
-    nodeModulesDir: string,
-    pattern: string,
-  ): string | null {
-    try {
-      const entries = readdirSync(nodeModulesDir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.includes(pattern)) {
-          return join(nodeModulesDir, entry.name);
-        }
-      }
-
-      // Also check in @img subdirectory
-      const imgDir = join(nodeModulesDir, "@img");
-      if (existsSync(imgDir)) {
-        const imgEntries = readdirSync(imgDir, { withFileTypes: true });
-        for (const entry of imgEntries) {
-          if (
-            entry.isDirectory() &&
-            entry.name.includes(pattern.replace("@img/", ""))
-          ) {
-            return join(imgDir, entry.name);
-          }
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.warn(`Error searching for Sharp binary: ${error}`);
-      return null;
-    }
-  }
-
-  private listAvailableSharpBinaries(nodeModulesDir: string): void {
-    try {
-      const imgDir = join(nodeModulesDir, "@img");
-      if (existsSync(imgDir)) {
-        const entries = readdirSync(imgDir, { withFileTypes: true });
-        const sharpBinaries = entries
-          .filter(
-            (entry) => entry.isDirectory() && entry.name.startsWith("sharp-"),
-          )
-          .map((entry) => entry.name);
-
-        console.log("Available Sharp binaries:", sharpBinaries);
-      }
-    } catch (error) {
-      console.warn(`Error listing Sharp binaries: ${error}`);
-    }
-  }
-
-  private replaceSharpBinaryFiles(sourceDir: string, targetDir: string): void {
-    try {
-      // Get all files from target directory
-      const targetFiles = readdirSync(targetDir, { withFileTypes: true });
-
-      for (const file of targetFiles) {
-        if (file.isFile()) {
-          const sourcePath = join(sourceDir, file.name);
-          const targetPath = join(targetDir, file.name);
-
-          // Copy target file to source location (replacing the current platform binary)
-          copyFileSync(targetPath, sourcePath);
-        }
-      }
-
-      // Also need to update the main Sharp module to point to the correct binary
-      // This involves updating the Sharp package.json or binary loading logic
-      this.updateSharpModuleConfig(sourceDir, targetDir);
-    } catch (error) {
-      throw new Error(`Failed to replace Sharp binary files: ${error}`);
-    }
-  }
-
-  private updateSharpModuleConfig(sourceDir: string, targetDir: string): void {
-    try {
-      // The Sharp module typically loads the correct binary based on platform detection
-      // We need to ensure it loads the Linux binary instead of the current platform
-
-      // Find the main Sharp module directory
-      const sharpMainDir = join(sourceDir, "..", "..", "sharp");
-      const sharpPackageJsonPath = join(sharpMainDir, "package.json");
-
-      if (existsSync(sharpPackageJsonPath)) {
-        // Read and potentially modify Sharp's package.json if needed
-        // Most of the time, just replacing the binary files is sufficient
-        // as Sharp will load whatever binary is available
-        console.log(
-          `Sharp module configuration updated for Linux deployment (target: ${targetDir})`,
-        );
-      }
-    } catch (error) {
-      console.warn(`Failed to update Sharp module config: ${error}`);
-      // Non-critical, continue
-    }
-  }
+  //     console.log(
+  //       `${LOG_PREFIX} Successfully replaced Sharp binaries from ${currentPlatform}-${currentArch} to linux-${targetLinuxArch}`,
+  //     );
+  //   } catch (error) {
+  //     console.warn(`${LOG_PREFIX} Failed to replace Sharp binary: ${error}`);
+  //     // Don't throw - this is not critical for deployment
+  //   }
+  // }
 }

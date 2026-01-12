@@ -19,7 +19,7 @@ import {
 import { ApplicationProtocolVersion } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import { NextjsType } from "../constants";
+import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
@@ -112,9 +112,7 @@ export class NextjsContainers extends Construct {
 
     // Check if Dockerfile already exists - if so, use the existing one (developer control)
     if (existsSync(targetDockerfile)) {
-      console.log(
-        `Using existing Dockerfile: ${dockerfileName} (developer can customize this file)`,
-      );
+      console.log(`${LOG_PREFIX} Using existing Dockerfile: ${dockerfileName}`);
     } else {
       const sourceDockerfile = joinPath(
         __dirname,
@@ -130,9 +128,7 @@ export class NextjsContainers extends Construct {
       }
 
       copyFileSync(sourceDockerfile, targetDockerfile);
-      console.log(
-        `Created ${dockerfileName} in your project directory. You can customize this file for your deployment needs.`,
-      );
+      console.log(`${LOG_PREFIX} Created ${targetDockerfile}.`);
     }
   }
 

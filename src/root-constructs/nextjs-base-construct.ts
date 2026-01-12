@@ -78,6 +78,12 @@ export interface NextjsBaseProps {
    * @example "./apps/web"
    */
   readonly relativePathToPackage?: string;
+  /**
+   * Skips running `next build`. If `true`, you are responsible for running
+   * `next build` before this construct is synthesized.
+   * @defaul false
+   */
+  readonly skipBuild?: boolean;
 }
 
 /**
@@ -160,6 +166,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
       relativePathToPackage: this.baseProps.relativePathToPackage,
+      skipBuild: this.baseProps.skipBuild,
       ...this.constructOverrides?.nextjsBuildProps,
     });
   }

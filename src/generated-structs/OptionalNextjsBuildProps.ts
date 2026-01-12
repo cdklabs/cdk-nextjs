@@ -8,6 +8,10 @@ export interface OptionalNextjsBuildProps {
   /**
    * @stability stable
    */
+  readonly skipBuild?: boolean;
+  /**
+   * @stability stable
+   */
   readonly relativePathToPackage?: string;
   /**
    * @stability stable

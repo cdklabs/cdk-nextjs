@@ -15,6 +15,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   repositoryUrl: "https://github.com/cdklabs/cdk-nextjs.git",
   // package.json config
   name: "cdk-nextjs",
+  prerelease: "beta", // TODO: remove once Next.js 16.2 is released
   description:
     "Deploy Next.js apps on AWS with CDK" /* The description is just a string that helps people understand the purpose of the package. */,
   // majorVersion: 1,

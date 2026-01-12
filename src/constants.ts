@@ -18,3 +18,5 @@ export const MOUNT_PATH = "/mnt/cdk-nextjs";
 
 export const BUILD_ID_ARG_NAME = "BUILD_ID";
 export const RELATIVE_PATH_TO_PACKAGE_ARG_NAME = "RELATIVE_PATH_TO_PACKAGE";
+
+export const LOG_PREFIX = "[cdk-nextjs]";

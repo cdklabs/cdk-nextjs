@@ -27,6 +27,7 @@ class GlobalFunctionsStack extends Stack {
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
+      skipBuild: true,
       overrides: {
         nextjsDistribution: {
           distributionProps: {

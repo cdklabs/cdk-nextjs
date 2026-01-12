@@ -135,6 +135,13 @@ export class S3DynamoCacheHandler implements CacheHandler {
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null> {
     try {
+      // Skip S3 cache for APP_PAGE routes as they contain complex streaming objects
+      // that can't be properly serialized/deserialized
+      if (ctx.kind === "APP_PAGE") {
+        this.debug(`Skipping S3 cache for APP_PAGE route: ${cacheKey}`);
+        return null;
+      }
+
       // Log context for debugging (optional usage to avoid unused parameter warning)
       if (ctx.kind) {
         this.debug(
@@ -220,6 +227,13 @@ export class S3DynamoCacheHandler implements CacheHandler {
   ): Promise<void> {
     try {
       if (!data) {
+        return;
+      }
+
+      // Skip caching for APP_PAGE routes as they contain complex streaming objects
+      // that can't be properly serialized/deserialized
+      if (data.kind === "APP_PAGE") {
+        this.debug(`Skipping S3 cache for APP_PAGE route: ${cacheKey}`);
         return;
       }
 
