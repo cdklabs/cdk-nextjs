@@ -22,6 +22,7 @@ import {
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
+import { LOG_PREFIX } from "./constants";
 
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;
@@ -138,7 +139,7 @@ export class NextjsStaticAssets extends Construct {
 
       return hasAssets ? stagingDir : undefined;
     } catch (error) {
-      console.error("Error creating staging directory:", error);
+      console.error(`${LOG_PREFIX} Error creating staging directory:`, error);
       // Clean up on error
       try {
         rmSync(stagingDir, { recursive: true, force: true });

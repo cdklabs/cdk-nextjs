@@ -2,9 +2,6 @@ packages:
   - "**"
   # prevent pnpm from trying to install dependencies in cdk asset directories
   - "!**/cdk.out/**"
-  # prevent turbo from thinking package already exists and erroring
-  - "!**/.next/**"
-  - "!pruned/**"
 
 catalog:
   # CDK versions - must match main project
@@ -26,7 +23,6 @@ catalog:
 
   # Build tools
   tsx: "^4.21.0"
-  turbo: "^2.7.3"
   dotenv-cli: "^8.0.0"
 
   # Linting and formatting

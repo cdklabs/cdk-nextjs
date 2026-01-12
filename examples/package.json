@@ -9,8 +9,7 @@
   },
   "devDependencies": {
     "@tsconfig/strictest": "catalog:",
-    "aws-cdk": "catalog:",
-    "turbo": "catalog:"
+    "aws-cdk": "catalog:"
   },
   "pnpm": {
     "overrides": {

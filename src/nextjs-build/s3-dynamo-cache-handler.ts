@@ -159,7 +159,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
         return null;
       }
 
-      const s3Key = this.buildS3Key(cacheKey);
+      const s3Key = this.buildS3Key(cacheKey, ctx.kind);
 
       const command = new GetObjectCommand({
         Bucket: this.s3Config.bucketName,
@@ -253,7 +253,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
         return;
       }
 
-      const s3Key = this.buildS3Key(cacheKey);
+      const s3Key = this.buildS3Key(cacheKey, data.kind);
 
       // Create CacheHandlerValue structure for S3 storage
       const cacheHandlerValue: CacheHandlerValue = {
@@ -297,7 +297,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
       // Store tag-to-cache-key mappings in DynamoDB for revalidation
       if (ctx.tags && ctx.tags.length > 0 && this.dynamoConfig.tableName) {
-        await this.storeDynamoDBTagMappings(cacheKey, ctx.tags);
+        await this.storeDynamoDBTagMappings(s3Key, ctx.tags);
       }
 
       // Reset S3 circuit breaker on success
@@ -377,9 +377,8 @@ export class S3DynamoCacheHandler implements CacheHandler {
       // Delete the corresponding S3 cache entries to invalidate them
       if (this.s3Config.bucketName) {
         const deletePromises = queryResponse.Items.map(async (item) => {
-          const cacheKey = item.cacheKey?.S;
-          if (cacheKey) {
-            const s3Key = this.buildS3Key(cacheKey);
+          const s3Key = item.cacheKey?.S; // This is now the full S3 key
+          if (s3Key) {
             const deleteCommand = new DeleteObjectCommand({
               Bucket: this.s3Config.bucketName,
               Key: s3Key,
@@ -404,9 +403,9 @@ export class S3DynamoCacheHandler implements CacheHandler {
     // The actual cache clearing is handled by the memory cache handler
   }
 
-  private buildS3Key(cacheKey: string): string {
-    // Use BUILD_ID prefixing: {buildId}/{cacheKey}
-    // Next.js provides the cacheKey, we just add BUILD_ID isolation
+  private buildS3Key(cacheKey: string, kind: string): string {
+    // Use BUILD_ID prefixing with kind: {buildId}/{kind}/{cacheKey}
+    // Next.js provides the cacheKey, we add BUILD_ID isolation and kind categorization
 
     // Handle edge cases:
     // - Root path "/" should become "index" or similar
@@ -419,12 +418,15 @@ export class S3DynamoCacheHandler implements CacheHandler {
       cleanCacheKey = cacheKey.slice(1);
     }
 
+    // Include kind in the S3 key structure for better organization
+    const kindPrefix = kind.toLowerCase();
+
     // Use path.join() for proper path handling
-    return join(this.s3Config.buildId, cleanCacheKey);
+    return join(this.s3Config.buildId, kindPrefix, cleanCacheKey);
   }
 
   private async storeDynamoDBTagMappings(
-    cacheKey: string,
+    s3Key: string,
     tags: string[],
   ): Promise<void> {
     try {
@@ -441,7 +443,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
           TableName: this.dynamoConfig.tableName,
           Key: {
             tag: { S: tagWithBuildId },
-            cacheKey: { S: cacheKey },
+            cacheKey: { S: s3Key }, // Store the full S3 key for easy deletion
           },
           UpdateExpression:
             "SET createdAt = if_not_exists(createdAt, :now), revalidatedAt = :now",
