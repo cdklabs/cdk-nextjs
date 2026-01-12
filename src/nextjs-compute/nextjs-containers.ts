@@ -91,7 +91,6 @@ export class NextjsContainers extends Construct {
       file: dockerfileName,
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
-        BUILD_ID: this.props.buildId,
       },
       ...this.props.overrides?.dockerImageAssetProps,
     });

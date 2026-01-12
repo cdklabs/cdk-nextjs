@@ -102,8 +102,10 @@ export class NextjsBuild extends Construct {
     // Validate build output and set validated paths
     this.validateNextBuildOutput();
 
-    // Replace Sharp binary with Linux-compatible version for cloud deployment
-    // this.replaceSharpBinaryWithCloudComputeCompatibleArch();
+    // Sharp binary replacement is now handled in Dockerfiles
+    // by installing Sharp globally and removing all platform-specific binaries
+    // Container optimization: keep only .next/, node_modules/, server.js, package.json
+    // and remove everything else to minimize container size
 
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
@@ -326,103 +328,4 @@ export class NextjsBuild extends Construct {
       return [];
     }
   }
-
-  /**
-   * In cloud, Next.js runs on linux, but developer's machine is sometimes
-   * macOS or windows. Need to update .next/standalone/node_modules sharp binaries
-   * to be correct for the right platform/architecture. Note, we don't need to
-   * include `relativePathToPackage` because top level node_modules is symlinked to it.
-   *
-   * Sharp binaries can be found in different naming patterns:
-   * - New format: `standalone/node_modules/@img/sharp-darwin-arm64`
-   * - Old format: `standalone/node_modules/@img+sharp-darwin-arm64@0.34.5`
-   * - Libvips: `standalone/node_modules/@img+sharp-libvips-darwin-arm64@1.2.4`
-   */
-  // private replaceSharpBinaryWithCloudComputeCompatibleArch() {
-  //   try {
-  //     // Find Sharp binary in the standalone build
-  //     const standaloneDir = join(this.dotNextPath, "standalone");
-  //     const packageDir = join(standaloneDir, this.relativePathToPackage);
-
-  //     // Look for Sharp in node_modules
-  //     const sharpModulePath = join(packageDir, "node_modules", "sharp");
-
-  //     if (!existsSync(sharpModulePath)) {
-  //       // Sharp not found, skip replacement
-  //       console.log(
-  //         `${LOG_PREFIX} Sharp module not found in standalone build, skipping binary replacement`,
-  //       );
-  //       return;
-  //     }
-
-  //     // Detect current platform
-  //     const currentPlatform = process.platform;
-  //     const currentArch = process.arch;
-
-  //     console.log(
-  //       `${LOG_PREFIX} Detected platform: ${currentPlatform}-${currentArch}, replacing Sharp binary for Linux deployment`,
-  //     );
-
-  //     const nodeModulesDir = join(packageDir, "node_modules");
-
-  //     // Find current platform's Sharp binaries (try both naming patterns)
-  //     const currentSharpBinaries = this.findAllSharpBinaries(
-  //       nodeModulesDir,
-  //       currentPlatform,
-  //       currentArch,
-  //     );
-
-  //     // Determine target Linux architecture based on container architecture
-  //     const targetLinuxArch = "x64"; // Could be made configurable if needed
-
-  //     // Find Linux Sharp binaries or download them if not available
-  //     let targetSharpBinaries = this.findAllSharpBinaries(
-  //       nodeModulesDir,
-  //       "linux",
-  //       targetLinuxArch,
-  //     );
-
-  //     if (targetSharpBinaries.length === 0) {
-  //       console.log(
-  //         `${LOG_PREFIX} Linux Sharp binaries not found, attempting to download for linux-${targetLinuxArch}`,
-  //       );
-
-  //       // Re-scan for the downloaded binaries
-  //       targetSharpBinaries = this.findAllSharpBinaries(
-  //         nodeModulesDir,
-  //         "linux",
-  //         targetLinuxArch,
-  //       );
-  //     }
-
-  //     // Replace the binary files for each Sharp binary found
-  //     for (const currentBinary of currentSharpBinaries) {
-  //       // Find corresponding Linux binary (match sharp vs sharp-libvips)
-  //       const isLibvips = currentBinary.name.includes("libvips");
-  //       const targetBinary = targetSharpBinaries.find((target) =>
-  //         isLibvips
-  //           ? target.name.includes("libvips")
-  //           : !target.name.includes("libvips"),
-  //       );
-
-  //       if (targetBinary) {
-  //         this.replaceSharpBinaryFiles(currentBinary.path, targetBinary.path);
-  //         console.log(
-  //           `${LOG_PREFIX} Replaced ${currentBinary.name} with ${targetBinary.name}`,
-  //         );
-  //       } else {
-  //         console.warn(
-  //           `${LOG_PREFIX} No matching Linux binary found for ${currentBinary.name}`,
-  //         );
-  //       }
-  //     }
-
-  //     console.log(
-  //       `${LOG_PREFIX} Successfully replaced Sharp binaries from ${currentPlatform}-${currentArch} to linux-${targetLinuxArch}`,
-  //     );
-  //   } catch (error) {
-  //     console.warn(`${LOG_PREFIX} Failed to replace Sharp binary: ${error}`);
-  //     // Don't throw - this is not critical for deployment
-  //   }
-  // }
 }

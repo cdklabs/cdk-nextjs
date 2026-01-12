@@ -2,9 +2,12 @@
 # Modified from: https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 
 # Production image, copy all the files and run next
-FROM public.ecr.aws/docker/library/node:22-alpine AS runner
+FROM public.ecr.aws/docker/library/node:24-alpine AS runner
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 RUN apk add --no-cache libc6-compat
+
+# Install Sharp globally with correct binaries for Linux platform
+RUN npm install -g sharp
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 WORKDIR /app
 
@@ -15,11 +18,13 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+ARG RELATIVE_PATH_TO_PACKAGE
 # Copy from local build output instead of builder image
 COPY --chown=nextjs:nodejs .next/standalone ./
-# html,rsc,body,meta files don't need to be in compute container b/c they're handled by cdk-nextjs-cache-handler.cjs
-RUN find . -type f \( -name "*.html" -o -name "*.rsc" -name "*.body" -name "*.meta" \) -delete
-ARG BUILD_ID
+# Remove unnecessary source/config files from the Next.js app directory
+RUN cd ./$RELATIVE_PATH_TO_PACKAGE && find . -mindepth 1 -maxdepth 1 ! -name ".next" ! -name "server.js" ! -name "package.json" -exec rm -rf {} + 2>/dev/null || true
+# Remove all platform-specific Sharp binaries (global Sharp installation provides correct Linux binaries)
+RUN find . -path "*/node_modules/@img/sharp-*" -type d -exec rm -rf {} + 2>/dev/null || true
 
 USER nextjs
 

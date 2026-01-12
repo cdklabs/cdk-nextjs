@@ -88,7 +88,7 @@ export class NextjsFunctions extends Construct {
 
     // Build context is the buildDirectory (where the Next.js app is located)
     const buildContext = this.props.buildOutputPath;
-    const dockerfileName = this.getDockerfileName();
+    const dockerfileName = "functions.Dockerfile";
 
     // Copy Dockerfile to build context to avoid path resolution issues
     this.copyDockerfileToContext(buildContext, dockerfileName);
@@ -101,16 +101,9 @@ export class NextjsFunctions extends Construct {
       file: dockerfileName, // Now it's just the filename in the build context
       cmd: ["node", relativeEntrypointPath],
       buildArgs: {
-        BUILD_ID: this.props.buildId,
+        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
       },
     });
-  }
-
-  private getDockerfileName(): string {
-    // Use the appropriate Dockerfile based on deployment type
-    return this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS
-      ? "global-functions.Dockerfile"
-      : "regional-functions.Dockerfile";
   }
 
   private copyDockerfileToContext(

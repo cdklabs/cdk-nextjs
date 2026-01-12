@@ -41,7 +41,7 @@ We could ship this off to Lambda/Fargate and call it a day, but then we wouldn't
 
 Note, with `NextjsRegionalContainers`, we unfortunately cannot configure ALB to forward static requests directly to S3 because the host header dictates which bucket you can route requests to and it's not reliable to manually name buckets based on your domain. Therefore, static assets are copied into the container image to be served in ECS Fargate.
 
-## Next.js Full Route Cache Files (.next/server/app folder) [From Amazon Q]
+## Next.js Full Route Cache Files (.next/server/app folder)
 
 The files in the .next/server/app folder are part of Next.js's build output and caching system. Each file type serves a specific purpose:
 
@@ -60,20 +60,37 @@ The files in the .next/server/app folder are part of Next.js's build output and 
   - These are the static HTML files generated during the build process.
   - They represent the initial HTML that will be sent to the client for static pages.
 - .body files:
-  - These contain the HTML body content of your pages.
-  - They're used for streaming and partial rendering optimizations.
+  - These contain the body content for specific routes (primarily used for non-HTML routes like favicon.ico).
+  - Less common than .html files in typical App Router applications.
 - .meta files:
   - Cache Control Information
   - Route Configuration
   - Revalidation Timing
   - Tags for On-demand Revalidation
+- .segments/ directories:
+  - Contain segment-specific React Server Component payloads for App Router's streaming architecture.
+  - Include files like `__PAGE__.segment.rsc`, `_full.segment.rsc`, `_head.segment.rsc`, etc.
+  - Critical for App Router's partial rendering and streaming capabilities.
+- \*\_client-reference-manifest.js files:
+  - Contain metadata about client components and their dependencies.
+  - Used by Next.js to optimize client-side hydration.
 
 Files Updated During ISR (Incremental Static Regeneration)
 During ISR revalidation, Next.js updates:
 
 - .rsc files: The React Server Component payloads are regenerated with fresh data.
 - .html files: The static HTML is regenerated with the updated content.
-- .body files: The body content is updated to reflect the new data.
+- .body files: The body content is updated to reflect the new data (when present).
 - .meta files: Updated to reflect new cache timing information and potentially updated tags.
+- .segments/ files: Segment-specific RSC payloads are regenerated for streaming updates.
 
 The .js files typically remain unchanged during ISR since they contain the code logic which doesn't change. The .nft.json files also remain unchanged as the dependency structure doesn't change during revalidation.
+
+**ISR in cdk-nextjs:**
+With the custom cache handler, ISR updates are now properly cached in S3, allowing:
+
+- Persistent ISR content across container/Lambda restarts
+- Shared ISR cache between multiple compute instances
+- Proper ISR functionality in serverless/containerized environments
+
+The cache handler handles serialization of complex objects including streaming RenderResult objects by extracting their content for storage.
