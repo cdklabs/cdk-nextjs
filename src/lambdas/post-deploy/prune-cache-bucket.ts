@@ -17,7 +17,7 @@ interface PruneCacheBucketProps {
 /**
  * Given `bucketName` and `currentBuildId`, list all objects in the cache bucket
  * and delete any that have BUILD_ID prefixes that don't match the current build ID.
- * Cache objects are prefixed with /{buildId}/ pattern.
+ * Cache objects are prefixed with {buildId}/ pattern (no leading slash).
  */
 export async function pruneCacheBucket(props: PruneCacheBucketProps) {
   const { bucketName, currentBuildId } = props;
@@ -45,10 +45,10 @@ export async function pruneCacheBucket(props: PruneCacheBucketProps) {
       if (!obj.Key) return false;
 
       // Check if the object key starts with a BUILD_ID prefix pattern
-      // Expected pattern: /{buildId}/* (Next.js determines the cache key structure)
-      // Regex /^\/([^\/]+)\// matches: /BUILD_ID/... and captures BUILD_ID in group 1
-      // Example: "/abc123def456/pages/index.html" captures "abc123def456"
-      const buildIdMatch = obj.Key.match(/^\/([^\/]+)\//);
+      // Expected pattern: {buildId}/* (buildId followed by slash, no leading slash)
+      // Regex /^([^\/]+)\// matches: BUILD_ID/... and captures BUILD_ID in group 1
+      // Example: "abc123def456/pages/index.html" captures "abc123def456"
+      const buildIdMatch = obj.Key.match(/^([^\/]+)\//);
       if (buildIdMatch) {
         const objectBuildId = buildIdMatch[1]; // Extract BUILD_ID from capture group
         // Delete if it's not the current build ID
@@ -56,7 +56,7 @@ export async function pruneCacheBucket(props: PruneCacheBucketProps) {
       }
 
       // Also delete objects that don't follow the BUILD_ID prefix pattern
-      // These might be legacy cache objects
+      // These might be legacy cache objects or objects with leading slashes
       return true;
     });
 

@@ -174,7 +174,19 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
       if (contentType.includes("application/json")) {
         // Parse the stored CacheHandlerValue directly
-        cacheValue = JSON.parse(bodyString);
+        const parsedValue = JSON.parse(bodyString, (_key, value) => {
+          // Restore Map objects that were serialized with __type marker
+          if (value && typeof value === "object" && value.__type === "Map") {
+            return new Map(Object.entries(value.data));
+          }
+          // Restore Buffer objects that were serialized with __type marker
+          if (value && typeof value === "object" && value.__type === "Buffer") {
+            return Buffer.from(value.data, "base64");
+          }
+          return value;
+        });
+
+        cacheValue = parsedValue;
       } else {
         // This shouldn't happen since we always store as JSON now, but handle legacy data
         // Since we don't know the exact structure, return null for legacy non-JSON data
@@ -235,7 +247,24 @@ export class S3DynamoCacheHandler implements CacheHandler {
         value: data,
       };
 
-      const body = JSON.stringify(cacheHandlerValue);
+      // Custom serialization to handle Map and Buffer objects
+      const body = JSON.stringify(cacheHandlerValue, (_key, value) => {
+        // Convert Map objects to plain objects for JSON serialization
+        if (value instanceof Map) {
+          return {
+            __type: "Map",
+            data: Object.fromEntries(value),
+          };
+        }
+        // Convert Buffer objects to a restorable format
+        if (Buffer.isBuffer(value)) {
+          return {
+            __type: "Buffer",
+            data: value.toString("base64"),
+          };
+        }
+        return value;
+      });
 
       const command = new PutObjectCommand({
         Bucket: this.s3Config.bucketName,
