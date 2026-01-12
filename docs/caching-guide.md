@@ -85,17 +85,17 @@ cdk-nextjs uses a dedicated S3 bucket for cache storage with BUILD_ID and kind p
 Cache Bucket Structure:
 /{buildId}/
 ├── fetch/                        # FETCH cache entries (Data Cache)
-│   └── {cache-key}              # Cached fetch responses
+│   └── {cache-key}.json         # Cached fetch responses
 ├── image/                       # IMAGE cache entries (Image Optimization)
-│   └── {cache-key}              # Optimized images
+│   └── {cache-key}.json         # Optimized images
 ├── app_page/                    # APP_PAGE cache entries (App Router pages)
-│   └── {cache-key}              # HTML, RSC payloads, metadata
+│   └── {cache-key}.json         # HTML, RSC payloads, metadata
 ├── app_route/                   # APP_ROUTE cache entries (App Router API routes)
-│   └── {cache-key}              # Route handler responses
+│   └── {cache-key}.json         # Route handler responses
 ├── pages/                       # PAGES cache entries (Pages Router)
-│   └── {cache-key}              # Page HTML and data
+│   └── {cache-key}.json         # Page HTML and data
 └── redirect/                    # REDIRECT cache entries
-    └── {cache-key}              # Redirect configurations
+    └── {cache-key}.json         # Redirect configurations
 ```
 
 **Key Features**:

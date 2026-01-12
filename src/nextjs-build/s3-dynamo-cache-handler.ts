@@ -324,10 +324,8 @@ export class S3DynamoCacheHandler implements CacheHandler {
         return;
       }
 
-      // Process each tag
-      for (const t of tags) {
-        await this.revalidateSingleTag(t);
-      }
+      // Process all tags in parallel for better performance
+      await Promise.all(tags.map((t) => this.revalidateSingleTag(t)));
 
       // Reset DynamoDB circuit breaker on success
       this.circuitBreaker.dynamoFailures = 0;
@@ -404,8 +402,8 @@ export class S3DynamoCacheHandler implements CacheHandler {
   }
 
   private buildS3Key(cacheKey: string, kind: string): string {
-    // Use BUILD_ID prefixing with kind: {buildId}/{kind}/{cacheKey}
-    // Next.js provides the cacheKey, we add BUILD_ID isolation and kind categorization
+    // Use BUILD_ID prefixing with kind: {buildId}/{kind}/{cacheKey}.json
+    // Next.js provides the cacheKey, we add BUILD_ID isolation, kind categorization
 
     // Handle edge cases:
     // - Root path "/" should become "index" or similar
@@ -421,8 +419,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
     // Include kind in the S3 key structure for better organization
     const kindPrefix = kind.toLowerCase();
 
-    // Use path.join() for proper path handling
-    return join(this.s3Config.buildId, kindPrefix, cleanCacheKey);
+    return join(this.s3Config.buildId, kindPrefix, `${cleanCacheKey}.json`);
   }
 
   private async storeDynamoDBTagMappings(
