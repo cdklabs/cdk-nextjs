@@ -14,8 +14,7 @@ import {
   NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 
-export interface NextjsRegionalFunctionsConstructOverrides
-  extends NextjsBaseConstructOverrides {
+export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsApiProps?: NextjsApiProps;
 }
