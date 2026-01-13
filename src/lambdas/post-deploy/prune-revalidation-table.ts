@@ -1,9 +1,10 @@
 // eslint-disable-next-line import/no-extraneous-dependencies
 import {
   DynamoDBClient,
-  ScanCommand,
+  QueryCommand,
+  GetItemCommand,
+  PutItemCommand,
   BatchWriteItemCommand,
-  ScanCommandInput,
 } from "@aws-sdk/client-dynamodb";
 import { debug } from "../utils";
 
@@ -15,71 +16,86 @@ interface PruneRevalidationTableProps {
 }
 
 /**
- * Given `tableName` and `currentBuildId`, scan the DynamoDB table
- * and delete any entries that have BUILD_ID prefixes that don't match the current build ID.
- * Revalidation entries use the pattern {buildId}#{tag} as the partition key.
+ * Given `tableName` and `currentBuildId`, query the previous build's revalidation entries
+ * and delete them efficiently. Uses metadata entry to track current build ID.
+ *
+ * Schema:
+ * - Revalidation entries: pk=buildId, sk=tag#cacheKey
+ * - Metadata entry: pk="METADATA", sk="CURRENT_BUILD", buildId=currentBuildId
  */
 export async function pruneRevalidationTable(
   props: PruneRevalidationTableProps,
 ) {
   const { tableName, currentBuildId } = props;
 
-  const itemsToDelete: Array<{ tag: { S: string }; cacheKey: { S: string } }> =
-    [];
+  // 1. Read metadata to get previous build ID
+  const getCommand = new GetItemCommand({
+    TableName: tableName,
+    Key: {
+      pk: { S: "METADATA" },
+      sk: { S: "CURRENT_BUILD" },
+    },
+  });
+
+  let previousBuildId: string | undefined;
+  try {
+    const metadataResponse = await dynamoClient.send(getCommand);
+    previousBuildId = metadataResponse.Item?.buildId?.S;
+  } catch (error) {
+    debug("No metadata entry found, this may be the first deployment");
+  }
+
+  if (!previousBuildId) {
+    debug("No previous build to prune");
+    // Update metadata with current build ID for next deployment
+    await updateMetadata(tableName, currentBuildId);
+    return;
+  }
+
+  if (previousBuildId === currentBuildId) {
+    debug(
+      `Previous build ID matches current build ID (${currentBuildId}), nothing to prune`,
+    );
+    return;
+  }
+
+  debug(`Pruning revalidation entries for previous build: ${previousBuildId}`);
+
+  // 2. Query all items for previous build ID (efficient partition query)
+  const itemsToDelete: Array<{ pk: { S: string }; sk: { S: string } }> = [];
   let lastEvaluatedKey: Record<string, any> | undefined = undefined;
-  let scanCount = 0;
 
   do {
-    // Scan the table to find all items
-    const scanInput: ScanCommandInput = {
+    const queryCommand: QueryCommand = new QueryCommand({
       TableName: tableName,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: {
+        ":pk": { S: previousBuildId },
+      },
       ExclusiveStartKey: lastEvaluatedKey,
-    };
-    const scanResponse = await dynamoClient.send(new ScanCommand(scanInput));
-
-    if (!scanResponse.Items || scanResponse.Items.length === 0) {
-      break;
-    }
-
-    // Filter items that have old BUILD_ID prefixes
-    const oldRevalidationItems = scanResponse.Items.filter((item) => {
-      const tagValue = item.tag?.S;
-      if (!tagValue) return false;
-
-      // Check if the tag starts with a BUILD_ID prefix pattern
-      // Expected pattern: {buildId}#{tag}
-      const buildIdMatch = tagValue.match(/^([^#]+)#/);
-      if (buildIdMatch) {
-        const itemBuildId = buildIdMatch[1];
-        // Delete if it's not the current build ID
-        return itemBuildId !== currentBuildId;
-      }
-
-      // Also delete items that don't follow the BUILD_ID prefix pattern
-      // These might be legacy revalidation entries
-      return true;
     });
 
-    debug(
-      `Found ${oldRevalidationItems.length} revalidation entries with old BUILD_ID prefixes to delete`,
-    );
+    const response = await dynamoClient.send(queryCommand);
 
-    // Add items to delete list
-    for (const item of oldRevalidationItems) {
-      if (item.tag?.S && item.cacheKey?.S) {
-        itemsToDelete.push({
-          tag: { S: item.tag.S },
-          cacheKey: { S: item.cacheKey.S },
-        });
+    if (response.Items && response.Items.length > 0) {
+      for (const item of response.Items) {
+        if (item.pk?.S && item.sk?.S) {
+          itemsToDelete.push({
+            pk: { S: item.pk.S },
+            sk: { S: item.sk.S },
+          });
+        }
       }
     }
 
-    lastEvaluatedKey = scanResponse.LastEvaluatedKey;
-    scanCount++;
-    // Limit scan operations to prevent excessive costs
-  } while (lastEvaluatedKey && scanCount <= 100);
+    lastEvaluatedKey = response.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
 
-  // Delete items in batches (respecting DynamoDB's 25 items per batch limit)
+  debug(
+    `Found ${itemsToDelete.length} revalidation entries to delete for build ${previousBuildId}`,
+  );
+
+  // 3. Delete items in batches (respecting DynamoDB's 25 items per batch limit)
   if (itemsToDelete.length > 0) {
     const deleteBatches = [];
 
@@ -100,7 +116,7 @@ export async function pruneRevalidationTable(
           }));
 
           debug(
-            `Deleting revalidation entries: ${batch.map((b) => `${b.tag.S}/${b.cacheKey.S}`)} from ${tableName}`,
+            `Deleting revalidation entries: ${batch.map((b) => `${b.pk.S}/${b.sk.S}`).join(", ")} from ${tableName}`,
           );
 
           await dynamoClient.send(
@@ -121,9 +137,33 @@ export async function pruneRevalidationTable(
     );
   }
 
+  // 4. Update metadata with new build ID
+  await updateMetadata(tableName, currentBuildId);
+
   debug(
     `Revalidation table pruning complete. Deleted ${itemsToDelete.length} entries from ${tableName}`,
   );
+}
+
+/**
+ * Update the metadata entry with the current build ID
+ */
+async function updateMetadata(
+  tableName: string,
+  currentBuildId: string,
+): Promise<void> {
+  const putCommand = new PutItemCommand({
+    TableName: tableName,
+    Item: {
+      pk: { S: "METADATA" },
+      sk: { S: "CURRENT_BUILD" },
+      buildId: { S: currentBuildId },
+      updatedAt: { N: Date.now().toString() },
+    },
+  });
+
+  await dynamoClient.send(putCommand);
+  debug(`Updated metadata with current build ID: ${currentBuildId}`);
 }
 
 /**

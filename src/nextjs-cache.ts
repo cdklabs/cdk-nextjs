@@ -73,16 +73,16 @@ export class NextjsCache
 
   /**
    * Creates DynamoDB table for revalidation metadata
-   * Schema: tag (PK), cacheKey (SK), createdAt, revalidatedAt
+   * Schema: pk (buildId or "METADATA"), sk (tag#cacheKey or "CURRENT_BUILD"), createdAt, revalidatedAt
    */
   private createRevalidationTable(): TableV2 {
     const table = new TableV2(this, "RevalidationTable", {
       partitionKey: {
-        name: "tag",
+        name: "pk",
         type: AttributeType.STRING,
       },
       sortKey: {
-        name: "cacheKey",
+        name: "sk",
         type: AttributeType.STRING,
       },
       billing: Billing.onDemand(),

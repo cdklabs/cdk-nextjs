@@ -13,7 +13,7 @@ cdk-nextjs implements automatic pruning mechanisms to clean up old cache data an
 Every deployment gets a unique BUILD_ID that isolates cache data:
 
 - **S3 Cache Keys**: `/{buildId}/cache/{cacheKey}`
-- **DynamoDB Tags**: `{buildId}#{tag}`
+- **DynamoDB Revalidation**: Partition key is `buildId`, sort key is `{tag}#{cacheKey}`
 - **Static Assets**: Metadata includes `next-build-id: {buildId}`
 
 ### Automatic Pruning (NextjsPostDeploy)
@@ -31,9 +31,11 @@ After each successful deployment, old cache data is cleaned up:
 #### DynamoDB Revalidation Pruning
 
 ```typescript
-// Remove entries with old BUILD_ID prefixes
-// Pattern: {oldBuildId}#{tag} → DELETE
-// Keep: {currentBuildId}#{tag} → RETAIN
+// 1. Read metadata entry (pk="METADATA", sk="CURRENT_BUILD") to get previous buildId
+// 2. Query all entries for previous buildId (efficient partition query)
+// 3. Batch delete old entries
+// 4. Update metadata with current buildId
+// Cost: Only reads previous build's partition, not full table scan
 ```
 
 #### Static Assets Pruning
@@ -71,10 +73,13 @@ After each successful deployment, old cache data is cleaned up:
 
 ### DynamoDB Pruning Process
 
-1. **Scan Table**: Find items with old BUILD_ID prefixes in partition keys
-2. **Batch Delete**: Remove items in batches for efficiency
-3. **Preserve Current**: Keep all items matching current BUILD_ID pattern
-4. **Update Metrics**: Track pruned item count
+1. **Read Metadata**: Get previous BUILD_ID from metadata entry (pk="METADATA", sk="CURRENT_BUILD")
+2. **Query Previous Build**: Efficiently query all items where pk=previousBuildId (single partition query)
+3. **Batch Delete**: Remove items in batches of 25 (DynamoDB limit)
+4. **Update Metadata**: Store current BUILD_ID in metadata entry for next deployment
+5. **Log Results**: Report pruned item count
+
+**Cost Efficiency**: Uses Query instead of Scan, only reading items from previous build's partition. Cost scales with previous deployment size, not total table size.
 
 ## Pruning Configuration
 
@@ -145,9 +150,11 @@ Deleting objects: ["/static/js/main.js", "/static/css/app.css"] from my-static-a
 Deleted 56 objects from my-static-assets-bucket
 Pruning complete. Deleted 56 objects from my-static-assets-bucket
 
-Found 789 revalidation entries with old BUILD_ID prefixes to delete
-Deleting revalidation entries: ["old-build-123#user-profile/api/users/123"] from my-revalidation-table
+Pruning revalidation entries for previous build: old-build-123
+Found 789 revalidation entries to delete for build old-build-123
+Deleting revalidation entries: old-build-123/user-profile#old-build-123/fetch/api-users-123, ... from my-revalidation-table
 Deleted 789 revalidation entries from my-revalidation-table
+Updated metadata with current build ID: new-build-456
 Revalidation table pruning complete. Deleted 789 entries from my-revalidation-table
 ```
 

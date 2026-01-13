@@ -372,35 +372,42 @@ export class S3DynamoCacheHandler implements CacheHandler {
   }
 
   private async revalidateSingleTag(tag: string): Promise<void> {
-    // Query all paths associated with this tag (with BUILD_ID prefix)
-    const tagWithBuildId = `${this.dynamoConfig.buildId}#${tag}`;
+    // Query all paths associated with this tag
     const queryCommand = new QueryCommand({
       TableName: this.dynamoConfig.tableName,
-      KeyConditionExpression: "tag = :tag",
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
       ExpressionAttributeValues: {
-        ":tag": { S: tagWithBuildId },
+        ":pk": { S: this.dynamoConfig.buildId },
+        ":skPrefix": { S: `${tag}#` },
       },
     });
 
     const queryResponse = await this.dynamoClient.send(queryCommand);
 
     if (queryResponse.Items) {
-      const cacheKeys = queryResponse.Items.map(
-        (item) => item.cacheKey?.S,
-      ).filter(Boolean);
+      // Extract S3 keys from sort keys (format: "tag#s3Key")
+      const cacheKeys = queryResponse.Items.map((item) => {
+        const sk = item.sk?.S;
+        if (sk) {
+          const hashIndex = sk.indexOf("#");
+          return hashIndex !== -1 ? sk.substring(hashIndex + 1) : null;
+        }
+        return null;
+      }).filter(Boolean);
+
       this.debug(
         `TAG ${tag}: Found ${cacheKeys.length} cache entries to invalidate`,
       );
 
       // Update revalidation timestamp for all cache keys with this tag
       const updatePromises = queryResponse.Items.map(async (item) => {
-        const cacheKey = item.cacheKey?.S;
-        if (cacheKey) {
+        const sk = item.sk?.S;
+        if (sk) {
           const updateCommand = new UpdateItemCommand({
             TableName: this.dynamoConfig.tableName,
             Key: {
-              tag: { S: tagWithBuildId },
-              cacheKey: { S: cacheKey },
+              pk: { S: this.dynamoConfig.buildId },
+              sk: { S: sk },
             },
             UpdateExpression: "SET revalidatedAt = :timestamp",
             ExpressionAttributeValues: {
@@ -417,8 +424,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
       // Delete the corresponding S3 cache entries to invalidate them
       if (this.s3Config.bucketName) {
-        const deletePromises = queryResponse.Items.map(async (item) => {
-          const s3Key = item.cacheKey?.S; // This is now the full S3 key
+        const deletePromises = cacheKeys.map(async (s3Key) => {
           if (s3Key) {
             const deleteCommand = new DeleteObjectCommand({
               Bucket: this.s3Config.bucketName,
@@ -478,12 +484,12 @@ export class S3DynamoCacheHandler implements CacheHandler {
       }
 
       const updatePromises = tags.map(async (tag) => {
-        const tagWithBuildId = `${this.dynamoConfig.buildId}#${tag}`;
+        const tagCacheKey = `${tag}#${s3Key}`;
         const updateCommand = new UpdateItemCommand({
           TableName: this.dynamoConfig.tableName,
           Key: {
-            tag: { S: tagWithBuildId },
-            cacheKey: { S: s3Key }, // Store the full S3 key for easy deletion
+            pk: { S: this.dynamoConfig.buildId },
+            sk: { S: tagCacheKey },
           },
           UpdateExpression:
             "SET createdAt = if_not_exists(createdAt, :now), revalidatedAt = :now",
@@ -518,12 +524,12 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
       // Check each tag to see if it has been revalidated after the cache was created
       for (const tag of tags) {
-        const tagWithBuildId = `${this.dynamoConfig.buildId}#${tag}`;
         const queryCommand = new QueryCommand({
           TableName: this.dynamoConfig.tableName,
-          KeyConditionExpression: "tag = :tag",
+          KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
           ExpressionAttributeValues: {
-            ":tag": { S: tagWithBuildId },
+            ":pk": { S: this.dynamoConfig.buildId },
+            ":skPrefix": { S: `${tag}#` },
           },
           ProjectionExpression: "revalidatedAt",
           Limit: 1, // We only need to check if any entry exists with this tag

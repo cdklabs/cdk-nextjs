@@ -111,27 +111,37 @@ A DynamoDB table tracks tag-to-S3-key mappings for efficient revalidation:
 
 ```typescript
 interface RevalidationItem {
-  tag: string; // Partition Key: "{buildId}#{tag}"
-  cacheKey: string; // Sort Key: full S3 key including kind
+  pk: string; // Partition Key: buildId (e.g., "build-abc123")
+  sk: string; // Sort Key: "{tag}#{s3Key}" (e.g., "user-profile#build-abc123/fetch/api-users-123")
   createdAt: number; // Creation timestamp
   revalidatedAt: number; // Last revalidation timestamp
+}
+
+interface MetadataItem {
+  pk: "METADATA"; // Special partition key for metadata
+  sk: "CURRENT_BUILD"; // Special sort key for tracking current build
+  buildId: string; // Current BUILD_ID for efficient pruning
+  updatedAt: number; // Last update timestamp
 }
 ```
 
 **Example Data**:
 
 ```
-PK: "build-abc123#user-profile"    SK: "build-abc123/fetch/api-users-123"
-PK: "build-abc123#user-profile"    SK: "build-abc123/app_page/users-profile"
-PK: "build-abc123#product-data"    SK: "build-abc123/fetch/products-electronics"
-PK: "build-abc123#product-images"  SK: "build-abc123/image/product-123-thumb"
+PK: "build-abc123"    SK: "user-profile#build-abc123/fetch/api-users-123"
+PK: "build-abc123"    SK: "user-profile#build-abc123/app_page/users-profile"
+PK: "build-abc123"    SK: "product-data#build-abc123/fetch/products-electronics"
+PK: "build-abc123"    SK: "product-images#build-abc123/image/product-123-thumb"
+PK: "METADATA"        SK: "CURRENT_BUILD"    buildId: "build-abc123"
 ```
 
 **Key Features**:
 
-- **Full S3 Key Storage**: Stores complete S3 path for direct deletion
+- **Efficient Pruning**: Query previous build's partition to delete old entries (no table scan)
+- **Metadata Tracking**: Stores current BUILD_ID for identifying previous build during pruning
+- **Full S3 Key Storage**: Sort key contains complete S3 path for direct deletion
 - **Kind-aware**: S3 keys include the cache kind for organization
-- **Efficient Revalidation**: Query by tag returns all related S3 keys
+- **Efficient Revalidation**: Query by buildId + tag prefix returns all related cache entries
 
 ### Custom Cache Handler
 
