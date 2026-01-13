@@ -6,7 +6,7 @@ import {
   CachedRouteKind,
   IncrementalCacheKind,
 } from "next/dist/server/response-cache";
-import CdkNextjsCacheHandler from "./cdk-nextjs-cache-handler";
+import CdkNextjsCacheHandler from "./cache-handler";
 
 // Mock AWS SDK clients
 jest.mock("@aws-sdk/client-s3");

@@ -238,7 +238,7 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 
 When `revalidateTag("user-profile")` is called:
 
-1. **Query DynamoDB**: Find all cache keys tagged with `{buildId}#user-profile`
+1. **Query DynamoDB**: Find all cache keys tagged with `pk = {buildId} and sk starts_with user-profile`
 2. **Update Timestamps**: Mark revalidation time in DynamoDB for each cache entry
 3. **Delete S3 Objects**: Remove corresponding cache files from S3
 4. **Clear Memory**: Remove entries from in-memory cache
@@ -255,7 +255,7 @@ When `revalidateTag("user-profile")` is called:
 
 ### Time-based Revalidation
 
-For routes with `revalidate: 3600`:
+For routes with time-based revalidation (e.g., `revalidate: 3600`):
 
 - Next.js checks cache age before serving
 - Triggers background regeneration when expired

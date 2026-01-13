@@ -26,7 +26,7 @@ export class MemoryCacheHandler implements CacheHandler {
   private inMemoryTagCache: Map<string, Set<string>> = new Map(); // tag -> Set of cache keys
   private ttlMs: number;
   private fallbackHandler?: CacheHandler;
-  private debug = getDebug("cdk-nextjs-cache-handler:memory");
+  private debug = getDebug("cdk-nextjs:cache-handler:memory");
 
   constructor(options: MemoryCacheHandlerOptions) {
     this.ttlMs = options.ttlMs || 60000; // Default 1 minute TTL

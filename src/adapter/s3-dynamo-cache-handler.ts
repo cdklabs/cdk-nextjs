@@ -67,7 +67,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
   };
   private circuitBreakerThreshold: number;
   private circuitBreakerTimeoutMs: number;
-  private debug = getDebug("cdk-nextjs-cache-handler:s3-dynamo");
+  private debug = getDebug("cdk-nextjs:cache-handler:s3-dynamo");
 
   constructor(options: S3DynamoCacheHandlerOptions) {
     const buildId = process.env.CDK_NEXTJS_BUILD_ID || "";

@@ -37,18 +37,36 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 
 ## Prerequisites
 
-- Next.js app running v16.2 or higher - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
-  - v16.2 is required for [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching)
-- Docker compatible container engine - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby). Note, you can set `CDK_DOCKER="podman"` or another command if you're using a container tool that doesn't setup the `docker` command.
+- Next.js app running v16.1.1-canary.19 or higher. If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
+- [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos via `relativePathToPackage` property.
+- Docker compatible container engine - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby).
 - [Node.js](https://nodejs.org/en) LTS
 
 ## Getting Started
 
-1. Set your [next.config.js](https://nextjs.org/docs/pages/api-reference/next-config-js) [experimental.adapterPath](https://nextjs.org/docs/app/api-reference/config/next-config-js/adapterPath) key to `import.meta.resolve("./cdk-nextjs-adapter-path.mjs")` for ESM or `require.resolve("./cdk-nextjs-adapter-path.mjs")` for CJS. cdk-nextjs will temporarily copy this file into your `buildDirectory` so that it will be available during `next build`. Note, cdk-nextjs will also generate a Dockerfile in your Next.js app's directory so that a container can built. cdk-nextjs does not have the ability to delete the Dockerfile after the container is built so you can either add it to source control or gitignore it.
-1. Setup [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos via `relativePathToPackage` property.
-1. Install the construct package: `npm install cdk-nextjs`
-1. `cdk deploy`
-1. Visit URL printed in terminal (CloudFormation Output) to view your Next.js app!
+1. Install `cdk-nextjs` in the package(s) containing your CDK and Next.js app with `npm i cdk-nextjs`
+2. Update next.config.ts to include `experimental.adapterPath`:
+
+```ts
+import { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  // ...
+  experimental: {
+    adapterPath: import.meta.resolve("cdk-nextjs/adapter"), // for ESM
+    // adapterPath: require.resolve("cdk-nextjs/adapter"), // for CJS
+  },
+};
+
+export default nextConfig;
+```
+
+3. Deploy your Next.js app to AWS: `cdk deploy`. Make sure you have [AWS credentials](https://docs.aws.amazon.com/cli/v1/userguide/cli-chap-configure.html) configured.
+4. Visit URL printed in terminal (CloudFormation Output) to view your Next.js app!
+
+### Dockerfile Note
+
+cdk-nextjs will generate a Dockerfile in your Next.js app's directory. cdk-nextjs does not have the ability to delete the Dockerfile after the container is built so you can either add it to source control or gitignore it. When detectd, cdk-nextjs will not overwrite this Dockerfile so you're free to customize it.
 
 ## Basic Example CDK App
 
@@ -62,15 +80,15 @@ class NextjsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     new NextjsGlobalFunctions(this, "Nextjs", {
-      healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname),
+      healthCheckPath: "/api/health",
     });
   }
 }
 
 const app = new App();
 
-new NextjsStack(app, "nextjs");
+new NextjsStack(app, "nextjs-stack");
 ```
 
 See [examples/](./examples/) for more usage examples.
@@ -409,6 +427,9 @@ This project uses Projen, so make sure to not edit [Projen](https://projen.io/) 
 
 Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs)?<br/>
 A: cdk-nextjs-standalone relies on [OpenNext](https://github.com/sst/open-next). OpenNext injects custom code to interact with private Next.js APIs. While OpenNext is able to make some optimizations that are great for serverless environments, this comes at an increase maintenance cost and increased chances for breaking changes. A goal of cdk-nextjs is to customize Next.js as little as possible to reduce the maintenance burden and decrease chances of breaking changes.
+
+Q: Why does cdk-nextjs depend upon Next.js v16.1.1-canary.19 or higher?
+A: This version is required for [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching) so that cdk-nextjs can depend upon public Next.js API.
 
 Q: How does cdk-nextjs support caching in Next.js?<br/>
 A: See [Caching Guide](./docs/caching-guide.md)

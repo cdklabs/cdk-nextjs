@@ -1,6 +1,5 @@
 /*
-  This file is compiled as defined in .projenrc.ts to be used as Next.js
-  Custom Cache Handler. See: https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath
+  Next.js Custom Cache Handler. See: https://nextjs.org/docs/app/api-reference/next-config-js/incrementalCacheHandlerPath
   
   This is a composable cache handler that uses memory cache as the primary layer
   and S3/DynamoDB as the fallback layer.
@@ -13,7 +12,7 @@ import { S3DynamoCacheHandler } from "./s3-dynamo-cache-handler";
 
 export default class CdkNextjsCacheHandler extends MemoryCacheHandler {
   private s3DynamoHandler: S3DynamoCacheHandler;
-  private compositeDebug = getDebug("cdk-nextjs-cache-handler:composite");
+  private compositeDebug = getDebug("cdk-nextjs:cache-handler:composite");
 
   constructor(options: CacheHandlerContext) {
     // Create the S3/DynamoDB fallback handler

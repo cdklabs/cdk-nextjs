@@ -1,12 +1,5 @@
 import { execSync } from "node:child_process";
-import {
-  copyFileSync,
-  existsSync,
-  readFileSync,
-  readdirSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
@@ -68,8 +61,6 @@ export class NextjsBuild extends Construct {
 
   private props: NextjsBuildProps;
   private relativePathToPackage: string;
-  private tempCacheHandlerPath: string;
-  private tempAdapterPath: string;
   private buildCommand: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
@@ -81,15 +72,7 @@ export class NextjsBuild extends Construct {
       this.props.relativePathToPackage || "",
       "server.js",
     );
-    // Initialize temporary file paths
-    this.tempCacheHandlerPath = join(
-      this.props.buildDirectory,
-      "cdk-nextjs-cache-handler.mjs",
-    );
-    this.tempAdapterPath = join(
-      this.props.buildDirectory,
-      "cdk-nextjs-adapter.mjs",
-    );
+
     this.buildCommand = props.buildCommand || "npm run build";
 
     // Execute local build process
@@ -120,10 +103,6 @@ export class NextjsBuild extends Construct {
     );
 
     try {
-      // Copy cache handler and adapter to build directory before build
-      this.copyCacheHandlerToBuildDirectory();
-      this.copyAdapterToBuildDirectory();
-
       execSync(this.buildCommand, {
         stdio: "inherit",
         cwd: this.props.buildDirectory,
@@ -136,9 +115,6 @@ export class NextjsBuild extends Construct {
       }
     } catch (error) {
       throw new Error(`Local build failed: ${error}`);
-    } finally {
-      // Always clean up temporary files, regardless of success or failure
-      this.cleanupTemporaryFiles();
     }
   }
 
@@ -193,68 +169,6 @@ export class NextjsBuild extends Construct {
             `Ensure Next.js build completed successfully.`,
         );
       }
-    }
-  }
-  /**
-   * Copy the cache handler file to the build directory before build
-   * This allows the adapter to reference the cache handler during Next.js build
-   */
-  private copyCacheHandlerToBuildDirectory() {
-    const sourceCacheHandler = join(__dirname, "cdk-nextjs-cache-handler.mjs");
-
-    if (!existsSync(sourceCacheHandler)) {
-      throw new Error(
-        `Cache handler not found: ${sourceCacheHandler}. Ensure the cdk-nextjs package is properly built.`,
-      );
-    }
-
-    try {
-      copyFileSync(sourceCacheHandler, this.tempCacheHandlerPath);
-    } catch (error) {
-      throw new Error(
-        `Failed to copy cache handler to build directory: ${error}`,
-      );
-    }
-  }
-
-  /**
-   * Copy the adapter file to the build directory before build
-   * This allows Next.js to use the adapter during the build process
-   */
-  private copyAdapterToBuildDirectory() {
-    const sourceAdapter = join(__dirname, "cdk-nextjs-adapter.mjs");
-
-    if (!existsSync(sourceAdapter)) {
-      throw new Error(
-        `Adapter not found: ${sourceAdapter}. Ensure the cdk-nextjs package is properly built.`,
-      );
-    }
-
-    try {
-      copyFileSync(sourceAdapter, this.tempAdapterPath);
-    } catch (error) {
-      throw new Error(`Failed to copy adapter to build directory: ${error}`);
-    }
-  }
-
-  /**
-   * Clean up temporary files that were copied to the build directory
-   */
-  private cleanupTemporaryFiles() {
-    try {
-      if (existsSync(this.tempCacheHandlerPath)) {
-        unlinkSync(this.tempCacheHandlerPath);
-      }
-    } catch (error) {
-      console.warn(`${LOG_PREFIX} Failed to remove cache handler: ${error}`);
-    }
-
-    try {
-      if (existsSync(this.tempAdapterPath)) {
-        unlinkSync(this.tempAdapterPath);
-      }
-    } catch (error) {
-      console.warn(`${LOG_PREFIX} Failed to remove adapter: ${error}`);
     }
   }
 

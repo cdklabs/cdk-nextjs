@@ -12,9 +12,7 @@ AWS_PROFILE="stickb-cdk-nextjs" aws logs start-live-tail --log-group-identifier 
 
 ## Debugging Containers
 
-If you want to debug the cdk-nextjs builder image and you've run `cdk deploy` locally, then you can run `docker run -it cdk-nextjs/builder:<HASH> /bin/sh` replacing `<HASH>`. You can find out what this is by looking at the logs after you run `cdk deploy`. Note, the builder image is not uploaded to ECR. The built Next.js app inside this container is copied from by the runtime image and assets deployment image.
-
-If you want to debug the assets deployment image you need to run something like: `docker run -it --entrypoint /bin/bash <AWS_ACCOUNT>.dkr.ecr.<AWS_REGION>.amazonaws.com/cdk-hnb659fds-container-assets-<AWS_ACCOUNT>-<AWS_REGION>:<HASH>`. `--entrypoint` is required because the base image is `public.ecr.aws/lambda/nodejs:22`.
+If you want run the Lambda or Fargate container locally you can do: `docker run -it <AWS_ACCOUNT>.dkr.ecr.<AWS_REGION>.amazonaws.com/cdk-hnb659fds-container-assets-<AWS_ACCOUNT>-<AWS_REGION>:<HASH> /bin/sh`.
 
 ### Authenticating to ECR For Non-Local Built Containers
 

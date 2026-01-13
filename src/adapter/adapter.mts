@@ -8,8 +8,11 @@ const adapter: NextAdapter = {
       return {
         ...config,
         output: "standalone",
-        cacheHandler: "./cdk-nextjs-cache-handler.mjs",
-        serverExternalPackages: ["@aws-sdk/*"],
+        cacheHandler: import.meta.resolve("cdk-nextjs/cache-handler"),
+        images: {
+          ...config.images,
+          customCacheHandler: true, // TODO: remove in Next.js 17
+        },
       };
     }
     return config;

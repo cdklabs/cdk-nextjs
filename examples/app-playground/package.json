@@ -42,6 +42,7 @@
     "@vercel/git-hooks": "catalog:",
     "autoprefixer": "catalog:",
     "babel-plugin-react-compiler": "catalog:",
+    "cdk-nextjs": "link:../..",
     "eslint": "catalog:",
     "eslint-config-next": "catalog:",
     "lint-staged": "catalog:",
