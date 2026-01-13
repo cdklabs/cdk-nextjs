@@ -1,5 +1,6 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { NextAdapter } from "next";
+import { fileURLToPath } from "node:url";
 
 const adapter: NextAdapter = {
   name: "cdk-nextjs-adapter",
@@ -8,7 +9,9 @@ const adapter: NextAdapter = {
       return {
         ...config,
         output: "standalone",
-        cacheHandler: import.meta.resolve("cdk-nextjs/cache-handler"),
+        cacheHandler: fileURLToPath(
+          import.meta.resolve("cdk-nextjs/cache-handler"),
+        ),
         images: {
           ...config.images,
           customCacheHandler: true, // TODO: remove in Next.js 17

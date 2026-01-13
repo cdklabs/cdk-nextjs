@@ -3,6 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "prebuild": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
     "build": "next build",
     "dev": "next dev --turbo",
     "lint": "eslint .",
