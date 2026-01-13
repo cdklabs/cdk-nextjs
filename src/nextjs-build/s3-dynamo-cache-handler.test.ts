@@ -46,6 +46,9 @@ describe("S3DynamoCacheHandler", () => {
     process.env.CDK_NEXTJS_BUILD_ID = "test-build-id";
     process.env.AWS_REGION = "us-east-1";
 
+    // Suppress expected warnings globally (tests deliberately trigger warnings)
+    jest.spyOn(console, "warn").mockImplementation();
+
     handler = new S3DynamoCacheHandler({
       context: mockContext,
     });
@@ -61,6 +64,9 @@ describe("S3DynamoCacheHandler", () => {
     delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
     delete process.env.CDK_NEXTJS_BUILD_ID;
     delete process.env.AWS_REGION;
+
+    // Restore console.warn
+    jest.restoreAllMocks();
   });
 
   describe("get", () => {
@@ -251,8 +257,8 @@ describe("S3DynamoCacheHandler", () => {
     it("should query DynamoDB and delete S3 entries", async () => {
       const mockQueryResponse = {
         Items: [
-          { cacheKey: { S: "cache-key-1" } },
-          { cacheKey: { S: "cache-key-2" } },
+          { sk: { S: "test-tag#cache-key-1" } },
+          { sk: { S: "test-tag#cache-key-2" } },
         ],
       };
 

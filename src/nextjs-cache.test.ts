@@ -49,21 +49,21 @@ describe("NextjsCache", () => {
       template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
         KeySchema: [
           {
-            AttributeName: "tag",
+            AttributeName: "pk",
             KeyType: "HASH",
           },
           {
-            AttributeName: "cacheKey",
+            AttributeName: "sk",
             KeyType: "RANGE",
           },
         ],
         AttributeDefinitions: [
           {
-            AttributeName: "tag",
+            AttributeName: "pk",
             AttributeType: "S",
           },
           {
-            AttributeName: "cacheKey",
+            AttributeName: "sk",
             AttributeType: "S",
           },
         ],

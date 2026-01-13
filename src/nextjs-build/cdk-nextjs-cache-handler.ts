@@ -6,8 +6,8 @@
   and S3/DynamoDB as the fallback layer.
 */
 /* eslint-disable import/no-extraneous-dependencies */
-import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
 import getDebug from "debug";
+import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
 import { MemoryCacheHandler } from "./memory-cache-handler";
 import { S3DynamoCacheHandler } from "./s3-dynamo-cache-handler";
 

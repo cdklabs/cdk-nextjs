@@ -43,12 +43,16 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
     delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
     delete process.env.AWS_REGION;
 
+    // Suppress expected warnings when env vars are not set (we're testing fallback behavior)
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+
     const mockContext = createMockContext();
     cacheHandler = new CdkNextjsCacheHandler(mockContext);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe("Basic In-Memory Operations", () => {

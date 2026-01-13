@@ -2,6 +2,7 @@
   In-memory cache handler with TTL support and tag management
 */
 /* eslint-disable import/no-extraneous-dependencies */
+import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
@@ -9,7 +10,6 @@ import {
   GetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { CacheHandler, CacheHandlerOptions } from "./cache-handler-interface";
-import getDebug from "debug";
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;

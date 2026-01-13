@@ -2,6 +2,7 @@
   S3 and DynamoDB cache handler with circuit breaker pattern
 */
 /* eslint-disable import/no-extraneous-dependencies */
+import { join } from "path";
 import {
   DynamoDBClient,
   QueryCommand,
@@ -13,6 +14,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
@@ -20,14 +22,12 @@ import {
   GetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { CacheHandler, CacheHandlerOptions } from "./cache-handler-interface";
-import getDebug from "debug";
-import { join } from "path";
 
 /**
  * Check if code is running as a result of `next build`
  */
 function isNextBuild() {
-  return process.env["NEXT_PHASE"] === "phase-production-build";
+  return process.env.NEXT_PHASE === "phase-production-build";
 }
 
 interface S3CacheConfig {
@@ -135,14 +135,6 @@ export class S3DynamoCacheHandler implements CacheHandler {
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null> {
     try {
-      // Skip S3 cache for APP_PAGE routes as they contain complex streaming objects
-      // that can't be properly serialized/deserialized
-      if (ctx.kind === "APP_PAGE") {
-        this.debug(`Skipping S3 cache for APP_PAGE route: ${cacheKey}`);
-        this.debug("GET APP_PAGE", JSON.stringify({ ctx }));
-        return null;
-      }
-
       // Log context for debugging (optional usage to avoid unused parameter warning)
       if (ctx.kind) {
         this.debug(
@@ -249,14 +241,6 @@ export class S3DynamoCacheHandler implements CacheHandler {
   ): Promise<void> {
     try {
       if (!data) {
-        return;
-      }
-
-      // Skip S3 cache for APP_PAGE routes as they contain complex streaming objects
-      // that can't be properly serialized/deserialized
-      if (data.kind === "APP_PAGE") {
-        this.debug(`Skipping S3 cache for APP_PAGE route: ${cacheKey}`);
-        this.debug("SET APP_PAGE", JSON.stringify({ data, ctx }));
         return;
       }
 

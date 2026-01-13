@@ -4,7 +4,7 @@ This guide explains how cdk-nextjs enables and optimizes the different types of 
 
 ## Overview
 
-Next.js uses multiple caching layers to improve performance and reduce costs. cdk-nextjs provides cloud-native implementations for these caching mechanisms using S3, DynamoDB, and CloudFront, eliminating the need for expensive VPC/NAT Gateway configurations while maintaining optimal performance.
+Next.js uses multiple caching layers to improve performance and reduce costs. cdk-nextjs provides cloud-native implementations for these caching mechanisms using S3, DynamoDB, and CloudFront.
 
 ## Next.js Caching Mechanisms
 
