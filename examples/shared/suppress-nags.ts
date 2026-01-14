@@ -74,84 +74,59 @@ export function suppressCommonNags(stack: Stack) {
   // Note: We suppress these using a post-synthesis approach since the exact resource names
   // contain dynamic hashes that change between deployments
 
-  // Find all CDK Bucket Deployment resources and suppress them individually
-  const allConstructs = stack.node.findAll();
+  // Find all CDK Bucket Deployment resources and suppress them individually in a single loop
+  for (const construct of stack.node.findAll()) {
+    if (!construct.node.path.includes("Custom::CDKBucketDeployment")) {
+      continue;
+    }
 
-  // Suppress CDK Bucket Deployment Service Roles
-  allConstructs
-    .filter(
-      (construct) =>
-        construct.node.path.includes("Custom::CDKBucketDeployment") &&
-        construct.node.path.endsWith("/ServiceRole/Resource"),
-    )
-    .forEach((construct) => {
-      NagSuppressions.addResourceSuppressionsByPath(
-        stack,
-        `/${construct.node.path}`,
-        [
-          {
-            id: "AwsSolutions-IAM4",
-            reason:
-              "CDK BucketDeployment uses AWSLambdaBasicExecutionRole for asset deployment",
-            appliesTo: [
-              "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-            ],
-          },
-        ],
-      );
-    });
+    const path = construct.node.path;
 
-  // Suppress CDK Bucket Deployment Default Policies
-  allConstructs
-    .filter(
-      (construct) =>
-        construct.node.path.includes("Custom::CDKBucketDeployment") &&
-        construct.node.path.endsWith("/ServiceRole/DefaultPolicy/Resource"),
-    )
-    .forEach((construct) => {
-      NagSuppressions.addResourceSuppressionsByPath(
-        stack,
-        `/${construct.node.path}`,
-        [
-          {
-            id: "AwsSolutions-IAM5",
-            reason:
-              "CDK BucketDeployment needs wildcard S3 permissions to deploy static assets",
-            appliesTo: [
-              "Action::s3:Abort*",
-              "Action::s3:DeleteObject*",
-              "Action::s3:GetBucket*",
-              "Action::s3:GetObject*",
-              "Action::s3:List*",
-              "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
-              "Resource::<NextjsNextjsStaticAssetsBucketB30C63EE.Arn>/*",
-            ],
-          },
-        ],
-      );
-    });
-
-  // Suppress CDK Bucket Deployment Lambda Functions
-  allConstructs
-    .filter(
-      (construct) =>
-        construct.node.path.includes("Custom::CDKBucketDeployment") &&
-        construct.node.path.endsWith("/Resource") &&
-        !construct.node.path.includes("/ServiceRole/"),
-    )
-    .forEach((construct) => {
-      NagSuppressions.addResourceSuppressionsByPath(
-        stack,
-        `/${construct.node.path}`,
-        [
-          {
-            id: "AwsSolutions-L1",
-            reason:
-              "CDK BucketDeployment Lambda runtime is managed by CDK and updated automatically",
-          },
-        ],
-      );
-    });
+    if (path.endsWith("/ServiceRole/Resource")) {
+      // Suppress CDK Bucket Deployment Service Roles
+      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
+        {
+          id: "AwsSolutions-IAM4",
+          reason:
+            "CDK BucketDeployment uses AWSLambdaBasicExecutionRole for asset deployment",
+          appliesTo: [
+            "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          ],
+        },
+      ]);
+    } else if (path.endsWith("/ServiceRole/DefaultPolicy/Resource")) {
+      // Suppress CDK Bucket Deployment Default Policies
+      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
+        {
+          id: "AwsSolutions-IAM5",
+          reason:
+            "CDK BucketDeployment needs wildcard S3 permissions to deploy static assets",
+          appliesTo: [
+            "Action::s3:Abort*",
+            "Action::s3:DeleteObject*",
+            "Action::s3:GetBucket*",
+            "Action::s3:GetObject*",
+            "Action::s3:List*",
+            {
+              regex:
+                "/^Resource::arn:(aws|aws-cn|aws-us-gov):s3:::cdk-hnb659fds-assets-.+/\\*$/",
+            },
+            "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
+            "Resource::<NextjsNextjsStaticAssetsBucketB30C63EE.Arn>/*",
+          ],
+        },
+      ]);
+    } else if (path.endsWith("/Resource") && !path.includes("/ServiceRole/")) {
+      // Suppress CDK Bucket Deployment Lambda Functions
+      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
+        {
+          id: "AwsSolutions-L1",
+          reason:
+            "CDK BucketDeployment Lambda runtime is managed by CDK and updated automatically",
+        },
+      ]);
+    }
+  }
 
   // Static assets bucket suppressions
   NagSuppressions.addResourceSuppressionsByPath(
@@ -230,6 +205,25 @@ export function suppressContainerNags(stack: Stack) {
         id: "AwsSolutions-IAM5",
         // TODO: lock down to cdk hnb5 one?
         reason: "ECS Task Execution Role can access any ECR repository",
+      },
+    ],
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
+    [
+      {
+        id: "AwsSolutions-IAM5",
+        reason:
+          "Container task role needs wildcard S3 permissions to access cache and static assets",
+        appliesTo: [
+          "Action::s3:Abort*",
+          "Action::s3:DeleteObject*",
+          "Action::s3:GetBucket*",
+          "Action::s3:GetObject*",
+          "Action::s3:List*",
+          "Resource::<NextjsNextjsCacheCacheBucket365965B9.Arn>/*",
+        ],
       },
     ],
   );
