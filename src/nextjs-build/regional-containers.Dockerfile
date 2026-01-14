@@ -19,6 +19,8 @@ ARG RELATIVE_PATH_TO_PACKAGE
 COPY --chown=nextjs:nodejs .next/standalone ./
 # static assets needed b/c we don't have cloudfront to serve them from s3
 COPY --chown=nextjs:nodejs .next/static ./$RELATIVE_PATH_TO_PACKAGE/.next/static
+# Copy public directory for image optimization (Next.js needs source images)
+COPY --chown=nextjs:nodejs public ./$RELATIVE_PATH_TO_PACKAGE/public
 
 USER nextjs
 
