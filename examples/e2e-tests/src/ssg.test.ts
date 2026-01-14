@@ -2,17 +2,20 @@ import { test, expect } from "@playwright/test";
 import { waitXSec } from "./utils/wait-5-sec";
 
 test.describe("ssg", () => {
-  test("should statically render post 1 at build time", async ({
-    page,
-    baseURL,
-  }) => {
+  test("should cache post 1 after first request", async ({ page, baseURL }) => {
     // no cache in dev mode
     test.skip(baseURL?.includes("localhost") === true);
-    await waitXSec(5);
+    // First request should render fresh
     await page.goto("./ssg/1");
-    // should be at least "5s ago". will be more if built longer ago.
     const dateChip0sCount = await page.getByText("0s ago").count();
-    expect(dateChip0sCount).toBe(0);
+    expect(dateChip0sCount).toBeGreaterThan(0);
+
+    await waitXSec(5);
+
+    // Second request should use cache (not "0s ago")
+    await page.reload();
+    const dateChip0sCount2 = await page.getByText("0s ago").count();
+    expect(dateChip0sCount2).toBe(0);
   });
 
   test("should statically render post 3 on demand", async ({
