@@ -15,6 +15,12 @@ jest.mock("@aws-sdk/client-dynamodb");
 describe("CdkNextjsCacheHandler - Composable Cache", () => {
   let cacheHandler: CdkNextjsCacheHandler;
 
+  // Helper to create set context with tags
+  const createSetContext = (tags: string[]) => ({
+    fetchCache: true as const,
+    tags,
+  });
+
   // Create properly typed mock data using type assertions
   const createMockCacheData = (): IncrementalCacheValue => ({
     kind: CachedRouteKind.APP_PAGE,
@@ -59,7 +65,7 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
     it("should store and retrieve cache entries in memory", async () => {
       const cacheKey = "test-cache-key";
       const testData = createMockCacheData();
-      const ctx = { tags: ["test-tag"] };
+      const ctx = createSetContext(["test-tag"]);
 
       // Store data in cache
       await cacheHandler.set(cacheKey, testData, ctx);
@@ -89,12 +95,16 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       const testData = createMockCacheData();
 
       // Store entries with tags
-      await cacheHandler.set(cacheKey1, testData, {
-        tags: ["tag1", "tag2"],
-      });
-      await cacheHandler.set(cacheKey2, testData, {
-        tags: ["tag2", "tag3"],
-      });
+      await cacheHandler.set(
+        cacheKey1,
+        testData,
+        createSetContext(["tag1", "tag2"]),
+      );
+      await cacheHandler.set(
+        cacheKey2,
+        testData,
+        createSetContext(["tag2", "tag3"]),
+      );
 
       // Verify entries are in memory cache
       const getCtx = createMockGetContext();
@@ -117,11 +127,13 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       const testData = createMockCacheData();
 
       // Store entries with different tags
-      await cacheHandler.set(cacheKey1, testData, { tags: ["tag1"] });
-      await cacheHandler.set(cacheKey2, testData, { tags: ["tag2"] });
-      await cacheHandler.set(cacheKey3, testData, {
-        tags: ["tag1", "tag2"],
-      });
+      await cacheHandler.set(cacheKey1, testData, createSetContext(["tag1"]));
+      await cacheHandler.set(cacheKey2, testData, createSetContext(["tag2"]));
+      await cacheHandler.set(
+        cacheKey3,
+        testData,
+        createSetContext(["tag1", "tag2"]),
+      );
 
       // Revalidate only tag1
       await cacheHandler.revalidateTag("tag1");
@@ -139,7 +151,7 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       const testData = createMockCacheData();
 
       // Store entry without tags
-      await cacheHandler.set(cacheKey, testData, { tags: [] });
+      await cacheHandler.set(cacheKey, testData, createSetContext([]));
 
       const getCtx = createMockGetContext();
 
@@ -158,9 +170,9 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       const testData = createMockCacheData();
 
       // Store entries with different tags
-      await cacheHandler.set(cacheKey1, testData, { tags: ["tag1"] });
-      await cacheHandler.set(cacheKey2, testData, { tags: ["tag2"] });
-      await cacheHandler.set(cacheKey3, testData, { tags: ["tag3"] });
+      await cacheHandler.set(cacheKey1, testData, createSetContext(["tag1"]));
+      await cacheHandler.set(cacheKey2, testData, createSetContext(["tag2"]));
+      await cacheHandler.set(cacheKey3, testData, createSetContext(["tag3"]));
 
       // Verify entries are in memory cache
       const getCtx = createMockGetContext();
@@ -182,7 +194,11 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       const testData = createMockCacheData();
 
       // Store entry with tag
-      await cacheHandler.set(cacheKey, testData, { tags: ["single-tag"] });
+      await cacheHandler.set(
+        cacheKey,
+        testData,
+        createSetContext(["single-tag"]),
+      );
 
       const getCtx = createMockGetContext();
       expect(await cacheHandler.get(cacheKey, getCtx)).toBeDefined();
@@ -201,7 +217,11 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       const testData = createMockCacheData();
 
       // Store data with tags
-      await cacheHandler.set(cacheKey, testData, { tags: ["test-tag"] });
+      await cacheHandler.set(
+        cacheKey,
+        testData,
+        createSetContext(["test-tag"]),
+      );
 
       // Verify data is cached
       const getCtx = createMockGetContext();
@@ -230,11 +250,13 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       expect(health.memoryLayer.tagCacheSize).toBe(0);
 
       // Add some cache entries
-      await cacheHandler.set("key1", testData, { tags: ["tag1"] });
-      await cacheHandler.set("key2", testData, {
-        tags: ["tag1", "tag2"],
-      });
-      await cacheHandler.set("key3", testData, { tags: [] });
+      await cacheHandler.set("key1", testData, createSetContext(["tag1"]));
+      await cacheHandler.set(
+        "key2",
+        testData,
+        createSetContext(["tag1", "tag2"]),
+      );
+      await cacheHandler.set("key3", testData, createSetContext([]));
 
       health = cacheHandler.getCompositeHealthStatus();
       expect(health.memoryLayer.memoryCacheSize).toBe(3);
@@ -266,7 +288,7 @@ describe("CdkNextjsCacheHandler - Composable Cache", () => {
       const testData = createMockCacheData();
 
       // Add tagged entries
-      await cacheHandler.set("key1", testData, { tags: ["tag1"] });
+      await cacheHandler.set("key1", testData, createSetContext(["tag1"]));
 
       expect(
         cacheHandler.getCompositeHealthStatus().memoryLayer.tagCacheSize,

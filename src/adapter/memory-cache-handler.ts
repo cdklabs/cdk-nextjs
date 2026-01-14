@@ -3,20 +3,31 @@
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
-import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
+import {
+  CacheHandler,
+  CacheHandlerValue,
+  CacheHandlerContext,
+} from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
   GetIncrementalFetchCacheContext,
   GetIncrementalResponseCacheContext,
+  SetIncrementalFetchCacheContext,
+  SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
-import { CacheHandler, CacheHandlerOptions } from "./cache-handler-interface";
+
+// Helper to safely extract tags from context
+const getTags = (
+  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+): string[] | undefined => ("tags" in ctx ? ctx.tags : undefined);
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
   timestamp: number;
 }
 
-export interface MemoryCacheHandlerOptions extends CacheHandlerOptions {
+export interface MemoryCacheHandlerOptions {
+  context: CacheHandlerContext;
   ttlMs?: number; // Time to live in milliseconds, default 60000 (1 minute)
   fallbackHandler?: CacheHandler; // Optional fallback handler for cache misses
 }
@@ -87,15 +98,16 @@ export class MemoryCacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    ctx: { tags: string[] },
+    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void> {
     if (!data) {
       return;
     }
 
-    // Log tags for debugging if present
-    if (ctx.tags && ctx.tags.length > 0) {
-      this.debug(`Memory cache entry for ${cacheKey} has tags:`, ctx.tags);
+    // Log tags for debugging if present (only in SetIncrementalFetchCacheContext)
+    const tags = getTags(ctx);
+    if (tags && tags.length > 0) {
+      this.debug(`Memory cache entry for ${cacheKey} has tags:`, tags);
     }
 
     // Debug logging for memory cache set
@@ -112,10 +124,10 @@ export class MemoryCacheHandler implements CacheHandler {
       timestamp: Date.now(),
     });
 
-    // Track tags for this cache entry
-    if (ctx.tags && ctx.tags.length > 0) {
-      this.debug(`MEMORY TAGS: ${cacheKey} -> [${ctx.tags.join(", ")}]`);
-      for (const tag of ctx.tags) {
+    // Track tags for this cache entry (only in SetIncrementalFetchCacheContext)
+    if (tags && tags.length > 0) {
+      this.debug(`MEMORY TAGS: ${cacheKey} -> [${tags.join(", ")}]`);
+      for (const tag of tags) {
         let tagSet = this.inMemoryTagCache.get(tag);
         if (!tagSet) {
           tagSet = new Set();

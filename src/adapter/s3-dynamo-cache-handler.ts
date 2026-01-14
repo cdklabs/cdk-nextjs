@@ -15,13 +15,23 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import getDebug from "debug";
-import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
+import {
+  CacheHandler,
+  CacheHandlerValue,
+  CacheHandlerContext,
+} from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
   GetIncrementalFetchCacheContext,
   GetIncrementalResponseCacheContext,
+  SetIncrementalFetchCacheContext,
+  SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
-import { CacheHandler, CacheHandlerOptions } from "./cache-handler-interface";
+
+// Helper to safely extract tags from context
+const getTags = (
+  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+): string[] | undefined => ("tags" in ctx ? ctx.tags : undefined);
 
 /**
  * Check if code is running as a result of `next build`
@@ -48,7 +58,8 @@ interface CircuitBreakerState {
   lastFailureTime: number;
 }
 
-export interface S3DynamoCacheHandlerOptions extends CacheHandlerOptions {
+export interface S3DynamoCacheHandlerOptions {
+  context: CacheHandlerContext;
   s3Config?: Partial<S3CacheConfig>;
   dynamoConfig?: Partial<DynamoDBRevalidationConfig>;
   circuitBreakerThreshold?: number; // Default 5
@@ -237,7 +248,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    ctx: { tags: string[] },
+    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void> {
     try {
       if (!data) {
@@ -245,12 +256,13 @@ export class S3DynamoCacheHandler implements CacheHandler {
       }
 
       // Debug logging to understand what data is being cached
-      this.debug(`S3 CACHE SET: Key: ${cacheKey}, tags: ${ctx.tags}`);
+      const tags = getTags(ctx);
+      this.debug(`S3 CACHE SET: Key: ${cacheKey}, tags: ${tags || "none"}`);
 
       // Note: ctx.tags are available but revalidation is handled separately in revalidateTag method
-      // Log tags for debugging if present
-      if (ctx.tags && ctx.tags.length > 0) {
-        this.debug(`S3 cache entry for ${cacheKey} has tags:`, ctx.tags);
+      // Log tags for debugging if present (only in SetIncrementalFetchCacheContext)
+      if (tags && tags.length > 0) {
+        this.debug(`S3 cache entry for ${cacheKey} has tags:`, tags);
       }
 
       // If S3 is unavailable due to circuit breaker, skip storage
@@ -274,7 +286,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
       // Store tags with the cache entry for revalidation checking
       const cacheEntryWithTags = {
         ...cacheHandlerValue,
-        tags: ctx.tags || [],
+        tags: tags || [],
       };
 
       // Custom serialization to handle Map and Buffer objects
@@ -314,9 +326,9 @@ export class S3DynamoCacheHandler implements CacheHandler {
       this.debug(`S3 CACHE STORED: ${cacheKey} (${data.kind})`);
 
       // Store tag-to-cache-key mappings in DynamoDB for revalidation
-      if (ctx.tags && ctx.tags.length > 0 && this.dynamoConfig.tableName) {
-        this.debug(`STORING TAGS: ${cacheKey} -> [${ctx.tags.join(", ")}]`);
-        await this.storeDynamoDBTagMappings(s3Key, ctx.tags);
+      if (tags && tags.length > 0 && this.dynamoConfig.tableName) {
+        this.debug(`STORING TAGS: ${cacheKey} -> [${tags.join(", ")}]`);
+        await this.storeDynamoDBTagMappings(s3Key, tags);
       }
 
       // Reset S3 circuit breaker on success

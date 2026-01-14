@@ -37,6 +37,12 @@ describe("S3DynamoCacheHandler", () => {
   let handler: S3DynamoCacheHandler;
   let mockContext: CacheHandlerContext;
 
+  // Helper to create set context with tags
+  const createSetContext = (tags: string[]) => ({
+    fetchCache: true as const,
+    tags,
+  });
+
   beforeEach(() => {
     mockContext = { dev: false } as CacheHandlerContext;
 
@@ -177,7 +183,7 @@ describe("S3DynamoCacheHandler", () => {
       mockS3Send.mockResolvedValueOnce({});
       mockDynamoSend.mockResolvedValue({});
 
-      await handler.set("set-key", testData, { tags: ["tag1"] });
+      await handler.set("set-key", testData, createSetContext(["tag1"]));
 
       expect(mockS3Send).toHaveBeenCalledWith(expect.any(PutObjectCommand));
       expect(mockDynamoSend).toHaveBeenCalledWith(
@@ -202,7 +208,11 @@ describe("S3DynamoCacheHandler", () => {
         status: undefined,
       };
 
-      await handlerWithoutBucket.set("no-bucket-key", testData, { tags: [] });
+      await handlerWithoutBucket.set(
+        "no-bucket-key",
+        testData,
+        createSetContext([]),
+      );
 
       expect(mockS3Send).not.toHaveBeenCalled();
     });
@@ -222,7 +232,7 @@ describe("S3DynamoCacheHandler", () => {
 
       // Should not throw
       await expect(
-        handler.set("error-key", testData, { tags: [] }),
+        handler.set("error-key", testData, createSetContext([])),
       ).resolves.not.toThrow();
     });
 
@@ -246,7 +256,7 @@ describe("S3DynamoCacheHandler", () => {
         status: undefined,
       };
 
-      await handler.set("circuit-open-key", testData, { tags: [] });
+      await handler.set("circuit-open-key", testData, createSetContext([]));
 
       // Should not attempt S3 put due to circuit breaker
       expect(mockS3Send).toHaveBeenCalledTimes(5); // Only the failed get calls
