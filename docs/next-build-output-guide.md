@@ -4,9 +4,6 @@ When a Next.js app is built with `next build` with standalone mode, here is a si
 
 - public ([Public Folder](https://nextjs.org/docs/app/api-reference/file-conventions/public-folder))
 - .next
-  - cache
-    - fetch-cache ([Data Cache](https://nextjs.org/docs/app/deep-dive/caching#data-cache))
-      - 123abc
   - standalone
     - relative/path/to/package
       - .next
@@ -28,8 +25,6 @@ When a Next.js app is built with `next build` with standalone mode, here is a si
 
 Notes:
 
-- .next/cache/images ([Optimized Image Cache](https://nextjs.org/docs/app/api-reference/components/image)) won't show up at first, it's generated as images are optimized during use of app
-- .next/cache/fetch-cache will only show up if you have `fetch` data to cache
 - [Standalone Output](https://nextjs.org/docs/pages/api-reference/config/next-config-js/output#automatically-copying-traced-files) copies only the necessary files for a production deployment including select files in node_modules which is ideal for keeping compute container image small. However, `next build` does not automatically copy the public and static folders into the standalone directory so that needs to be done.
 - .body, .meta, .html, and .rsc files are updated by Next.js as a part of [ISR](https://nextjs.org/docs/app/guides/incremental-static-regeneration)
 
