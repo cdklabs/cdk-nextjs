@@ -5,8 +5,6 @@
 FROM public.ecr.aws/docker/library/node:24-alpine AS runner
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 RUN apk add --no-cache libc6-compat
-# Install Sharp globally with correct binaries for Linux platform
-RUN npm install -g sharp --no-cache
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -21,8 +19,6 @@ ARG RELATIVE_PATH_TO_PACKAGE
 COPY --chown=nextjs:nodejs .next/standalone ./
 # static assets needed b/c we don't have cloudfront to serve them from s3
 COPY --chown=nextjs:nodejs .next/static ./$RELATIVE_PATH_TO_PACKAGE/.next/static
-# Remove all platform-specific Sharp binaries (global Sharp installation provides correct Linux binaries)
-RUN find . -path "*/node_modules/@img/sharp-*" \( -type d -o -type l \) -print0 | xargs -0 rm -rf 2>/dev/null || true
 
 USER nextjs
 

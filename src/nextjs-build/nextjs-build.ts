@@ -1,10 +1,20 @@
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+  rmSync,
+  mkdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
+import getDebug from "debug";
+
+const debug = getDebug("nextjs-build");
 
 export interface NextjsBuildProps {
   /**
@@ -79,19 +89,21 @@ export class NextjsBuild extends Construct {
     if (props.skipBuild !== true) {
       this.runNextBuild();
     } else {
-      console.log(`${LOG_PREFIX} Skipping: ${this.buildCommand}`);
+      debug(`${LOG_PREFIX} Skipping: ${this.buildCommand}`);
     }
 
     // Validate build output and set validated paths
     this.validateNextBuildOutput();
 
-    // Sharp binary replacement is now handled in Dockerfiles
-    // by installing Sharp globally and removing all platform-specific binaries
-    // Container optimization: keep only .next/, node_modules/, server.js, package.json
-    // and remove everything else to minimize container size
+    // Sharp binary replacement is now always performed to ensure cloud compatibility
+    // This removes platform-specific binaries and downloads Linux binaries for deployment
 
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
+
+    const standalonePath = join(this.dotNextPath, "standalone");
+    this.removeExistingSharpBinaries(standalonePath);
+    this.downloadAndInstallSharpBinaries();
   }
 
   /**
@@ -240,6 +252,144 @@ export class NextjsBuild extends Construct {
     } catch (error) {
       console.warn(`${LOG_PREFIX} Failed to read public directory: ${error}`);
       return [];
+    }
+  }
+
+  /**
+   * Recursively find and remove existing Sharp platform binaries
+   */
+  private removeExistingSharpBinaries(standalonePath: string): void {
+    const nodeModulesPath = join(standalonePath, "node_modules");
+    if (!existsSync(nodeModulesPath)) {
+      return;
+    }
+
+    try {
+      // Use recursive readdirSync to find all Sharp binary directories and symlinks
+      const allEntries = readdirSync(nodeModulesPath, {
+        recursive: true,
+        withFileTypes: true,
+      });
+
+      const sharpBinaryPaths: string[] = [];
+
+      for (const entry of allEntries) {
+        // Check for both directories and symlinks (pnpm creates symlinks)
+        if (entry.isDirectory() || entry.isSymbolicLink()) {
+          // Match Sharp binary packages with more comprehensive patterns
+          const isSharpBinary =
+            entry.name.includes("sharp-") ||
+            entry.name.includes("sharp-libvips");
+
+          if (isSharpBinary) {
+            // For recursive readdirSync, parentPath contains the full absolute path
+            const fullPath = join(entry.parentPath, entry.name);
+            sharpBinaryPaths.push(fullPath);
+          }
+        }
+      }
+
+      debug(
+        `${LOG_PREFIX} Found ${sharpBinaryPaths.length} Sharp binary directories/symlinks to remove`,
+      );
+
+      // Remove all found Sharp binary directories and symlinks
+      for (const path of sharpBinaryPaths) {
+        try {
+          rmSync(path, { recursive: true, force: true });
+          debug(`${LOG_PREFIX} Removed: ${path}`);
+        } catch (error) {
+          console.warn(
+            `${LOG_PREFIX} Warning: Could not remove ${path}: ${error}`,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} Warning: Could not read node_modules directory: ${error}`,
+      );
+    }
+  }
+
+  /**
+   * Download and install correct Sharp binaries for Linux MUSL
+   */
+  private downloadAndInstallSharpBinaries(): void {
+    const nodeModulesPath = join(
+      this.dotNextPath,
+      "standalone",
+      "node_modules",
+    );
+    const imgPath = join(nodeModulesPath, "@img");
+    const { tmpdir } = require("node:os");
+
+    // Create a consistent cache directory for Sharp packages
+    const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
+    if (!existsSync(cacheDir)) {
+      mkdirSync(cacheDir, { recursive: true });
+    }
+
+    // Ensure @img directory exists
+    if (!existsSync(imgPath)) {
+      mkdirSync(imgPath, { recursive: true });
+    }
+
+    // Detect architecture for correct Sharp binaries
+    const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
+
+    // Sharp binary packages to download
+    const sharpPackages = [
+      {
+        name: `sharp-libvips-linuxmusl-${arch}`,
+        version: "1.2.4",
+        url: `https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-${arch}/-/sharp-libvips-linuxmusl-${arch}-1.2.4.tgz`,
+      },
+      {
+        name: `sharp-linuxmusl-${arch}`,
+        version: "0.34.5",
+        url: `https://registry.npmjs.org/@img/sharp-linuxmusl-${arch}/-/sharp-linuxmusl-${arch}-0.34.5.tgz`,
+      },
+    ];
+
+    for (const pkg of sharpPackages) {
+      try {
+        const targetDir = join(imgPath, pkg.name);
+
+        // Create a consistent filename based on package name and version
+        const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
+        const cachedFile = join(cacheDir, cacheFileName);
+
+        // Check if we already have this package cached
+        if (existsSync(cachedFile)) {
+          debug(
+            `${LOG_PREFIX} Using cached ${pkg.name}@${pkg.version} from ${cachedFile}`,
+          );
+        } else {
+          debug(`${LOG_PREFIX} Downloading ${pkg.name}@${pkg.version}...`);
+
+          // Download to cache directory with consistent name
+          execSync(`curl -L -o "${cachedFile}" "${pkg.url}"`, {
+            stdio: "pipe",
+          });
+          debug(
+            `${LOG_PREFIX} Cached ${pkg.name}@${pkg.version} to ${cachedFile}`,
+          );
+        }
+
+        // Create target directory
+        mkdirSync(targetDir, { recursive: true });
+
+        // Extract from cached file
+        execSync(
+          `tar -xzf "${cachedFile}" -C "${targetDir}" --strip-components=1`,
+          { stdio: "pipe" },
+        );
+
+        debug(`${LOG_PREFIX} Installed ${pkg.name}@${pkg.version}`);
+      } catch (error) {
+        console.error(`${LOG_PREFIX} Failed to install ${pkg.name}: ${error}`);
+        throw error;
+      }
     }
   }
 }
