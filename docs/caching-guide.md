@@ -98,6 +98,174 @@ Cache Bucket Structure:
     └── {cache-key}.json         # Redirect configurations
 ```
 
+#### Examples
+
+<details>
+<summary>NKHdPJfH3k5tcfaEY1CVQ/app_page/isr/1.json</summary>
+```json
+{
+  "lastModified": 1768400373006,
+  "value": {
+    "kind": "APP_PAGE",
+    "html": "<!DOCTYPE html><html lang=\"en\" class=\"[color-scheme:dark]\">...</html>",
+    "rscData": {
+      "type": "Buffer",
+      "data": [
+        49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, 109, ...
+      ]
+    },
+    "headers": {
+      "x-nextjs-stale-time": "300",
+      "x-next-cache-tags": "_N_T_/layout,_N_T_/isr/layout,_N_T_/isr/[id]/layout,_N_T_/isr/[id]/page,_N_T_/isr/1,collection"
+    },
+    "segmentData": {
+      "__type": "Map",
+      "data": {
+        "/_tree": {
+          "type": "Buffer",
+          "data": [
+            58, 72, 76, 91, 34, 47, 95, 110, 101, 120, 116, 47, 115, 116, 97, ...
+          ]
+        },
+        "/_full": {
+          "type": "Buffer",
+          "data": [
+            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
+          ]
+        },
+        "/isr/$d$id/__PAGE__": {
+          "type": "Buffer",
+          "data": [
+            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
+          ]
+        },
+        "/isr/$d$id": {
+          "type": "Buffer",
+          "data": [
+            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
+          ]
+        },
+        "/isr": {
+          "type": "Buffer",
+          "data": [
+            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
+          ]
+        },
+        "/_index": {
+          "type": "Buffer",
+          "data": [
+            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
+          ]
+        },
+        "/_head": {
+          "type": "Buffer",
+          "data": [
+            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
+          ]
+        }
+      }
+    }
+  },
+  "tags": []
+}
+```
+</details>
+
+<details>
+<summary>NKHdPJfH3k5tcfaEY1CVQ/app_route/favicon.ico.json</summary>
+```json
+{
+  "lastModified": 1768399926936,
+  "value": {
+    "kind": "APP_ROUTE",
+    "status": 200,
+    "body": {
+      "type": "Buffer",
+      "data": [
+        0, 0, 1, 0, 3, 0, 48, 48, 0, 0, 1, 0, 32, 0, 168, 37, 0, 0, 54, 0, 0, 0, ...
+      ]
+    },
+    "headers": {
+      "cache-control": "public, max-age=0, must-revalidate",
+      "content-type": "image/x-icon",
+      "x-next-cache-tags": "_N_T_/layout,_N_T_/favicon.ico/layout,_N_T_/favicon.ico/route,_N_T_/favicon.ico"
+    }
+  },
+  "tags": []
+}
+```
+</details>
+
+<details>
+<summary>NKHdPJfH3k5tcfaEY1CVQ/fetch/7219caec2df443d9c8453d2d63f9893f701fcc35e6a25a9d227652a1860296a1.json</summary>
+```json
+{
+  "lastModified": 1768400373089,
+  "value": {
+    "kind": "FETCH",
+    "data": {
+      "headers": {
+        "access-control-allow-credentials": "true",
+        "age": "26672",
+        "alt-svc": "h3=\":443\"; ma=86400",
+        "cache-control": "max-age=43200",
+        "cf-cache-status": "HIT",
+        "cf-ray": "9bddc4dbb92cc96f-IAD",
+        "connection": "keep-alive",
+        "content-encoding": "br",
+        "content-type": "application/json; charset=utf-8",
+        "date": "Wed, 14 Jan 2026 14:19:33 GMT",
+        "etag": "W/\"116-jnDuMpjju89+9j7e0BqkdFsVRjs\"",
+        "expires": "-1",
+        "nel": "{\"report_to\":\"heroku-nel\",\"response_headers\":[\"Via\"],\"max_age\":3600,\"success_fraction\":0.01,\"failure_fraction\":0.1}",
+        "pragma": "no-cache",
+        "report-to": "{\"group\":\"heroku-nel\",\"endpoints\":[{\"url\":\"https://nel.heroku.com/reports?s=dyvH%2FEDCH%2BYGIXXz6yZUr5CGYyfTVMxjIWIrMfvKg3M%3D\\u0026sid=e11707d5-02a7-43ef-b45e-2cf4d2036f7d\\u0026ts=1767999226\"}],\"max_age\":3600}",
+        "reporting-endpoints": "heroku-nel=\"https://nel.heroku.com/reports?s=dyvH%2FEDCH%2BYGIXXz6yZUr5CGYyfTVMxjIWIrMfvKg3M%3D&sid=e11707d5-02a7-43ef-b45e-2cf4d2036f7d&ts=1767999226\"",
+        "server": "cloudflare",
+        "transfer-encoding": "chunked",
+        "vary": "Origin, Accept-Encoding",
+        "via": "2.0 heroku-router",
+        "x-content-type-options": "nosniff",
+        "x-powered-by": "Express",
+        "x-ratelimit-limit": "1000",
+        "x-ratelimit-remaining": "999",
+        "x-ratelimit-reset": "1767999231"
+      },
+      "body": "ewogICJ1c2VySWQiOiAxLAogICJpZCI6IDIsCiAgInRpdGxlIjogInF1aSBlc3QgZXNzZSIsCiAgImJvZHkiOiAiZXN0IHJlcnVtIHRlbXBvcmUgdml0YWVcbnNlcXVpIHNpbnQgbmloaWwgcmVwcmVoZW5kZXJpdCBkb2xvciBiZWF0YWUgZWEgZG9sb3JlcyBuZXF1ZVxuZnVnaWF0IGJsYW5kaXRpaXMgdm9sdXB0YXRlIHBvcnJvIHZlbCBuaWhpbCBtb2xlc3RpYWUgdXQgcmVpY2llbmRpc1xucXVpIGFwZXJpYW0gbm9uIGRlYml0aXMgcG9zc2ltdXMgcXVpIG5lcXVlIG5pc2kgbnVsbGEiCn0=",
+      "status": 200,
+      "url": "https://jsonplaceholder.typicode.com/posts/2"
+    },
+    "revalidate": 10
+  },
+  "tags": ["collection"]
+}
+```
+</details>
+
+<details>
+<summary>NKHdPJfH3k5tcfaEY1CVQ/image/qRuS9bDf7sJo_E8f0f0HSsPuQf5Dkpu61jOAbF0LuKE.json</summary>
+```json
+{
+  "lastModified": 1768399959959,
+  "value": {
+    "kind": "IMAGE",
+    "buffer": {
+      "type": "Buffer",
+      "data": [
+        255, 216, 255, 219, 0, 67, 0, 8, 8, 8, 8, 9, 8, 9, 10, 10, 9, 13, 14, ...
+      ]
+    },
+    "etag": "J29FvqevmUxXsoXBJzPbJC-g_PiMBegRLXAFLl_ZfhE",
+    "extension": "jpeg",
+    "upstreamEtag": "Vy8iOGRmMC0xOWJiY2Q0MGMyMCI",
+    "revalidate": 14400
+  },
+  "tags": []
+}
+
+````
+</details>
+
 **Key Features**:
 
 - **BUILD_ID Isolation**: All cache keys prefixed with `/{buildId}/`
@@ -123,7 +291,7 @@ interface MetadataItem {
   buildId: string; // Current BUILD_ID for efficient pruning
   updatedAt: number; // Last update timestamp
 }
-```
+````
 
 **Example Data**:
 
@@ -165,7 +333,7 @@ export class S3DynamoCacheHandler {
 }
 ```
 
-**Cache Entry Structure**:
+**Cache Entry Structure Examples**:
 
 Each cache entry stored in S3 includes both the cached data and associated tags for revalidation checking:
 

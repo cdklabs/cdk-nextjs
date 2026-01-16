@@ -254,6 +254,7 @@ export class NextjsDistribution extends Construct {
           "next-router-state-tree",
           "next-url",
           "x-prerender-revalidate",
+          "x-next-cache-tags",
         ),
         cookieBehavior: CacheCookieBehavior.all(),
         enableAcceptEncodingBrotli: true,

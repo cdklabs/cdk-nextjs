@@ -218,6 +218,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
           }
         }
       } else {
+        console.log(`Invalid content type: ${contentType}`);
         // This shouldn't happen since we always store as JSON now, but handle legacy data
         // Since we don't know the exact structure, return null for legacy non-JSON data
         return null;
@@ -302,7 +303,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
         if (Buffer.isBuffer(value)) {
           return {
             __type: "Buffer",
-            data: value.toString("base64"),
+            data: value.toString("utf8"),
           };
         }
         return value;
