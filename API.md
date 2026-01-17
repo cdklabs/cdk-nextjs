@@ -441,8 +441,6 @@ The entrypoint JavaScript file used as an argument for Node.js to run the Next.j
 
 ### NextjsCache <a name="NextjsCache" id="cdk-nextjs.NextjsCache"></a>
 
-- *Implements:* <a href="#cdk-nextjs.ICacheOperationsInterface">ICacheOperationsInterface</a>
-
 Next.js Cache construct providing unified S3 and DynamoDB cache management. Replaces EFS-based caching with cloud-native S3/DynamoDB solution.
 
 #### Initializers <a name="Initializers" id="cdk-nextjs.NextjsCache.Initializer"></a>
@@ -484,7 +482,6 @@ new NextjsCache(scope: Construct, id: string, props: NextjsCacheProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsCache.toString">toString</a></code> | Returns a string representation of this construct. |
-| <code><a href="#cdk-nextjs.NextjsCache.grantCacheAccess">grantCacheAccess</a></code> | Grant read/write permissions to a role for cache operations. |
 
 ---
 
@@ -495,20 +492,6 @@ public toString(): string
 ```
 
 Returns a string representation of this construct.
-
-##### `grantCacheAccess` <a name="grantCacheAccess" id="cdk-nextjs.NextjsCache.grantCacheAccess"></a>
-
-```typescript
-public grantCacheAccess(role: IRole): void
-```
-
-Grant read/write permissions to a role for cache operations.
-
-###### `role`<sup>Required</sup> <a name="role" id="cdk-nextjs.NextjsCache.grantCacheAccess.parameter.role"></a>
-
-- *Type:* aws-cdk-lib.aws_iam.IRole
-
----
 
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
@@ -544,6 +527,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsCache.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCache.property.deployment">deployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
 
 ---
 
@@ -586,6 +570,16 @@ public readonly revalidationTable: TableV2;
 ```
 
 - *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+
+---
+
+##### `deployment`<sup>Optional</sup> <a name="deployment" id="cdk-nextjs.NextjsCache.property.deployment"></a>
+
+```typescript
+public readonly deployment: BucketDeployment;
+```
+
+- *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
 
 ---
 
@@ -2729,8 +2723,19 @@ const nextjsCacheOverrides: NextjsCacheOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.cacheBucketProps">cacheBucketProps</a></code> | <code>aws-cdk-lib.aws_s3.BucketProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.revalidationTableProps">revalidationTableProps</a></code> | <code>aws-cdk-lib.aws_dynamodb.TablePropsV2</code> | *No description.* |
+
+---
+
+##### `bucketDeploymentProps`<sup>Optional</sup> <a name="bucketDeploymentProps" id="cdk-nextjs.NextjsCacheOverrides.property.bucketDeploymentProps"></a>
+
+```typescript
+public readonly bucketDeploymentProps: BucketDeploymentProps;
+```
+
+- *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps
 
 ---
 
@@ -2769,6 +2774,7 @@ const nextjsCacheProps: NextjsCacheProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Path to the Next.js build output directory (containing .next folder) Used to deploy pre-built cache files from .next/cdk-nextjs-cache-handler. |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsCacheOverrides">NextjsCacheOverrides</a></code> | *No description.* |
 
 ---
@@ -2780,6 +2786,18 @@ public readonly buildId: string;
 ```
 
 - *Type:* string
+
+---
+
+##### `buildOutputPath`<sup>Optional</sup> <a name="buildOutputPath" id="cdk-nextjs.NextjsCacheProps.property.buildOutputPath"></a>
+
+```typescript
+public readonly buildOutputPath: string;
+```
+
+- *Type:* string
+
+Path to the Next.js build output directory (containing .next folder) Used to deploy pre-built cache files from .next/cdk-nextjs-cache-handler.
 
 ---
 
@@ -10795,73 +10813,6 @@ public readonly name: string;
 ---
 
 
-## Protocols <a name="Protocols" id="Protocols"></a>
-
-### ICacheOperationsInterface <a name="ICacheOperationsInterface" id="cdk-nextjs.ICacheOperationsInterface"></a>
-
-- *Implemented By:* <a href="#cdk-nextjs.NextjsCache">NextjsCache</a>, <a href="#cdk-nextjs.ICacheOperationsInterface">ICacheOperationsInterface</a>
-
-#### Methods <a name="Methods" id="Methods"></a>
-
-| **Name** | **Description** |
-| --- | --- |
-| <code><a href="#cdk-nextjs.ICacheOperationsInterface.grantCacheAccess">grantCacheAccess</a></code> | Grant read/write permissions to a role for cache operations. |
-
----
-
-##### `grantCacheAccess` <a name="grantCacheAccess" id="cdk-nextjs.ICacheOperationsInterface.grantCacheAccess"></a>
-
-```typescript
-public grantCacheAccess(role: IRole): void
-```
-
-Grant read/write permissions to a role for cache operations.
-
-###### `role`<sup>Required</sup> <a name="role" id="cdk-nextjs.ICacheOperationsInterface.grantCacheAccess.parameter.role"></a>
-
-- *Type:* aws-cdk-lib.aws_iam.IRole
-
----
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.ICacheOperationsInterface.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.ICacheOperationsInterface.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | *No description.* |
-| <code><a href="#cdk-nextjs.ICacheOperationsInterface.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | *No description.* |
-
----
-
-##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.ICacheOperationsInterface.property.buildId"></a>
-
-```typescript
-public readonly buildId: string;
-```
-
-- *Type:* string
-
----
-
-##### `cacheBucket`<sup>Required</sup> <a name="cacheBucket" id="cdk-nextjs.ICacheOperationsInterface.property.cacheBucket"></a>
-
-```typescript
-public readonly cacheBucket: Bucket;
-```
-
-- *Type:* aws-cdk-lib.aws_s3.Bucket
-
----
-
-##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.ICacheOperationsInterface.property.revalidationTable"></a>
-
-```typescript
-public readonly revalidationTable: TableV2;
-```
-
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
-
----
 
 ## Enums <a name="Enums" id="Enums"></a>
 

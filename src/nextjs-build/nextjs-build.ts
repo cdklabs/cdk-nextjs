@@ -7,6 +7,7 @@ import {
   rmSync,
   mkdirSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
@@ -14,7 +15,6 @@ import { Construct } from "constructs";
 import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
-import { tmpdir } from "node:os";
 
 const debug = getDebug("nextjs-build");
 
