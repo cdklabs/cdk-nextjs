@@ -101,6 +101,7 @@ export class NextjsStaticAssets extends Construct {
       metadata: {
         BUILD_ID: this.props.buildId,
       },
+      prune: false, // Don't delete existing assets to prevent 404s during deployment, pruning will be handled by post-deploy
       // S3Deployment automatically detects content types based on file extensions
       ...this.props.overrides?.bucketDeploymentProps,
     });

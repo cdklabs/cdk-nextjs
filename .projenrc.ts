@@ -67,6 +67,11 @@ const project = new awscdk.AwsCdkConstructLibrary({
     runtime: new LambdaRuntime(`nodejs${nodeVersion}.x`, `node${nodeVersion}`),
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3
   },
+  jestOptions: {
+    jestConfig: {
+      testPathIgnorePatterns: ["/node_modules/", "/cdk.out/"],
+    },
+  },
   projenCommand: "pnpm dlx projen",
   gitignore: [
     ".idea",

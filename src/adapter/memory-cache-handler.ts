@@ -1,5 +1,5 @@
 /*
-  In-memory cache handler with TTL support and tag management
+  In-memory cache handler with tag management
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
@@ -23,26 +23,18 @@ const getTags = (
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
-  timestamp: number;
 }
 
 export interface MemoryCacheHandlerOptions {
   context: CacheHandlerContext;
-  ttlMs?: number; // Time to live in milliseconds, default 60000 (1 minute)
-  fallbackHandler?: CacheHandler; // Optional fallback handler for cache misses
 }
 
 export class MemoryCacheHandler implements CacheHandler {
   private inMemoryCache: Map<string, MemoryCacheEntry> = new Map();
   private inMemoryTagCache: Map<string, Set<string>> = new Map(); // tag -> Set of cache keys
-  private ttlMs: number;
-  private fallbackHandler?: CacheHandler;
   private debug = getDebug("cdk-nextjs:cache-handler:memory");
 
   constructor(options: MemoryCacheHandlerOptions) {
-    this.ttlMs = options.ttlMs || 60000; // Default 1 minute TTL
-    this.fallbackHandler = options.fallbackHandler;
-
     // Log the options for debugging (optional usage to avoid unused parameter warning)
     if (options.context.dev) {
       this.debug("MemoryCacheHandler initialized in development mode");
@@ -60,38 +52,14 @@ export class MemoryCacheHandler implements CacheHandler {
       );
     }
 
-    // Check in-memory cache first
+    // Check in-memory cache
     const memoryEntry = this.inMemoryCache.get(cacheKey);
-    if (memoryEntry && this.isEntryValid(memoryEntry)) {
+    if (memoryEntry) {
       this.debug(`MEMORY CACHE HIT: ${cacheKey}`);
       return memoryEntry.value;
     }
 
-    // Remove expired entry
-    if (memoryEntry && !this.isEntryValid(memoryEntry)) {
-      this.debug(`MEMORY CACHE EXPIRED: ${cacheKey}`);
-      this.inMemoryCache.delete(cacheKey);
-    }
-
-    // If we have a fallback handler, try it
-    if (this.fallbackHandler) {
-      const fallbackValue = await this.fallbackHandler.get(cacheKey, ctx);
-      if (fallbackValue) {
-        this.debug(`MEMORY FALLBACK HIT: ${cacheKey}`);
-
-        // Store the fallback result in memory for future requests
-        this.inMemoryCache.set(cacheKey, {
-          value: fallbackValue,
-          timestamp: Date.now(),
-        });
-        return fallbackValue;
-      } else {
-        this.debug(`MEMORY FALLBACK MISS: ${cacheKey}`);
-      }
-    } else {
-      this.debug(`MEMORY CACHE MISS: ${cacheKey} (no fallback)`);
-    }
-
+    this.debug(`MEMORY CACHE MISS: ${cacheKey}`);
     return null;
   }
 
@@ -101,6 +69,21 @@ export class MemoryCacheHandler implements CacheHandler {
     ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void> {
     if (!data) {
+      // Delete from memory cache
+      this.debug(`MEMORY CACHE DELETE: ${cacheKey}`);
+      this.inMemoryCache.delete(cacheKey);
+
+      // Remove from tag cache
+      for (const [tag, cacheKeys] of this.inMemoryTagCache.entries()) {
+        if (cacheKeys.has(cacheKey)) {
+          cacheKeys.delete(cacheKey);
+          // Clean up empty tag sets
+          if (cacheKeys.size === 0) {
+            this.inMemoryTagCache.delete(tag);
+          }
+        }
+      }
+
       return;
     }
 
@@ -121,7 +104,6 @@ export class MemoryCacheHandler implements CacheHandler {
 
     this.inMemoryCache.set(cacheKey, {
       value: cacheHandlerValue,
-      timestamp: Date.now(),
     });
 
     // Track tags for this cache entry (only in SetIncrementalFetchCacheContext)
@@ -136,11 +118,6 @@ export class MemoryCacheHandler implements CacheHandler {
         tagSet.add(cacheKey);
       }
     }
-
-    // Also store in fallback handler if available
-    if (this.fallbackHandler) {
-      await this.fallbackHandler.set(cacheKey, data, ctx);
-    }
   }
 
   async revalidateTag(tag: string | string[]): Promise<void> {
@@ -151,26 +128,12 @@ export class MemoryCacheHandler implements CacheHandler {
     for (const t of tags) {
       this.clearMemoryCacheByTag(t);
     }
-
-    // Also revalidate in fallback handler if available
-    if (this.fallbackHandler) {
-      await this.fallbackHandler.revalidateTag(tag);
-    }
   }
 
   async resetRequestCache(): Promise<void> {
     // Clear both in-memory caches
     this.inMemoryCache.clear();
     this.inMemoryTagCache.clear();
-
-    // Also reset fallback handler if available
-    if (this.fallbackHandler) {
-      await this.fallbackHandler.resetRequestCache();
-    }
-  }
-
-  private isEntryValid(entry: MemoryCacheEntry): boolean {
-    return Date.now() - entry.timestamp < this.ttlMs;
   }
 
   private clearMemoryCacheByTag(tag: string): void {
@@ -212,19 +175,5 @@ export class MemoryCacheHandler implements CacheHandler {
   public clearCache(): void {
     this.inMemoryCache.clear();
     this.inMemoryTagCache.clear();
-  }
-
-  public getHealthStatus(): {
-    memoryCacheSize: number;
-    tagCacheSize: number;
-    ttlMs: number;
-    hasFallbackHandler: boolean;
-  } {
-    return {
-      memoryCacheSize: this.inMemoryCache.size,
-      tagCacheSize: this.inMemoryTagCache.size,
-      ttlMs: this.ttlMs,
-      hasFallbackHandler: !!this.fallbackHandler,
-    };
   }
 }

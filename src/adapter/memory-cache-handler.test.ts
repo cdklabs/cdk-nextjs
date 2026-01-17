@@ -1,71 +1,14 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import {
-  CacheHandler,
-  CacheHandlerValue,
-  CacheHandlerContext,
-} from "next/dist/server/lib/incremental-cache";
+import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
   CachedRouteKind,
   IncrementalCacheKind,
-  SetIncrementalFetchCacheContext,
-  SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { MemoryCacheHandler } from "./memory-cache-handler";
 
-// Mock fallback handler for testing
-class MockFallbackHandler implements CacheHandler {
-  private storage = new Map<string, CacheHandlerValue>();
-  private tags = new Map<string, Set<string>>();
-
-  async get(cacheKey: string): Promise<CacheHandlerValue | null> {
-    return this.storage.get(cacheKey) || null;
-  }
-
-  async set(
-    cacheKey: string,
-    data: IncrementalCacheValue | null,
-    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
-  ): Promise<void> {
-    if (!data) return;
-
-    const cacheValue: CacheHandlerValue = {
-      lastModified: Date.now(),
-      value: data,
-    };
-
-    this.storage.set(cacheKey, cacheValue);
-
-    // Track tags (tags exist in SetIncrementalFetchCacheContext)
-    if ("tags" in ctx && ctx.tags) {
-      for (const tag of ctx.tags) {
-        if (!this.tags.has(tag)) {
-          this.tags.set(tag, new Set());
-        }
-        this.tags.get(tag)!.add(cacheKey);
-      }
-    }
-  }
-
-  async revalidateTag(tag: string): Promise<void> {
-    const cacheKeys = this.tags.get(tag);
-    if (cacheKeys) {
-      for (const cacheKey of cacheKeys) {
-        this.storage.delete(cacheKey);
-      }
-      this.tags.delete(tag);
-    }
-  }
-
-  async resetRequestCache(): Promise<void> {
-    this.storage.clear();
-    this.tags.clear();
-  }
-}
-
 describe("MemoryCacheHandler", () => {
   let handler: MemoryCacheHandler;
-  let mockFallback: MockFallbackHandler;
   let mockContext: CacheHandlerContext;
 
   // Helper to create set context with tags
@@ -75,13 +18,10 @@ describe("MemoryCacheHandler", () => {
   });
 
   beforeEach(() => {
-    mockFallback = new MockFallbackHandler();
     mockContext = { dev: false } as CacheHandlerContext;
 
     handler = new MemoryCacheHandler({
       context: mockContext,
-      ttlMs: 1000, // 1 second TTL for testing
-      fallbackHandler: mockFallback,
     });
   });
 
@@ -117,73 +57,6 @@ describe("MemoryCacheHandler", () => {
 
       expect(result).not.toBeNull();
       expect(result?.value).toEqual(testData);
-    });
-
-    it("should fall back to fallback handler when not in memory", async () => {
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>fallback</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      // Store directly in fallback handler
-      await mockFallback.set("fallback-key", testData, createSetContext([]));
-
-      const result = await handler.get("fallback-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
-
-      expect(result).not.toBeNull();
-      expect(result?.value).toEqual(testData);
-
-      // Should now be cached in memory
-      expect(handler.getCacheSize()).toBe(1);
-    });
-
-    it("should respect TTL and expire entries", async () => {
-      // Create handler without fallback for this test
-      const handlerWithoutFallback = new MemoryCacheHandler({
-        context: mockContext,
-        ttlMs: 1000,
-      });
-
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>expired</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      await handlerWithoutFallback.set(
-        "expire-key",
-        testData,
-        createSetContext([]),
-      );
-
-      // Verify it's in memory cache
-      expect(handlerWithoutFallback.getCacheSize()).toBe(1);
-
-      // Wait for TTL to expire
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-
-      const result = await handlerWithoutFallback.get("expire-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
-
-      // Should be null since TTL expired and no fallback
-      expect(result).toBeNull();
-
-      // Cache should be cleaned up
-      expect(handlerWithoutFallback.getCacheSize()).toBe(0);
     });
   });
 
@@ -229,24 +102,6 @@ describe("MemoryCacheHandler", () => {
 
       expect(handler.getTagCacheSize()).toBe(2);
     });
-
-    it("should forward to fallback handler", async () => {
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>forwarded</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      await handler.set("forward-key", testData, createSetContext([]));
-
-      // Should be in fallback handler
-      const fallbackResult = await mockFallback.get("forward-key");
-      expect(fallbackResult?.value).toEqual(testData);
-    });
   });
 
   describe("revalidateTag", () => {
@@ -285,29 +140,6 @@ describe("MemoryCacheHandler", () => {
       });
       expect(result).not.toBeNull();
     });
-
-    it("should forward revalidation to fallback handler", async () => {
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>fallback tagged</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      await mockFallback.set(
-        "fallback-tagged",
-        testData,
-        createSetContext(["fallback-tag"]),
-      );
-
-      await handler.revalidateTag("fallback-tag");
-
-      const result = await mockFallback.get("fallback-tagged");
-      expect(result).toBeNull();
-    });
   });
 
   describe("resetRequestCache", () => {
@@ -331,56 +163,6 @@ describe("MemoryCacheHandler", () => {
 
       expect(handler.getCacheSize()).toBe(0);
       expect(handler.getTagCacheSize()).toBe(0);
-    });
-  });
-
-  describe("health status", () => {
-    it("should return correct health status", () => {
-      const status = handler.getHealthStatus();
-
-      expect(status).toEqual({
-        memoryCacheSize: 0,
-        tagCacheSize: 0,
-        ttlMs: 1000,
-        hasFallbackHandler: true,
-      });
-    });
-  });
-
-  describe("without fallback handler", () => {
-    beforeEach(() => {
-      handler = new MemoryCacheHandler({
-        context: mockContext,
-        ttlMs: 1000,
-      });
-    });
-
-    it("should work without fallback handler", async () => {
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>no fallback</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      await handler.set("no-fallback-key", testData, createSetContext([]));
-      const result = await handler.get("no-fallback-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
-
-      expect(result?.value).toEqual(testData);
-    });
-
-    it("should return null for cache miss without fallback", async () => {
-      const result = await handler.get("missing-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
-      expect(result).toBeNull();
     });
   });
 });

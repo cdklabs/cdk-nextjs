@@ -1,8 +1,8 @@
 /*
-  S3 and DynamoDB cache handler with circuit breaker pattern
+  S3 and DynamoDB cache handler for Next.js incremental cache
 */
 /* eslint-disable import/no-extraneous-dependencies */
-import { join } from "path";
+import { join } from "node:path";
 import {
   DynamoDBClient,
   QueryCommand,
@@ -13,6 +13,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   DeleteObjectCommand,
+  NoSuchKey,
 } from "@aws-sdk/client-s3";
 import getDebug from "debug";
 import {
@@ -27,18 +28,7 @@ import {
   SetIncrementalFetchCacheContext,
   SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
-
-// Helper to safely extract tags from context
-const getTags = (
-  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
-): string[] | undefined => ("tags" in ctx ? ctx.tags : undefined);
-
-/**
- * Check if code is running as a result of `next build`
- */
-function isNextBuild() {
-  return process.env.NEXT_PHASE === "phase-production-build";
-}
+import { serializeCacheValue, parseCacheValue, getTags } from "./cache-utils";
 
 interface S3CacheConfig {
   bucketName: string;
@@ -52,18 +42,10 @@ interface DynamoDBRevalidationConfig {
   buildId: string;
 }
 
-interface CircuitBreakerState {
-  s3Failures: number;
-  dynamoFailures: number;
-  lastFailureTime: number;
-}
-
 export interface S3DynamoCacheHandlerOptions {
   context: CacheHandlerContext;
   s3Config?: Partial<S3CacheConfig>;
   dynamoConfig?: Partial<DynamoDBRevalidationConfig>;
-  circuitBreakerThreshold?: number; // Default 5
-  circuitBreakerTimeoutMs?: number; // Default 300000 (5 minutes)
 }
 
 export class S3DynamoCacheHandler implements CacheHandler {
@@ -71,13 +53,6 @@ export class S3DynamoCacheHandler implements CacheHandler {
   private dynamoClient: DynamoDBClient;
   private s3Config: S3CacheConfig;
   private dynamoConfig: DynamoDBRevalidationConfig;
-  private circuitBreaker: CircuitBreakerState = {
-    s3Failures: 0,
-    dynamoFailures: 0,
-    lastFailureTime: 0,
-  };
-  private circuitBreakerThreshold: number;
-  private circuitBreakerTimeoutMs: number;
   private debug = getDebug("cdk-nextjs:cache-handler:s3-dynamo");
 
   constructor(options: S3DynamoCacheHandlerOptions) {
@@ -104,35 +79,28 @@ export class S3DynamoCacheHandler implements CacheHandler {
       buildId: options.dynamoConfig?.buildId || buildId,
     };
 
-    // Circuit breaker configuration
-    this.circuitBreakerThreshold = options.circuitBreakerThreshold || 5;
-    this.circuitBreakerTimeoutMs = options.circuitBreakerTimeoutMs || 300000; // 5 minutes
-
     // Initialize AWS clients
     this.s3Client = new S3Client({ region: this.s3Config.region });
     this.dynamoClient = new DynamoDBClient({
       region: this.dynamoConfig.region,
     });
 
-    // Only show warnings during runtime, not during Next.js build
-    if (!isNextBuild()) {
-      if (!this.s3Config.bucketName) {
-        console.warn(
-          "CDK_NEXTJS_CACHE_BUCKET_NAME environment variable not set, S3 cache disabled",
-        );
-      }
+    if (!this.s3Config.bucketName) {
+      console.warn(
+        "CDK_NEXTJS_CACHE_BUCKET_NAME environment variable not set, S3 cache disabled",
+      );
+    }
 
-      if (!this.dynamoConfig.tableName) {
-        console.warn(
-          "CDK_NEXTJS_REVALIDATION_TABLE_NAME environment variable not set, revalidation tracking disabled",
-        );
-      }
+    if (!this.dynamoConfig.tableName) {
+      console.warn(
+        "CDK_NEXTJS_REVALIDATION_TABLE_NAME environment variable not set, revalidation tracking disabled",
+      );
+    }
 
-      if (!buildId) {
-        console.warn(
-          "CDK_NEXTJS_BUILD_ID environment variable not set, cache isolation may not work correctly",
-        );
-      }
+    if (!buildId) {
+      console.warn(
+        "CDK_NEXTJS_BUILD_ID environment variable not set, cache isolation may not work correctly",
+      );
     }
 
     // Log the options for debugging (optional usage to avoid unused parameter warning)
@@ -153,17 +121,11 @@ export class S3DynamoCacheHandler implements CacheHandler {
         );
       }
 
-      // If S3 is unavailable due to circuit breaker, return null
-      if (this.isS3CircuitOpen()) {
-        this.debug("S3 circuit breaker is open, returning cache miss");
-        return null;
-      }
-
       if (!this.s3Config.bucketName) {
         return null;
       }
 
-      const s3Key = this.buildS3Key(cacheKey, ctx.kind);
+      const s3Key = this.buildS3Key(cacheKey);
 
       const command = new GetObjectCommand({
         Bucket: this.s3Config.bucketName,
@@ -185,17 +147,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
 
       if (contentType.includes("application/json")) {
         // Parse the stored CacheHandlerValue directly
-        const parsedValue = JSON.parse(bodyString, (_key, value) => {
-          // Restore Map objects that were serialized with __type marker
-          if (value && typeof value === "object" && value.__type === "Map") {
-            return new Map(Object.entries(value.data));
-          }
-          // Restore Buffer objects that were serialized with __type marker
-          if (value && typeof value === "object" && value.__type === "Buffer") {
-            return Buffer.from(value.data, "base64");
-          }
-          return value;
-        });
+        const parsedValue = parseCacheValue(bodyString);
 
         // Extract the actual CacheHandlerValue (without tags) for return
         cacheValue = {
@@ -224,24 +176,17 @@ export class S3DynamoCacheHandler implements CacheHandler {
         return null;
       }
 
-      // Reset S3 circuit breaker on success
-      this.circuitBreaker.s3Failures = 0;
-
       this.debug(`S3 CACHE HIT: ${cacheKey} (${s3Key})`);
 
       return cacheValue;
     } catch (error) {
-      const errorType = this.categorizeError(error);
-
-      // Cache misses are normal behavior, not errors
-      if (errorType === "cache-miss") {
+      if (error instanceof NoSuchKey) {
         this.debug(`S3 CACHE MISS: ${cacheKey}`);
         return null;
       }
 
-      // Only log actual errors and handle circuit breaker for real failures
-      console.error(`Error retrieving cache from S3 (${errorType}):`, error);
-      this.handleS3Failure();
+      // Log actual errors (not cache misses)
+      console.error(`Error retrieving cache from S3:`, error);
       return null;
     }
   }
@@ -253,6 +198,30 @@ export class S3DynamoCacheHandler implements CacheHandler {
   ): Promise<void> {
     try {
       if (!data) {
+        // Delete from S3 and DynamoDB
+        this.debug(`S3 CACHE DELETE: ${cacheKey}`);
+
+        if (!this.s3Config.bucketName) {
+          return;
+        }
+
+        // Build S3 key without needing to know the kind
+        const s3Key = this.buildS3Key(cacheKey);
+
+        try {
+          const deleteCommand = new DeleteObjectCommand({
+            Bucket: this.s3Config.bucketName,
+            Key: s3Key,
+          });
+          await this.s3Client.send(deleteCommand);
+          this.debug(`S3 CACHE DELETED: ${s3Key}`);
+        } catch (error) {
+          if (error instanceof NoSuchKey) {
+            this.debug(`Failed to delete S3 key ${s3Key}:`, error);
+          }
+        }
+
+        // TODO: Also delete tag associations from DynamoDB if needed
         return;
       }
 
@@ -266,17 +235,11 @@ export class S3DynamoCacheHandler implements CacheHandler {
         this.debug(`S3 cache entry for ${cacheKey} has tags:`, tags);
       }
 
-      // If S3 is unavailable due to circuit breaker, skip storage
-      if (this.isS3CircuitOpen()) {
-        this.debug("S3 circuit breaker is open, skipping S3 storage");
-        return;
-      }
-
       if (!this.s3Config.bucketName) {
         return;
       }
 
-      const s3Key = this.buildS3Key(cacheKey, data.kind);
+      const s3Key = this.buildS3Key(cacheKey);
 
       // Create CacheHandlerValue structure for S3 storage with tags
       const cacheHandlerValue: CacheHandlerValue = {
@@ -290,24 +253,8 @@ export class S3DynamoCacheHandler implements CacheHandler {
         tags: tags || [],
       };
 
-      // Custom serialization to handle Map and Buffer objects
-      const body = JSON.stringify(cacheEntryWithTags, (_key, value) => {
-        // Convert Map objects to plain objects for JSON serialization
-        if (value instanceof Map) {
-          return {
-            __type: "Map",
-            data: Object.fromEntries(value),
-          };
-        }
-        // Convert Buffer objects to a restorable format
-        if (Buffer.isBuffer(value)) {
-          return {
-            __type: "Buffer",
-            data: value.toString("utf8"),
-          };
-        }
-        return value;
-      });
+      // Serialize with custom handling for Map and Buffer objects
+      const body = serializeCacheValue(cacheEntryWithTags);
 
       const command = new PutObjectCommand({
         Bucket: this.s3Config.bucketName,
@@ -331,13 +278,8 @@ export class S3DynamoCacheHandler implements CacheHandler {
         this.debug(`STORING TAGS: ${cacheKey} -> [${tags.join(", ")}]`);
         await this.storeDynamoDBTagMappings(s3Key, tags);
       }
-
-      // Reset S3 circuit breaker on success
-      this.circuitBreaker.s3Failures = 0;
     } catch (error) {
-      const errorType = this.categorizeError(error);
-      console.error(`Error storing cache to S3 (${errorType}):`, error);
-      this.handleS3Failure();
+      console.error("Error storing cache to S3:", error);
     }
   }
 
@@ -346,25 +288,14 @@ export class S3DynamoCacheHandler implements CacheHandler {
     this.debug(`REVALIDATING TAGS: [${tags.join(", ")}]`);
 
     try {
-      if (this.isDynamoCircuitOpen()) {
-        this.debug(
-          "DynamoDB circuit breaker is open, skipping revalidation tracking",
-        );
-        return;
-      }
-
       if (!this.dynamoConfig.tableName) {
         return;
       }
 
       // Process all tags in parallel for better performance
       await Promise.all(tags.map((t) => this.revalidateSingleTag(t)));
-
-      // Reset DynamoDB circuit breaker on success
-      this.circuitBreaker.dynamoFailures = 0;
     } catch (error) {
       console.error("Error updating revalidation metadata:", error);
-      this.handleDynamoFailure();
     }
   }
 
@@ -447,9 +378,8 @@ export class S3DynamoCacheHandler implements CacheHandler {
     // The actual cache clearing is handled by the memory cache handler
   }
 
-  private buildS3Key(cacheKey: string, kind: string): string {
-    // Use BUILD_ID prefixing with kind: {buildId}/{kind}/{cacheKey}.json
-    // Next.js provides the cacheKey, we add BUILD_ID isolation, kind categorization
+  private buildS3Key(cacheKey: string): string {
+    // Use BUILD_ID prefixing: {buildId}/{cacheKey}.json
 
     // Handle edge cases:
     // - Root path "/" should become "index" or similar
@@ -462,10 +392,7 @@ export class S3DynamoCacheHandler implements CacheHandler {
       cleanCacheKey = cacheKey.slice(1);
     }
 
-    // Include kind in the S3 key structure for better organization
-    const kindPrefix = kind.toLowerCase();
-
-    return join(this.s3Config.buildId, kindPrefix, `${cleanCacheKey}.json`);
+    return join(this.s3Config.buildId, `${cleanCacheKey}.json`);
   }
 
   private async storeDynamoDBTagMappings(
@@ -473,13 +400,6 @@ export class S3DynamoCacheHandler implements CacheHandler {
     tags: string[],
   ): Promise<void> {
     try {
-      if (this.isDynamoCircuitOpen()) {
-        this.debug(
-          "DynamoDB circuit breaker is open, skipping tag mapping storage",
-        );
-        return;
-      }
-
       const updatePromises = tags.map(async (tag) => {
         const tagCacheKey = `${tag}#${s3Key}`;
         const updateCommand = new UpdateItemCommand({
@@ -499,12 +419,8 @@ export class S3DynamoCacheHandler implements CacheHandler {
       });
 
       await Promise.all(updatePromises);
-
-      // Reset DynamoDB circuit breaker on success
-      this.circuitBreaker.dynamoFailures = 0;
     } catch (error) {
       console.error("Error storing DynamoDB tag mappings:", error);
-      this.handleDynamoFailure();
       // Don't throw - cache storage should continue even if tag mapping fails
     }
   }
@@ -514,11 +430,6 @@ export class S3DynamoCacheHandler implements CacheHandler {
     tags: string[],
   ): Promise<boolean> {
     try {
-      if (this.isDynamoCircuitOpen()) {
-        this.debug("DynamoDB circuit breaker is open, assuming cache is valid");
-        return false;
-      }
-
       // Check each tag to see if it has been revalidated after the cache was created
       for (const tag of tags) {
         const queryCommand = new QueryCommand({
@@ -548,7 +459,6 @@ export class S3DynamoCacheHandler implements CacheHandler {
       return false; // Cache is still valid
     } catch (error) {
       console.error("Error checking cache revalidation:", error);
-      this.handleDynamoFailure();
       // On error, assume cache is valid to avoid unnecessary cache misses
       return false;
     }
@@ -571,156 +481,5 @@ export class S3DynamoCacheHandler implements CacheHandler {
       // Log but don't fail - the entry might not exist in S3
       console.warn(`Failed to delete stale S3 cache entry ${s3Key}:`, error);
     }
-  }
-
-  private isS3CircuitOpen(): boolean {
-    const now = Date.now();
-    const timeSinceLastFailure = now - this.circuitBreaker.lastFailureTime;
-
-    // Circuit breaker: if more than threshold failures in the timeout period, open circuit
-    if (
-      this.circuitBreaker.s3Failures >= this.circuitBreakerThreshold &&
-      timeSinceLastFailure < this.circuitBreakerTimeoutMs
-    ) {
-      return true;
-    }
-
-    // Reset failures if enough time has passed
-    if (timeSinceLastFailure > this.circuitBreakerTimeoutMs) {
-      this.circuitBreaker.s3Failures = 0;
-    }
-
-    return false;
-  }
-
-  private isDynamoCircuitOpen(): boolean {
-    const now = Date.now();
-    const timeSinceLastFailure = now - this.circuitBreaker.lastFailureTime;
-
-    // Circuit breaker: if more than threshold failures in the timeout period, open circuit
-    if (
-      this.circuitBreaker.dynamoFailures >= this.circuitBreakerThreshold &&
-      timeSinceLastFailure < this.circuitBreakerTimeoutMs
-    ) {
-      return true;
-    }
-
-    // Reset failures if enough time has passed
-    if (timeSinceLastFailure > this.circuitBreakerTimeoutMs) {
-      this.circuitBreaker.dynamoFailures = 0;
-    }
-
-    return false;
-  }
-
-  private handleS3Failure(): void {
-    this.circuitBreaker.s3Failures++;
-    this.circuitBreaker.lastFailureTime = Date.now();
-
-    // Log detailed error information for monitoring
-    console.error(
-      `S3 Cache Handler: Failure count ${this.circuitBreaker.s3Failures}/${this.circuitBreakerThreshold}. Circuit breaker will open at ${this.circuitBreakerThreshold} failures.`,
-    );
-
-    if (this.circuitBreaker.s3Failures >= this.circuitBreakerThreshold) {
-      console.error(
-        "S3 Cache Handler: Circuit breaker opened due to repeated failures.",
-      );
-    }
-  }
-
-  private handleDynamoFailure(): void {
-    this.circuitBreaker.dynamoFailures++;
-    this.circuitBreaker.lastFailureTime = Date.now();
-
-    // Log detailed error information for monitoring
-    console.error(
-      `DynamoDB Revalidation: Failure count ${this.circuitBreaker.dynamoFailures}/${this.circuitBreakerThreshold}. Circuit breaker will open at ${this.circuitBreakerThreshold} failures.`,
-    );
-
-    if (this.circuitBreaker.dynamoFailures >= this.circuitBreakerThreshold) {
-      console.error(
-        "DynamoDB Revalidation: Circuit breaker opened due to repeated failures. Revalidation tracking disabled.",
-      );
-    }
-  }
-
-  // Enhanced error categorization
-  private categorizeError(
-    error: any,
-  ): "network" | "permission" | "throttling" | "cache-miss" | "unknown" {
-    // Cache miss is not an error - it's expected behavior
-    // Check multiple ways NoSuchKey can be represented
-    if (
-      error.name === "NoSuchKey" ||
-      error.Code === "NoSuchKey" ||
-      error.$metadata?.httpStatusCode === 404 ||
-      (error.message && error.message.includes("NoSuchKey"))
-    ) {
-      return "cache-miss";
-    }
-
-    if (
-      error.name === "NetworkingError" ||
-      error.code === "ENOTFOUND" ||
-      error.code === "ECONNREFUSED"
-    ) {
-      return "network";
-    }
-
-    if (
-      error.name === "AccessDenied" ||
-      error.code === "AccessDenied" ||
-      error.statusCode === 403
-    ) {
-      return "permission";
-    }
-
-    if (
-      error.name === "ThrottlingException" ||
-      error.code === "ThrottlingException" ||
-      error.statusCode === 429
-    ) {
-      return "throttling";
-    }
-
-    return "unknown";
-  }
-
-  // Public methods for testing and monitoring
-  public getHealthStatus(): {
-    s3Available: boolean;
-    dynamoAvailable: boolean;
-    circuitBreakerStatus: CircuitBreakerState;
-    config: {
-      s3Config: S3CacheConfig;
-      dynamoConfig: DynamoDBRevalidationConfig;
-      circuitBreakerThreshold: number;
-      circuitBreakerTimeoutMs: number;
-    };
-  } {
-    return {
-      s3Available: !this.isS3CircuitOpen(),
-      dynamoAvailable: !this.isDynamoCircuitOpen(),
-      circuitBreakerStatus: {
-        s3Failures: this.circuitBreaker.s3Failures,
-        dynamoFailures: this.circuitBreaker.dynamoFailures,
-        lastFailureTime: this.circuitBreaker.lastFailureTime,
-      },
-      config: {
-        s3Config: this.s3Config,
-        dynamoConfig: this.dynamoConfig,
-        circuitBreakerThreshold: this.circuitBreakerThreshold,
-        circuitBreakerTimeoutMs: this.circuitBreakerTimeoutMs,
-      },
-    };
-  }
-
-  // Method to manually reset circuit breakers (for operational purposes)
-  public resetCircuitBreakers(): void {
-    this.circuitBreaker.s3Failures = 0;
-    this.circuitBreaker.dynamoFailures = 0;
-    this.circuitBreaker.lastFailureTime = 0;
-    console.info("S3DynamoCacheHandler: Circuit breakers manually reset");
   }
 }

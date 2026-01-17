@@ -112,6 +112,10 @@
   "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/cdk.out/"
+    ],
     "testMatch": [
       "<rootDir>/@(src|test)/**/*(*.)@(spec|test).ts?(x)",
       "<rootDir>/@(src|test)/**/__tests__/**/*.ts?(x)",
@@ -129,10 +133,8 @@
     ],
     "coverageDirectory": "coverage",
     "coveragePathIgnorePatterns": [
-      "/node_modules/"
-    ],
-    "testPathIgnorePatterns": [
-      "/node_modules/"
+      "/node_modules/",
+      "/cdk.out/"
     ],
     "watchPathIgnorePatterns": [
       "/node_modules/"

@@ -145,27 +145,6 @@ describe("S3DynamoCacheHandler", () => {
       });
       expect(result).toBeNull();
     });
-
-    it("should respect circuit breaker for S3", async () => {
-      // Trigger multiple failures to open circuit breaker
-      for (let i = 0; i < 5; i++) {
-        mockS3Send.mockRejectedValueOnce(new Error("S3 Error"));
-        await handler.get(`error-key-${i}`, {
-          kind: IncrementalCacheKind.APP_PAGE,
-          isFallback: false,
-        });
-      }
-
-      // Circuit breaker should now be open
-      const result = await handler.get("circuit-open-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
-      expect(result).toBeNull();
-
-      // S3 should not be called due to circuit breaker
-      expect(mockS3Send).toHaveBeenCalledTimes(5); // Only the failed calls
-    });
   });
 
   describe("set", () => {
@@ -235,32 +214,6 @@ describe("S3DynamoCacheHandler", () => {
         handler.set("error-key", testData, createSetContext([])),
       ).resolves.not.toThrow();
     });
-
-    it("should skip S3 when circuit breaker is open", async () => {
-      // Open circuit breaker
-      for (let i = 0; i < 5; i++) {
-        mockS3Send.mockRejectedValueOnce(new Error("S3 Error"));
-        await handler.get(`error-key-${i}`, {
-          kind: IncrementalCacheKind.APP_PAGE,
-          isFallback: false,
-        });
-      }
-
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>circuit open</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      await handler.set("circuit-open-key", testData, createSetContext([]));
-
-      // Should not attempt S3 put due to circuit breaker
-      expect(mockS3Send).toHaveBeenCalledTimes(5); // Only the failed get calls
-    });
   });
 
   describe("revalidateTag", () => {
@@ -303,65 +256,11 @@ describe("S3DynamoCacheHandler", () => {
       // Should not throw
       await expect(handler.revalidateTag("error-tag")).resolves.not.toThrow();
     });
-
-    it("should skip DynamoDB when circuit breaker is open", async () => {
-      // Open DynamoDB circuit breaker
-      for (let i = 0; i < 5; i++) {
-        mockDynamoSend.mockRejectedValueOnce(new Error("DynamoDB Error"));
-        await handler.revalidateTag(`error-tag-${i}`);
-      }
-
-      await handler.revalidateTag("circuit-open-tag");
-
-      // Should not attempt additional DynamoDB calls due to circuit breaker
-      expect(mockDynamoSend).toHaveBeenCalledTimes(5); // Only the failed calls
-    });
   });
 
   describe("resetRequestCache", () => {
     it("should complete without errors", async () => {
       await expect(handler.resetRequestCache()).resolves.not.toThrow();
-    });
-  });
-
-  describe("health status", () => {
-    it("should return correct health status", () => {
-      const status = handler.getHealthStatus();
-
-      expect(status).toEqual({
-        s3Available: true,
-        dynamoAvailable: true,
-        circuitBreakerStatus: {
-          s3Failures: 0,
-          dynamoFailures: 0,
-          lastFailureTime: 0,
-        },
-        config: {
-          s3Config: {
-            bucketName: "test-bucket",
-            region: "us-east-1",
-            buildId: "test-build-id",
-          },
-          dynamoConfig: {
-            tableName: "test-table",
-            region: "us-east-1",
-            buildId: "test-build-id",
-          },
-          circuitBreakerThreshold: 5,
-          circuitBreakerTimeoutMs: 300000,
-        },
-      });
-    });
-  });
-
-  describe("circuit breaker reset", () => {
-    it("should reset circuit breakers", () => {
-      handler.resetCircuitBreakers();
-
-      const status = handler.getHealthStatus();
-      expect(status.circuitBreakerStatus.s3Failures).toBe(0);
-      expect(status.circuitBreakerStatus.dynamoFailures).toBe(0);
-      expect(status.circuitBreakerStatus.lastFailureTime).toBe(0);
     });
   });
 
@@ -379,14 +278,9 @@ describe("S3DynamoCacheHandler", () => {
           region: "eu-west-1",
           buildId: "custom-build",
         },
-        circuitBreakerThreshold: 3,
-        circuitBreakerTimeoutMs: 60000,
       });
 
-      const status = customHandler.getHealthStatus();
-      expect(status.config.s3Config.bucketName).toBe("custom-bucket");
-      expect(status.config.circuitBreakerThreshold).toBe(3);
-      expect(status.config.circuitBreakerTimeoutMs).toBe(60000);
+      expect(customHandler).toBeDefined();
     });
   });
 });

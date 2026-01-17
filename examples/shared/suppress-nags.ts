@@ -113,6 +113,10 @@ export function suppressCommonNags(stack: Stack) {
             },
             "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
             "Resource::<NextjsNextjsStaticAssetsBucketB30C63EE.Arn>/*",
+            {
+              regex:
+                "/^Resource::<NextjsNextjsCacheCacheBucket[A-Z0-9]+\\.Arn>/\\*$/",
+            },
           ],
         },
       ]);

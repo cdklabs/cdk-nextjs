@@ -10,9 +10,11 @@ import {
 import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
+// eslint-disable-next-line import/no-extraneous-dependencies
+import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
-import getDebug from "debug";
+import { tmpdir } from "node:os";
 
 const debug = getDebug("nextjs-build");
 
@@ -321,7 +323,6 @@ export class NextjsBuild extends Construct {
       "node_modules",
     );
     const imgPath = join(nodeModulesPath, "@img");
-    const { tmpdir } = require("node:os");
 
     // Create a consistent cache directory for Sharp packages
     const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");

@@ -75,6 +75,11 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Duration**: User session or time-based
 **cdk-nextjs Implementation**: Handled natively by Next.js client - no server infrastructure needed.
 
+### Reference Implementations
+
+- [OpenNext](https://github.com/opennextjs/opennextjs-aws/blob/1aa300d33601e2fe7b5a289988fa0a32d727d26a/packages/open-next/src/adapters/cache.ts)
+- Next.js' [FileSystemCache](https://github.com/vercel/next.js/blob/canary/packages/next/src/server/lib/incremental-cache/file-system-cache.ts)
+
 ## cdk-nextjs Cache Architecture
 
 ### S3 Cache Storage
@@ -329,7 +334,6 @@ export class S3DynamoCacheHandler {
   ): Promise<void>;
 
   async revalidateTag(tag: string): Promise<void>;
-  async resetRequestCache(): Promise<void>;
 }
 ```
 
@@ -368,8 +372,7 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 - **Kind-based Organization**: S3 keys include cache type for better structure
 - **Tag Storage**: Tags stored with cache entries for revalidation checking
 - **Timestamp Validation**: Prevents serving stale data after tag revalidation
-- **Circuit Breaker**: Graceful degradation when S3/DynamoDB unavailable
-- **In-Memory Fallback**: Local cache when cloud services fail
+- **Graceful Error Handling**: Logs errors and returns cache miss on failures
 - **Bulletproof Consistency**: Even if S3 deletions fail, stale data won't be served
 
 ## Static Assets vs Cache Assets
@@ -409,7 +412,6 @@ When `revalidateTag("user-profile")` is called:
 1. **Query DynamoDB**: Find all cache keys tagged with `pk = {buildId} and sk starts_with user-profile`
 2. **Update Timestamps**: Mark revalidation time in DynamoDB for each cache entry
 3. **Delete S3 Objects**: Remove corresponding cache files from S3
-4. **Clear Memory**: Remove entries from in-memory cache
 
 **Revalidation Safety**: Even if S3 deletions fail due to network issues or race conditions, the cache handler will detect stale data during the next `get()` operation by comparing timestamps and automatically remove invalid entries.
 
@@ -463,12 +465,11 @@ export async function updateUser(userId: string) {
 - **Consistency**: Eventually consistent (sufficient for cache invalidation)
 - **Safety**: Timestamp-based validation prevents serving stale data
 
-### Circuit Breaker Protection
+### Error Handling
 
-- **S3 Failures**: Falls back to in-memory cache
-- **DynamoDB Failures**: Continues without revalidation tracking
-- **Automatic Recovery**: Resets after successful operations
-- **Monitoring**: Detailed error categorization and logging
+- **S3 Failures**: Logs errors and returns cache miss, allowing Next.js to fetch fresh data
+- **DynamoDB Failures**: Logs errors and continues without revalidation tracking
+- **Graceful Degradation**: Cache misses trigger fresh data fetching automatically
 
 ## Troubleshooting
 
@@ -492,7 +493,7 @@ export async function updateUser(userId: string) {
 
 1. Check S3 request latency in CloudWatch
 2. Monitor DynamoDB throttling
-3. Review circuit breaker status
+3. Review error logs for persistent failures
 4. Verify regional S3 bucket placement
 
 This comprehensive caching system provides the performance benefits of Next.js caching while leveraging AWS's scalable, cost-effective infrastructure. For information about automatic cleanup of old cache data, see the [pruning guide](./pruning-guide.md).
