@@ -2,7 +2,6 @@
 import { App, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
-import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { NextjsCache } from "./nextjs-cache";
 
 describe("NextjsCache", () => {
@@ -101,51 +100,6 @@ describe("NextjsCache", () => {
       template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
         TableName: "custom-revalidation-table",
       });
-    });
-  });
-
-  describe("Permission Granting", () => {
-    let cache: NextjsCache;
-    let role: Role;
-
-    beforeEach(() => {
-      cache = new NextjsCache(stack, "TestCache", {
-        buildId: "test-build-123",
-      });
-      role = new Role(stack, "TestRole", {
-        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
-      });
-    });
-
-    it("should grant cache access to roles", () => {
-      cache.grantCacheAccess(role);
-
-      const template = Template.fromStack(stack);
-
-      // Should create IAM policy for the role
-      template.hasResourceProperties("AWS::IAM::Policy", {
-        Roles: [{ Ref: "TestRole6C9272DF" }],
-      });
-
-      // Verify that the policy contains both S3 and DynamoDB permissions
-      const policies = template.findResources("AWS::IAM::Policy");
-      const policyStatements =
-        Object.values(policies)[0].Properties.PolicyDocument.Statement;
-
-      // Check that there are statements with S3 actions
-      const hasS3Actions = policyStatements.some((statement: any) =>
-        statement.Action.some((action: string) => action.startsWith("s3:")),
-      );
-
-      // Check that there are statements with DynamoDB actions
-      const hasDynamoActions = policyStatements.some((statement: any) =>
-        statement.Action.some((action: string) =>
-          action.startsWith("dynamodb:"),
-        ),
-      );
-
-      expect(hasS3Actions).toBe(true);
-      expect(hasDynamoActions).toBe(true);
     });
   });
 });

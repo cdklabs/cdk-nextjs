@@ -7,7 +7,6 @@ import {
   TableV2,
   TablePropsV2,
 } from "aws-cdk-lib/aws-dynamodb";
-import { IRole } from "aws-cdk-lib/aws-iam";
 import {
   Bucket,
   BucketEncryption,
@@ -38,25 +37,11 @@ export interface NextjsCacheProps {
   readonly overrides?: NextjsCacheOverrides;
 }
 
-export interface ICacheOperationsInterface {
-  readonly cacheBucket: Bucket;
-  readonly revalidationTable: TableV2;
-  readonly buildId: string;
-
-  /**
-   * Grant read/write permissions to a role for cache operations
-   */
-  grantCacheAccess(role: IRole): void;
-}
-
 /**
  * Next.js Cache construct providing unified S3 and DynamoDB cache management.
  * Replaces EFS-based caching with cloud-native S3/DynamoDB solution.
  */
-export class NextjsCache
-  extends Construct
-  implements ICacheOperationsInterface
-{
+export class NextjsCache extends Construct {
   readonly cacheBucket: Bucket;
   readonly revalidationTable: TableV2;
   readonly buildId: string;
@@ -140,16 +125,5 @@ export class NextjsCache
       prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
       ...this.props.overrides?.bucketDeploymentProps,
     });
-  }
-
-  /**
-   * Grant read/write permissions to a role for cache operations
-   */
-  grantCacheAccess(role: IRole): void {
-    // Grant S3 bucket read/write access
-    this.cacheBucket.grantReadWrite(role);
-
-    // Grant DynamoDB table read/write access
-    this.revalidationTable.grantReadWriteData(role);
   }
 }

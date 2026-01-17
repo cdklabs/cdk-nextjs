@@ -33,7 +33,6 @@ export {
   NextjsCache,
   NextjsCacheOverrides,
   NextjsCacheProps,
-  ICacheOperationsInterface,
 } from "./nextjs-cache";
 export {
   NextjsGlobalContainers,
