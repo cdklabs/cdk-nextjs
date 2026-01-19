@@ -9,16 +9,22 @@ const adapter: NextAdapter = {
       return {
         ...config,
         output: "standalone",
-        cacheHandler: fileURLToPath(
-          import.meta.resolve("cdk-nextjs/cache-handler"),
-        ),
+        cacheHandler: config.cacheHandler
+          ? config.cacheHandler
+          : fileURLToPath(import.meta.resolve("cdk-nextjs/cache-handler")),
         images: {
           ...config.images,
-          customCacheHandler: true, // TODO: remove in Next.js 17
+          customCacheHandler: config.images.customCacheHandler
+            ? config.images.customCacheHandler
+            : true, // TODO: remove in Next.js 17
         },
       };
     }
     return config;
+  },
+  onBuildComplete(ctx) {
+    ctx;
+    // TODO: copy .rsc, .body, .html into the cdk-nextjs-init-cache folder for init cache deployment
   },
 };
 

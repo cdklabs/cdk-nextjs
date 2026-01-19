@@ -6,7 +6,9 @@ import {
   PutItemCommand,
   BatchWriteItemCommand,
 } from "@aws-sdk/client-dynamodb";
-import { debug } from "../utils";
+import getDebug from "debug";
+
+const debug = getDebug("cdk-nextjs:post-deploy:prune-revalidation-table");
 
 const dynamoClient = new DynamoDBClient();
 

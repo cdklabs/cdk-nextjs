@@ -34,7 +34,7 @@ export interface OptionalNextjsPostDeployProps {
    * Cache bucket for cleaning up old BUILD_ID prefixed objects.
    * @stability stable
    */
-  readonly cacheBucket?: aws_s3.Bucket;
+  readonly cacheBucket?: aws_s3.IBucket;
   /**
    * @stability stable
    */

@@ -17,6 +17,7 @@ describe("NextjsCache", () => {
     it("should create S3 bucket and DynamoDB table", () => {
       const cache = new NextjsCache(stack, "TestCache", {
         buildId: "test-build-123",
+        initCacheDir: "/tmp/test-cache",
       });
 
       expect(cache.cacheBucket).toBeDefined();
@@ -73,6 +74,7 @@ describe("NextjsCache", () => {
     it("should apply custom overrides", () => {
       new NextjsCache(stack, "TestCache", {
         buildId: "test-build-123",
+        initCacheDir: "/tmp/test-cache",
         overrides: {
           cacheBucketProps: {
             bucketName: "custom-cache-bucket",

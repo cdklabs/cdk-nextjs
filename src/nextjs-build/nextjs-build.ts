@@ -55,6 +55,11 @@ export class NextjsBuild extends Construct {
    */
   buildId: string;
   /**
+   * Absolute path to the init cache directory
+   * @example "/Users/john/myapp/.next/cdk-nextjs-init-cache"
+   */
+  initCacheDir: string;
+  /**
    * Absolute path to public. Use by CloudFront/ALB to create behaviors/rules
    * @example "/Users/john/myapp/public"
    */
@@ -87,6 +92,13 @@ export class NextjsBuild extends Construct {
 
     this.buildCommand = props.buildCommand || "npm run build";
 
+    // Set init cache directory path
+    this.initCacheDir = join(
+      props.buildDirectory,
+      ".next",
+      "cdk-nextjs-init-cache",
+    );
+
     // Execute local build process
     if (props.skipBuild !== true) {
       this.runNextBuild();
@@ -116,11 +128,20 @@ export class NextjsBuild extends Construct {
       `${LOG_PREFIX} Running: "${this.buildCommand}" in directory: ${this.props.buildDirectory}`,
     );
 
+    // Clean existing cache directory to avoid stale data from previous builds
+    if (existsSync(this.initCacheDir)) {
+      rmSync(this.initCacheDir, { recursive: true, force: true });
+      debug(`Cleaned existing cache directory: ${this.initCacheDir}`);
+    }
+
     try {
       execSync(this.buildCommand, {
         stdio: "inherit",
         cwd: this.props.buildDirectory,
-        env: process.env,
+        env: {
+          ...process.env,
+          CDK_NEXTJS_INIT_CACHE_DIR: this.initCacheDir,
+        },
       });
 
       // Copy patch-fetch.js into client JS bundle after build only for NextjsGlobalFunctions

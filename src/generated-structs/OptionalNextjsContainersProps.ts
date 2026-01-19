@@ -38,7 +38,7 @@ export interface OptionalNextjsContainersProps {
    * S3 bucket for cache storage.
    * @stability stable
    */
-  readonly cacheBucket?: aws_s3.Bucket;
+  readonly cacheBucket?: aws_s3.IBucket;
   /**
    * Build output directory containing .next folder with standalone build Required for local builds.
    * @stability stable

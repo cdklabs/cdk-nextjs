@@ -39,9 +39,22 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
   // Build-time handler
   private localFileHandler: LocalFileCacheHandler | null = null;
 
-  // Runtime handlers
+  // Runtime handlers (shared across all instances)
   private memoryHandler: MemoryCacheHandler | null = null;
   private s3DynamoHandler: S3DynamoCacheHandler | null = null;
+
+  /**
+   * Shared singleton handlers for runtime.
+   *
+   * Next.js creates multiple cache handler instances (one each for APP_PAGE, APP_ROUTE, FETCH, etc).
+   * Using singleton pattern provides:
+   * - Single S3 client connection pool shared across all cache types
+   * - Unified memory cache accessible by all instances (cache hits benefit all)
+   * - Lower memory footprint and faster initialization
+   * - Same CacheHandlerContext for all instances, so no configuration loss
+   */
+  private static sharedMemoryHandler: MemoryCacheHandler | null = null;
+  private static sharedS3DynamoHandler: S3DynamoCacheHandler | null = null;
 
   constructor(options: CacheHandlerContext) {
     if (this.isBuildTime) {
@@ -51,16 +64,29 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       this.debug("Build-time mode: LocalFileCacheHandler initialized");
       this.debug(`Cache directory: ${this.localFileHandler.getCacheDir()}`);
     } else {
-      // Runtime: memory + S3/DynamoDB
-      this.s3DynamoHandler = new S3DynamoCacheHandler({
-        context: options,
-      });
+      // Runtime: reuse shared handlers (singleton pattern)
+      // Initialize once on first construction
+      if (!CdkNextjsCacheHandler.sharedS3DynamoHandler) {
+        CdkNextjsCacheHandler.sharedS3DynamoHandler = new S3DynamoCacheHandler({
+          context: options,
+        });
+        this.debug("Initialized shared S3/DynamoDB handler");
+      }
 
-      this.memoryHandler = new MemoryCacheHandler({
-        context: options,
-      });
+      if (!CdkNextjsCacheHandler.sharedMemoryHandler) {
+        CdkNextjsCacheHandler.sharedMemoryHandler = new MemoryCacheHandler({
+          context: options,
+        });
+        this.debug("Initialized shared Memory handler");
+      }
 
-      this.debug("Runtime mode: Memory + S3/DynamoDB handlers initialized");
+      // Reference shared instances
+      this.s3DynamoHandler = CdkNextjsCacheHandler.sharedS3DynamoHandler;
+      this.memoryHandler = CdkNextjsCacheHandler.sharedMemoryHandler;
+
+      this.debug(
+        "Runtime mode: Using shared Memory + S3/DynamoDB handlers (singleton)",
+      );
     }
   }
 

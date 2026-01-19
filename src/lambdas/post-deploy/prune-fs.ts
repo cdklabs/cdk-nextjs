@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { debug } from "../utils";
+import getDebug from "debug";
+
+const debug = getDebug("cdk-nextjs:post-deploy:prune-fs");
 
 interface PruneFsProps {
   mountPath: string;

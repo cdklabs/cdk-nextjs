@@ -8,7 +8,7 @@ import {
   Runtime,
   RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
-import { Bucket } from "aws-cdk-lib/aws-s3";
+import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
@@ -32,7 +32,7 @@ export interface NextjsPostDeployProps {
   /**
    * Cache bucket for cleaning up old BUILD_ID prefixed objects
    */
-  readonly cacheBucket?: Bucket;
+  readonly cacheBucket?: IBucket;
   /**
    * DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries
    */

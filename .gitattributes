@@ -33,6 +33,7 @@
 /src/generated-structs/OptionalFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalFunctionUrlProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsBuildProps.ts linguist-generated
+/src/generated-structs/OptionalNextjsCacheProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsContainersProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsDistributionProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsPostDeployProps.ts linguist-generated

@@ -71,6 +71,7 @@ tsconfig.json
 !/src/generated-structs/OptionalClusterProps.ts
 !/src/generated-structs/OptionalDockerImageAssetProps.ts
 !/src/generated-structs/OptionalNextjsBuildProps.ts
+!/src/generated-structs/OptionalNextjsCacheProps.ts
 !/src/generated-structs/OptionalNextjsDistributionProps.ts
 !/src/generated-structs/OptionalNextjsVpcProps.ts
 !/src/generated-structs/OptionalNextjsContainersProps.ts

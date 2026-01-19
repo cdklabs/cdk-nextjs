@@ -1,5 +1,5 @@
 import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
-import { Bucket } from "aws-cdk-lib/aws-s3";
+import { IBucket } from "aws-cdk-lib/aws-s3";
 import { NextjsType } from "../constants";
 
 export interface NextjsComputeBaseProps {
@@ -7,7 +7,7 @@ export interface NextjsComputeBaseProps {
   /**
    * S3 bucket for cache storage
    */
-  readonly cacheBucket: Bucket;
+  readonly cacheBucket: IBucket;
   /**
    * DynamoDB table for revalidation metadata
    */

@@ -6,7 +6,7 @@
   BucketDeployment will add the buildId prefix when uploading to S3.
 */
 /* eslint-disable import/no-extraneous-dependencies */
-import { existsSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
@@ -23,16 +23,13 @@ export class LocalFileCacheHandler {
   private cacheDir: string;
 
   constructor() {
-    // Always write to .next/cdk-nextjs-cache-handler in current working directory
-    this.cacheDir = join(process.cwd(), ".next", "cdk-nextjs-init-cache");
+    // Read cache directory from environment variable set by NextjsBuild
+    // Falls back to default location for backward compatibility
+    this.cacheDir = process.env.CDK_NEXTJS_INIT_CACHE_DIR
+      ? process.env.CDK_NEXTJS_INIT_CACHE_DIR
+      : join(process.cwd(), ".next", "cdk-nextjs-init-cache");
 
-    // Clean existing cache directory to avoid stale data from previous builds
-    if (existsSync(this.cacheDir)) {
-      rmSync(this.cacheDir, { recursive: true, force: true });
-      debug(`Cleaned existing cache directory: ${this.cacheDir}`);
-    }
-
-    // Create fresh cache directory
+    // Create fresh cache directory; cache directory is cleaned before each build in NextjsBuild
     mkdirSync(this.cacheDir, { recursive: true });
     debug(`Created local cache directory: ${this.cacheDir}`);
   }

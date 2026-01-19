@@ -1,11 +1,113 @@
 import { Stack } from "aws-cdk-lib";
 import { NagSuppressions } from "cdk-nag";
 
+/**
+ * Helper function to suppress IAM4 for AWSLambdaBasicExecutionRole
+ */
+function suppressLambdaExecutionRole(
+  stack: Stack,
+  path: string,
+  reason: string = "AWSLambdaBasicExecutionRole is not overly permissive",
+) {
+  NagSuppressions.addResourceSuppressionsByPath(stack, path, [
+    {
+      id: "AwsSolutions-IAM4",
+      reason,
+      appliesTo: [
+        "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+      ],
+    },
+  ]);
+}
+
+/**
+ * Helper function to suppress IAM5 for S3 wildcard permissions commonly needed by compute resources
+ */
+function suppressS3WildcardPermissions(
+  stack: Stack,
+  path: string,
+  reason: string,
+  options: {
+    includeAbort?: boolean;
+    includeDelete?: boolean;
+    includeStaticAssets?: boolean;
+    includeCdkAssets?: boolean;
+    additionalResources?: Array<string | { regex: string }>;
+  } = {},
+) {
+  const {
+    includeAbort = true,
+    includeDelete = true,
+    includeStaticAssets = false,
+    includeCdkAssets = false,
+    additionalResources = [],
+  } = options;
+
+  const actions: string[] = [
+    "Action::s3:GetBucket*",
+    "Action::s3:GetObject*",
+    "Action::s3:List*",
+  ];
+
+  if (includeAbort) {
+    actions.push("Action::s3:Abort*");
+  }
+  if (includeDelete) {
+    actions.push("Action::s3:DeleteObject*");
+  }
+
+  const resources: Array<string | { regex: string }> = [
+    {
+      regex: "/^Resource::<NextjsNextjsCacheBucket[A-Z0-9]+\\.Arn>/\\*$/",
+    },
+  ];
+
+  if (includeStaticAssets) {
+    resources.push("Resource::<NextjsNextjsStaticAssetsBucketB30C63EE.Arn>/*");
+  }
+
+  if (includeCdkAssets) {
+    resources.push(
+      {
+        regex:
+          "/^Resource::arn:(aws|aws-cn|aws-us-gov):s3:::cdk-hnb659fds-assets-.+/\\*$/",
+      },
+      "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
+    );
+  }
+
+  resources.push(...additionalResources);
+
+  NagSuppressions.addResourceSuppressionsByPath(stack, path, [
+    {
+      id: "AwsSolutions-IAM5",
+      reason,
+      appliesTo: [...actions, ...resources],
+    },
+  ]);
+}
+
+/**
+ * Helper function to suppress L1 for Lambda runtime (CDK-managed Lambdas)
+ */
+function suppressLambdaRuntime(
+  stack: Stack,
+  path: string,
+  reason: string = "Lambda runtime is managed by CDK and updated automatically",
+) {
+  NagSuppressions.addResourceSuppressionsByPath(stack, path, [
+    {
+      id: "AwsSolutions-L1",
+      reason,
+    },
+  ]);
+}
+
 export function suppressCommonNags(stack: Stack) {
   // Cache bucket suppressions
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
-    `/${stack.stackName}/Nextjs/NextjsCache/CacheBucket/Resource`,
+    `/${stack.stackName}/Nextjs/NextjsCache/Bucket/Resource`,
     [
       {
         id: "AwsSolutions-S1",
@@ -20,10 +122,9 @@ export function suppressCommonNags(stack: Stack) {
     ],
   );
 
-  // Cache bucket policy suppressions
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
-    `/${stack.stackName}/Nextjs/NextjsCache/CacheBucket/Policy/Resource`,
+    `/${stack.stackName}/Nextjs/NextjsCache/Bucket/Policy/Resource`,
     [
       {
         id: "AwsSolutions-S10",
@@ -34,40 +135,61 @@ export function suppressCommonNags(stack: Stack) {
   );
 
   // Post deploy function suppressions
-  NagSuppressions.addResourceSuppressionsByPath(
+  suppressLambdaExecutionRole(
     stack,
     `/${stack.stackName}/Nextjs/NextjsPostDeploy/Fn/ServiceRole/Resource`,
+    "AWSLambdaBasicExecutionRole is not overly permissive for post-deploy operations",
+  );
+
+  suppressS3WildcardPermissions(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsPostDeploy/Fn/ServiceRole/DefaultPolicy/Resource`,
+    "Post-deploy Lambda needs wildcard S3 permissions to manage cache and static assets",
+    { includeStaticAssets: true },
+  );
+
+  // Init cache deployment suppressions
+  suppressLambdaExecutionRole(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Handler/ServiceRole/Resource`,
+    "AWSLambdaBasicExecutionRole is not overly permissive for cache initialization",
+  );
+
+  suppressS3WildcardPermissions(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Handler/ServiceRole/DefaultPolicy/Resource`,
+    "Init cache deployment Lambda needs wildcard S3 permissions to initialize cache bucket",
+    { includeAbort: false, includeDelete: false, includeCdkAssets: true },
+  );
+
+  suppressLambdaExecutionRole(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Provider/framework-onEvent/ServiceRole/Resource`,
+    "AWSLambdaBasicExecutionRole is not overly permissive for CDK custom resource provider",
+  );
+
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Provider/framework-onEvent/ServiceRole/DefaultPolicy/Resource`,
     [
       {
-        id: "AwsSolutions-IAM4",
+        id: "AwsSolutions-IAM5",
         reason:
-          "AWSLambdaBasicExecutionRole is not overly permissive for post-deploy operations",
+          "CDK custom resource provider needs wildcard permissions to invoke handler function versions",
         appliesTo: [
-          "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          {
+            regex:
+              "/^Resource::<NextjsNextjsCacheInitCacheDeploymentHandler[A-Z0-9]+\\.Arn>:\\*$/",
+          },
         ],
       },
     ],
   );
 
-  NagSuppressions.addResourceSuppressionsByPath(
+  suppressLambdaRuntime(
     stack,
-    `/${stack.stackName}/Nextjs/NextjsPostDeploy/Fn/ServiceRole/DefaultPolicy/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM5",
-        reason:
-          "Post-deploy Lambda needs wildcard S3 permissions to manage cache and static assets",
-        appliesTo: [
-          "Action::s3:Abort*",
-          "Action::s3:DeleteObject*",
-          "Action::s3:GetBucket*",
-          "Action::s3:GetObject*",
-          "Action::s3:List*",
-          "Resource::<NextjsNextjsCacheCacheBucket365965B9.Arn>/*",
-          "Resource::<NextjsNextjsStaticAssetsBucketB30C63EE.Arn>/*",
-        ],
-      },
-    ],
+    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Provider/framework-onEvent/Resource`,
+    "CDK custom resource provider Lambda runtime is managed by CDK",
   );
 
   // CDK Bucket Deployment suppressions (using regex patterns to match dynamic hashes)
@@ -84,51 +206,26 @@ export function suppressCommonNags(stack: Stack) {
 
     if (path.endsWith("/ServiceRole/Resource")) {
       // Suppress CDK Bucket Deployment Service Roles
-      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
-        {
-          id: "AwsSolutions-IAM4",
-          reason:
-            "CDK BucketDeployment uses AWSLambdaBasicExecutionRole for asset deployment",
-          appliesTo: [
-            "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-          ],
-        },
-      ]);
+      suppressLambdaExecutionRole(
+        stack,
+        `/${path}`,
+        "CDK BucketDeployment uses AWSLambdaBasicExecutionRole for asset deployment",
+      );
     } else if (path.endsWith("/ServiceRole/DefaultPolicy/Resource")) {
       // Suppress CDK Bucket Deployment Default Policies
-      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
-        {
-          id: "AwsSolutions-IAM5",
-          reason:
-            "CDK BucketDeployment needs wildcard S3 permissions to deploy static assets",
-          appliesTo: [
-            "Action::s3:Abort*",
-            "Action::s3:DeleteObject*",
-            "Action::s3:GetBucket*",
-            "Action::s3:GetObject*",
-            "Action::s3:List*",
-            {
-              regex:
-                "/^Resource::arn:(aws|aws-cn|aws-us-gov):s3:::cdk-hnb659fds-assets-.+/\\*$/",
-            },
-            "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
-            "Resource::<NextjsNextjsStaticAssetsBucketB30C63EE.Arn>/*",
-            {
-              regex:
-                "/^Resource::<NextjsNextjsCacheCacheBucket[A-Z0-9]+\\.Arn>/\\*$/",
-            },
-          ],
-        },
-      ]);
+      suppressS3WildcardPermissions(
+        stack,
+        `/${path}`,
+        "CDK BucketDeployment needs wildcard S3 permissions to deploy static assets",
+        { includeStaticAssets: true, includeCdkAssets: true },
+      );
     } else if (path.endsWith("/Resource") && !path.includes("/ServiceRole/")) {
       // Suppress CDK Bucket Deployment Lambda Functions
-      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
-        {
-          id: "AwsSolutions-L1",
-          reason:
-            "CDK BucketDeployment Lambda runtime is managed by CDK and updated automatically",
-        },
-      ]);
+      suppressLambdaRuntime(
+        stack,
+        `/${path}`,
+        "CDK BucketDeployment Lambda runtime is managed by CDK",
+      );
     }
   }
 
@@ -147,34 +244,15 @@ export function suppressCommonNags(stack: Stack) {
 }
 
 export function suppressLambdaNags(stack: Stack) {
-  NagSuppressions.addResourceSuppressionsByPath(
+  suppressLambdaExecutionRole(
     stack,
     `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM4",
-        reason: "AWSLambaBasicExecutionRole is not overly permissive",
-      },
-    ],
   );
-  NagSuppressions.addResourceSuppressionsByPath(
+
+  suppressS3WildcardPermissions(
     stack,
     `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM5",
-        reason:
-          "Lambda functions need wildcard S3 permissions to access cache and static assets",
-        appliesTo: [
-          "Action::s3:Abort*",
-          "Action::s3:DeleteObject*",
-          "Action::s3:GetBucket*",
-          "Action::s3:GetObject*",
-          "Action::s3:List*",
-          "Resource::<NextjsNextjsCacheCacheBucket365965B9.Arn>/*",
-        ],
-      },
-    ],
+    "Lambda functions need wildcard S3 permissions to access cache and static assets",
   );
 }
 
@@ -214,22 +292,20 @@ export function suppressContainerNags(stack: Stack) {
   );
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
-    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
+    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/ExecutionRole/DefaultPolicy/Resource`,
     [
       {
         id: "AwsSolutions-IAM5",
-        reason:
-          "Container task role needs wildcard S3 permissions to access cache and static assets",
-        appliesTo: [
-          "Action::s3:Abort*",
-          "Action::s3:DeleteObject*",
-          "Action::s3:GetBucket*",
-          "Action::s3:GetObject*",
-          "Action::s3:List*",
-          "Resource::<NextjsNextjsCacheCacheBucket365965B9.Arn>/*",
-        ],
+        // TODO: lock down to cdk hnb5 one?
+        reason: "ECS Task Execution Role can access any ECR repository",
       },
     ],
+  );
+
+  suppressS3WildcardPermissions(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
+    "Container task role needs wildcard S3 permissions to access cache and static assets",
   );
 }
 

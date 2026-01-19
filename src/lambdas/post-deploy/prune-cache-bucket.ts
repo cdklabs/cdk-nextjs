@@ -5,7 +5,9 @@ import {
   DeleteObjectsCommand,
   ListObjectsV2CommandInput,
 } from "@aws-sdk/client-s3";
-import { debug } from "../utils";
+import getDebug from "debug";
+
+const debug = getDebug("cdk-nextjs:post-deploy:prune-cache-bucket");
 
 const s3Client = new S3Client();
 

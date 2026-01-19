@@ -23,6 +23,7 @@ const getTags = (
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
+  expiresAt: number; // Timestamp in milliseconds
 }
 
 export interface MemoryCacheHandlerOptions {
@@ -33,12 +34,19 @@ export class MemoryCacheHandler implements CacheHandler {
   private inMemoryCache: Map<string, MemoryCacheEntry> = new Map();
   private inMemoryTagCache: Map<string, Set<string>> = new Map(); // tag -> Set of cache keys
   private debug = getDebug("cdk-nextjs:cache-handler:memory");
+  private readonly ttlMs: number; // Time to live in milliseconds
+  private readonly maxEntries: number; // Maximum number of cache entries
 
   constructor(options: MemoryCacheHandlerOptions) {
+    // Default to 1 hour TTL and 1000 max entries
+    this.ttlMs = 60 * 60 * 1000; // 1 hour
+    this.maxEntries = 1000;
+
     // Log the options for debugging (optional usage to avoid unused parameter warning)
     if (options.context.dev) {
       this.debug("MemoryCacheHandler initialized in development mode");
     }
+    this.debug(`TTL: ${this.ttlMs / 1000}s, Max entries: ${this.maxEntries}`);
   }
 
   async get(
@@ -55,6 +63,18 @@ export class MemoryCacheHandler implements CacheHandler {
     // Check in-memory cache
     const memoryEntry = this.inMemoryCache.get(cacheKey);
     if (memoryEntry) {
+      // Check if expired
+      if (Date.now() > memoryEntry.expiresAt) {
+        this.debug(`MEMORY CACHE EXPIRED: ${cacheKey}`);
+        this.inMemoryCache.delete(cacheKey);
+        this.removeFromTagCache(cacheKey);
+        return null;
+      }
+
+      // Move to end (most recently used) by deleting and re-inserting
+      this.inMemoryCache.delete(cacheKey);
+      this.inMemoryCache.set(cacheKey, memoryEntry);
+
       this.debug(`MEMORY CACHE HIT: ${cacheKey}`);
       return memoryEntry.value;
     }
@@ -71,18 +91,9 @@ export class MemoryCacheHandler implements CacheHandler {
     if (!data) {
       // Delete from memory cache
       this.debug(`MEMORY CACHE DELETE: ${cacheKey}`);
-      this.inMemoryCache.delete(cacheKey);
 
-      // Remove from tag cache
-      for (const [tag, cacheKeys] of this.inMemoryTagCache.entries()) {
-        if (cacheKeys.has(cacheKey)) {
-          cacheKeys.delete(cacheKey);
-          // Clean up empty tag sets
-          if (cacheKeys.size === 0) {
-            this.inMemoryTagCache.delete(tag);
-          }
-        }
-      }
+      this.inMemoryCache.delete(cacheKey);
+      this.removeFromTagCache(cacheKey);
 
       return;
     }
@@ -102,9 +113,23 @@ export class MemoryCacheHandler implements CacheHandler {
       value: data,
     };
 
-    this.inMemoryCache.set(cacheKey, {
+    const entry: MemoryCacheEntry = {
       value: cacheHandlerValue,
-    });
+      expiresAt: Date.now() + this.ttlMs,
+    };
+
+    // Clean up expired entries before adding new one
+    this.cleanupExpired();
+
+    // If we're at max capacity, evict oldest entry
+    if (this.inMemoryCache.size >= this.maxEntries) {
+      this.evictOldest();
+    }
+
+    // Add new entry
+    this.inMemoryCache.set(cacheKey, entry);
+
+    this.debug(`Cache entries: ${this.inMemoryCache.size}/${this.maxEntries}`);
 
     // Track tags for this cache entry (only in SetIncrementalFetchCacheContext)
     if (tags && tags.length > 0) {
@@ -160,6 +185,54 @@ export class MemoryCacheHandler implements CacheHandler {
           this.inMemoryTagCache.delete(otherTag);
         }
       }
+    }
+  }
+
+  /**
+   * Remove a cache key from all tag mappings
+   */
+  private removeFromTagCache(cacheKey: string): void {
+    for (const [tag, cacheKeys] of this.inMemoryTagCache.entries()) {
+      if (cacheKeys.has(cacheKey)) {
+        cacheKeys.delete(cacheKey);
+        // Clean up empty tag sets
+        if (cacheKeys.size === 0) {
+          this.inMemoryTagCache.delete(tag);
+        }
+      }
+    }
+  }
+
+  /**
+   * Remove all expired cache entries
+   */
+  private cleanupExpired(): void {
+    const now = Date.now();
+    let expiredCount = 0;
+
+    for (const [key, entry] of this.inMemoryCache.entries()) {
+      if (now > entry.expiresAt) {
+        this.inMemoryCache.delete(key);
+        this.removeFromTagCache(key);
+        expiredCount++;
+      }
+    }
+
+    if (expiredCount > 0) {
+      this.debug(`Cleaned up ${expiredCount} expired entries`);
+    }
+  }
+
+  /**
+   * Evict the oldest (least recently used) cache entry
+   * Map maintains insertion order, so first entry is oldest
+   */
+  private evictOldest(): void {
+    const firstKey = this.inMemoryCache.keys().next().value;
+    if (firstKey) {
+      this.debug(`MAX CAPACITY EVICT (LRU): ${firstKey}`);
+      this.inMemoryCache.delete(firstKey);
+      this.removeFromTagCache(firstKey);
     }
   }
 

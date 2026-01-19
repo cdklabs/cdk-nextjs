@@ -5,6 +5,11 @@
  */
 export interface OptionalNextjsCacheProps {
   /**
+   * Absolute path to the init cache directory.
+   * @stability stable
+   */
+  readonly initCacheDir?: string;
+  /**
    * @stability stable
    */
   readonly buildId?: string;

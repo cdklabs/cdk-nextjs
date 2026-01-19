@@ -174,7 +174,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   private createNextjsCache(): NextjsCache {
     return new NextjsCache(this, "NextjsCache", {
       buildId: this.nextjsBuild.buildId,
-      buildOutputPath: this.baseProps.buildDirectory,
+      initCacheDir: this.nextjsBuild.initCacheDir,
       overrides: this.baseProps.overrides?.nextjsCache,
       ...this.constructOverrides?.nextjsCacheProps,
     });

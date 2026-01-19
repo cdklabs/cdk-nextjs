@@ -26,6 +26,7 @@
     "src/generated-structs/OptionalFunctionProps.ts",
     "src/generated-structs/OptionalFunctionUrlProps.ts",
     "src/generated-structs/OptionalNextjsBuildProps.ts",
+    "src/generated-structs/OptionalNextjsCacheProps.ts",
     "src/generated-structs/OptionalNextjsContainersProps.ts",
     "src/generated-structs/OptionalNextjsDistributionProps.ts",
     "src/generated-structs/OptionalNextjsPostDeployProps.ts",

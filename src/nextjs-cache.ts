@@ -1,5 +1,4 @@
 import { existsSync } from "fs";
-import { join } from "path";
 import { RemovalPolicy } from "aws-cdk-lib";
 import {
   AttributeType,
@@ -12,6 +11,7 @@ import {
   BucketEncryption,
   BucketProps,
   BlockPublicAccess,
+  IBucket,
 } from "aws-cdk-lib/aws-s3";
 import {
   BucketDeployment,
@@ -30,10 +30,10 @@ export interface NextjsCacheOverrides {
 export interface NextjsCacheProps {
   readonly buildId: string;
   /**
-   * Path to the Next.js build output directory (containing .next folder)
-   * Used to deploy pre-built cache files from .next/cdk-nextjs-cache-handler
+   * Absolute path to the init cache directory
+   * @example "/Users/john/myapp/.next/cdk-nextjs-init-cache"
    */
-  readonly buildOutputPath?: string;
+  readonly initCacheDir: string;
   readonly overrides?: NextjsCacheOverrides;
 }
 
@@ -42,10 +42,10 @@ export interface NextjsCacheProps {
  * Replaces EFS-based caching with cloud-native S3/DynamoDB solution.
  */
 export class NextjsCache extends Construct {
-  readonly cacheBucket: Bucket;
+  readonly cacheBucket: IBucket;
   readonly revalidationTable: TableV2;
   readonly buildId: string;
-  readonly deployment?: BucketDeployment;
+  readonly bucketDeployment?: BucketDeployment;
   private props: NextjsCacheProps;
 
   constructor(scope: Construct, id: string, props: NextjsCacheProps) {
@@ -54,14 +54,14 @@ export class NextjsCache extends Construct {
     this.buildId = props.buildId;
     this.cacheBucket = this.createCacheBucket();
     this.revalidationTable = this.createRevalidationTable();
-    this.deployment = this.createDeployment();
+    this.bucketDeployment = this.createDeployment();
   }
 
   /**
-   * Creates S3 bucket for cache storage with BUILD_ID prefixing
+   * Creates S3 bucket for cache storage with BUILD_ID prefixing.
    */
-  private createCacheBucket(): Bucket {
-    const bucket = new Bucket(this, "CacheBucket", {
+  private createCacheBucket(): IBucket {
+    const bucket = new Bucket(this, "Bucket", {
       encryption: BucketEncryption.S3_MANAGED,
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       removalPolicy: RemovalPolicy.DESTROY,
@@ -98,32 +98,26 @@ export class NextjsCache extends Construct {
    * Deploy pre-built cache files from .next/cdk-nextjs-init-cache to S3
    */
   private createDeployment(): BucketDeployment | undefined {
-    if (!this.props.buildOutputPath) {
-      return undefined;
-    }
-
-    const localCacheDir = join(
-      this.props.buildOutputPath,
-      ".next",
-      "cdk-nextjs-init-cache",
-    );
-
     // Check if cache directory exists
-    if (!existsSync(localCacheDir)) {
+    if (!existsSync(this.props.initCacheDir)) {
       console.log(
-        `${LOG_PREFIX} No pre-built cache found at ${localCacheDir}, skipping init cache deployment`,
+        `${LOG_PREFIX} No pre-built cache found at ${this.props.initCacheDir}, skipping init cache deployment`,
       );
       return undefined;
     }
 
-    console.log(`${LOG_PREFIX} Deploying init cache from ${localCacheDir}`);
+    console.log(
+      `${LOG_PREFIX} Deploying init cache from ${this.props.initCacheDir}`,
+    );
 
-    return new BucketDeployment(this, "InitCacheDeployment", {
-      sources: [Source.asset(localCacheDir)],
+    // Use standard BucketDeployment for regular S3 buckets
+    const bucketDeployment = new BucketDeployment(this, "InitCacheDeployment", {
+      sources: [Source.asset(this.props.initCacheDir)],
       destinationBucket: this.cacheBucket,
       destinationKeyPrefix: this.props.buildId, // Add buildId prefix to all uploaded files
       prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
       ...this.props.overrides?.bucketDeploymentProps,
     });
+    return bucketDeployment;
   }
 }
