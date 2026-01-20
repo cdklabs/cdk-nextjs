@@ -148,50 +148,6 @@ export function suppressCommonNags(stack: Stack) {
     { includeStaticAssets: true },
   );
 
-  // Init cache deployment suppressions
-  suppressLambdaExecutionRole(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Handler/ServiceRole/Resource`,
-    "AWSLambdaBasicExecutionRole is not overly permissive for cache initialization",
-  );
-
-  suppressS3WildcardPermissions(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Handler/ServiceRole/DefaultPolicy/Resource`,
-    "Init cache deployment Lambda needs wildcard S3 permissions to initialize cache bucket",
-    { includeAbort: false, includeDelete: false, includeCdkAssets: true },
-  );
-
-  suppressLambdaExecutionRole(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Provider/framework-onEvent/ServiceRole/Resource`,
-    "AWSLambdaBasicExecutionRole is not overly permissive for CDK custom resource provider",
-  );
-
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Provider/framework-onEvent/ServiceRole/DefaultPolicy/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM5",
-        reason:
-          "CDK custom resource provider needs wildcard permissions to invoke handler function versions",
-        appliesTo: [
-          {
-            regex:
-              "/^Resource::<NextjsNextjsCacheInitCacheDeploymentHandler[A-Z0-9]+\\.Arn>:\\*$/",
-          },
-        ],
-      },
-    ],
-  );
-
-  suppressLambdaRuntime(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsCache/InitCacheDeployment/Provider/framework-onEvent/Resource`,
-    "CDK custom resource provider Lambda runtime is managed by CDK",
-  );
-
   // CDK Bucket Deployment suppressions (using regex patterns to match dynamic hashes)
   // Note: We suppress these using a post-synthesis approach since the exact resource names
   // contain dynamic hashes that change between deployments

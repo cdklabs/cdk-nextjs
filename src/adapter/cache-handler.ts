@@ -83,10 +83,6 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       // Reference shared instances
       this.s3DynamoHandler = CdkNextjsCacheHandler.sharedS3DynamoHandler;
       this.memoryHandler = CdkNextjsCacheHandler.sharedMemoryHandler;
-
-      this.debug(
-        "Runtime mode: Using shared Memory + S3/DynamoDB handlers (singleton)",
-      );
     }
   }
 
