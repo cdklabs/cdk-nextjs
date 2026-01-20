@@ -20,7 +20,7 @@ import {
   CachedRouteKind,
   IncrementalCacheKind,
 } from "next/dist/server/response-cache";
-import { S3DynamoCacheHandler } from "./s3-dynamo-cache-handler";
+import { S3CacheHandler } from "./s3-cache-handler";
 
 const mockS3Send = jest.fn();
 const mockDynamoSend = jest.fn();
@@ -34,7 +34,7 @@ const mockDynamoSend = jest.fn();
 }));
 
 describe("S3DynamoCacheHandler", () => {
-  let handler: S3DynamoCacheHandler;
+  let handler: S3CacheHandler;
   let mockContext: CacheHandlerContext;
 
   // Helper to create set context with tags
@@ -55,7 +55,7 @@ describe("S3DynamoCacheHandler", () => {
     // Suppress expected warnings globally (tests deliberately trigger warnings)
     jest.spyOn(console, "warn").mockImplementation();
 
-    handler = new S3DynamoCacheHandler({
+    handler = new S3CacheHandler({
       context: mockContext,
     });
 
@@ -79,7 +79,7 @@ describe("S3DynamoCacheHandler", () => {
     it("should return null when S3 bucket is not configured", async () => {
       delete process.env.CDK_NEXTJS_CACHE_BUCKET_NAME;
 
-      const handlerWithoutBucket = new S3DynamoCacheHandler({
+      const handlerWithoutBucket = new S3CacheHandler({
         context: mockContext,
       });
 
@@ -173,7 +173,7 @@ describe("S3DynamoCacheHandler", () => {
     it("should not store when S3 bucket is not configured", async () => {
       delete process.env.CDK_NEXTJS_CACHE_BUCKET_NAME;
 
-      const handlerWithoutBucket = new S3DynamoCacheHandler({
+      const handlerWithoutBucket = new S3CacheHandler({
         context: mockContext,
       });
 
@@ -241,7 +241,7 @@ describe("S3DynamoCacheHandler", () => {
     it("should not revalidate when DynamoDB table is not configured", async () => {
       delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
 
-      const handlerWithoutTable = new S3DynamoCacheHandler({
+      const handlerWithoutTable = new S3CacheHandler({
         context: mockContext,
       });
 
@@ -266,7 +266,7 @@ describe("S3DynamoCacheHandler", () => {
 
   describe("custom configuration", () => {
     it("should accept custom configuration options", () => {
-      const customHandler = new S3DynamoCacheHandler({
+      const customHandler = new S3CacheHandler({
         context: mockContext,
         s3Config: {
           bucketName: "custom-bucket",

@@ -21,7 +21,7 @@ import type {
 } from "next/dist/server/response-cache";
 import { LocalFileCacheHandler } from "./local-file-cache-handler";
 import { MemoryCacheHandler } from "./memory-cache-handler";
-import { S3DynamoCacheHandler } from "./s3-dynamo-cache-handler";
+import { S3CacheHandler } from "./s3-cache-handler";
 
 // Helper to safely extract tags from context
 const getTags = (
@@ -41,7 +41,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
 
   // Runtime handlers (shared across all instances)
   private memoryHandler: MemoryCacheHandler | null = null;
-  private s3DynamoHandler: S3DynamoCacheHandler | null = null;
+  private s3DynamoHandler: S3CacheHandler | null = null;
 
   /**
    * Shared singleton handlers for runtime.
@@ -54,7 +54,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
    * - Same CacheHandlerContext for all instances, so no configuration loss
    */
   private static sharedMemoryHandler: MemoryCacheHandler | null = null;
-  private static sharedS3DynamoHandler: S3DynamoCacheHandler | null = null;
+  private static sharedS3DynamoHandler: S3CacheHandler | null = null;
 
   constructor(options: CacheHandlerContext) {
     if (this.isBuildTime) {
@@ -67,7 +67,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       // Runtime: reuse shared handlers (singleton pattern)
       // Initialize once on first construction
       if (!CdkNextjsCacheHandler.sharedS3DynamoHandler) {
-        CdkNextjsCacheHandler.sharedS3DynamoHandler = new S3DynamoCacheHandler({
+        CdkNextjsCacheHandler.sharedS3DynamoHandler = new S3CacheHandler({
           context: options,
         });
         this.debug("Initialized shared S3/DynamoDB handler");

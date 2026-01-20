@@ -42,20 +42,20 @@ interface DynamoDBRevalidationConfig {
   buildId: string;
 }
 
-export interface S3DynamoCacheHandlerOptions {
+export interface S3CacheHandlerOptions {
   context: CacheHandlerContext;
   s3Config?: Partial<S3CacheConfig>;
   dynamoConfig?: Partial<DynamoDBRevalidationConfig>;
 }
 
-export class S3DynamoCacheHandler implements CacheHandler {
+export class S3CacheHandler implements CacheHandler {
   private s3Client: S3Client;
   private dynamoClient: DynamoDBClient;
   private s3Config: S3CacheConfig;
   private dynamoConfig: DynamoDBRevalidationConfig;
-  private debug = getDebug("cdk-nextjs:cache-handler:s3-dynamo");
+  private debug = getDebug("cdk-nextjs:cache-handler:s3");
 
-  constructor(options: S3DynamoCacheHandlerOptions) {
+  constructor(options: S3CacheHandlerOptions) {
     const buildId = process.env.CDK_NEXTJS_BUILD_ID || "";
 
     // Initialize S3 configuration from environment variables and options

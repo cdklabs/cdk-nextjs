@@ -93,6 +93,70 @@ new NextjsStack(app, "nextjs-stack");
 
 See [examples/](./examples/) for more usage examples.
 
+## Configuration
+
+cdk-nextjs supports configuration via environment variables. These are automatically set by the construct during deployment, but you can override them for custom behavior.
+
+### Cache Configuration
+
+#### `CDK_NEXTJS_MEMORY_CACHE_TTL_MS`
+
+Time to live in milliseconds for in-memory cache entries. After this duration, entries expire and are removed from the cache.
+
+**Important**: Due to the distributed nature of compute instances (Lambda functions, ECS Fargate containers, etc.), the memory cache by default provides eventual consistency across instances. Tag revalidations will clear the cache on the instance that processes the revalidation, but other instances may serve stale data until their cache entries expire. If you require strong consistency, set this to `0` to disable the memory cache (all requests will fall through to S3 + DynamoDB).
+
+**Default**: `3600000` (1 hour)
+
+**Examples**:
+
+- Short TTL (5 minutes): `300000` - for frequently changing data
+- Medium TTL (1 hour): `3600000` - balanced between freshness and performance
+- Long TTL (24 hours): `86400000` - for mostly static content
+
+**Trade-offs**:
+
+- Lower values: More cache misses, fresher data, higher S3/DynamoDB costs
+- Higher values: Fewer cache misses, better performance, but longer stale data windows
+
+#### `CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES`
+
+Maximum number of cache entries to store in memory. When this limit is reached, the least recently used (LRU) entry is evicted.
+
+**Default**: `1000`
+
+**Examples**:
+
+- Small cache: `100` - minimal memory footprint for simple apps
+- Medium cache: `1000` - good balance for typical applications
+- Large cache: `10000` - for high-traffic apps with many unique pages
+
+**Trade-offs**:
+
+- Lower values: Less memory usage, more cache evictions
+- Higher values: More memory usage, fewer cache evictions, better hit rates
+
+**Memory considerations**: Each entry stores the full cache value (HTML, JSON, etc.). A typical page cache might be 10-100KB, so 1000 entries ≈ 10-100MB of memory. Consider your compute environment's memory limits (Lambda: 128MB-10GB, Fargate: 512MB-30GB) and size accordingly.
+
+### Infrastructure Configuration
+
+The following environment variables are automatically set by the construct and typically don't need to be modified:
+
+#### `CDK_NEXTJS_BUILD_ID`
+
+Unique identifier for the Next.js build. Used for cache isolation between deployments.
+
+#### `CDK_NEXTJS_CACHE_BUCKET_NAME`
+
+S3 bucket name for storing cached data (optimized images, data cache, full route cache).
+
+#### `CDK_NEXTJS_REVALIDATION_TABLE_NAME`
+
+DynamoDB table name for tracking cache revalidations and tag-to-cache-key mappings.
+
+#### `AWS_REGION`
+
+AWS region where resources are deployed.
+
 ## Architecture
 
 ### `NextjsGlobalFunctions`

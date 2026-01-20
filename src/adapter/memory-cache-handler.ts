@@ -34,13 +34,75 @@ export class MemoryCacheHandler implements CacheHandler {
   private inMemoryCache: Map<string, MemoryCacheEntry> = new Map();
   private inMemoryTagCache: Map<string, Set<string>> = new Map(); // tag -> Set of cache keys
   private debug = getDebug("cdk-nextjs:cache-handler:memory");
-  private readonly ttlMs: number; // Time to live in milliseconds
-  private readonly maxEntries: number; // Maximum number of cache entries
+
+  /**
+   * Time to live in milliseconds for cache entries.
+   * After this duration, entries expire and are removed from the cache.
+   *
+   * **Important**: Due to the distributed nature of compute instances (Lambda functions,
+   * ECS Fargate containers, etc.), this cache only provides eventual consistency across
+   * instances. Tag revalidations will clear the cache on the instance that processes
+   * the revalidation, but other instances may serve stale data until their cache entries expire.
+   *
+   * @example
+   * // Short TTL (5 minutes) - for frequently changing data
+   * ttlMs = 5 * 60 * 1000;
+   *
+   * @example
+   * // Medium TTL (1 hour) - balanced between freshness and performance
+   * ttlMs = 60 * 60 * 1000;
+   *
+   * @example
+   * // Long TTL (24 hours) - for mostly static content
+   * ttlMs = 24 * 60 * 60 * 1000;
+   *
+   * **Why adjust this?**
+   * - Lower values: More cache misses, fresher data, higher S3/DynamoDB costs
+   * - Higher values: Fewer cache misses, better performance, but longer stale data windows
+   *
+   * Set via environment variable: `CDK_NEXTJS_MEMORY_CACHE_TTL_MS`
+   */
+  private readonly ttlMs: number;
+
+  /**
+   * Maximum number of cache entries to store in memory.
+   * When this limit is reached, the least recently used (LRU) entry is evicted.
+   *
+   * @example
+   * // Small cache (100 entries) - minimal memory footprint for simple apps
+   * maxEntries = 100;
+   *
+   * @example
+   * // Medium cache (1000 entries) - good balance for typical applications
+   * maxEntries = 1000;
+   *
+   * @example
+   * // Large cache (10000 entries) - for high-traffic apps with many unique pages
+   * maxEntries = 10000;
+   *
+   * **Why adjust this?**
+   * - Lower values: Less memory usage, more cache evictions
+   * - Higher values: More memory usage, fewer cache evictions, better hit rates
+   *
+   * **Memory considerations**: Each entry stores the full cache value (HTML, JSON, etc.)
+   * A typical page cache might be 10-100KB, so 1000 entries ≈ 10-100MB of memory.
+   * Consider your compute environment's memory limits (Lambda: 128MB-10GB, Fargate: 512MB-30GB)
+   * and size accordingly.
+   *
+   * Set via environment variable: `CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES`
+   */
+  private readonly maxEntries: number;
 
   constructor(options: MemoryCacheHandlerOptions) {
+    // Read configuration from environment variables with fallback defaults
+    const ttlFromEnv = process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS;
+    const maxEntriesFromEnv = process.env.CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES;
+
     // Default to 1 hour TTL and 1000 max entries
-    this.ttlMs = 60 * 60 * 1000; // 1 hour
-    this.maxEntries = 1000;
+    this.ttlMs = ttlFromEnv ? parseInt(ttlFromEnv, 10) : 60 * 60 * 1000; // 1 hour
+    this.maxEntries = maxEntriesFromEnv
+      ? parseInt(maxEntriesFromEnv, 10)
+      : 1000;
 
     // Log the options for debugging (optional usage to avoid unused parameter warning)
     if (options.context.dev) {

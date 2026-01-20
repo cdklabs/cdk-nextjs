@@ -29,6 +29,7 @@ const adapter: NextAdapter = {
     return config;
   },
   async onBuildComplete(ctx) {
+    writeFile(join(ctx.distDir, "test.json"), JSON.stringify(ctx, null, 2));
     const cacheDir =
       process.env.CDK_NEXTJS_INIT_CACHE_DIR ||
       join(ctx.distDir, "cdk-nextjs-init-cache");
