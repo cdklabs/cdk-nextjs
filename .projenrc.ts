@@ -180,6 +180,8 @@ function bundle() {
     outfile: "../../../lib/adapter/adapter.mjs",
     externals: ["next"],
     format: "esm",
+    banner:
+      "const require = (await import('node:module')).createRequire(import.meta.url);",
   });
   project.bundler.addBundle("src/nextjs-build/patch-fetch.js", {
     platform: "browser",

@@ -79,7 +79,7 @@
       "description": "Create a JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm"
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\""
         }
       ]
     },
@@ -88,7 +88,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --watch"
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\" --watch"
         }
       ]
     },

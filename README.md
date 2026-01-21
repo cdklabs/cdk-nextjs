@@ -153,9 +153,9 @@ S3 bucket name for storing cached data (optimized images, data cache, full route
 
 DynamoDB table name for tracking cache revalidations and tag-to-cache-key mappings.
 
-#### `AWS_REGION`
+#### `DEBUG`
 
-AWS region where resources are deployed.
+Set to `cdk-nextjs:*` to set debug logs. This is especially useful to see cache handler activity.
 
 ## Architecture
 
