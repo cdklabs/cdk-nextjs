@@ -1,11 +1,11 @@
 import type { CloudFormationCustomResourceHandler } from "aws-lambda";
+import getDebug from "debug";
 import { createInvalidation } from "./create-invalidation";
 import { pruneCacheBucket } from "./prune-cache-bucket";
 import { pruneRevalidationTable } from "./prune-revalidation-table";
 import { pruneS3 } from "./prune-s3";
 import { PostDeployCustomResourceProperties } from "../../nextjs-post-deploy";
 import { cfnResponse, CfnResponseStatus } from "../utils";
-import getDebug from "debug";
 
 const debug = getDebug("cdk-nextjs:post-deploy");
 

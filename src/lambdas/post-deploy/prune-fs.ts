@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
+// eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
 
 const debug = getDebug("cdk-nextjs:post-deploy:prune-fs");

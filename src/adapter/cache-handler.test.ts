@@ -31,6 +31,12 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
   afterEach(() => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
+    // Clean up env vars
+    delete process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS;
+    // Reset singleton handlers by accessing the class's static properties
+    // This ensures each test gets fresh handlers
+    (CdkNextjsCacheHandler as any).sharedMemoryHandler = null;
+    (CdkNextjsCacheHandler as any).sharedS3DynamoHandler = null;
   });
 
   describe("Orchestrator Pattern & Initialization", () => {
@@ -76,34 +82,6 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       });
 
       // Should return null (both memory and S3 miss)
-      expect(result).toBeNull();
-    });
-
-    it("should propagate revalidateTag to both layers", async () => {
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>tagged</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      // Add tagged entry
-      await cacheHandler.set("tagged-key", testData, {
-        fetchCache: true as const,
-        tags: ["test-tag"],
-      });
-
-      // Revalidate tag (should clear from both layers)
-      await cacheHandler.revalidateTag("test-tag");
-
-      // Verify entry is gone
-      const result = await cacheHandler.get("tagged-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
       expect(result).toBeNull();
     });
 

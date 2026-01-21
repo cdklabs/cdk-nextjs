@@ -5,6 +5,7 @@ import {
   DeleteObjectsCommand,
   ListObjectsV2CommandInput,
 } from "@aws-sdk/client-s3";
+// eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
 
 const debug = getDebug("cdk-nextjs:post-deploy:prune-cache-bucket");

@@ -32,17 +32,6 @@ const getTags = (
  * Orchestrator cache handler that conditionally instantiates handlers based on environment
  */
 export default class CdkNextjsCacheHandler implements CacheHandler {
-  private readonly isBuildTime =
-    process.env.NEXT_PHASE === "phase-production-build";
-  private readonly debug = getDebug("cdk-nextjs:cache-handler:orchestrator");
-
-  // Build-time handler
-  private localFileHandler: LocalFileCacheHandler | null = null;
-
-  // Runtime handlers (shared across all instances)
-  private memoryHandler: MemoryCacheHandler | null = null;
-  private s3DynamoHandler: S3CacheHandler | null = null;
-
   /**
    * Shared singleton handlers for runtime.
    *
@@ -55,6 +44,17 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
    */
   private static sharedMemoryHandler: MemoryCacheHandler | null = null;
   private static sharedS3DynamoHandler: S3CacheHandler | null = null;
+
+  private readonly isBuildTime =
+    process.env.NEXT_PHASE === "phase-production-build";
+  private readonly debug = getDebug("cdk-nextjs:cache-handler:orchestrator");
+
+  // Build-time handler
+  private localFileHandler: LocalFileCacheHandler | null = null;
+
+  // Runtime handlers (shared across all instances)
+  private memoryHandler: MemoryCacheHandler | null = null;
+  private s3DynamoHandler: S3CacheHandler | null = null;
 
   constructor(options: CacheHandlerContext) {
     if (this.isBuildTime) {
