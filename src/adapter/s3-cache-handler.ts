@@ -171,8 +171,7 @@ export class S3CacheHandler implements CacheHandler {
         }
       } else {
         console.log(`Invalid content type: ${contentType}`);
-        // This shouldn't happen since we always store as JSON now, but handle legacy data
-        // Since we don't know the exact structure, return null for legacy non-JSON data
+        // This shouldn't happen since we always store as JSON now
         return null;
       }
 
@@ -261,12 +260,6 @@ export class S3CacheHandler implements CacheHandler {
         Key: s3Key,
         Body: body,
         ContentType: "application/json; charset=utf-8", // Always JSON since we store CacheHandlerValue
-        ContentEncoding: "utf-8",
-        Metadata: {
-          cacheKey,
-          buildId: this.s3Config.buildId,
-          timestamp: Date.now().toString(),
-        },
       });
 
       await this.s3Client.send(command);
