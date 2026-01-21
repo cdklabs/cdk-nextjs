@@ -11,12 +11,6 @@ describe("MemoryCacheHandler", () => {
   let handler: MemoryCacheHandler;
   let mockContext: CacheHandlerContext;
 
-  // Helper to create set context with tags
-  const createSetContext = (tags: string[]) => ({
-    fetchCache: true as const,
-    tags,
-  });
-
   beforeEach(() => {
     mockContext = { dev: false } as CacheHandlerContext;
 
@@ -49,7 +43,9 @@ describe("MemoryCacheHandler", () => {
         status: undefined,
       };
 
-      await handler.set("test-key", testData, createSetContext([]));
+      await handler.set("test-key", testData, {
+        fetchCache: true as const,
+      });
       const result = await handler.get("test-key", {
         kind: IncrementalCacheKind.APP_PAGE,
         isFallback: false,
@@ -72,7 +68,9 @@ describe("MemoryCacheHandler", () => {
         status: undefined,
       };
 
-      await handler.set("set-key", testData, createSetContext(["tag1"]));
+      await handler.set("set-key", testData, {
+        fetchCache: true as const,
+      });
 
       expect(handler.getCacheSize()).toBe(1);
 
@@ -81,64 +79,6 @@ describe("MemoryCacheHandler", () => {
         isFallback: false,
       });
       expect(result?.value).toEqual(testData);
-    });
-
-    it("should track tags correctly", async () => {
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>tagged</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      await handler.set(
-        "tagged-key",
-        testData,
-        createSetContext(["tag1", "tag2"]),
-      );
-
-      expect(handler.getTagCacheSize()).toBe(2);
-    });
-  });
-
-  describe("revalidateTag", () => {
-    it("should clear memory cache entries by tag", async () => {
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>tagged</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
-
-      await handler.set(
-        "tagged-key-1",
-        testData,
-        createSetContext(["revalidate-tag"]),
-      );
-      await handler.set(
-        "tagged-key-2",
-        testData,
-        createSetContext(["revalidate-tag"]),
-      );
-      await handler.set("other-key", testData, createSetContext(["other-tag"]));
-
-      expect(handler.getCacheSize()).toBe(3);
-
-      await handler.revalidateTag("revalidate-tag");
-
-      expect(handler.getCacheSize()).toBe(1);
-
-      const result = await handler.get("other-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
-      expect(result).not.toBeNull();
     });
   });
 
@@ -154,15 +94,15 @@ describe("MemoryCacheHandler", () => {
         status: undefined,
       };
 
-      await handler.set("reset-key", testData, createSetContext(["reset-tag"]));
+      await handler.set("reset-key", testData, {
+        fetchCache: true as const,
+      });
 
       expect(handler.getCacheSize()).toBe(1);
-      expect(handler.getTagCacheSize()).toBe(1);
 
       await handler.resetRequestCache();
 
       expect(handler.getCacheSize()).toBe(0);
-      expect(handler.getTagCacheSize()).toBe(0);
     });
   });
 });

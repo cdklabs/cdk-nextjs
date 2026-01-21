@@ -12,14 +12,9 @@ import {
   IncrementalCacheValue,
   GetIncrementalFetchCacheContext,
   GetIncrementalResponseCacheContext,
-  SetIncrementalFetchCacheContext,
   SetIncrementalResponseCacheContext,
+  SetIncrementalFetchCacheContext,
 } from "next/dist/server/response-cache";
-
-// Helper to safely extract tags from context
-const getTags = (
-  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
-): string[] | undefined => ("tags" in ctx ? ctx.tags : undefined);
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
@@ -32,7 +27,6 @@ export interface MemoryCacheHandlerOptions {
 
 export class MemoryCacheHandler implements CacheHandler {
   private inMemoryCache: Map<string, MemoryCacheEntry> = new Map();
-  private inMemoryTagCache: Map<string, Set<string>> = new Map(); // tag -> Set of cache keys
   private debug = getDebug("cdk-nextjs:cache-handler:memory");
 
   /**
@@ -129,7 +123,6 @@ export class MemoryCacheHandler implements CacheHandler {
       if (Date.now() > memoryEntry.expiresAt) {
         this.debug(`MEMORY CACHE EXPIRED: ${cacheKey}`);
         this.inMemoryCache.delete(cacheKey);
-        this.removeFromTagCache(cacheKey);
         return null;
       }
 
@@ -148,22 +141,13 @@ export class MemoryCacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+    _ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void> {
     if (!data) {
       // Delete from memory cache
       this.debug(`MEMORY CACHE DELETE: ${cacheKey}`);
-
       this.inMemoryCache.delete(cacheKey);
-      this.removeFromTagCache(cacheKey);
-
       return;
-    }
-
-    // Log tags for debugging if present (only in SetIncrementalFetchCacheContext)
-    const tags = getTags(ctx);
-    if (tags && tags.length > 0) {
-      this.debug(`Memory cache entry for ${cacheKey} has tags:`, tags);
     }
 
     // Debug logging for memory cache set
@@ -192,77 +176,24 @@ export class MemoryCacheHandler implements CacheHandler {
     this.inMemoryCache.set(cacheKey, entry);
 
     this.debug(`Cache entries: ${this.inMemoryCache.size}/${this.maxEntries}`);
-
-    // Track tags for this cache entry (only in SetIncrementalFetchCacheContext)
-    if (tags && tags.length > 0) {
-      this.debug(`MEMORY TAGS: ${cacheKey} -> [${tags.join(", ")}]`);
-      for (const tag of tags) {
-        let tagSet = this.inMemoryTagCache.get(tag);
-        if (!tagSet) {
-          tagSet = new Set();
-          this.inMemoryTagCache.set(tag, tagSet);
-        }
-        tagSet.add(cacheKey);
-      }
-    }
   }
 
   async revalidateTag(tag: string | string[]): Promise<void> {
     const tags = Array.isArray(tag) ? tag : [tag];
-    this.debug(`MEMORY REVALIDATING TAGS: [${tags.join(", ")}]`);
-
-    // Clear memory cache for these tags
-    for (const t of tags) {
-      this.clearMemoryCacheByTag(t);
-    }
+    this.debug(`MEMORY REVALIDATE TAGS (no-op): [${tags.join(", ")}]`);
+    // Memory cache does not track tags because:
+    // 1. In distributed environments (multiple Lambda functions or Fargate containers),
+    //    tag revalidation only clears cache on the current instance. Other instances
+    //    would continue serving stale data until their TTL expires anyway.
+    // 2. The S3 cache handler with DynamoDB provides the authoritative source of truth
+    //    for tag revalidations across all instances.
+    // 3. Memory cache relies on TTL-based expiration for simplicity and consistency.
+    //    If strong consistency is required, set CDK_NEXTJS_MEMORY_CACHE_TTL_MS=0.
   }
 
   async resetRequestCache(): Promise<void> {
-    // Clear both in-memory caches
+    // Clear in-memory cache
     this.inMemoryCache.clear();
-    this.inMemoryTagCache.clear();
-  }
-
-  private clearMemoryCacheByTag(tag: string): void {
-    // Get all cache keys associated with this tag
-    const cacheKeys = this.inMemoryTagCache.get(tag);
-    if (cacheKeys) {
-      this.debug(`MEMORY TAG ${tag}: Clearing ${cacheKeys.size} cache entries`);
-
-      // Remove each cache entry
-      for (const cacheKey of cacheKeys) {
-        this.inMemoryCache.delete(cacheKey);
-      }
-
-      // Remove the tag mapping
-      this.inMemoryTagCache.delete(tag);
-
-      // Clean up any references to these cache keys in other tags
-      for (const [otherTag, otherKeys] of this.inMemoryTagCache.entries()) {
-        for (const cacheKey of cacheKeys) {
-          otherKeys.delete(cacheKey);
-        }
-        // Remove empty tag sets
-        if (otherKeys.size === 0) {
-          this.inMemoryTagCache.delete(otherTag);
-        }
-      }
-    }
-  }
-
-  /**
-   * Remove a cache key from all tag mappings
-   */
-  private removeFromTagCache(cacheKey: string): void {
-    for (const [tag, cacheKeys] of this.inMemoryTagCache.entries()) {
-      if (cacheKeys.has(cacheKey)) {
-        cacheKeys.delete(cacheKey);
-        // Clean up empty tag sets
-        if (cacheKeys.size === 0) {
-          this.inMemoryTagCache.delete(tag);
-        }
-      }
-    }
   }
 
   /**
@@ -275,7 +206,6 @@ export class MemoryCacheHandler implements CacheHandler {
     for (const [key, entry] of this.inMemoryCache.entries()) {
       if (now > entry.expiresAt) {
         this.inMemoryCache.delete(key);
-        this.removeFromTagCache(key);
         expiredCount++;
       }
     }
@@ -294,7 +224,6 @@ export class MemoryCacheHandler implements CacheHandler {
     if (firstKey) {
       this.debug(`MAX CAPACITY EVICT (LRU): ${firstKey}`);
       this.inMemoryCache.delete(firstKey);
-      this.removeFromTagCache(firstKey);
     }
   }
 
@@ -303,12 +232,7 @@ export class MemoryCacheHandler implements CacheHandler {
     return this.inMemoryCache.size;
   }
 
-  public getTagCacheSize(): number {
-    return this.inMemoryTagCache.size;
-  }
-
   public clearCache(): void {
     this.inMemoryCache.clear();
-    this.inMemoryTagCache.clear();
   }
 }
