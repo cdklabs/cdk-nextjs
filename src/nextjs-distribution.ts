@@ -248,19 +248,24 @@ export class NextjsDistribution extends Construct {
       new CachePolicy(this, "DynamicCachePolicy", {
         queryStringBehavior: CacheQueryStringBehavior.all(),
         headerBehavior: CacheHeaderBehavior.allowList(
-          "accept",
-          "next-router-prefetch",
-          "next-router-segment-prefetch",
-          "next-router-state-tree",
-          "next-url",
-          "rsc",
-          "x-matched-path",
-          "x-next-cache-tags",
-          "x-next-cache-tag-token",
-          "x-nextjs-postponed",
-          "x-nextjs-stale-time",
-          "x-prerender-revalidate",
-          "x-prerender-revalidate-if-generated",
+          // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
+          // cdk-nextjs includes the most essential headers for Next.js functionality
+          // but it's recommended to request quota increase to include all headers (commented out ones below)
+          // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
+          "accept", // content negotiation (HTML vs RSC payload)
+          "rsc", // React Server Components requests
+          "next-url", // Next.js routing
+          "next-router-state-tree", // App Router navigation state
+          "next-router-prefetch", // prefetch behavior
+          "next-router-segment-prefetch", // segment-level prefetching
+          "x-matched-path", // dynamic routes and rewrites
+          "x-prerender-revalidate", // on-demand ISR revalidation
+          "x-next-cache-tags", // tag-based cache revalidation
+          "x-prerender-bypass", // draft mode
+          // "x-nextjs-stale-time", // stale-while-revalidate behavior
+          // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)
+          // "x-nextjs-postponed", // Partial Prerendering (experimental feature)
+          // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
         ),
         cookieBehavior: CacheCookieBehavior.all(),
         enableAcceptEncodingBrotli: true,
