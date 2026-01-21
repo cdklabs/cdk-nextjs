@@ -8,14 +8,14 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 
 1. During `next build`, the cache handler detects it's running in build mode via `NEXT_PHASE === "phase-production-build"`
 2. Instead of writing to S3/DynamoDB (which don't have credentials yet), it writes cache entries to local files
-3. Files are stored in `.next/cdk-nextjs-init-cache/{buildId}/{cacheKey}.json`
+3. Files are stored in `.next/cdk-nextjs-init-cache/{cacheKey}.json`
 4. Each file contains the full cache structure with tags, timestamps, and serialized data
 
 ### Deployment Time
 
-1. The `NextjsCache` construct checks for the `.next/cdk-nextjs-cache-handler` directory
-2. If found, it uses `BucketDeployment` to upload all pre-built cache files to S3
-3. Files maintain the same path structure in S3: `{buildId}//{cacheKey}.json`
+1. The `NextjsCache` construct checks for the `.next/cdk-nextjs-init-cache` directory
+2. If found, it uses `BucketDeployment` with a `{buildId}/` prefix to upload all pre-built cache files to S3
+3. Files are deployed to S3 with the path structure: `{buildId}/{cacheKey}.json`
 
 ### Runtime
 
@@ -28,7 +28,7 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 
 ### 1. Format Mismatch ✅ SOLVED
 
-**Solution:** The `LocalFileCacheHandler` writes files in the EXACT same format as `S3DynamoCacheHandler`, including:
+**Solution:** The `LocalFileCacheHandler` writes files in the EXACT same format as `S3CacheHandler`, including:
 
 - JSON structure with `lastModified`, `value`, and `tags`
 - Proper serialization of Maps and Buffers
@@ -36,10 +36,10 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 
 ### 2. Path Structure Mismatch ✅ SOLVED
 
-**Solution:** Both handlers use identical path structures:
+**Solution:** Local files are stored as `{cacheKey}.json`, and BucketDeployment adds the `{buildId}/` prefix during upload, resulting in the final S3 path:
 
 ```
-{buildId}//{cacheKey}.json
+{buildId}/{cacheKey}.json
 ```
 
 ### 3. Missing Critical Metadata ✅ SOLVED
@@ -93,35 +93,3 @@ else {
 3. **Proper Format** - Uses exact same structure as runtime caching
 4. **Tag Support** - Full `revalidateTag()` functionality preserved
 5. **Simple & Reliable** - No format conversion, no reconciliation needed
-
-## Previous Document
-
-~~Why Pre-Build Cache Deployment Was Not Implemented~~
-
-## Summary
-
-~~Pre-deployment of Next.js build cache files to S3 was explored but ultimately not implemented due to fundamental format incompatibilities between Next.js's build output and the custom S3/DynamoDB cache handler.~~
-
-**UPDATE:** This feature has been successfully implemented using a local file-based approach that writes cache entries in the correct format during build time, then deploys them to S3 using BucketDeployment.
-
-## Why This Approach Works
-
-### 1. Correct Format
-
-The local file cache handler creates entries in the EXACT format expected by S3DynamoCacheHandler, with proper serialization.
-
-### 2. Tag Support
-
-Tags are preserved in the cached files, enabling `revalidateTag()` to work correctly at runtime.
-
-### 3. Simplicity
-
-No transformation or conversion needed - write once in correct format, deploy directly.
-
-### 4. Fast AND Correct
-
-Pre-deployed cache provides instant hits while maintaining all functionality.
-
-## Conclusion
-
-Build-time caching with deployment to S3 is now fully implemented and production-ready. The approach ensures format consistency, enables proper tag-based revalidation, and provides the performance benefits of pre-warmed cache without any of the previous compatibility concerns.

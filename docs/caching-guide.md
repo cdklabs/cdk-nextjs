@@ -25,7 +25,7 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Kind**: `FETCH`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/fetch/{cache-key}`
+- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
 - **Custom Cache Handler**: S3CacheHandler manages read/write operations
 - **Revalidation**: DynamoDB table tracks tag-based revalidation metadata
 
@@ -36,12 +36,11 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Duration**: Persistent (can be revalidated)
 **Kinds**:
 
-- `APP_PAGE` - App Router pages at `/{buildId}/app_page/{cache-key}`
-- `APP_ROUTE` - App Router API routes at `/{buildId}/app_route/{cache-key}`
-- `PAGES` - Pages Router pages at `/{buildId}/pages/{cache-key}`
+- `APP_PAGE` - App Router pages
+- `APP_ROUTE` - App Router API routes
+- `PAGES` - Pages Router pages
   **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket with kind-based organization
 - **ISR Support**: Files updated during Incremental Static Regeneration
 - **Revalidation**: Tag-based invalidation via DynamoDB tracking
 
@@ -53,7 +52,7 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Kind**: `IMAGE`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/image/{cache-key}`
+- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
 - **Optimization**: Cached resized, format-converted images
 - **Revalidation**: Time-based or on-demand revalidation
 
@@ -65,7 +64,7 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Kind**: `REDIRECT`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/redirect/{cache-key}`
+- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
 - **Configuration**: Cached redirect rules and destinations
 
 ### 6. Router Cache (Client-side)
@@ -89,24 +88,15 @@ cdk-nextjs uses a dedicated S3 bucket for cache storage with BUILD_ID and kind p
 ```
 Cache Bucket Structure:
 /{buildId}/
-├── fetch/                        # FETCH cache entries (Data Cache)
-│   └── {cache-key}.json         # Cached fetch responses
-├── image/                       # IMAGE cache entries (Image Optimization)
-│   └── {cache-key}.json         # Optimized images
-├── app_page/                    # APP_PAGE cache entries (App Router pages)
-│   └── {cache-key}.json         # HTML, RSC payloads, metadata
-├── app_route/                   # APP_ROUTE cache entries (App Router API routes)
-│   └── {cache-key}.json         # Route handler responses
-├── pages/                       # PAGES cache entries (Pages Router)
-│   └── {cache-key}.json         # Page HTML and data
-└── redirect/                    # REDIRECT cache entries
-    └── {cache-key}.json         # Redirect configurations
+└── {cache-key}.json             # All cache entries (FETCH, IMAGE, APP_PAGE, APP_ROUTE, PAGES, REDIRECT)
 ```
 
 #### Examples
 
 <details>
-<summary>NKHdPJfH3k5tcfaEY1CVQ/app_page/isr/1.json</summary>
+
+<summary>NKHdPJfH3k5tcfaEY1CVQ/isr/1.json</summary>
+
 ```json
 {
   "lastModified": 1768400373006,
@@ -174,10 +164,13 @@ Cache Bucket Structure:
   "tags": []
 }
 ```
+
 </details>
 
 <details>
-<summary>NKHdPJfH3k5tcfaEY1CVQ/app_route/favicon.ico.json</summary>
+
+<summary>NKHdPJfH3k5tcfaEY1CVQ/favicon-ico.json</summary>
+
 ```json
 {
   "lastModified": 1768399926936,
@@ -199,10 +192,13 @@ Cache Bucket Structure:
   "tags": []
 }
 ```
+
 </details>
 
 <details>
-<summary>NKHdPJfH3k5tcfaEY1CVQ/fetch/7219caec2df443d9c8453d2d63f9893f701fcc35e6a25a9d227652a1860296a1.json</summary>
+
+<summary>NKHdPJfH3k5tcfaEY1CVQ/7219caec2df443d9c8453d2d63f9893f701fcc35e6a25a9d227652a1860296a1.json</summary>
+
 ```json
 {
   "lastModified": 1768400373089,
@@ -245,10 +241,13 @@ Cache Bucket Structure:
   "tags": ["collection"]
 }
 ```
+
 </details>
 
 <details>
-<summary>NKHdPJfH3k5tcfaEY1CVQ/image/qRuS9bDf7sJo_E8f0f0HSsPuQf5Dkpu61jOAbF0LuKE.json</summary>
+
+<summary>NKHdPJfH3k5tcfaEY1CVQ/qRuS9bDf7sJo_E8f0f0HSsPuQf5Dkpu61jOAbF0LuKE.json</summary>
+
 ```json
 {
   "lastModified": 1768399959959,
@@ -268,15 +267,15 @@ Cache Bucket Structure:
   "tags": []
 }
 
-````
+```
+
 </details>
 
 **Key Features**:
 
 - **BUILD_ID Isolation**: All cache keys prefixed with `/{buildId}/`
-- **Kind-based Organization**: Cache entries organized by Next.js cache type
 - **Next.js Cache Key Passthrough**: Preserves Next.js internal cache key structure
-- **Automatic Categorization**: Uses Next.js `CachedRouteKind` enum values
+- **Cache Kind Metadata**: Cache type stored within each cache entry's metadata
 
 ### DynamoDB Revalidation Tracking
 
@@ -296,15 +295,15 @@ interface MetadataItem {
   buildId: string; // Current BUILD_ID for efficient pruning
   updatedAt: number; // Last update timestamp
 }
-````
+```
 
 **Example Data**:
 
 ```
-PK: "build-abc123"    SK: "user-profile#build-abc123/fetch/api-users-123"
-PK: "build-abc123"    SK: "user-profile#build-abc123/app_page/users-profile"
-PK: "build-abc123"    SK: "product-data#build-abc123/fetch/products-electronics"
-PK: "build-abc123"    SK: "product-images#build-abc123/image/product-123-thumb"
+PK: "build-abc123"    SK: "user-profile#build-abc123/api-users-123"
+PK: "build-abc123"    SK: "user-profile#build-abc123/users-profile"
+PK: "build-abc123"    SK: "product-data#build-abc123/products-electronics"
+PK: "build-abc123"    SK: "product-images#build-abc123/product-123-thumb"
 PK: "METADATA"        SK: "CURRENT_BUILD"    buildId: "build-abc123"
 ```
 
@@ -313,15 +312,14 @@ PK: "METADATA"        SK: "CURRENT_BUILD"    buildId: "build-abc123"
 - **Efficient Pruning**: Query previous build's partition to delete old entries (no table scan)
 - **Metadata Tracking**: Stores current BUILD_ID for identifying previous build during pruning
 - **Full S3 Key Storage**: Sort key contains complete S3 path for direct deletion
-- **Kind-aware**: S3 keys include the cache kind for organization
 - **Efficient Revalidation**: Query by buildId + tag prefix returns all related cache entries
 
 ### Custom Cache Handler
 
-The S3DynamoCacheHandler implements Next.js's cache interface with comprehensive tag-based revalidation:
+The S3CacheHandler implements Next.js's cache interface with comprehensive tag-based revalidation:
 
 ```typescript
-export class S3DynamoCacheHandler {
+export class S3CacheHandler {
   async get(
     cacheKey: string,
     ctx: { kind: CachedRouteKind },
@@ -369,7 +367,6 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 **Key Features**:
 
 - **BUILD_ID Isolation**: All cache keys prefixed with `{buildId}/`
-- **Kind-based Organization**: S3 keys include cache type for better structure
 - **Tag Storage**: Tags stored with cache entries for revalidation checking
 - **Timestamp Validation**: Prevents serving stale data after tag revalidation
 - **Graceful Error Handling**: Logs errors and returns cache miss on failures

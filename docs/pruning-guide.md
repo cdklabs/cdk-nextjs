@@ -12,7 +12,7 @@ cdk-nextjs implements automatic pruning mechanisms to clean up old cache data an
 
 Every deployment gets a unique BUILD_ID that isolates cache data:
 
-- **S3 Cache Keys**: `/{buildId}/cache/{cacheKey}`
+- **S3 Cache Keys**: `/{buildId}/{cacheKey}`
 - **DynamoDB Revalidation**: Partition key is `buildId`, sort key is `{tag}#{cacheKey}`
 - **Static Assets**: Metadata includes `next-build-id: {buildId}`
 
@@ -127,12 +127,6 @@ new NextjsGlobalFunctions(this, "NextjsApp", {
 - **Logging**: Detailed logs for troubleshooting pruning issues
 - **Graceful Degradation**: Application continues working if pruning fails
 
-### Version Skew Protection
-
-- **Static Assets TTL**: Keeps recent assets for users with cached pages
-- **Gradual Cleanup**: Allows time for browser caches to refresh
-- **Metadata Tracking**: Uses BUILD_ID metadata for safe identification
-
 ## Monitoring Pruning
 
 ### CloudWatch Logs
@@ -141,7 +135,7 @@ Pruning operations are logged with detailed information when debug mode is enabl
 
 ```
 Found 1234 cache objects with old BUILD_ID prefixes to delete
-Deleting cache objects: ["/old-build-123/pages/index.html", "/old-build-123/app/about.rsc"] from my-cache-bucket
+Deleting cache objects: ["/old-build-123/index.html", "/old-build-123/about.rsc"] from my-cache-bucket
 Deleted 1234 cache objects from my-cache-bucket
 Cache bucket pruning complete. Deleted 1234 objects from my-cache-bucket
 
@@ -152,7 +146,7 @@ Pruning complete. Deleted 56 objects from my-static-assets-bucket
 
 Pruning revalidation entries for previous build: old-build-123
 Found 789 revalidation entries to delete for build old-build-123
-Deleting revalidation entries: old-build-123/user-profile#old-build-123/fetch/api-users-123, ... from my-revalidation-table
+Deleting revalidation entries: user-profile#api-users-123, ... from my-revalidation-table
 Deleted 789 revalidation entries from my-revalidation-table
 Updated metadata with current build ID: new-build-456
 Revalidation table pruning complete. Deleted 789 entries from my-revalidation-table

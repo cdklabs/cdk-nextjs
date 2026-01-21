@@ -2,6 +2,10 @@ import { NextResponse, NextRequest } from 'next/server';
 
 export default function proxy(request: NextRequest) {
   if (process.env.PREPEND_APIGW_STAGE) {
+    // Skip rewriting Next.js internal routes (_next/*)
+    if (request.nextUrl.pathname.startsWith('/_next/')) {
+      return NextResponse.next();
+    }
     // this is needed because we don't have API GW REST API custom domain.
     // therefore must use stage name (default: /prod). next.config.js has `basePath`
     // but it's not included in request path when API GW invokes Lambda so we
