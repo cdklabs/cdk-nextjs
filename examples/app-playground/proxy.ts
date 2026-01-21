@@ -11,9 +11,9 @@ export default function proxy(request: NextRequest) {
     if (reqCtxStr) {
       const reqCtx = JSON.parse(reqCtxStr);
       const stage = reqCtx.stage;
-      return NextResponse.rewrite(
-        new URL(`/${stage}${request.nextUrl.pathname}`, request.url),
-      );
+      const url = new URL(request.url);
+      url.pathname = `/${stage}${url.pathname}`;
+      return NextResponse.rewrite(url);
     }
   }
   const response = NextResponse.next();
