@@ -2,7 +2,7 @@
 
 1. Follow [README](../README.md)
 2. `cd examples/e2e-tests && pnpm install-browser`
-3. Update .env with `E2E_BASE_URL="..."` replacing with your cdk-nextjs app playground's url
+3. Update .env with `E2E_BASE_URL="https://..."` replacing with your cdk-nextjs app playground's url (must include https://)
 4. `pnpm run test` or `pnpm run test:ui`
 
 ## Connect AWS Account

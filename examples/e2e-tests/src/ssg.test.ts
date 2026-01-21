@@ -13,8 +13,8 @@ test.describe("ssg", () => {
     // should be at least "5s ago". will be more if built longer ago.
     // Use regex to match any time that's NOT 0-2 seconds (allowing for slight timing variance)
     const recentTimePattern = /[0-2]s ago/;
-    const pageContent = await page.content();
-    const hasRecentTime = recentTimePattern.test(pageContent);
+    const pageText = await page.locator("body").innerText();
+    const hasRecentTime = recentTimePattern.test(pageText);
     expect(hasRecentTime).toBe(false);
   });
 
@@ -34,9 +34,9 @@ test.describe("ssg", () => {
       randomPost = Math.floor(Math.random() * (100 - 3 + 1)) + 3;
       await page.goto(`./ssg/${randomPost}`, { waitUntil: "networkidle" });
       // Check for very recent render (0-2s ago to account for network latency)
-      const pageContent = await page.content();
+      const pageText = await page.locator("body").innerText();
       const recentTimePattern = /[0-2]s ago/;
-      dateChip0sCount = recentTimePattern.test(pageContent) ? 1 : 0;
+      dateChip0sCount = recentTimePattern.test(pageText) ? 1 : 0;
 
       if (dateChip0sCount === 0) {
         console.log(
@@ -54,9 +54,9 @@ test.describe("ssg", () => {
 
     // tests that .html,.rsc,.meta files are successfully cached in EFS and persist between renders
     // After reload, the cached version should show a timestamp that's NOT recent (at least 5s+)
-    const pageContent2 = await page.content();
+    const pageText2 = await page.locator("body").innerText();
     const recentTimePattern = /[0-2]s ago/;
-    const hasRecentTime = recentTimePattern.test(pageContent2);
+    const hasRecentTime = recentTimePattern.test(pageText2);
     expect(hasRecentTime).toBe(false);
   });
 });
