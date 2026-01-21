@@ -80,9 +80,9 @@ export class NextjsApi extends Construct {
     this.api = this.createRestApi();
     this.baseResource = this.createBaseResource(props.basePath);
     this.staticIntegrationRole = this.createStaticIntegrationRole();
-    this.createStaticIntegrations();
+    const nextResource = this.createStaticIntegrations();
     if (props.serverFunction) {
-      this.createDynamicIntegration(props.serverFunction);
+      this.createDynamicIntegration(props.serverFunction, nextResource);
     } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
     }
@@ -140,8 +140,8 @@ export class NextjsApi extends Construct {
 
   private createStaticIntegrations() {
     // Add static assets route (_next/static/*)
-    this.baseResource
-      .addResource("_next")
+    const nextResource = this.baseResource.addResource("_next");
+    nextResource
       .addResource("static")
       .addResource("{proxy+}")
       .addMethod(
@@ -170,6 +170,7 @@ export class NextjsApi extends Construct {
           );
       }
     }
+    return nextResource;
   }
 
   /**
@@ -245,7 +246,18 @@ export class NextjsApi extends Construct {
   /**
    * Create Lambda Proxy integration for all other routes
    */
-  private createDynamicIntegration(serverFunction: IFunction) {
+  private createDynamicIntegration(
+    serverFunction: IFunction,
+    nextResource: IResource,
+  ) {
+    // Add buffered integration for _next/image (binary content like images)
+    // API Gateway streaming doesn't support binary responses
+    const imageIntegration = new LambdaIntegration(serverFunction, {
+      ...this.props.overrides?.dynamicIntegrationProps,
+    });
+    nextResource.addResource("image").addMethod("GET", imageIntegration);
+
+    // Add streaming integration for all other routes (HTML, RSC, JSON)
     const lambdaIntegration = new LambdaIntegration(serverFunction, {
       responseTransferMode: ResponseTransferMode.STREAM,
       ...this.props.overrides?.dynamicIntegrationProps,

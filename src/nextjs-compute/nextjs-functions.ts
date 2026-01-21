@@ -82,10 +82,6 @@ export class NextjsFunctions extends Construct {
   }
 
   private createDockerImageCode(): DockerImageCode {
-    if (!this.props.buildOutputPath) {
-      throw new Error("buildOutputPath is required for local builds");
-    }
-
     // Build context is the buildDirectory (where the Next.js app is located)
     const buildContext = this.props.buildOutputPath;
     const dockerfileName = "functions.Dockerfile";

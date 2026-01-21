@@ -109,9 +109,6 @@ export class NextjsBuild extends Construct {
     // Validate build output and set validated paths
     this.validateNextBuildOutput();
 
-    // Sharp binary replacement is now always performed to ensure cloud compatibility
-    // This removes platform-specific binaries and downloads Linux binaries for deployment
-
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
 
