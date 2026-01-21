@@ -38,7 +38,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 ## Prerequisites
 
 - Next.js app running v16.1.1-canary.19 or higher. If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
-- [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos via `relativePathToPackage` property.
+- [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos.
 - Docker compatible container engine - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby).
 - [Node.js](https://nodejs.org/en) LTS
 

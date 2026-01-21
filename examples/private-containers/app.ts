@@ -36,7 +36,6 @@ export class PrivateContainersStack extends Stack {
           },
         },
       },
-      relativePathToPackage: "./app-playground",
     });
     NagSuppressions.addResourceSuppressions(nextjs.nextjsVpc.vpc, [
       {

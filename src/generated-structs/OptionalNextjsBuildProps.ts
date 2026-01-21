@@ -12,10 +12,6 @@ export interface OptionalNextjsBuildProps {
   /**
    * @stability stable
    */
-  readonly relativePathToPackage?: string;
-  /**
-   * @stability stable
-   */
   readonly buildCommand?: string;
   /**
    * @stability stable

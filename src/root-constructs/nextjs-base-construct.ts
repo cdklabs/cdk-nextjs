@@ -59,26 +59,6 @@ export interface NextjsBaseProps {
    */
   readonly healthCheckPath: string;
   /**
-   * Use this if building in monorepo. This is the relative path from
-   * root package to nested package containing Next.js app. It's used to find
-   * path to `next build` generated server.js within .next/standalone directory.
-   * See example below:
-   *
-   * Let's say you have a monorepo with the following folder structure:
-   * - my-monorepo/
-   *   - apps/
-   *     - web/
-   *       - package.json (nested)
-   *   - package.json (root)
-   *
-   * And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-   * to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
-   * to `"./apps/web"`.
-   *
-   * @example "./apps/web"
-   */
-  readonly relativePathToPackage?: string;
-  /**
    * Skips running `next build`. If `true`, you are responsible for running
    * `next build` before this construct is synthesized.
    * @defaul false
@@ -156,7 +136,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildId: this.nextjsBuild.buildId,
       buildOutputPath: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
-      relativePathToPackage: this.baseProps.relativePathToPackage,
+      relativePathToPackage: this.nextjsBuild.relativePathToPackage,
     };
   }
 
@@ -165,7 +145,6 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildCommand: this.baseProps.buildCommand,
       buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
-      relativePathToPackage: this.baseProps.relativePathToPackage,
       skipBuild: this.baseProps.skipBuild,
       ...this.constructOverrides?.nextjsBuildProps,
     });

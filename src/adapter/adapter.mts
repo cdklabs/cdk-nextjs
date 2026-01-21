@@ -167,8 +167,7 @@ const adapter: NextAdapter = {
 
         await writeFile(cacheFilePath, serializeCacheValue(cacheEntry));
 
-        debug(`CREATED: ${cacheFilePath}`);
-        console.log(`Created cache entry: ${cacheFilePath}`);
+        debug(`Created cache entry: ${cacheFilePath}`);
       } catch (error) {
         console.error(`Error processing prerender group ${basePath}:`, error);
       }

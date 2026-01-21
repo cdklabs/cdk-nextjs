@@ -51,10 +51,6 @@ export interface NextjsPostDeployProps {
    */
   readonly overrides?: NextjsPostDeployOverrides;
   /**
-   * @see {@link NextjsBaseProps.relativePathToPackage}
-   */
-  readonly relativePathToPackage?: string;
-  /**
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`
    */
   readonly staticAssetsBucket?: Bucket;

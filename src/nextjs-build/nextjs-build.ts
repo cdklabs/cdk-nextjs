@@ -16,7 +16,7 @@ import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 
-const debug = getDebug("nextjs-build");
+const debug = getDebug("cdk-nextjs:nextjs-build");
 
 export interface NextjsBuildProps {
   /**
@@ -28,10 +28,6 @@ export interface NextjsBuildProps {
    * This should contain the package.json and Next.js application files.
    */
   readonly buildDirectory: string;
-  /**
-   * @see {@link NextjsBaseProps.relativePathToPackage}
-   */
-  readonly relativePathToPackage?: NextjsBaseProps["relativePathToPackage"];
   readonly nextjsType: NextjsType;
   /**
    * @see {@link NextjsBaseProps.skipBuild}
@@ -72,23 +68,24 @@ export class NextjsBuild extends Construct {
    */
   relativePathToEntrypoint: string;
   /**
+   * Relative path from the standalone directory to the package containing the Next.js app.
+   * This is automatically detected from the standalone build output.
+   * @example "." for non-monorepo apps
+   * @example "./apps/web" for monorepo apps
+   */
+  relativePathToPackage: string;
+  /**
    * Absolute path to the .next directory containing Next.js build artifacts
    */
   dotNextPath: string;
 
   private props: NextjsBuildProps;
-  private relativePathToPackage: string;
   private buildCommand: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
-    this.relativePathToPackage = props.relativePathToPackage || ".";
     this.props = props;
     this.dotNextPath = join(props.buildDirectory, ".next");
-    this.relativePathToEntrypoint = joinPosix(
-      this.props.relativePathToPackage || "",
-      "server.js",
-    );
 
     this.buildCommand = props.buildCommand || "npm run build";
 
@@ -108,6 +105,15 @@ export class NextjsBuild extends Construct {
 
     // Validate build output and set validated paths
     this.validateNextBuildOutput();
+
+    // Auto-detect relativePathToPackage from standalone build output
+    this.relativePathToPackage = this.findRelativePathToServerJs();
+
+    // Set entrypoint path using detected relativePathToPackage
+    this.relativePathToEntrypoint = joinPosix(
+      this.relativePathToPackage === "." ? "" : this.relativePathToPackage,
+      "server.js",
+    );
 
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
@@ -151,7 +157,7 @@ export class NextjsBuild extends Construct {
   }
 
   /**
-   * Validate Next.js build output and set validated paths as class variables
+   * Validate Next.js build output
    * All builds must be standalone - no fallback to regular builds
    */
   private validateNextBuildOutput(): void {
@@ -164,44 +170,7 @@ export class NextjsBuild extends Construct {
           `Please ensure your next.config.js includes 'output: "standalone"'.`,
       );
     }
-
-    // Validate standalone build structure
-    // Use relativePathToPackage directly instead of just the package name
-    const standalonePackageDir = join(
-      standaloneDir,
-      this.relativePathToPackage,
-    );
-
-    if (!existsSync(standalonePackageDir)) {
-      throw new Error(
-        `Standalone package directory not found: ${standalonePackageDir}. ` +
-          `Ensure Next.js build completed successfully with output: 'standalone'.`,
-      );
-    }
-
-    // Check required files in standalone package directory
-    const requiredFiles = ["server.js"];
-    for (const file of requiredFiles) {
-      const filePath = join(standalonePackageDir, file);
-      if (!existsSync(filePath)) {
-        throw new Error(
-          `Required standalone build file missing: ${filePath}. ` +
-            `Ensure Next.js build completed successfully with output: 'standalone'.`,
-        );
-      }
-    }
-
-    // Check required directories in standalone package directory
-    const requiredDirectories = [".next"];
-    for (const dir of requiredDirectories) {
-      const dirPath = join(standalonePackageDir, dir);
-      if (!existsSync(dirPath)) {
-        throw new Error(
-          `Required standalone build directory missing: ${dirPath}. ` +
-            `Ensure Next.js build completed successfully.`,
-        );
-      }
-    }
+    // Additional validation (server.js with .next sibling) happens in findRelativePathToServerJs()
   }
 
   /**
@@ -235,6 +204,57 @@ export class NextjsBuild extends Construct {
       const patchedContent = patchFetchContent + "\n" + originalContent;
       writeFileSync(chunkFilePath, patchedContent);
     }
+  }
+
+  /**
+   * Automatically finds the relative path from standalone directory to the
+   * package containing server.js by searching for server.js with a .next sibling.
+   * @returns "." for non-monorepo apps, or relative path like "app-playground" for monorepo apps
+   */
+  private findRelativePathToServerJs(): string {
+    const standaloneDir = join(this.dotNextPath, "standalone");
+
+    if (!existsSync(standaloneDir)) {
+      throw new Error(
+        `Cannot detect relativePathToPackage: standalone directory not found at ${standaloneDir}`,
+      );
+    }
+
+    const findServerJs = (
+      dir: string,
+      relativePath: string = "",
+    ): string | null => {
+      const entries = readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+
+        if (entry.isDirectory() && entry.name !== "node_modules") {
+          // Recursively search directories (skip node_modules at root level)
+          const result = findServerJs(fullPath, join(relativePath, entry.name));
+          if (result !== null) return result;
+        } else if (entry.isFile() && entry.name === "server.js") {
+          // Check if this server.js has a .next sibling directory
+          const parentDir = dir;
+          const dotNextPath = join(parentDir, ".next");
+          if (existsSync(dotNextPath)) {
+            return relativePath || ".";
+          }
+        }
+      }
+      return null;
+    };
+
+    const result = findServerJs(standaloneDir);
+    if (result === null) {
+      throw new Error(
+        `Cannot detect relativePathToPackage: Could not find server.js with .next sibling in ${standaloneDir}. ` +
+          `Please ensure Next.js build completed successfully or provide relativePathToPackage manually.`,
+      );
+    }
+
+    debug(`${LOG_PREFIX} Auto-detected relativePathToPackage: "${result}"`);
+    return result;
   }
 
   /**

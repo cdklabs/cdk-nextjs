@@ -59,7 +59,6 @@ class LowCostStack extends Stack {
           },
         },
       },
-      relativePathToPackage: "./app-playground",
     });
     this.#createDnsRecords(nextjs, hostedZone);
   }

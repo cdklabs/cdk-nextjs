@@ -6,6 +6,14 @@
 
 This release introduces a major architectural shift from Docker-based builds to local builds, and from EFS-based caching to S3 + DynamoDB caching. This significantly simplifies the infrastructure and improves deployment speed.
 
+### Automatic Detection of Monorepo Structure
+
+- **`relativePathToPackage`** property has been **removed** from `NextjsBaseProps`
+  - This value is now automatically detected from the Next.js standalone build output
+  - For monorepo setups, the library searches for `server.js` with a `.next` sibling directory within `.next/standalone/`
+  - No user configuration needed - works automatically for both simple apps and monorepos
+  - **Migration:** Simply remove the `relativePathToPackage` property from your construct props
+
 ### Removed Constructs and Exports
 
 - **`NextjsAssetsDeployment`** - Removed entirely. Assets are now deployed directly during the build process without requiring a separate Custom Resource

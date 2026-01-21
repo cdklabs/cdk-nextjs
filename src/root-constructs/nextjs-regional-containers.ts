@@ -106,7 +106,6 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      relativePathToPackage: this.baseProps.relativePathToPackage,
       overrides: this.props.overrides?.nextjsPostDeploy,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
     });

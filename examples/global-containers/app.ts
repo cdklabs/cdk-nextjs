@@ -49,7 +49,6 @@ export class GlobalContainersStack extends Stack {
           },
         },
       },
-      relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value: nextjs.url,

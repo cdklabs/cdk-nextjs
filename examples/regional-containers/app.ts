@@ -46,7 +46,6 @@ export class RegionalContainersStack extends Stack {
           },
         },
       },
-      relativePathToPackage: "./app-playground",
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value: nextjs.url,

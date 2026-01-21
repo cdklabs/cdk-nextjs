@@ -16,10 +16,6 @@ export interface OptionalNextjsPostDeployProps {
    */
   readonly revalidationTable?: aws_dynamodb.TableV2;
   /**
-   * @stability stable
-   */
-  readonly relativePathToPackage?: string;
-  /**
    * CloudFront Distribution to invalidate.
    * @stability stable
    */

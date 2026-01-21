@@ -51,7 +51,6 @@ export class RegionalFunctionsStack extends Stack {
           },
         },
       },
-      relativePathToPackage: "./app-playground",
     });
     // workaround b/c not using custom domain. see examples/app-playground/middleware.ts
     nextjs.nextjsFunctions.function.addEnvironment("PREPEND_APIGW_STAGE", "1");
