@@ -357,6 +357,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsBuild.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.buildId">buildId</a></code> | <code>string</code> | Unique id for Next.js build. Used to partition cache storage and as metadata for static assets in S3 bucket. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.dotNextPath">dotNextPath</a></code> | <code>string</code> | Absolute path to the .next directory containing Next.js build artifacts. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The entrypoint JavaScript file used as an argument for Node.js to run the Next.js standalone server relative to the standalone directory. |
 
@@ -397,6 +398,25 @@ public readonly dotNextPath: string;
 Absolute path to the .next directory containing Next.js build artifacts.
 
 ---
+
+##### `initCacheDir`<sup>Required</sup> <a name="initCacheDir" id="cdk-nextjs.NextjsBuild.property.initCacheDir"></a>
+
+```typescript
+public readonly initCacheDir: string;
+```
+
+- *Type:* string
+
+Absolute path to the init cache directory.
+
+---
+
+*Example*
+
+```typescript
+"/Users/john/myapp/.next/cdk-nextjs-init-cache"
+```
+
 
 ##### `publicDirEntries`<sup>Required</sup> <a name="publicDirEntries" id="cdk-nextjs.NextjsBuild.property.publicDirEntries"></a>
 
@@ -525,9 +545,9 @@ Any object.
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsCache.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsCache.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsCache.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCache.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsCache.property.deployment">deployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCache.property.bucketDeployment">bucketDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
 
 ---
 
@@ -556,10 +576,10 @@ public readonly buildId: string;
 ##### `cacheBucket`<sup>Required</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsCache.property.cacheBucket"></a>
 
 ```typescript
-public readonly cacheBucket: Bucket;
+public readonly cacheBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 ---
 
@@ -573,10 +593,10 @@ public readonly revalidationTable: TableV2;
 
 ---
 
-##### `deployment`<sup>Optional</sup> <a name="deployment" id="cdk-nextjs.NextjsCache.property.deployment"></a>
+##### `bucketDeployment`<sup>Optional</sup> <a name="bucketDeployment" id="cdk-nextjs.NextjsCache.property.bucketDeployment"></a>
 
 ```typescript
-public readonly deployment: BucketDeployment;
+public readonly bucketDeployment: BucketDeployment;
 ```
 
 - *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
@@ -2774,7 +2794,7 @@ const nextjsCacheProps: NextjsCacheProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsCacheProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Path to the Next.js build output directory (containing .next folder) Used to deploy pre-built cache files from .next/cdk-nextjs-cache-handler. |
+| <code><a href="#cdk-nextjs.NextjsCacheProps.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsCacheOverrides">NextjsCacheOverrides</a></code> | *No description.* |
 
 ---
@@ -2789,17 +2809,24 @@ public readonly buildId: string;
 
 ---
 
-##### `buildOutputPath`<sup>Optional</sup> <a name="buildOutputPath" id="cdk-nextjs.NextjsCacheProps.property.buildOutputPath"></a>
+##### `initCacheDir`<sup>Required</sup> <a name="initCacheDir" id="cdk-nextjs.NextjsCacheProps.property.initCacheDir"></a>
 
 ```typescript
-public readonly buildOutputPath: string;
+public readonly initCacheDir: string;
 ```
 
 - *Type:* string
 
-Path to the Next.js build output directory (containing .next folder) Used to deploy pre-built cache files from .next/cdk-nextjs-cache-handler.
+Absolute path to the init cache directory.
 
 ---
+
+*Example*
+
+```typescript
+"/Users/john/myapp/.next/cdk-nextjs-init-cache"
+```
+
 
 ##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsCacheProps.property.overrides"></a>
 
@@ -2827,7 +2854,7 @@ const nextjsComputeBaseProps: NextjsComputeBaseProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
@@ -2862,10 +2889,10 @@ Build output directory containing .next folder with standalone build Required fo
 ##### `cacheBucket`<sup>Required</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsComputeBaseProps.property.cacheBucket"></a>
 
 ```typescript
-public readonly cacheBucket: Bucket;
+public readonly cacheBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 S3 bucket for cache storage.
 
@@ -2992,7 +3019,7 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
@@ -3030,10 +3057,10 @@ Build output directory containing .next folder with standalone build Required fo
 ##### `cacheBucket`<sup>Required</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsContainersProps.property.cacheBucket"></a>
 
 ```typescript
-public readonly cacheBucket: Bucket;
+public readonly cacheBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 S3 bucket for cache storage.
 
@@ -3451,7 +3478,7 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
@@ -3487,10 +3514,10 @@ Build output directory containing .next folder with standalone build Required fo
 ##### `cacheBucket`<sup>Required</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsFunctionsProps.property.cacheBucket"></a>
 
 ```typescript
-public readonly cacheBucket: Bucket;
+public readonly cacheBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 S3 bucket for cache storage.
 
@@ -4339,7 +4366,7 @@ const nextjsPostDeployProps: NextjsPostDeployProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Cache bucket for cleaning up old BUILD_ID prefixed objects. |
+| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Cache bucket for cleaning up old BUILD_ID prefixed objects. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | Override props for every construct. |
@@ -4362,10 +4389,10 @@ public readonly buildId: string;
 ##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsPostDeployProps.property.cacheBucket"></a>
 
 ```typescript
-public readonly cacheBucket: Bucket;
+public readonly cacheBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 Cache bucket for cleaning up old BUILD_ID prefixed objects.
 
@@ -9548,6 +9575,7 @@ const optionalNextjsCacheProps: OptionalNextjsCacheProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
 
 ---
 
@@ -9558,6 +9586,18 @@ public readonly buildId: string;
 ```
 
 - *Type:* string
+
+---
+
+##### `initCacheDir`<sup>Optional</sup> <a name="initCacheDir" id="cdk-nextjs.OptionalNextjsCacheProps.property.initCacheDir"></a>
+
+```typescript
+public readonly initCacheDir: string;
+```
+
+- *Type:* string
+
+Absolute path to the init cache directory.
 
 ---
 
@@ -9579,7 +9619,7 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
@@ -9616,10 +9656,10 @@ Build output directory containing .next folder with standalone build Required fo
 ##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.OptionalNextjsContainersProps.property.cacheBucket"></a>
 
 ```typescript
-public readonly cacheBucket: Bucket;
+public readonly cacheBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 S3 bucket for cache storage.
 
@@ -9829,7 +9869,7 @@ const optionalNextjsPostDeployProps: OptionalNextjsPostDeployProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Cache bucket for cleaning up old BUILD_ID prefixed objects. |
+| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Cache bucket for cleaning up old BUILD_ID prefixed objects. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
@@ -9851,10 +9891,10 @@ public readonly buildId: string;
 ##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.cacheBucket"></a>
 
 ```typescript
-public readonly cacheBucket: Bucket;
+public readonly cacheBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 Cache bucket for cleaning up old BUILD_ID prefixed objects.
 
