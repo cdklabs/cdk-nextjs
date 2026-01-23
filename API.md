@@ -481,7 +481,7 @@ Relative path from the standalone directory to the package containing the Next.j
 
 ### NextjsCache <a name="NextjsCache" id="cdk-nextjs.NextjsCache"></a>
 
-Next.js Cache construct providing unified S3 and DynamoDB cache management. Replaces EFS-based caching with cloud-native S3/DynamoDB solution.
+Next.js Cache construct providing unified S3 and DynamoDB cache management.
 
 #### Initializers <a name="Initializers" id="cdk-nextjs.NextjsCache.Initializer"></a>
 
@@ -2426,6 +2426,7 @@ public readonly skipBuild: boolean;
 ```
 
 - *Type:* boolean
+- *Default:* false
 
 Skips running `next build`.
 
@@ -2589,6 +2590,7 @@ public readonly skipBuild: boolean;
 ```
 
 - *Type:* boolean
+- *Default:* false
 
 Skips running `next build`.
 
@@ -3812,6 +3814,7 @@ public readonly skipBuild: boolean;
 ```
 
 - *Type:* boolean
+- *Default:* false
 
 Skips running `next build`.
 
@@ -4125,6 +4128,7 @@ public readonly skipBuild: boolean;
 ```
 
 - *Type:* boolean
+- *Default:* false
 
 Skips running `next build`.
 
@@ -4598,6 +4602,7 @@ public readonly skipBuild: boolean;
 ```
 
 - *Type:* boolean
+- *Default:* false
 
 Skips running `next build`.
 
@@ -4895,6 +4900,7 @@ public readonly skipBuild: boolean;
 ```
 
 - *Type:* boolean
+- *Default:* false
 
 Skips running `next build`.
 
