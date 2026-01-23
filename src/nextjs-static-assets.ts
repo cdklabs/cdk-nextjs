@@ -1,9 +1,8 @@
 import {
-  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -81,8 +80,6 @@ export class NextjsStaticAssets extends Construct {
     this.stagingDir = this.createStagingDirectory();
 
     if (!this.stagingDir) {
-      // No assets to deploy - this is a valid scenario for some Next.js apps
-      // Don't create a deployment at all
       throw new Error(
         `No static assets found to deploy. Ensure your Next.js build output contains either:
         - A 'public' directory at: ${join(this.props.buildDirectory, "public")}
@@ -121,7 +118,7 @@ export class NextjsStaticAssets extends Construct {
       // Copy public directory contents to staging root
       const publicPath = join(this.props.buildDirectory, "public");
       if (this.directoryExists(publicPath)) {
-        this.copyDirectoryContents(publicPath, stagingDir);
+        cpSync(publicPath, stagingDir, { recursive: true });
         hasAssets = true;
       }
 
@@ -135,7 +132,7 @@ export class NextjsStaticAssets extends Construct {
         mkdirSync(nextDir, { recursive: true });
 
         // Copy static assets
-        this.copyDirectoryContents(staticPath, staticDestDir);
+        cpSync(staticPath, staticDestDir, { recursive: true });
         hasAssets = true;
       }
 
@@ -149,28 +146,6 @@ export class NextjsStaticAssets extends Construct {
         // Ignore cleanup errors
       }
       return undefined;
-    }
-  }
-
-  /**
-   * Copy directory contents recursively
-   */
-  private copyDirectoryContents(srcDir: string, destDir: string): void {
-    if (!existsSync(destDir)) {
-      mkdirSync(destDir, { recursive: true });
-    }
-
-    const entries = readdirSync(srcDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const srcPath = join(srcDir, entry.name);
-      const destPath = join(destDir, entry.name);
-
-      if (entry.isDirectory()) {
-        this.copyDirectoryContents(srcPath, destPath);
-      } else {
-        copyFileSync(srcPath, destPath);
-      }
     }
   }
 

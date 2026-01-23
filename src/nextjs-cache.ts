@@ -39,7 +39,6 @@ export interface NextjsCacheProps {
 
 /**
  * Next.js Cache construct providing unified S3 and DynamoDB cache management.
- * Replaces EFS-based caching with cloud-native S3/DynamoDB solution.
  */
 export class NextjsCache extends Construct {
   readonly cacheBucket: IBucket;
