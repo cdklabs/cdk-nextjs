@@ -4,7 +4,7 @@ import getDebug from 'debug';
 const debug = getDebug('cdk-nextjs:proxy');
 
 export default function proxy(request: NextRequest) {
-  debug('request.url:', request.url);
+  // debug('request.url:', request.url);
   if (process.env.PREPEND_APIGW_STAGE) {
     // API Gateway strips the stage name from the path when invoking Lambda.
     // We need to prepend it back so Next.js basePath works correctly.
@@ -24,18 +24,18 @@ export default function proxy(request: NextRequest) {
       }
 
       url.pathname = `/${stage}${url.pathname}`;
-      debug(
-        `[PROXY] Rewriting request - Original: ${originalPath} -> Rewritten: ${url.pathname}`,
-      );
+      // debug(
+      //   `[PROXY] Rewriting request - Original: ${originalPath} -> Rewritten: ${url.pathname}`,
+      // );
       return NextResponse.rewrite(url);
     }
   }
 
   const response = NextResponse.next();
-  debug('%O', {
-    status: response.status,
-    statusText: response.statusText,
-    body: response.body,
-  });
+  // debug('%O', {
+  //   status: response.status,
+  //   statusText: response.statusText,
+  //   body: response.body,
+  // });
   return response;
 }
