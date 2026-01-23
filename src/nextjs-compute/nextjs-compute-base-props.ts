@@ -17,13 +17,14 @@ export interface NextjsComputeBaseProps {
    */
   readonly buildId: string;
   /**
-   * Build output directory containing .next folder with standalone build
-   * Required for local builds
+   * Directory where the Next.js application is located.
+   * This should contain the .next directory and other build artifacts.
+   * Required for local builds.
    */
-  readonly buildOutputPath: string;
+  readonly buildDirectory: string;
   readonly nextjsType: NextjsType;
   /**
-   * Relative path from buildOutputPath to the package containing Next.js app
+   * Relative path from buildDirectory to the package containing Next.js app
    */
   readonly relativePathToPackage?: string;
 }

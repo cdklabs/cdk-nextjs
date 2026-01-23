@@ -77,7 +77,7 @@ export class NextjsContainers extends Construct {
 
   private createDockerImageAsset(): DockerImageAsset {
     // Build context is the buildDirectory (where the Next.js app is located)
-    const buildContext = this.props.buildOutputPath;
+    const buildContext = this.props.buildDirectory;
     const dockerfileName = this.getDockerfileName();
 
     this.copyDockerfileToContext(buildContext, dockerfileName);

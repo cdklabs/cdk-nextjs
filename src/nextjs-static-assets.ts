@@ -31,9 +31,10 @@ export interface NextjsStaticAssetsOverrides {
 
 export interface NextjsStaticAssetsProps {
   /**
-   * Path to the local .next directory containing built assets
+   * Directory where the Next.js application is located.
+   * This should contain the .next directory and other build artifacts.
    */
-  readonly buildOutputPath: string;
+  readonly buildDirectory: string;
   /**
    * Build ID from NextjsBuild to track asset versions
    */
@@ -84,8 +85,8 @@ export class NextjsStaticAssets extends Construct {
       // Don't create a deployment at all
       throw new Error(
         `No static assets found to deploy. Ensure your Next.js build output contains either:
-        - A 'public' directory at: ${join(this.props.buildOutputPath, "public")}
-        - A '.next/static' directory at: ${join(this.props.buildOutputPath, ".next", "static")}`,
+        - A 'public' directory at: ${join(this.props.buildDirectory, "public")}
+        - A '.next/static' directory at: ${join(this.props.buildDirectory, ".next", "static")}`,
       );
     }
 
@@ -118,14 +119,14 @@ export class NextjsStaticAssets extends Construct {
 
     try {
       // Copy public directory contents to staging root
-      const publicPath = join(this.props.buildOutputPath, "public");
+      const publicPath = join(this.props.buildDirectory, "public");
       if (this.directoryExists(publicPath)) {
         this.copyDirectoryContents(publicPath, stagingDir);
         hasAssets = true;
       }
 
       // Copy .next/static to staging/_next/static
-      const staticPath = join(this.props.buildOutputPath, ".next", "static");
+      const staticPath = join(this.props.buildDirectory, ".next", "static");
       if (this.directoryExists(staticPath)) {
         const nextDir = join(stagingDir, "_next");
         const staticDestDir = join(nextDir, "static");

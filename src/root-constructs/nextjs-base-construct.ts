@@ -134,7 +134,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       buildId: this.nextjsBuild.buildId,
-      buildOutputPath: this.baseProps.buildDirectory,
+      buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
       relativePathToPackage: this.nextjsBuild.relativePathToPackage,
     };
@@ -161,7 +161,7 @@ export abstract class NextjsBaseConstruct extends Construct {
 
   private createNextjsStaticAssets(): NextjsStaticAssets {
     return new NextjsStaticAssets(this, "NextjsStaticAssets", {
-      buildOutputPath: this.baseProps.buildDirectory,
+      buildDirectory: this.baseProps.buildDirectory,
       buildId: this.nextjsBuild.buildId,
       basePath: this.baseProps.basePath,
       overrides: this.baseProps.overrides?.nextjsStaticAssets,

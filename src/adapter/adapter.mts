@@ -124,7 +124,6 @@ const adapter: NextAdapter = {
             },
           };
         } else if (kind === CachedRouteKind.APP_ROUTE) {
-          // Read route body as binary
           const body = await readPrerenderAsBuffer(htmlPrerender);
 
           if (!body) {

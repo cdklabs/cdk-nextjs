@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync } from "node:fs";
 import { join as joinPath } from "node:path";
+import { join as joinPosix } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
 import {
   DockerImageCode,
@@ -83,14 +84,15 @@ export class NextjsFunctions extends Construct {
 
   private createDockerImageCode(): DockerImageCode {
     // Build context is the buildDirectory (where the Next.js app is located)
-    const buildContext = this.props.buildOutputPath;
+    const buildContext = this.props.buildDirectory;
     const dockerfileName = "functions.Dockerfile";
 
     // Copy Dockerfile to build context to avoid path resolution issues
     this.copyDockerfileToContext(buildContext, dockerfileName);
 
     const relativeEntrypointPath = this.props.relativePathToPackage
-      ? `${this.props.relativePathToPackage}/server.js`
+      ? // joinPosix b/c this will be referenced in Docker container (Linux)
+        joinPosix(this.props.relativePathToPackage, "server.js")
       : "server.js";
 
     return DockerImageCode.fromImageAsset(buildContext, {
