@@ -170,14 +170,16 @@ export class NextjsContainers extends Construct {
             streamPrefix: "nextjs",
             mode: AwsLogDriverMode.NON_BLOCKING,
           }),
+          ...this.props.overrides?.taskImageOptions,
           environment: {
             // Cache configuration environment variables
             CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
             CDK_NEXTJS_REVALIDATION_TABLE_NAME:
               this.props.revalidationTable.tableName,
             CDK_NEXTJS_BUILD_ID: this.props.buildId,
+            // Merge with user-provided environment variables (user values take precedence)
+            ...this.props.overrides?.taskImageOptions?.environment,
           },
-          ...this.props.overrides?.taskImageOptions,
         },
         ...this.props.overrides?.albFargateServiceProps,
       },
