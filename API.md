@@ -360,6 +360,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsBuild.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The entrypoint JavaScript file used as an argument for Node.js to run the Next.js standalone server relative to the standalone directory. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from the standalone directory to the package containing the Next.js app. This is automatically detected from the standalone build output. |
 
 ---
 
@@ -455,6 +456,25 @@ The entrypoint JavaScript file used as an argument for Node.js to run the Next.j
 
 ```typescript
 "./packages/ui/server.js" (monorepo)
+```
+
+
+##### `relativePathToPackage`<sup>Required</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsBuild.property.relativePathToPackage"></a>
+
+```typescript
+public readonly relativePathToPackage: string;
+```
+
+- *Type:* string
+
+Relative path from the standalone directory to the package containing the Next.js app. This is automatically detected from the standalone build output.
+
+---
+
+*Example*
+
+```typescript
+"./apps/web" for monorepo apps
 ```
 
 
@@ -2319,7 +2339,6 @@ const nextjsBaseConstructProps: NextjsBaseConstructProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsBaseOverrides">NextjsBaseOverrides</a></code> | *No description.* |
 
@@ -2399,41 +2418,6 @@ public readonly buildCommand: string;
 Command to generate optimized version of your Next.js app in container;
 
 ---
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsBaseConstructProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-Use this if building in monorepo.
-
-This is the relative path from
-root package to nested package containing Next.js app. It's used to find
-path to `next build` generated server.js within .next/standalone directory.
-See example below:
-
-Let's say you have a monorepo with the following folder structure:
-- my-monorepo/
-  - apps/
-    - web/
-      - package.json (nested)
-  - package.json (root)
-
-And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
-to `"./apps/web"`.
-
----
-
-*Example*
-
-```typescript
-"./apps/web"
-```
-
 
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsBaseConstructProps.property.skipBuild"></a>
 
@@ -2519,7 +2503,6 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 
 ---
@@ -2599,41 +2582,6 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsBaseProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-Use this if building in monorepo.
-
-This is the relative path from
-root package to nested package containing Next.js app. It's used to find
-path to `next build` generated server.js within .next/standalone directory.
-See example below:
-
-Let's say you have a monorepo with the following folder structure:
-- my-monorepo/
-  - apps/
-    - web/
-      - package.json (nested)
-  - package.json (root)
-
-And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
-to `"./apps/web"`.
-
----
-
-*Example*
-
-```typescript
-"./apps/web"
-```
-
-
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsBaseProps.property.skipBuild"></a>
 
 ```typescript
@@ -2666,7 +2614,6 @@ const nextjsBuildProps: NextjsBuildProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsBuildProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | *No description.* |
 
 ---
@@ -2702,18 +2649,6 @@ public readonly buildCommand: string;
 - *Type:* string
 
 > [{@link NextjsBaseProps ["buildCommand"]}]({@link NextjsBaseProps ["buildCommand"]})
-
----
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsBuildProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-> [{@link NextjsBaseProps.relativePathToPackage }]({@link NextjsBaseProps.relativePathToPackage })
 
 ---
 
@@ -3789,7 +3724,6 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
@@ -3870,41 +3804,6 @@ public readonly buildCommand: string;
 Command to generate optimized version of your Next.js app in container;
 
 ---
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsGlobalContainersProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-Use this if building in monorepo.
-
-This is the relative path from
-root package to nested package containing Next.js app. It's used to find
-path to `next build` generated server.js within .next/standalone directory.
-See example below:
-
-Let's say you have a monorepo with the following folder structure:
-- my-monorepo/
-  - apps/
-    - web/
-      - package.json (nested)
-  - package.json (root)
-
-And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
-to `"./apps/web"`.
-
----
-
-*Example*
-
-```typescript
-"./apps/web"
-```
-
 
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsGlobalContainersProps.property.skipBuild"></a>
 
@@ -4138,7 +4037,6 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
@@ -4219,41 +4117,6 @@ public readonly buildCommand: string;
 Command to generate optimized version of your Next.js app in container;
 
 ---
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-Use this if building in monorepo.
-
-This is the relative path from
-root package to nested package containing Next.js app. It's used to find
-path to `next build` generated server.js within .next/standalone directory.
-See example below:
-
-Let's say you have a monorepo with the following folder structure:
-- my-monorepo/
-  - apps/
-    - web/
-      - package.json (nested)
-  - package.json (root)
-
-And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
-to `"./apps/web"`.
-
----
-
-*Example*
-
-```typescript
-"./apps/web"
-```
-
 
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.skipBuild"></a>
 
@@ -4370,7 +4233,6 @@ const nextjsPostDeployProps: NextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | Override props for every construct. |
-| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
@@ -4432,18 +4294,6 @@ public readonly overrides: NextjsPostDeployOverrides;
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a>
 
 Override props for every construct.
-
----
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsPostDeployProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-> [{@link NextjsBaseProps.relativePathToPackage }]({@link NextjsBaseProps.relativePathToPackage })
 
 ---
 
@@ -4661,7 +4511,6 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides">NextjsRegionalContainersOverrides</a></code> | Override props of any construct. |
 
@@ -4741,41 +4590,6 @@ public readonly buildCommand: string;
 Command to generate optimized version of your Next.js app in container;
 
 ---
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsRegionalContainersProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-Use this if building in monorepo.
-
-This is the relative path from
-root package to nested package containing Next.js app. It's used to find
-path to `next build` generated server.js within .next/standalone directory.
-See example below:
-
-Let's say you have a monorepo with the following folder structure:
-- my-monorepo/
-  - apps/
-    - web/
-      - package.json (nested)
-  - package.json (root)
-
-And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
-to `"./apps/web"`.
-
----
-
-*Example*
-
-```typescript
-"./apps/web"
-```
-
 
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsRegionalContainersProps.property.skipBuild"></a>
 
@@ -4994,7 +4808,6 @@ const nextjsRegionalFunctionsProps: NextjsRegionalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
-| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Use this if building in monorepo. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides">NextjsRegionalFunctionsOverrides</a></code> | Override props of any construct. |
 
@@ -5074,41 +4887,6 @@ public readonly buildCommand: string;
 Command to generate optimized version of your Next.js app in container;
 
 ---
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
-
-Use this if building in monorepo.
-
-This is the relative path from
-root package to nested package containing Next.js app. It's used to find
-path to `next build` generated server.js within .next/standalone directory.
-See example below:
-
-Let's say you have a monorepo with the following folder structure:
-- my-monorepo/
-  - apps/
-    - web/
-      - package.json (nested)
-  - package.json (root)
-
-And your Next.js app directory is the web folder. Then you would set {@link NextjsBaseProps.buildDirectory}
-to `"/absolute/path/to/nextjs/app"` and {@link NextjsBaseProps.relativePathToPackage}
-to `"./apps/web"`.
-
----
-
-*Example*
-
-```typescript
-"./apps/web"
-```
-
 
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.skipBuild"></a>
 
@@ -9501,7 +9279,6 @@ const optionalNextjsBuildProps: OptionalNextjsBuildProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | *No description.* |
 
 ---
@@ -9535,16 +9312,6 @@ public readonly nextjsType: NextjsType;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
-
----
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.OptionalNextjsBuildProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
 
 ---
 
@@ -9872,7 +9639,6 @@ const optionalNextjsPostDeployProps: OptionalNextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Cache bucket for cleaning up old BUILD_ID prefixed objects. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
-| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
@@ -9922,16 +9688,6 @@ public readonly distribution: IDistribution;
 - *Type:* aws-cdk-lib.aws_cloudfront.IDistribution
 
 CloudFront Distribution to invalidate.
-
----
-
-##### `relativePathToPackage`<sup>Optional</sup> <a name="relativePathToPackage" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.relativePathToPackage"></a>
-
-```typescript
-public readonly relativePathToPackage: string;
-```
-
-- *Type:* string
 
 ---
 
