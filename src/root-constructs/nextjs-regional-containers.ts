@@ -1,4 +1,3 @@
-import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import {
@@ -74,13 +73,6 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
-  /**
-   * Get VPC for container deployments. Containers require VPC for networking.
-   */
-  private vpcForContainers(): IVpc {
-    return this.nextjsVpc.vpc;
-  }
-
   private createVpc(): NextjsVpc {
     return new NextjsVpc(this, "NextjsVpc", {
       nextjsType: this.nextjsType,
@@ -93,7 +85,7 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
     // Create containers with local build output
     return new NextjsContainers(this, "NextjsContainers", {
       ...this.computeBaseProps(),
-      vpc: this.vpcForContainers(),
+      vpc: this.nextjsVpc.vpc,
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
       overrides: this.props.overrides?.nextjsContainers,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,

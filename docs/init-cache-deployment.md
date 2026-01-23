@@ -58,7 +58,7 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 2. **`local-file-cache-handler.ts`** (NEW) - Writes cache files during build
 3. **`nextjs-cache.ts`** - Deploys pre-built cache files via BucketDeployment
 4. **`nextjs-build.ts`** - Sets `BUILD_OUTPUT_PATH` and `CDK_NEXTJS_BUILD_ID` env vars
-5. **`nextjs-base-construct.ts`** - Passes `buildOutputPath` to NextjsCache
+5. **`nextjs-base-construct.ts`** - Passes `buildDirectory` to NextjsCache
 
 ### Environment Variables
 

@@ -61,7 +61,7 @@ export interface NextjsBaseProps {
   /**
    * Skips running `next build`. If `true`, you are responsible for running
    * `next build` before this construct is synthesized.
-   * @defaul false
+   * @default false
    */
   readonly skipBuild?: boolean;
 }

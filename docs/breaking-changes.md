@@ -130,7 +130,7 @@ This release introduces a major architectural shift from Docker-based builds to 
   - `vpc` - VPC is now required for container deployments (property moved from base)
   - `cacheBucket` - S3 bucket for cache storage
   - `revalidationTable` - DynamoDB table for revalidation metadata
-  - `buildOutputPath` - Path to build output directory containing `.next` folder
+  - `buildDirectory` - Directory where the Next.js application is located (contains `.next` folder)
   - `relativePathToPackage` - Relative path to package containing Next.js app
 
 - **Behavior changes:**
@@ -153,7 +153,7 @@ This release introduces a major architectural shift from Docker-based builds to 
 ### NextjsStaticAssets Changes
 
 - **New properties:**
-  - `buildOutputPath` - Path to Next.js build output directory
+  - `buildDirectory` - Directory where the Next.js application is located (contains `.next` folder and static assets)
 
 - **Behavior changes:**
   - Reads static assets directly from local `.next/static` and `public` directories
