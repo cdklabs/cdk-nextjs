@@ -2787,13 +2787,25 @@ const nextjsComputeBaseProps: NextjsComputeBaseProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildOutputPath to the package containing Next.js app. |
+| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
+
+---
+
+##### `buildDirectory`<sup>Required</sup> <a name="buildDirectory" id="cdk-nextjs.NextjsComputeBaseProps.property.buildDirectory"></a>
+
+```typescript
+public readonly buildDirectory: string;
+```
+
+- *Type:* string
+
+Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds.
 
 ---
 
@@ -2806,18 +2818,6 @@ public readonly buildId: string;
 - *Type:* string
 
 Build ID for cache key prefixing.
-
----
-
-##### `buildOutputPath`<sup>Required</sup> <a name="buildOutputPath" id="cdk-nextjs.NextjsComputeBaseProps.property.buildOutputPath"></a>
-
-```typescript
-public readonly buildOutputPath: string;
-```
-
-- *Type:* string
-
-Build output directory containing .next folder with standalone build Required for local builds.
 
 ---
 
@@ -2873,7 +2873,7 @@ public readonly relativePathToPackage: string;
 
 - *Type:* string
 
-Relative path from buildOutputPath to the package containing Next.js app.
+Relative path from buildDirectory to the package containing Next.js app.
 
 ---
 
@@ -2952,16 +2952,28 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildOutputPath to the package containing Next.js app. |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | VPC is required for container deployments. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a></code> | *No description.* |
+
+---
+
+##### `buildDirectory`<sup>Required</sup> <a name="buildDirectory" id="cdk-nextjs.NextjsContainersProps.property.buildDirectory"></a>
+
+```typescript
+public readonly buildDirectory: string;
+```
+
+- *Type:* string
+
+Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds.
 
 ---
 
@@ -2974,18 +2986,6 @@ public readonly buildId: string;
 - *Type:* string
 
 Build ID for cache key prefixing.
-
----
-
-##### `buildOutputPath`<sup>Required</sup> <a name="buildOutputPath" id="cdk-nextjs.NextjsContainersProps.property.buildOutputPath"></a>
-
-```typescript
-public readonly buildOutputPath: string;
-```
-
-- *Type:* string
-
-Build output directory containing .next folder with standalone build Required for local builds.
 
 ---
 
@@ -3041,7 +3041,7 @@ public readonly relativePathToPackage: string;
 
 - *Type:* string
 
-Relative path from buildOutputPath to the package containing Next.js app.
+Relative path from buildDirectory to the package containing Next.js app.
 
 ---
 
@@ -3411,14 +3411,26 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildOutputPath to the package containing Next.js app. |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
+
+---
+
+##### `buildDirectory`<sup>Required</sup> <a name="buildDirectory" id="cdk-nextjs.NextjsFunctionsProps.property.buildDirectory"></a>
+
+```typescript
+public readonly buildDirectory: string;
+```
+
+- *Type:* string
+
+Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds.
 
 ---
 
@@ -3431,18 +3443,6 @@ public readonly buildId: string;
 - *Type:* string
 
 Build ID for cache key prefixing.
-
----
-
-##### `buildOutputPath`<sup>Required</sup> <a name="buildOutputPath" id="cdk-nextjs.NextjsFunctionsProps.property.buildOutputPath"></a>
-
-```typescript
-public readonly buildOutputPath: string;
-```
-
-- *Type:* string
-
-Build output directory containing .next folder with standalone build Required for local builds.
 
 ---
 
@@ -3498,7 +3498,7 @@ public readonly relativePathToPackage: string;
 
 - *Type:* string
 
-Relative path from buildOutputPath to the package containing Next.js app.
+Relative path from buildDirectory to the package containing Next.js app.
 
 ---
 
@@ -4968,10 +4968,22 @@ const nextjsStaticAssetsProps: NextjsStaticAssetsProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID from NextjsBuild to track asset versions. |
-| <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Path to the local .next directory containing built assets. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
+
+---
+
+##### `buildDirectory`<sup>Required</sup> <a name="buildDirectory" id="cdk-nextjs.NextjsStaticAssetsProps.property.buildDirectory"></a>
+
+```typescript
+public readonly buildDirectory: string;
+```
+
+- *Type:* string
+
+Directory where the Next.js application is located. This should contain the .next directory and other build artifacts.
 
 ---
 
@@ -4984,18 +4996,6 @@ public readonly buildId: string;
 - *Type:* string
 
 Build ID from NextjsBuild to track asset versions.
-
----
-
-##### `buildOutputPath`<sup>Required</sup> <a name="buildOutputPath" id="cdk-nextjs.NextjsStaticAssetsProps.property.buildOutputPath"></a>
-
-```typescript
-public readonly buildOutputPath: string;
-```
-
-- *Type:* string
-
-Path to the local .next directory containing built assets.
 
 ---
 
@@ -9384,15 +9384,27 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildOutputPath">buildOutputPath</a></code> | <code>string</code> | Build output directory containing .next folder with standalone build Required for local builds. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildOutputPath to the package containing Next.js app. |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | VPC is required for container deployments. |
+
+---
+
+##### `buildDirectory`<sup>Optional</sup> <a name="buildDirectory" id="cdk-nextjs.OptionalNextjsContainersProps.property.buildDirectory"></a>
+
+```typescript
+public readonly buildDirectory: string;
+```
+
+- *Type:* string
+
+Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds.
 
 ---
 
@@ -9405,18 +9417,6 @@ public readonly buildId: string;
 - *Type:* string
 
 Build ID for cache key prefixing.
-
----
-
-##### `buildOutputPath`<sup>Optional</sup> <a name="buildOutputPath" id="cdk-nextjs.OptionalNextjsContainersProps.property.buildOutputPath"></a>
-
-```typescript
-public readonly buildOutputPath: string;
-```
-
-- *Type:* string
-
-Build output directory containing .next folder with standalone build Required for local builds.
 
 ---
 
@@ -9470,7 +9470,7 @@ public readonly relativePathToPackage: string;
 
 - *Type:* string
 
-Relative path from buildOutputPath to the package containing Next.js app.
+Relative path from buildDirectory to the package containing Next.js app.
 
 ---
 

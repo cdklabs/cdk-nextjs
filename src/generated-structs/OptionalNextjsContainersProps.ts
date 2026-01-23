@@ -17,7 +17,7 @@ export interface OptionalNextjsContainersProps {
    */
   readonly relativeEntrypointPath?: string;
   /**
-   * Relative path from buildOutputPath to the package containing Next.js app.
+   * Relative path from buildDirectory to the package containing Next.js app.
    * @stability stable
    */
   readonly relativePathToPackage?: string;
@@ -40,13 +40,13 @@ export interface OptionalNextjsContainersProps {
    */
   readonly cacheBucket?: aws_s3.IBucket;
   /**
-   * Build output directory containing .next folder with standalone build Required for local builds.
-   * @stability stable
-   */
-  readonly buildOutputPath?: string;
-  /**
    * Build ID for cache key prefixing.
    * @stability stable
    */
   readonly buildId?: string;
+  /**
+   * Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds.
+   * @stability stable
+   */
+  readonly buildDirectory?: string;
 }
