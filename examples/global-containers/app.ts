@@ -30,6 +30,13 @@ export class GlobalContainersStack extends Stack {
       healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       overrides: {
+        nextjsContainers: {
+          taskImageOptions: {
+            environment: {
+              DEBUG: "cdk-nextjs:*",
+            },
+          },
+        },
         nextjsDistribution: {
           distributionProps: {
             logBucket: logsBucket,

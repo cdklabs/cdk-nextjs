@@ -23,6 +23,7 @@
     "@heroicons/react": "catalog:",
     "clsx": "catalog:",
     "date-fns": "catalog:",
+    "debug": "4.4.3",
     "dinero.js": "catalog:",
     "ms": "catalog:",
     "next": "catalog:",

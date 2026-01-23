@@ -160,6 +160,9 @@ importers:
       date-fns:
         specifier: 'catalog:'
         version: 3.6.0
+      debug:
+        specifier: 4.4.3
+        version: 4.4.3(supports-color@8.1.1)
       dinero.js:
         specifier: 'catalog:'
         version: 2.0.0-alpha.10
@@ -2743,7 +2746,6 @@ packages:
   constructs@10.0.5:
     resolution: {integrity: sha512-IwOwekzrASFC3qt4ozCtV09rteAIAesuCGsW0p+uBfqHd2XcvA5CXqJjgf4eUqm6g8e/noXlVCMDWwC8GaLtrg==}
     engines: {node: '>= 10.17.0'}
-    bundledDependencies: []
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}

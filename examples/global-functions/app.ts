@@ -29,6 +29,13 @@ class GlobalFunctionsStack extends Stack {
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       // skipBuild: true,
       overrides: {
+        nextjsFunctions: {
+          dockerImageFunctionProps: {
+            environment: {
+              DEBUG: "cdk-nextjs:*",
+            },
+          },
+        },
         nextjsDistribution: {
           distributionProps: {
             logBucket: logsBucket,

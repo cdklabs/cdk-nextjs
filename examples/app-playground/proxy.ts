@@ -1,39 +1,41 @@
 import { NextResponse, NextRequest } from 'next/server';
+import getDebug from 'debug';
+
+const debug = getDebug('cdk-nextjs:proxy');
 
 export default function proxy(request: NextRequest) {
+  debug('request.url:', request.url);
   if (process.env.PREPEND_APIGW_STAGE) {
-    // this is needed because we don't have API GW REST API custom domain.
-    // therefore must use stage name (default: /prod). next.config.js has `basePath`
-    // but it's not included in request path when API GW invokes Lambda so we
-    // must add here or you'll get 404 errors.
-    // see: https://github.com/awslabs/aws-lambda-web-adapter?tab=readme-ov-file#request-context
+    // API Gateway strips the stage name from the path when invoking Lambda.
+    // We need to prepend it back so Next.js basePath works correctly.
+    // See: https://github.com/awslabs/aws-lambda-web-adapter?tab=readme-ov-file#request-context
     const reqCtxStr = request.headers.get('x-amzn-request-context');
+
     if (reqCtxStr) {
       const reqCtx = JSON.parse(reqCtxStr);
       const stage = reqCtx.stage;
       const url = new URL(request.url);
+      const originalPath = url.pathname;
+
+      // Skip rewriting if path already starts with stage name
+      // This prevents double-rewriting when Next.js internally fetches static files
+      if (originalPath.startsWith(`/${stage}`)) {
+        return NextResponse.next();
+      }
+
       url.pathname = `/${stage}${url.pathname}`;
+      debug(
+        `[PROXY] Rewriting request - Original: ${originalPath} -> Rewritten: ${url.pathname}`,
+      );
       return NextResponse.rewrite(url);
     }
   }
-  const response = NextResponse.next();
-  if (process.env.VERBOSE) {
-    console.log({
-      requestUrl: request.url,
-      requestHeaders: JSON.stringify(getHeaders(request.headers), null, 2),
-      responseHeaders: JSON.stringify(getHeaders(response.headers), null, 2),
-      status: response.status,
-      statusText: response.statusText,
-      body: response.body,
-    });
-  }
-  return response;
-}
 
-function getHeaders(headers: Headers) {
-  const headersObj: Record<string, string> = {};
-  headers.forEach((value, key) => {
-    headersObj[key] = value;
+  const response = NextResponse.next();
+  debug('%O', {
+    status: response.status,
+    statusText: response.statusText,
+    body: response.body,
   });
-  return headersObj;
+  return response;
 }

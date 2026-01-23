@@ -1,3 +1,4 @@
+import { getImageSrc } from '#/lib/image-utils';
 import '#/styles/globals.css';
 import { AddressBar } from '#/ui/address-bar';
 import Byline from '#/ui/byline';
@@ -28,9 +29,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const gridUrl = getImageSrc('/static/grid.svg');
   return (
     <html lang="en" className="[color-scheme:dark]">
-      <body className="overflow-y-scroll bg-gray-1100 bg-[url('/static/grid.svg')] pb-36">
+      <body
+        className="overflow-y-scroll bg-gray-1100 pb-36"
+        style={{ backgroundImage: `url('${gridUrl}')` }}
+      >
         <GlobalNav />
 
         <div className="lg:pl-72">

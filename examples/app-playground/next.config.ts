@@ -9,7 +9,8 @@ const nextConfig: NextConfig = {
     turbopackFileSystemCacheForBuild: true,
     adapterPath: import.meta.resolve('cdk-nextjs/adapter'),
   },
-  // needed for NextjsRegionalFunctions without custom domain. see examples/regiona-functions/app.ts
+  // needed for NextjsRegionalFunctions with API GW which adds /prod base path by default
+  // see examples/regional-functions/app.ts
   basePath: process.env['NEXTJS_BASE_PATH'],
   reactCompiler: true,
   // typedRoutes: true,

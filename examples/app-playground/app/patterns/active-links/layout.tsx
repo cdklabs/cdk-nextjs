@@ -2,6 +2,7 @@ import { NavLinks } from '#/app/patterns/active-links/_components/nav-links';
 import { NextLogoDark } from '#/ui/next-logo';
 import Image from 'next/image';
 import Link from 'next/link';
+import { getImageSrc } from '#/lib/image-utils';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   // Hardcoded links or fetched from db
@@ -18,7 +19,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <NavLinks links={links} />
         <Link href="/active-links/profile" prefetch={false}>
           <Image
-            src="/static/prince-akachi-LWkFHEGpleE-unsplash.jpg"
+            src={getImageSrc('/static/prince-akachi-LWkFHEGpleE-unsplash.jpg')}
             className="rounded-full"
             width={40}
             height={40}

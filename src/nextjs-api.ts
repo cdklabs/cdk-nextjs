@@ -69,6 +69,7 @@ export class NextjsApi extends Construct {
   public readonly api: RestApi;
 
   private readonly baseResource: IResource;
+  private readonly nextResource: IResource;
   private readonly props: NextjsApiProps;
   private staticIntegrationRole: IRole;
 
@@ -79,10 +80,11 @@ export class NextjsApi extends Construct {
     this.validateProps(props);
     this.api = this.createRestApi();
     this.baseResource = this.createBaseResource(props.basePath);
+    this.nextResource = this.baseResource.addResource("_next");
     this.staticIntegrationRole = this.createStaticIntegrationRole();
-    const nextResource = this.createStaticIntegrations();
+    this.createStaticIntegrations();
     if (props.serverFunction) {
-      this.createDynamicIntegration(props.serverFunction, nextResource);
+      this.createDynamicIntegration(props.serverFunction);
     } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
     }
@@ -139,9 +141,7 @@ export class NextjsApi extends Construct {
   }
 
   private createStaticIntegrations() {
-    // Add static assets route (_next/static/*)
-    const nextResource = this.baseResource.addResource("_next");
-    nextResource
+    this.nextResource
       .addResource("static")
       .addResource("{proxy+}")
       .addMethod(
@@ -170,7 +170,6 @@ export class NextjsApi extends Construct {
           );
       }
     }
-    return nextResource;
   }
 
   /**
@@ -246,25 +245,25 @@ export class NextjsApi extends Construct {
   /**
    * Create Lambda Proxy integration for all other routes
    */
-  private createDynamicIntegration(
-    serverFunction: IFunction,
-    nextResource: IResource,
-  ) {
-    // Add buffered integration for _next/image (binary content like images)
-    // API Gateway streaming doesn't support binary responses
+  private createDynamicIntegration(serverFunction: IFunction) {
+    // Image optimization requires buffered mode (no streaming) for binary data
     const imageIntegration = new LambdaIntegration(serverFunction, {
+      responseTransferMode: ResponseTransferMode.BUFFERED, // required for images, otherwise 502
       ...this.props.overrides?.dynamicIntegrationProps,
     });
-    nextResource.addResource("image").addMethod("GET", imageIntegration);
+    // Add _next/image route with buffered integration
+    const imageResource = this.nextResource.addResource("image");
+    imageResource.addMethod("ANY", imageIntegration);
 
-    // Add streaming integration for all other routes (HTML, RSC, JSON)
-    const lambdaIntegration = new LambdaIntegration(serverFunction, {
+    // All other routes use streaming for better performance
+    const streamingIntegration = new LambdaIntegration(serverFunction, {
       responseTransferMode: ResponseTransferMode.STREAM,
       ...this.props.overrides?.dynamicIntegrationProps,
     });
-    // Add catch-all route for server-side rendering
-    this.baseResource.addMethod("ANY", lambdaIntegration);
+
+    // Add catch-all routes with streaming integration for server-side rendering
+    this.baseResource.addMethod("ANY", streamingIntegration);
     const proxyResource = this.baseResource.addResource("{proxy+}");
-    proxyResource.addMethod("ANY", lambdaIntegration);
+    proxyResource.addMethod("ANY", streamingIntegration);
   }
 }
