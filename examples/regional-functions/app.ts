@@ -8,7 +8,7 @@ import {
 import { Construct } from "constructs";
 import { NextjsRegionalFunctions } from "cdk-nextjs";
 import { App } from "aws-cdk-lib";
-import { AwsSolutionsChecks, NagSuppressions } from "cdk-nag";
+import { AwsSolutionsChecks } from "cdk-nag";
 import {
   suppressApiNags,
   suppressCommonNags,
@@ -16,10 +16,10 @@ import {
 } from "../shared/suppress-nags";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import {
   AccessLogFormat,
   LogGroupLogDestination,
+  ResponseTransferMode,
 } from "aws-cdk-lib/aws-apigateway";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
@@ -29,18 +29,11 @@ export class RegionalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
+    process.env["NEXT_PUBLIC_IMAGE_SRC_PREFIX"] = "/prod"; // prefix image paths for API Gateway deployments
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       overrides: {
-        nextjsRegionalFunctions: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-              envVarNames: ["NEXTJS_BASE_PATH"],
-            },
-          },
-        },
         nextjsApi: {
           restApiProps: {
             // there can only be a single apigateway.CfnAccount per AWS environment
@@ -58,25 +51,28 @@ export class RegionalFunctionsStack extends Stack {
               metricsEnabled: true,
             },
           },
+          dynamicIntegrationProps: {
+            responseTransferMode: ResponseTransferMode.BUFFERED,
+          },
+        },
+        nextjsFunctions: {
+          dockerImageFunctionProps: {
+            environment: {
+              DEBUG: "cdk-nextjs:*",
+              // Tell middleware to prepend API Gateway stage name since API Gateway strips it
+              PREPEND_APIGW_STAGE: "1",
+              AWS_LWA_INVOKE_MODE: "buffered", // TODO: figure out why this is required for images
+              // I get 502 Bad Gateway errors from API Gateway _next/image route without this
+            },
+          },
         },
       },
-      relativePathToPackage: "./app-playground",
     });
-    // workaround b/c not using custom domain. see examples/app-playground/middleware.ts
-    nextjs.nextjsFunctions.function.addEnvironment("PREPEND_APIGW_STAGE", "1");
     new CfnOutput(this, "CdkNextjsUrl", {
       // trailing slash is critical for e2e tests to pass to preserve stage name in path
       value: nextjs.url + "/",
       key: "CdkNextjsUrl",
     });
-
-    NagSuppressions.addResourceSuppressions(nextjs.nextjsVpc.vpc, [
-      {
-        id: "AwsSolutions-VPC7",
-        reason:
-          "Adding flow logs s3 bucket prevent this demo stack from being ephemeral",
-      },
-    ]);
   }
 }
 

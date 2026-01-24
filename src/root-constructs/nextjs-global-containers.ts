@@ -3,6 +3,7 @@ import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsContainers,
   NextjsContainersOverrides,
@@ -12,16 +13,20 @@ import {
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
 import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
+import {
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 
-export interface NextjsGlobalContainersConstructOverrides
-  extends NextjsBaseConstructOverrides {
+export interface NextjsGlobalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainersProps?: OptionalNextjsContainersProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -33,6 +38,7 @@ export interface NextjsGlobalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalContainers?: NextjsGlobalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsGlobalContainersProps extends NextjsBaseProps {
@@ -56,7 +62,8 @@ export interface NextjsGlobalContainersProps extends NextjsBaseProps {
 export class NextjsGlobalContainers extends NextjsBaseConstruct {
   nextjsContainers: NextjsContainers;
   nextjsDistribution: NextjsDistribution;
-  get url() {
+  nextjsPostDeploy: NextjsPostDeploy;
+  get url(): string {
     return `https://${this.nextjsDistribution.distribution.domainName}`;
   }
 
@@ -69,30 +76,28 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   ) {
     super(scope, id, props, NextjsType.GLOBAL_CONTAINERS);
     this.props = props;
+
     this.nextjsContainers = this.createNextjsContainers();
-    this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsContainers.albFargateService.service.connections,
-      role: this.nextjsContainers.albFargateService.taskDefinition.taskRole,
-    });
     this.nextjsDistribution = this.createNextjsDistribution();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
-  private createNextjsContainers() {
-    if (!this.nextjsBuild.imageForNextjsContainers) {
-      throw new Error("nextjsBuild.dockerImageAsset is undefined");
-    }
+
+  private createNextjsContainers(): NextjsContainers {
+    // Create containers with local build output
     return new NextjsContainers(this, "NextjsContainers", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
-      buildId: this.nextjsBuild.buildId,
-      dockerImageAsset: this.nextjsBuild.imageForNextjsContainers,
-      fileSystem: this.nextjsFileSystem.fileSystem,
-      healthCheckPath: this.baseProps.healthCheckPath,
-      nextjsType: this.nextjsType,
+      ...this.computeBaseProps(),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
-      overrides: this.props.overrides?.nextjsContainers,
-      vpc: this.nextjsVpc.vpc,
+      overrides: {
+        ...this.props.overrides?.nextjsContainers,
+        ecsClusterProps: {
+          ...this.props.overrides?.nextjsContainers?.ecsClusterProps,
+          vpc: this.baseProps.vpc,
+        },
+      },
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsContainersProps,
     });
   }
+
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
@@ -104,6 +109,18 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsDistributionProps,
+    });
+  }
+
+  private createNextjsPostDeploy(): NextjsPostDeploy {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      buildId: this.nextjsBuild.buildId,
+      distribution: this.nextjsDistribution.distribution,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
   }
 }

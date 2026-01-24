@@ -1,5 +1,237 @@
 # Breaking Changes
 
+## 0.5.0
+
+### Architecture Changes
+
+This release introduces a major architectural shift from Docker-based builds to local builds, and from EFS-based caching to S3 + DynamoDB caching. This significantly simplifies the infrastructure and improves deployment speed.
+
+### Automatic Detection of Monorepo Structure
+
+- **`relativePathToPackage`** property has been **removed** from `NextjsBaseProps`
+  - This value is now automatically detected from the Next.js standalone build output
+  - For monorepo setups, the library searches for `server.js` with a `.next` sibling directory within `.next/standalone/`
+  - No user configuration needed - works automatically for both simple apps and monorepos
+  - **Migration:** Simply remove the `relativePathToPackage` property from your construct props
+
+### Removed Constructs and Exports
+
+- **`NextjsAssetsDeployment`** - Removed entirely. Assets are now deployed directly during the build process without requiring a separate Custom Resource
+  - `NextjsAssetsDeploymentProps` removed
+  - `NextjsAssetDeploymentOverrides` removed
+  - `StaticAssetsCustomResourceProperties` removed
+  - `OptionalNextjsAssetsDeploymentProps` removed
+
+- **`NextjsFileSystem`** - Removed entirely. EFS is no longer used; caching now uses S3 + DynamoDB
+  - `NextjsFileSystemProps` removed
+  - `NextjsFileSystemOverrides` removed
+  - `AllowComputeProps` removed
+  - `OptionalNextjsFileSystemProps` removed
+
+- **`NextjsVpc`** - Removed entirely. VPC management simplified
+  - `NextjsVpcProps` removed
+  - `NextjsVpcOverrides` removed
+  - `OptionalNextjsVpcProps` removed
+  - SQS VPC Interface Endpoint no longer created
+  - VPC can now be provided via `NextjsBaseProps.vpc` (optional)
+  - If provided, VPC is passed through overrides to ECS Cluster (containers) or Lambda function
+  - If not provided, ECS Cluster creates a VPC automatically for containers
+  - Lambda functions run outside VPC by default unless VPC is explicitly provided
+
+### New Constructs and Exports
+
+- **`NextjsCache`** - New construct managing S3 bucket and DynamoDB table for Next.js caching
+  - `NextjsCacheProps` - Properties for NextjsCache construct
+  - `NextjsCacheOverrides` - Overrides for NextjsCache construct
+  - `OptionalNextjsCacheProps` - Optional properties for NextjsCache
+  - Provides `cacheBucket` (S3) and `revalidationTable` (DynamoDB) properties
+
+### NextjsBuild Changes
+
+- **Removed properties:**
+  - `buildContext` → replaced with `buildDirectory`
+  - `builderImageProps` - Docker builder configuration no longer needed
+  - `overrides` - Build overrides removed (NextjsBuildOverrides)
+  - `builderImageAlias` - No longer builds Docker images
+  - `buildImageDigest` - No longer builds Docker images
+  - `imageForNextjsContainers` - Docker images removed
+  - `imageForNextjsFunctions` - Docker images removed
+  - `imageForNextjsAssetsDeployment` - Assets deployment removed
+
+- **New properties:**
+  - `buildDirectory` - Absolute path to Next.js app directory for local builds
+  - `skipBuild` - Optional boolean to skip running `next build`
+  - `initCacheDir` - Absolute path to init cache directory (`.next/cdk-nextjs-init-cache`)
+  - `dotNextPath` - Absolute path to `.next` directory
+
+- **Changed behavior:**
+  - Builds now run locally using Node.js instead of Docker
+  - Sharp binaries are automatically replaced with Linux-compatible versions
+  - Build artifacts are read directly from the local `.next` directory
+
+### NextjsBaseProps Changes
+
+- **Property changes:**
+  - `buildContext` → `buildDirectory` - Now expects absolute path to Next.js app
+  - `relativePathToWorkspace` - Removed (was already deprecated in 0.4.0)
+  - `skipBuild` - New optional property to skip build execution
+  - `vpc` - New optional property to provide custom VPC for container or function deployments
+
+### NextjsBaseConstructOverrides Changes
+
+- **Removed properties:**
+  - `nextjsVpcProps`
+  - `nextjsFileSystemProps`
+  - `nextjsAssetsDeploymentProps`
+  - `nextjsPostDeployProps` (moved to specific construct overrides)
+
+- **New properties:**
+  - `nextjsCacheProps` - Overrides for the new NextjsCache construct
+
+### NextjsBaseOverrides Changes
+
+- **Removed properties:**
+  - `nextjsBuild` - Build overrides removed (NextjsBuildOverrides type)
+  - `nextjsFileSystem` - Construct removed
+  - `nextjsVpc` - Moved to compute constructs
+  - `nextjsAssetsDeployment` - Construct removed
+  - `nextjsPostDeploy` - Moved to specific construct overrides
+
+- **New properties:**
+  - `nextjsCache` - Overrides for NextjsCache construct (NextjsCacheOverrides type)
+
+### NextjsBaseConstruct Changes
+
+- **Removed properties:**
+  - `nextjsVpc` - No longer created at base level
+  - `nextjsFileSystem` - EFS removed
+  - `nextjsAssetsDeployment` - Assets deployment removed
+  - `nextjsPostDeploy` - Moved to specific constructs
+
+- **New properties:**
+  - `nextjsCache` - Instance of NextjsCache construct
+
+### NextjsGlobalFunctions and NextjsRegionalFunctions Changes
+
+- **New properties:**
+  - `nextjsPostDeploy` - Now managed by these constructs instead of base construct
+
+- **Override changes:**
+  - `NextjsGlobalFunctionsConstructOverrides` now includes `nextjsPostDeployProps`
+  - `NextjsGlobalFunctionsOverrides` now includes `nextjsPostDeploy`
+  - `NextjsRegionalFunctionsConstructOverrides` now includes `nextjsPostDeployProps`
+  - `NextjsRegionalFunctionsOverrides` now includes `nextjsPostDeploy`
+
+- **Behavior changes:**
+  - Lambda functions no longer require VPC or EFS mounts
+  - Cache operations now use S3 + DynamoDB via SDK calls
+
+### NextjsContainersProps (OptionalNextjsContainersProps) Changes
+
+- **Removed properties:**
+  - `fileSystem` - EFS removed
+  - `dockerImageAsset` - Containers now use locally built artifacts
+  - `accessPoint` - EFS removed
+  - `vpc` - VPC is no longer a direct property on NextjsContainersProps
+
+- **New/Required properties:**
+  - `cacheBucket` - S3 bucket for cache storage
+  - `revalidationTable` - DynamoDB table for revalidation metadata
+  - `buildDirectory` - Directory where the Next.js application is located (contains `.next` folder)
+  - `relativePathToPackage` - Relative path to package containing Next.js app
+
+- **Behavior changes:**
+  - Containers now copy standalone build from local `.next/standalone` directory
+  - No longer build from Docker images at deployment time
+  - VPC is now provided via `NextjsBaseProps.vpc` or `overrides.nextjsContainers.ecsClusterProps.vpc`
+  - If no VPC provided, ECS Cluster will create one automatically
+
+### NextjsPostDeploy Changes
+
+- **New responsibilities:**
+  - Prunes old cache entries from S3 bucket (by `buildId`)
+  - Prunes old entries from DynamoDB revalidation table (by `buildId`)
+  - Still handles CloudFront invalidation
+  - Still prunes old S3 static assets
+
+- **Property changes:**
+  - Now receives `cacheBucket` instead of `accessPoint`
+  - Now receives `revalidationTable`
+  - No longer requires VPC
+
+### NextjsStaticAssets Changes
+
+- **New properties:**
+  - `buildDirectory` - Directory where the Next.js application is located (contains `.next` folder and static assets)
+
+- **Behavior changes:**
+  - Reads static assets directly from local `.next/static` and `public` directories
+  - No longer relies on NextjsAssetsDeployment custom resource
+
+### Migration Guide
+
+1. **Update `buildContext` to `buildDirectory`:**
+
+   ```typescript
+   // Before
+   new NextjsGlobalFunctions(this, "Web", {
+     buildContext: join(__dirname, ".."),
+   });
+
+   // After
+   new NextjsGlobalFunctions(this, "Web", {
+     buildDirectory: join(__dirname, ".."),
+   });
+   ```
+
+2. **Remove Docker-related overrides:**
+
+   ```typescript
+   // Remove any references to:
+   // - builderImageProps
+   // - dockerImageAsset
+   // - functionsImageBuildContext
+   // - containersImageBuildContext
+   // - assetsDeploymentImageBuildContext
+   ```
+
+3. **Update custom overrides:**
+
+   ```typescript
+   // Before
+   overrides: {
+     nextjsFileSystem: { /* ... */ },
+     nextjsAssetsDeployment: { /* ... */ },
+   }
+
+   // After
+   overrides: {
+     nextjsCache: { /* ... */ },
+   }
+   ```
+
+4. **Environment setup:**
+   - Ensure Node.js and npm/pnpm/yarn are available in your CDK deployment environment
+   - Build now runs locally, so your CI/CD pipeline needs Node.js runtime
+   - Docker is no longer required for builds
+
+5. **For container deployments:**
+   - VPC can now be provided via `NextjsBaseProps.vpc` instead of through overrides
+   - Containers now copy from `.next/standalone` instead of building from Docker images
+   - If no VPC is provided, ECS Cluster will create one automatically
+
+6. **For function deployments:**
+   - VPC can optionally be provided via `NextjsBaseProps.vpc` if Lambda functions need VPC access
+   - If no VPC is provided, Lambda functions run outside a VPC (default behavior)
+
+### Benefits of These Changes
+
+- **Faster deployments** - No Docker image `next build`s required
+- **Simpler infrastructure** - No EFS, reduced Lambda cold starts
+- **Better local development** - Uses standard `next build` workflow
+- **Reduced costs** - No EFS costs, simpler Lambda/container setup
+- **Official Next.js Adapters** - Follows official Next.js Adapters deployment model
+
 ## 0.4.0
 
 - Change `Nextjs{...}Props.relativePathToWorkspace` -> `Nextjs{...}Props.relativePathToPackage` because workspace references entire monorepo not a package in the monorepo.

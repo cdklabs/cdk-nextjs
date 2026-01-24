@@ -5,7 +5,8 @@ import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
-const nodeVersion = 22;
+const nodeVersion = 24;
+const pnpmVersion = "10.27.0";
 const project = new awscdk.AwsCdkConstructLibrary({
   // repository config
   author: "Ben Stickley",
@@ -14,30 +15,35 @@ const project = new awscdk.AwsCdkConstructLibrary({
   repositoryUrl: "https://github.com/cdklabs/cdk-nextjs.git",
   // package.json config
   name: "cdk-nextjs",
+  prerelease: "beta", // TODO: remove once Next.js 16.2 is released
   description:
     "Deploy Next.js apps on AWS with CDK" /* The description is just a string that helps people understand the purpose of the package. */,
   // majorVersion: 1,
   // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.196.0",
-  jsiiVersion: "~5.8.7",
+  cdkVersion: "2.234.1",
+  jsiiVersion: "~5.9.22",
   packageManager: javascript.NodePackageManager.PNPM,
-  pnpmVersion: "9",
-  projenVersion: "^0.90.6",
+  pnpmVersion,
+  projenVersion: "^0.99.1",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-cloudfront",
+    "@aws-sdk/client-dynamodb",
     "@aws-sdk/client-s3",
     "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
     "@smithy/signature-v4",
     "@types/aws-lambda",
+    "@types/debug",
     "@types/mime-types",
-    "@types/node@^20",
+    "@types/node@^24",
     "cdk-nag",
+    "debug",
     "esbuild",
     "mime-types",
-    "next@14", // bundled in src/nextjs-build/cache-handler.ts
+    // require canary as of 1/9/26, remove as soon as 16.2 is released
+    "next@16.1.1-canary.19", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   npmIgnoreOptions: {
@@ -46,7 +52,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // tooling config
   depsUpgradeOptions: {
     workflowOptions: {
-      schedule: UpgradeDependenciesSchedule.WEEKLY,
+      schedule: UpgradeDependenciesSchedule.MONTHLY,
     },
   },
   autoApproveUpgrades: true,
@@ -61,9 +67,24 @@ const project = new awscdk.AwsCdkConstructLibrary({
     runtime: new LambdaRuntime(`nodejs${nodeVersion}.x`, `node${nodeVersion}`),
     awsSdkConnectionReuse: false, // doesn't exist in AWS SDK JS v3
   },
+  jestOptions: {
+    jestConfig: {
+      testPathIgnorePatterns: ["/node_modules/", "/cdk.out/"],
+    },
+  },
   projenCommand: "pnpm dlx projen",
-  gitignore: [".idea", ".DS_Store", "*.drawio.bkp", "ash_output", "~$*.xlsx"],
+  gitignore: [
+    ".idea",
+    ".DS_Store",
+    "*.drawio.bkp",
+    "ash_output",
+    "~$*.xlsx",
+    ".kiro",
+  ],
   projenrcTs: true,
+  // tsconfig: {
+  //   exclude: [] // doesn't work for some reason, would like to exclude nextjs-build/* since only need bundled
+  // },
   eslintOptions: {
     prettier: true,
     dirs: ["src"],
@@ -91,8 +112,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
           actions: {
             merge: {
               method: "squash",
-              strict: true,
-              commit_message: "title+body",
+              commit_message_template: `{{ title }} (#{{ number }})
+
+{{ body }}`,
             },
           },
         },
@@ -143,18 +165,30 @@ project.synth();
 
 function bundle() {
   const target = `node${nodeVersion}`;
-  project.bundler.addBundle("src/nextjs-build/cdk-nextjs-cache-handler.ts", {
+  project.bundler.addBundle("src/adapter/cache-handler.ts", {
     platform: "node",
     target,
-    outfile: "../../../lib/nextjs-build/cdk-nextjs-cache-handler.cjs",
+    outfile: "../../../lib/adapter/cache-handler.mjs",
     externals: ["next"],
+    format: "esm",
+    banner:
+      "const require = (await import('node:module')).createRequire(import.meta.url);",
   });
-  project.bundler.addBundle("src/lambdas/assets-deployment/patch-fetch.js", {
+  project.bundler.addBundle("src/adapter/adapter.mts", {
+    platform: "node",
+    target,
+    outfile: "../../../lib/adapter/adapter.mjs",
+    externals: ["next"],
+    format: "esm",
+    banner:
+      "const require = (await import('node:module')).createRequire(import.meta.url);",
+  });
+  project.bundler.addBundle("src/nextjs-build/patch-fetch.js", {
     platform: "browser",
     // https://nextjs.org/docs/architecture/supported-browsers
     target: "chrome64,firefox67,safari12,edge79",
     minify: true,
-    outfile: "../assets-deployment.lambda/patch-fetch.js",
+    outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
 }
 
@@ -163,16 +197,10 @@ function copyDockerfiles() {
   if (bundleTask) {
     bundleTask.exec(`mkdir -p ${join("lib", "nextjs-build")}`);
     bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "assets-deployment.Dockerfile")} ${join("assets", "lambdas", "assets-deployment", "assets-deployment.lambda")}`,
-    );
-    bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "builder.Dockerfile")} ${join("lib", "nextjs-build")}`,
-    );
-    bundleTask.exec(
       `cp ${join("src", "nextjs-build", "global-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
     bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "global-functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
+      `cp ${join("src", "nextjs-build", "functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "regional-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
@@ -335,31 +363,17 @@ function generateStructs() {
     .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
+    name: "OptionalNextjsCacheProps",
+    filePath: getFilePath("OptionalNextjsCacheProps"),
+  })
+    .mixin(Struct.fromFqn("cdk-nextjs.NextjsCacheProps"))
+    .omit("overrides")
+    .allOptional();
+  new ProjenStruct(project, {
     name: "OptionalNextjsDistributionProps",
     filePath: getFilePath("OptionalNextjsDistributionProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsDistributionProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsVpcProps",
-    filePath: getFilePath("OptionalNextjsVpcProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsVpcProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsFileSystemProps",
-    filePath: getFilePath("OptionalNextjsFileSystemProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsFileSystemProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsAssetsDeploymentProps",
-    filePath: getFilePath("OptionalNextjsAssetsDeploymentProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsAssetsDeploymentProps"))
     .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
@@ -408,7 +422,28 @@ function generateStructs() {
 function updatePackageJson() {
   const packageJson = project.tryFindObjectFile("package.json");
   packageJson?.patch(
-    JsonPatch.add("/pnpm/onlyBuiltDependencies", ["esbuild", "unrs-resolver"]),
+    JsonPatch.add("/pnpm/onlyBuiltDependencies", [
+      "esbuild",
+      "unrs-resolver",
+      "sharp",
+    ]),
   );
-  packageJson?.patch(JsonPatch.add("/packageManager", "pnpm@10.11.0"));
+  packageJson?.patch(JsonPatch.add("/packageManager", `pnpm@${pnpmVersion}`));
+  packageJson?.patch(
+    JsonPatch.add("/exports", {
+      ".": {
+        types: "./lib/index.d.ts",
+        import: "./lib/index.js",
+        default: "./lib/index.js",
+      },
+      "./adapter": {
+        import: "./lib/adapter/adapter.mjs",
+        default: "./lib/adapter/adapter.mjs",
+      },
+      "./cache-handler": {
+        import: "./lib/adapter/cache-handler.mjs",
+        default: "./lib/adapter/cache-handler.mjs",
+      },
+    }),
+  );
 }

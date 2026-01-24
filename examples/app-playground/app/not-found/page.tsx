@@ -9,13 +9,19 @@ export default function Page() {
       <ul>
         <li>
           <code>
-            <Link href="https://nextjs.org/docs/app/api-reference/file-conventions/not-found">
+            <Link
+              href="https://nextjs.org/docs/app/api-reference/file-conventions/not-found"
+              prefetch={false}
+            >
               not-found.js
             </Link>
           </code>{' '}
           file is used to render UI when the{' '}
           <code>
-            <Link href="https://nextjs.org/docs/app/api-reference/functions/not-found">
+            <Link
+              href="https://nextjs.org/docs/app/api-reference/functions/not-found"
+              prefetch={false}
+            >
               notFound()
             </Link>
           </code>{' '}
@@ -24,8 +30,11 @@ export default function Page() {
         <li>
           In this example, when fetching the data we return{' '}
           <code>notFound()</code> for{' '}
-          <Link href="/not-found/does-not-exist">Categories</Link> and{' '}
-          <Link href="/not-found/electronics/does-not-exist">
+          <Link href="/not-found/does-not-exist" prefetch={false}>
+            Categories
+          </Link>{' '}
+          and{' '}
+          <Link href="/not-found/electronics/does-not-exist" prefetch={false}>
             Sub Categories
           </Link>{' '}
           that do not exist. This renders the closest appropriate{' '}

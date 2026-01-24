@@ -22,12 +22,15 @@ export function RenderingInfo({
       break;
   }
 
+  // eslint-disable-next-line react-hooks/purity
+  const now = Date.now();
+
   return (
     <div className="space-y-3 rounded-lg bg-gray-900 p-3">
       <div className="text-sm text-gray-300">{msg}</div>
 
       <div className="flex">
-        <RenderedTimeAgo timestamp={Date.now()} />
+        <RenderedTimeAgo timestamp={now} />
       </div>
     </div>
   );

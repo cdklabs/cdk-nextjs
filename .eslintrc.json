@@ -42,16 +42,18 @@
     "!projenrc/**/*.ts"
   ],
   "rules": {
-    "@typescript-eslint/no-require-imports": [
-      "error"
+    "curly": [
+      "error",
+      "multi-line",
+      "consistent"
     ],
+    "@typescript-eslint/no-require-imports": "error",
     "import/no-extraneous-dependencies": [
       "error",
       {
         "devDependencies": [
           "**/test/**",
           "**/build-tools/**",
-          "src/lambdas/assets-deployment/assets-deployment.lambda.ts",
           "src/lambdas/post-deploy/post-deploy.lambda.ts",
           ".projenrc.ts",
           "projenrc/**/*.ts"
@@ -82,27 +84,12 @@
     "no-shadow": [
       "off"
     ],
-    "@typescript-eslint/no-shadow": [
-      "error"
-    ],
-    "key-spacing": [
-      "error"
-    ],
-    "no-multiple-empty-lines": [
-      "error"
-    ],
-    "@typescript-eslint/no-floating-promises": [
-      "error"
-    ],
+    "@typescript-eslint/no-shadow": "error",
+    "@typescript-eslint/no-floating-promises": "error",
     "no-return-await": [
       "off"
     ],
-    "@typescript-eslint/return-await": [
-      "error"
-    ],
-    "no-trailing-spaces": [
-      "error"
-    ],
+    "@typescript-eslint/return-await": "error",
     "dot-notation": [
       "error"
     ],

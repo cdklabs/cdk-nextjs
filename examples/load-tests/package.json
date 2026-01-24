@@ -13,8 +13,8 @@
     "test-fargate:xl": "dotenv -- pnpm _test-fargate:xl"
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0",
-    "artillery": "^2.0.23",
-    "dotenv-cli": "^8.0.0"
+    "@playwright/test": "catalog:",
+    "artillery": "catalog:",
+    "dotenv-cli": "catalog:"
   }
 }

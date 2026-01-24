@@ -1,21 +1,18 @@
-import { join } from "path/posix";
+import { copyFileSync, existsSync } from "node:fs";
+import { join as joinPath } from "node:path";
+import { join as joinPosix } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
 import {
   DockerImageCode,
   DockerImageFunction,
-  FileSystem,
+  DockerImageFunctionProps,
   FunctionUrl,
   FunctionUrlAuthType,
   InvokeMode,
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import {
-  CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-  MOUNT_PATH,
-  NextjsType,
-  SERVER_DIST_PATH,
-} from "../constants";
+import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { getLambdaArchitecture } from "../utils/get-architecture";
@@ -26,10 +23,7 @@ export interface NextjsFunctionsOverrides {
 }
 
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
-  readonly dockerImageCode: DockerImageCode;
   readonly overrides?: NextjsFunctionsOverrides;
-  readonly buildId: string;
-  readonly nextjsType: NextjsType;
 }
 
 /**
@@ -55,34 +49,88 @@ export class NextjsFunctions extends Construct {
   }
 
   private createFunction() {
-    const fn = new DockerImageFunction(this, "Functions", {
+    // Create DockerImageCode from local build output or use provided dockerImageCode
+    const dockerImageCode = this.createDockerImageCode();
+
+    const functionProps: DockerImageFunctionProps = {
       architecture: getLambdaArchitecture(),
-      code: this.props.dockerImageCode,
-      filesystem: FileSystem.fromEfsAccessPoint(
-        this.props.accessPoint,
-        MOUNT_PATH,
-      ),
+      code: dockerImageCode,
       memorySize: 2048,
       timeout: Duration.seconds(30),
-      vpc: this.props.vpc,
       ...this.props.overrides?.dockerImageFunctionProps,
       environment: {
         AWS_LWA_ENABLE_COMPRESSION: "true",
-        AWS_LWA_INVOKE_MODE:
-          this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS
-            ? "response_stream"
-            : "buffered", // API GW doesn't support response streaming yet so must buffer
+        AWS_LWA_INVOKE_MODE: "response_stream",
         AWS_LWA_READINESS_CHECK_PATH: this.props.healthCheckPath,
         AWS_LWA_READINESS_CHECK_PORT: "3000",
         READINESS_CHECK_PATH: `http://127.0.0.1:3000${this.props.healthCheckPath}`,
-        [CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME]: join(
-          MOUNT_PATH,
-          this.props.buildId,
-          SERVER_DIST_PATH,
-        ),
+        // Cache configuration environment variables
+        CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
+        CDK_NEXTJS_REVALIDATION_TABLE_NAME:
+          this.props.revalidationTable.tableName,
+        CDK_NEXTJS_BUILD_ID: this.props.buildId,
         ...this.props.overrides?.dockerImageFunctionProps?.environment,
       },
-    });
+    };
+
+    const fn = new DockerImageFunction(this, "Functions", functionProps);
+
+    // Grant cache access permissions
+    this.props.cacheBucket.grantReadWrite(fn);
+    this.props.revalidationTable.grantReadWriteData(fn);
+
     return fn;
+  }
+
+  private createDockerImageCode(): DockerImageCode {
+    // Build context is the buildDirectory (where the Next.js app is located)
+    const buildContext = this.props.buildDirectory;
+    const dockerfileName = "functions.Dockerfile";
+
+    // Copy Dockerfile to build context to avoid path resolution issues
+    this.copyDockerfileToContext(buildContext, dockerfileName);
+
+    const relativeEntrypointPath = this.props.relativePathToPackage
+      ? // joinPosix b/c this will be referenced in Docker container (Linux)
+        joinPosix(this.props.relativePathToPackage, "server.js")
+      : "server.js";
+
+    return DockerImageCode.fromImageAsset(buildContext, {
+      file: dockerfileName, // Now it's just the filename in the build context
+      cmd: ["node", relativeEntrypointPath],
+      buildArgs: {
+        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+      },
+    });
+  }
+
+  private copyDockerfileToContext(
+    buildContext: string,
+    dockerfileName: string,
+  ): void {
+    const targetDockerfile = joinPath(buildContext, dockerfileName);
+
+    // Check if Dockerfile already exists - if so, use the existing one (developer control)
+    if (existsSync(targetDockerfile)) {
+      console.log(`${LOG_PREFIX} Using existing Dockerfile: ${dockerfileName}`);
+    } else {
+      const sourceDockerfile = joinPath(
+        __dirname,
+        "..",
+        "nextjs-build",
+        dockerfileName,
+      );
+
+      if (!existsSync(sourceDockerfile)) {
+        throw new Error(
+          `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
+        );
+      }
+
+      copyFileSync(sourceDockerfile, targetDockerfile);
+      console.log(
+        `${LOG_PREFIX} Created ${dockerfileName} in your project directory.`,
+      );
+    }
   }
 }

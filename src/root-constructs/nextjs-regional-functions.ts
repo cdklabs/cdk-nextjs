@@ -8,16 +8,21 @@ import {
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
 } from "./nextjs-base-construct";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsFunctions,
   NextjsFunctionsOverrides,
   NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
+import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
 
-export interface NextjsRegionalFunctionsConstructOverrides
-  extends NextjsBaseConstructOverrides {
+export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsApiProps?: NextjsApiProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -29,6 +34,7 @@ export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsApi?: NextjsApiOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
@@ -45,7 +51,8 @@ export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
 export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
   nextjsApi: NextjsApi;
-  get url() {
+  nextjsPostDeploy: NextjsPostDeploy;
+  get url(): string {
     return `https://${this.nextjsApi.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com/${this.nextjsApi.api.deploymentStage.stageName}`;
   }
 
@@ -58,26 +65,23 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   ) {
     super(scope, id, props, NextjsType.REGIONAL_FUNCTIONS);
     this.props = props;
+
     this.nextjsFunctions = this.createNextjsFunctions();
-    this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsFunctions.function.connections,
-      role: this.nextjsFunctions.function.role!,
-    });
     this.nextjsApi = this.createNextjsApi();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
-  private createNextjsFunctions() {
-    if (!this.nextjsBuild.imageForNextjsFunctions) {
-      throw new Error("nextjsBuild.imageForNextjsFunctions is undefined");
-    }
+  private createNextjsFunctions(): NextjsFunctions {
+    // Create functions with local build output
     return new NextjsFunctions(this, "NextjsFunctions", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
-      buildId: this.nextjsBuild.buildId,
-      dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
-      healthCheckPath: this.baseProps.healthCheckPath,
-      nextjsType: this.nextjsType,
-      vpc: this.nextjsVpc.vpc,
-      overrides: this.props.overrides?.nextjsFunctions,
+      ...this.computeBaseProps(),
+      overrides: {
+        ...this.props.overrides?.nextjsFunctions,
+        dockerImageFunctionProps: {
+          ...this.props.overrides?.nextjsFunctions?.dockerImageFunctionProps,
+          vpc: this.baseProps.vpc,
+        },
+      },
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsFunctionsProps,
     });
   }
@@ -90,6 +94,17 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
+    });
+  }
+
+  private createNextjsPostDeploy(): NextjsPostDeploy {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      buildId: this.nextjsBuild.buildId,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      ...this.props.overrides?.nextjsRegionalFunctions?.nextjsPostDeployProps,
     });
   }
 }

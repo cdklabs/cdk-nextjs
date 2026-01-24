@@ -2,15 +2,14 @@
   "name": "cdk-nextjs-examples",
   "type": "module",
   "private": true,
-  "packageManager": "pnpm@10.11.0",
+  "packageManager": "pnpm@10.27.0",
   "dependencies": {
-    "dotenv-cli": "^8.0.0"
+    "@tsconfig/node24": "catalog:",
+    "dotenv-cli": "catalog:"
   },
   "devDependencies": {
-    "@tsconfig/node22": "^22.0.1",
-    "@tsconfig/strictest": "^2.0.5",
-    "aws-cdk": "^2.1016.0",
-    "turbo": "^2.5.3"
+    "@tsconfig/strictest": "catalog:",
+    "aws-cdk": "catalog:"
   },
   "pnpm": {
     "overrides": {

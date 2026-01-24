@@ -18,6 +18,7 @@ export function GlobalNav() {
       <div className="flex h-14 items-center px-4 py-4 lg:h-auto">
         <Link
           href="/"
+          prefetch={false}
           className="group flex w-full items-center gap-x-2.5"
           onClick={close}
         >

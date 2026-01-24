@@ -7,14 +7,19 @@ import {
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsContainers,
   NextjsContainersOverrides,
 } from "../nextjs-compute/nextjs-containers";
+import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
 
-export interface NextjsRegionalContainersConstructOverrides
-  extends NextjsBaseConstructOverrides {
+export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -25,6 +30,7 @@ export interface NextjsRegionalContainersConstructOverrides
 export interface NextjsRegionalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsRegionalContainersProps extends NextjsBaseProps {
@@ -42,10 +48,9 @@ export interface NextjsRegionalContainersProps extends NextjsBaseProps {
  */
 export class NextjsRegionalContainers extends NextjsBaseConstruct {
   nextjsContainers: NextjsContainers;
-  get url() {
-    return `http://${
-      this.nextjsContainers.albFargateService.loadBalancer.loadBalancerDnsName
-    }`;
+  nextjsPostDeploy: NextjsPostDeploy;
+  get url(): string {
+    return `http://${this.nextjsContainers.albFargateService.loadBalancer.loadBalancerDnsName}`;
   }
 
   private props: NextjsRegionalContainersProps;
@@ -57,28 +62,35 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
   ) {
     super(scope, id, props, NextjsType.REGIONAL_CONTAINERS);
     this.props = props;
+
     this.nextjsContainers = this.createNextjsLoadBalancedContainers();
-    this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsContainers.albFargateService.service.connections,
-      role: this.nextjsContainers.albFargateService.taskDefinition.taskRole,
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
+  }
+
+  private createNextjsLoadBalancedContainers(): NextjsContainers {
+    // Create containers with local build output
+    return new NextjsContainers(this, "NextjsContainers", {
+      ...this.computeBaseProps(),
+      relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
+      overrides: {
+        ...this.props.overrides?.nextjsContainers,
+        ecsClusterProps: {
+          ...this.props.overrides?.nextjsContainers?.ecsClusterProps,
+          vpc: this.baseProps.vpc,
+        },
+      },
+      ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
     });
   }
 
-  private createNextjsLoadBalancedContainers() {
-    if (!this.nextjsBuild.imageForNextjsContainers) {
-      throw new Error("nextjsBuild.imageForNextjsContainers is undefined");
-    }
-    return new NextjsContainers(this, "NextjsContainers", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
+  private createNextjsPostDeploy(): NextjsPostDeploy {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
       buildId: this.nextjsBuild.buildId,
-      dockerImageAsset: this.nextjsBuild.imageForNextjsContainers,
-      fileSystem: this.nextjsFileSystem.fileSystem,
-      healthCheckPath: this.baseProps.healthCheckPath,
-      nextjsType: this.nextjsType,
-      overrides: this.props.overrides?.nextjsContainers,
-      relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
-      vpc: this.nextjsVpc.vpc,
-      ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
     });
   }
 }

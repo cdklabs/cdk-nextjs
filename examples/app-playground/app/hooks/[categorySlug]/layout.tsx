@@ -3,13 +3,18 @@ import { LayoutHooks } from '#/app/hooks/_components/router-context-layout';
 import { ClickCounter } from '#/ui/click-counter';
 import { TabGroup } from '#/ui/tab-group';
 
-export default async function Layout({
-  children,
-  params,
-}: {
-  children: React.ReactNode;
-  params: { categorySlug: string };
-}) {
+export default async function Layout(
+  props: {
+    children: React.ReactNode;
+    params: Promise<{ categorySlug: string }>;
+  }
+) {
+  const params = await props.params;
+
+  const {
+    children
+  } = props;
+
   const category = await getCategory({ slug: params.categorySlug });
   const categories = await getCategories({ parent: params.categorySlug });
 

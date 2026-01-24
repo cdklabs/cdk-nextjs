@@ -9,6 +9,11 @@ export interface OptionalPostDeployCustomResourceProperties {
    */
   readonly staticAssetsBucketName?: string;
   /**
+   * DynamoDB revalidation table name for cleaning up old BUILD_ID prefixed entries.
+   * @stability stable
+   */
+  readonly revalidationTableName?: string;
+  /**
    * @default {
    distributionId: this.props.distribution?.distributionId,
    invalidationBatch: {
@@ -23,6 +28,11 @@ export interface OptionalPostDeployCustomResourceProperties {
    */
   readonly createInvalidationCommandInput?: Record<string, any>;
   /**
+   * Cache bucket name for cleaning up old BUILD_ID prefixed objects.
+   * @stability stable
+   */
+  readonly cacheBucketName?: string;
+  /**
    * Time to live in milliseconds.
    * Must be string because of CloudFormation Custom Resource limitation
    * @default (1000 * 60 * 60 * 24 * 30).toString()
@@ -30,13 +40,10 @@ export interface OptionalPostDeployCustomResourceProperties {
    */
   readonly msTtl?: string;
   /**
-   * @stability stable
-   */
-  readonly buildImageDigest?: string;
-  /**
    * Build ID of current deployment.
-   * Used to prune FileSystem of directories
-   * with old build ids and prune S3 based on metadat and `msTtl`
+   * Used to prune cache bucket of objects
+   * with old build ids, prune DynamoDB revalidation entries with old build ids,
+   * and prune S3 static assets based on metadata and `msTtl`
    * @stability stable
    */
   readonly buildId?: string;

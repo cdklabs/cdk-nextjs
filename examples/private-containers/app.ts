@@ -9,7 +9,6 @@ import {
 } from "../shared/suppress-nags";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 import {
   AmazonLinuxCpuType,
   BastionHostLinux,
@@ -29,29 +28,24 @@ export class PrivateContainersStack extends Stack {
     super(scope, id, props);
     const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       overrides: {
-        nextjsRegionalContainers: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-            },
-          },
-        },
         nextjsContainers: {
           albFargateServiceProps: {
             publicLoadBalancer: false,
           },
         },
       },
-      relativePathToPackage: "./app-playground",
     });
-    NagSuppressions.addResourceSuppressions(nextjs.nextjsVpc.vpc, [
-      {
-        id: "AwsSolutions-VPC7",
-        reason: "Flow logs not needed for this example",
-      },
-    ]);
+    NagSuppressions.addResourceSuppressions(
+      nextjs.nextjsContainers.ecsCluster.vpc,
+      [
+        {
+          id: "AwsSolutions-VPC7",
+          reason: "Flow logs not needed for this example",
+        },
+      ],
+    );
     NagSuppressions.addResourceSuppressions(
       nextjs.nextjsContainers.albFargateService.loadBalancer,
       [
@@ -65,7 +59,9 @@ export class PrivateContainersStack extends Stack {
       value: nextjs.url,
       key: "CdkNextjsUrl",
     });
-    const bastion = this.#createBastionHost(nextjs.nextjsVpc.vpc);
+    const bastion = this.#createBastionHost(
+      nextjs.nextjsContainers.ecsCluster.vpc,
+    );
     nextjs.nextjsContainers.albFargateService.loadBalancer.connections.allowFrom(
       bastion.connections,
       Port.HTTP,

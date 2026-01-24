@@ -34,7 +34,3 @@ export function cfnResponse(props: CfnResponseProps) {
     headers: { "content-type": "", "content-length": body.length.toString() },
   });
 }
-
-export function debug(value: unknown) {
-  if (process.env.DEBUG) console.log(JSON.stringify(value, null, 2));
-}
