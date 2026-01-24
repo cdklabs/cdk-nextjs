@@ -1094,7 +1094,6 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
 
 ---
 
@@ -1177,16 +1176,6 @@ public readonly nextjsPostDeploy: NextjsPostDeploy;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
-
----
-
-##### `nextjsVpc`<sup>Required</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsGlobalContainers.property.nextjsVpc"></a>
-
-```typescript
-public readonly nextjsVpc: NextjsVpc;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
 
 ---
 
@@ -1589,7 +1578,6 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainers">NextjsContainers</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a></code> | *No description.* |
 
 ---
 
@@ -1662,16 +1650,6 @@ public readonly nextjsPostDeploy: NextjsPostDeploy;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
-
----
-
-##### `nextjsVpc`<sup>Required</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsRegionalContainers.property.nextjsVpc"></a>
-
-```typescript
-public readonly nextjsVpc: NextjsVpc;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsVpc">NextjsVpc</a>
 
 ---
 
@@ -1977,134 +1955,6 @@ public readonly deployment: BucketDeployment;
 ---
 
 
-### NextjsVpc <a name="NextjsVpc" id="cdk-nextjs.NextjsVpc"></a>
-
-cdk-nextjs VPC construct for container-based deployments.
-
-You can provide your own VPC via `overrides.nextjsVpc.vpc` but you'll be
-responsible for creating the VPC. Container-based constructs require
-`SubnetType.PRIVATE_WITH_EGRESS` for compute. `NextjsRegionalContainers`
-requires a `SubnetType.PUBLIC` subnet for CloudFront to reach the ALB.
-`NextjsGlobalContainers` don't require a `SubnetType.PUBLIC` subnet because
-CloudFront accesses their compute securely through VPC Origin Access.
-
-Note, if you use `NextjsVpc` then the default CDK VPC will be created
-for you with 2 AZs of all 3 types of subnets with a NAT Gateway in your
-`SubnetType.PUBLIC` subnet to allow for secure internet access from your
-`SubnetType.PRIVATE_WITH_EGRESS` subnet. This is recommended by AWS, but
-it costs $65/month for 2 AZs. Lambda functions avoid this cost by using
-public endpoints.
-
-> [https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2-readme.html#subnet-types](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2-readme.html#subnet-types)
-
-#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsVpc.Initializer"></a>
-
-```typescript
-import { NextjsVpc } from 'cdk-nextjs'
-
-new NextjsVpc(scope: Construct, id: string, props: NextjsVpcProps)
-```
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsVpc.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsVpc.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsVpc.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsVpcProps">NextjsVpcProps</a></code> | *No description.* |
-
----
-
-##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsVpc.Initializer.parameter.scope"></a>
-
-- *Type:* constructs.Construct
-
----
-
-##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsVpc.Initializer.parameter.id"></a>
-
-- *Type:* string
-
----
-
-##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsVpc.Initializer.parameter.props"></a>
-
-- *Type:* <a href="#cdk-nextjs.NextjsVpcProps">NextjsVpcProps</a>
-
----
-
-#### Methods <a name="Methods" id="Methods"></a>
-
-| **Name** | **Description** |
-| --- | --- |
-| <code><a href="#cdk-nextjs.NextjsVpc.toString">toString</a></code> | Returns a string representation of this construct. |
-
----
-
-##### `toString` <a name="toString" id="cdk-nextjs.NextjsVpc.toString"></a>
-
-```typescript
-public toString(): string
-```
-
-Returns a string representation of this construct.
-
-#### Static Functions <a name="Static Functions" id="Static Functions"></a>
-
-| **Name** | **Description** |
-| --- | --- |
-| <code><a href="#cdk-nextjs.NextjsVpc.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
-
----
-
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsVpc.isConstruct"></a>
-
-```typescript
-import { NextjsVpc } from 'cdk-nextjs'
-
-NextjsVpc.isConstruct(x: any)
-```
-
-Checks if `x` is a construct.
-
-###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsVpc.isConstruct.parameter.x"></a>
-
-- *Type:* any
-
-Any object.
-
----
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsVpc.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsVpc.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
-
----
-
-##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsVpc.property.node"></a>
-
-```typescript
-public readonly node: Node;
-```
-
-- *Type:* constructs.Node
-
-The tree node.
-
----
-
-##### `vpc`<sup>Required</sup> <a name="vpc" id="cdk-nextjs.NextjsVpc.property.vpc"></a>
-
-```typescript
-public readonly vpc: IVpc;
-```
-
-- *Type:* aws-cdk-lib.aws_ec2.IVpc
-
----
-
-
 ## Structs <a name="Structs" id="Structs"></a>
 
 ### NextjsApiOverrides <a name="NextjsApiOverrides" id="cdk-nextjs.NextjsApiOverrides"></a>
@@ -2340,6 +2190,7 @@ const nextjsBaseConstructProps: NextjsBaseConstructProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsBaseOverrides">NextjsBaseOverrides</a></code> | *No description.* |
 
 ---
@@ -2435,6 +2286,23 @@ If `true`, you are responsible for running
 
 ---
 
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsBaseConstructProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+Bring your own VPC.
+
+If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+or to the Lambda function (for function-based constructs).
+If not provided, ECS Cluster will create a VPC automatically for containers,
+and Lambda functions will run outside a VPC.
+
+---
+
 ##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsBaseConstructProps.property.overrides"></a>
 
 ```typescript
@@ -2505,6 +2373,7 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 
 ---
 
@@ -2596,6 +2465,23 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsBaseProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+Bring your own VPC.
+
+If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+or to the Lambda function (for function-based constructs).
+If not provided, ECS Cluster will create a VPC automatically for containers,
+and Lambda functions will run outside a VPC.
 
 ---
 
@@ -2962,7 +2848,6 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | VPC is required for container deployments. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a></code> | *No description.* |
 
 ---
@@ -3054,20 +2939,6 @@ public readonly relativeEntrypointPath: string;
 ```
 
 - *Type:* string
-
----
-
-##### `vpc`<sup>Required</sup> <a name="vpc" id="cdk-nextjs.NextjsContainersProps.property.vpc"></a>
-
-```typescript
-public readonly vpc: IVpc;
-```
-
-- *Type:* aws-cdk-lib.aws_ec2.IVpc
-
-VPC is required for container deployments.
-
-Containers need VPC for networking.
 
 ---
 
@@ -3534,7 +3405,6 @@ const nextjsGlobalContainersConstructOverrides: NextjsGlobalContainersConstructO
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsContainersProps">nextjsContainersProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps">OptionalNextjsContainersProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 
 ---
 
@@ -3598,16 +3468,6 @@ public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
 
 ---
 
-##### `nextjsVpcProps`<sup>Optional</sup> <a name="nextjsVpcProps" id="cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsVpcProps"></a>
-
-```typescript
-public readonly nextjsVpcProps: OptionalNextjsVpcProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a>
-
----
-
 ### NextjsGlobalContainersOverrides <a name="NextjsGlobalContainersOverrides" id="cdk-nextjs.NextjsGlobalContainersOverrides"></a>
 
 Overrides for `NextjsGlobalContainers`.
@@ -3634,7 +3494,6 @@ const nextjsGlobalContainersOverrides: NextjsGlobalContainersOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsGlobalContainers">nextjsGlobalContainers</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides">NextjsGlobalContainersConstructOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
 
 ---
 
@@ -3698,16 +3557,6 @@ public readonly nextjsPostDeploy: NextjsPostDeployOverrides;
 
 ---
 
-##### `nextjsVpc`<sup>Optional</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsGlobalContainersOverrides.property.nextjsVpc"></a>
-
-```typescript
-public readonly nextjsVpc: NextjsVpcOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a>
-
----
-
 ### NextjsGlobalContainersProps <a name="NextjsGlobalContainersProps" id="cdk-nextjs.NextjsGlobalContainersProps"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalContainersProps.Initializer"></a>
@@ -3727,6 +3576,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
 
@@ -3820,6 +3670,23 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsGlobalContainersProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+Bring your own VPC.
+
+If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+or to the Lambda function (for function-based constructs).
+If not provided, ECS Cluster will create a VPC automatically for containers,
+and Lambda functions will run outside a VPC.
 
 ---
 
@@ -4041,6 +3908,7 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
 
@@ -4134,6 +4002,23 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+Bring your own VPC.
+
+If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+or to the Lambda function (for function-based constructs).
+If not provided, ECS Cluster will create a VPC automatically for containers,
+and Lambda functions will run outside a VPC.
 
 ---
 
@@ -4344,7 +4229,6 @@ const nextjsRegionalContainersConstructOverrides: NextjsRegionalContainersConstr
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsContainerProps">nextjsContainerProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps">OptionalNextjsContainersProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsVpcProps">nextjsVpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a></code> | *No description.* |
 
 ---
 
@@ -4398,16 +4282,6 @@ public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
 
 ---
 
-##### `nextjsVpcProps`<sup>Optional</sup> <a name="nextjsVpcProps" id="cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsVpcProps"></a>
-
-```typescript
-public readonly nextjsVpcProps: OptionalNextjsVpcProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalNextjsVpcProps">OptionalNextjsVpcProps</a>
-
----
-
 ### NextjsRegionalContainersOverrides <a name="NextjsRegionalContainersOverrides" id="cdk-nextjs.NextjsRegionalContainersOverrides"></a>
 
 Overrides for `NextjsRegionalContainers`.
@@ -4433,7 +4307,6 @@ const nextjsRegionalContainersOverrides: NextjsRegionalContainersOverrides = { .
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsContainers">nextjsContainers</a></code> | <code><a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsRegionalContainers">nextjsRegionalContainers</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides">NextjsRegionalContainersConstructOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsVpc">nextjsVpc</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | *No description.* |
 
 ---
 
@@ -4487,16 +4360,6 @@ public readonly nextjsRegionalContainers: NextjsRegionalContainersConstructOverr
 
 ---
 
-##### `nextjsVpc`<sup>Optional</sup> <a name="nextjsVpc" id="cdk-nextjs.NextjsRegionalContainersOverrides.property.nextjsVpc"></a>
-
-```typescript
-public readonly nextjsVpc: NextjsVpcOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a>
-
----
-
 ### NextjsRegionalContainersProps <a name="NextjsRegionalContainersProps" id="cdk-nextjs.NextjsRegionalContainersProps"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsRegionalContainersProps.Initializer"></a>
@@ -4516,6 +4379,7 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides">NextjsRegionalContainersOverrides</a></code> | Override props of any construct. |
 
 ---
@@ -4608,6 +4472,23 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsRegionalContainersProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+Bring your own VPC.
+
+If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+or to the Lambda function (for function-based constructs).
+If not provided, ECS Cluster will create a VPC automatically for containers,
+and Lambda functions will run outside a VPC.
 
 ---
 
@@ -4814,6 +4695,7 @@ const nextjsRegionalFunctionsProps: NextjsRegionalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides">NextjsRegionalFunctionsOverrides</a></code> | Override props of any construct. |
 
 ---
@@ -4906,6 +4788,23 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+Bring your own VPC.
+
+If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+or to the Lambda function (for function-based constructs).
+If not provided, ECS Cluster will create a VPC automatically for containers,
+and Lambda functions will run outside a VPC.
 
 ---
 
@@ -5031,88 +4930,6 @@ public readonly overrides: NextjsStaticAssetsOverrides;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
-
----
-
-### NextjsVpcOverrides <a name="NextjsVpcOverrides" id="cdk-nextjs.NextjsVpcOverrides"></a>
-
-#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsVpcOverrides.Initializer"></a>
-
-```typescript
-import { NextjsVpcOverrides } from 'cdk-nextjs'
-
-const nextjsVpcOverrides: NextjsVpcOverrides = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsVpcOverrides.property.vpcProps">vpcProps</a></code> | <code><a href="#cdk-nextjs.OptionalVpcProps">OptionalVpcProps</a></code> | *No description.* |
-
----
-
-##### `vpcProps`<sup>Optional</sup> <a name="vpcProps" id="cdk-nextjs.NextjsVpcOverrides.property.vpcProps"></a>
-
-```typescript
-public readonly vpcProps: OptionalVpcProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalVpcProps">OptionalVpcProps</a>
-
----
-
-### NextjsVpcProps <a name="NextjsVpcProps" id="cdk-nextjs.NextjsVpcProps"></a>
-
-#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsVpcProps.Initializer"></a>
-
-```typescript
-import { NextjsVpcProps } from 'cdk-nextjs'
-
-const nextjsVpcProps: NextjsVpcProps = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsVpcProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsVpcProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a></code> | Override any construct. |
-| <code><a href="#cdk-nextjs.NextjsVpcProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
-
----
-
-##### `nextjsType`<sup>Required</sup> <a name="nextjsType" id="cdk-nextjs.NextjsVpcProps.property.nextjsType"></a>
-
-```typescript
-public readonly nextjsType: NextjsType;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
-
----
-
-##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsVpcProps.property.overrides"></a>
-
-```typescript
-public readonly overrides: NextjsVpcOverrides;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsVpcOverrides">NextjsVpcOverrides</a>
-
-Override any construct.
-
----
-
-##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsVpcProps.property.vpc"></a>
-
-```typescript
-public readonly vpc: IVpc;
-```
-
-- *Type:* aws-cdk-lib.aws_ec2.IVpc
-
-Bring your own VPC.
 
 ---
 
@@ -9398,7 +9215,6 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | VPC is required for container deployments. |
 
 ---
 
@@ -9489,20 +9305,6 @@ public readonly revalidationTable: TableV2;
 - *Type:* aws-cdk-lib.aws_dynamodb.TableV2
 
 DynamoDB table for revalidation metadata.
-
----
-
-##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.OptionalNextjsContainersProps.property.vpc"></a>
-
-```typescript
-public readonly vpc: IVpc;
-```
-
-- *Type:* aws-cdk-lib.aws_ec2.IVpc
-
-VPC is required for container deployments.
-
-Containers need VPC for networking.
 
 ---
 
@@ -9718,49 +9520,6 @@ public readonly staticAssetsBucket: Bucket;
 - *Type:* aws-cdk-lib.aws_s3.Bucket
 
 Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
-
----
-
-### OptionalNextjsVpcProps <a name="OptionalNextjsVpcProps" id="cdk-nextjs.OptionalNextjsVpcProps"></a>
-
-OptionalNextjsVpcProps.
-
-#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalNextjsVpcProps.Initializer"></a>
-
-```typescript
-import { OptionalNextjsVpcProps } from 'cdk-nextjs'
-
-const optionalNextjsVpcProps: OptionalNextjsVpcProps = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.OptionalNextjsVpcProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsVpcProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
-
----
-
-##### `nextjsType`<sup>Optional</sup> <a name="nextjsType" id="cdk-nextjs.OptionalNextjsVpcProps.property.nextjsType"></a>
-
-```typescript
-public readonly nextjsType: NextjsType;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
-
----
-
-##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.OptionalNextjsVpcProps.property.vpc"></a>
-
-```typescript
-public readonly vpc: IVpc;
-```
-
-- *Type:* aws-cdk-lib.aws_ec2.IVpc
-
-Bring your own VPC.
 
 ---
 
