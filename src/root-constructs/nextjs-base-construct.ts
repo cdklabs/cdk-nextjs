@@ -1,3 +1,4 @@
+import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
@@ -64,6 +65,14 @@ export interface NextjsBaseProps {
    * @default false
    */
   readonly skipBuild?: boolean;
+  /**
+   * Bring your own VPC.
+   * If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+   * or to the Lambda function (for function-based constructs).
+   * If not provided, ECS Cluster will create a VPC automatically for containers,
+   * and Lambda functions will run outside a VPC.
+   */
+  readonly vpc?: IVpc;
 }
 
 /**

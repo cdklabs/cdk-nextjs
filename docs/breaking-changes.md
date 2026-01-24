@@ -28,9 +28,15 @@ This release introduces a major architectural shift from Docker-based builds to 
   - `AllowComputeProps` removed
   - `OptionalNextjsFileSystemProps` removed
 
-- **`NextjsVpc`** - VPC management simplified and moved to compute constructs
-  - Now only used by container-based deployments (NextjsContainers)
-  - Lambda-based deployments (NextjsFunctions) no longer require VPC
+- **`NextjsVpc`** - Removed entirely. VPC management simplified
+  - `NextjsVpcProps` removed
+  - `NextjsVpcOverrides` removed
+  - `OptionalNextjsVpcProps` removed
+  - SQS VPC Interface Endpoint no longer created
+  - VPC can now be provided via `NextjsBaseProps.vpc` (optional)
+  - If provided, VPC is passed through overrides to ECS Cluster (containers) or Lambda function
+  - If not provided, ECS Cluster creates a VPC automatically for containers
+  - Lambda functions run outside VPC by default unless VPC is explicitly provided
 
 ### New Constructs and Exports
 
@@ -69,6 +75,7 @@ This release introduces a major architectural shift from Docker-based builds to 
   - `buildContext` → `buildDirectory` - Now expects absolute path to Next.js app
   - `relativePathToWorkspace` - Removed (was already deprecated in 0.4.0)
   - `skipBuild` - New optional property to skip build execution
+  - `vpc` - New optional property to provide custom VPC for container or function deployments
 
 ### NextjsBaseConstructOverrides Changes
 
@@ -125,9 +132,9 @@ This release introduces a major architectural shift from Docker-based builds to 
   - `fileSystem` - EFS removed
   - `dockerImageAsset` - Containers now use locally built artifacts
   - `accessPoint` - EFS removed
+  - `vpc` - VPC is no longer a direct property on NextjsContainersProps
 
 - **New/Required properties:**
-  - `vpc` - VPC is now required for container deployments (property moved from base)
   - `cacheBucket` - S3 bucket for cache storage
   - `revalidationTable` - DynamoDB table for revalidation metadata
   - `buildDirectory` - Directory where the Next.js application is located (contains `.next` folder)
@@ -136,6 +143,8 @@ This release introduces a major architectural shift from Docker-based builds to 
 - **Behavior changes:**
   - Containers now copy standalone build from local `.next/standalone` directory
   - No longer build from Docker images at deployment time
+  - VPC is now provided via `NextjsBaseProps.vpc` or `overrides.nextjsContainers.ecsClusterProps.vpc`
+  - If no VPC provided, ECS Cluster will create one automatically
 
 ### NextjsPostDeploy Changes
 
@@ -207,8 +216,13 @@ This release introduces a major architectural shift from Docker-based builds to 
    - Docker is no longer required for builds
 
 5. **For container deployments:**
-   - VPC must now be explicitly provided in construct props (no longer inherited from base)
+   - VPC can now be provided via `NextjsBaseProps.vpc` instead of through overrides
    - Containers now copy from `.next/standalone` instead of building from Docker images
+   - If no VPC is provided, ECS Cluster will create one automatically
+
+6. **For function deployments:**
+   - VPC can optionally be provided via `NextjsBaseProps.vpc` if Lambda functions need VPC access
+   - If no VPC is provided, Lambda functions run outside a VPC (default behavior)
 
 ### Benefits of These Changes
 

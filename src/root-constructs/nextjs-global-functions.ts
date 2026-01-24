@@ -82,7 +82,13 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     // Create functions with local build output
     return new NextjsFunctions(this, "NextjsFunctions", {
       ...this.computeBaseProps(),
-      overrides: this.props.overrides?.nextjsFunctions,
+      overrides: {
+        ...this.props.overrides?.nextjsFunctions,
+        dockerImageFunctionProps: {
+          ...this.props.overrides?.nextjsFunctions?.dockerImageFunctionProps,
+          vpc: this.baseProps.vpc,
+        },
+      },
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionsProps,
     });
   }

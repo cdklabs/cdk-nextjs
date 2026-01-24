@@ -37,7 +37,6 @@
 /src/generated-structs/OptionalNextjsContainersProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsDistributionProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsPostDeployProps.ts linguist-generated
-/src/generated-structs/OptionalNextjsVpcProps.ts linguist-generated
 /src/generated-structs/OptionalPostDeployCustomResourceProperties.ts linguist-generated
 /src/generated-structs/OptionalS3OriginBucketWithOACProps.ts linguist-generated
 /src/generated-structs/OptionalVpcProps.ts linguist-generated

@@ -30,7 +30,6 @@
     "src/generated-structs/OptionalNextjsContainersProps.ts",
     "src/generated-structs/OptionalNextjsDistributionProps.ts",
     "src/generated-structs/OptionalNextjsPostDeployProps.ts",
-    "src/generated-structs/OptionalNextjsVpcProps.ts",
     "src/generated-structs/OptionalPostDeployCustomResourceProperties.ts",
     "src/generated-structs/OptionalS3OriginBucketWithOACProps.ts",
     "src/generated-structs/OptionalVpcProps.ts",

@@ -377,13 +377,6 @@ function generateStructs() {
     .omit("overrides")
     .allOptional();
   new ProjenStruct(project, {
-    name: "OptionalNextjsVpcProps",
-    filePath: getFilePath("OptionalNextjsVpcProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsVpcProps"))
-    .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
     name: "OptionalNextjsContainersProps",
     filePath: getFilePath("OptionalNextjsContainersProps"),
   })

@@ -69,13 +69,11 @@ export {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "./nextjs-static-assets";
-export { NextjsVpc, NextjsVpcOverrides, NextjsVpcProps } from "./nextjs-vpc";
 
 export { OptionalNextjsBuildProps } from "./generated-structs/OptionalNextjsBuildProps";
 export { OptionalNextjsContainersProps } from "./generated-structs/OptionalNextjsContainersProps";
 export { OptionalNextjsDistributionProps } from "./generated-structs/OptionalNextjsDistributionProps";
 export { OptionalNextjsCacheProps } from "./generated-structs/OptionalNextjsCacheProps";
-export { OptionalNextjsVpcProps } from "./generated-structs/OptionalNextjsVpcProps";
 export { OptionalApplicationLoadBalancedTaskImageOptions } from "./generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 export { OptionalCloudFrontFunctionProps } from "./generated-structs/OptionalCloudFrontFunctionProps";
 export { OptionalClusterProps } from "./generated-structs/OptionalClusterProps";

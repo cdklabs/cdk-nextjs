@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync } from "node:fs";
 import { join as joinPath } from "node:path";
 import { Duration } from "aws-cdk-lib";
-import { IVpc } from "aws-cdk-lib/aws-ec2";
+import { GatewayVpcEndpointAwsService } from "aws-cdk-lib/aws-ec2";
 import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
 import {
   AwsLogDriverMode,
@@ -32,11 +32,6 @@ export interface NextjsContainersOverrides {
 }
 
 export interface NextjsContainersProps extends NextjsComputeBaseProps {
-  /**
-   * VPC is required for container deployments.
-   * Containers need VPC for networking.
-   */
-  readonly vpc: IVpc;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
 }
@@ -60,19 +55,33 @@ export class NextjsContainers extends Construct {
     // Always create Docker image asset from local build output
     this.dockerImageAsset = this.createDockerImageAsset();
     this.ecsCluster = this.createEcsCluster();
+    if (!props.overrides?.ecsClusterProps?.vpc) {
+      this.addVpcGatewayEndpoints();
+    }
     this.albFargateService = this.createAlbFargateSevice();
     this.configureHealthCheck();
     this.url = this.getUrl();
   }
 
   private createEcsCluster(): Cluster {
-    const cluster = new Cluster(this, "EcsCluster", {
+    return new Cluster(this, "EcsCluster", {
       enableFargateCapacityProviders: true,
       containerInsightsV2: ContainerInsights.ENABLED,
-      vpc: this.props.vpc, // VPC is required in interface
       ...this.props.overrides?.ecsClusterProps,
     });
-    return cluster;
+  }
+
+  /**
+   * Add Gateway VPC endpoints for S3 and DynamoDB if user didn't provide a VPC.
+   * Gateway endpoints are free and improve performance by keeping traffic within AWS network.
+   */
+  private addVpcGatewayEndpoints(): void {
+    this.ecsCluster.vpc.addGatewayEndpoint("S3GatewayEndpoint", {
+      service: GatewayVpcEndpointAwsService.S3,
+    });
+    this.ecsCluster.vpc.addGatewayEndpoint("DynamoDbGatewayEndpoint", {
+      service: GatewayVpcEndpointAwsService.DYNAMODB,
+    });
   }
 
   private createDockerImageAsset(): DockerImageAsset {

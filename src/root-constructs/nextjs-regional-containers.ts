@@ -8,7 +8,6 @@ import {
 } from "./nextjs-base-construct";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
-import { OptionalNextjsVpcProps } from "../generated-structs/OptionalNextjsVpcProps";
 import {
   NextjsContainers,
   NextjsContainersOverrides,
@@ -17,12 +16,10 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
-import { NextjsVpc, NextjsVpcOverrides } from "../nextjs-vpc";
 
 export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
-  readonly nextjsVpcProps?: OptionalNextjsVpcProps;
 }
 
 /**
@@ -34,7 +31,6 @@ export interface NextjsRegionalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
-  readonly nextjsVpc?: NextjsVpcOverrides;
 }
 
 export interface NextjsRegionalContainersProps extends NextjsBaseProps {
@@ -51,7 +47,6 @@ export interface NextjsRegionalContainersProps extends NextjsBaseProps {
  * for containers.
  */
 export class NextjsRegionalContainers extends NextjsBaseConstruct {
-  nextjsVpc: NextjsVpc;
   nextjsContainers: NextjsContainers;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
@@ -68,26 +63,22 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
     super(scope, id, props, NextjsType.REGIONAL_CONTAINERS);
     this.props = props;
 
-    this.nextjsVpc = this.createVpc();
     this.nextjsContainers = this.createNextjsLoadBalancedContainers();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
-  }
-
-  private createVpc(): NextjsVpc {
-    return new NextjsVpc(this, "NextjsVpc", {
-      nextjsType: this.nextjsType,
-      overrides: this.props.overrides?.nextjsVpc,
-      ...this.props.overrides?.nextjsRegionalContainers?.nextjsVpcProps,
-    });
   }
 
   private createNextjsLoadBalancedContainers(): NextjsContainers {
     // Create containers with local build output
     return new NextjsContainers(this, "NextjsContainers", {
       ...this.computeBaseProps(),
-      vpc: this.nextjsVpc.vpc,
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
-      overrides: this.props.overrides?.nextjsContainers,
+      overrides: {
+        ...this.props.overrides?.nextjsContainers,
+        ecsClusterProps: {
+          ...this.props.overrides?.nextjsContainers?.ecsClusterProps,
+          vpc: this.baseProps.vpc,
+        },
+      },
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
     });
   }

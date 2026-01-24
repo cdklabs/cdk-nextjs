@@ -73,7 +73,6 @@ tsconfig.json
 !/src/generated-structs/OptionalNextjsBuildProps.ts
 !/src/generated-structs/OptionalNextjsCacheProps.ts
 !/src/generated-structs/OptionalNextjsDistributionProps.ts
-!/src/generated-structs/OptionalNextjsVpcProps.ts
 !/src/generated-structs/OptionalNextjsContainersProps.ts
 !/src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts
 !/src/generated-structs/OptionalVpcProps.ts
