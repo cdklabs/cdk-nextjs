@@ -40,19 +40,10 @@ export class RegionalContainersStack extends Stack {
             },
           },
         },
-        nextjsVpc: {
-          vpcProps: {
-            flowLogs: {
-              s3FlowLogs: {
-                destination: FlowLogDestination.toS3(
-                  logsBucket,
-                  "vpc-flow-logs",
-                ),
-              },
-            },
-          },
-        },
       },
+    });
+    nextjs.nextjsContainers.ecsCluster.vpc.addFlowLog("s3FlowLogs", {
+      destination: FlowLogDestination.toS3(logsBucket, "vpc-addtl-flow-logs"),
     });
     new CfnOutput(this, "CdkNextjsUrl", {
       value: nextjs.url,
@@ -61,7 +52,7 @@ export class RegionalContainersStack extends Stack {
     this.#requireCookie(nextjs);
 
     // workaround: https://github.com/aws/aws-cdk/issues/18985#issue-1139679112
-    nextjs.nextjsVpc.vpc.node
+    nextjs.nextjsContainers.ecsCluster.vpc.node
       .findChild("s3FlowLogs")
       .node.findChild("FlowLog")
       .node.addDependency(logsBucket);

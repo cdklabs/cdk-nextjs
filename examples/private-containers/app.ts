@@ -37,12 +37,15 @@ export class PrivateContainersStack extends Stack {
         },
       },
     });
-    NagSuppressions.addResourceSuppressions(nextjs.nextjsVpc.vpc, [
-      {
-        id: "AwsSolutions-VPC7",
-        reason: "Flow logs not needed for this example",
-      },
-    ]);
+    NagSuppressions.addResourceSuppressions(
+      nextjs.nextjsContainers.ecsCluster.vpc,
+      [
+        {
+          id: "AwsSolutions-VPC7",
+          reason: "Flow logs not needed for this example",
+        },
+      ],
+    );
     NagSuppressions.addResourceSuppressions(
       nextjs.nextjsContainers.albFargateService.loadBalancer,
       [
@@ -56,7 +59,9 @@ export class PrivateContainersStack extends Stack {
       value: nextjs.url,
       key: "CdkNextjsUrl",
     });
-    const bastion = this.#createBastionHost(nextjs.nextjsVpc.vpc);
+    const bastion = this.#createBastionHost(
+      nextjs.nextjsContainers.ecsCluster.vpc,
+    );
     nextjs.nextjsContainers.albFargateService.loadBalancer.connections.allowFrom(
       bastion.connections,
       Port.HTTP,

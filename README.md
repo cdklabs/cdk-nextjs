@@ -40,7 +40,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 - Next.js app running v16.1.1-canary.19 or higher. If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
 - [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos.
 - Docker compatible container engine - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby).
-- [Node.js](https://nodejs.org/en) LTS
+- [Node.js](https://nodejs.org/en) v24 (or LTS)
 
 ## Getting Started
 
@@ -64,9 +64,9 @@ export default nextConfig;
 3. Deploy your Next.js app to AWS: `cdk deploy`. Make sure you have [AWS credentials](https://docs.aws.amazon.com/cli/v1/userguide/cli-chap-configure.html) configured.
 4. Visit URL printed in terminal (CloudFormation Output) to view your Next.js app!
 
-### Dockerfile Note
+### cdk-nextjs Created Dockerfile
 
-cdk-nextjs will generate a Dockerfile in your Next.js app's directory. cdk-nextjs does not have the ability to delete the Dockerfile after the container is built so you can either add it to source control or gitignore it. When detectd, cdk-nextjs will not overwrite this Dockerfile so you're free to customize it.
+cdk-nextjs will generate a Dockerfile in your Next.js app's directory. cdk-nextjs does not have the ability to clean up the Dockerfile after the container is built so you can either add it to source control or gitignore it. When detectd, cdk-nextjs will not overwrite this Dockerfile so you're free to customize it.
 
 ## Basic Example CDK App
 
@@ -76,7 +76,7 @@ import { Construct } from "constructs";
 import { NextjsGlobalFunctions } from "cdk-nextjs";
 import { join } from "node:path";
 
-class NextjsStack extends Stack {
+class WebStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     new NextjsGlobalFunctions(this, "Nextjs", {
@@ -88,7 +88,7 @@ class NextjsStack extends Stack {
 
 const app = new App();
 
-new NextjsStack(app, "nextjs-stack");
+new WebStack(app, "web-stack");
 ```
 
 See [examples/](./examples/) for more usage examples.
