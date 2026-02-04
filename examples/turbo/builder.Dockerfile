@@ -6,7 +6,7 @@ FROM public.ecr.aws/docker/library/node:22-alpine
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY ./json/ ./cdk-nextjs-cache-handler.cjs ./
-RUN npm install -g corepack@latest && corepack enable pnpm && pnpm install --frozen-lockfile
+RUN npm install -g pnpm@latest && pnpm install --frozen-lockfile
 COPY ./full/ ./
 ARG BUILD_COMMAND
 ARG RELATIVE_PATH_TO_PACKAGE
