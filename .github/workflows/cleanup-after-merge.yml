@@ -21,7 +21,13 @@ jobs:
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup global-functions
-        run: cd examples/global-functions && pnpm run destroy:ci
+        run: |
+          cd examples/global-functions
+          if [ -f yarn.lock ]; then yarn run destroy:ci;
+          elif [ -f package-lock.json ]; then npm run destroy:ci;
+          elif [ -f pnpm-lock.yaml ]; then pnpm run destroy:ci;
+          else echo "Lockfile not found." && exit 1;
+          fi
         continue-on-error: true
   cleanup-global-containers:
     needs: check-if-should-run
@@ -34,7 +40,13 @@ jobs:
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup global-containers
-        run: cd examples/global-containers && pnpm run destroy:ci
+        run: |
+          cd examples/global-containers
+          if [ -f yarn.lock ]; then yarn run destroy:ci;
+          elif [ -f package-lock.json ]; then npm run destroy:ci;
+          elif [ -f pnpm-lock.yaml ]; then pnpm run destroy:ci;
+          else echo "Lockfile not found." && exit 1;
+          fi
         continue-on-error: true
   cleanup-regional-containers:
     needs: check-if-should-run
@@ -47,7 +59,13 @@ jobs:
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup regional-containers
-        run: cd examples/regional-containers && pnpm run destroy:ci
+        run: |
+          cd examples/regional-containers
+          if [ -f yarn.lock ]; then yarn run destroy:ci;
+          elif [ -f package-lock.json ]; then npm run destroy:ci;
+          elif [ -f pnpm-lock.yaml ]; then pnpm run destroy:ci;
+          else echo "Lockfile not found." && exit 1;
+          fi
         continue-on-error: true
   cleanup-regional-functions:
     needs: check-if-should-run
@@ -60,5 +78,11 @@ jobs:
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup regional-functions
-        run: cd examples/regional-function && pnpm run destroy:ci
+        run: |
+          cd examples/regional-function
+          if [ -f yarn.lock ]; then yarn run destroy:ci;
+          elif [ -f package-lock.json ]; then npm run destroy:ci;
+          elif [ -f pnpm-lock.yaml ]; then pnpm run destroy:ci;
+          else echo "Lockfile not found." && exit 1;
+          fi
         continue-on-error: true

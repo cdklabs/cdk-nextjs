@@ -28,7 +28,12 @@ jobs:
         with:
           node-version: lts/*
       - name: Install dependencies
-        run: pnpm i --no-frozen-lockfile
+        run: |
+          if [ -f yarn.lock ]; then yarn install --no-immutable;
+          elif [ -f package-lock.json ]; then npm ci;
+          elif [ -f pnpm-lock.yaml ]; then pnpm i --no-frozen-lockfile;
+          else echo "Lockfile not found." && exit 1;
+          fi
       - name: Compile JSII
         run: pnpm projen compile
       - name: build

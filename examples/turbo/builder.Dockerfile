@@ -6,7 +6,13 @@ FROM public.ecr.aws/docker/library/node:22-alpine
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY ./json/ ./cdk-nextjs-cache-handler.cjs ./
-RUN npm install -g pnpm@latest && pnpm install --frozen-lockfile
+# Install dependencies based on the preferred package manager
+RUN \
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
+  elif [ -f package-lock.json ]; then npm ci; \
+  elif [ -f pnpm-lock.yaml ]; then npm install -g pnpm@latest && pnpm i --frozen-lockfile; \
+  else echo "Lockfile not found." && exit 1; \
+  fi
 COPY ./full/ ./
 ARG BUILD_COMMAND
 ARG RELATIVE_PATH_TO_PACKAGE

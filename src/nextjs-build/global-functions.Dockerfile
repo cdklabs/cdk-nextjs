@@ -1,5 +1,6 @@
 #checkov:skip=CKV_DOCKER_2: healthcheck run by AWS Lambda Web Adapter
 #checkov:skip=CKV_DOCKER_7: latest tag is ok to use for local builder container
+## Package manager logic is handled in builder.Dockerfile (supports npm, yarn, pnpm)
 # Modified from: https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 ARG BUILDER_IMAGE_ALIAS=cdk-nextjs/builder:latest
 FROM $BUILDER_IMAGE_ALIAS AS builder

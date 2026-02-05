@@ -1,3 +1,21 @@
+<!-- existing content ... -->
+
+## Package Manager Support
+
+All Dockerfiles and CI workflows now automatically detect and use the appropriate package manager (npm, yarn, or pnpm) based on the presence of a lockfile in your project. No manual changes are needed—just ensure your preferred lockfile is present.
+
+Supported lockfiles:
+- `yarn.lock` → uses yarn
+- `package-lock.json` → uses npm
+- `pnpm-lock.yaml` → uses pnpm
+
+If no lockfile is found, the build will fail with an error message.
+
+<!--END STABILITY BANNER-->
+
+Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) with the [AWS CDK](https://aws.amazon.com/cdk/).
+
+## Features
 ![Version](https://img.shields.io/github/v/release/cdklabs/cdk-nextjs)
 [![npm version](https://img.shields.io/npm/v/cdk-nextjs.svg?style=flat-square)](https://www.npmjs.org/package/cdk-nextjs)
 ![License](https://img.shields.io/github/license/cdklabs/cdk-nextjs)
