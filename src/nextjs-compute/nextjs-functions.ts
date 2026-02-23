@@ -1,5 +1,6 @@
 import { join } from "path/posix";
 import { Duration } from "aws-cdk-lib";
+import { ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
   DockerImageCode,
   DockerImageFunction,
@@ -46,6 +47,9 @@ export class NextjsFunctions extends Construct {
     this.props = props;
     this.function = this.createFunction();
     if (props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
+      this.function.grantInvoke(
+        new ServicePrincipal("cloudfront.amazonaws.com"),
+      );
       this.functionUrl = this.function.addFunctionUrl({
         authType: FunctionUrlAuthType.AWS_IAM,
         invokeMode: InvokeMode.RESPONSE_STREAM,
