@@ -38,7 +38,7 @@ export async function fsToS3(props: FsToS3Props) {
         });
         let body: string | ReadStream;
         if (
-          path.includes(".next/static/chunks/main-app-") &&
+          path.includes(".next/static/chunks/main-app-") || (path.startsWith("turbopack-") && path.endsWith(".js")) &&
           nextjsType === NextjsType.GLOBAL_FUNCTIONS
         ) {
           // see src/lambdas/assets-deployment/patch-fetch.js for why this is needed
