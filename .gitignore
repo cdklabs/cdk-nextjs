@@ -3,7 +3,6 @@
 !/.projen/tasks.json
 !/.projen/deps.json
 !/.projen/files.json
-!/.mergify.yml
 !/.github/workflows/pull-request-lint.yml
 !/.github/workflows/auto-approve.yml
 !/package.json
@@ -45,7 +44,6 @@ junit.xml
 /dist/changelog.md
 /dist/version.txt
 !/.github/workflows/release.yml
-!/.github/workflows/upgrade-main.yml
 !/.github/pull_request_template.md
 !/.npmrc
 !/test/
@@ -60,6 +58,13 @@ tsconfig.json
 /assets/
 !/src/lambdas/assets-deployment/assets-deployment-function.ts
 !/src/lambdas/post-deploy/post-deploy-function.ts
+.jsii.tabl.json
+!/rosetta/default.ts-fixture
+!/.github/workflows/retry-automerge.yml
+!/.github/workflows/auto-queue.yml
+!/.github/workflows/upgrade-cdklabs-projen-project-types-main.yml
+!/.github/workflows/upgrade-main.yml
+!/.github/workflows/upgrade-dev-deps-main.yml
 !/examples/**/tsconfig.json
 !/.projenrc.ts
 !/src/generated-structs/OptionalNextjsPostDeployProps.ts

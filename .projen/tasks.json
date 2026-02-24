@@ -236,7 +236,8 @@
       "name": "eslint",
       "description": "Runs eslint against the codebase",
       "env": {
-        "ESLINT_USE_FLAT_CONFIG": "false"
+        "ESLINT_USE_FLAT_CONFIG": "false",
+        "NODE_NO_WARNINGS": "1"
       },
       "steps": [
         {
@@ -260,6 +261,26 @@
       "steps": [
         {
           "exec": "pnpm i --frozen-lockfile"
+        }
+      ]
+    },
+    "integ": {
+      "name": "integ",
+      "description": "Run integration snapshot tests",
+      "steps": [
+        {
+          "exec": "integ-runner --language typescript",
+          "receiveArgs": true
+        }
+      ]
+    },
+    "integ:update": {
+      "name": "integ:update",
+      "description": "Run and update integration snapshot tests",
+      "steps": [
+        {
+          "exec": "integ-runner --language typescript --update-on-failed",
+          "receiveArgs": true
         }
       ]
     },
@@ -291,7 +312,7 @@
       "description": "Create js language bindings",
       "steps": [
         {
-          "exec": "jsii-pacmak -v --pack-command 'pnpm pack' --target js"
+          "exec": "jsii-pacmak -v --pack-command \"pnpm pack\" --target js"
         }
       ]
     },
@@ -301,6 +322,9 @@
       "steps": [
         {
           "spawn": "docgen"
+        },
+        {
+          "spawn": "rosetta:extract"
         }
       ]
     },
@@ -341,6 +365,15 @@
         }
       ]
     },
+    "rosetta:extract": {
+      "name": "rosetta:extract",
+      "description": "Test rosetta extract",
+      "steps": [
+        {
+          "exec": "jsii-rosetta extract"
+        }
+      ]
+    },
     "test": {
       "name": "test",
       "description": "Run tests",
@@ -351,6 +384,9 @@
         },
         {
           "spawn": "eslint"
+        },
+        {
+          "spawn": "integ"
         }
       ]
     },
@@ -390,13 +426,49 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+          "exec": "echo No dependencies to upgrade."
+        }
+      ]
+    },
+    "upgrade-cdklabs-projen-project-types": {
+      "name": "upgrade-cdklabs-projen-project-types",
+      "description": "upgrade cdklabs-projen-project-types",
+      "env": {
+        "CI": "0"
+      },
+      "steps": [
+        {
+          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=latest --peer --no-deprecated --dep=dev,peer,prod,optional --filter=cdklabs-projen-project-types,projen"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
+          "exec": "pnpm update cdklabs-projen-project-types projen"
+        },
+        {
+          "exec": "pnpm dlx projen"
+        },
+        {
+          "spawn": "post-upgrade"
+        }
+      ]
+    },
+    "upgrade-dev-deps": {
+      "name": "upgrade-dev-deps",
+      "description": "upgrade dev dependencies",
+      "env": {
+        "CI": "0"
+      },
+      "steps": [
+        {
+          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=minor --peer --no-deprecated --dep=dev --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/jest,@types/mime-types,cdk-nag,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+        },
+        {
+          "exec": "pnpm i --no-frozen-lockfile"
+        },
+        {
+          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier ts-jest ts-node typescript undici @aws-cdk/integ-runner @aws-cdk/integ-tests-alpha"
         },
         {
           "exec": "pnpm dlx projen"
