@@ -164,16 +164,18 @@ export class NextjsDistribution extends Construct {
   }
   private createDynamicOrigin(): IOrigin {
     if (this.isFunctionCompute) {
-      if (!this.props.functionUrl)
+      if (!this.props.functionUrl) {
         throw new Error("Missing NextjsDistributionProps.functionUrl");
+      }
       return FunctionUrlOrigin.withOriginAccessControl(
         this.props.functionUrl,
         this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
       );
     } else {
       const loadBalancer = this.props.loadBalancer;
-      if (!loadBalancer)
+      if (!loadBalancer) {
         throw new Error("Missing NextjsDistributionProps.loadBalancer");
+      }
       return VpcOrigin.withApplicationLoadBalancer(loadBalancer, {
         protocolPolicy: this.props.certificate
           ? OriginProtocolPolicy.HTTPS_ONLY

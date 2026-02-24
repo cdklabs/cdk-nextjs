@@ -1,17 +1,19 @@
 import { join } from "node:path";
 import { ProjenStruct, Struct } from "@mrgrain/jsii-struct-builder";
-import { awscdk, javascript, JsonPatch, ReleasableCommits } from "projen";
+import { CdklabsConstructLibrary } from "cdklabs-projen-project-types";
+import { javascript, JsonPatch, ReleasableCommits } from "projen";
 import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
 const nodeVersion = 22;
-const project = new awscdk.AwsCdkConstructLibrary({
+const project = new CdklabsConstructLibrary({
   // repository config
   author: "Ben Stickley",
   authorAddress: "bestickley@gmail.com",
   defaultReleaseBranch: "main",
   repositoryUrl: "https://github.com/cdklabs/cdk-nextjs.git",
+  private: false,
   // package.json config
   name: "cdk-nextjs",
   description:
@@ -22,8 +24,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   cdkVersion: "2.196.0",
   jsiiVersion: "~5.8.7",
   packageManager: javascript.NodePackageManager.PNPM,
-  pnpmVersion: "9",
-  projenVersion: "^0.90.6",
+  pnpmVersion: "10.11.0",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-cloudfront",
@@ -40,10 +41,15 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "next@14", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
+  setNodeEngineVersion: false,
   npmIgnoreOptions: {
     ignorePatterns: ["examples/**/*"],
   },
   // tooling config
+  rosettaOptions: {
+    strict: false,
+  },
+  enablePRAutoMerge: true,
   depsUpgradeOptions: {
     workflowOptions: {
       schedule: UpgradeDependenciesSchedule.WEEKLY,
@@ -77,6 +83,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ignorePatterns: ["generated-structs/", "**/*-function.ts", "examples/"],
   },
   sampleCode: false,
+  jsiiTargetLanguages: [],
   releasableCommits: ReleasableCommits.ofType([
     "feat",
     "fix",
@@ -136,6 +143,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ],
   },
 });
+
+// override cdklabs views on stability
+project.package.addField("stability", "stable");
 
 // by default projen ignores all tsconfigs, but we don't want do this for non-projen
 // managed repo.

@@ -45,6 +45,7 @@ new NextjsApi(scope: Construct, id: string, props: NextjsApiProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsApi.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsApi.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -56,6 +57,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsApi.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsApi.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -64,7 +86,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsApi.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsApi.isConstruct"></a>
 
 ```typescript
 import { NextjsApi } from 'cdk-nextjs'
@@ -73,6 +95,20 @@ NextjsApi.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsApi.isConstruct.parameter.x"></a>
 
@@ -159,6 +195,7 @@ new NextjsAssetsDeployment(scope: Construct, id: string, props: NextjsAssetsDepl
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsAssetsDeployment.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsAssetsDeployment.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -170,6 +207,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsAssetsDeployment.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsAssetsDeployment.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -178,7 +236,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsAssetsDeployment.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsAssetsDeployment.isConstruct"></a>
 
 ```typescript
 import { NextjsAssetsDeployment } from 'cdk-nextjs'
@@ -187,6 +245,20 @@ NextjsAssetsDeployment.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsAssetsDeployment.isConstruct.parameter.x"></a>
 
@@ -289,6 +361,7 @@ new NextjsBaseConstruct(scope: Construct, id: string, props: NextjsBaseConstruct
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBaseConstruct.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsBaseConstruct.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -300,6 +373,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsBaseConstruct.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsBaseConstruct.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -308,7 +402,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsBaseConstruct.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsBaseConstruct.isConstruct"></a>
 
 ```typescript
 import { NextjsBaseConstruct } from 'cdk-nextjs'
@@ -317,6 +411,20 @@ NextjsBaseConstruct.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsBaseConstruct.isConstruct.parameter.x"></a>
 
@@ -469,6 +577,7 @@ new NextjsBuild(scope: Construct, id: string, props: NextjsBuildProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBuild.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsBuild.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -480,6 +589,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsBuild.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsBuild.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -488,7 +618,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsBuild.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsBuild.isConstruct"></a>
 
 ```typescript
 import { NextjsBuild } from 'cdk-nextjs'
@@ -497,6 +627,20 @@ NextjsBuild.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsBuild.isConstruct.parameter.x"></a>
 
@@ -694,6 +838,7 @@ new NextjsContainers(scope: Construct, id: string, props: NextjsContainersProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsContainers.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsContainers.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -705,6 +850,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsContainers.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsContainers.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -713,7 +879,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsContainers.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsContainers.isConstruct"></a>
 
 ```typescript
 import { NextjsContainers } from 'cdk-nextjs'
@@ -722,6 +888,20 @@ NextjsContainers.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsContainers.isConstruct.parameter.x"></a>
 
@@ -826,6 +1006,7 @@ new NextjsDistribution(scope: Construct, id: string, props: NextjsDistributionPr
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsDistribution.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsDistribution.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -837,6 +1018,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsDistribution.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsDistribution.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -845,7 +1047,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsDistribution.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsDistribution.isConstruct"></a>
 
 ```typescript
 import { NextjsDistribution } from 'cdk-nextjs'
@@ -854,6 +1056,20 @@ NextjsDistribution.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsDistribution.isConstruct.parameter.x"></a>
 
@@ -938,6 +1154,7 @@ new NextjsFileSystem(scope: Construct, id: string, props: NextjsFileSystemProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsFileSystem.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsFileSystem.with">with</a></code> | Applies one or more mixins to this construct. |
 | <code><a href="#cdk-nextjs.NextjsFileSystem.allowCompute">allowCompute</a></code> | *No description.* |
 
 ---
@@ -949,6 +1166,27 @@ public toString(): string
 ```
 
 Returns a string representation of this construct.
+
+##### `with` <a name="with" id="cdk-nextjs.NextjsFileSystem.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsFileSystem.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
 
 ##### `allowCompute` <a name="allowCompute" id="cdk-nextjs.NextjsFileSystem.allowCompute"></a>
 
@@ -970,7 +1208,7 @@ public allowCompute(__0: AllowComputeProps): void
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsFileSystem.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsFileSystem.isConstruct"></a>
 
 ```typescript
 import { NextjsFileSystem } from 'cdk-nextjs'
@@ -979,6 +1217,20 @@ NextjsFileSystem.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsFileSystem.isConstruct.parameter.x"></a>
 
@@ -1074,6 +1326,7 @@ new NextjsFunctions(scope: Construct, id: string, props: NextjsFunctionsProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsFunctions.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsFunctions.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -1085,6 +1338,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsFunctions.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsFunctions.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -1093,7 +1367,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsFunctions.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsFunctions.isConstruct"></a>
 
 ```typescript
 import { NextjsFunctions } from 'cdk-nextjs'
@@ -1102,6 +1376,20 @@ NextjsFunctions.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsFunctions.isConstruct.parameter.x"></a>
 
@@ -1197,6 +1485,7 @@ new NextjsGlobalContainers(scope: Construct, id: string, props: NextjsGlobalCont
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainers.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -1208,6 +1497,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsGlobalContainers.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsGlobalContainers.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -1216,7 +1526,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsGlobalContainers.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsGlobalContainers.isConstruct"></a>
 
 ```typescript
 import { NextjsGlobalContainers } from 'cdk-nextjs'
@@ -1225,6 +1535,20 @@ NextjsGlobalContainers.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsGlobalContainers.isConstruct.parameter.x"></a>
 
@@ -1397,6 +1721,7 @@ new NextjsGlobalFunctions(scope: Construct, id: string, props: NextjsGlobalFunct
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -1408,6 +1733,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsGlobalFunctions.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsGlobalFunctions.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -1416,7 +1762,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsGlobalFunctions.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsGlobalFunctions.isConstruct"></a>
 
 ```typescript
 import { NextjsGlobalFunctions } from 'cdk-nextjs'
@@ -1425,6 +1771,20 @@ NextjsGlobalFunctions.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsGlobalFunctions.isConstruct.parameter.x"></a>
 
@@ -1602,6 +1962,7 @@ new NextjsPostDeploy(scope: Construct, id: string, props: NextjsPostDeployProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsPostDeploy.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsPostDeploy.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -1613,6 +1974,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsPostDeploy.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsPostDeploy.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -1621,7 +2003,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsPostDeploy.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsPostDeploy.isConstruct"></a>
 
 ```typescript
 import { NextjsPostDeploy } from 'cdk-nextjs'
@@ -1630,6 +2012,20 @@ NextjsPostDeploy.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsPostDeploy.isConstruct.parameter.x"></a>
 
@@ -1725,6 +2121,7 @@ new NextjsRegionalContainers(scope: Construct, id: string, props: NextjsRegional
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainers.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -1736,6 +2133,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsRegionalContainers.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsRegionalContainers.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -1744,7 +2162,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsRegionalContainers.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsRegionalContainers.isConstruct"></a>
 
 ```typescript
 import { NextjsRegionalContainers } from 'cdk-nextjs'
@@ -1753,6 +2171,20 @@ NextjsRegionalContainers.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsRegionalContainers.isConstruct.parameter.x"></a>
 
@@ -1914,6 +2346,7 @@ new NextjsRegionalFunctions(scope: Construct, id: string, props: NextjsRegionalF
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctions.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -1925,6 +2358,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsRegionalFunctions.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsRegionalFunctions.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -1933,7 +2387,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsRegionalFunctions.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsRegionalFunctions.isConstruct"></a>
 
 ```typescript
 import { NextjsRegionalFunctions } from 'cdk-nextjs'
@@ -1942,6 +2396,20 @@ NextjsRegionalFunctions.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsRegionalFunctions.isConstruct.parameter.x"></a>
 
@@ -2114,6 +2582,7 @@ new NextjsStaticAssets(scope: Construct, id: string, props: NextjsStaticAssetsPr
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -2125,6 +2594,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsStaticAssets.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsStaticAssets.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -2133,7 +2623,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsStaticAssets.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsStaticAssets.isConstruct"></a>
 
 ```typescript
 import { NextjsStaticAssets } from 'cdk-nextjs'
@@ -2142,6 +2632,20 @@ NextjsStaticAssets.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsStaticAssets.isConstruct.parameter.x"></a>
 
@@ -2234,6 +2738,7 @@ new NextjsVpc(scope: Construct, id: string, props: NextjsVpcProps)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsVpc.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsVpc.with">with</a></code> | Applies one or more mixins to this construct. |
 
 ---
 
@@ -2245,6 +2750,27 @@ public toString(): string
 
 Returns a string representation of this construct.
 
+##### `with` <a name="with" id="cdk-nextjs.NextjsVpc.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsVpc.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
 | **Name** | **Description** |
@@ -2253,7 +2779,7 @@ Returns a string representation of this construct.
 
 ---
 
-##### ~~`isConstruct`~~ <a name="isConstruct" id="cdk-nextjs.NextjsVpc.isConstruct"></a>
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsVpc.isConstruct"></a>
 
 ```typescript
 import { NextjsVpc } from 'cdk-nextjs'
@@ -2262,6 +2788,20 @@ NextjsVpc.isConstruct(x: any)
 ```
 
 Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
 
 ###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsVpc.isConstruct.parameter.x"></a>
 
