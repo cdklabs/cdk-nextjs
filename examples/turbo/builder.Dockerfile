@@ -10,7 +10,7 @@ RUN npm install -g corepack@latest && corepack enable pnpm && pnpm install --fro
 COPY ./full/ ./
 ARG BUILD_COMMAND
 ARG RELATIVE_PATH_TO_PACKAGE
-RUN cd $RELATIVE_PATH_TO_PACKAGE && {{INJECT_CDK_NEXTJS_BUILD_ENV_VARS}} $BUILD_COMMAND
+RUN cd $RELATIVE_PATH_TO_PACKAGE && {{INJECT_CDK_NEXTJS_BUILD_ENV_VARS}} NODE_OPTIONS="--max-old-space-size=8192" $BUILD_COMMAND
 RUN rm -rf node_modules && \
   # remove pnpm cache if exists
   command -v pnpm >/dev/null 2>&1 && rm -rf $(pnpm store path) || echo "pnpm not installed, skipping cache cleanup" && \

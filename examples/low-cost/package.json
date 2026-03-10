@@ -8,12 +8,12 @@
   },
   "dependencies": {
     "aws-cdk-lib": "2.196.0",
-    "cdk-fck-nat": "^1.5.11",
+    "cdk-fck-nat": "^1.6.16",
     "cdk-nextjs": "link:../..",
     "constructs": "10.0.5",
-    "tsx": "^4.19.4"
+    "tsx": "^4.20.5"
   },
   "devDependencies": {
-    "@types/node": "^22.15.19"
+    "@types/node": "^22.18.1"
   }
 }

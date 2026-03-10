@@ -10,8 +10,8 @@
     "test:ci": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0",
-    "cdk-pipelines-github": "^0.4.130",
-    "tsx": "^4.19.4"
+    "@playwright/test": "^1.55.0",
+    "cdk-pipelines-github": "^0.4.131",
+    "tsx": "^4.20.5"
   }
 }
