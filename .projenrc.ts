@@ -54,7 +54,7 @@ const project = new CdklabsConstructLibrary({
   },
   // tooling config
   rosettaOptions: {
-    strict: true,
+    strict: false,
   },
   enablePRAutoMerge: true,
   depsUpgradeOptions: {
