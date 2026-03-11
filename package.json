@@ -65,7 +65,7 @@
     "@types/node": "^24",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
-    "aws-cdk-lib": "2.234.1",
+    "aws-cdk-lib": "2.242.0",
     "cdk-nag": "^2.37.55",
     "cdklabs-projen-project-types": "^0.3.16",
     "commit-and-tag-version": "^12",
@@ -87,14 +87,14 @@
     "mime-types": "^2.1.35",
     "next": "16.1.1-canary.19",
     "prettier": "^3.7.4",
+    "projen": "^0.99.1",
     "ts-jest": "^29.4.6",
-    "projen": "^0.99.16",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "undici": "^6.23.0"
   },
   "peerDependencies": {
-    "aws-cdk-lib": "^2.234.1",
+    "aws-cdk-lib": "^2.242.0",
     "constructs": "^10.5.1"
   },
   "pnpm": {
@@ -175,7 +175,7 @@
       "rootDir": "src"
     }
   },
-  "packageManager": "pnpm@10.27.0",
+  "packageManager": "pnpm@10.32.1",
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",

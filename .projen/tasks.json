@@ -365,7 +365,7 @@
       "description": "Test rosetta extract",
       "steps": [
         {
-          "exec": "jsii-rosetta extract"
+          "exec": "jsii-rosetta extract --strict"
         }
       ]
     },
@@ -421,13 +421,49 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+          "exec": "echo No dependencies to upgrade."
+        }
+      ]
+    },
+    "upgrade-cdklabs-projen-project-types": {
+      "name": "upgrade-cdklabs-projen-project-types",
+      "description": "upgrade cdklabs-projen-project-types",
+      "env": {
+        "CI": "0"
+      },
+      "steps": [
+        {
+          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=latest --peer --no-deprecated --dep=dev,peer,prod,optional --filter=cdklabs-projen-project-types,projen"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-dynamodb @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/debug @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version debug esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier projen ts-jest ts-node typescript undici aws-cdk-lib constructs"
+          "exec": "pnpm update cdklabs-projen-project-types projen"
+        },
+        {
+          "exec": "pnpm dlx projen"
+        },
+        {
+          "spawn": "post-upgrade"
+        }
+      ]
+    },
+    "upgrade-dev-deps": {
+      "name": "upgrade-dev-deps",
+      "description": "upgrade dev dependencies",
+      "env": {
+        "CI": "0"
+      },
+      "steps": [
+        {
+          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=minor --peer --no-deprecated --dep=dev --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+        },
+        {
+          "exec": "pnpm i --no-frozen-lockfile"
+        },
+        {
+          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-dynamodb @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/debug @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version debug esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier ts-jest ts-node typescript undici @aws-cdk/integ-runner @aws-cdk/integ-tests-alpha"
         },
         {
           "exec": "pnpm dlx projen"

@@ -7,7 +7,7 @@ import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
 const nodeVersion = 24;
-const pnpmVersion = "10.27.0";
+const pnpmVersion = "10.32.1";
 const project = new CdklabsConstructLibrary({
   // repository config
   author: "Ben Stickley",
@@ -23,7 +23,7 @@ const project = new CdklabsConstructLibrary({
   // majorVersion: 1,
   // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.234.1",
+  cdkVersion: "2.242.0",
   jsiiVersion: "~5.9.22",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion,
@@ -54,7 +54,7 @@ const project = new CdklabsConstructLibrary({
   },
   // tooling config
   rosettaOptions: {
-    strict: false,
+    strict: true,
   },
   enablePRAutoMerge: true,
   depsUpgradeOptions: {

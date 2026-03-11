@@ -208,7 +208,7 @@ Both supplied and generated roles can always be changed by calling `addToRolePol
    * @default `/aws/lambda/${this.functionName}` - default log group created by Lambda
    * @stability stable
    */
-  readonly logGroup?: aws_logs.ILogGroup;
+  readonly logGroup?: interfaces.aws_logs.ILogGroupRef;
   /**
    * Sets the loggingFormat for the function.
    * @default LoggingFormat.TEXT
