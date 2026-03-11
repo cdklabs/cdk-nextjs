@@ -1,112 +1,22 @@
 import { execSync } from "node:child_process";
 import {
-  cpSync,
   existsSync,
   readFileSync,
-  rmSync,
+  readdirSync,
   writeFileSync,
+  rmSync,
+  mkdirSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { join as joinPosix } from "node:path/posix";
-import { IgnoreMode } from "aws-cdk-lib";
-import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
-import { AssetImageCodeProps, DockerImageCode } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
-import {
-  BUILDER_IMAGE_ALIAS_ARG_NAME,
-  MOUNT_PATH,
-  IMAGE_CACHE_PATH,
-  IMAGE_CACHE_PATH_ARG_NAME,
-  MOUNT_PATH_ARG_NAME,
-  NextjsType,
-  PUBLIC_PATH,
-  PUBLIC_PATH_ARG_NAME,
-  RELATIVE_PATH_TO_PACKAGE_ARG_NAME,
-  BUILD_ID_ARG_NAME,
-  DATA_CACHE_PATH_ARG_NAME,
-  DATA_CACHE_PATH,
-  CACHE_PATH,
-  CACHE_PATH_ARG_NAME,
-  INJECT_CDK_NEXTJS_BUILD_ENV_VARS,
-} from "../constants";
-import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
+// eslint-disable-next-line import/no-extraneous-dependencies
+import getDebug from "debug";
+import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 
-export interface BuilderImageProps {
-  /**
-   * Build Args to be passed to `docker build` command.
-   * @see https://docs.docker.com/build/building/variables/#build-arguments
-   */
-  readonly buildArgs?: Record<string, string>;
-  /**
-   * `docker build ...` command to run in {@link NextBaseProps.buildContext}.
-   * Default interpolates other props. If you override, other props will have
-   * no effect on command.
-   */
-  readonly command?: string;
-  /**
-   * Environment variables names to pass from host to container during build process.
-   *
-   * These variable names will be set before the build command in builder.Dockerfile
-   * like: `API_KEY="MY_API_KEY" npm run build`
-   *
-   * @example ["MY_API_KEY"]
-   */
-  readonly envVarNames?: string[];
-  /**
-   * Lines in .dockerignore file which will be created in your {@link NextBaseProps.buildContext}
-   * @default ["node_modules", ".git", ".gitignore", ".md"]
-   */
-  readonly exclude?: string[];
-  /**
-   * Name of Dockerfile in builder build context. If specified, you are responsible
-   * for ensuring it exists in build context before construct is instantiated.
-   * @default "builder.Dockerfile"
-   */
-  readonly file?: string;
-  readonly platform?: Platform;
-  /**
-   * Skip building the builder image.
-   * @default false
-   */
-  readonly skipBuild?: boolean;
-}
-
-export interface NextjsBuildOverrides {
-  readonly nextjsContainersDockerImageAssetProps?: OptionalDockerImageAssetProps;
-  readonly nextjsFunctionsAssetImageCodeProps?: AssetImageCodeProps;
-  readonly nextjsAssetDeploymentAssetImageCodeProps?: AssetImageCodeProps;
-  /**
-   * Default folder for build context is the "lib/nextjs-build" folder in the
-   * installed cdk-nextjs library which has the "global-functions.Dockerfile".
-   * Note, if you specify this then you're responsible for ensuring the dockerfile
-   * is present in the build context directory and any referenced files are
-   * present as well. You can specify dockerfile name with adjacent
-   * `nextjsFunctionsAssetImageCodeProps.file` property.
-   * @default "cdk-nextjs/lib/nextjs-build"
-   */
-  readonly functionsImageBuildContext?: string;
-  /**
-   * Default folder for build context is the "lib/nextjs-build" folder in the
-   * installed cdk-nextjs library which has the "assets-deployment.Dockerfile".
-   * Note, if you specify this then you're responsible for ensuring the dockerfile
-   * is present in the build context directory and any referenced files are
-   * present as well. You can specify dockerfile name with adjacent
-   * `nextjsAssetDeploymentAssetImageCodeProps.file` property.
-   * @default "cdk-nextjs/lib/nextjs-build"
-   */
-  readonly assetsDeploymentImageBuildContext?: string;
-  /**
-   * Default folder for build context is the "assets/lambdas/assets-deployment/assets-deployment.lambda" folder in the
-   * installed cdk-nextjs library which has the "{...}-containers.Dockerfile".
-   * Note, if you specify this then you're responsible for ensuring the dockerfile
-   * is present in the build context directory and any referenced files are
-   * present as well. You can specify dockerfile name with adjacent
-   * `nextjsContainersDockerImageAssetProps.file` property.
-   * @default "cdk-nextjs/lib/nextjs-build"
-   */
-  readonly containersImageBuildContext?: string;
-}
+const debug = getDebug("cdk-nextjs:nextjs-build");
 
 export interface NextjsBuildProps {
   /**
@@ -114,19 +24,15 @@ export interface NextjsBuildProps {
    */
   readonly buildCommand: NextjsBaseProps["buildCommand"];
   /**
-   * @see {@link NextjsBaseProps["buildContext"]}
+   * Directory where the Next.js application is located for local builds.
+   * This should contain the package.json and Next.js application files.
    */
-  readonly buildContext: NextjsBaseProps["buildContext"];
-  /**
-   *
-   */
-  readonly builderImageProps?: BuilderImageProps;
-  /**
-   * @see {@link NextjsBaseProps.relativePathToPackage}
-   */
-  readonly relativePathToPackage?: NextjsBaseProps["relativePathToPackage"];
+  readonly buildDirectory: string;
   readonly nextjsType: NextjsType;
-  readonly overrides?: NextjsBuildOverrides;
+  /**
+   * @see {@link NextjsBaseProps.skipBuild}
+   */
+  readonly skipBuild?: boolean;
 }
 
 export interface PublicDirEntry {
@@ -140,34 +46,15 @@ export interface PublicDirEntry {
  */
 export class NextjsBuild extends Construct {
   /**
-   * Image alias of builder image Next.js app which is built for other images to be
-   * built `FROM`. This image isn't built with CDK Assets construct b/c it
-   * doesn't need to be uploaded to ECR. We still need to include slice of
-   * `node.addr` in tag in case multiple cdk-nextjs constructs are used.
-   */
-  builderImageAlias: string;
-  /**
-   * Unique id for Next.js build. Used to partition EFS FileSystem.
+   * Unique id for Next.js build. Used to partition cache storage and as
+   * metadata for static assets in S3 bucket.
    */
   buildId: string;
   /**
-   * Hash of builder image which will change whenever the image changes. Useful
-   * for passing to properties of custom resources that depend upon the builder
-   * image to re-run when build image changes.
+   * Absolute path to the init cache directory
+   * @example "/Users/john/myapp/.next/cdk-nextjs-init-cache"
    */
-  buildImageDigest: string;
-  /**
-   * Docker image built if using Fargate.
-   */
-  imageForNextjsContainers?: DockerImageAsset;
-  /**
-   * Docker image built if using Lambda.
-   */
-  imageForNextjsFunctions?: DockerImageCode;
-  /**
-   * Docker image built for `NextjsAssetsDeployment`
-   */
-  imageForNextjsAssetsDeployment: DockerImageCode;
+  initCacheDir: string;
   /**
    * Absolute path to public. Use by CloudFront/ALB to create behaviors/rules
    * @example "/Users/john/myapp/public"
@@ -180,285 +67,368 @@ export class NextjsBuild extends Construct {
    * @example "./packages/ui/server.js" (monorepo)
    */
   relativePathToEntrypoint: string;
-
   /**
-   * Repository name for the builder image.
+   * Relative path from the standalone directory to the package containing the Next.js app.
+   * This is automatically detected from the standalone build output.
+   * @example "." for non-monorepo apps
+   * @example "./apps/web" for monorepo apps
    */
-  private builderImageRepo = "cdk-nextjs/builder";
+  relativePathToPackage: string;
+  /**
+   * Absolute path to the .next directory containing Next.js build artifacts
+   */
+  dotNextPath: string;
 
-  private containerRuntime = process.env.CDK_DOCKER || "docker";
   private props: NextjsBuildProps;
-  private relativePathToPackage: string;
+  private buildCommand: string;
 
   constructor(scope: Construct, id: string, props: NextjsBuildProps) {
     super(scope, id);
-    this.builderImageAlias = `${this.builderImageRepo}:${this.node.addr.slice(30)}`;
-    this.relativePathToPackage = props.relativePathToPackage || ".";
     this.props = props;
-    this.relativePathToEntrypoint = this.getRelativeEntrypointPath();
-    if (!props.builderImageProps?.skipBuild) {
-      this.createBuilderImage();
+    this.dotNextPath = join(props.buildDirectory, ".next");
+
+    this.buildCommand = props.buildCommand || "npm run build";
+
+    // Set init cache directory path
+    this.initCacheDir = join(
+      props.buildDirectory,
+      ".next",
+      "cdk-nextjs-init-cache",
+    );
+
+    // Execute local build process
+    if (props.skipBuild !== true) {
+      this.runNextBuild();
+    } else {
+      debug(`${LOG_PREFIX} Skipping: ${this.buildCommand}`);
     }
-    this.buildImageDigest = this.getBuilderImageDigest();
+
+    // Validate build output and set validated paths
+    this.validateNextBuildOutput();
+
+    // Auto-detect relativePathToPackage from standalone build output
+    this.relativePathToPackage = this.findRelativePathToServerJs();
+
+    // Set entrypoint path using detected relativePathToPackage
+    this.relativePathToEntrypoint = joinPosix(
+      this.relativePathToPackage === "." ? "" : this.relativePathToPackage,
+      "server.js",
+    );
+
     this.buildId = this.getBuildId();
-    this.publicDirEntries = this.getPublicDirEntries();
-    if (
-      props.nextjsType === NextjsType.GLOBAL_CONTAINERS ||
-      props.nextjsType === NextjsType.REGIONAL_CONTAINERS
-    ) {
-      this.imageForNextjsContainers = this.createImageForNextjsContainers();
-    } else {
-      this.imageForNextjsFunctions = this.createImageForNextjsFunctions();
-    }
-    this.imageForNextjsAssetsDeployment =
-      this.createImageForNextjsAssetsDeployment();
+    this.publicDirEntries = this.getLocalPublicDirEntries();
+
+    const standalonePath = join(this.dotNextPath, "standalone");
+    this.removeExistingSharpBinaries(standalonePath);
+    this.downloadAndInstallSharpBinaries();
   }
 
-  private getRelativeEntrypointPath() {
-    // joinPosix b/c this will be used in linux container
-    return joinPosix(this.props.relativePathToPackage || "", "server.js");
-  }
   /**
-   * A builder or base image needs to be created so that the same image can be
-   * built `FROM` for `NextjsFunctions` or `NextjsContainers` and `NextjsAssetsDeployment`.
-   * This image doesn't need to be uploaded to ECR so we're "manually" creating
-   * it with `execSync` and other images will be built `FROM` it.
+   * Execute local build command in the specified directory
    */
-  private createBuilderImage() {
-    const buildCommand = this.props.buildCommand || "npm run build";
-    const {
-      buildArgs = {
-        BUILD_COMMAND: buildCommand,
-        RELATIVE_PATH_TO_PACKAGE: this.relativePathToPackage,
-        ...this.props.builderImageProps?.buildArgs,
-      },
-      envVarNames = [],
-      exclude = [
-        "**/node_modules",
-        ".git",
-        "**/cdk.out",
-        "**/.next",
-        ".gitignore",
-        "*.md",
-      ],
-      file = "builder.Dockerfile",
-      platform,
-    } = this.props.builderImageProps || {};
-
-    // to be added to user provided build context before builder image is built
-    const filePathsToCopy: string[] = [
-      join(__dirname, "cdk-nextjs-cache-handler.cjs"),
-    ];
-    // to be removed from user provided build context after builder image is built
-    const filePathsToRemove: string[] = [
-      join(this.props.buildContext, "cdk-nextjs-cache-handler.cjs"),
-    ];
-
-    // if custom file (Dockerfile) is not specified then use library's default builder.Dockerfile + .dockerignore
-    if (!this.props.builderImageProps?.file) {
-      filePathsToCopy.push(join(__dirname, file));
-      filePathsToRemove.push(join(this.props.buildContext, file));
-      const excludeFileStr = exclude?.join("\n");
-      const dockerignoreFilePath = join(
-        this.props.buildContext,
-        ".dockerignore",
-      );
-      writeFileSync(dockerignoreFilePath, excludeFileStr);
-      filePathsToRemove.push(dockerignoreFilePath);
-    }
-
-    for (const filePathToCopy of filePathsToCopy) {
-      cpSync(
-        filePathToCopy,
-        join(this.props.buildContext, basename(filePathToCopy)),
-      );
-    }
-
-    const buildArgsStr = this.createBuildArgStr(buildArgs);
-    this.injectBuilderDockerfileEnvVars(
-      join(this.props.buildContext, file),
-      envVarNames,
+  private runNextBuild() {
+    console.log(
+      `${LOG_PREFIX} Running: "${this.buildCommand}" in directory: ${this.props.buildDirectory}`,
     );
-    const command =
-      this.props.builderImageProps?.command ||
-      `${this.containerRuntime} build ${platform ? `--platform ${platform.platform}` : ""} --file ${file} --tag ${this.builderImageAlias} ${buildArgsStr} .`;
-    let error: unknown;
+
+    // Clean existing cache directory to avoid stale data from previous builds
+    if (existsSync(this.initCacheDir)) {
+      rmSync(this.initCacheDir, { recursive: true, force: true });
+      debug(`Cleaned existing cache directory: ${this.initCacheDir}`);
+    }
+
     try {
-      console.log(
-        `Building image with command: ${command} in directory: ${this.props.buildContext}`,
-      );
-      execSync(command, {
+      execSync(this.buildCommand, {
         stdio: "inherit",
-        cwd: this.props.buildContext,
-        env: process.env,
+        cwd: this.props.buildDirectory,
+        env: {
+          ...process.env,
+          CDK_NEXTJS_INIT_CACHE_DIR: this.initCacheDir,
+        },
       });
-    } catch (err) {
-      error = err;
-    } finally {
-      for (const filePathToRemove of filePathsToRemove) {
-        rmSync(filePathToRemove);
+
+      // Copy patch-fetch.js into client JS bundle after build only for NextjsGlobalFunctions
+      if (this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
+        this.patchFetchInClientJs();
       }
+    } catch (error) {
+      throw new Error(`Local build failed: ${error}`);
     }
-    if (error) throw error;
   }
-  private injectBuilderDockerfileEnvVars(
-    builderDockerfilePath: string,
-    envVarNames: string[],
-  ) {
-    const envVars: Record<string, string> = {};
-    for (const envVarName of envVarNames) {
-      if (process.env[envVarName]) {
-        envVars[envVarName] = process.env[envVarName];
-      }
-    }
-    const content = Object.entries(envVars)
-      .map(([name, value]) => `${name}="${value}"`)
-      .join(" ");
-    const oldFile = readFileSync(builderDockerfilePath).toString();
-    const newFile = oldFile.replace(INJECT_CDK_NEXTJS_BUILD_ENV_VARS, content);
-    writeFileSync(builderDockerfilePath, newFile);
-  }
-  private createBuildArgStr(
-    buildArgs: Required<BuilderImageProps>["buildArgs"],
-  ) {
-    return Object.entries(buildArgs).reduce((acc, [key, value]) => {
-      return `${acc} --build-arg ${key}="${value}"`;
-    }, "");
-  }
-  private getBuilderImageDigest() {
-    const digest = execSync(
-      `${this.containerRuntime} images --no-trunc --quiet ${this.builderImageAlias}`,
-      { encoding: "utf-8" },
-    );
-    return digest.slice(0, -1); // remove trailing \n
-  }
-  private getPublicDirEntries(): PublicDirEntry[] {
-    const publicDirPath = joinPosix(
-      "/app",
-      this.props.relativePathToPackage || "",
-      "public",
-    );
-    if (existsSync(publicDirPath)) {
-      const publicDirEntriesString = execSync(
-        `${this.containerRuntime} run ${this.builderImageAlias} node -e "console.log(JSON.stringify(fs.readdirSync('${publicDirPath}', { withFileTypes: true }).map((e) => ({ name: e.name, isDirectory: e.isDirectory()}))))"`,
-        { encoding: "utf-8" },
+
+  /**
+   * Validate Next.js build output
+   * All builds must be standalone - no fallback to regular builds
+   */
+  private validateNextBuildOutput(): void {
+    const standaloneDir = join(this.dotNextPath, "standalone");
+    // Standalone directory is mandatory
+    if (!existsSync(standaloneDir)) {
+      throw new Error(
+        `Standalone build directory not found: ${standaloneDir}. ` +
+          `All builds must be configured for standalone output. ` +
+          `Please ensure your next.config.js includes 'output: "standalone"'.`,
       );
-      return JSON.parse(publicDirEntriesString) as PublicDirEntry[];
-    } else {
+    }
+    // Additional validation (server.js with .next sibling) happens in findRelativePathToServerJs()
+  }
+
+  /**
+   * Find entrypoint client side js files to patch `fetch` only for NextjsGlobalFunctions
+   */
+  private patchFetchInClientJs() {
+    const staticChunksPath = join(this.dotNextPath, "static", "chunks");
+    const chunkFiles = readdirSync(staticChunksPath).filter(
+      (file: string) =>
+        // main-app- for webpack, turbopack- for turbo
+        file.startsWith("main-app-") ||
+        (file.startsWith("turbopack-") && file.endsWith(".js")),
+    );
+
+    if (chunkFiles.length === 0) {
+      throw new Error("No client side js entrypoint files found");
+    }
+
+    // Read the patch-fetch.js content
+    const patchFetchPath = join(__dirname, "patch-fetch.js");
+    if (!existsSync(patchFetchPath)) {
+      throw new Error("patch-fetch.js not found");
+    }
+
+    const patchFetchContent = readFileSync(patchFetchPath, "utf-8");
+
+    // Prepend patch-fetch logic to each entrypoint
+    for (const chunkFile of chunkFiles) {
+      const chunkFilePath = join(staticChunksPath, chunkFile);
+      const originalContent = readFileSync(chunkFilePath, "utf-8");
+      const patchedContent = patchFetchContent + "\n" + originalContent;
+      writeFileSync(chunkFilePath, patchedContent);
+    }
+  }
+
+  /**
+   * Automatically finds the relative path from standalone directory to the
+   * package containing server.js by searching for server.js with a .next sibling.
+   * @returns "." for non-monorepo apps, or relative path like "app-playground" for monorepo apps
+   */
+  private findRelativePathToServerJs(): string {
+    const standaloneDir = join(this.dotNextPath, "standalone");
+
+    if (!existsSync(standaloneDir)) {
+      throw new Error(
+        `Cannot detect relativePathToPackage: standalone directory not found at ${standaloneDir}`,
+      );
+    }
+
+    const findServerJs = (
+      dir: string,
+      relativePath: string = "",
+    ): string | null => {
+      const entries = readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+
+        if (entry.isDirectory() && entry.name !== "node_modules") {
+          // Recursively search directories (skip node_modules at root level)
+          const result = findServerJs(fullPath, join(relativePath, entry.name));
+          if (result !== null) return result;
+        } else if (entry.isFile() && entry.name === "server.js") {
+          // Check if this server.js has a .next sibling directory
+          const parentDir = dir;
+          const dotNextPath = join(parentDir, ".next");
+          if (existsSync(dotNextPath)) {
+            return relativePath || ".";
+          }
+        }
+      }
+      return null;
+    };
+
+    const result = findServerJs(standaloneDir);
+    if (result === null) {
+      throw new Error(
+        `Cannot detect relativePathToPackage: Could not find server.js with .next sibling in ${standaloneDir}. ` +
+          `Please ensure Next.js build completed successfully or provide relativePathToPackage manually.`,
+      );
+    }
+
+    debug(`${LOG_PREFIX} Auto-detected relativePathToPackage: "${result}"`);
+    return result;
+  }
+
+  /**
+   * Get build ID from .next directory
+   */
+  private getBuildId(): string {
+    const buildIdPath = join(this.dotNextPath, "BUILD_ID");
+    // Verify BUILD_ID exists (needed for cache partitioning)
+    if (!existsSync(buildIdPath)) {
+      throw new Error(
+        `BUILD_ID file not found at ${buildIdPath}. ` +
+          `Ensure Next.js build completed successfully.`,
+      );
+    }
+    // BUILD_ID existence is already validated in validateNextBuildOutput()
+    return readFileSync(buildIdPath, "utf-8").trim();
+  }
+
+  /**
+   * Get public directory entries from local filesystem
+   */
+  private getLocalPublicDirEntries(): PublicDirEntry[] {
+    const publicDirPath = join(this.props.buildDirectory, "public");
+    if (!existsSync(publicDirPath)) {
+      return [];
+    }
+
+    try {
+      return readdirSync(publicDirPath, { withFileTypes: true }).map(
+        (entry: any) => ({
+          name: entry.name,
+          isDirectory: entry.isDirectory(),
+        }),
+      );
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} Failed to read public directory: ${error}`);
       return [];
     }
   }
-  private getBuildId() {
-    const buildIdPath = joinPosix(
-      "/app",
-      this.props.relativePathToPackage || "",
-      ".next",
-      "BUILD_ID",
-    );
-    const buildId = execSync(
-      `${this.containerRuntime} run ${this.builderImageAlias} /bin/sh -c "cat ${buildIdPath}"`,
-      { encoding: "utf-8" },
-    );
-    return buildId;
-  }
-  private createImageForNextjsContainers() {
-    const dockerfileNamePrefix =
-      this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
-        ? "global"
-        : "regional";
-    const dockerfileName = `${dockerfileNamePrefix}-containers.Dockerfile`;
-    // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
-    // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
-    // which is in lib/nextjs-build folder.
-    const buildContext =
-      this.props.overrides?.containersImageBuildContext ??
-      join(__dirname, "..", "..", "lib", "nextjs-build");
-    const dockerImageAsset = new DockerImageAsset(this, "Image", {
-      directory: buildContext,
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsContainersDockerImageAssetProps,
-      buildArgs: {
-        [BUILD_ID_ARG_NAME]: this.buildId,
-        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
-        [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
-        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
-        [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
-        [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
-        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
-        ...this.props.overrides?.nextjsContainersDockerImageAssetProps
-          ?.buildArgs,
-      },
-    });
-    return dockerImageAsset;
-  }
 
-  private createImageForNextjsFunctions() {
-    const dockerfileName = "global-functions.Dockerfile";
-    // cdk-nextjs/builder-{hash} already contains built nextjs app which we'll
-    // `COPY --from=cdk-nextjs/builder-{hash}` so we just need the Dockerfile
-    // which is in lib/nextjs-build folder.
-    const buildContext =
-      this.props.overrides?.functionsImageBuildContext ??
-      join(__dirname, "..", "..", "lib", "nextjs-build");
-    const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
-      cmd: ["node", this.relativePathToEntrypoint],
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps,
-      buildArgs: {
-        [BUILD_ID_ARG_NAME]: this.buildId,
-        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [CACHE_PATH_ARG_NAME]: CACHE_PATH,
-        [DATA_CACHE_PATH_ARG_NAME]: DATA_CACHE_PATH,
-        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
-        [IMAGE_CACHE_PATH_ARG_NAME]: IMAGE_CACHE_PATH,
-        [MOUNT_PATH_ARG_NAME]: MOUNT_PATH,
-        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
-        ...this.props.overrides?.nextjsFunctionsAssetImageCodeProps?.buildArgs,
-      },
-    });
-    // TODO: how to clean up temp dir?
-    // rmSync(tempDir, { recursive: true });
-    return dockerImageCode;
-  }
+  /**
+   * Recursively find and remove existing Sharp platform binaries
+   */
+  private removeExistingSharpBinaries(standalonePath: string): void {
+    const nodeModulesPath = join(standalonePath, "node_modules");
+    if (!existsSync(nodeModulesPath)) {
+      return;
+    }
 
-  private createImageForNextjsAssetsDeployment() {
-    const dockerfileName = "assets-deployment.Dockerfile";
-    /**
-     * Path to bundled custom resource code
-     */
-    const buildContext =
-      this.props.overrides?.assetsDeploymentImageBuildContext ??
-      join(
-        __dirname,
-        "..",
-        "..",
-        "assets",
-        "lambdas",
-        "assets-deployment",
-        "assets-deployment.lambda",
+    try {
+      // Use recursive readdirSync to find all Sharp binary directories and symlinks
+      const allEntries = readdirSync(nodeModulesPath, {
+        recursive: true,
+        withFileTypes: true,
+      });
+
+      const sharpBinaryPaths: string[] = [];
+
+      for (const entry of allEntries) {
+        // Check for both directories and symlinks (pnpm creates symlinks)
+        if (entry.isDirectory() || entry.isSymbolicLink()) {
+          // Match Sharp binary packages with more comprehensive patterns
+          const isSharpBinary =
+            entry.name.includes("sharp-") ||
+            entry.name.includes("sharp-libvips");
+
+          if (isSharpBinary) {
+            // For recursive readdirSync, parentPath contains the full absolute path
+            const fullPath = join(entry.parentPath, entry.name);
+            sharpBinaryPaths.push(fullPath);
+          }
+        }
+      }
+
+      debug(
+        `${LOG_PREFIX} Found ${sharpBinaryPaths.length} Sharp binary directories/symlinks to remove`,
       );
-    // cdk-nextjs/builder-{hash} already contains Next.js built code which
-    // we'll copy into final image. But we also need lambda code to run
-    // asset deployment tasks
-    const dockerImageCode = DockerImageCode.fromImageAsset(buildContext, {
-      extraHash: this.buildImageDigest, // rebuild when builder hash changes
-      file: dockerfileName,
-      ignoreMode: IgnoreMode.DOCKER,
-      ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps,
-      buildArgs: {
-        [BUILD_ID_ARG_NAME]: this.buildId,
-        [BUILDER_IMAGE_ALIAS_ARG_NAME]: this.builderImageAlias,
-        [PUBLIC_PATH_ARG_NAME]: PUBLIC_PATH,
-        [RELATIVE_PATH_TO_PACKAGE_ARG_NAME]: this.relativePathToPackage,
-        ...this.props.overrides?.nextjsAssetDeploymentAssetImageCodeProps
-          ?.buildArgs,
+
+      // Remove all found Sharp binary directories and symlinks
+      for (const path of sharpBinaryPaths) {
+        try {
+          rmSync(path, { recursive: true, force: true });
+          debug(`${LOG_PREFIX} Removed: ${path}`);
+        } catch (error) {
+          console.warn(
+            `${LOG_PREFIX} Warning: Could not remove ${path}: ${error}`,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} Warning: Could not read node_modules directory: ${error}`,
+      );
+    }
+  }
+
+  /**
+   * Download and install correct Sharp binaries for Linux MUSL
+   */
+  private downloadAndInstallSharpBinaries(): void {
+    const nodeModulesPath = join(
+      this.dotNextPath,
+      "standalone",
+      "node_modules",
+    );
+    const imgPath = join(nodeModulesPath, "@img");
+
+    // Create a consistent cache directory for Sharp packages
+    const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
+    if (!existsSync(cacheDir)) {
+      mkdirSync(cacheDir, { recursive: true });
+    }
+
+    // Ensure @img directory exists
+    if (!existsSync(imgPath)) {
+      mkdirSync(imgPath, { recursive: true });
+    }
+
+    // Detect architecture for correct Sharp binaries
+    const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
+
+    // Sharp binary packages to download
+    const sharpPackages = [
+      {
+        name: `sharp-libvips-linuxmusl-${arch}`,
+        version: "1.2.4",
+        url: `https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-${arch}/-/sharp-libvips-linuxmusl-${arch}-1.2.4.tgz`,
       },
-    });
-    return dockerImageCode;
+      {
+        name: `sharp-linuxmusl-${arch}`,
+        version: "0.34.5",
+        url: `https://registry.npmjs.org/@img/sharp-linuxmusl-${arch}/-/sharp-linuxmusl-${arch}-0.34.5.tgz`,
+      },
+    ];
+
+    for (const pkg of sharpPackages) {
+      try {
+        const targetDir = join(imgPath, pkg.name);
+
+        // Create a consistent filename based on package name and version
+        const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
+        const cachedFile = join(cacheDir, cacheFileName);
+
+        // Check if we already have this package cached
+        if (existsSync(cachedFile)) {
+          debug(
+            `${LOG_PREFIX} Using cached ${pkg.name}@${pkg.version} from ${cachedFile}`,
+          );
+        } else {
+          debug(`${LOG_PREFIX} Downloading ${pkg.name}@${pkg.version}...`);
+
+          // Download to cache directory with consistent name
+          execSync(`curl -L -o "${cachedFile}" "${pkg.url}"`, {
+            stdio: "pipe",
+          });
+          debug(
+            `${LOG_PREFIX} Cached ${pkg.name}@${pkg.version} to ${cachedFile}`,
+          );
+        }
+
+        // Create target directory
+        mkdirSync(targetDir, { recursive: true });
+
+        // Extract from cached file
+        execSync(
+          `tar -xzf "${cachedFile}" -C "${targetDir}" --strip-components=1`,
+          { stdio: "pipe" },
+        );
+
+        debug(`${LOG_PREFIX} Installed ${pkg.name}@${pkg.version}`);
+      } catch (error) {
+        console.error(`${LOG_PREFIX} Failed to install ${pkg.name}: ${error}`);
+        throw error;
+      }
+    }
   }
 }

@@ -9,6 +9,10 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-dynamodb",
+      "type": "build"
+    },
+    {
       "name": "@aws-sdk/client-s3",
       "type": "build"
     },
@@ -29,6 +33,10 @@
       "type": "build"
     },
     {
+      "name": "@types/debug",
+      "type": "build"
+    },
+    {
       "name": "@types/jest",
       "type": "build"
     },
@@ -38,7 +46,7 @@
     },
     {
       "name": "@types/node",
-      "version": "^20",
+      "version": "^24",
       "type": "build"
     },
     {
@@ -62,6 +70,10 @@
     {
       "name": "commit-and-tag-version",
       "version": "^12",
+      "type": "build"
+    },
+    {
+      "name": "debug",
       "type": "build"
     },
     {
@@ -117,7 +129,7 @@
     },
     {
       "name": "jsii",
-      "version": "~5.8.7",
+      "version": "~5.9.22",
       "type": "build"
     },
     {
@@ -126,7 +138,7 @@
     },
     {
       "name": "next",
-      "version": "14",
+      "version": "16.1.1-canary.19",
       "type": "build"
     },
     {
@@ -135,6 +147,7 @@
     },
     {
       "name": "projen",
+      "version": "^0.99.1",
       "type": "build"
     },
     {
@@ -165,7 +178,7 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "^2.196.0",
+      "version": "^2.242.0",
       "type": "peer"
     },
     {

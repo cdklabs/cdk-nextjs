@@ -2,6 +2,7 @@ import { Distribution } from "aws-cdk-lib/aws-cloudfront";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsFunctions,
   NextjsFunctionsOverrides,
@@ -12,16 +13,20 @@ import {
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
 import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
+import {
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 
-export interface NextjsGlobalFunctionsConstructOverrides
-  extends NextjsBaseConstructOverrides {
+export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -33,6 +38,7 @@ export interface NextjsGlobalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
@@ -56,7 +62,8 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
 export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
   nextjsDistribution: NextjsDistribution;
-  get url() {
+  nextjsPostDeploy: NextjsPostDeploy;
+  get url(): string {
     return `https://${this.nextjsDistribution.distribution.domainName}`;
   }
 
@@ -65,29 +72,27 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   constructor(scope: Construct, id: string, props: NextjsGlobalFunctionsProps) {
     super(scope, id, props, NextjsType.GLOBAL_FUNCTIONS);
     this.props = props;
+
     this.nextjsFunctions = this.createNextjsFunctions();
-    this.nextjsFileSystem.allowCompute({
-      connections: this.nextjsFunctions.function.connections,
-      role: this.nextjsFunctions.function.role!,
-    });
     this.nextjsDistribution = this.createNextjsDistribution();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
-  private createNextjsFunctions() {
-    if (!this.nextjsBuild.imageForNextjsFunctions) {
-      throw new Error("nextjsBuild.dockerImageCode is undefined");
-    }
+  private createNextjsFunctions(): NextjsFunctions {
+    // Create functions with local build output
     return new NextjsFunctions(this, "NextjsFunctions", {
-      accessPoint: this.nextjsFileSystem.accessPoint,
-      buildId: this.nextjsBuild.buildId,
-      dockerImageCode: this.nextjsBuild.imageForNextjsFunctions,
-      healthCheckPath: this.baseProps.healthCheckPath,
-      nextjsType: this.nextjsType,
-      vpc: this.nextjsVpc.vpc,
-      overrides: this.props.overrides?.nextjsFunctions,
+      ...this.computeBaseProps(),
+      overrides: {
+        ...this.props.overrides?.nextjsFunctions,
+        dockerImageFunctionProps: {
+          ...this.props.overrides?.nextjsFunctions?.dockerImageFunctionProps,
+          vpc: this.baseProps.vpc,
+        },
+      },
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionsProps,
     });
   }
+
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
@@ -97,6 +102,18 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsDistributionProps,
+    });
+  }
+
+  private createNextjsPostDeploy(): NextjsPostDeploy {
+    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      buildId: this.nextjsBuild.buildId,
+      distribution: this.nextjsDistribution.distribution,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      overrides: this.props.overrides?.nextjsPostDeploy,
+      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsPostDeployProps,
     });
   }
 }

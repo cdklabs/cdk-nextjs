@@ -1,4 +1,5 @@
 import { Product } from '#/app/api/products/product';
+import { getImageSrc } from '#/lib/image-utils';
 import { ProductBestSeller } from '#/ui/product-best-seller';
 import { ProductEstimatedArrival } from '#/ui/product-estimated-arrival';
 import { ProductLowStockWarning } from '#/ui/product-low-stock-warning';
@@ -16,11 +17,10 @@ export const ProductCard = ({
   product: Product;
   href: string;
 }) => {
-  product.image = `static/${product.image}`;
   const price = dinero(product.price as DineroSnapshot<number>);
 
   return (
-    <Link href={href} className="group block">
+    <Link href={href} prefetch={false} className="group block">
       <div className="space-y-2">
         <div className="relative">
           {product.isBestSeller ? (
@@ -29,7 +29,7 @@ export const ProductCard = ({
             </div>
           ) : null}
           <Image
-            src={`/${product.image}`}
+            src={getImageSrc(`/static/${product.image}`)}
             width={400}
             height={400}
             className="rounded-xl grayscale group-hover:opacity-80"

@@ -6,12 +6,13 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import { CartCount } from './cart-count';
+import { getImageSrc } from '#/lib/image-utils';
 
 export function Header() {
   return (
     <div className="flex items-center justify-between gap-x-3 rounded-lg bg-gray-800 px-3 py-3 lg:px-5 lg:py-4">
       <div className="flex gap-x-3">
-        <Link href="/streaming">
+        <Link href="/streaming" prefetch={false}>
           <div className="h-10 w-10 hover:opacity-70">
             <NextLogoLight />
           </div>
@@ -41,7 +42,7 @@ export function Header() {
         </div>
 
         <Image
-          src="/static/prince-akachi-LWkFHEGpleE-unsplash.jpg"
+          src={getImageSrc('/static/prince-akachi-LWkFHEGpleE-unsplash.jpg')}
           className="rounded-full"
           width={40}
           height={40}

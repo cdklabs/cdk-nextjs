@@ -35,16 +35,13 @@
 /src/generated-structs/OptionalEdgeFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalFunctionUrlProps.ts linguist-generated
-/src/generated-structs/OptionalNextjsAssetsDeploymentProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsBuildProps.ts linguist-generated
+/src/generated-structs/OptionalNextjsCacheProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsContainersProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsDistributionProps.ts linguist-generated
-/src/generated-structs/OptionalNextjsFileSystemProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsPostDeployProps.ts linguist-generated
-/src/generated-structs/OptionalNextjsVpcProps.ts linguist-generated
 /src/generated-structs/OptionalPostDeployCustomResourceProperties.ts linguist-generated
 /src/generated-structs/OptionalS3OriginBucketWithOACProps.ts linguist-generated
 /src/generated-structs/OptionalVpcProps.ts linguist-generated
-/src/lambdas/assets-deployment/assets-deployment-function.ts linguist-generated
 /src/lambdas/post-deploy/post-deploy-function.ts linguist-generated
 /tsconfig.dev.json linguist-generated linguist-language=JSON-with-Comments

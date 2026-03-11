@@ -1,5 +1,7 @@
-import { join } from "node:path/posix";
+import { copyFileSync, existsSync } from "node:fs";
+import { join as joinPath } from "node:path";
 import { Duration } from "aws-cdk-lib";
+import { GatewayVpcEndpointAwsService } from "aws-cdk-lib/aws-ec2";
 import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
 import {
   AwsLogDriverMode,
@@ -14,32 +16,24 @@ import {
   ApplicationLoadBalancedFargateService,
   ApplicationLoadBalancedFargateServiceProps,
 } from "aws-cdk-lib/aws-ecs-patterns";
-import { FileSystem } from "aws-cdk-lib/aws-efs";
 import { ApplicationProtocolVersion } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import {
-  CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-  MOUNT_PATH,
-  NextjsType,
-  SERVER_DIST_PATH,
-} from "../constants";
+import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
+import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
 
 export interface NextjsContainersOverrides {
   readonly ecsClusterProps?: OptionalClusterProps;
   readonly albFargateServiceProps?: ApplicationLoadBalancedFargateServiceProps;
   readonly taskImageOptions?: OptionalApplicationLoadBalancedTaskImageOptions;
+  readonly dockerImageAssetProps?: OptionalDockerImageAssetProps;
 }
 
 export interface NextjsContainersProps extends NextjsComputeBaseProps {
-  readonly dockerImageAsset: DockerImageAsset;
-  readonly fileSystem: FileSystem;
-  readonly nextjsType: NextjsType;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
-  readonly buildId: string;
 }
 
 /**
@@ -50,28 +44,98 @@ export class NextjsContainers extends Construct {
   albFargateService: ApplicationLoadBalancedFargateService;
   ecsCluster: Cluster;
   url: string;
+  dockerImageAsset: DockerImageAsset;
 
   private props: NextjsContainersProps;
 
   constructor(scope: Construct, id: string, props: NextjsContainersProps) {
     super(scope, id);
     this.props = props;
+
+    // Always create Docker image asset from local build output
+    this.dockerImageAsset = this.createDockerImageAsset();
     this.ecsCluster = this.createEcsCluster();
+    if (!props.overrides?.ecsClusterProps?.vpc) {
+      this.addVpcGatewayEndpoints();
+    }
     this.albFargateService = this.createAlbFargateSevice();
     this.configureHealthCheck();
-    this.attachFileSystem();
     this.url = this.getUrl();
   }
 
   private createEcsCluster(): Cluster {
-    const cluster = new Cluster(this, "EcsCluster", {
+    return new Cluster(this, "EcsCluster", {
       enableFargateCapacityProviders: true,
       containerInsightsV2: ContainerInsights.ENABLED,
-      vpc: this.props.vpc,
       ...this.props.overrides?.ecsClusterProps,
     });
-    return cluster;
   }
+
+  /**
+   * Add Gateway VPC endpoints for S3 and DynamoDB if user didn't provide a VPC.
+   * Gateway endpoints are free and improve performance by keeping traffic within AWS network.
+   */
+  private addVpcGatewayEndpoints(): void {
+    this.ecsCluster.vpc.addGatewayEndpoint("S3GatewayEndpoint", {
+      service: GatewayVpcEndpointAwsService.S3,
+    });
+    this.ecsCluster.vpc.addGatewayEndpoint("DynamoDbGatewayEndpoint", {
+      service: GatewayVpcEndpointAwsService.DYNAMODB,
+    });
+  }
+
+  private createDockerImageAsset(): DockerImageAsset {
+    // Build context is the buildDirectory (where the Next.js app is located)
+    const buildContext = this.props.buildDirectory;
+    const dockerfileName = this.getDockerfileName();
+
+    this.copyDockerfileToContext(buildContext, dockerfileName);
+
+    return new DockerImageAsset(this, "DockerImageAsset", {
+      directory: buildContext,
+      file: dockerfileName,
+      buildArgs: {
+        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+      },
+      ...this.props.overrides?.dockerImageAssetProps,
+    });
+  }
+
+  private getDockerfileName(): string {
+    // Use the appropriate Dockerfile based on deployment type
+    return this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+      ? "global-containers.Dockerfile"
+      : "regional-containers.Dockerfile";
+  }
+
+  private copyDockerfileToContext(
+    buildContext: string,
+    dockerfileName: string,
+  ): void {
+    const targetDockerfile = joinPath(buildContext, dockerfileName);
+
+    // Check if Dockerfile already exists - if so, use the existing one (developer control)
+    if (existsSync(targetDockerfile)) {
+      console.log(`${LOG_PREFIX} Using existing Dockerfile: ${dockerfileName}`);
+    } else {
+      const sourceDockerfile = joinPath(
+        __dirname,
+        "..",
+        "nextjs-build",
+        dockerfileName,
+      );
+
+      if (!existsSync(sourceDockerfile)) {
+        throw new Error(
+          `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
+        );
+      }
+
+      copyFileSync(sourceDockerfile, targetDockerfile);
+      console.log(`${LOG_PREFIX} Created ${targetDockerfile}.`);
+    }
+  }
+
   private createAlbFargateSevice(): ApplicationLoadBalancedFargateService {
     let cpuArchitecture: CpuArchitecture | undefined = undefined;
     if (process.arch === "x64") {
@@ -110,14 +174,21 @@ export class NextjsContainers extends Construct {
           command: ["node", this.props.relativeEntrypointPath],
           containerName: "nextjs",
           containerPort: 3000,
-          image: ContainerImage.fromDockerImageAsset(
-            this.props.dockerImageAsset,
-          ),
+          image: ContainerImage.fromDockerImageAsset(this.dockerImageAsset),
           logDriver: LogDrivers.awsLogs({
             streamPrefix: "nextjs",
             mode: AwsLogDriverMode.NON_BLOCKING,
           }),
           ...this.props.overrides?.taskImageOptions,
+          environment: {
+            // Cache configuration environment variables
+            CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
+            CDK_NEXTJS_REVALIDATION_TABLE_NAME:
+              this.props.revalidationTable.tableName,
+            CDK_NEXTJS_BUILD_ID: this.props.buildId,
+            // Merge with user-provided environment variables (user values take precedence)
+            ...this.props.overrides?.taskImageOptions?.environment,
+          },
         },
         ...this.props.overrides?.albFargateServiceProps,
       },
@@ -127,10 +198,15 @@ export class NextjsContainers extends Construct {
       "HOSTNAME",
       "0.0.0.0",
     );
-    albFargateService.taskDefinition.defaultContainer?.addEnvironment(
-      CDK_NEXTJS_SERVER_DIST_DIR_ENV_VAR_NAME,
-      join(MOUNT_PATH, this.props.buildId, SERVER_DIST_PATH),
+
+    // Grant cache access permissions
+    this.props.cacheBucket.grantReadWrite(
+      albFargateService.taskDefinition.taskRole,
     );
+    this.props.revalidationTable.grantReadWriteData(
+      albFargateService.taskDefinition.taskRole,
+    );
+
     // speed up deployments by shortening deregistration delay
     // https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/load-balancer-connection-draining.html
     // TODO: document that this should be increased if long lived connections are expected
@@ -174,26 +250,6 @@ export class NextjsContainers extends Construct {
       // @ts-expect-error must use internal "props" attribute b/c no other way to add health check
       defaultContainer.props.healthCheck = healthCheck;
     }
-  }
-  private attachFileSystem() {
-    const container = this.albFargateService.taskDefinition.defaultContainer;
-    const volumeName = "cdk-nextjs-volume";
-    this.albFargateService.taskDefinition.addVolume({
-      name: volumeName,
-      efsVolumeConfiguration: {
-        fileSystemId: this.props.fileSystem.fileSystemId,
-        transitEncryption: "ENABLED",
-        authorizationConfig: {
-          accessPointId: this.props.accessPoint.accessPointId,
-          iam: "ENABLED",
-        },
-      },
-    });
-    container?.addMountPoints({
-      sourceVolume: volumeName,
-      containerPath: MOUNT_PATH,
-      readOnly: false,
-    });
   }
   private getUrl(): string {
     const protocol = this.albFargateService.certificate ? "https" : "http";

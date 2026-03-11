@@ -2,6 +2,65 @@ packages:
   - "**"
   # prevent pnpm from trying to install dependencies in cdk asset directories
   - "!**/cdk.out/**"
-  # prevent turbo from thinking package already exists and erroring
-  - "!**/.next/**"
-  - "!pruned/**"
+
+catalog:
+  # CDK versions - must match main project
+  aws-cdk-lib: "2.234.1"
+  constructs: "10.0.5"
+  aws-cdk: "^2.1100.3" # CLI has different versioning than aws-cdk-lib
+
+  # Next.js versions
+  next: "16.1.1-canary.19"
+  react: "19.2.3"
+  react-dom: "19.2.3"
+
+  # TypeScript and Node
+  typescript: "^5.9.3"
+  "@types/node": "^24"
+  "@tsconfig/node24": "^24.0.3"
+  "@tsconfig/next": "2.0.5"
+  "@tsconfig/strictest": "^2.0.8"
+
+  # Build tools
+  tsx: "^4.21.0"
+  dotenv-cli: "^8.0.0"
+
+  # Linting and formatting
+  eslint: "^9"
+  eslint-config-next: "16.1.1"
+  prettier: "3.2.5"
+  lint-staged: "15.2.2"
+
+  # UI and styling
+  tailwindcss: "3.4.3"
+  autoprefixer: "10.4.19"
+  postcss: "8.4.38"
+  "@tailwindcss/forms": "0.5.7"
+  "@tailwindcss/typography": "0.5.12"
+  prettier-plugin-tailwindcss: "0.5.14"
+
+  # App dependencies
+  "@heroicons/react": "2.1.3"
+  clsx: "2.1.1"
+  date-fns: "3.6.0"
+  "dinero.js": "2.0.0-alpha.10"
+  ms: "3.0.0-canary.1"
+  server-only: "0.0.1"
+  styled-components: "6.1.8"
+  "use-count-up": "3.0.1"
+
+  # Types
+  "@types/ms": "0.7.34"
+  "@types/react": "19.2.7"
+  "@types/react-dom": "19.2.3"
+
+  # Development tools
+  "@vercel/git-hooks": "1.0.0"
+  "babel-plugin-react-compiler": "1.0.0"
+
+  # Testing and load testing
+  "@playwright/test": "^1.57.0"
+  artillery: "^2.0.27"
+
+  # CDK extensions
+  "cdk-pipelines-github": "^0.4.133"

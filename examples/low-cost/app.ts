@@ -8,15 +8,6 @@ import {
   suppressGlobalNags,
   suppressLambdaNags,
 } from "../shared/suppress-nags";
-import {
-  InstanceClass,
-  InstanceSize,
-  InstanceType,
-  Peer,
-  Port,
-  Vpc,
-} from "aws-cdk-lib/aws-ec2";
-import { FckNatInstanceProvider } from "cdk-fck-nat";
 import { PriceClass } from "aws-cdk-lib/aws-cloudfront";
 import { CfnLogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import {
@@ -33,7 +24,6 @@ import {
 import { CloudFrontTarget } from "aws-cdk-lib/aws-route53-targets";
 import { getStackName } from "../shared/get-stack-name";
 import { join } from "node:path";
-import { getBuilderImageExcludeDirectories } from "../shared/get-builder-image-exclude-directories";
 
 const app = new App();
 
@@ -55,12 +45,11 @@ class LowCostStack extends Stack {
 
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
-    const vpc = this.#createVpc();
     const hostedZone = this.#getHostedZone();
     const certificate = this.#getCertificate(hostedZone);
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       healthCheckPath: "/api/health",
-      buildContext: join(import.meta.dirname, ".."),
+      buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       overrides: {
         nextjsDistribution: {
           distributionProps: {
@@ -69,18 +58,7 @@ class LowCostStack extends Stack {
             priceClass: PriceClass.PRICE_CLASS_100,
           },
         },
-        nextjsGlobalFunctions: {
-          nextjsBuildProps: {
-            builderImageProps: {
-              exclude: getBuilderImageExcludeDirectories(),
-            },
-          },
-          nextjsVpcProps: {
-            vpc,
-          },
-        },
       },
-      relativePathToPackage: "./app-playground",
     });
     this.#createDnsRecords(nextjs, hostedZone);
   }
@@ -95,21 +73,6 @@ class LowCostStack extends Stack {
       domainName: this.#distributionDomainName,
       validation: CertificateValidation.fromDns(hostedZone),
     });
-  }
-  #createVpc() {
-    const natGatewayProvider = new FckNatInstanceProvider({
-      instanceType: InstanceType.of(InstanceClass.T4G, InstanceSize.NANO),
-    });
-    const vpcName = this.stackName + "FckNatVpc";
-    const vpc = new Vpc(this, vpcName, {
-      natGatewayProvider,
-      vpcName,
-    });
-    natGatewayProvider.securityGroup.addIngressRule(
-      Peer.ipv4(vpc.vpcCidrBlock),
-      Port.allTraffic(),
-    );
-    return vpc;
   }
   #createDnsRecords(nextjs: NextjsGlobalFunctions, hostedZone: IHostedZone) {
     new ARecord(this, "ARecord", {

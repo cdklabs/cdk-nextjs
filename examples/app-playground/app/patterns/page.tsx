@@ -29,6 +29,7 @@ export default function Page() {
           return (
             <Link
               href={`/patterns/${item.slug}`}
+              prefetch={false}
               key={item.name}
               className="group block space-y-1.5 rounded-lg bg-gray-900 px-5 py-3 hover:bg-gray-800"
             >

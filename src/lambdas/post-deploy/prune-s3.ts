@@ -6,7 +6,10 @@ import {
   HeadObjectCommand,
   ListObjectsV2CommandInput,
 } from "@aws-sdk/client-s3";
-import { debug } from "../utils";
+// eslint-disable-next-line import/no-extraneous-dependencies
+import getDebug from "debug";
+
+const debug = getDebug("cdk-nextjs:post-deploy:prune-s3");
 
 const s3Client = new S3Client();
 // Maximum number of concurrent operations

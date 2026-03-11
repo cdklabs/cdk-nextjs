@@ -1,4 +1,4 @@
-module.exports = {
+const config = {
   arrowParens: 'always',
   semi: true,
   trailingComma: 'all',
@@ -7,3 +7,5 @@ module.exports = {
   // https://github.com/tailwindlabs/prettier-plugin-tailwindcss#installation
   plugins: ['prettier-plugin-tailwindcss'],
 };
+
+export default config;

@@ -14,6 +14,7 @@ export function RandomPostTab({ path }: { path: string }) {
 
   useEffect(() => {
     const randomId = String(randomNumber(3, 100));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPost({ text: `Post ${randomId} (On Demand)`, slug: randomId });
   }, []);
 
