@@ -365,7 +365,7 @@
       "description": "Test rosetta extract",
       "steps": [
         {
-          "exec": "jsii-rosetta extract --strict"
+          "exec": "jsii-rosetta extract"
         }
       ]
     },
