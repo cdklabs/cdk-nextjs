@@ -1,18 +1,20 @@
 import { join } from "node:path";
 import { ProjenStruct, Struct } from "@mrgrain/jsii-struct-builder";
-import { awscdk, javascript, JsonPatch, ReleasableCommits } from "projen";
+import { CdklabsConstructLibrary } from "cdklabs-projen-project-types";
+import { javascript, JsonPatch, ReleasableCommits } from "projen";
 import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
 const nodeVersion = 24;
 const pnpmVersion = "10.27.0";
-const project = new awscdk.AwsCdkConstructLibrary({
+const project = new CdklabsConstructLibrary({
   // repository config
   author: "Ben Stickley",
   authorAddress: "bestickley@gmail.com",
   defaultReleaseBranch: "main",
   repositoryUrl: "https://github.com/cdklabs/cdk-nextjs.git",
+  private: false,
   // package.json config
   name: "cdk-nextjs",
   prerelease: "beta", // TODO: remove once Next.js 16.2 is released
@@ -46,10 +48,15 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "next@16.1.1-canary.19", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
+  setNodeEngineVersion: false,
   npmIgnoreOptions: {
     ignorePatterns: ["examples/**/*"],
   },
   // tooling config
+  rosettaOptions: {
+    strict: false,
+  },
+  enablePRAutoMerge: true,
   depsUpgradeOptions: {
     workflowOptions: {
       schedule: UpgradeDependenciesSchedule.MONTHLY,
@@ -91,6 +98,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ignorePatterns: ["generated-structs/", "**/*-function.ts", "examples/"],
   },
   sampleCode: false,
+  jsiiTargetLanguages: [],
   releasableCommits: ReleasableCommits.ofType([
     "feat",
     "fix",
@@ -151,6 +159,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
     ],
   },
 });
+
+// override cdklabs views on stability
+project.package.addField("stability", "stable");
 
 // by default projen ignores all tsconfigs, but we don't want do this for non-projen
 // managed repo.

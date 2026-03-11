@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      '@aws-cdk/integ-runner':
+        specifier: latest
+        version: 2.197.0
+      '@aws-cdk/integ-tests-alpha':
+        specifier: latest
+        version: 2.240.0-alpha.0(aws-cdk-lib@2.196.0(constructs@10.5.1))(constructs@10.5.1)
       '@aws-crypto/sha256-js':
         specifier: ^5.2.0
         version: 5.2.0
@@ -147,6 +153,21 @@ packages:
     bundledDependencies:
       - jsonschema
       - semver
+
+  '@aws-cdk/integ-runner@2.197.0':
+    resolution: {integrity: sha512-EMlXihxSMbiUawhGsP0pPvmiFI48p0LpOFWZx8c4dH6EHfgAjSHYvQwdfu1dQFYY+XGSHge+PfUTx5Mx1dMbrA==}
+    engines: {node: '>= 18.0.0'}
+    hasBin: true
+
+  '@aws-cdk/integ-tests-alpha@2.240.0-alpha.0':
+    resolution: {integrity: sha512-OH1YRyXc7wp7UtusJNUr+HHesD+BfDN+hvpRNSMNcCtxfwoemez5f2Boc7OhvK3EQmTpmI7UJnnNXwakPNOmdw==}
+    engines: {node: '>= 18.0.0'}
+    peerDependencies:
+      aws-cdk-lib: ^2.240.0
+      constructs: ^10.5.0
+
+  '@aws-cdk/service-spec-types@0.0.198':
+    resolution: {integrity: sha512-oksZShBGTW/W7HnsnWU3N/YZGkWCbZ/4naFwYYVbXNfpTLauz5ME94SQwyHWG7U7ohjN57JR8DvdGfHVs6PTzg==}
 
   '@aws-crypto/crc32@5.2.0':
     resolution: {integrity: sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg==}
@@ -568,6 +589,9 @@ packages:
 
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
+
+  '@cdklabs/tskb@0.0.4':
+    resolution: {integrity: sha512-NFx1X0l7p5DyHtLLEyNeh1hPN4UN9hTkZkzFs/Mp+kFk7dpdINGmGVpCfRDjJ2DrcNSNENUmT+w8g73TvmBbTw==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -1737,6 +1761,11 @@ packages:
       - yaml
       - mime-types
 
+  aws-cdk@2.1107.0:
+    resolution: {integrity: sha512-7GKCq7p/33Jw+C+Ohwl4LnnKjvI/MzemeNZlTu/Kg8IwuZx5WEXEi32YLOlxbE1JOvleDslCWK5AIkBZ0omx/Q==}
+    engines: {node: '>= 18.0.0'}
+    hasBin: true
+
   babel-jest@29.7.0:
     resolution: {integrity: sha512-BrvGY3xZSwEcCzKvKsCi2GgHqDqsYkOP4/by5xCgIwGXQxIEh+8ew3gmrE1y7XRR6LHZIj6yLYnUi/mm2KXKBg==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
@@ -1844,6 +1873,14 @@ packages:
       aws-cdk-lib: ^2.176.0
       constructs: ^10.0.5
 
+  cdklabs-projen-project-types@0.3.16:
+    resolution: {integrity: sha512-hJxM6OKVbHoDxVa95szlelCYZMBcbDfAJBEQC4Q0uZ0fsKgj8d6IM0ZgdpzQuMxT5/DDCyP4sA1SW6QW048B6g==}
+    peerDependencies:
+      constructs: ^10.0.0
+      projen: '>=0.88.6 <1.0.0'
+    bundledDependencies:
+      - yaml
+
   chalk@2.4.2:
     resolution: {integrity: sha512-Mti+f9lpJNcwF4tWV8/OrTTtF1gZi+f8FqlyAdouralcFWFQWF2+NgCHShjkCb+IFBLq9buZwE1xckQU4peSuQ==}
     engines: {node: '>=4'}
@@ -1920,10 +1957,8 @@ packages:
     resolution: {integrity: sha512-MWufYdFw53ccGjCA+Ol7XJYpAlW6/prSMzuPOTRnJGcGzuhLn4Scrz7qf6o8bROZ514ltazcIFJZevcfbo0x7A==}
     engines: {'0': node >= 6.0}
 
-  constructs@10.0.5:
-    resolution: {integrity: sha512-IwOwekzrASFC3qt4ozCtV09rteAIAesuCGsW0p+uBfqHd2XcvA5CXqJjgf4eUqm6g8e/noXlVCMDWwC8GaLtrg==}
-    engines: {node: '>= 10.17.0'}
-    bundledDependencies: []
+  constructs@10.5.1:
+    resolution: {integrity: sha512-f/TfFXiS3G/yVIXDjOQn9oTlyu9Wo7Fxyjj7lb8r92iO81jR2uST+9MstxZTmDGx/CgIbxCXkFXgupnLTNxQZg==}
 
   conventional-changelog-angular@6.0.0:
     resolution: {integrity: sha512-6qLgrBF4gueoC7AFVHu51nHL9pF9FRjXrH+ceVf7WmAfH3gs+gEYOkvxhjMPjZu57I4AGUGoNTY8V7Hrgf1uqg==}
@@ -4062,6 +4097,20 @@ snapshots:
 
   '@aws-cdk/cloud-assembly-schema@48.20.0': {}
 
+  '@aws-cdk/integ-runner@2.197.0':
+    dependencies:
+      '@aws-cdk/aws-service-spec': 0.1.132
+      aws-cdk: 2.1107.0
+
+  '@aws-cdk/integ-tests-alpha@2.240.0-alpha.0(aws-cdk-lib@2.196.0(constructs@10.5.1))(constructs@10.5.1)':
+    dependencies:
+      aws-cdk-lib: 2.196.0(constructs@10.5.1)
+      constructs: 10.5.1
+
+  '@aws-cdk/service-spec-types@0.0.198':
+    dependencies:
+      '@cdklabs/tskb': 0.0.4
+
   '@aws-crypto/crc32@5.2.0':
     dependencies:
       '@aws-crypto/util': 5.2.0
@@ -5104,6 +5153,8 @@ snapshots:
       '@babel/helper-validator-identifier': 7.27.1
 
   '@bcoe/v8-coverage@0.2.3': {}
+
+  '@cdklabs/tskb@0.0.4': {}
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -6607,7 +6658,7 @@ snapshots:
       readable-stream: 3.6.2
       typedarray: 0.0.6
 
-  constructs@10.0.5: {}
+  constructs@10.5.1: {}
 
   conventional-changelog-angular@6.0.0:
     dependencies:
@@ -8387,7 +8438,7 @@ snapshots:
 
   projen@0.99.1(constructs@10.0.5):
     dependencies:
-      constructs: 10.0.5
+      constructs: 10.5.1
 
   prompts@2.4.2:
     dependencies:
