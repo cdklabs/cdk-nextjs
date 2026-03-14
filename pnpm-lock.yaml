@@ -10,10 +10,10 @@ importers:
     devDependencies:
       '@aws-cdk/integ-runner':
         specifier: latest
-        version: 2.197.0
+        version: 2.197.4
       '@aws-cdk/integ-tests-alpha':
         specifier: latest
-        version: 2.240.0-alpha.0(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1)
+        version: 2.243.0-alpha.0(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1)
       '@aws-crypto/sha256-js':
         specifier: ^5.2.0
         version: 5.2.0
@@ -136,7 +136,7 @@ importers:
         version: 5.9.3
       undici:
         specifier: ^6.23.0
-        version: 6.23.0
+        version: 6.24.0
 
 packages:
 
@@ -150,8 +150,8 @@ packages:
   '@aws-cdk/asset-node-proxy-agent-v6@2.1.1':
     resolution: {integrity: sha512-We4bmHaowOPHr+IQR4/FyTGjRfjgBj4ICMjtqmJeBDWad3Q/6St12NT07leNtyuukv2qMhtSZJQorD8KpKTwRA==}
 
-  '@aws-cdk/aws-service-spec@0.1.132':
-    resolution: {integrity: sha512-vktB5dmEVVzh6y3dQOWYpVtwx1kHRlKGFPRAdY+c+AuBUrhBKVYx3j+cZDbuc/L+hvRVS86uUEdmr4hw+XAt6Q==}
+  '@aws-cdk/aws-service-spec@0.1.161':
+    resolution: {integrity: sha512-le9UnSpEbuKfIqUk0a4MXd7kx2GqXmC+pdaLIt3sMFxPB9CBKgnOZwHRaBpFCqj2r13bf5j3NBONy3RkD9t3Sg==}
 
   '@aws-cdk/cloud-assembly-schema@52.2.0':
     resolution: {integrity: sha512-ourZjixQ/UfsZc7gdk3vt1eHBODMUjQTYYYCY3ZX8fiXyHtWNDAYZPrXUK96jpCC2fLP+tfHTJrBjZ563pmcEw==}
@@ -160,20 +160,20 @@ packages:
       - jsonschema
       - semver
 
-  '@aws-cdk/integ-runner@2.197.0':
-    resolution: {integrity: sha512-EMlXihxSMbiUawhGsP0pPvmiFI48p0LpOFWZx8c4dH6EHfgAjSHYvQwdfu1dQFYY+XGSHge+PfUTx5Mx1dMbrA==}
+  '@aws-cdk/integ-runner@2.197.4':
+    resolution: {integrity: sha512-RrXEvdPyAiVD3e7UBfoqEU0NzB2sC6+RnbLNrVVoJn0egkifqQeB+2vRrXYTgVd1lQgngXF5ELUQ7mS7i8Yx7g==}
     engines: {node: '>= 18.0.0'}
     hasBin: true
 
-  '@aws-cdk/integ-tests-alpha@2.240.0-alpha.0':
-    resolution: {integrity: sha512-OH1YRyXc7wp7UtusJNUr+HHesD+BfDN+hvpRNSMNcCtxfwoemez5f2Boc7OhvK3EQmTpmI7UJnnNXwakPNOmdw==}
-    engines: {node: '>= 18.0.0'}
+  '@aws-cdk/integ-tests-alpha@2.243.0-alpha.0':
+    resolution: {integrity: sha512-nD++k/qgBqnvKPMnUNqUOGw21rjxmoW8F78mvfHAaL7akMng5Zq1Xoy/eAiNDrxHD3LEjXUwvvYPrKFAjuY4JA==}
+    engines: {node: '>= 20.0.0'}
     peerDependencies:
-      aws-cdk-lib: ^2.240.0
+      aws-cdk-lib: ^2.243.0
       constructs: ^10.5.0
 
-  '@aws-cdk/service-spec-types@0.0.198':
-    resolution: {integrity: sha512-oksZShBGTW/W7HnsnWU3N/YZGkWCbZ/4naFwYYVbXNfpTLauz5ME94SQwyHWG7U7ohjN57JR8DvdGfHVs6PTzg==}
+  '@aws-cdk/service-spec-types@0.0.227':
+    resolution: {integrity: sha512-xQHO0xzItQN5mFxox1iX/0NxDkHMgCval2imn5uJeYh5BA6jwm5XkIVrtS4YaL0B3Eb3U3Q+tG8jK9fD/orGxg==}
 
   '@aws-crypto/crc32@5.2.0':
     resolution: {integrity: sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg==}
@@ -1796,8 +1796,8 @@ packages:
       - yaml
       - mime-types
 
-  aws-cdk@2.1107.0:
-    resolution: {integrity: sha512-7GKCq7p/33Jw+C+Ohwl4LnnKjvI/MzemeNZlTu/Kg8IwuZx5WEXEi32YLOlxbE1JOvleDslCWK5AIkBZ0omx/Q==}
+  aws-cdk@2.1111.0:
+    resolution: {integrity: sha512-69AVF04cxbAhYzmeJYtUF5bs6ruNnH05EQZJfjadk5Lpg+HVaJY2NjG/2qgsMmKrfRgvLet73Ir8ehVlAaaGng==}
     engines: {node: '>= 18.0.0'}
     hasBin: true
 
@@ -2552,6 +2552,7 @@ packages:
   git-raw-commits@3.0.0:
     resolution: {integrity: sha512-b5OHmZ3vAgGrDn/X0kS+9qCfNKWe4K/jFnhwzVWWg0/k5eLa3060tZShrRg8Dja5kPc+YjS0Gc6y7cRr44Lpjw==}
     engines: {node: '>=14'}
+    deprecated: This package is no longer maintained. For the JavaScript API, please use @conventional-changelog/git-client instead.
     hasBin: true
 
   git-remote-origin-url@2.0.0:
@@ -2561,6 +2562,7 @@ packages:
   git-semver-tags@5.0.1:
     resolution: {integrity: sha512-hIvOeZwRbQ+7YEUmCkHqo8FOLQZCEn18yevLHADlFPZY02KJGsu5FZt9YW/lybfK2uhWFI7Qg/07LekJiTv7iA==}
     engines: {node: '>=14'}
+    deprecated: This package is no longer maintained. For the JavaScript API, please use @conventional-changelog/git-client instead.
     hasBin: true
 
   gitconfiglocal@1.0.0:
@@ -2576,6 +2578,7 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   globals@14.0.0:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
@@ -2676,6 +2679,7 @@ packages:
 
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
+    deprecated: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -3981,8 +3985,8 @@ packages:
   undici-types@7.16.0:
     resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
 
-  undici@6.23.0:
-    resolution: {integrity: sha512-VfQPToRA5FZs/qJxLIinmU59u0r7LXqoJkCzinq3ckNJp3vKEh7jTWN589YQ5+aoAC/TGRLyJLCPKcLQbM8r9g==}
+  undici@6.24.0:
+    resolution: {integrity: sha512-lVLNosgqo5EkGqh5XUDhGfsMSoO8K0BAN0TyJLvwNRSl4xWGZlCVYsAIpa/OpA3TvmnM01GWcoKmc3ZWo5wKKA==}
     engines: {node: '>=18.17'}
 
   universalify@0.1.2:
@@ -4128,24 +4132,24 @@ snapshots:
 
   '@aws-cdk/asset-node-proxy-agent-v6@2.1.1': {}
 
-  '@aws-cdk/aws-service-spec@0.1.132':
+  '@aws-cdk/aws-service-spec@0.1.161':
     dependencies:
-      '@aws-cdk/service-spec-types': 0.0.198
+      '@aws-cdk/service-spec-types': 0.0.227
       '@cdklabs/tskb': 0.0.4
 
   '@aws-cdk/cloud-assembly-schema@52.2.0': {}
 
-  '@aws-cdk/integ-runner@2.197.0':
+  '@aws-cdk/integ-runner@2.197.4':
     dependencies:
-      '@aws-cdk/aws-service-spec': 0.1.132
-      aws-cdk: 2.1107.0
+      '@aws-cdk/aws-service-spec': 0.1.161
+      aws-cdk: 2.1111.0
 
-  '@aws-cdk/integ-tests-alpha@2.240.0-alpha.0(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1)':
+  '@aws-cdk/integ-tests-alpha@2.243.0-alpha.0(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1)':
     dependencies:
       aws-cdk-lib: 2.242.0(constructs@10.5.1)
       constructs: 10.5.1
 
-  '@aws-cdk/service-spec-types@0.0.198':
+  '@aws-cdk/service-spec-types@0.0.227':
     dependencies:
       '@cdklabs/tskb': 0.0.4
 
@@ -6467,7 +6471,7 @@ snapshots:
       '@aws-cdk/cloud-assembly-schema': 52.2.0
       constructs: 10.5.1
 
-  aws-cdk@2.1107.0: {}
+  aws-cdk@2.1111.0: {}
 
   babel-jest@29.7.0(@babel/core@7.28.0):
     dependencies:
@@ -9046,7 +9050,7 @@ snapshots:
 
   undici-types@7.16.0: {}
 
-  undici@6.23.0: {}
+  undici@6.24.0: {}
 
   universalify@0.1.2: {}
 
