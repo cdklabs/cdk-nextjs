@@ -17,10 +17,12 @@ import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { getLambdaArchitecture } from "../utils/get-architecture";
+import { DockerImageAssetProps } from "aws-cdk-lib/aws-ecr-assets";
 
 export interface NextjsFunctionsOverrides {
   readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;
   readonly functionUrlProps?: OptionalFunctionUrlProps;
+  readonly dockerImageAssetProps?: DockerImageAssetProps;
 }
 
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
@@ -104,7 +106,9 @@ export class NextjsFunctions extends Construct {
       cmd: ["node", relativeEntrypointPath],
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+        ...this.props.overrides?.dockerImageAssetProps?.buildArgs,
       },
+      ...this.props.overrides?.dockerImageAssetProps,
     });
   }
 
