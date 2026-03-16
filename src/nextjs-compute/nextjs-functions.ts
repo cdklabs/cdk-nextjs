@@ -2,6 +2,7 @@ import { copyFileSync, existsSync } from "node:fs";
 import { join as joinPath } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
+import { DockerImageAssetProps } from "aws-cdk-lib/aws-ecr-assets";
 import { ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
   DockerImageCode,
@@ -17,7 +18,6 @@ import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { getLambdaArchitecture } from "../utils/get-architecture";
-import { DockerImageAssetProps } from "aws-cdk-lib/aws-ecr-assets";
 
 export interface NextjsFunctionsOverrides {
   readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;

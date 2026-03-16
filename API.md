@@ -3713,8 +3713,19 @@ const nextjsFunctionsOverrides: NextjsFunctionsOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.dockerImageAssetProps">dockerImageAssetProps</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerImageAssetProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.dockerImageFunctionProps">dockerImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps">OptionalDockerImageFunctionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.functionUrlProps">functionUrlProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionUrlProps">OptionalFunctionUrlProps</a></code> | *No description.* |
+
+---
+
+##### `dockerImageAssetProps`<sup>Optional</sup> <a name="dockerImageAssetProps" id="cdk-nextjs.NextjsFunctionsOverrides.property.dockerImageAssetProps"></a>
+
+```typescript
+public readonly dockerImageAssetProps: DockerImageAssetProps;
+```
+
+- *Type:* aws-cdk-lib.aws_ecr_assets.DockerImageAssetProps
 
 ---
 
