@@ -4,6 +4,7 @@ import { join as joinPosix } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
 import { ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
+  AssetImageCodeProps,
   DockerImageCode,
   DockerImageFunction,
   DockerImageFunctionProps,
@@ -21,6 +22,7 @@ import { getLambdaArchitecture } from "../utils/get-architecture";
 export interface NextjsFunctionsOverrides {
   readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;
   readonly functionUrlProps?: OptionalFunctionUrlProps;
+  readonly assetImageCodeProps?: AssetImageCodeProps;
 }
 
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
@@ -104,7 +106,9 @@ export class NextjsFunctions extends Construct {
       cmd: ["node", relativeEntrypointPath],
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+        ...this.props.overrides?.assetImageCodeProps?.buildArgs,
       },
+      ...this.props.overrides?.assetImageCodeProps,
     });
   }
 
