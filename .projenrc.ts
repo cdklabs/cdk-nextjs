@@ -44,8 +44,7 @@ const project = new CdklabsConstructLibrary({
     "debug",
     "esbuild",
     "mime-types",
-    // require canary as of 1/9/26, remove as soon as 16.2 is released
-    "next@16.1.1-canary.19", // bundled in src/nextjs-build/cache-handler.ts
+    "next@^16.2.0", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   setNodeEngineVersion: false,

@@ -96,7 +96,9 @@ export class NextjsContainers extends Construct {
       file: dockerfileName,
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+        ...this.props.overrides?.dockerImageAssetProps?.buildArgs,
       },
+      exclude: ["cdk.out"], // for common case where cdk deploy is run in same directory as nextjs app
       ...this.props.overrides?.dockerImageAssetProps,
     });
   }
@@ -214,12 +216,16 @@ export class NextjsContainers extends Construct {
       "deregistration_delay.timeout_seconds",
       "30",
     );
-    // best practice to enable cross zone load balancing
-    // @see https://docs.aws.amazon.com/elasticloadbalancing/latest/application/disable-cross-zone.html
-    albFargateService.loadBalancer.setAttribute(
-      "load_balancing.cross_zone.enabled",
-      "true",
-    );
+    // Only configure ALB attributes when we own the ALB.
+    // If user provided their own, they're responsible for its configuration.
+    if (!this.props.overrides?.albFargateServiceProps?.loadBalancer) {
+      // best practice to enable cross zone load balancing
+      // @see https://docs.aws.amazon.com/elasticloadbalancing/latest/application/disable-cross-zone.html
+      albFargateService.loadBalancer.setAttribute(
+        "load_balancing.cross_zone.enabled",
+        "true",
+      );
+    }
     return albFargateService;
   }
   /**
@@ -253,6 +259,14 @@ export class NextjsContainers extends Construct {
   }
   private getUrl(): string {
     const protocol = this.albFargateService.certificate ? "https" : "http";
-    return `${protocol}://${this.albFargateService.loadBalancer.loadBalancerDnsName}`;
+    // we check overrides first b/c if using imported loadBalancer then
+    // you cannot access `albFargateService.loadBalancer`, you must access
+    // via passed in `loadBalancer` which `ApplicationLoadBalancedFargateService`
+    // accepts as props
+    const dnsName =
+      this.props.overrides?.albFargateServiceProps?.loadBalancer
+        ?.loadBalancerDnsName ??
+      this.albFargateService.loadBalancer.loadBalancerDnsName;
+    return `${protocol}://${dnsName}`;
   }
 }
