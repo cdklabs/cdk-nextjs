@@ -65,6 +65,7 @@ export class NextjsCache extends Construct {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      enforceSSL: true,
       ...this.props.overrides?.cacheBucketProps,
     });
 

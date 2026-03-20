@@ -60,5 +60,5 @@ jobs:
         with:
           aws_account: ${{ vars.AWS_ACCOUNT }}
       - name: Cleanup regional-functions
-        run: cd examples/regional-function && pnpm run destroy:ci
+        run: cd examples/regional-functions && pnpm run destroy:ci
         continue-on-error: true
