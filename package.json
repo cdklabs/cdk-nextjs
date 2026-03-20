@@ -85,7 +85,7 @@
     "jsii-pacmak": "^1.125.0",
     "jsii-rosetta": "~5.9.22",
     "mime-types": "^2.1.35",
-    "next": "16.1.1-canary.19",
+    "next": "^16.2.0",
     "prettier": "^3.7.4",
     "projen": "^0.99.1",
     "ts-jest": "^29.4.6",

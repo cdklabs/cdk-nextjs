@@ -104,6 +104,7 @@ export class NextjsFunctions extends Construct {
     return DockerImageCode.fromImageAsset(buildContext, {
       file: dockerfileName, // Now it's just the filename in the build context
       cmd: ["node", relativeEntrypointPath],
+      exclude: ["cdk.out"], // for common case where cdk deploy is run in same directory as nextjs app
       buildArgs: {
         RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
         ...this.props.overrides?.assetImageCodeProps?.buildArgs,

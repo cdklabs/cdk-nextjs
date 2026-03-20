@@ -37,7 +37,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 
 ## Prerequisites
 
-- Next.js app running v16.1.1-canary.19 or higher. If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
+- Next.js app running v16.2 or higher. If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
 - [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos.
 - Docker compatible container engine - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby).
 - [Node.js](https://nodejs.org/en) v24 (or LTS)
@@ -52,10 +52,8 @@ import { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // ...
-  experimental: {
-    adapterPath: import.meta.resolve("cdk-nextjs/adapter"), // for ESM
-    // adapterPath: require.resolve("cdk-nextjs/adapter"), // for CJS
-  },
+  adapterPath: import.meta.resolve("cdk-nextjs/adapter"), // for ESM
+  // adapterPath: require.resolve("cdk-nextjs/adapter"), // for CJS
 };
 
 export default nextConfig;
@@ -492,7 +490,7 @@ This project uses Projen, so make sure to not edit [Projen](https://projen.io/) 
 Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs)?<br/>
 A: cdk-nextjs-standalone relies on [OpenNext](https://github.com/sst/open-next). OpenNext injects custom code to interact with private Next.js APIs. While OpenNext is able to make some optimizations that are great for serverless environments, this comes at an increase maintenance cost and increased chances for breaking changes. A goal of cdk-nextjs is to customize Next.js as little as possible to reduce the maintenance burden and decrease chances of breaking changes.
 
-Q: Why does cdk-nextjs depend upon Next.js v16.1.1-canary.19 or higher?
+Q: Why does cdk-nextjs depend upon Next.js v16.2 or higher?
 A: This version is required for [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching) so that cdk-nextjs can depend upon public Next.js API.
 
 Q: How does cdk-nextjs support caching in Next.js?<br/>
