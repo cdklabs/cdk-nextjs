@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   readFileSync,
@@ -127,6 +128,18 @@ export class NextjsBuild extends Construct {
    * Execute local build command in the specified directory
    */
   private runNextBuild() {
+    const markerPath = this.getBuildMarkerPath();
+
+    // Check temp marker file — survives across the separate child processes
+    // CDK spawns for each fromLookup context resolution pass, but is scoped
+    // to the parent PID so it won't persist across separate cdk deploy runs.
+    if (existsSync(markerPath)) {
+      console.log(
+        `${LOG_PREFIX} Skipping build (already completed this session): "${this.buildCommand}" in directory: ${this.props.buildDirectory}`,
+      );
+      return;
+    }
+
     console.log(
       `${LOG_PREFIX} Running: "${this.buildCommand}" in directory: ${this.props.buildDirectory}`,
     );
@@ -151,9 +164,32 @@ export class NextjsBuild extends Construct {
       if (this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
         this.patchFetchInClientJs();
       }
+
+      // Write marker so subsequent CDK synthesis processes skip the build
+      writeFileSync(markerPath, "");
     } catch (error) {
       throw new Error(`Local build failed: ${error}`);
     }
+  }
+
+  /**
+   * Get the path to a temp marker file scoped to the top-level CDK CLI process.
+   * CDK spawns child processes for each `fromLookup` context resolution pass,
+   * but they all share the same parent PID. By keying the marker on the parent
+   * PID + build inputs, we deduplicate builds within a single `cdk deploy`
+   * session without persisting across separate invocations.
+   */
+  private getBuildMarkerPath(): string {
+    // ppid is the CDK CLI process that spawns child synth processes
+    const sessionId = process.ppid?.toString() ?? process.pid.toString();
+    const hash = createHash("sha256")
+      .update(this.props.buildDirectory)
+      .update(this.buildCommand)
+      .update(this.props.nextjsType)
+      .update(sessionId)
+      .digest("hex")
+      .slice(0, 16);
+    return join(tmpdir(), `cdk-nextjs-build-${hash}`);
   }
 
   /**
