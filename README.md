@@ -317,12 +317,40 @@ cdk-nextjs can be used to deploy ephemeral preview environments per merge reques
 
 Subdomain routing via ALB host-based listener rules. This is the fastest and simplest approach.
 
-1. Deploy shared infrastructure once: VPC, ECS Cluster, ALB, S3 buckets, DynamoDB table
+1. Deploy shared infrastructure once: VPC, ECS Cluster, ALB (with HTTPS listener), S3 buckets, DynamoDB table
 2. Per branch, deploy a cdk-nextjs stack that imports the shared resources via [Bring Your Own Resources](#bring-your-own-resources) props (`alb`, `ecsCluster`, `cacheBucket`, `revalidationTable`, `staticAssetsBucket`)
-3. Add a host-based listener rule on the shared ALB to route `pr-123.app.example.com` to the branch's ECS target group
-4. Tear down the branch stack on PR close
+3. Call `removeAutoCreatedListener()` to avoid conflicting with the shared ALB's existing listener
+4. Add a host-based listener rule on the shared HTTPS listener to route `<branch>.app.example.com` to the branch's ECS target group
+5. Tear down the branch stack on PR close
 
 For `NextjsGlobalContainers`, CloudFront forwards the `Host` header to the ALB origin, so the ALB handles all branch routing — no CloudFront changes needed per branch.
+
+```ts
+// Shared infra stack exports: ALB, ECS Cluster, HTTPS Listener, S3 buckets, DynamoDB table
+const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
+  buildDirectory: join(import.meta.dirname),
+  healthCheckPath: "/api/health",
+  alb: sharedAlb,
+  ecsCluster: sharedCluster,
+  cacheBucket: sharedCacheBucket,
+  revalidationTable: sharedRevalidationTable,
+  staticAssetsBucket: sharedStaticAssetsBucket,
+});
+nextjs.nextjsContainers.removeAutoCreatedListener();
+
+// Route branch subdomain to this branch's target group
+const branch = getGitBranch(); // your helper to read current branch
+const subdomain = branchToSubdomain(branch); // sanitize branch name for DNS
+const domainName = `${subdomain}.app.example.com`;
+
+httpsListener.addAction(`${subdomain}-route`, {
+  priority: hashToPriority(subdomain), // deterministic priority from branch name
+  conditions: [ListenerCondition.hostHeaders([domainName])],
+  action: ListenerAction.forward([
+    nextjs.nextjsContainers.albFargateService.targetGroup,
+  ]),
+});
+```
 
 #### `NextjsRegionalFunctions` (API Gateway)
 
