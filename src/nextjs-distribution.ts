@@ -35,7 +35,7 @@ import {
   VpcOrigin,
   VpcOriginWithEndpointProps,
 } from "aws-cdk-lib/aws-cloudfront-origins";
-import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -78,7 +78,7 @@ export interface NextjsDistributionProps {
   /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`
    */
-  readonly loadBalancer?: ApplicationLoadBalancer;
+  readonly loadBalancer?: IApplicationLoadBalancer;
   readonly nextjsType: NextjsType;
   /**
    * Override props for every construct.

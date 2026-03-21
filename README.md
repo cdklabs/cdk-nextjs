@@ -33,6 +33,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 - Customize every construct via `overrides`.
 - AWS security and operational best practices are utilized, guided by [cdk-nag](https://github.com/cdklabs/cdk-nag).
 - First class support for [monorepos](https://monorepo.tools/).
+- [Bring Your Own Resources](#bring-your-own-resources) — import existing AWS resources (CloudFront distributions, ECS clusters, ALBs, S3 buckets, DynamoDB tables).
 - [AWS GovCloud (US)](https://aws.amazon.com/govcloud-us) compatible with `NextjsRegionalFunctions` and `NextjsRegionalContainers`.
 
 ## Prerequisites
@@ -261,6 +262,43 @@ The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Pl
 - Security first.
 - One architecture does not fit all.
 - Enable customization everywhere.
+
+## Bring Your Own Resources
+
+cdk-nextjs supports importing existing AWS resources instead of creating new ones. This is especially useful for per-branch (MR/PR) environments where you deploy shared infrastructure once and spin up lightweight branch stacks that reuse it.
+
+### Supported Resources
+
+| Resource                    | Prop                 | Available On                                         |
+| --------------------------- | -------------------- | ---------------------------------------------------- |
+| S3 Cache Bucket             | `cacheBucket`        | All constructs                                       |
+| DynamoDB Revalidation Table | `revalidationTable`  | All constructs                                       |
+| S3 Static Assets Bucket     | `staticAssetsBucket` | All constructs                                       |
+| CloudFront Distribution     | `distribution`       | `NextjsGlobalFunctions`, `NextjsGlobalContainers`    |
+| ECS Cluster                 | `ecsCluster`         | `NextjsGlobalContainers`, `NextjsRegionalContainers` |
+| ALB                         | `alb`                | `NextjsGlobalContainers`, `NextjsRegionalContainers` |
+
+### Resource Isolation
+
+- **Cache bucket and DynamoDB table** are isolated by `buildId` prefix. Multiple branches safely share one bucket/table with no conflicts.
+- **Static assets bucket** — Next.js includes content hashes in static asset filenames, so different branches deploying the same file will produce identical content. It's safe for branches to overwrite each other. If you're already using `basePath` for routing, assets will naturally be prefixed by it.
+
+### Shared ALB and `removeAutoCreatedListener()`
+
+`ApplicationLoadBalancedFargateService` always creates a listener on port 80 — there is no opt-out. When you import an ALB that already has a listener on that port, the duplicate causes a deployment failure. Since CDK doesn't expose a way to prevent this, `removeAutoCreatedListener()` surgically removes the generated CloudFormation resources: the `CfnListener`, its security group ingress rule, rebuilds the ECS service `DependsOn` without the deleted listener, and removes auto-created `CfnOutput` resources:
+
+```ts
+const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
+  // ...
+  alb: sharedAlb,
+  ecsCluster: sharedCluster,
+});
+nextjs.nextjsContainers.removeAutoCreatedListener();
+```
+
+### Examples
+
+See [examples/bring-your-own-resources/](./examples/bring-your-own-resources/) for complete working examples of each architecture.
 
 ## Limitations
 

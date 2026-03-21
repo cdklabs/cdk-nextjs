@@ -14,6 +14,7 @@ import {
   Bucket,
   BucketEncryption,
   BucketProps,
+  IBucket,
 } from "aws-cdk-lib/aws-s3";
 import {
   BucketDeployment,
@@ -29,6 +30,12 @@ export interface NextjsStaticAssetsOverrides {
 }
 
 export interface NextjsStaticAssetsProps {
+  /**
+   * Bring your own S3 bucket for static assets. When provided, cdk-nextjs
+   * will skip creating a new bucket and deploy assets to this bucket instead.
+   * Use with `basePath` to isolate assets per branch when sharing a bucket.
+   */
+  readonly bucket?: IBucket;
   /**
    * Directory where the Next.js application is located.
    * This should contain the .next directory and other build artifacts.
@@ -50,7 +57,7 @@ export interface NextjsStaticAssetsProps {
  * Creates S3 Bucket for public and _next/static assets and deploys them using S3Deployment.
  */
 export class NextjsStaticAssets extends Construct {
-  bucket: Bucket;
+  bucket: IBucket;
   deployment: BucketDeployment;
   private stagingDir?: string;
 
@@ -59,7 +66,7 @@ export class NextjsStaticAssets extends Construct {
   constructor(scope: Construct, id: string, props: NextjsStaticAssetsProps) {
     super(scope, id);
     this.props = props;
-    this.bucket = this.createBucket();
+    this.bucket = props.bucket ?? this.createBucket();
     this.deployment = this.createDeployment();
   }
 

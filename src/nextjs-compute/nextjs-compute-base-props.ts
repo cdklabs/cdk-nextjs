@@ -1,4 +1,4 @@
-import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
+import { ITable } from "aws-cdk-lib/aws-dynamodb";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { NextjsType } from "../constants";
 
@@ -11,7 +11,7 @@ export interface NextjsComputeBaseProps {
   /**
    * DynamoDB table for revalidation metadata
    */
-  readonly revalidationTable: TableV2;
+  readonly revalidationTable: ITable;
   /**
    * Build ID for cache key prefixing
    */
