@@ -300,6 +300,50 @@ nextjs.nextjsContainers.removeAutoCreatedListener();
 
 See [examples/bring-your-own-resources/](./examples/bring-your-own-resources/) for complete working examples of each architecture.
 
+See [Preview Environments](#preview-environments-per-branch-deployments) for how to combine BYO resources with per-MR/PR branch deployments.
+
+## Preview Environments (Per-Branch Deployments)
+
+cdk-nextjs can be used to deploy ephemeral preview environments per merge request (MR) or pull request (PR). The recommended approach uses subdomain-based routing (`pr-123.app.example.com`) so each preview environment runs the same Next.js build as production — no `basePath` configuration or separate builds required.
+
+### Prerequisites
+
+- Wildcard DNS record: `*.app.example.com` → your routing layer (ALB, CloudFront, API Gateway)
+- Wildcard ACM certificate: `*.app.example.com`
+
+### Per-Architecture Recommendations
+
+#### `NextjsGlobalContainers` and `NextjsRegionalContainers` (ALB-based)
+
+Subdomain routing via ALB host-based listener rules. This is the fastest and simplest approach.
+
+1. Deploy shared infrastructure once: VPC, ECS Cluster, ALB, S3 buckets, DynamoDB table
+2. Per branch, deploy a cdk-nextjs stack that imports the shared resources via [Bring Your Own Resources](#bring-your-own-resources) props (`alb`, `ecsCluster`, `cacheBucket`, `revalidationTable`, `staticAssetsBucket`)
+3. Add a host-based listener rule on the shared ALB to route `pr-123.app.example.com` to the branch's ECS target group
+4. Tear down the branch stack on PR close
+
+For `NextjsGlobalContainers`, CloudFront forwards the `Host` header to the ALB origin, so the ALB handles all branch routing — no CloudFront changes needed per branch.
+
+#### `NextjsRegionalFunctions` (API Gateway)
+
+Subdomain routing via API Gateway custom domain mappings.
+
+1. Deploy shared infrastructure once: S3 buckets, DynamoDB table
+2. Per branch, deploy a cdk-nextjs stack that imports shared resources and creates its own API Gateway
+3. Create an API Gateway custom domain (`pr-123.app.example.com`) mapped to the branch's API stage
+4. Tear down the branch stack on MR close
+
+#### `NextjsGlobalFunctions` (Lambda + CloudFront)
+
+Requires a separate cdk-nextjs stack per branch, each with its own CloudFront distribution. CloudFront cannot route to different Lambda Function URL origins based on the `Host` header — origin selection is determined by cache behavior path patterns, not request headers.
+
+1. Deploy shared infrastructure once: S3 buckets, DynamoDB table
+2. Per branch, deploy a full cdk-nextjs stack that imports shared resources (`cacheBucket`, `revalidationTable`, `staticAssetsBucket`) but creates its own CloudFront distribution and Lambda function
+3. Point `pr-123.app.example.com` DNS to the branch's CloudFront distribution
+4. Tear down the branch stack on MR close
+
+Note: CloudFront distributions take several minutes to create/update, so this architecture has the slowest preview environment spin-up time.
+
 ## Limitations
 
 - If using `NextjsGlobalFunctions` or `NextjsGlobalContainers` (which use CloudFront), the number of top level files/directories cannot exceed 25, the max number of behaviors a CloudFront Distribution supports. We recommend you put all of your public assets into one top level directory (i.e. public/static) so you don't reach this limit. See [CloudFront Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) for more information.
