@@ -12,7 +12,7 @@
  * cross-stack CfnOutput dependencies.
  */
 import { App, CfnOutput, Stack, StackProps } from "aws-cdk-lib";
-import { Table } from "aws-cdk-lib/aws-dynamodb";
+import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
 import { Cluster } from "aws-cdk-lib/aws-ecs";
 import {
@@ -102,7 +102,7 @@ class BranchStack extends Stack {
       ssm(this, "StaticAssetsBucketName"),
     );
 
-    const revalidationTable = Table.fromTableName(
+    const revalidationTable = TableV2.fromTableName(
       this,
       "RevalidationTable",
       ssm(this, "RevalidationTableName"),
