@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync } from "node:fs";
 import { join as joinPath } from "node:path";
-import { Duration } from "aws-cdk-lib";
+import { CfnOutput, CfnResource, Duration, Stack } from "aws-cdk-lib";
 import { GatewayVpcEndpointAwsService } from "aws-cdk-lib/aws-ec2";
 import { DockerImageAsset } from "aws-cdk-lib/aws-ecr-assets";
 import {
@@ -10,13 +10,18 @@ import {
   ContainerInsights,
   CpuArchitecture,
   HealthCheck,
+  ICluster,
   LogDrivers,
 } from "aws-cdk-lib/aws-ecs";
 import {
   ApplicationLoadBalancedFargateService,
   ApplicationLoadBalancedFargateServiceProps,
 } from "aws-cdk-lib/aws-ecs-patterns";
-import { ApplicationProtocolVersion } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import {
+  ApplicationProtocolVersion,
+  IApplicationLoadBalancer,
+} from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { CfnElement } from "aws-cdk-lib/core";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
 import { LOG_PREFIX, NextjsType } from "../constants";
@@ -32,6 +37,19 @@ export interface NextjsContainersOverrides {
 }
 
 export interface NextjsContainersProps extends NextjsComputeBaseProps {
+  /**
+   * Bring your own Application Load Balancer. When provided, it is passed
+   * directly to `ApplicationLoadBalancedFargateService`. If the ALB already
+   * has a listener on port 80, call `removeAutoCreatedListener()` after
+   * construction to avoid deployment failures.
+   */
+  readonly alb?: IApplicationLoadBalancer;
+  /**
+   * Bring your own ECS cluster. When provided, cdk-nextjs will skip creating
+   * a new cluster and VPC gateway endpoints. The cluster is passed directly
+   * to `ApplicationLoadBalancedFargateService`.
+   */
+  readonly ecsCluster?: ICluster;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
 }
@@ -42,7 +60,7 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
  */
 export class NextjsContainers extends Construct {
   albFargateService: ApplicationLoadBalancedFargateService;
-  ecsCluster: Cluster;
+  ecsCluster: ICluster;
   url: string;
   dockerImageAsset: DockerImageAsset;
 
@@ -54,9 +72,13 @@ export class NextjsContainers extends Construct {
 
     // Always create Docker image asset from local build output
     this.dockerImageAsset = this.createDockerImageAsset();
-    this.ecsCluster = this.createEcsCluster();
-    if (!props.overrides?.ecsClusterProps?.vpc) {
-      this.addVpcGatewayEndpoints();
+    if (props.ecsCluster) {
+      this.ecsCluster = props.ecsCluster;
+    } else {
+      this.ecsCluster = this.createEcsCluster();
+      if (!props.overrides?.ecsClusterProps?.vpc) {
+        this.addVpcGatewayEndpoints();
+      }
     }
     this.albFargateService = this.createAlbFargateSevice();
     this.configureHealthCheck();
@@ -193,6 +215,7 @@ export class NextjsContainers extends Construct {
           },
         },
         ...this.props.overrides?.albFargateServiceProps,
+        ...(this.props.alb ? { loadBalancer: this.props.alb } : {}),
       },
     );
     // required or health checks fail
@@ -218,7 +241,10 @@ export class NextjsContainers extends Construct {
     );
     // Only configure ALB attributes when we own the ALB.
     // If user provided their own, they're responsible for its configuration.
-    if (!this.props.overrides?.albFargateServiceProps?.loadBalancer) {
+    if (
+      !this.props.alb &&
+      !this.props.overrides?.albFargateServiceProps?.loadBalancer
+    ) {
       // best practice to enable cross zone load balancing
       // @see https://docs.aws.amazon.com/elasticloadbalancing/latest/application/disable-cross-zone.html
       albFargateService.loadBalancer.setAttribute(
@@ -259,14 +285,86 @@ export class NextjsContainers extends Construct {
   }
   private getUrl(): string {
     const protocol = this.albFargateService.certificate ? "https" : "http";
-    // we check overrides first b/c if using imported loadBalancer then
-    // you cannot access `albFargateService.loadBalancer`, you must access
-    // via passed in `loadBalancer` which `ApplicationLoadBalancedFargateService`
-    // accepts as props
+    // we check top-level alb and overrides first b/c if using imported
+    // loadBalancer then you cannot access `albFargateService.loadBalancer`,
+    // you must access via passed in `loadBalancer` which
+    // `ApplicationLoadBalancedFargateService` accepts as props
     const dnsName =
+      this.props.alb?.loadBalancerDnsName ??
       this.props.overrides?.albFargateServiceProps?.loadBalancer
         ?.loadBalancerDnsName ??
       this.albFargateService.loadBalancer.loadBalancerDnsName;
     return `${protocol}://${dnsName}`;
+  }
+
+  /**
+   * Remove the HTTP listener that `ApplicationLoadBalancedFargateService`
+   * always creates. Call this when you bring your own ALB that already has a
+   * listener on the same port (typically port 80) to avoid a
+   * "listener already exists on this port" deployment failure.
+   *
+   * This method:
+   * 1. Removes the L1 `CfnListener` resource (keeps the L2 node so the
+   *    target group child is preserved).
+   * 2. Removes the associated security-group ingress rule for port 80.
+   * 3. Rebuilds the ECS service `DependsOn` without the deleted listener.
+   * 4. Removes `CfnOutput` resources auto-created by the ecs-patterns construct.
+   */
+  removeAutoCreatedListener(): void {
+    const listener = this.albFargateService.listener;
+    const cfnListener = listener.node.defaultChild;
+    if (!(cfnListener instanceof CfnResource)) return;
+
+    // 1. Remove only the CfnListener L1 resource, not the L2 construct.
+    //    The target group (a sibling child of the listener node) stays.
+    listener.node.tryRemoveChild(cfnListener.node.id);
+
+    // 2. Remove the SG ingress rule the listener auto-creates for port 80.
+    const albSgNode = this.node
+      .findAll()
+      .find(
+        (c) =>
+          c instanceof CfnResource &&
+          c.cfnResourceType === "AWS::EC2::SecurityGroupIngress" &&
+          c.node.path.includes("from 0.0.0.0/0:80"),
+      );
+    if (albSgNode) {
+      albSgNode.node.scope?.node.tryRemoveChild(albSgNode.node.id);
+    }
+
+    // 3. Rebuild the ECS service DependsOn without the deleted listener.
+    //    CDK generates DependsOn during _toCloudFormation(). addOverride
+    //    runs after that and replaces the generated value.
+    const cfnService = this.albFargateService.service.node.defaultChild;
+    const cfnTargetGroup = this.albFargateService.targetGroup.node.defaultChild;
+    const taskDef = this.albFargateService.taskDefinition;
+    const taskRole = taskDef.taskRole.node.defaultChild;
+    const taskRolePolicy =
+      taskDef.taskRole.node.tryFindChild("DefaultPolicy")?.node.defaultChild;
+
+    if (cfnService instanceof CfnResource) {
+      const stack = Stack.of(this);
+      const keepDeps = [cfnTargetGroup, taskRole, taskRolePolicy]
+        .filter((d): d is CfnElement => d instanceof CfnElement)
+        .map((d) => stack.getLogicalId(d));
+
+      // Also keep any listener rules (e.g. path-based routing rules)
+      for (const child of stack.node.findAll()) {
+        if (
+          child instanceof CfnResource &&
+          child.cfnResourceType === "AWS::ElasticLoadBalancingV2::ListenerRule"
+        ) {
+          keepDeps.push(stack.getLogicalId(child));
+        }
+      }
+      cfnService.addOverride("DependsOn", keepDeps);
+    }
+
+    // 4. Remove CfnOutput resources auto-created by ApplicationLoadBalancedFargateService
+    for (const child of this.node.findAll()) {
+      if (child instanceof CfnOutput) {
+        child.node.scope?.node.tryRemoveChild(child.node.id);
+      }
+    }
   }
 }

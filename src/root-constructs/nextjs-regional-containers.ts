@@ -1,3 +1,5 @@
+import { ICluster } from "aws-cdk-lib/aws-ecs";
+import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import {
@@ -35,6 +37,18 @@ export interface NextjsRegionalContainersOverrides extends NextjsBaseOverrides {
 
 export interface NextjsRegionalContainersProps extends NextjsBaseProps {
   /**
+   * Bring your own Application Load Balancer. When provided, it is passed
+   * directly to `ApplicationLoadBalancedFargateService`. If the ALB already
+   * has a listener on port 80, call `removeAutoCreatedListener()` after
+   * construction to avoid deployment failures.
+   */
+  readonly alb?: IApplicationLoadBalancer;
+  /**
+   * Bring your own ECS cluster. When provided, cdk-nextjs will skip creating
+   * a new cluster and VPC gateway endpoints.
+   */
+  readonly ecsCluster?: ICluster;
+  /**
    * Override props of any construct.
    */
   readonly overrides?: NextjsRegionalContainersOverrides;
@@ -50,7 +64,7 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
   nextjsContainers: NextjsContainers;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
-    return `http://${this.nextjsContainers.albFargateService.loadBalancer.loadBalancerDnsName}`;
+    return this.nextjsContainers.url;
   }
 
   private props: NextjsRegionalContainersProps;
@@ -71,6 +85,8 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
     // Create containers with local build output
     return new NextjsContainers(this, "NextjsContainers", {
       ...this.computeBaseProps(),
+      alb: this.props.alb,
+      ecsCluster: this.props.ecsCluster,
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
       overrides: {
         ...this.props.overrides?.nextjsContainers,

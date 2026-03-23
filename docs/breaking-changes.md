@@ -232,6 +232,26 @@ This release introduces a major architectural shift from Docker-based builds to 
 - **Reduced costs** - No EFS costs, simpler Lambda/container setup
 - **Official Next.js Adapters** - Follows official Next.js Adapters deployment model
 
+### Public Property Type Changes
+
+Several public properties and props were widened from concrete types to interfaces to support importing existing ("bring your own") resources. If you access concrete-only methods on these properties, you'll need to cast or adjust your code.
+
+| Location                  | Property             | Before                    | After                      |
+| ------------------------- | -------------------- | ------------------------- | -------------------------- |
+| `NextjsContainers`        | `ecsCluster`         | `Cluster`                 | `ICluster`                 |
+| `NextjsCache`             | `revalidationTable`  | `TableV2`                 | `ITable`                   |
+| `NextjsStaticAssets`      | `bucket`             | `Bucket`                  | `IBucket`                  |
+| `NextjsComputeBaseProps`  | `revalidationTable`  | `TableV2`                 | `ITable`                   |
+| `NextjsPostDeployProps`   | `revalidationTable`  | `TableV2`                 | `ITable`                   |
+| `NextjsPostDeployProps`   | `staticAssetsBucket` | `Bucket`                  | `IBucket`                  |
+| `NextjsDistributionProps` | `loadBalancer`       | `ApplicationLoadBalancer` | `IApplicationLoadBalancer` |
+
+These are widening changes — existing code that only reads standard interface properties (e.g. `bucketName`, `tableName`, `clusterName`) will continue to work. If you call concrete-only methods (e.g. `Cluster.addCapacity()`, `TableV2.replica()`), cast the property:
+
+```typescript
+const cluster = nextjs.nextjsContainers.ecsCluster as Cluster;
+```
+
 ## 0.4.0
 
 - Change `Nextjs{...}Props.relativePathToWorkspace` -> `Nextjs{...}Props.relativePathToPackage` because workspace references entire monorepo not a package in the monorepo.

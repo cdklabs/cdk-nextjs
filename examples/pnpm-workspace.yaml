@@ -18,11 +18,11 @@ catalog:
   artillery: ^2.0.30
   autoprefixer: 10.4.19
   aws-cdk: ^2.1112.0
-  aws-cdk-lib: 2.234.1
+  aws-cdk-lib: 2.242.0 # ensure this version of constructs matches cdk-nextjs' version exactly
   babel-plugin-react-compiler: 1.0.0
   cdk-pipelines-github: ^0.4.133
   clsx: 2.1.1
-  constructs: 10.0.5
+  constructs: 10.5.1 # ensure this version of constructs matches cdk-nextjs' version exactly
   date-fns: 3.6.0
   dinero.js: 2.0.0-alpha.10
   dotenv-cli: ^8.0.0

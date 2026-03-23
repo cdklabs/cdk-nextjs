@@ -1,14 +1,14 @@
 import { join } from "node:path";
 import { CustomResource, Duration } from "aws-cdk-lib";
 import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
-import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
+import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import {
   Code,
   Function as LambdaFunction,
   Runtime,
   RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
-import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
+import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
@@ -36,7 +36,7 @@ export interface NextjsPostDeployProps {
   /**
    * DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries
    */
-  readonly revalidationTable?: TableV2;
+  readonly revalidationTable?: ITableV2;
   /**
    * If true, logs details in custom resource lambda
    * @default true
@@ -53,7 +53,7 @@ export interface NextjsPostDeployProps {
   /**
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`
    */
-  readonly staticAssetsBucket?: Bucket;
+  readonly staticAssetsBucket?: IBucket;
 }
 
 export interface PostDeployCustomResourceProperties {

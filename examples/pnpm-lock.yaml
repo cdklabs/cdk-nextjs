@@ -52,8 +52,8 @@ catalogs:
       specifier: ^2.1112.0
       version: 2.1112.0
     aws-cdk-lib:
-      specifier: 2.234.1
-      version: 2.234.1
+      specifier: 2.242.0
+      version: 2.242.0
     babel-plugin-react-compiler:
       specifier: 1.0.0
       version: 1.0.0
@@ -64,8 +64,8 @@ catalogs:
       specifier: 2.1.1
       version: 2.1.1
     constructs:
-      specifier: 10.0.5
-      version: 10.0.5
+      specifier: 10.5.1
+      version: 10.5.1
     date-fns:
       specifier: 3.6.0
       version: 3.6.0
@@ -246,6 +246,25 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
+  bring-your-own:
+    dependencies:
+      aws-cdk-lib:
+        specifier: 'catalog:'
+        version: 2.242.0(constructs@10.5.1)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      constructs:
+        specifier: 'catalog:'
+        version: 10.5.1
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.12.0
+
   e2e-tests:
     devDependencies:
       '@playwright/test':
@@ -253,7 +272,7 @@ importers:
         version: 1.58.2
       cdk-pipelines-github:
         specifier: 'catalog:'
-        version: 0.4.133(aws-cdk-lib@2.234.1(constructs@10.0.5))(constructs@10.0.5)
+        version: 0.4.133(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1)
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -262,13 +281,13 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.234.1(constructs@10.0.5)
+        version: 2.242.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
       constructs:
         specifier: 'catalog:'
-        version: 10.0.5
+        version: 10.5.1
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -284,13 +303,13 @@ importers:
         version: 2.1112.0
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.234.1(constructs@10.0.5)
+        version: 2.242.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
       constructs:
         specifier: 'catalog:'
-        version: 10.0.5
+        version: 10.5.1
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -315,13 +334,13 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.234.1(constructs@10.0.5)
+        version: 2.242.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
       constructs:
         specifier: 'catalog:'
-        version: 10.0.5
+        version: 10.5.1
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -334,13 +353,13 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.234.1(constructs@10.0.5)
+        version: 2.242.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
       constructs:
         specifier: 'catalog:'
-        version: 10.0.5
+        version: 10.5.1
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -353,13 +372,13 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.234.1(constructs@10.0.5)
+        version: 2.242.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
       constructs:
         specifier: 'catalog:'
-        version: 10.0.5
+        version: 10.5.1
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -372,13 +391,13 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.234.1(constructs@10.0.5)
+        version: 2.242.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
       constructs:
         specifier: 'catalog:'
-        version: 10.0.5
+        version: 10.5.1
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -402,14 +421,14 @@ packages:
   '@artilleryio/sketches-js@2.1.1':
     resolution: {integrity: sha512-H3D50vDb37E3NGYXY0eUFAm5++moElaqoAu0MWYZhgzaA3IT2E67bRCL8U4LKHuVf/MgDZk14uawIjc4WVjOUQ==}
 
-  '@aws-cdk/asset-awscli-v1@2.2.258':
-    resolution: {integrity: sha512-TL3I9cIue0bAsuwrmjgjAQaEH6JL09y49FVQMDhrz4jJ2iPKuHtdrYd7ydm02t1YZdPZE2M0VNj6VD4fGIFpvw==}
+  '@aws-cdk/asset-awscli-v1@2.2.263':
+    resolution: {integrity: sha512-X9JvcJhYcb7PHs8R7m4zMablO5C9PGb/hYfLnxds9h/rKJu6l7MiXE/SabCibuehxPnuO/vk+sVVJiUWrccarQ==}
 
-  '@aws-cdk/asset-node-proxy-agent-v6@2.1.0':
-    resolution: {integrity: sha512-7bY3J8GCVxLupn/kNmpPc5VJz8grx+4RKfnnJiO1LG+uxkZfANZG3RMHhE+qQxxwkyQ9/MfPtTpf748UhR425A==}
+  '@aws-cdk/asset-node-proxy-agent-v6@2.1.1':
+    resolution: {integrity: sha512-We4bmHaowOPHr+IQR4/FyTGjRfjgBj4ICMjtqmJeBDWad3Q/6St12NT07leNtyuukv2qMhtSZJQorD8KpKTwRA==}
 
-  '@aws-cdk/cloud-assembly-schema@48.20.0':
-    resolution: {integrity: sha512-+eeiav9LY4wbF/EFuCt/vfvi/Zoxo8bf94PW5clbMraChEliq83w4TbRVy0jB9jE0v1ooFTtIjSQkowSPkfISg==}
+  '@aws-cdk/cloud-assembly-schema@52.2.0':
+    resolution: {integrity: sha512-ourZjixQ/UfsZc7gdk3vt1eHBODMUjQTYYYCY3ZX8fiXyHtWNDAYZPrXUK96jpCC2fLP+tfHTJrBjZ563pmcEw==}
     engines: {node: '>= 18.0.0'}
     bundledDependencies:
       - jsonschema
@@ -2459,13 +2478,14 @@ packages:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
 
-  aws-cdk-lib@2.234.1:
-    resolution: {integrity: sha512-2oNqAA1qjF9xHCom6yHuY8KE6UltK7pTg3egf/t1+C6/OFEaw9+jyhCWmTasGmvjyQSkbvKiCPZco0l+XVyxiQ==}
-    engines: {node: '>= 18.0.0'}
+  aws-cdk-lib@2.242.0:
+    resolution: {integrity: sha512-AmZl4Ep9gWX7wGxmIaLGNqE7DSQFrIg1tpiCQE/INf4vc9MbLvUVYE2qikzk8LUnwe0qF1bG2SaaZZ0u9UMs3w==}
+    engines: {node: '>= 20.0.0'}
     peerDependencies:
-      constructs: ^10.0.0
+      constructs: ^10.5.0
     bundledDependencies:
       - '@balena/dockerignore'
+      - '@aws-cdk/cloud-assembly-api'
       - case
       - fs-extra
       - ignore
@@ -2719,10 +2739,8 @@ packages:
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
-  constructs@10.0.5:
-    resolution: {integrity: sha512-IwOwekzrASFC3qt4ozCtV09rteAIAesuCGsW0p+uBfqHd2XcvA5CXqJjgf4eUqm6g8e/noXlVCMDWwC8GaLtrg==}
-    engines: {node: '>= 10.17.0'}
-    bundledDependencies: []
+  constructs@10.5.1:
+    resolution: {integrity: sha512-f/TfFXiS3G/yVIXDjOQn9oTlyu9Wo7Fxyjj7lb8r92iO81jR2uST+9MstxZTmDGx/CgIbxCXkFXgupnLTNxQZg==}
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -3429,7 +3447,6 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
-    deprecated: Glob versions prior to v9 are no longer supported
 
   globals@14.0.0:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
@@ -3566,7 +3583,6 @@ packages:
 
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
-    deprecated: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -5029,7 +5045,6 @@ packages:
   whatwg-encoding@3.1.1:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
-    deprecated: Use @exodus/bytes instead for a more spec-conformant and faster implementation
 
   whatwg-mimetype@4.0.0:
     resolution: {integrity: sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg==}
@@ -5225,11 +5240,11 @@ snapshots:
 
   '@artilleryio/sketches-js@2.1.1': {}
 
-  '@aws-cdk/asset-awscli-v1@2.2.258': {}
+  '@aws-cdk/asset-awscli-v1@2.2.263': {}
 
-  '@aws-cdk/asset-node-proxy-agent-v6@2.1.0': {}
+  '@aws-cdk/asset-node-proxy-agent-v6@2.1.1': {}
 
-  '@aws-cdk/cloud-assembly-schema@48.20.0': {}
+  '@aws-cdk/cloud-assembly-schema@52.2.0': {}
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -8386,12 +8401,12 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.1.0
 
-  aws-cdk-lib@2.234.1(constructs@10.0.5):
+  aws-cdk-lib@2.242.0(constructs@10.5.1):
     dependencies:
-      '@aws-cdk/asset-awscli-v1': 2.2.258
-      '@aws-cdk/asset-node-proxy-agent-v6': 2.1.0
-      '@aws-cdk/cloud-assembly-schema': 48.20.0
-      constructs: 10.0.5
+      '@aws-cdk/asset-awscli-v1': 2.2.263
+      '@aws-cdk/asset-node-proxy-agent-v6': 2.1.1
+      '@aws-cdk/cloud-assembly-schema': 52.2.0
+      constructs: 10.5.1
 
   aws-cdk@2.1112.0: {}
 
@@ -8502,10 +8517,10 @@ snapshots:
 
   caniuse-lite@1.0.30001718: {}
 
-  cdk-pipelines-github@0.4.133(aws-cdk-lib@2.234.1(constructs@10.0.5))(constructs@10.0.5):
+  cdk-pipelines-github@0.4.133(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1):
     dependencies:
-      aws-cdk-lib: 2.234.1(constructs@10.0.5)
-      constructs: 10.0.5
+      aws-cdk-lib: 2.242.0(constructs@10.5.1)
+      constructs: 10.5.1
 
   chalk@2.4.2:
     dependencies:
@@ -8633,7 +8648,7 @@ snapshots:
 
   concat-map@0.0.1: {}
 
-  constructs@10.0.5: {}
+  constructs@10.5.1: {}
 
   convert-source-map@2.0.0: {}
 

@@ -5,6 +5,7 @@ import {
   Billing,
   TableV2,
   TablePropsV2,
+  ITableV2,
 } from "aws-cdk-lib/aws-dynamodb";
 import {
   Bucket,
@@ -30,11 +31,24 @@ export interface NextjsCacheOverrides {
 export interface NextjsCacheProps {
   readonly buildId: string;
   /**
+   * Bring your own S3 bucket for cache storage. When provided, cdk-nextjs
+   * will skip creating a new bucket. Cache objects are prefixed with `buildId`
+   * so multiple deployments can safely share one bucket.
+   */
+  readonly cacheBucket?: IBucket;
+  /**
    * Absolute path to the init cache directory
    * @example "/Users/john/myapp/.next/cdk-nextjs-init-cache"
    */
   readonly initCacheDir: string;
   readonly overrides?: NextjsCacheOverrides;
+  /**
+   * Bring your own DynamoDB table for revalidation metadata. When provided,
+   * cdk-nextjs will skip creating a new table. The table must have `pk` (String)
+   * as partition key and `sk` (String) as sort key. Entries are partitioned by
+   * `buildId` so multiple deployments can safely share one table.
+   */
+  readonly revalidationTable?: ITableV2;
 }
 
 /**
@@ -42,7 +56,7 @@ export interface NextjsCacheProps {
  */
 export class NextjsCache extends Construct {
   readonly cacheBucket: IBucket;
-  readonly revalidationTable: TableV2;
+  readonly revalidationTable: ITableV2;
   readonly buildId: string;
   readonly bucketDeployment?: BucketDeployment;
   private props: NextjsCacheProps;
@@ -51,8 +65,9 @@ export class NextjsCache extends Construct {
     super(scope, id);
     this.props = props;
     this.buildId = props.buildId;
-    this.cacheBucket = this.createCacheBucket();
-    this.revalidationTable = this.createRevalidationTable();
+    this.cacheBucket = props.cacheBucket ?? this.createCacheBucket();
+    this.revalidationTable =
+      props.revalidationTable ?? this.createRevalidationTable();
     this.bucketDeployment = this.createDeployment();
   }
 

@@ -9,12 +9,12 @@ export interface OptionalNextjsPostDeployProps {
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
    * @stability stable
    */
-  readonly staticAssetsBucket?: aws_s3.Bucket;
+  readonly staticAssetsBucket?: aws_s3.IBucket;
   /**
    * DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries.
    * @stability stable
    */
-  readonly revalidationTable?: aws_dynamodb.TableV2;
+  readonly revalidationTable?: aws_dynamodb.ITableV2;
   /**
    * CloudFront Distribution to invalidate.
    * @stability stable

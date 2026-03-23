@@ -1,4 +1,6 @@
+import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
+import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
@@ -48,6 +50,12 @@ export interface NextjsBaseProps {
    */
   readonly buildDirectory: string;
   /**
+   * Bring your own S3 bucket for cache storage. When provided, cdk-nextjs
+   * will use this bucket instead of creating a new one. Cache objects are
+   * prefixed with `buildId` so multiple deployments can safely share one bucket.
+   */
+  readonly cacheBucket?: IBucket;
+  /**
    * Path to API Route Handler that returns HTTP 200 to ensure compute health.
    * @example "/api/health"
    * @example
@@ -60,11 +68,25 @@ export interface NextjsBaseProps {
    */
   readonly healthCheckPath: string;
   /**
+   * Bring your own DynamoDB table for revalidation metadata. When provided,
+   * cdk-nextjs will use this table instead of creating a new one. The table
+   * must have `pk` (String) as partition key and `sk` (String) as sort key.
+   * Entries are partitioned by `buildId` so multiple deployments can safely
+   * share one table.
+   */
+  readonly revalidationTable?: ITableV2;
+  /**
    * Skips running `next build`. If `true`, you are responsible for running
    * `next build` before this construct is synthesized.
    * @default false
    */
   readonly skipBuild?: boolean;
+  /**
+   * Bring your own S3 bucket for static assets. When provided, cdk-nextjs
+   * will deploy static assets to this bucket instead of creating a new one.
+   * Use with `basePath` to isolate assets per branch when sharing a bucket.
+   */
+  readonly staticAssetsBucket?: IBucket;
   /**
    * Bring your own VPC.
    * If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
@@ -162,14 +184,17 @@ export abstract class NextjsBaseConstruct extends Construct {
   private createNextjsCache(): NextjsCache {
     return new NextjsCache(this, "NextjsCache", {
       buildId: this.nextjsBuild.buildId,
+      cacheBucket: this.baseProps.cacheBucket,
       initCacheDir: this.nextjsBuild.initCacheDir,
       overrides: this.baseProps.overrides?.nextjsCache,
+      revalidationTable: this.baseProps.revalidationTable,
       ...this.constructOverrides?.nextjsCacheProps,
     });
   }
 
   private createNextjsStaticAssets(): NextjsStaticAssets {
     return new NextjsStaticAssets(this, "NextjsStaticAssets", {
+      bucket: this.baseProps.staticAssetsBucket,
       buildDirectory: this.baseProps.buildDirectory,
       buildId: this.nextjsBuild.buildId,
       basePath: this.baseProps.basePath,

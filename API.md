@@ -710,7 +710,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsCache.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsCache.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.bucketDeployment">bucketDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
 
 ---
@@ -750,10 +750,10 @@ public readonly cacheBucket: IBucket;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsCache.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: TableV2;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 ---
 
@@ -812,6 +812,7 @@ new NextjsContainers(scope: Construct, id: string, props: NextjsContainersProps)
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsContainers.toString">toString</a></code> | Returns a string representation of this construct. |
 | <code><a href="#cdk-nextjs.NextjsContainers.with">with</a></code> | Applies one or more mixins to this construct. |
+| <code><a href="#cdk-nextjs.NextjsContainers.removeAutoCreatedListener">removeAutoCreatedListener</a></code> | Remove the HTTP listener that `ApplicationLoadBalancedFargateService` always creates. |
 
 ---
 
@@ -843,6 +844,25 @@ constructs.
 The mixins to apply.
 
 ---
+
+##### `removeAutoCreatedListener` <a name="removeAutoCreatedListener" id="cdk-nextjs.NextjsContainers.removeAutoCreatedListener"></a>
+
+```typescript
+public removeAutoCreatedListener(): void
+```
+
+Remove the HTTP listener that `ApplicationLoadBalancedFargateService` always creates.
+
+Call this when you bring your own ALB that already has a
+listener on the same port (typically port 80) to avoid a
+"listener already exists on this port" deployment failure.
+
+This method:
+1. Removes the L1 `CfnListener` resource (keeps the L2 node so the
+   target group child is preserved).
+2. Removes the associated security-group ingress rule for port 80.
+3. Rebuilds the ECS service `DependsOn` without the deleted listener.
+4. Removes `CfnOutput` resources auto-created by the ecs-patterns construct.
 
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
@@ -891,7 +911,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsContainers.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsContainers.property.albFargateService">albFargateService</a></code> | <code>aws-cdk-lib.aws_ecs_patterns.ApplicationLoadBalancedFargateService</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainers.property.dockerImageAsset">dockerImageAsset</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerImageAsset</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsContainers.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.Cluster</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsContainers.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainers.property.url">url</a></code> | <code>string</code> | *No description.* |
 
 ---
@@ -931,10 +951,10 @@ public readonly dockerImageAsset: DockerImageAsset;
 ##### `ecsCluster`<sup>Required</sup> <a name="ecsCluster" id="cdk-nextjs.NextjsContainers.property.ecsCluster"></a>
 
 ```typescript
-public readonly ecsCluster: Cluster;
+public readonly ecsCluster: ICluster;
 ```
 
-- *Type:* aws-cdk-lib.aws_ecs.Cluster
+- *Type:* aws-cdk-lib.aws_ecs.ICluster
 
 ---
 
@@ -2385,7 +2405,7 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.bucket">bucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.bucket">bucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.deployment">deployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
 
 ---
@@ -2405,10 +2425,10 @@ The tree node.
 ##### `bucket`<sup>Required</sup> <a name="bucket" id="cdk-nextjs.NextjsStaticAssets.property.bucket"></a>
 
 ```typescript
-public readonly bucket: Bucket;
+public readonly bucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 ---
 
@@ -2657,7 +2677,10 @@ const nextjsBaseConstructProps: NextjsBaseConstructProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsBaseOverrides">NextjsBaseOverrides</a></code> | *No description.* |
 
@@ -2738,6 +2761,40 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsBaseConstructProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will use this bucket instead of creating a new one. Cache objects are
+prefixed with `buildId` so multiple deployments can safely share one bucket.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsBaseConstructProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will use this table instead of creating a new one. The table
+must have `pk` (String) as partition key and `sk` (String) as sort key.
+Entries are partitioned by `buildId` so multiple deployments can safely
+share one table.
+
+---
+
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsBaseConstructProps.property.skipBuild"></a>
 
 ```typescript
@@ -2751,6 +2808,22 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsBaseConstructProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will deploy static assets to this bucket instead of creating a new one.
+Use with `basePath` to isolate assets per branch when sharing a bucket.
 
 ---
 
@@ -2840,7 +2913,10 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 
 ---
@@ -2920,6 +2996,40 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsBaseProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will use this bucket instead of creating a new one. Cache objects are
+prefixed with `buildId` so multiple deployments can safely share one bucket.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsBaseProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will use this table instead of creating a new one. The table
+must have `pk` (String) as partition key and `sk` (String) as sort key.
+Entries are partitioned by `buildId` so multiple deployments can safely
+share one table.
+
+---
+
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsBaseProps.property.skipBuild"></a>
 
 ```typescript
@@ -2933,6 +3043,22 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsBaseProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will deploy static assets to this bucket instead of creating a new one.
+Use with `basePath` to isolate assets per branch when sharing a bucket.
 
 ---
 
@@ -3086,7 +3212,9 @@ const nextjsCacheProps: NextjsCacheProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
+| <code><a href="#cdk-nextjs.NextjsCacheProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsCacheOverrides">NextjsCacheOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 
 ---
 
@@ -3119,6 +3247,22 @@ Absolute path to the init cache directory.
 ```
 
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsCacheProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will skip creating a new bucket. Cache objects are prefixed with `buildId`
+so multiple deployments can safely share one bucket.
+
+---
+
 ##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsCacheProps.property.overrides"></a>
 
 ```typescript
@@ -3126,6 +3270,23 @@ public readonly overrides: NextjsCacheOverrides;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsCacheOverrides">NextjsCacheOverrides</a>
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsCacheProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will skip creating a new table. The table must have `pk` (String)
+as partition key and `sk` (String) as sort key. Entries are partitioned by
+`buildId` so multiple deployments can safely share one table.
 
 ---
 
@@ -3148,7 +3309,7 @@ const nextjsComputeBaseProps: NextjsComputeBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 
 ---
@@ -3212,10 +3373,10 @@ public readonly nextjsType: NextjsType;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: TableV2;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -3313,9 +3474,11 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsContainersOverrides">NextjsContainersOverrides</a></code> | *No description.* |
 
 ---
@@ -3379,10 +3542,10 @@ public readonly nextjsType: NextjsType;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsContainersProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: TableV2;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -3407,6 +3570,39 @@ public readonly relativeEntrypointPath: string;
 ```
 
 - *Type:* string
+
+---
+
+##### `alb`<sup>Optional</sup> <a name="alb" id="cdk-nextjs.NextjsContainersProps.property.alb"></a>
+
+```typescript
+public readonly alb: IApplicationLoadBalancer;
+```
+
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
+
+Bring your own Application Load Balancer.
+
+When provided, it is passed
+directly to `ApplicationLoadBalancedFargateService`. If the ALB already
+has a listener on port 80, call `removeAutoCreatedListener()` after
+construction to avoid deployment failures.
+
+---
+
+##### `ecsCluster`<sup>Optional</sup> <a name="ecsCluster" id="cdk-nextjs.NextjsContainersProps.property.ecsCluster"></a>
+
+```typescript
+public readonly ecsCluster: ICluster;
+```
+
+- *Type:* aws-cdk-lib.aws_ecs.ICluster
+
+Bring your own ECS cluster.
+
+When provided, cdk-nextjs will skip creating
+a new cluster and VPC gateway endpoints. The cluster is passed directly
+to `ApplicationLoadBalancedFargateService`.
 
 ---
 
@@ -3590,7 +3786,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
-| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
 
 ---
@@ -3678,10 +3874,10 @@ Required if `NextjsType.GLOBAL_FUNCTIONS`.
 ##### `loadBalancer`<sup>Optional</sup> <a name="loadBalancer" id="cdk-nextjs.NextjsDistributionProps.property.loadBalancer"></a>
 
 ```typescript
-public readonly loadBalancer: ApplicationLoadBalancer;
+public readonly loadBalancer: IApplicationLoadBalancer;
 ```
 
-- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
 
 Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
 
@@ -3768,7 +3964,7 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
 
@@ -3833,10 +4029,10 @@ public readonly nextjsType: NextjsType;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsFunctionsProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: TableV2;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -4054,9 +4250,14 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
 
 ---
@@ -4136,6 +4337,40 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsGlobalContainersProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will use this bucket instead of creating a new one. Cache objects are
+prefixed with `buildId` so multiple deployments can safely share one bucket.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsGlobalContainersProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will use this table instead of creating a new one. The table
+must have `pk` (String) as partition key and `sk` (String) as sort key.
+Entries are partitioned by `buildId` so multiple deployments can safely
+share one table.
+
+---
+
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsGlobalContainersProps.property.skipBuild"></a>
 
 ```typescript
@@ -4149,6 +4384,22 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsGlobalContainersProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will deploy static assets to this bucket instead of creating a new one.
+Use with `basePath` to isolate assets per branch when sharing a bucket.
 
 ---
 
@@ -4169,6 +4420,23 @@ and Lambda functions will run outside a VPC.
 
 ---
 
+##### `alb`<sup>Optional</sup> <a name="alb" id="cdk-nextjs.NextjsGlobalContainersProps.property.alb"></a>
+
+```typescript
+public readonly alb: IApplicationLoadBalancer;
+```
+
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
+
+Bring your own Application Load Balancer.
+
+When provided, it is passed
+directly to `ApplicationLoadBalancedFargateService`. If the ALB already
+has a listener on port 80, call `removeAutoCreatedListener()` after
+construction to avoid deployment failures.
+
+---
+
 ##### `distribution`<sup>Optional</sup> <a name="distribution" id="cdk-nextjs.NextjsGlobalContainersProps.property.distribution"></a>
 
 ```typescript
@@ -4181,6 +4449,21 @@ Bring your own distribution.
 
 Can be used with `basePath` to host multiple
 apps on the same CloudFront distribution.
+
+---
+
+##### `ecsCluster`<sup>Optional</sup> <a name="ecsCluster" id="cdk-nextjs.NextjsGlobalContainersProps.property.ecsCluster"></a>
+
+```typescript
+public readonly ecsCluster: ICluster;
+```
+
+- *Type:* aws-cdk-lib.aws_ecs.ICluster
+
+Bring your own ECS cluster.
+
+When provided, cdk-nextjs will skip creating
+a new cluster and VPC gateway endpoints.
 
 ---
 
@@ -4386,7 +4669,10 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
@@ -4468,6 +4754,40 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will use this bucket instead of creating a new one. Cache objects are
+prefixed with `buildId` so multiple deployments can safely share one bucket.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will use this table instead of creating a new one. The table
+must have `pk` (String) as partition key and `sk` (String) as sort key.
+Entries are partitioned by `buildId` so multiple deployments can safely
+share one table.
+
+---
+
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.skipBuild"></a>
 
 ```typescript
@@ -4481,6 +4801,22 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will deploy static assets to this bucket instead of creating a new one.
+Use with `basePath` to isolate assets per branch when sharing a bucket.
 
 ---
 
@@ -4601,8 +4937,8 @@ const nextjsPostDeployProps: NextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | Override props for every construct. |
-| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
-| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
+| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
+| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
 ---
 
@@ -4668,10 +5004,10 @@ Override props for every construct.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsPostDeployProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: TableV2;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries.
 
@@ -4680,10 +5016,10 @@ DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries.
 ##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket"></a>
 
 ```typescript
-public readonly staticAssetsBucket: Bucket;
+public readonly staticAssetsBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
 
@@ -4857,8 +5193,13 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides">NextjsRegionalContainersOverrides</a></code> | Override props of any construct. |
 
 ---
@@ -4938,6 +5279,40 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsRegionalContainersProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will use this bucket instead of creating a new one. Cache objects are
+prefixed with `buildId` so multiple deployments can safely share one bucket.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsRegionalContainersProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will use this table instead of creating a new one. The table
+must have `pk` (String) as partition key and `sk` (String) as sort key.
+Entries are partitioned by `buildId` so multiple deployments can safely
+share one table.
+
+---
+
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsRegionalContainersProps.property.skipBuild"></a>
 
 ```typescript
@@ -4951,6 +5326,22 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsRegionalContainersProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will deploy static assets to this bucket instead of creating a new one.
+Use with `basePath` to isolate assets per branch when sharing a bucket.
 
 ---
 
@@ -4968,6 +5359,38 @@ If provided, will be passed via overrides to the ECS Cluster (for container-base
 or to the Lambda function (for function-based constructs).
 If not provided, ECS Cluster will create a VPC automatically for containers,
 and Lambda functions will run outside a VPC.
+
+---
+
+##### `alb`<sup>Optional</sup> <a name="alb" id="cdk-nextjs.NextjsRegionalContainersProps.property.alb"></a>
+
+```typescript
+public readonly alb: IApplicationLoadBalancer;
+```
+
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
+
+Bring your own Application Load Balancer.
+
+When provided, it is passed
+directly to `ApplicationLoadBalancedFargateService`. If the ALB already
+has a listener on port 80, call `removeAutoCreatedListener()` after
+construction to avoid deployment failures.
+
+---
+
+##### `ecsCluster`<sup>Optional</sup> <a name="ecsCluster" id="cdk-nextjs.NextjsRegionalContainersProps.property.ecsCluster"></a>
+
+```typescript
+public readonly ecsCluster: ICluster;
+```
+
+- *Type:* aws-cdk-lib.aws_ecs.ICluster
+
+Bring your own ECS cluster.
+
+When provided, cdk-nextjs will skip creating
+a new cluster and VPC gateway endpoints.
 
 ---
 
@@ -5173,7 +5596,10 @@ const nextjsRegionalFunctionsProps: NextjsRegionalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsOverrides">NextjsRegionalFunctionsOverrides</a></code> | Override props of any construct. |
 
@@ -5254,6 +5680,40 @@ Command to generate optimized version of your Next.js app in container;
 
 ---
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will use this bucket instead of creating a new one. Cache objects are
+prefixed with `buildId` so multiple deployments can safely share one bucket.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will use this table instead of creating a new one. The table
+must have `pk` (String) as partition key and `sk` (String) as sort key.
+Entries are partitioned by `buildId` so multiple deployments can safely
+share one table.
+
+---
+
 ##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.skipBuild"></a>
 
 ```typescript
@@ -5267,6 +5727,22 @@ Skips running `next build`.
 
 If `true`, you are responsible for running
 `next build` before this construct is synthesized.
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will deploy static assets to this bucket instead of creating a new one.
+Use with `basePath` to isolate assets per branch when sharing a bucket.
 
 ---
 
@@ -5355,6 +5831,7 @@ const nextjsStaticAssetsProps: NextjsStaticAssetsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID from NextjsBuild to track asset versions. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
+| <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.bucket">bucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
 
 ---
@@ -5401,6 +5878,22 @@ Prefix to the URI path the app will be served at.
 "/my-base-path"
 ```
 
+
+##### `bucket`<sup>Optional</sup> <a name="bucket" id="cdk-nextjs.NextjsStaticAssetsProps.property.bucket"></a>
+
+```typescript
+public readonly bucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will skip creating a new bucket and deploy assets to this bucket instead.
+Use with `basePath` to isolate assets per branch when sharing a bucket.
+
+---
 
 ##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsStaticAssetsProps.property.overrides"></a>
 
@@ -9644,7 +10137,9 @@ const optionalNextjsCacheProps: OptionalNextjsCacheProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
+| <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 
 ---
 
@@ -9658,6 +10153,22 @@ public readonly buildId: string;
 
 ---
 
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.OptionalNextjsCacheProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will skip creating a new bucket. Cache objects are prefixed with `buildId`
+so multiple deployments can safely share one bucket.
+
+---
+
 ##### `initCacheDir`<sup>Optional</sup> <a name="initCacheDir" id="cdk-nextjs.OptionalNextjsCacheProps.property.initCacheDir"></a>
 
 ```typescript
@@ -9667,6 +10178,23 @@ public readonly initCacheDir: string;
 - *Type:* string
 
 Absolute path to the init cache directory.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.OptionalNextjsCacheProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will skip creating a new table. The table must have `pk` (String)
+as partition key and `sk` (String) as sort key. Entries are partitioned by
+`buildId` so multiple deployments can safely share one table.
 
 ---
 
@@ -9686,14 +10214,33 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
+
+---
+
+##### `alb`<sup>Optional</sup> <a name="alb" id="cdk-nextjs.OptionalNextjsContainersProps.property.alb"></a>
+
+```typescript
+public readonly alb: IApplicationLoadBalancer;
+```
+
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
+
+Bring your own Application Load Balancer.
+
+When provided, it is passed
+directly to `ApplicationLoadBalancedFargateService`. If the ALB already
+has a listener on port 80, call `removeAutoCreatedListener()` after
+construction to avoid deployment failures.
 
 ---
 
@@ -9730,6 +10277,22 @@ public readonly cacheBucket: IBucket;
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
 S3 bucket for cache storage.
+
+---
+
+##### `ecsCluster`<sup>Optional</sup> <a name="ecsCluster" id="cdk-nextjs.OptionalNextjsContainersProps.property.ecsCluster"></a>
+
+```typescript
+public readonly ecsCluster: ICluster;
+```
+
+- *Type:* aws-cdk-lib.aws_ecs.ICluster
+
+Bring your own ECS cluster.
+
+When provided, cdk-nextjs will skip creating
+a new cluster and VPC gateway endpoints. The cluster is passed directly
+to `ApplicationLoadBalancedFargateService`.
 
 ---
 
@@ -9778,10 +10341,10 @@ Relative path from buildDirectory to the package containing Next.js app.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: TableV2;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -9808,7 +10371,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
 
@@ -9875,10 +10438,10 @@ Required if `NextjsType.GLOBAL_FUNCTIONS`.
 ##### `loadBalancer`<sup>Optional</sup> <a name="loadBalancer" id="cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer"></a>
 
 ```typescript
-public readonly loadBalancer: ApplicationLoadBalancer;
+public readonly loadBalancer: IApplicationLoadBalancer;
 ```
 
-- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.ApplicationLoadBalancer
+- *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
 
 Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
 
@@ -9926,8 +10489,8 @@ const optionalNextjsPostDeployProps: OptionalNextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Cache bucket for cleaning up old BUILD_ID prefixed objects. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
-| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.TableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
-| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
+| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
 ---
 
@@ -9981,10 +10544,10 @@ CloudFront Distribution to invalidate.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: TableV2;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.TableV2
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries.
 
@@ -9993,10 +10556,10 @@ DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries.
 ##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket"></a>
 
 ```typescript
-public readonly staticAssetsBucket: Bucket;
+public readonly staticAssetsBucket: IBucket;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.Bucket
+- *Type:* aws-cdk-lib.aws_s3.IBucket
 
 Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
 

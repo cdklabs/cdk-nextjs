@@ -1,4 +1,6 @@
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import { ICluster } from "aws-cdk-lib/aws-ecs";
+import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
@@ -43,10 +45,22 @@ export interface NextjsGlobalContainersOverrides extends NextjsBaseOverrides {
 
 export interface NextjsGlobalContainersProps extends NextjsBaseProps {
   /**
+   * Bring your own Application Load Balancer. When provided, it is passed
+   * directly to `ApplicationLoadBalancedFargateService`. If the ALB already
+   * has a listener on port 80, call `removeAutoCreatedListener()` after
+   * construction to avoid deployment failures.
+   */
+  readonly alb?: IApplicationLoadBalancer;
+  /**
    * Bring your own distribution. Can be used with `basePath` to host multiple
    * apps on the same CloudFront distribution.
    */
   readonly distribution?: Distribution;
+  /**
+   * Bring your own ECS cluster. When provided, cdk-nextjs will skip creating
+   * a new cluster and VPC gateway endpoints.
+   */
+  readonly ecsCluster?: ICluster;
   /**
    * Override props of any construct.
    */
@@ -86,6 +100,8 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     // Create containers with local build output
     return new NextjsContainers(this, "NextjsContainers", {
       ...this.computeBaseProps(),
+      alb: this.props.alb,
+      ecsCluster: this.props.ecsCluster,
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
       overrides: {
         ...this.props.overrides?.nextjsContainers,

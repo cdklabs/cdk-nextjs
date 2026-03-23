@@ -33,6 +33,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 - Customize every construct via `overrides`.
 - AWS security and operational best practices are utilized, guided by [cdk-nag](https://github.com/cdklabs/cdk-nag).
 - First class support for [monorepos](https://monorepo.tools/).
+- [Bring Your Own Resources](#bring-your-own-resources) — import existing AWS resources (CloudFront distributions, ECS clusters, ALBs, S3 buckets, DynamoDB tables).
 - [AWS GovCloud (US)](https://aws.amazon.com/govcloud-us) compatible with `NextjsRegionalFunctions` and `NextjsRegionalContainers`.
 
 ## Prerequisites
@@ -261,6 +262,82 @@ The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Pl
 - Security first.
 - One architecture does not fit all.
 - Enable customization everywhere.
+
+## Bring Your Own Resources
+
+cdk-nextjs supports importing existing AWS resources instead of creating new ones. This is especially useful for per-branch (MR/PR) environments where you deploy shared infrastructure once and spin up lightweight branch stacks that reuse it.
+
+### Supported Resources
+
+| Resource                    | Prop                 | Available On                                         |
+| --------------------------- | -------------------- | ---------------------------------------------------- |
+| S3 Cache Bucket             | `cacheBucket`        | All constructs                                       |
+| DynamoDB Revalidation Table | `revalidationTable`  | All constructs                                       |
+| S3 Static Assets Bucket     | `staticAssetsBucket` | All constructs                                       |
+| CloudFront Distribution     | `distribution`       | `NextjsGlobalFunctions`, `NextjsGlobalContainers`    |
+| ECS Cluster                 | `ecsCluster`         | `NextjsGlobalContainers`, `NextjsRegionalContainers` |
+| ALB                         | `alb`                | `NextjsGlobalContainers`, `NextjsRegionalContainers` |
+
+### Resource Isolation
+
+- **Cache bucket and DynamoDB table** are isolated by `buildId` prefix. Multiple branches safely share one bucket/table with no conflicts.
+- **Static assets bucket** — Next.js includes content hashes in static asset filenames, so different branches deploying the same file will produce identical content. It's safe for branches to overwrite each other. If you're already using `basePath` for routing, assets will naturally be prefixed by it.
+
+### Shared ALB and `removeAutoCreatedListener()`
+
+`ApplicationLoadBalancedFargateService` always creates a listener on port 80 — there is no opt-out. When you import an ALB that already has a listener on that port, the duplicate causes a deployment failure. Since CDK doesn't expose a way to prevent this, `removeAutoCreatedListener()` surgically removes the generated CloudFormation resources: the `CfnListener`, its security group ingress rule, rebuilds the ECS service `DependsOn` without the deleted listener, and removes auto-created `CfnOutput` resources:
+
+```ts
+const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
+  // ...
+  alb: sharedAlb,
+  ecsCluster: sharedCluster,
+});
+nextjs.nextjsContainers.removeAutoCreatedListener();
+```
+
+### Examples
+
+See [examples/bring-your-own/](./examples/bring-your-own/) for a complete deployable example with shared infrastructure and per-branch host-header routing.
+
+## Preview Environments (Per-Branch Deployments)
+
+cdk-nextjs can deploy ephemeral preview environments per merge request (MR) or pull request (PR). The recommended approach uses subdomain-based routing (`pr-123.app.example.com`) so each preview environment runs the same Next.js build as production — no `basePath` configuration or separate builds required.
+
+See [examples/bring-your-own/](./examples/bring-your-own/) for a fully deployable example using `NextjsRegionalContainers` with a shared ALB, ECS Cluster, S3 buckets, and DynamoDB table — connected via SSM Parameter Store.
+
+### Prerequisites
+
+- Wildcard DNS record: `*.app.example.com` → your routing layer (ALB, CloudFront, API Gateway)
+- Wildcard ACM certificate: `*.app.example.com`
+
+### Per-Architecture Recommendations
+
+#### `NextjsGlobalContainers` and `NextjsRegionalContainers` (ALB-based)
+
+Subdomain routing via ALB host-based listener rules. This is the fastest and simplest approach. For `NextjsGlobalContainers`, CloudFront forwards the `Host` header to the ALB origin, so the ALB handles all branch routing — no CloudFront changes needed per branch.
+
+See [examples/bring-your-own/](./examples/bring-your-own/) for the full implementation.
+
+#### `NextjsRegionalFunctions` (API Gateway)
+
+Subdomain routing via API Gateway custom domain mappings.
+
+1. Deploy shared infrastructure once: S3 buckets, DynamoDB table
+2. Per branch, deploy a cdk-nextjs stack that imports shared resources and creates its own API Gateway
+3. Create an API Gateway custom domain (`pr-123.app.example.com`) mapped to the branch's API stage
+4. Tear down the branch stack on MR close
+
+#### `NextjsGlobalFunctions` (Lambda + CloudFront)
+
+Requires a separate cdk-nextjs stack per branch, each with its own CloudFront distribution. CloudFront cannot route to different Lambda Function URL origins based on the `Host` header — origin selection is determined by cache behavior path patterns, not request headers.
+
+1. Deploy shared infrastructure once: S3 buckets, DynamoDB table
+2. Per branch, deploy a full cdk-nextjs stack that imports shared resources (`cacheBucket`, `revalidationTable`, `staticAssetsBucket`) but creates its own CloudFront distribution and Lambda function
+3. Point `pr-123.app.example.com` DNS to the branch's CloudFront distribution
+4. Tear down the branch stack on MR close
+
+Note: CloudFront distributions take several minutes to create/update, so this architecture has the slowest preview environment spin-up time.
 
 ## Limitations
 
