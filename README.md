@@ -298,13 +298,13 @@ nextjs.nextjsContainers.removeAutoCreatedListener();
 
 ### Examples
 
-See [examples/bring-your-own-resources/](./examples/bring-your-own-resources/) for complete working examples of each architecture.
-
-See [Preview Environments](#preview-environments-per-branch-deployments) for how to combine BYO resources with per-MR/PR branch deployments.
+See [examples/bring-your-own/](./examples/bring-your-own/) for a complete deployable example with shared infrastructure and per-branch host-header routing.
 
 ## Preview Environments (Per-Branch Deployments)
 
-cdk-nextjs can be used to deploy ephemeral preview environments per merge request (MR) or pull request (PR). The recommended approach uses subdomain-based routing (`pr-123.app.example.com`) so each preview environment runs the same Next.js build as production — no `basePath` configuration or separate builds required.
+cdk-nextjs can deploy ephemeral preview environments per merge request (MR) or pull request (PR). The recommended approach uses subdomain-based routing (`pr-123.app.example.com`) so each preview environment runs the same Next.js build as production — no `basePath` configuration or separate builds required.
+
+See [examples/bring-your-own/](./examples/bring-your-own/) for a fully deployable example using `NextjsRegionalContainers` with a shared ALB, ECS Cluster, S3 buckets, and DynamoDB table — connected via SSM Parameter Store.
 
 ### Prerequisites
 
@@ -315,42 +315,9 @@ cdk-nextjs can be used to deploy ephemeral preview environments per merge reques
 
 #### `NextjsGlobalContainers` and `NextjsRegionalContainers` (ALB-based)
 
-Subdomain routing via ALB host-based listener rules. This is the fastest and simplest approach.
+Subdomain routing via ALB host-based listener rules. This is the fastest and simplest approach. For `NextjsGlobalContainers`, CloudFront forwards the `Host` header to the ALB origin, so the ALB handles all branch routing — no CloudFront changes needed per branch.
 
-1. Deploy shared infrastructure once: VPC, ECS Cluster, ALB (with HTTPS listener), S3 buckets, DynamoDB table
-2. Per branch, deploy a cdk-nextjs stack that imports the shared resources via [Bring Your Own Resources](#bring-your-own-resources) props (`alb`, `ecsCluster`, `cacheBucket`, `revalidationTable`, `staticAssetsBucket`)
-3. Call `removeAutoCreatedListener()` to avoid conflicting with the shared ALB's existing listener
-4. Add a host-based listener rule on the shared HTTPS listener to route `<branch>.app.example.com` to the branch's ECS target group
-5. Tear down the branch stack on PR close
-
-For `NextjsGlobalContainers`, CloudFront forwards the `Host` header to the ALB origin, so the ALB handles all branch routing — no CloudFront changes needed per branch.
-
-```ts
-// Shared infra stack exports: ALB, ECS Cluster, HTTPS Listener, S3 buckets, DynamoDB table
-const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
-  buildDirectory: join(import.meta.dirname),
-  healthCheckPath: "/api/health",
-  alb: sharedAlb,
-  ecsCluster: sharedCluster,
-  cacheBucket: sharedCacheBucket,
-  revalidationTable: sharedRevalidationTable,
-  staticAssetsBucket: sharedStaticAssetsBucket,
-});
-nextjs.nextjsContainers.removeAutoCreatedListener();
-
-// Route branch subdomain to this branch's target group
-const branch = getGitBranch(); // your helper to read current branch
-const subdomain = branchToSubdomain(branch); // sanitize branch name for DNS
-const domainName = `${subdomain}.app.example.com`;
-
-httpsListener.addAction(`${subdomain}-route`, {
-  priority: hashToPriority(subdomain), // deterministic priority from branch name
-  conditions: [ListenerCondition.hostHeaders([domainName])],
-  action: ListenerAction.forward([
-    nextjs.nextjsContainers.albFargateService.targetGroup,
-  ]),
-});
-```
+See [examples/bring-your-own/](./examples/bring-your-own/) for the full implementation.
 
 #### `NextjsRegionalFunctions` (API Gateway)
 
