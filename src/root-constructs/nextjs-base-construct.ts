@@ -1,4 +1,4 @@
-import { ITable } from "aws-cdk-lib/aws-dynamodb";
+import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -74,7 +74,7 @@ export interface NextjsBaseProps {
    * Entries are partitioned by `buildId` so multiple deployments can safely
    * share one table.
    */
-  readonly revalidationTable?: ITable;
+  readonly revalidationTable?: ITableV2;
   /**
    * Skips running `next build`. If `true`, you are responsible for running
    * `next build` before this construct is synthesized.

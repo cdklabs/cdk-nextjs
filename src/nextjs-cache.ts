@@ -3,9 +3,9 @@ import { RemovalPolicy } from "aws-cdk-lib";
 import {
   AttributeType,
   Billing,
-  ITable,
   TableV2,
   TablePropsV2,
+  ITableV2,
 } from "aws-cdk-lib/aws-dynamodb";
 import {
   Bucket,
@@ -48,7 +48,7 @@ export interface NextjsCacheProps {
    * as partition key and `sk` (String) as sort key. Entries are partitioned by
    * `buildId` so multiple deployments can safely share one table.
    */
-  readonly revalidationTable?: ITable;
+  readonly revalidationTable?: ITableV2;
 }
 
 /**
@@ -56,7 +56,7 @@ export interface NextjsCacheProps {
  */
 export class NextjsCache extends Construct {
   readonly cacheBucket: IBucket;
-  readonly revalidationTable: ITable;
+  readonly revalidationTable: ITableV2;
   readonly buildId: string;
   readonly bucketDeployment?: BucketDeployment;
   private props: NextjsCacheProps;

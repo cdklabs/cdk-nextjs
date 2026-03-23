@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { CustomResource, Duration } from "aws-cdk-lib";
 import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
-import { ITable } from "aws-cdk-lib/aws-dynamodb";
+import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import {
   Code,
   Function as LambdaFunction,
@@ -36,7 +36,7 @@ export interface NextjsPostDeployProps {
   /**
    * DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries
    */
-  readonly revalidationTable?: ITable;
+  readonly revalidationTable?: ITableV2;
   /**
    * If true, logs details in custom resource lambda
    * @default true
