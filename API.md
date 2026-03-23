@@ -710,7 +710,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsCache.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsCache.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.bucketDeployment">bucketDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
 
 ---
@@ -750,10 +750,10 @@ public readonly cacheBucket: IBucket;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsCache.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 ---
 
@@ -2678,7 +2678,7 @@ const nextjsBaseConstructProps: NextjsBaseConstructProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
-| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
@@ -2780,10 +2780,10 @@ prefixed with `buildId` so multiple deployments can safely share one bucket.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsBaseConstructProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -2914,7 +2914,7 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
-| <code><a href="#cdk-nextjs.NextjsBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
@@ -3015,10 +3015,10 @@ prefixed with `buildId` so multiple deployments can safely share one bucket.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsBaseProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -3214,7 +3214,7 @@ const nextjsCacheProps: NextjsCacheProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsCacheProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsCacheOverrides">NextjsCacheOverrides</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsCacheProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsCacheProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 
 ---
 
@@ -3276,10 +3276,10 @@ public readonly overrides: NextjsCacheOverrides;
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsCacheProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -3309,7 +3309,7 @@ const nextjsComputeBaseProps: NextjsComputeBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 
 ---
@@ -3373,10 +3373,10 @@ public readonly nextjsType: NextjsType;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -3474,7 +3474,7 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
@@ -3542,10 +3542,10 @@ public readonly nextjsType: NextjsType;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsContainersProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -3964,7 +3964,7 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides">NextjsFunctionsOverrides</a></code> | *No description.* |
 
@@ -4029,10 +4029,10 @@ public readonly nextjsType: NextjsType;
 ##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsFunctionsProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -4251,7 +4251,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
@@ -4356,10 +4356,10 @@ prefixed with `buildId` so multiple deployments can safely share one bucket.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsGlobalContainersProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -4670,7 +4670,7 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
@@ -4773,10 +4773,10 @@ prefixed with `buildId` so multiple deployments can safely share one bucket.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -4937,7 +4937,7 @@ const nextjsPostDeployProps: NextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | Override props for every construct. |
-| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
+| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
 ---
@@ -5004,10 +5004,10 @@ Override props for every construct.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsPostDeployProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries.
 
@@ -5194,7 +5194,7 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
@@ -5298,10 +5298,10 @@ prefixed with `buildId` so multiple deployments can safely share one bucket.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsRegionalContainersProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -5597,7 +5597,7 @@ const nextjsRegionalFunctionsProps: NextjsRegionalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
-| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
@@ -5699,10 +5699,10 @@ prefixed with `buildId` so multiple deployments can safely share one bucket.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -10139,7 +10139,7 @@ const optionalNextjsCacheProps: OptionalNextjsCacheProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
-| <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.OptionalNextjsCacheProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
 
 ---
 
@@ -10184,10 +10184,10 @@ Absolute path to the init cache directory.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.OptionalNextjsCacheProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 Bring your own DynamoDB table for revalidation metadata.
 
@@ -10223,7 +10223,7 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from buildDirectory to the package containing Next.js app. |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 
 ---
 
@@ -10341,10 +10341,10 @@ Relative path from buildDirectory to the package containing Next.js app.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for revalidation metadata.
 
@@ -10489,7 +10489,7 @@ const optionalNextjsPostDeployProps: OptionalNextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Cache bucket for cleaning up old BUILD_ID prefixed objects. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
-| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITable</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
+| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
 
 ---
@@ -10544,10 +10544,10 @@ CloudFront Distribution to invalidate.
 ##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable"></a>
 
 ```typescript
-public readonly revalidationTable: ITable;
+public readonly revalidationTable: ITableV2;
 ```
 
-- *Type:* aws-cdk-lib.aws_dynamodb.ITable
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
 
 DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries.
 
