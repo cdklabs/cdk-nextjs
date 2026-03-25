@@ -32,10 +32,16 @@ window.fetch = async function (input, init) {
     return originalFetch(input, init);
   }
 
-  const url =
-    typeof input === "string"
-      ? new URL(input, window.location.href)
-      : new URL(input.url);
+  let url;
+  if (typeof input === "string") {
+    url = new URL(input, window.location.href);
+  } else if (input instanceof URL) {
+    url = input;
+  } else if (input instanceof Request) {
+    url = new URL(input.url, window.location.href);
+  } else {
+    url = new URL(String(input), window.location.href);
+  }
   if (url.hostname !== window.location.hostname) {
     return originalFetch(input, init);
   }
