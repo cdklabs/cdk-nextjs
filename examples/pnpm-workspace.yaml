@@ -31,7 +31,7 @@ catalog:
   lint-staged: 15.2.2
   ms: 3.0.0-canary.1
   next: ^16.2.0
-  postcss: 8.4.38
+  postcss: 8.5.10
   prettier: 3.2.5
   prettier-plugin-tailwindcss: 0.5.14
   react: 19.2.3
