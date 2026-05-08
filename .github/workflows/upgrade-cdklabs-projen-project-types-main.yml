@@ -28,6 +28,8 @@ jobs:
           node-version: lts/*
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
+      - name: Compile JSII
+        run: pnpm projen compile
       - name: Upgrade dependencies
         run: pnpm dlx projen upgrade-cdklabs-projen-project-types
       - name: Find mutations

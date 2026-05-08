@@ -23,11 +23,11 @@ const project = new CdklabsConstructLibrary({
   // majorVersion: 1,
   // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.242.0",
-  jsiiVersion: "~5.9.22",
+  cdkVersion: "2.253.1",
+  jsiiVersion: "~5.9.39",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion,
-  projenVersion: "^0.99.1",
+  projenVersion: "^0.99.57",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-cloudfront",
@@ -282,6 +282,44 @@ function updateGitHubWorkflows() {
         run: `pnpm projen compile`,
       },
       ...upgradeJobSteps.slice(4),
+    ],
+  });
+  // .github/workflows/upgrade-cdklabs-projen-project-types-main.yml
+  const upgradeCdklabsWorkflow = project.github?.tryFindWorkflow(
+    "upgrade-cdklabs-projen-project-types-main",
+  );
+  if (!upgradeCdklabsWorkflow) return;
+  const upgradeCdklabsJob = upgradeCdklabsWorkflow.getJob("upgrade");
+  if (!upgradeCdklabsJob || !("steps" in upgradeCdklabsJob)) return;
+  const upgradeCdklabsJobSteps = upgradeCdklabsJob.steps;
+  upgradeCdklabsWorkflow.updateJob("upgrade", {
+    ...upgradeCdklabsJob,
+    steps: [
+      ...upgradeCdklabsJobSteps.slice(0, 4),
+      {
+        name: "Compile JSII",
+        run: `pnpm projen compile`,
+      },
+      ...upgradeCdklabsJobSteps.slice(4),
+    ],
+  });
+  // .github/workflows/upgrade-dev-deps-main.yml
+  const upgradeDevDepsWorkflow = project.github?.tryFindWorkflow(
+    "upgrade-dev-deps-main",
+  );
+  if (!upgradeDevDepsWorkflow) return;
+  const upgradeDevDepsJob = upgradeDevDepsWorkflow.getJob("upgrade");
+  if (!upgradeDevDepsJob || !("steps" in upgradeDevDepsJob)) return;
+  const upgradeDevDepsJobSteps = upgradeDevDepsJob.steps;
+  upgradeDevDepsWorkflow.updateJob("upgrade", {
+    ...upgradeDevDepsJob,
+    steps: [
+      ...upgradeDevDepsJobSteps.slice(0, 4),
+      {
+        name: "Compile JSII",
+        run: `pnpm projen compile`,
+      },
+      ...upgradeDevDepsJobSteps.slice(4),
     ],
   });
 }
