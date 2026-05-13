@@ -48,13 +48,13 @@ importers:
         specifier: ^2.1.4
         version: 2.1.4
       '@types/node':
-        specifier: ^24.12.3
+        specifier: ^24
         version: 24.12.3
       '@typescript-eslint/eslint-plugin':
-        specifier: ^8.59.2
+        specifier: ^8
         version: 8.59.2(@typescript-eslint/parser@8.59.2(eslint@9.39.4)(typescript@5.9.3))(eslint@9.39.4)(typescript@5.9.3)
       '@typescript-eslint/parser':
-        specifier: ^8.59.2
+        specifier: ^8
         version: 8.59.2(eslint@9.39.4)(typescript@5.9.3)
       aws-cdk-lib:
         specifier: 2.253.1
@@ -66,7 +66,7 @@ importers:
         specifier: ^0.3.32
         version: 0.3.32(constructs@10.5.1)(projen@0.99.57(constructs@10.5.1))
       commit-and-tag-version:
-        specifier: ^12.7.3
+        specifier: ^12
         version: 12.7.3
       constructs:
         specifier: 10.5.1
@@ -78,7 +78,7 @@ importers:
         specifier: ^0.27.7
         version: 0.27.7
       eslint:
-        specifier: ^9.39.4
+        specifier: ^9
         version: 9.39.4
       eslint-config-prettier:
         specifier: ^9.1.2
@@ -96,8 +96,8 @@ importers:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@24.12.3)(ts-node@10.9.2(@types/node@24.12.3)(typescript@5.9.3))
       jest-junit:
-        specifier: ^16.0.0
-        version: 16.0.0
+        specifier: ^17
+        version: 17.0.0
       jsii:
         specifier: ~5.9.39
         version: 5.9.39
@@ -105,7 +105,7 @@ importers:
         specifier: ^1.129.0
         version: 1.129.0
       jsii-docgen:
-        specifier: ^10.11.18
+        specifier: ^10.5.0
         version: 10.11.18(jsii-rosetta@5.9.44)
       jsii-pacmak:
         specifier: ^1.129.0
@@ -117,7 +117,7 @@ importers:
         specifier: ^2.1.35
         version: 2.1.35
       next:
-        specifier: ^16.2.6
+        specifier: ^16.2.0
         version: 16.2.6(@babel/core@7.29.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       prettier:
         specifier: ^3.8.3
@@ -2780,9 +2780,9 @@ packages:
     resolution: {integrity: sha512-fP8u2pyfqx0K1rGn1R9pyE0/KTn+G7PxktWidOBTqFPLYX0b9ksaMFkhK5vrS3DVun09pckLdlx90QthlW7AmA==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
 
-  jest-junit@16.0.0:
-    resolution: {integrity: sha512-A94mmw6NfJab4Fg/BlvVOUXzXgF0XIH6EmTgJ5NDPp4xoKq0Kr7sErb+4Xs9nZvu58pJojz5RFGpqnZYJTrRfQ==}
-    engines: {node: '>=10.12.0'}
+  jest-junit@17.0.0:
+    resolution: {integrity: sha512-RYWCkq4j59gUXj5DsgbIE7xFBZzu1gtibPhyjSjMmGaOTLnqlXhg7x9zuGCwgbCuMAyoyvk0Mi8wSrRR5uOeLA==}
+    engines: {node: '>=20.0.0'}
 
   jest-leak-detector@29.7.0:
     resolution: {integrity: sha512-kYA8IJcSYtST2BY9I+SMC32nDpBT3J2NvWJx8+JCuCdl/CR1I4EKUJROiP8XtCcxqgTTBGJNdbB1A8XRKbTetw==}
@@ -3882,9 +3882,8 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@8.3.2:
-    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+  uuid@14.0.0:
+    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
     hasBin: true
 
   v8-compile-cache-lib@3.0.1:
@@ -7264,11 +7263,11 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  jest-junit@16.0.0:
+  jest-junit@17.0.0:
     dependencies:
       mkdirp: 1.0.4
       strip-ansi: 6.0.1
-      uuid: 8.3.2
+      uuid: 14.0.0
       xml: 1.0.1
 
   jest-leak-detector@29.7.0:
@@ -8567,7 +8566,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  uuid@8.3.2: {}
+  uuid@14.0.0: {}
 
   v8-compile-cache-lib@3.0.1: {}
 

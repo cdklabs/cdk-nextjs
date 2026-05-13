@@ -103,6 +103,19 @@ export interface OptionalDockerImageAssetProps {
    */
   readonly buildSecrets?: Record<string, string>;
   /**
+   * Build contexts to pass to the `docker build` command.
+   * Build contexts can be used to specify additional directories or images
+   * to use during the build. Each entry specifies a named build context
+   * and its source (a directory path, a URL, or a docker image).
+   *
+   * Since Docker build contexts are resolved before deployment, keys and
+   * values cannot refer to unresolved tokens (such as `lambda.functionArn` or
+   * `queue.queueUrl`).
+   * @default - no additional build contexts
+   * @stability stable
+   */
+  readonly buildContexts?: Record<string, string>;
+  /**
    * Build args to pass to the `docker build` command.
    * Since Docker build arguments are resolved before deployment, keys and
    * values cannot refer to unresolved tokens (such as `lambda.functionArn` or
