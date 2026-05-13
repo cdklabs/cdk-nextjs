@@ -4,6 +4,7 @@
 !/.projen/deps.json
 !/.projen/files.json
 !/.github/workflows/pull-request-lint.yml
+!/.github/workflows/dependency-review.yml
 !/.github/workflows/auto-approve.yml
 !/package.json
 !/LICENSE
@@ -45,7 +46,6 @@ junit.xml
 /dist/version.txt
 !/.github/workflows/release.yml
 !/.github/pull_request_template.md
-!/.npmrc
 !/test/
 !/tsconfig.dev.json
 !/src/
