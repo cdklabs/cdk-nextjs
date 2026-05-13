@@ -133,7 +133,7 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/patch-fetch.js",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify"
+          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome111,firefox111,safari16.4,edge111\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify"
         }
       ]
     },
@@ -142,7 +142,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/patch-fetch.js",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome64,firefox67,safari12,edge79\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify --watch"
+          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome111,firefox111,safari16.4,edge111\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify --watch"
         }
       ]
     },

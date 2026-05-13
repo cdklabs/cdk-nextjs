@@ -196,7 +196,7 @@ function bundle() {
   project.bundler.addBundle("src/nextjs-build/patch-fetch.js", {
     platform: "browser",
     // https://nextjs.org/docs/architecture/supported-browsers
-    target: "chrome64,firefox67,safari12,edge79",
+    target: "chrome111,firefox111,safari16.4,edge111",
     minify: true,
     outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
