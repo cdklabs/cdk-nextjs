@@ -17,11 +17,9 @@ const project = new CdklabsConstructLibrary({
   private: false,
   // package.json config
   name: "cdk-nextjs",
-  prerelease: "beta", // TODO: remove once Next.js 16.2 is released
   description:
     "Deploy Next.js apps on AWS with CDK" /* The description is just a string that helps people understand the purpose of the package. */,
   // majorVersion: 1,
-  // prerelease: "beta",
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
   cdkVersion: "2.253.1",
   jsiiVersion: "~5.9.39",
@@ -475,6 +473,11 @@ function updatePackageJson() {
       "unrs-resolver",
       "sharp",
     ]),
+  );
+  packageJson?.patch(
+    JsonPatch.add("/pnpm/overrides", {
+      postcss: ">=8.5.10",
+    }),
   );
   packageJson?.patch(JsonPatch.add("/packageManager", `pnpm@${pnpmVersion}`));
   packageJson?.patch(
