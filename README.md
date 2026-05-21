@@ -46,7 +46,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 ## Getting Started
 
 1. Install `cdk-nextjs` in the package(s) containing your CDK and Next.js app with `npm i cdk-nextjs`
-2. Update next.config.ts to include `experimental.adapterPath`:
+2. Update next.config.ts to include `adapterPath`:
 
 ```ts
 import { NextConfig } from "next";
