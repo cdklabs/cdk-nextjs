@@ -1,8 +1,9 @@
 // Patch fetch to add x-amz-content-sha256 header for AWS S3 requests
 // This is required for S3 cache operations to work correctly with AWS signature v4
 
-async function sha256(message) {
-  const msgBuffer = new TextEncoder().encode(message);
+async function sha256(data) {
+  const msgBuffer =
+    typeof data === "string" ? new TextEncoder().encode(data) : data;
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -10,18 +11,6 @@ async function sha256(message) {
 
 const originalFetch = window.fetch;
 const originalXMLHttpRequest = window.XMLHttpRequest;
-
-function createFormDataString(boundary, formData) {
-  let result = "";
-  for (const [name, value] of formData.entries()) {
-    result += `--${boundary}\r\n`;
-    result += `Content-Disposition: form-data; name="${name}"\r\n`;
-    result += "\r\n";
-    result += `${value}\r\n`;
-  }
-  result += `--${boundary}--`;
-  return result;
-}
 
 // Patch window.fetch
 window.fetch = async function (input, init) {
@@ -47,27 +36,32 @@ window.fetch = async function (input, init) {
   }
 
   const body = init.body;
-  let bodyString;
+  let bodyBytes;
   const headers = new Headers(init.headers);
 
   if (body) {
     if (typeof body === "string") {
-      bodyString = body;
+      bodyBytes = new TextEncoder().encode(body);
     } else if (body instanceof FormData) {
-      const boundary = "----FormBoundary" + Math.random().toString(16);
-      bodyString = createFormDataString(boundary, body);
-      headers.set("content-type", `multipart/form-data; boundary=${boundary}`);
-      init.body = bodyString;
-    } else if (body instanceof Blob || body instanceof ArrayBuffer) {
-      bodyString = await body.text();
+      // Encode via Response so File/Blob parts survive as bytes. The hash must
+      // cover the exact sent bytes (incl. boundary), so the encoding becomes the body.
+      const encoded = new Response(body);
+      bodyBytes = new Uint8Array(await encoded.arrayBuffer());
+      const contentType = encoded.headers.get("content-type");
+      if (contentType) headers.set("content-type", contentType);
+      init.body = bodyBytes;
+    } else if (body instanceof Blob) {
+      bodyBytes = new Uint8Array(await body.arrayBuffer());
+    } else if (body instanceof ArrayBuffer) {
+      bodyBytes = new Uint8Array(body);
     } else {
-      bodyString = JSON.stringify(body);
+      bodyBytes = new TextEncoder().encode(JSON.stringify(body));
     }
   } else {
-    bodyString = "";
+    bodyBytes = new Uint8Array(0);
   }
 
-  const contentSha256 = await sha256(bodyString);
+  const contentSha256 = await sha256(bodyBytes);
   headers.set("x-amz-content-sha256", contentSha256);
   init.headers = headers;
 
