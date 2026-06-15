@@ -1237,6 +1237,7 @@ Any object.
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsFunctions.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsFunctions.property.function">function</a></code> | <code>aws-cdk-lib.aws_lambda.DockerImageFunction</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctions.property.alias">alias</a></code> | <code>aws-cdk-lib.aws_lambda.Alias</code> | Lambda Alias pointing to `function.currentVersion`. Only set when `overrides.aliasProps` is provided. Pass this to auto-scaling or any other construct that needs to target the alias rather than `$LATEST`. |
 | <code><a href="#cdk-nextjs.NextjsFunctions.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.FunctionUrl</code> | *No description.* |
 
 ---
@@ -1260,6 +1261,18 @@ public readonly function: DockerImageFunction;
 ```
 
 - *Type:* aws-cdk-lib.aws_lambda.DockerImageFunction
+
+---
+
+##### `alias`<sup>Optional</sup> <a name="alias" id="cdk-nextjs.NextjsFunctions.property.alias"></a>
+
+```typescript
+public readonly alias: Alias;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Alias
+
+Lambda Alias pointing to `function.currentVersion`. Only set when `overrides.aliasProps` is provided. Pass this to auto-scaling or any other construct that needs to target the alias rather than `$LATEST`.
 
 ---
 
@@ -3909,9 +3922,30 @@ const nextjsFunctionsOverrides: NextjsFunctionsOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.aliasProps">aliasProps</a></code> | <code><a href="#cdk-nextjs.OptionalAliasProps">OptionalAliasProps</a></code> | Props for creating a Lambda Alias. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.assetImageCodeProps">assetImageCodeProps</a></code> | <code>aws-cdk-lib.aws_lambda.AssetImageCodeProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.dockerImageFunctionProps">dockerImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.OptionalDockerImageFunctionProps">OptionalDockerImageFunctionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.functionUrlProps">functionUrlProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionUrlProps">OptionalFunctionUrlProps</a></code> | *No description.* |
+
+---
+
+##### `aliasProps`<sup>Optional</sup> <a name="aliasProps" id="cdk-nextjs.NextjsFunctionsOverrides.property.aliasProps"></a>
+
+```typescript
+public readonly aliasProps: OptionalAliasProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalAliasProps">OptionalAliasProps</a>
+
+Props for creating a Lambda Alias.
+
+When set, an alias pointing to
+`function.currentVersion` is created and exposed as `alias`. This is
+required for provisioned concurrency — set `provisionedConcurrentExecutions`
+here to keep warm instances. The alias is also what gets wired into API
+Gateway so invocations actually hit the provisioned capacity.
+
+`version` is omitted because it is always set to `function.currentVersion`.
 
 ---
 
@@ -5902,6 +5936,154 @@ public readonly overrides: NextjsStaticAssetsOverrides;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
+
+---
+
+### OptionalAliasProps <a name="OptionalAliasProps" id="cdk-nextjs.OptionalAliasProps"></a>
+
+OptionalAliasProps.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalAliasProps.Initializer"></a>
+
+```typescript
+import { OptionalAliasProps } from 'cdk-nextjs'
+
+const optionalAliasProps: OptionalAliasProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.additionalVersions">additionalVersions</a></code> | <code>aws-cdk-lib.aws_lambda.VersionWeight[]</code> | Additional versions with individual weights this alias points to. |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.aliasName">aliasName</a></code> | <code>string</code> | Name of this alias. |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.description">description</a></code> | <code>string</code> | Description for the alias. |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.maxEventAge">maxEventAge</a></code> | <code>aws-cdk-lib.Duration</code> | The maximum age of a request that Lambda sends to a function for processing. |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.onFailure">onFailure</a></code> | <code>aws-cdk-lib.aws_lambda.IDestination</code> | The destination for failed invocations. |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.onSuccess">onSuccess</a></code> | <code>aws-cdk-lib.aws_lambda.IDestination</code> | The destination for successful invocations. |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.provisionedConcurrentExecutions">provisionedConcurrentExecutions</a></code> | <code>number</code> | Specifies a provisioned concurrency configuration for a function's alias. |
+| <code><a href="#cdk-nextjs.OptionalAliasProps.property.retryAttempts">retryAttempts</a></code> | <code>number</code> | The maximum number of times to retry when the function returns an error. |
+
+---
+
+##### `additionalVersions`<sup>Optional</sup> <a name="additionalVersions" id="cdk-nextjs.OptionalAliasProps.property.additionalVersions"></a>
+
+```typescript
+public readonly additionalVersions: VersionWeight[];
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.VersionWeight[]
+- *Default:* No additional versions
+
+Additional versions with individual weights this alias points to.
+
+Individual additional version weights specified here should add up to
+(less than) one. All remaining weight is routed to the default
+version.
+
+For example, the config is
+
+   version: "1"
+   additionalVersions: [{ version: "2", weight: 0.05 }]
+
+Then 5% of traffic will be routed to function version 2, while
+the remaining 95% of traffic will be routed to function version 1.
+
+---
+
+##### `aliasName`<sup>Optional</sup> <a name="aliasName" id="cdk-nextjs.OptionalAliasProps.property.aliasName"></a>
+
+```typescript
+public readonly aliasName: string;
+```
+
+- *Type:* string
+
+Name of this alias.
+
+---
+
+##### `description`<sup>Optional</sup> <a name="description" id="cdk-nextjs.OptionalAliasProps.property.description"></a>
+
+```typescript
+public readonly description: string;
+```
+
+- *Type:* string
+- *Default:* No description
+
+Description for the alias.
+
+---
+
+##### `maxEventAge`<sup>Optional</sup> <a name="maxEventAge" id="cdk-nextjs.OptionalAliasProps.property.maxEventAge"></a>
+
+```typescript
+public readonly maxEventAge: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.hours(6)
+
+The maximum age of a request that Lambda sends to a function for processing.
+
+Minimum: 60 seconds
+Maximum: 6 hours
+
+---
+
+##### `onFailure`<sup>Optional</sup> <a name="onFailure" id="cdk-nextjs.OptionalAliasProps.property.onFailure"></a>
+
+```typescript
+public readonly onFailure: IDestination;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IDestination
+- *Default:* no destination
+
+The destination for failed invocations.
+
+---
+
+##### `onSuccess`<sup>Optional</sup> <a name="onSuccess" id="cdk-nextjs.OptionalAliasProps.property.onSuccess"></a>
+
+```typescript
+public readonly onSuccess: IDestination;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IDestination
+- *Default:* no destination
+
+The destination for successful invocations.
+
+---
+
+##### `provisionedConcurrentExecutions`<sup>Optional</sup> <a name="provisionedConcurrentExecutions" id="cdk-nextjs.OptionalAliasProps.property.provisionedConcurrentExecutions"></a>
+
+```typescript
+public readonly provisionedConcurrentExecutions: number;
+```
+
+- *Type:* number
+- *Default:* No provisioned concurrency
+
+Specifies a provisioned concurrency configuration for a function's alias.
+
+---
+
+##### `retryAttempts`<sup>Optional</sup> <a name="retryAttempts" id="cdk-nextjs.OptionalAliasProps.property.retryAttempts"></a>
+
+```typescript
+public readonly retryAttempts: number;
+```
+
+- *Type:* number
+- *Default:* 2
+
+The maximum number of times to retry when the function returns an error.
+
+Minimum: 0
+Maximum: 2
 
 ---
 

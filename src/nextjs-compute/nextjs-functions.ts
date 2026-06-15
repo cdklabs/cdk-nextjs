@@ -16,9 +16,9 @@ import {
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
 import { LOG_PREFIX, NextjsType } from "../constants";
+import { OptionalAliasProps } from "../generated-structs/OptionalAliasProps";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
-import { OptionalAliasProps } from "../generated-structs/OptionalAliasProps";
 import { getLambdaArchitecture } from "../utils/get-architecture";
 
 export interface NextjsFunctionsOverrides {
