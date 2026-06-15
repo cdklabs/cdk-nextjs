@@ -545,6 +545,68 @@ TODO
 
 </details>
 
+## Provisioned Concurrency
+
+By default, Lambda functions are invoked at `$LATEST` which means every cold start incurs full initialization time. For low-traffic apps where nearly every request hits a cold instance, provisioned concurrency keeps a set number of execution environments warm and ready.
+
+To enable it, pass `aliasProps` with `provisionedConcurrentExecutions` through the `nextjsFunctions` override. This works for both `NextjsGlobalFunctions` and `NextjsRegionalFunctions`.
+
+```ts
+new NextjsRegionalFunctions(stack, "Nextjs", {
+  nextjsPath: "./path/to/nextjs",
+  overrides: {
+    nextjsFunctions: {
+      aliasProps: {
+        provisionedConcurrentExecutions: 2,
+      },
+    },
+  },
+});
+```
+
+When `aliasProps` is set, cdk-nextjs automatically:
+
+1. Publishes a versioned alias (`live` by default) pointing to `function.currentVersion`
+2. Wires API Gateway (or CloudFront Function URL) to invoke through the alias instead of `$LATEST`
+3. Attaches provisioned concurrency to that alias
+
+### Auto-scaling
+
+For traffic that varies throughout the day, use auto-scaling on the alias rather than a fixed number of warm instances. The `alias` property is exposed on `nextjsFunctions` for this purpose:
+
+```ts
+import * as appscaling from "aws-cdk-lib/aws-applicationautoscaling";
+
+const nextjs = new NextjsRegionalFunctions(stack, "Nextjs", {
+  nextjsPath: "./path/to/nextjs",
+  overrides: {
+    nextjsFunctions: {
+      aliasProps: {
+        provisionedConcurrentExecutions: 2, // minimum baseline
+      },
+    },
+  },
+});
+
+const scalingTarget = nextjs.nextjsFunctions.alias!.addAutoScaling({
+  minCapacity: 2,
+  maxCapacity: 20,
+});
+
+// Scale based on utilization
+scalingTarget.scaleOnUtilization({ utilizationTarget: 0.7 });
+
+// Or scale on a schedule
+scalingTarget.scaleOnSchedule("ScaleUpMorning", {
+  schedule: appscaling.Schedule.cron({ hour: "8", minute: "0" }),
+  minCapacity: 10,
+});
+```
+
+### Cost consideration
+
+Provisioned concurrency is billed for the time instances are kept warm, regardless of traffic. For very low-traffic apps, 2–5 instances is usually sufficient to eliminate noticeable cold starts. See [Lambda pricing](https://aws.amazon.com/lambda/pricing/) for current rates.
+
 ## Guides
 
 - [Caching Guide](./docs/caching-guide.md)

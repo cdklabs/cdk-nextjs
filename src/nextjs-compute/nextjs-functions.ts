@@ -67,7 +67,8 @@ export class NextjsFunctions extends Construct {
       this.function.grantInvoke(
         new ServicePrincipal("cloudfront.amazonaws.com"),
       );
-      this.functionUrl = this.function.addFunctionUrl({
+      const fnTarget = this.alias ?? this.function;
+      this.functionUrl = fnTarget.addFunctionUrl({
         authType: FunctionUrlAuthType.AWS_IAM,
         invokeMode: InvokeMode.RESPONSE_STREAM,
         ...this.props.overrides?.functionUrlProps,
