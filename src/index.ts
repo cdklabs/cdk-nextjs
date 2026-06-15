@@ -80,6 +80,7 @@ export { OptionalClusterProps } from "./generated-structs/OptionalClusterProps";
 export { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 export { OptionalDockerImageAssetProps } from "./generated-structs/OptionalDockerImageAssetProps";
 export { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDockerImageFunctionProps";
+export { OptionalAliasProps } from "./generated-structs/OptionalAliasProps";
 export { OptionalEdgeFunctionProps } from "./generated-structs/OptionalEdgeFunctionProps";
 export { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 export { OptionalFunctionUrlProps } from "./generated-structs/OptionalFunctionUrlProps";

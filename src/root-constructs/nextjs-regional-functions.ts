@@ -89,7 +89,8 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   private createNextjsApi() {
     return new NextjsApi(this, "NextjsApi", {
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      serverFunction: this.nextjsFunctions.function,
+      serverFunction:
+        this.nextjsFunctions.alias ?? this.nextjsFunctions.function,
       basePath: this.baseProps.basePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,

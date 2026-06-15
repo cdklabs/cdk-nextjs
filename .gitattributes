@@ -25,6 +25,7 @@
 /LICENSE linguist-generated
 /package.json linguist-generated
 /pnpm-lock.yaml linguist-generated
+/src/generated-structs/OptionalAliasProps.ts linguist-generated
 /src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts linguist-generated
 /src/generated-structs/OptionalCloudFrontFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalClusterProps.ts linguist-generated

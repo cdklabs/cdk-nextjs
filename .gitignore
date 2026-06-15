@@ -84,3 +84,4 @@ tsconfig.json
 !/src/generated-structs/OptionalFunctionProps.ts
 !/src/generated-structs/OptionalFunctionUrlProps.ts
 !/src/generated-structs/OptionalDockerImageFunctionProps.ts
+!/src/generated-structs/OptionalAliasProps.ts

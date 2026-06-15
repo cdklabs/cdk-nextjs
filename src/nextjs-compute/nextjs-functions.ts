@@ -4,6 +4,7 @@ import { join as joinPosix } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
 import { ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
+  Alias,
   AssetImageCodeProps,
   DockerImageCode,
   DockerImageFunction,
@@ -17,12 +18,23 @@ import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
+import { OptionalAliasProps } from "../generated-structs/OptionalAliasProps";
 import { getLambdaArchitecture } from "../utils/get-architecture";
 
 export interface NextjsFunctionsOverrides {
   readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;
   readonly functionUrlProps?: OptionalFunctionUrlProps;
   readonly assetImageCodeProps?: AssetImageCodeProps;
+  /**
+   * Props for creating a Lambda Alias. When set, an alias pointing to
+   * `function.currentVersion` is created and exposed as `alias`. This is
+   * required for provisioned concurrency — set `provisionedConcurrentExecutions`
+   * here to keep warm instances. The alias is also what gets wired into API
+   * Gateway so invocations actually hit the provisioned capacity.
+   *
+   * `version` is omitted because it is always set to `function.currentVersion`.
+   */
+  readonly aliasProps?: OptionalAliasProps;
 }
 
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
@@ -35,6 +47,12 @@ export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
 export class NextjsFunctions extends Construct {
   function: DockerImageFunction;
   functionUrl?: FunctionUrl;
+  /**
+   * Lambda Alias pointing to `function.currentVersion`. Only set when
+   * `overrides.aliasProps` is provided. Pass this to auto-scaling or any
+   * other construct that needs to target the alias rather than `$LATEST`.
+   */
+  alias?: Alias;
 
   private props: NextjsFunctionsProps;
 
@@ -42,6 +60,9 @@ export class NextjsFunctions extends Construct {
     super(scope, id);
     this.props = props;
     this.function = this.createFunction();
+    if (props.overrides?.aliasProps) {
+      this.alias = this.createAlias();
+    }
     if (props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
       this.function.grantInvoke(
         new ServicePrincipal("cloudfront.amazonaws.com"),
@@ -86,6 +107,14 @@ export class NextjsFunctions extends Construct {
     this.props.revalidationTable.grantReadWriteData(fn);
 
     return fn;
+  }
+
+  private createAlias(): Alias {
+    return new Alias(this, "Alias", {
+      aliasName: "live",
+      ...this.props.overrides?.aliasProps,
+      version: this.function.currentVersion,
+    });
   }
 
   private createDockerImageCode(): DockerImageCode {

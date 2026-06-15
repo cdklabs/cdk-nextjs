@@ -463,6 +463,13 @@ function generateStructs() {
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.DockerImageFunctionProps"))
     .allOptional();
+  new ProjenStruct(project, {
+    name: "OptionalAliasProps",
+    filePath: getFilePath("OptionalAliasProps"),
+  })
+    .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.AliasProps"))
+    .omit("version")
+    .allOptional();
 }
 
 function updatePackageJson() {
