@@ -25,7 +25,6 @@
 /LICENSE linguist-generated
 /package.json linguist-generated
 /pnpm-lock.yaml linguist-generated
-/projenrc/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
 /src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts linguist-generated
 /src/generated-structs/OptionalCloudFrontFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalClusterProps.ts linguist-generated
@@ -45,5 +44,4 @@
 /src/generated-structs/OptionalS3OriginBucketWithOACProps.ts linguist-generated
 /src/generated-structs/OptionalVpcProps.ts linguist-generated
 /src/lambdas/post-deploy/post-deploy-function.ts linguist-generated
-/test/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
-/tsconfig.json linguist-generated
+/tsconfig.dev.json linguist-generated linguist-language=JSON-with-Comments

@@ -172,7 +172,7 @@
       "^.+\\.[t]sx?$": [
         "ts-jest",
         {
-          "tsconfig": "test/tsconfig.json"
+          "tsconfig": "tsconfig.dev.json"
         }
       ]
     }
@@ -181,8 +181,10 @@
   "jsii": {
     "outdir": "dist",
     "targets": {},
-    "tsconfig": "tsconfig.json",
-    "validateTsconfig": "strict"
+    "tsc": {
+      "outDir": "lib",
+      "rootDir": "src"
+    }
   },
   "exports": {
     ".": {
