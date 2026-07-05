@@ -148,8 +148,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     };
     const key = nextjsTypeToKey[nextjsType];
     const overrides = this.baseProps.overrides as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (overrides && key in overrides) {
       return overrides[key] as NextjsBaseConstructOverrides;
     }
