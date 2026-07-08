@@ -52,8 +52,8 @@ catalogs:
       specifier: ^2.1129.0
       version: 2.1129.0
     aws-cdk-lib:
-      specifier: 2.242.0
-      version: 2.242.0
+      specifier: 2.261.0
+      version: 2.261.0
     babel-plugin-react-compiler:
       specifier: 1.0.0
       version: 1.0.0
@@ -125,14 +125,14 @@ catalogs:
       version: 3.0.1
 
 overrides:
+  braces@3.0.2: ^3.0.3
   debug@4.1.1: ^4.3.1
+  postcss@<8.5.10: ^8.5.10
   protobufjs@7: 7.5.8
   protobufjs@8: 8.2.1
   semver@7.3.5: ^7.5.2
   tar@4.4.18: ^6.2.1
   undici@5.26.5: ^5.28.4
-  braces@3.0.2: ^3.0.3
-  postcss@<8.5.10: ^8.5.10
 
 importers:
 
@@ -253,7 +253,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.242.0(constructs@10.5.1)
+        version: 2.261.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -275,7 +275,7 @@ importers:
         version: 1.61.1
       cdk-pipelines-github:
         specifier: 'catalog:'
-        version: 0.4.139(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1)
+        version: 0.4.139(aws-cdk-lib@2.261.0(constructs@10.5.1))(constructs@10.5.1)
       tsx:
         specifier: 'catalog:'
         version: 4.23.0
@@ -284,7 +284,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.242.0(constructs@10.5.1)
+        version: 2.261.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -306,7 +306,7 @@ importers:
         version: 2.1129.0
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.242.0(constructs@10.5.1)
+        version: 2.261.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -337,7 +337,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.242.0(constructs@10.5.1)
+        version: 2.261.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -356,7 +356,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.242.0(constructs@10.5.1)
+        version: 2.261.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -375,7 +375,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.242.0(constructs@10.5.1)
+        version: 2.261.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -394,7 +394,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.242.0(constructs@10.5.1)
+        version: 2.261.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -424,14 +424,14 @@ packages:
   '@artilleryio/sketches-js@2.1.1':
     resolution: {integrity: sha512-H3D50vDb37E3NGYXY0eUFAm5++moElaqoAu0MWYZhgzaA3IT2E67bRCL8U4LKHuVf/MgDZk14uawIjc4WVjOUQ==}
 
-  '@aws-cdk/asset-awscli-v1@2.2.263':
-    resolution: {integrity: sha512-X9JvcJhYcb7PHs8R7m4zMablO5C9PGb/hYfLnxds9h/rKJu6l7MiXE/SabCibuehxPnuO/vk+sVVJiUWrccarQ==}
+  '@aws-cdk/asset-awscli-v1@2.2.282':
+    resolution: {integrity: sha512-7hKMi5tTxDcKGIMIOq14PnY0GBcugW33Uh/2YHDZiEwSxLeFOCYBwhR+BFXONb/EJeVI3RETFgailNZbkcKF6g==}
 
-  '@aws-cdk/asset-node-proxy-agent-v6@2.1.1':
-    resolution: {integrity: sha512-We4bmHaowOPHr+IQR4/FyTGjRfjgBj4ICMjtqmJeBDWad3Q/6St12NT07leNtyuukv2qMhtSZJQorD8KpKTwRA==}
+  '@aws-cdk/asset-node-proxy-agent-v6@2.1.2':
+    resolution: {integrity: sha512-pDiuqH+qY3zM9lhhLjbKJ1tnKOHzQ2V4Wr/3qsxyKeKAkuPMI/BVGvZG1PbrikUw949cGVTfVEt4ETKKYnrj0Q==}
 
-  '@aws-cdk/cloud-assembly-schema@52.2.0':
-    resolution: {integrity: sha512-ourZjixQ/UfsZc7gdk3vt1eHBODMUjQTYYYCY3ZX8fiXyHtWNDAYZPrXUK96jpCC2fLP+tfHTJrBjZ563pmcEw==}
+  '@aws-cdk/cloud-assembly-schema@54.8.0':
+    resolution: {integrity: sha512-f891G+Uv4x0/PWTYkA7psEoxHj4//uXEYklB853uFZVHq2zwoH5Eko+uL07wUXZsUiXpZZl8c72KJVnEidR+zg==}
     engines: {node: '>= 18.0.0'}
     bundledDependencies:
       - jsonschema
@@ -2307,8 +2307,8 @@ packages:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
 
-  aws-cdk-lib@2.242.0:
-    resolution: {integrity: sha512-AmZl4Ep9gWX7wGxmIaLGNqE7DSQFrIg1tpiCQE/INf4vc9MbLvUVYE2qikzk8LUnwe0qF1bG2SaaZZ0u9UMs3w==}
+  aws-cdk-lib@2.261.0:
+    resolution: {integrity: sha512-e52e3Abjg0HkuRWlWwtSv5+ZiMW1rhCDdL9ff7lzWXInU8xdfLJpuoimfa0IJwjiNGyphppgg52Azx9M80OA0g==}
     engines: {node: '>= 20.0.0'}
     peerDependencies:
       constructs: ^10.5.0
@@ -2322,7 +2322,6 @@ packages:
       - minimatch
       - punycode
       - semver
-      - table
       - yaml
       - mime-types
 
@@ -4827,11 +4826,11 @@ snapshots:
 
   '@artilleryio/sketches-js@2.1.1': {}
 
-  '@aws-cdk/asset-awscli-v1@2.2.263': {}
+  '@aws-cdk/asset-awscli-v1@2.2.282': {}
 
-  '@aws-cdk/asset-node-proxy-agent-v6@2.1.1': {}
+  '@aws-cdk/asset-node-proxy-agent-v6@2.1.2': {}
 
-  '@aws-cdk/cloud-assembly-schema@52.2.0': {}
+  '@aws-cdk/cloud-assembly-schema@54.8.0': {}
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -7702,11 +7701,11 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.1.0
 
-  aws-cdk-lib@2.242.0(constructs@10.5.1):
+  aws-cdk-lib@2.261.0(constructs@10.5.1):
     dependencies:
-      '@aws-cdk/asset-awscli-v1': 2.2.263
-      '@aws-cdk/asset-node-proxy-agent-v6': 2.1.1
-      '@aws-cdk/cloud-assembly-schema': 52.2.0
+      '@aws-cdk/asset-awscli-v1': 2.2.282
+      '@aws-cdk/asset-node-proxy-agent-v6': 2.1.2
+      '@aws-cdk/cloud-assembly-schema': 54.8.0
       constructs: 10.5.1
 
   aws-cdk@2.1129.0: {}
@@ -7811,9 +7810,9 @@ snapshots:
 
   caniuse-lite@1.0.30001718: {}
 
-  cdk-pipelines-github@0.4.139(aws-cdk-lib@2.242.0(constructs@10.5.1))(constructs@10.5.1):
+  cdk-pipelines-github@0.4.139(aws-cdk-lib@2.261.0(constructs@10.5.1))(constructs@10.5.1):
     dependencies:
-      aws-cdk-lib: 2.242.0(constructs@10.5.1)
+      aws-cdk-lib: 2.261.0(constructs@10.5.1)
       constructs: 10.5.1
 
   chalk@2.4.2:
