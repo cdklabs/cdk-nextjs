@@ -54,6 +54,8 @@ window.fetch = async function (input, init) {
       bodyBytes = new Uint8Array(await body.arrayBuffer());
     } else if (body instanceof ArrayBuffer) {
       bodyBytes = new Uint8Array(body);
+    } else if (body instanceof URLSearchParams) {
+      bodyBytes = new TextEncoder().encode(body.toString());
     } else {
       bodyBytes = new TextEncoder().encode(JSON.stringify(body));
     }
@@ -91,7 +93,11 @@ window.XMLHttpRequest = class extends originalXMLHttpRequest {
         body
       ) {
         const bodyString =
-          typeof body === "string" ? body : JSON.stringify(body);
+          typeof body === "string"
+            ? body
+            : body instanceof URLSearchParams
+              ? body.toString()
+              : JSON.stringify(body);
         const contentSha256 = await sha256(bodyString);
         this.setRequestHeader("x-amz-content-sha256", contentSha256);
       }

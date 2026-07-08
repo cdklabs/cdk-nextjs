@@ -11,5 +11,6 @@
     "**/*.code-search": true,
     "**/pruned": true,
     "**/cdk.out": true
-  }
+  },
+  "js/ts.tsdk.path": "node_modules/typescript/lib"
 }

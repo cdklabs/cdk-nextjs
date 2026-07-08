@@ -1,4 +1,8 @@
 {
+  "manifestVersion": 3,
+  "env": {
+    "PATH": "$(pnpm -c exec \"node --print process.env.PATH\")"
+  },
   "tasks": {
     "build": {
       "name": "build",
@@ -35,7 +39,7 @@
         "RELEASE_TAG_PREFIX": "",
         "VERSIONRCOPTIONS": "{\"types\":[{\"type\":\"feat\",\"section\":\"Features\"},{\"type\":\"fix\",\"section\":\"Bug Fixes\"},{\"type\":\"chore\",\"section\":\"Chores\"},{\"type\":\"docs\",\"section\":\"Docs\"},{\"type\":\"style\",\"hidden\":true},{\"type\":\"refactor\",\"hidden\":true},{\"type\":\"perf\",\"section\":\"Performance\"},{\"type\":\"test\",\"hidden\":true}]}",
         "BUMP_PACKAGE": "commit-and-tag-version@^12",
-        "RELEASABLE_COMMITS": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep \"^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+\""
+        "RELEASABLE_COMMITS": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep '^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+'"
       },
       "steps": [
         {
@@ -115,7 +119,7 @@
       "description": "Create a JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/*"
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/*"
         }
       ]
     },
@@ -124,7 +128,7 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"tsconfig.dev.json\" --external:@aws-sdk/* --watch"
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
@@ -201,7 +205,12 @@
       "description": "Synthesize project files",
       "steps": [
         {
-          "exec": "ts-node --project tsconfig.dev.json .projenrc.ts"
+          "execArgs": [
+            "ts-node",
+            "--project",
+            "projenrc/tsconfig.json",
+            ".projenrc.ts"
+          ]
         }
       ]
     },
@@ -210,7 +219,11 @@
       "description": "Generate API.md from .jsii manifest",
       "steps": [
         {
-          "exec": "jsii-docgen -o API.md"
+          "execArgs": [
+            "jsii-docgen",
+            "-o",
+            "API.md"
+          ]
         }
       ]
     },
@@ -306,7 +319,14 @@
       "description": "Create js language bindings",
       "steps": [
         {
-          "exec": "jsii-pacmak -v --pack-command \"pnpm pack\" --target js"
+          "execArgs": [
+            "jsii-pacmak",
+            "-v",
+            "--pack-command",
+            "pnpm pack",
+            "--target",
+            "js"
+          ]
         }
       ]
     },
@@ -404,7 +424,7 @@
         "RELEASE_TAG_PREFIX": "",
         "VERSIONRCOPTIONS": "{\"types\":[{\"type\":\"feat\",\"section\":\"Features\"},{\"type\":\"fix\",\"section\":\"Bug Fixes\"},{\"type\":\"chore\",\"section\":\"Chores\"},{\"type\":\"docs\",\"section\":\"Docs\"},{\"type\":\"style\",\"hidden\":true},{\"type\":\"refactor\",\"hidden\":true},{\"type\":\"perf\",\"section\":\"Performance\"},{\"type\":\"test\",\"hidden\":true}]}",
         "BUMP_PACKAGE": "commit-and-tag-version@^12",
-        "RELEASABLE_COMMITS": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep \"^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+\""
+        "RELEASABLE_COMMITS": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep '^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+'"
       },
       "steps": [
         {
@@ -420,7 +440,10 @@
       },
       "steps": [
         {
-          "exec": "echo No dependencies to upgrade."
+          "execArgs": [
+            "echo",
+            "No dependencies to upgrade."
+          ]
         }
       ]
     },
@@ -432,13 +455,28 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@20 --upgrade --target=latest --peer --no-deprecated --dep=dev,peer,prod,optional --filter=cdklabs-projen-project-types,projen"
+          "execArgs": [
+            "pnpm",
+            "dlx",
+            "npm-check-updates@20",
+            "--upgrade",
+            "--target=latest",
+            "--peer",
+            "--no-deprecated",
+            "--dep=dev,prod,peer,optional",
+            "--filter=cdklabs-projen-project-types,projen"
+          ]
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update cdklabs-projen-project-types projen"
+          "execArgs": [
+            "pnpm",
+            "update",
+            "cdklabs-projen-project-types",
+            "projen"
+          ]
         },
         {
           "exec": "pnpm dlx projen"
@@ -456,13 +494,67 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@20 --upgrade --target=minor --cooldown=3 --peer --no-deprecated --dep=dev --filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+          "execArgs": [
+            "pnpm",
+            "dlx",
+            "npm-check-updates@20",
+            "--upgrade",
+            "--target=minor",
+            "--cooldown=3",
+            "--peer",
+            "--no-deprecated",
+            "--dep=dev",
+            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+          ]
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @aws-crypto/sha256-js @aws-sdk/client-cloudfront @aws-sdk/client-dynamodb @aws-sdk/client-s3 @aws-sdk/lib-storage @mrgrain/jsii-struct-builder @smithy/signature-v4 @types/aws-lambda @types/debug @types/jest @types/mime-types @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser cdk-nag commit-and-tag-version debug esbuild eslint-config-prettier eslint-import-resolver-typescript eslint-plugin-import eslint-plugin-prettier eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii mime-types next prettier ts-jest ts-node typescript undici @aws-cdk/integ-runner @aws-cdk/integ-tests-alpha --config.minimum-release-age=4320"
+          "execArgs": [
+            "pnpm",
+            "update",
+            "@aws-crypto/sha256-js",
+            "@aws-sdk/client-cloudfront",
+            "@aws-sdk/client-dynamodb",
+            "@aws-sdk/client-s3",
+            "@aws-sdk/lib-storage",
+            "@mrgrain/jsii-struct-builder",
+            "@smithy/signature-v4",
+            "@types/aws-lambda",
+            "@types/debug",
+            "@types/jest",
+            "@types/mime-types",
+            "@types/node",
+            "@typescript-eslint/eslint-plugin",
+            "@typescript-eslint/parser",
+            "cdk-nag",
+            "commit-and-tag-version",
+            "debug",
+            "esbuild",
+            "eslint-config-prettier",
+            "eslint-import-resolver-typescript",
+            "eslint-plugin-import",
+            "eslint-plugin-prettier",
+            "eslint",
+            "jest",
+            "jest-junit",
+            "jsii-diff",
+            "jsii-docgen",
+            "jsii-pacmak",
+            "jsii-rosetta",
+            "jsii",
+            "mime-types",
+            "next",
+            "prettier",
+            "ts-jest",
+            "ts-node",
+            "typescript",
+            "undici",
+            "@aws-cdk/integ-runner",
+            "@aws-cdk/integ-tests-alpha",
+            "--config.minimum-release-age=4320"
+          ]
         },
         {
           "exec": "pnpm dlx projen"
@@ -481,9 +573,6 @@
         }
       ]
     }
-  },
-  "env": {
-    "PATH": "$(pnpm -c exec \"node --print process.env.PATH\")"
   },
   "//": "~~ Generated by projen. To modify, edit .projenrc.ts and run \"pnpm dlx projen\"."
 }
