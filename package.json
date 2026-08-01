@@ -8,6 +8,7 @@
   "scripts": {
     "build": "pnpm dlx projen build",
     "bump": "pnpm dlx projen bump",
+    "bump:releasable-commits": "pnpm dlx projen bump:releasable-commits",
     "bundle": "pnpm dlx projen bundle",
     "bundle:adapter/adapter": "pnpm dlx projen bundle:adapter/adapter",
     "bundle:adapter/adapter:watch": "pnpm dlx projen bundle:adapter/adapter:watch",
@@ -67,7 +68,7 @@
     "@typescript-eslint/parser": "^8",
     "aws-cdk-lib": "2.261.0",
     "cdk-nag": "^2.38.2",
-    "cdklabs-projen-project-types": "^0.6.4",
+    "cdklabs-projen-project-types": "^0.6.8",
     "commit-and-tag-version": "^12",
     "constructs": "10.5.1",
     "debug": "^4.4.3",
