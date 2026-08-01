@@ -25,6 +25,7 @@
 /LICENSE linguist-generated
 /package.json linguist-generated
 /pnpm-lock.yaml linguist-generated
+/pnpm-workspace.yaml linguist-generated
 /projenrc/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
 /src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts linguist-generated
 /src/generated-structs/OptionalCloudFrontFunctionProps.ts linguist-generated
