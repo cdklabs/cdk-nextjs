@@ -6,6 +6,7 @@ import {
   writeFileSync,
   rmSync,
   mkdirSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -398,18 +399,37 @@ export class NextjsBuild extends Construct {
         const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
         const cachedFile = join(cacheDir, cacheFileName);
 
-        // Check if we already have this package cached
-        if (existsSync(cachedFile)) {
+        // Check if we already have a valid package cached; discard it if
+        // a previous run left behind a truncated/corrupt download
+        if (existsSync(cachedFile) && this.isCachedFileValid(cachedFile)) {
           debug(
             `${LOG_PREFIX} Using cached ${pkg.name}@${pkg.version} from ${cachedFile}`,
           );
         } else {
+          if (existsSync(cachedFile)) {
+            debug(`${LOG_PREFIX} Discarding invalid cached file ${cachedFile}`);
+            rmSync(cachedFile);
+          }
+
           debug(`${LOG_PREFIX} Downloading ${pkg.name}@${pkg.version}...`);
 
-          // Download to cache directory with consistent name
-          execSync(`curl -L -o "${cachedFile}" "${pkg.url}"`, {
-            stdio: "pipe",
-          });
+          // Download to cache directory with consistent name. --fail makes
+          // curl exit non-zero on HTTP errors and --retry handles transient
+          // connection drops so a partial transfer isn't cached as valid.
+          execSync(
+            `curl -L --fail --retry 3 --retry-delay 1 -o "${cachedFile}" "${pkg.url}"`,
+            { stdio: "pipe" },
+          );
+
+          if (!this.isCachedFileValid(cachedFile)) {
+            if (existsSync(cachedFile)) {
+              rmSync(cachedFile);
+            }
+            throw new Error(
+              `Downloaded file for ${pkg.name}@${pkg.version} is empty or missing: ${cachedFile}`,
+            );
+          }
+
           debug(
             `${LOG_PREFIX} Cached ${pkg.name}@${pkg.version} to ${cachedFile}`,
           );
@@ -429,6 +449,19 @@ export class NextjsBuild extends Construct {
         console.error(`${LOG_PREFIX} Failed to install ${pkg.name}: ${error}`);
         throw error;
       }
+    }
+  }
+
+  /**
+   * Checks that a cached Sharp binary archive is non-empty. Guards against
+   * a truncated/corrupt download (e.g. from a dropped connection) being
+   * reused across synth operations.
+   */
+  private isCachedFileValid(filePath: string): boolean {
+    try {
+      return statSync(filePath).size > 0;
+    } catch {
+      return false;
     }
   }
 }
