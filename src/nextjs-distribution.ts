@@ -284,7 +284,7 @@ export class NextjsDistribution extends Construct {
           "NextJS Dynamic Response Headers Policy",
           Stack.of(this).stackName,
         ),
-        ...this.props.overrides?.dynamicBehaviorOptions?.responseHeadersPolicy,
+        ...this.props.overrides?.dynamicResponseHeadersPolicyProps,
       });
     return {
       allowedMethods: AllowedMethods.ALLOW_ALL,
