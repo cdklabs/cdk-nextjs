@@ -104,17 +104,7 @@
       "description": "Create a JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/adapter/adapter.mts",
-            "--target=node24",
-            "--platform=node",
-            "--outfile=lib/adapter/adapter.mjs",
-            "--external:next",
-            "--format=esm",
-            "--banner:js=const require = (await import('node:module')).createRequire(import.meta.url);"
-          ]
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\""
         }
       ]
     },
@@ -123,18 +113,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/adapter/adapter.mts",
-            "--target=node24",
-            "--platform=node",
-            "--outfile=lib/adapter/adapter.mjs",
-            "--external:next",
-            "--format=esm",
-            "--banner:js=const require = (await import('node:module')).createRequire(import.meta.url);",
-            "--watch"
-          ]
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\" --watch"
         }
       ]
     },
@@ -143,17 +122,7 @@
       "description": "Create a JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/adapter/cache-handler.ts",
-            "--target=node24",
-            "--platform=node",
-            "--outfile=lib/adapter/cache-handler.mjs",
-            "--external:next",
-            "--format=esm",
-            "--banner:js=const require = (await import('node:module')).createRequire(import.meta.url);"
-          ]
+          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\""
         }
       ]
     },
@@ -162,18 +131,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/adapter/cache-handler.ts",
-            "--target=node24",
-            "--platform=node",
-            "--outfile=lib/adapter/cache-handler.mjs",
-            "--external:next",
-            "--format=esm",
-            "--banner:js=const require = (await import('node:module')).createRequire(import.meta.url);",
-            "--watch"
-          ]
+          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\" --watch"
         }
       ]
     },
@@ -182,16 +140,7 @@
       "description": "Create a JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/lambdas/post-deploy/post-deploy.lambda.ts",
-            "--target=node24",
-            "--platform=node",
-            "--outfile=assets/lambdas/post-deploy/post-deploy.lambda/index.js",
-            "--tsconfig=test/tsconfig.json",
-            "--external:@aws-sdk/*"
-          ]
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/*"
         }
       ]
     },
@@ -200,17 +149,7 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/lambdas/post-deploy/post-deploy.lambda.ts",
-            "--target=node24",
-            "--platform=node",
-            "--outfile=assets/lambdas/post-deploy/post-deploy.lambda/index.js",
-            "--tsconfig=test/tsconfig.json",
-            "--external:@aws-sdk/*",
-            "--watch"
-          ]
+          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
@@ -219,15 +158,7 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/patch-fetch.js",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/nextjs-build/patch-fetch.js",
-            "--target=chrome111,firefox111,safari16.4,edge111",
-            "--platform=browser",
-            "--outfile=lib/nextjs-build/patch-fetch.js",
-            "--minify"
-          ]
+          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome111,firefox111,safari16.4,edge111\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify"
         }
       ]
     },
@@ -236,16 +167,7 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/patch-fetch.js",
       "steps": [
         {
-          "execArgs": [
-            "esbuild",
-            "--bundle",
-            "src/nextjs-build/patch-fetch.js",
-            "--target=chrome111,firefox111,safari16.4,edge111",
-            "--platform=browser",
-            "--outfile=lib/nextjs-build/patch-fetch.js",
-            "--minify",
-            "--watch"
-          ]
+          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome111,firefox111,safari16.4,edge111\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify --watch"
         }
       ]
     },
@@ -257,35 +179,22 @@
       },
       "steps": [
         {
-          "execArgs": [
-            "git",
-            "checkout",
-            "-b",
-            "scratch"
-          ],
+          "exec": "git checkout -b scratch",
           "name": "save current HEAD in \"scratch\" branch"
         },
         {
-          "exec": "git checkout \"$BRANCH\""
+          "exec": "git checkout $BRANCH"
         },
         {
-          "execArgs": [
-            "git",
-            "fetch",
-            "origin"
-          ],
+          "exec": "git fetch origin",
           "name": "fetch latest changes from origin"
         },
         {
-          "exec": "git reset --hard \"origin/$BRANCH\"",
+          "exec": "git reset --hard origin/$BRANCH",
           "name": "hard reset to origin commit"
         },
         {
-          "execArgs": [
-            "git",
-            "clean",
-            "-fdx"
-          ],
+          "exec": "git clean -fdx",
           "name": "clean all untracked files"
         },
         {
@@ -299,13 +208,7 @@
       "description": "Perform API compatibility check against latest version",
       "steps": [
         {
-          "execArgs": [
-            "jsii-diff",
-            "npm:cdk-nextjs",
-            "-k",
-            "--ignore-file",
-            ".compatignore"
-          ]
+          "exec": "jsii-diff npm:$(node -p \"require('./package.json').name\") -k --ignore-file .compatignore || (echo \"\nUNEXPECTED BREAKING CHANGES: add keys such as 'removed:constructs.Node.of' to .compatignore to skip.\n\" && exit 1)"
         }
       ]
     },
@@ -366,19 +269,7 @@
       },
       "steps": [
         {
-          "execArgs": [
-            "eslint",
-            "--ext",
-            ".ts,.tsx",
-            "--fix",
-            "--no-error-on-unmatched-pattern",
-            "$@",
-            "src",
-            "test",
-            "build-tools",
-            "projenrc",
-            ".projenrc.ts"
-          ],
+          "exec": "eslint --ext .ts,.tsx --fix --no-error-on-unmatched-pattern $@ src test build-tools projenrc .projenrc.ts",
           "receiveArgs": true
         }
       ]
@@ -493,11 +384,7 @@
       },
       "steps": [
         {
-          "execArgs": [
-            "rm",
-            "-fr",
-            "dist"
-          ]
+          "exec": "rm -fr dist"
         },
         {
           "spawn": "bump"
@@ -527,11 +414,7 @@
       "description": "Run tests",
       "steps": [
         {
-          "execArgs": [
-            "jest",
-            "--passWithNoTests",
-            "--updateSnapshot"
-          ],
+          "exec": "jest --passWithNoTests --updateSnapshot",
           "receiveArgs": true
         },
         {
@@ -547,10 +430,7 @@
       "description": "Run jest in watch mode",
       "steps": [
         {
-          "execArgs": [
-            "jest",
-            "--watch"
-          ]
+          "exec": "jest --watch"
         }
       ]
     },
