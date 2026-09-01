@@ -34,7 +34,7 @@ importers:
         version: 3.1098.0(@aws-sdk/client-s3@3.1098.0)
       '@mrgrain/jsii-struct-builder':
         specifier: ^0.7.64
-        version: 0.7.64(projen@0.101.22(constructs@10.5.1))
+        version: 0.7.64(projen@0.101.37(constructs@10.5.1))
       '@smithy/signature-v4':
         specifier: ^2.3.0
         version: 2.3.0
@@ -66,8 +66,8 @@ importers:
         specifier: ^2.38.2
         version: 2.38.2(aws-cdk-lib@2.261.0(constructs@10.5.1))(constructs@10.5.1)
       cdklabs-projen-project-types:
-        specifier: ^0.6.8
-        version: 0.6.8(constructs@10.5.1)(projen@0.101.22(constructs@10.5.1))
+        specifier: ^0.6.13
+        version: 0.6.13(constructs@10.5.1)(projen@0.101.37(constructs@10.5.1))
       commit-and-tag-version:
         specifier: ^12
         version: 12.7.3
@@ -127,7 +127,7 @@ importers:
         version: 3.9.6
       projen:
         specifier: ^0.101.6
-        version: 0.101.22(constructs@10.5.1)
+        version: 0.101.37(constructs@10.5.1)
       ts-jest:
         specifier: ^29.4.12
         version: 29.4.12(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(esbuild@0.28.1)(jest-util@29.7.0)(jest@29.7.0(@types/node@24.13.3)(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3)))(typescript@5.9.3)
@@ -1577,8 +1577,8 @@ packages:
       aws-cdk-lib: ^2.176.0
       constructs: ^10.5.1
 
-  cdklabs-projen-project-types@0.6.8:
-    resolution: {integrity: sha512-dAEcxPOiMWWl/pJKSkYk4/Ym7sI789wJPmoVXXRg3puYdvJTgCxyJ5xCFwdedODw34H90qHldHESRwcqIgCiqA==}
+  cdklabs-projen-project-types@0.6.13:
+    resolution: {integrity: sha512-hhb3lPAzWPaqWNVxeopaqLRnTism4zfAu02bK+HUxJ5iOaq/ftoY4adGRctltENFi1sk1OEI7aiV+mx/h0aPJA==}
     peerDependencies:
       constructs: ^10.0.0
       projen: '>=0.101.15 <1.0.0'
@@ -3152,8 +3152,8 @@ packages:
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
 
-  projen@0.101.22:
-    resolution: {integrity: sha512-vkwwotCmEBUdkAj6hwnBD5qZ6mEZZaaUXS2pIu6TCvgASHkEte9gkWAk8/Pd8lVJUvfCgyjsP31f4PSuu280Vg==}
+  projen@0.101.37:
+    resolution: {integrity: sha512-RhNBTl6Q45V2PHm8JuI3nfAyuF4tNO79hBQlEzizDpfbUho7+NBg9fzpytUfBocGu5fUgGTY3ewGKWHjUya9EQ==}
     engines: {node: '>= 16.0.0'}
     hasBin: true
     peerDependencies:
@@ -4744,10 +4744,10 @@ snapshots:
 
   '@jsii/spec@1.139.0': {}
 
-  '@mrgrain/jsii-struct-builder@0.7.64(projen@0.101.22(constructs@10.5.1))':
+  '@mrgrain/jsii-struct-builder@0.7.64(projen@0.101.37(constructs@10.5.1))':
     dependencies:
       '@jsii/spec': 1.129.0
-      projen: 0.101.22(constructs@10.5.1)
+      projen: 0.101.37(constructs@10.5.1)
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
@@ -5390,10 +5390,10 @@ snapshots:
       aws-cdk-lib: 2.261.0(constructs@10.5.1)
       constructs: 10.5.1
 
-  cdklabs-projen-project-types@0.6.8(constructs@10.5.1)(projen@0.101.22(constructs@10.5.1)):
+  cdklabs-projen-project-types@0.6.13(constructs@10.5.1)(projen@0.101.37(constructs@10.5.1)):
     dependencies:
       constructs: 10.5.1
-      projen: 0.101.22(constructs@10.5.1)
+      projen: 0.101.37(constructs@10.5.1)
 
   chalk@2.4.2:
     dependencies:
@@ -7306,7 +7306,7 @@ snapshots:
 
   process-nextick-args@2.0.1: {}
 
-  projen@0.101.22(constructs@10.5.1):
+  projen@0.101.37(constructs@10.5.1):
     dependencies:
       constructs: 10.5.1
 
