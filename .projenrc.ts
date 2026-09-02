@@ -476,7 +476,13 @@ function updatePackageJson() {
   );
   packageJson?.patch(
     JsonPatch.add("/pnpm/overrides", {
-      postcss: ">=8.5.10",
+      postcss: "^8.5.23",
+      browserslist: "^4.28.7",
+      "js-yaml@3": "^3.15.1",
+      "js-yaml@4": "^4.3.1",
+      "brace-expansion@1": "^1.1.18",
+      "brace-expansion@5": "^5.0.9",
+      "@babel/core": "^7.29.6",
     }),
   );
   packageJson?.patch(JsonPatch.add("/packageManager", `pnpm@${pnpmVersion}`));
