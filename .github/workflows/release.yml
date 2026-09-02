@@ -28,27 +28,34 @@ jobs:
       CI: "true"
     steps:
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Set git identity
+        id: set_git_identity
         run: |-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Setup pnpm
+        id: setup_pnpm
         uses: pnpm/action-setup@v5
         with:
           version: 10.32.1
       - name: Setup Node.js
+        id: setup_node_js
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
           package-manager-cache: false
       - name: Install dependencies
+        id: install_dependencies
         run: pnpm i --frozen-lockfile
       - name: Compile JSII
+        id: compile_jsii
         run: pnpm projen compile
       - name: release
+        id: release
         run: pnpm dlx projen release
       - name: Check if version has already been tagged
         id: check_tag_exists
@@ -58,11 +65,14 @@ jobs:
           cat $GITHUB_OUTPUT
       - name: Check for new commits
         id: git_remote
+        env:
+          GITHUB_REF: ${{ github.ref }}
         run: |-
-          echo "latest_commit=$(git ls-remote origin -h ${{ github.ref }} | cut -f1)" >> $GITHUB_OUTPUT
+          echo "latest_commit=$(git ls-remote origin -h "$GITHUB_REF" | cut -f1)" >> $GITHUB_OUTPUT
           cat $GITHUB_OUTPUT
         shell: bash
       - name: Backup artifact permissions
+        id: backup_artifact_permissions
         if: ${{ steps.git_remote.outputs.latest_commit == github.sha }}
         run: cd dist && getfacl -R . > permissions-backup.acl
         continue-on-error: true
@@ -90,14 +100,17 @@ jobs:
           node-version: lts/*
           package-manager-cache: false
       - name: Download build artifacts
+        id: download_build_artifacts
         uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.release.outputs.artifact_id }}
           path: dist
       - name: Restore build artifact permissions
+        id: restore_build_artifact_permissions
         run: cd dist && setfacl --restore=permissions-backup.acl
         continue-on-error: true
       - name: Release
+        id: release
         if: ${{ !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,32 +130,42 @@ jobs:
           node-version: lts/*
           package-manager-cache: false
       - name: Download build artifacts
+        id: download_build_artifacts
         uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.release.outputs.artifact_id }}
           path: dist
       - name: Restore build artifact permissions
+        id: restore_build_artifact_permissions
         run: cd dist && setfacl --restore=permissions-backup.acl
         continue-on-error: true
       - name: Setup pnpm
+        id: setup_pnpm
         uses: pnpm/action-setup@v5
         with:
           version: 10.32.1
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v6
         with:
           path: .repo
       - name: Install Dependencies
+        id: install_dependencies
         run: cd .repo && pnpm i --frozen-lockfile
       - name: Extract build artifact
+        id: extract_build_artifact
         run: tar --strip-components=1 -xzvf dist/js/*.tgz -C .repo
       - name: Move build artifact out of the way
+        id: move_build_artifact_out_of_the_way
         run: mv dist dist.old
       - name: Create js artifact
+        id: create_js_artifact
         run: cd .repo && pnpm dlx projen package:js
       - name: Collect js artifact
+        id: collect_js_artifact
         run: mv .repo/dist dist
       - name: Release
+        id: release
         env:
           NPM_DIST_TAG: latest
           NPM_REGISTRY: registry.npmjs.org

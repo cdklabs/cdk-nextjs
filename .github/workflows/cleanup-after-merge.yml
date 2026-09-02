@@ -2,6 +2,13 @@ name: Cleanup After Merge
 on:
   pull_request_target:
     types: [closed]
+# Shares e2e-tests.yml's concurrency group so cleanup queues behind any
+# in-flight e2e-tests run for this PR instead of destroying the stack while
+# a deploy for the same PR is still creating it (which leaves the recreated
+# stack orphaned forever, since no further "closed" event will fire).
+concurrency:
+  group: e2e-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 env:
   ENV: pr-${{ github.event.pull_request.number }}
 

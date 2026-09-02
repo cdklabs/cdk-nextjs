@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   existsSync,
   readFileSync,
@@ -6,6 +7,8 @@ import {
   writeFileSync,
   rmSync,
   mkdirSync,
+  renameSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -398,18 +401,48 @@ export class NextjsBuild extends Construct {
         const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
         const cachedFile = join(cacheDir, cacheFileName);
 
-        // Check if we already have this package cached
-        if (existsSync(cachedFile)) {
+        // Check if we already have a valid package cached; re-download if
+        // a previous run left behind a truncated/corrupt download
+        if (existsSync(cachedFile) && this.isCachedFileValid(cachedFile)) {
           debug(
             `${LOG_PREFIX} Using cached ${pkg.name}@${pkg.version} from ${cachedFile}`,
           );
         } else {
           debug(`${LOG_PREFIX} Downloading ${pkg.name}@${pkg.version}...`);
 
-          // Download to cache directory with consistent name
-          execSync(`curl -L -o "${cachedFile}" "${pkg.url}"`, {
-            stdio: "pipe",
-          });
+          // Download to a process-unique temp file in the same directory,
+          // then atomically rename it onto the shared cache path. Concurrent
+          // synth processes (e.g. Turborepo running multiple `cdk` commands)
+          // share this cache dir, so writing directly to `cachedFile` risks
+          // another process extracting a half-written file. Renaming within
+          // the same filesystem is atomic, so readers only ever see a
+          // complete file, whichever process wins the race.
+          const tempFile = join(
+            cacheDir,
+            `${cacheFileName}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`,
+          );
+          try {
+            // --fail makes curl exit non-zero on HTTP errors and --retry
+            // handles transient connection drops so a partial transfer
+            // isn't cached as valid.
+            execSync(
+              `curl -L --fail --retry 3 --retry-delay 1 -o "${tempFile}" "${pkg.url}"`,
+              { stdio: "pipe" },
+            );
+
+            if (!this.isCachedFileValid(tempFile)) {
+              throw new Error(
+                `Downloaded file for ${pkg.name}@${pkg.version} is empty or missing: ${tempFile}`,
+              );
+            }
+
+            renameSync(tempFile, cachedFile);
+          } finally {
+            if (existsSync(tempFile)) {
+              rmSync(tempFile, { force: true });
+            }
+          }
+
           debug(
             `${LOG_PREFIX} Cached ${pkg.name}@${pkg.version} to ${cachedFile}`,
           );
@@ -429,6 +462,19 @@ export class NextjsBuild extends Construct {
         console.error(`${LOG_PREFIX} Failed to install ${pkg.name}: ${error}`);
         throw error;
       }
+    }
+  }
+
+  /**
+   * Checks that a cached Sharp binary archive is non-empty. Guards against
+   * a truncated/corrupt download (e.g. from a dropped connection) being
+   * reused across synth operations.
+   */
+  private isCachedFileValid(filePath: string): boolean {
+    try {
+      return statSync(filePath).size > 0;
+    } catch {
+      return false;
     }
   }
 }
