@@ -111,6 +111,12 @@ export const demos: { name: string; items: Item[] }[] = [
         slug: 'server-actions',
         description: 'Demo of different styles of calling server actions',
       },
+      {
+        name: 'Image Optimization',
+        slug: 'image-optimization',
+        description:
+          'Optimize public/ and statically imported images',
+      },
     ],
   },
 ];
