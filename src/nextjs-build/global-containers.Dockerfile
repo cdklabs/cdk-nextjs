@@ -17,6 +17,8 @@ RUN adduser --system --uid 1001 nextjs
 ARG RELATIVE_PATH_TO_PACKAGE
 # Copy from local build output instead of builder image
 COPY --chown=nextjs:nodejs .next/standalone ./
+# Copy .next/static so image optimization can read imported images (e.g. /_next/static/media/*)
+COPY --chown=nextjs:nodejs .next/static ./$RELATIVE_PATH_TO_PACKAGE/.next/static
 # Copy public directory for image optimization (Next.js needs source images)
 COPY --chown=nextjs:nodejs public ./$RELATIVE_PATH_TO_PACKAGE/public
 
