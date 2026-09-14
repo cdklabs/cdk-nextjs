@@ -6,6 +6,7 @@
 !/.github/workflows/pull-request-lint.yml
 !/.github/workflows/dependency-review.yml
 !/.github/workflows/auto-approve.yml
+!/pnpm-workspace.yaml
 !/package.json
 !/LICENSE
 !/.npmignore
