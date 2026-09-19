@@ -29,6 +29,7 @@ export interface NextjsApiOverrides {
   readonly staticIntegrationProps?: AwsIntegrationProps;
   readonly s3MethodOptions?: MethodOptions;
   readonly dynamicIntegrationProps?: LambdaIntegrationOptions;
+  readonly imageIntegrationProps?: LambdaIntegrationOptions;
 }
 
 export interface NextjsApiProps {
@@ -49,6 +50,11 @@ export interface NextjsApiProps {
    * Required if `NextjsRegionalFunctions`. The Lambda function for server-side rendering
    */
   readonly serverFunction?: IFunction;
+  /**
+   * Dedicated image optimization Lambda. Falls back to `serverFunction` for
+   * the `_next/image` route if not provided.
+   */
+  readonly imageFunction?: IFunction;
   /**
    * The S3 bucket containing static assets
    */
@@ -246,12 +252,18 @@ export class NextjsApi extends Construct {
    * Create Lambda Proxy integration for all other routes
    */
   private createDynamicIntegration(serverFunction: IFunction) {
-    // Image optimization requires buffered mode (no streaming) for binary data
-    const imageIntegration = new LambdaIntegration(serverFunction, {
-      responseTransferMode: ResponseTransferMode.BUFFERED, // required for images, otherwise 502
-      ...this.props.overrides?.dynamicIntegrationProps,
+    // The default Next.js server doesn't stream image responses, which
+    // causes API Gateway to return a 502 in STREAM mode. The dedicated
+    // image optimization Lambda streams correctly, so it uses STREAM;
+    // falling back to serverFunction (BUFFERED) if it isn't provided.
+    const imageFunction = this.props.imageFunction ?? serverFunction;
+    const imageIntegration = new LambdaIntegration(imageFunction, {
+      responseTransferMode: this.props.imageFunction
+        ? ResponseTransferMode.STREAM
+        : ResponseTransferMode.BUFFERED,
+      ...this.props.overrides?.imageIntegrationProps,
     });
-    // Add _next/image route with buffered integration
+    // Add _next/image route
     const imageResource = this.nextResource.addResource("image");
     imageResource.addMethod("ANY", imageIntegration);
 

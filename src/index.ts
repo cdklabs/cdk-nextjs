@@ -30,6 +30,11 @@ export {
   NextjsFunctionsProps,
 } from "./nextjs-compute/nextjs-functions";
 export {
+  NextjsImageFunction,
+  NextjsImageFunctionOverrides,
+  NextjsImageFunctionProps,
+} from "./nextjs-compute/nextjs-image-function";
+export {
   NextjsCache,
   NextjsCacheOverrides,
   NextjsCacheProps,

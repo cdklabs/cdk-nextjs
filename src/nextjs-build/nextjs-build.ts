@@ -6,6 +6,7 @@ import {
   writeFileSync,
   rmSync,
   mkdirSync,
+  cpSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,6 +79,12 @@ export class NextjsBuild extends Construct {
    * Absolute path to the .next directory containing Next.js build artifacts
    */
   dotNextPath: string;
+  /**
+   * Absolute path to the directory prepared for the image optimization Lambda
+   * asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`.
+   * Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and {@link NextjsType.REGIONAL_FUNCTIONS}.
+   */
+  imageOptimizationAssetPath?: string;
 
   private props: NextjsBuildProps;
   private buildCommand: string;
@@ -121,6 +128,14 @@ export class NextjsBuild extends Construct {
     const standalonePath = join(this.dotNextPath, "standalone");
     this.removeExistingSharpBinaries(standalonePath);
     this.downloadAndInstallSharpBinaries();
+
+    if (
+      props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
+      props.nextjsType === NextjsType.REGIONAL_FUNCTIONS
+    ) {
+      this.imageOptimizationAssetPath =
+        this.prepareImageOptimizationAssets(standalonePath);
+    }
   }
 
   /**
@@ -361,23 +376,9 @@ export class NextjsBuild extends Construct {
       "node_modules",
     );
     const imgPath = join(nodeModulesPath, "@img");
-
-    // Create a consistent cache directory for Sharp packages
-    const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
-    if (!existsSync(cacheDir)) {
-      mkdirSync(cacheDir, { recursive: true });
-    }
-
-    // Ensure @img directory exists
-    if (!existsSync(imgPath)) {
-      mkdirSync(imgPath, { recursive: true });
-    }
-
-    // Detect architecture for correct Sharp binaries
     const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
 
-    // Sharp binary packages to download
-    const sharpPackages = [
+    this.installSharpPackages(imgPath, [
       {
         name: `sharp-libvips-linuxmusl-${arch}`,
         version: "1.2.4",
@@ -388,25 +389,89 @@ export class NextjsBuild extends Construct {
         version: "0.34.5",
         url: `https://registry.npmjs.org/@img/sharp-linuxmusl-${arch}/-/sharp-linuxmusl-${arch}-0.34.5.tgz`,
       },
-    ];
+    ]);
+  }
 
-    for (const pkg of sharpPackages) {
+  /**
+   * Assemble the deployment asset for the dedicated image optimization
+   * Lambda: the pre-bundled handler (from this package's own `lib/` output),
+   * `sharp`'s JS wrapper (already dereferenced from the pnpm store by Next's
+   * output file tracing into the standalone build), glibc `sharp` binaries
+   * (the standard Lambda managed runtime is Amazon Linux 2023/glibc, unlike
+   * the musl binaries installed above for the Docker/Lambda Web Adapter
+   * server function), and `required-server-files.json` (read by the handler
+   * at cold start to build `nextConfig`).
+   */
+  private prepareImageOptimizationAssets(standalonePath: string): string {
+    const assetPath = join(this.dotNextPath, "cdk-nextjs-image-optimization");
+    const nodeModulesPath = join(assetPath, "node_modules");
+    const imgPath = join(nodeModulesPath, "@img");
+
+    rmSync(assetPath, { recursive: true, force: true });
+    mkdirSync(imgPath, { recursive: true });
+
+    // Pre-bundled by esbuild into this package's own lib/ output.
+    cpSync(join(__dirname, "..", "image-optimization"), assetPath, {
+      recursive: true,
+    });
+
+    const sharpSource = join(standalonePath, "node_modules", "sharp");
+    if (existsSync(sharpSource)) {
+      cpSync(sharpSource, join(nodeModulesPath, "sharp"), {
+        recursive: true,
+      });
+    } else {
+      console.warn(
+        `${LOG_PREFIX} "sharp" not found in standalone build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
+      );
+    }
+
+    cpSync(
+      join(this.dotNextPath, "required-server-files.json"),
+      join(assetPath, "required-server-files.json"),
+    );
+
+    const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
+    this.installSharpPackages(imgPath, [
+      {
+        name: `sharp-libvips-linux-${arch}`,
+        version: "1.2.4",
+        url: `https://registry.npmjs.org/@img/sharp-libvips-linux-${arch}/-/sharp-libvips-linux-${arch}-1.2.4.tgz`,
+      },
+      {
+        name: `sharp-linux-${arch}`,
+        version: "0.34.5",
+        url: `https://registry.npmjs.org/@img/sharp-linux-${arch}/-/sharp-linux-${arch}-0.34.5.tgz`,
+      },
+    ]);
+
+    return assetPath;
+  }
+
+  /**
+   * Download (with caching) and extract Sharp's platform-specific binary
+   * packages into `imgPath`.
+   */
+  private installSharpPackages(
+    imgPath: string,
+    packages: { name: string; version: string; url: string }[],
+  ): void {
+    const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
+    if (!existsSync(cacheDir)) {
+      mkdirSync(cacheDir, { recursive: true });
+    }
+
+    for (const pkg of packages) {
       try {
         const targetDir = join(imgPath, pkg.name);
+        const cachedFile = join(cacheDir, `${pkg.name}-${pkg.version}.tgz`);
 
-        // Create a consistent filename based on package name and version
-        const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
-        const cachedFile = join(cacheDir, cacheFileName);
-
-        // Check if we already have this package cached
         if (existsSync(cachedFile)) {
           debug(
             `${LOG_PREFIX} Using cached ${pkg.name}@${pkg.version} from ${cachedFile}`,
           );
         } else {
           debug(`${LOG_PREFIX} Downloading ${pkg.name}@${pkg.version}...`);
-
-          // Download to cache directory with consistent name
           execSync(`curl -L -o "${cachedFile}" "${pkg.url}"`, {
             stdio: "pipe",
           });
@@ -415,10 +480,7 @@ export class NextjsBuild extends Construct {
           );
         }
 
-        // Create target directory
         mkdirSync(targetDir, { recursive: true });
-
-        // Extract from cached file
         execSync(
           `tar -xzf "${cachedFile}" -C "${targetDir}" --strip-components=1`,
           { stdio: "pipe" },

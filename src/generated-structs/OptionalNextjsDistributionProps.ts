@@ -12,6 +12,13 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly loadBalancer?: aws_elasticloadbalancingv2.IApplicationLoadBalancer;
   /**
+   * Function URL of the dedicated image optimization Lambda.
+   * Required if
+   * `NextjsType.GLOBAL_FUNCTIONS`.
+   * @stability stable
+   */
+  readonly imageFunctionUrl?: aws_lambda.IFunctionUrl;
+  /**
    * Required if `NextjsType.GLOBAL_FUNCTIONS`.
    * @stability stable
    */

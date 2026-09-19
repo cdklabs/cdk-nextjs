@@ -9,6 +9,10 @@ import {
   NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 import {
+  NextjsImageFunction,
+  NextjsImageFunctionOverrides,
+} from "../nextjs-compute/nextjs-image-function";
+import {
   NextjsDistribution,
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
@@ -37,6 +41,7 @@ export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConst
 export interface NextjsGlobalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
+  readonly nextjsImageFunction?: NextjsImageFunctionOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
@@ -61,6 +66,7 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
  */
 export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
+  nextjsImageFunction: NextjsImageFunction;
   nextjsDistribution: NextjsDistribution;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
@@ -74,6 +80,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     this.props = props;
 
     this.nextjsFunctions = this.createNextjsFunctions();
+    this.nextjsImageFunction = this.createNextjsImageFunction();
     this.nextjsDistribution = this.createNextjsDistribution();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
@@ -93,11 +100,27 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     });
   }
 
+  private createNextjsImageFunction(): NextjsImageFunction {
+    if (!this.nextjsBuild.imageOptimizationAssetPath) {
+      throw new Error(
+        "Missing NextjsBuild.imageOptimizationAssetPath for NextjsType.GLOBAL_FUNCTIONS",
+      );
+    }
+    return new NextjsImageFunction(this, "NextjsImageFunction", {
+      nextjsType: this.nextjsType,
+      imageOptimizationAssetPath: this.nextjsBuild.imageOptimizationAssetPath,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      vpc: this.baseProps.vpc,
+      overrides: this.props.overrides?.nextjsImageFunction,
+    });
+  }
+
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
       basePath: this.baseProps.basePath,
       functionUrl: this.nextjsFunctions.functionUrl,
+      imageFunctionUrl: this.nextjsImageFunction.functionUrl,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,

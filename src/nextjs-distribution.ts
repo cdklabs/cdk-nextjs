@@ -54,6 +54,7 @@ export interface NextjsDistributionOverrides {
   readonly dynamicResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly dynamicFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
   readonly dynamicVpcOriginWithEndpointProps?: VpcOriginWithEndpointProps;
+  readonly imageFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
   readonly staticBehaviorOptions?: AddBehaviorOptions;
   readonly staticResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly s3BucketOriginProps?: OptionalS3OriginBucketWithOACProps;
@@ -75,6 +76,11 @@ export interface NextjsDistributionProps {
    * Required if `NextjsType.GLOBAL_FUNCTIONS`
    */
   readonly functionUrl?: IFunctionUrl;
+  /**
+   * Function URL of the dedicated image optimization Lambda. Required if
+   * `NextjsType.GLOBAL_FUNCTIONS`.
+   */
+  readonly imageFunctionUrl?: IFunctionUrl;
   /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`
    */
@@ -120,6 +126,7 @@ export class NextjsDistribution extends Construct {
   };
   private staticOrigin: IOrigin;
   private dynamicOrigin: IOrigin;
+  private imageOrigin: IOrigin;
   private dynamicOriginResponsePolicy: IOriginRequestPolicy;
   private dynamicCloudFrontFunctionAssociations: FunctionAssociation[];
   private isFunctionCompute: boolean;
@@ -133,6 +140,7 @@ export class NextjsDistribution extends Construct {
     this.staticOrigin = this.createStaticOrigin();
     this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
     this.dynamicOrigin = this.createDynamicOrigin();
+    this.imageOrigin = this.createImageOrigin();
     this.dynamicOriginResponsePolicy = this.createDynamicOriginRequestPolicy();
     this.dynamicCloudFrontFunctionAssociations =
       this.createDynamicCloudFrontFunctionAssociations();
@@ -183,6 +191,24 @@ export class NextjsDistribution extends Construct {
         ...this.props.overrides?.dynamicVpcOriginWithEndpointProps,
       });
     }
+  }
+  /**
+   * The dedicated image optimization Lambda only exists for
+   * `NextjsType.GLOBAL_FUNCTIONS`; other compute types keep serving
+   * `_next/image*` from the dynamic origin (their server can stream image
+   * responses natively).
+   */
+  private createImageOrigin(): IOrigin {
+    if (!this.isFunctionCompute) {
+      return this.dynamicOrigin;
+    }
+    if (!this.props.imageFunctionUrl) {
+      throw new Error("Missing NextjsDistributionProps.imageFunctionUrl");
+    }
+    return FunctionUrlOrigin.withOriginAccessControl(
+      this.props.imageFunctionUrl,
+      this.props.overrides?.imageFunctionUrlOriginWithOACProps,
+    );
   }
   /**
    * Lambda Function URLs "expect the `Host` header to contain the origin domain
@@ -333,7 +359,7 @@ export class NextjsDistribution extends Construct {
       allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
       cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
       functionAssociations: this.dynamicCloudFrontFunctionAssociations,
-      origin: this.dynamicOrigin,
+      origin: this.imageOrigin,
       originRequestPolicy: this.dynamicOriginResponsePolicy,
       cachePolicy,
       responseHeadersPolicy,
