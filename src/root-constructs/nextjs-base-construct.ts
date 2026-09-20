@@ -30,9 +30,17 @@ import {
 export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsCacheProps?: OptionalNextjsCacheProps;
+  readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
+}
+
+/**
+ * Adds the overrides that only apply to the two Functions `NextjsType`s. The
+ * Containers types serve `_next/image` from the standalone server itself and
+ * have no Lambda functions to configure, so they would silently ignore these.
+ */
+export interface NextjsFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsImageFunctionProps?: NextjsImageFunctionProps;
-  readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
 /**
@@ -130,7 +138,9 @@ export abstract class NextjsBaseConstruct extends Construct {
   protected readonly nextjsType: NextjsType;
   // use baseProps instead of props so that child classes can use props
   protected readonly baseProps: NextjsBaseConstructProps;
-  protected readonly constructOverrides?: NextjsBaseConstructOverrides;
+  // Widest shape of the per-`NextjsType` overrides. The public interface each
+  // root construct accepts is what actually gates which keys are settable.
+  protected readonly constructOverrides?: NextjsFunctionsConstructOverrides;
 
   constructor(
     scope: Construct,
@@ -162,7 +172,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     const overrides = this.baseProps.overrides as
       Record<string, unknown> | undefined;
     if (overrides && key in overrides) {
-      return overrides[key] as NextjsBaseConstructOverrides;
+      return overrides[key] as NextjsFunctionsConstructOverrides;
     }
     return;
   }

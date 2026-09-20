@@ -5,7 +5,7 @@ import { NextjsApi, NextjsApiOverrides, NextjsApiProps } from "../nextjs-api";
 import {
   NextjsBaseConstruct,
   NextjsBaseProps,
-  NextjsBaseConstructOverrides,
+  NextjsFunctionsConstructOverrides,
   NextjsBaseOverrides,
 } from "./nextjs-base-construct";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
@@ -22,7 +22,7 @@ import {
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
 
-export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
+export interface NextjsRegionalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
   readonly nextjsApiProps?: NextjsApiProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }

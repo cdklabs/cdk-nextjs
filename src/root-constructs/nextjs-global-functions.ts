@@ -20,13 +20,13 @@ import {
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
 import {
-  NextjsBaseConstructOverrides,
+  NextjsFunctionsConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 
-export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
+export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }

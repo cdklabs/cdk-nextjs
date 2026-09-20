@@ -2,6 +2,17 @@
 
 ## 0.6.0
 
+### Functions-only overrides moved off the Containers constructs
+
+`nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
+`NextjsBaseConstructOverrides` to the new `NextjsFunctionsConstructOverrides`,
+which only the two Functions root constructs extend. They were previously
+accepted by `NextjsGlobalContainers` / `NextjsRegionalContainers` and silently
+ignored there.
+
+- **Migration:** Remove those keys from Containers construct overrides. If you
+  were setting them and expecting an effect, there wasn't one.
+
 ### NextjsApi: `imageFunction` now required alongside `serverFunction`
 
 Only affects direct consumers of `NextjsApi` — `NextjsGlobalFunctions` and
