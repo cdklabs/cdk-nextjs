@@ -3,11 +3,10 @@ import type { Product } from '#/app/api/products/product';
 import { ProductRating } from '#/ui/product-rating';
 import { cookies } from 'next/headers';
 import Image from 'next/image';
-import { getImageSrc } from '#/lib/image-utils';
 
 export const SingleProduct = async ({ data }: { data: Promise<Response> }) => {
   const product = (await data.then((res) => res.json())) as Product;
-  const productImage = getImageSrc(`/static/${product.image}`);
+  const productImage = `/static/${product.image}`;
   // Get the cart count from the users cookies and pass it to the client
   // AddToCart component
   const cartCount = (await cookies()).get('_cart_count')?.value || '0';

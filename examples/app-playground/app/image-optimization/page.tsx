@@ -1,4 +1,3 @@
-import { getImageSrc } from '#/lib/image-utils';
 import Image from 'next/image';
 import importedLogo from './imported-logo.png';
 
@@ -15,7 +14,7 @@ export default function Page() {
         same as <code>public/</code> images.
       </p>
       <Image
-        src={getImageSrc('/static/nextjs-icon-light-background.png')}
+        src="/static/nextjs-icon-light-background.png"
         alt="Public image"
         width={100}
         height={100}
