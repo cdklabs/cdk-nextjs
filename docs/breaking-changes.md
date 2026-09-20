@@ -1,6 +1,6 @@
 # Breaking Changes
 
-## Unreleased
+## 0.6.0
 
 ### NextjsApi: `imageFunction` now required alongside `serverFunction`
 
