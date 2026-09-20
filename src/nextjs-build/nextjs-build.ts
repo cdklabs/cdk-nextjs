@@ -129,13 +129,23 @@ export class NextjsBuild extends Construct {
     this.publicDirEntries = this.getLocalPublicDirEntries();
 
     const standalonePath = join(this.dotNextPath, "standalone");
-    this.removeExistingSharpBinaries(standalonePath);
-    this.downloadAndInstallSharpBinaries();
-
-    if (
+    const isFunctions =
       props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
-      props.nextjsType === NextjsType.REGIONAL_FUNCTIONS
-    ) {
+      props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
+
+    // Strip whatever platform-specific Sharp binaries `next build`'s output
+    // file tracing bundled in either way. Functions deployments never invoke
+    // Sharp from the standalone server itself (`_next/image` is always
+    // routed to the dedicated image optimization Lambda below), so there's
+    // no musl replacement to install. Containers deployments have no
+    // dedicated image Lambda and still serve `_next/image` from this same
+    // standalone server, so they need working musl binaries.
+    this.removeExistingSharpBinaries(standalonePath);
+    if (!isFunctions) {
+      this.downloadAndInstallSharpBinaries();
+    }
+
+    if (isFunctions) {
       this.imageOptimizationAssetPath =
         this.prepareImageOptimizationAssets(standalonePath);
     }
