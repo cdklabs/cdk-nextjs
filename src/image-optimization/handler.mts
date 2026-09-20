@@ -9,6 +9,7 @@ import {
   imageOptimizer,
   fetchExternalImage,
 } from "next/dist/server/image-optimizer.js";
+import { getExtension } from "next/dist/server/serve-static.js";
 import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
 import {
   getNextConfigRuntime,
@@ -49,6 +50,21 @@ function getHeaders(
     }
   }
   return { headers } as Pick<IncomingMessage, "headers">;
+}
+
+/** Mirrors Next.js's own `getFileNameWithExtension` in image-optimizer.js. */
+function getFileNameWithExtension(
+  url: string,
+  contentType: string | null,
+): string {
+  const [urlWithoutQueryParams] = url.split("?", 1);
+  const fileNameWithExtension = urlWithoutQueryParams.split("/").pop();
+  if (!contentType || !fileNameWithExtension) {
+    return "image.bin";
+  }
+  const [fileName] = fileNameWithExtension.split(".", 1);
+  const extension = getExtension(contentType);
+  return `${fileName}.${extension}`;
 }
 
 async function fetchFromS3(
@@ -165,6 +181,7 @@ export const handler = awslambda.streamifyResponse(
         return;
       }
 
+      const fileName = getFileNameWithExtension(href, optimizedContentType);
       const stream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 200,
         headers: {
@@ -172,6 +189,8 @@ export const handler = awslambda.streamifyResponse(
           "Cache-Control": `public, max-age=${maxAge}, must-revalidate`,
           ETag: etag,
           Vary: "Accept",
+          "Content-Disposition": `${imagesConfig.contentDispositionType}; filename="${fileName.replace(/"/g, "")}"`,
+          "Content-Security-Policy": imagesConfig.contentSecurityPolicy,
         },
       });
       stream.write(optimizedBuffer);
