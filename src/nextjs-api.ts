@@ -52,16 +52,14 @@ export interface NextjsApiProps {
   readonly serverFunction?: IFunction;
   /**
    * Dedicated image optimization Lambda. Falls back to `serverFunction` for
-   * the `_next/image` route if not provided.
+   * the `_next/image` route if not provided. Assumed to support Lambda
+   * response streaming (as the dedicated image Lambda this package builds
+   * does) and is invoked with `ResponseTransferMode.STREAM` accordingly. If
+   * you supply a custom `imageFunction` that doesn't support streaming,
+   * override `responseTransferMode` to `BUFFERED` via
+   * `overrides.imageIntegrationProps`, otherwise API Gateway returns a 502.
    */
   readonly imageFunction?: IFunction;
-  /**
-   * Whether `imageFunction` supports Lambda response streaming. Required to
-   * be true to use `ResponseTransferMode.STREAM` for the `_next/image` route;
-   * otherwise API Gateway returns a 502 for a non-streaming Lambda.
-   * @default false
-   */
-  readonly imageFunctionSupportsStreaming?: boolean;
   /**
    * The S3 bucket containing static assets
    */
@@ -260,12 +258,14 @@ export class NextjsApi extends Construct {
    */
   private createDynamicIntegration(serverFunction: IFunction) {
     // The default Next.js server doesn't stream image responses, which
-    // causes API Gateway to return a 502 in STREAM mode. The dedicated
-    // image optimization Lambda streams correctly, so callers opt into
-    // STREAM via `imageFunctionSupportsStreaming`; otherwise BUFFERED.
+    // causes API Gateway to return a 502 in STREAM mode, so BUFFERED is used
+    // when falling back to serverFunction. A supplied imageFunction is
+    // assumed to be the dedicated, streaming-capable image Lambda (see its
+    // doc comment); override responseTransferMode via imageIntegrationProps
+    // if that assumption doesn't hold for a custom imageFunction.
     const imageFunction = this.props.imageFunction ?? serverFunction;
     const imageIntegration = new LambdaIntegration(imageFunction, {
-      responseTransferMode: this.props.imageFunctionSupportsStreaming
+      responseTransferMode: this.props.imageFunction
         ? ResponseTransferMode.STREAM
         : ResponseTransferMode.BUFFERED,
       ...this.props.overrides?.dynamicIntegrationProps,

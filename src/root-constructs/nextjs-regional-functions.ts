@@ -85,7 +85,6 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       serverFunction: this.nextjsFunctions.function,
       imageFunction: this.nextjsImageFunction.function,
-      imageFunctionSupportsStreaming: true,
       basePath: this.baseProps.basePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
