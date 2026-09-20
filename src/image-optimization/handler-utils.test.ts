@@ -48,16 +48,16 @@ describe("fetchFromS3", () => {
     });
   });
 
-  it("strips basePath before it's used as the S3 key", async () => {
+  it("keeps a single basePath prefix when the url already includes it", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
       ETag: '"abc123"',
     });
 
-    // Simulates an app with basePath="/base": next-image-loader bakes "/base"
-    // into the href for statically imported images, but S3 keys never
-    // include it, so it must be stripped before use as the key.
+    // next-image-loader bakes "/base" into the href for statically imported
+    // images, and NextjsStaticAssets uploads under the same prefix, so the
+    // key must carry it exactly once.
     await fetchFromS3(
       s3,
       "my-bucket",
@@ -66,10 +66,10 @@ describe("fetchFromS3", () => {
     );
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
-    expect(params.Key).toBe("_next/static/media/a.png");
+    expect(params.Key).toBe("base/_next/static/media/a.png");
   });
 
-  it("leaves the url alone when it doesn't start with basePath", async () => {
+  it("adds the basePath prefix when the url omits it", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
@@ -77,11 +77,27 @@ describe("fetchFromS3", () => {
     });
 
     // Plain string paths (e.g. `<Image src="/static/foo.jpg">`) are passed
-    // through by next/image as written, without basePath baked in.
+    // through by next/image as written, without basePath baked in, but the
+    // S3 key still has it.
     await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", "/base");
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
-    expect(params.Key).toBe("static/foo.jpg");
+    expect(params.Key).toBe("base/static/foo.jpg");
+  });
+
+  it("only matches basePath on a path boundary", async () => {
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("data")]),
+      ContentType: "image/png",
+      ETag: '"abc123"',
+    });
+
+    // "/basement" merely shares a prefix with basePath "/base"; treating it
+    // as a match would produce the key "base/ment/logo.png".
+    await fetchFromS3(s3, "my-bucket", "/basement/logo.png", "/base");
+
+    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
+    expect(params.Key).toBe("base/basement/logo.png");
   });
 
   it("returns the concatenated buffer, content type, and etag", async () => {

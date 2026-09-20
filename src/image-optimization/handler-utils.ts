@@ -5,11 +5,12 @@ import { getExtension } from "next/dist/server/serve-static.js";
 
 /**
  * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
- * `url` sometimes includes `basePath` (next-image-loader bakes it in for
- * statically imported images) and sometimes doesn't (plain string paths are
- * passed through as literally written by the app), but static assets are
- * always uploaded to S3 without it, so `basePath` is stripped from `url`
- * before it's used as a key, if present.
+ *
+ * `NextjsStaticAssets` uploads under `basePath` as a key prefix, so every key
+ * includes it. `url` is inconsistent: next-image-loader bakes `basePath` into
+ * the href for statically imported images, while plain string paths are passed
+ * through as literally written by the app. So the prefix is normalized to
+ * exactly one occurrence rather than simply added or removed.
  */
 export async function fetchFromS3(
   s3: S3Client,
@@ -17,9 +18,12 @@ export async function fetchFromS3(
   url: string,
   basePath: string,
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
-  const withoutBasePath =
-    basePath && url.startsWith(basePath) ? url.slice(basePath.length) : url;
-  const key = withoutBasePath.replace(/^\//, "");
+  // Matching on a path boundary keeps a sibling like "/basement/logo.png"
+  // from being treated as basePath "/base" plus "ment/logo.png".
+  const hasBasePath =
+    !!basePath && (url === basePath || url.startsWith(`${basePath}/`));
+  const withoutBasePath = hasBasePath ? url.slice(basePath.length) : url;
+  const key = `${basePath}${withoutBasePath}`.replace(/^\//, "");
 
   const response = await s3.send(
     new GetObjectCommand({
