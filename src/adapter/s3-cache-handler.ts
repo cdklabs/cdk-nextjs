@@ -2,7 +2,12 @@
   S3 and DynamoDB cache handler for Next.js incremental cache
 */
 /* eslint-disable import/no-extraneous-dependencies */
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import {
+  CloudFrontClient,
+  CreateInvalidationCommand,
+} from "@aws-sdk/client-cloudfront";
 import {
   DynamoDBClient,
   QueryCommand,
@@ -15,6 +20,7 @@ import {
   DeleteObjectCommand,
   NoSuchKey,
 } from "@aws-sdk/client-s3";
+import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 import getDebug from "debug";
 import {
   CacheHandler,
@@ -42,18 +48,42 @@ interface DynamoDBRevalidationConfig {
   buildId: string;
 }
 
+interface CloudFrontInvalidationConfig {
+  /**
+   * Name (not value) of the SSM Parameter holding the distribution ID.
+   *
+   * The distribution ID itself can't be passed as a plain env var: CDK
+   * constructs the Lambda/Fargate task before the distribution exists (the
+   * distribution's origin references the compute's function URL/ALB), so
+   * embedding the distribution's physical ID directly in the compute's
+   * environment or IAM policy would create a circular CloudFormation
+   * dependency. The parameter *name* is static and known at synth time, so
+   * it can be safely embedded; only its *value* depends on the distribution.
+   */
+  distributionIdParameterName: string;
+  region: string;
+}
+
 export interface S3CacheHandlerOptions {
   context: CacheHandlerContext;
   s3Config?: Partial<S3CacheConfig>;
   dynamoConfig?: Partial<DynamoDBRevalidationConfig>;
+  cloudFrontConfig?: Partial<CloudFrontInvalidationConfig>;
 }
 
 export class S3CacheHandler implements CacheHandler {
   private s3Client: S3Client;
   private dynamoClient: DynamoDBClient;
+  private cloudFrontClient: CloudFrontClient;
+  private ssmClient: SSMClient;
   private s3Config: S3CacheConfig;
   private dynamoConfig: DynamoDBRevalidationConfig;
+  private cloudFrontConfig: CloudFrontInvalidationConfig;
   private debug = getDebug("cdk-nextjs:cache-handler:s3");
+
+  // Cached for the lifetime of this instance (i.e. the compute instance) once
+  // resolved, since a deployment's distribution ID never changes at runtime.
+  private cachedDistributionId: string | null = null;
 
   constructor(options: S3CacheHandlerOptions) {
     const buildId = process.env.CDK_NEXTJS_BUILD_ID || "";
@@ -79,11 +109,31 @@ export class S3CacheHandler implements CacheHandler {
       buildId: options.dynamoConfig?.buildId || buildId,
     };
 
+    // Initialize CloudFront configuration from environment variables and options.
+    // Only set for CloudFront-fronted deployments (NextjsGlobalFunctions/Containers).
+    // When unset, on-demand revalidation skips CDN invalidation and relies on the
+    // distribution's cache policy TTL (driven by the origin's Cache-Control header)
+    // to eventually pick up fresh content.
+    this.cloudFrontConfig = {
+      distributionIdParameterName:
+        options.cloudFrontConfig?.distributionIdParameterName ||
+        process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME ||
+        "",
+      region:
+        options.cloudFrontConfig?.region ||
+        process.env.AWS_REGION ||
+        "us-east-1",
+    };
+
     // Initialize AWS clients
     this.s3Client = new S3Client({ region: this.s3Config.region });
     this.dynamoClient = new DynamoDBClient({
       region: this.dynamoConfig.region,
     });
+    this.cloudFrontClient = new CloudFrontClient({
+      region: this.cloudFrontConfig.region,
+    });
+    this.ssmClient = new SSMClient({ region: this.cloudFrontConfig.region });
 
     if (!this.s3Config.bucketName) {
       console.warn(
@@ -363,7 +413,92 @@ export class S3CacheHandler implements CacheHandler {
 
         await Promise.all(deletePromises.filter(Boolean));
       }
+
+      // Invalidate the CDN edge cache so CloudFront-fronted deployments don't
+      // keep serving stale responses until the cache policy's TTL naturally expires.
+      if (this.cloudFrontConfig.distributionIdParameterName) {
+        const invalidationPaths = cacheKeys
+          .filter((s3Key): s3Key is string => Boolean(s3Key))
+          .map((s3Key) => this.s3KeyToInvalidationPath(s3Key));
+        await this.invalidateCloudFrontPaths(invalidationPaths);
+      }
     }
+  }
+
+  /**
+   * Reverses `buildS3Key` to recover the request path CloudFront cached the
+   * response under. Fetch-cache entries (opaque hash keys, not page routes)
+   * translate to a path that won't match anything cached, which is harmless.
+   */
+  private s3KeyToInvalidationPath(s3Key: string): string {
+    const prefix = `${this.s3Config.buildId}/`;
+    const withoutPrefix = s3Key.startsWith(prefix)
+      ? s3Key.slice(prefix.length)
+      : s3Key;
+    const withoutSuffix = withoutPrefix.endsWith(".json")
+      ? withoutPrefix.slice(0, -".json".length)
+      : withoutPrefix;
+
+    return withoutSuffix === "index" ? "/" : `/${withoutSuffix}`;
+  }
+
+  private async invalidateCloudFrontPaths(paths: string[]): Promise<void> {
+    const uniquePaths = Array.from(new Set(paths));
+    if (uniquePaths.length === 0) {
+      return;
+    }
+
+    try {
+      const distributionId = await this.getDistributionId();
+      if (!distributionId) {
+        return;
+      }
+
+      this.debug(
+        `CLOUDFRONT INVALIDATION: [${uniquePaths.join(", ")}] on distribution ${distributionId}`,
+      );
+
+      await this.cloudFrontClient.send(
+        new CreateInvalidationCommand({
+          DistributionId: distributionId,
+          InvalidationBatch: {
+            CallerReference: randomUUID(),
+            Paths: {
+              Quantity: uniquePaths.length,
+              Items: uniquePaths,
+            },
+          },
+        }),
+      );
+    } catch (error) {
+      // Log but don't fail - the S3/DynamoDB invalidation already succeeded,
+      // and the CloudFront cache policy TTL provides an eventual fallback.
+      console.warn("Failed to create CloudFront invalidation:", error);
+    }
+  }
+
+  /**
+   * Resolves the distribution's physical ID via SSM Parameter Store, caching
+   * it for the lifetime of this instance. See `CloudFrontInvalidationConfig`
+   * for why this indirection (rather than a plain env var) is necessary.
+   */
+  private async getDistributionId(): Promise<string | null> {
+    if (this.cachedDistributionId) {
+      return this.cachedDistributionId;
+    }
+
+    if (!this.cloudFrontConfig.distributionIdParameterName) {
+      return null;
+    }
+
+    const response = await this.ssmClient.send(
+      new GetParameterCommand({
+        Name: this.cloudFrontConfig.distributionIdParameterName,
+      }),
+    );
+
+    this.cachedDistributionId = response.Parameter?.Value || null;
+    return this.cachedDistributionId;
   }
 
   async resetRequestCache(): Promise<void> {

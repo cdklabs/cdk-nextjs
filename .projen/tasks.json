@@ -545,7 +545,7 @@
             "--peer",
             "--no-deprecated",
             "--dep=dev",
-            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/client-ssm,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
           ]
         },
         {
@@ -559,6 +559,7 @@
             "@aws-sdk/client-cloudfront",
             "@aws-sdk/client-dynamodb",
             "@aws-sdk/client-s3",
+            "@aws-sdk/client-ssm",
             "@aws-sdk/lib-storage",
             "@mrgrain/jsii-struct-builder",
             "@smithy/signature-v4",

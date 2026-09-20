@@ -58,6 +58,7 @@
     "@aws-sdk/client-cloudfront": "^3.1121.0",
     "@aws-sdk/client-dynamodb": "^3.1121.0",
     "@aws-sdk/client-s3": "^3.1121.0",
+    "@aws-sdk/client-ssm": "^3.1136.0",
     "@aws-sdk/lib-storage": "^3.1121.0",
     "@mrgrain/jsii-struct-builder": "^0.7.64",
     "@smithy/signature-v4": "^2.3.0",

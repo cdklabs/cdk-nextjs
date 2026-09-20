@@ -415,6 +415,7 @@ When `revalidateTag("user-profile")` is called:
 1. **Query DynamoDB**: Find all cache keys tagged with `pk = {buildId} and sk starts_with user-profile`
 2. **Update Timestamps**: Mark revalidation time in DynamoDB for each cache entry
 3. **Delete S3 Objects**: Remove corresponding cache files from S3
+4. **Invalidate CloudFront** (`NextjsGlobalFunctions`/`NextjsGlobalContainers` only): Evict the corresponding paths from the CDN edge cache too, so the origin's now-fresh state isn't masked by a still-cached edge response. This is best-effort and asynchronous (`cloudfront:CreateInvalidation` has no bounded completion SLA), so a client may briefly still observe stale content immediately after revalidation.
 
 **Revalidation Safety**: Even if S3 deletions fail due to network issues or race conditions, the cache handler will detect stale data during the next `get()` operation by comparing timestamps and automatically remove invalid entries.
 
@@ -433,6 +434,8 @@ For routes with time-based revalidation (e.g., `revalidate: 3600`):
 - Next.js checks cache age before serving
 - Triggers background regeneration when expired
 - Updates cache files in S3 automatically
+
+**Known limitation on Lambda**: this background regeneration is Next.js's own fire-and-forget work, not something cdk-nextjs's cache handler is invoked to await — the same "no signal for when background work is complete" gap that led to `NextjsRevalidation` (an SQS-based workaround) being removed in favor of waiting for Next.js's [Deployment Adapters `waitFor` API](https://github.com/vercel/next.js/discussions/77740) (see `docs/breaking-changes.md` 0.4.0). Until cdk-nextjs adopts `waitFor`, time-based revalidation on Lambda may occasionally not complete before the execution environment spins down, unrelated to the CloudFront-edge-cache invalidation described below (which only fires for explicit tag/path revalidation, not time-based expiry).
 
 ### Tag-based Revalidation
 
