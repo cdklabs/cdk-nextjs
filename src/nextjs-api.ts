@@ -261,6 +261,7 @@ export class NextjsApi extends Construct {
       responseTransferMode: this.props.imageFunction
         ? ResponseTransferMode.STREAM
         : ResponseTransferMode.BUFFERED,
+      ...this.props.overrides?.dynamicIntegrationProps,
       ...this.props.overrides?.imageIntegrationProps,
     });
     // Add _next/image route
