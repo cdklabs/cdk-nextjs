@@ -25,4 +25,13 @@ test.describe("image-optimization", () => {
     );
     expect(naturalWidth).toBeGreaterThan(0);
   });
+
+  test("should optimize image referenced by absolute URL", async ({ page }) => {
+    const img = page.getByAltText("Absolute URL image");
+    await expect(img).toBeVisible();
+    const naturalWidth = await img.evaluate(
+      (el: HTMLImageElement) => el.naturalWidth,
+    );
+    expect(naturalWidth).toBeGreaterThan(0);
+  });
 });
