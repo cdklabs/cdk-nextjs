@@ -16,6 +16,7 @@ import {
 import {
   NextjsImageFunction,
   NextjsImageFunctionOverrides,
+  NextjsImageFunctionProps,
 } from "../nextjs-compute/nextjs-image-function";
 import {
   NextjsStaticAssets,
@@ -30,6 +31,7 @@ export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsCacheProps?: OptionalNextjsCacheProps;
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
+  readonly nextjsImageFunctionProps?: NextjsImageFunctionProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
@@ -250,6 +252,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       vpc: this.baseProps.vpc,
       overrides,
+      ...this.constructOverrides?.nextjsImageFunctionProps,
     });
   }
 }
