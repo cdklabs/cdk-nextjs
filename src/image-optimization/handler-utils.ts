@@ -5,17 +5,21 @@ import { getExtension } from "next/dist/server/serve-static.js";
 
 /**
  * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
- * `url` already includes `basePath` (baked in by next-image-loader for
- * static imports, or added manually per Next.js convention for string
- * paths), and static assets are uploaded to S3 under that same basePath
- * prefix, so the key matches the url as-is.
+ * `url` sometimes includes `basePath` (next-image-loader bakes it in for
+ * statically imported images) and sometimes doesn't (plain string paths are
+ * passed through as literally written by the app), but static assets are
+ * always uploaded to S3 without it, so `basePath` is stripped from `url`
+ * before it's used as a key, if present.
  */
 export async function fetchFromS3(
   s3: S3Client,
   bucket: string,
   url: string,
+  basePath: string,
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
-  const key = url.replace(/^\//, "");
+  const withoutBasePath =
+    basePath && url.startsWith(basePath) ? url.slice(basePath.length) : url;
+  const key = withoutBasePath.replace(/^\//, "");
 
   const response = await s3.send(
     new GetObjectCommand({

@@ -39,7 +39,7 @@ describe("fetchFromS3", () => {
       ETag: '"abc123"',
     });
 
-    await fetchFromS3(s3, "my-bucket", "/base/foo.png");
+    await fetchFromS3(s3, "my-bucket", "/base/foo.png", "");
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
     expect(params).toEqual({
@@ -48,20 +48,40 @@ describe("fetchFromS3", () => {
     });
   });
 
-  it("does not double-prepend basePath when it is already part of the url", async () => {
+  it("strips basePath before it's used as the S3 key", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
       ETag: '"abc123"',
     });
 
-    // Simulates an app with basePath="/base": the href already contains
-    // "/base" (baked in by next-image-loader), so the S3 key must not
-    // repeat it.
-    await fetchFromS3(s3, "my-bucket", "/base/_next/static/media/a.png");
+    // Simulates an app with basePath="/base": next-image-loader bakes "/base"
+    // into the href for statically imported images, but S3 keys never
+    // include it, so it must be stripped before use as the key.
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/base/_next/static/media/a.png",
+      "/base",
+    );
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
-    expect(params.Key).toBe("base/_next/static/media/a.png");
+    expect(params.Key).toBe("_next/static/media/a.png");
+  });
+
+  it("leaves the url alone when it doesn't start with basePath", async () => {
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("data")]),
+      ContentType: "image/png",
+      ETag: '"abc123"',
+    });
+
+    // Plain string paths (e.g. `<Image src="/static/foo.jpg">`) are passed
+    // through by next/image as written, without basePath baked in.
+    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", "/base");
+
+    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
+    expect(params.Key).toBe("static/foo.jpg");
   });
 
   it("returns the concatenated buffer, content type, and etag", async () => {
@@ -71,7 +91,7 @@ describe("fetchFromS3", () => {
       ETag: '"the-etag"',
     });
 
-    const result = await fetchFromS3(s3, "my-bucket", "/foo.jpg");
+    const result = await fetchFromS3(s3, "my-bucket", "/foo.jpg", "");
 
     expect(result.buffer.toString()).toBe("hello");
     expect(result.contentType).toBe("image/jpeg");
@@ -85,7 +105,7 @@ describe("fetchFromS3", () => {
       ETag: undefined,
     });
 
-    const result = await fetchFromS3(s3, "my-bucket", "/foo.png");
+    const result = await fetchFromS3(s3, "my-bucket", "/foo.png", "");
 
     expect(result.etag).toBe("");
     expect(result.contentType).toBeNull();
@@ -94,9 +114,9 @@ describe("fetchFromS3", () => {
   it("throws when S3 returns no body", async () => {
     mockSend.mockResolvedValue({ Body: undefined });
 
-    await expect(fetchFromS3(s3, "my-bucket", "/missing.png")).rejects.toThrow(
-      /Empty response from S3/,
-    );
+    await expect(
+      fetchFromS3(s3, "my-bucket", "/missing.png", ""),
+    ).rejects.toThrow(/Empty response from S3/);
   });
 });
 

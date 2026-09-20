@@ -96,7 +96,12 @@ export const handler = awslambda.streamifyResponse(
             imagesConfig.maximumResponseBody,
             imagesConfig.maximumRedirects,
           )
-        : await fetchFromS3(s3, STATIC_ASSETS_BUCKET, href).then((result) => ({
+        : await fetchFromS3(
+            s3,
+            STATIC_ASSETS_BUCKET,
+            href,
+            nextConfig.basePath,
+          ).then((result) => ({
             buffer: result.buffer,
             contentType: result.contentType,
             cacheControl: null,
@@ -130,6 +135,12 @@ export const handler = awslambda.streamifyResponse(
             ETag: etag,
           },
         });
+        // A stream with zero payload bytes after the metadata delimiter
+        // makes API Gateway's InvokeWithResponseStream integration return a
+        // 502: it never recognizes the response as complete. A single
+        // space, discarded by clients on a body-less 304 anyway, keeps the
+        // stream non-empty without affecting the response semantically.
+        stream.write(" ");
         stream.end();
         return;
       }
