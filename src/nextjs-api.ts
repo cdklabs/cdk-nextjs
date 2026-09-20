@@ -56,6 +56,13 @@ export interface NextjsApiProps {
    */
   readonly imageFunction?: IFunction;
   /**
+   * Whether `imageFunction` supports Lambda response streaming. Required to
+   * be true to use `ResponseTransferMode.STREAM` for the `_next/image` route;
+   * otherwise API Gateway returns a 502 for a non-streaming Lambda.
+   * @default false
+   */
+  readonly imageFunctionSupportsStreaming?: boolean;
+  /**
    * The S3 bucket containing static assets
    */
   readonly staticAssetsBucket: IBucket;
@@ -254,11 +261,11 @@ export class NextjsApi extends Construct {
   private createDynamicIntegration(serverFunction: IFunction) {
     // The default Next.js server doesn't stream image responses, which
     // causes API Gateway to return a 502 in STREAM mode. The dedicated
-    // image optimization Lambda streams correctly, so it uses STREAM;
-    // falling back to serverFunction (BUFFERED) if it isn't provided.
+    // image optimization Lambda streams correctly, so callers opt into
+    // STREAM via `imageFunctionSupportsStreaming`; otherwise BUFFERED.
     const imageFunction = this.props.imageFunction ?? serverFunction;
     const imageIntegration = new LambdaIntegration(imageFunction, {
-      responseTransferMode: this.props.imageFunction
+      responseTransferMode: this.props.imageFunctionSupportsStreaming
         ? ResponseTransferMode.STREAM
         : ResponseTransferMode.BUFFERED,
       ...this.props.overrides?.dynamicIntegrationProps,
