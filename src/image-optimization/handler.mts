@@ -4,6 +4,7 @@ import type { IncomingMessage } from "node:http";
 import type { APIGatewayProxyEvent, LambdaFunctionURLEvent } from "aws-lambda";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
+  ImageError,
   ImageOptimizerCache,
   imageOptimizer,
   fetchExternalImage,
@@ -175,11 +176,20 @@ export const handler = awslambda.streamifyResponse(
       stream.end();
     } catch (error) {
       debug("Error processing image:", error);
+      let statusCode = 500;
+      let message = "Internal Server Error";
+      if (error instanceof ImageError) {
+        statusCode = error.statusCode;
+        message = error.message;
+      } else if (error instanceof Error && error.name === "NoSuchKey") {
+        statusCode = 404;
+        message = "Not Found";
+      }
       const stream = awslambda.HttpResponseStream.from(responseStream, {
-        statusCode: 500,
+        statusCode,
         headers: { "Content-Type": "text/plain" },
       });
-      stream.write("Internal Server Error");
+      stream.write(message);
       stream.end();
     }
   },
