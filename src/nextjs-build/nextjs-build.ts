@@ -391,10 +391,13 @@ export class NextjsBuild extends Construct {
     const imgPath = join(nodeModulesPath, "@img");
     const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
 
-    this.installSharpPackages(imgPath, [
-      { name: `sharp-libvips-linuxmusl-${arch}`, version: "1.2.4" },
-      { name: `sharp-linuxmusl-${arch}`, version: "0.34.5" },
-    ]);
+    this.installSharpPackages(
+      imgPath,
+      this.getSharpBinaryPackages(
+        this.findSharpPackage(nodeModulesPath),
+        `linuxmusl-${arch}`,
+      ),
+    );
   }
 
   /**
@@ -420,29 +423,158 @@ export class NextjsBuild extends Construct {
       recursive: true,
     });
 
-    const sharpSource = join(standalonePath, "node_modules", "sharp");
-    if (existsSync(sharpSource)) {
-      cpSync(sharpSource, join(nodeModulesPath, "sharp"), {
-        recursive: true,
-      });
+    const sharpSource = this.findSharpPackage(
+      join(standalonePath, "node_modules"),
+    );
+    if (sharpSource) {
+      this.copySharpRuntime(sharpSource, nodeModulesPath);
     } else {
       console.warn(
         `${LOG_PREFIX} "sharp" not found in standalone build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
       );
     }
 
-    cpSync(
-      join(this.dotNextPath, "required-server-files.json"),
-      join(assetPath, "required-server-files.json"),
+    const requiredServerFiles = join(
+      this.dotNextPath,
+      "required-server-files.json",
     );
+    if (!existsSync(requiredServerFiles)) {
+      throw new Error(
+        `${LOG_PREFIX} "required-server-files.json" not found at ${requiredServerFiles}. The image optimization Lambda reads it at cold start to build its Next.js config.`,
+      );
+    }
+    cpSync(requiredServerFiles, join(assetPath, "required-server-files.json"));
 
     const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
-    this.installSharpPackages(imgPath, [
-      { name: `sharp-libvips-linux-${arch}`, version: "1.2.4" },
-      { name: `sharp-linux-${arch}`, version: "0.34.5" },
-    ]);
+    this.installSharpPackages(
+      imgPath,
+      this.getSharpBinaryPackages(sharpSource, `linux-${arch}`),
+    );
 
     return assetPath;
+  }
+
+  /**
+   * Locate `sharp`'s JS wrapper inside a standalone `node_modules`.
+   *
+   * Next's output file tracing preserves the installer's on-disk layout, so
+   * npm/yarn produce a hoisted `node_modules/sharp` while pnpm only
+   * materializes `node_modules/.pnpm/sharp@<version>/node_modules/sharp`.
+   */
+  private findSharpPackage(nodeModulesPath: string): string | undefined {
+    const hoisted = join(nodeModulesPath, "sharp");
+    if (existsSync(join(hoisted, "package.json"))) {
+      return hoisted;
+    }
+
+    const pnpmPath = join(nodeModulesPath, ".pnpm");
+    if (!existsSync(pnpmPath)) {
+      return undefined;
+    }
+
+    const candidates = readdirSync(pnpmPath)
+      .filter((name) => name.startsWith("sharp@"))
+      .sort();
+    for (const candidate of candidates.reverse()) {
+      const nested = join(pnpmPath, candidate, "node_modules", "sharp");
+      if (existsSync(join(nested, "package.json"))) {
+        return nested;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Copy `sharp` plus the transitive `dependencies` closure `require("sharp")`
+   * pulls in (`@img/colour`, `detect-libc`, `semver`) into `targetPath`.
+   *
+   * Copying only `sharp` itself leaves those requires unresolvable, and
+   * `imageOptimizer` swallows the resulting `MODULE_NOT_FOUND` by falling back
+   * to serving the unoptimized original, so the omission is otherwise silent.
+   */
+  private copySharpRuntime(sharpSource: string, targetPath: string): void {
+    // Under pnpm a package's dependencies are symlinked into the sibling
+    // directory alongside it, which is also where a hoisted layout keeps
+    // them, so the same lookup covers both.
+    const lookupPath = join(sharpSource, "..");
+    const queue = ["sharp"];
+    const copied = new Set<string>();
+
+    while (queue.length > 0) {
+      const name = queue.shift()!;
+      if (copied.has(name)) {
+        continue;
+      }
+
+      const source = name === "sharp" ? sharpSource : join(lookupPath, name);
+      if (!existsSync(join(source, "package.json"))) {
+        console.warn(
+          `${LOG_PREFIX} "sharp" dependency "${name}" not found in standalone build output; image optimization may fall back to serving unoptimized images.`,
+        );
+        continue;
+      }
+
+      // `dereference` resolves pnpm's symlinks into real files, since the
+      // Lambda asset is a standalone directory with no store to link into.
+      cpSync(source, join(targetPath, name), {
+        recursive: true,
+        dereference: true,
+      });
+      copied.add(name);
+
+      const manifest = JSON.parse(
+        readFileSync(join(source, "package.json"), "utf-8"),
+      );
+      // Platform binaries are optionalDependencies, installed separately at
+      // the versions this same manifest pins, so only `dependencies` here.
+      queue.push(...Object.keys(manifest.dependencies ?? {}));
+    }
+
+    debug(
+      `${LOG_PREFIX} Copied sharp runtime: ${[...copied].sort().join(", ")}`,
+    );
+  }
+
+  /**
+   * Resolve the `@img/sharp-<platform>` and `@img/sharp-libvips-<platform>`
+   * versions to install for a given platform.
+   *
+   * These must match the `sharp` JS wrapper that output file tracing put in
+   * the standalone build: `sharp`'s `lib/libvips.js` compares the binary's
+   * reported libvips version against its own `minimumLibvipsVersion` and
+   * throws at load when they disagree. `sharp` pins both in its
+   * `optionalDependencies`, so that manifest is the authoritative source.
+   */
+  private getSharpBinaryPackages(
+    sharpSource: string | undefined,
+    platform: string,
+  ): { name: string; version: string }[] {
+    const fallback = [
+      { name: `sharp-libvips-${platform}`, version: "1.2.4" },
+      { name: `sharp-${platform}`, version: "0.34.5" },
+    ];
+
+    if (!sharpSource) {
+      return fallback;
+    }
+
+    const manifest = JSON.parse(
+      readFileSync(join(sharpSource, "package.json"), "utf-8"),
+    );
+    const optionalDependencies: Record<string, string> =
+      manifest.optionalDependencies ?? {};
+
+    return fallback.map((pkg) => {
+      const version = optionalDependencies[`@img/${pkg.name}`];
+      if (!version) {
+        console.warn(
+          `${LOG_PREFIX} sharp@${manifest.version} does not pin "@img/${pkg.name}"; falling back to ${pkg.version}.`,
+        );
+        return pkg;
+      }
+      return { name: pkg.name, version };
+    });
   }
 
   /**

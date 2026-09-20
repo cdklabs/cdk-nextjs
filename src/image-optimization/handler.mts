@@ -113,6 +113,7 @@ export const handler = awslambda.streamifyResponse(
         contentType: optimizedContentType,
         maxAge,
         etag,
+        error: optimizationError,
       } = await imageOptimizer(
         imageUpstream,
         paramsResult,
@@ -125,6 +126,17 @@ export const handler = awslambda.streamifyResponse(
         },
         { isDev: false },
       );
+
+      // `imageOptimizer` reports a failed optimization by returning the
+      // untouched upstream image alongside `error` rather than throwing, so
+      // without this a broken `sharp` install serves full-size originals with
+      // a 200 indefinitely and nothing in the logs says why.
+      if (optimizationError) {
+        console.error(
+          `Failed to optimize ${href}, serving the unoptimized original:`,
+          optimizationError,
+        );
+      }
 
       const ifNoneMatch = req.headers["if-none-match"];
       if (ifNoneMatch === etag) {

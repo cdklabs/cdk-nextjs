@@ -45,6 +45,23 @@ test.describe("image-optimization", () => {
     expect(naturalWidth).toBeGreaterThan(0);
   });
 
+  // Every other assertion in this file also passes when `sharp` fails to load,
+  // because `imageOptimizer` reports that by returning the untouched upstream
+  // image with a 200 instead of throwing. Re-encoding to WebP is only
+  // observable when Sharp actually ran.
+  test("should re-encode the image rather than serving the original bytes", async ({
+    page,
+  }) => {
+    const url = await getOptimizedImageUrl(page, "Public image");
+    const response = await page.request.get(url.toString(), {
+      headers: { accept: "image/avif,image/webp,image/apng,*/*" },
+    });
+    expect(response.status()).toBe(200);
+    // The upstream asset is a PNG and `images.formats` is left at its default
+    // of `["image/webp"]`, so WebP here means Sharp re-encoded it.
+    expect(response.headers()["content-type"]).toBe("image/webp");
+  });
+
   // regression test: the handler's catch block used to always return 500,
   // discarding the real statusCode ImageError attaches (see image-optimizer's
   // "The requested resource isn't a valid image" check).
