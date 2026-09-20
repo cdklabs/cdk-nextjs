@@ -95,6 +95,7 @@ export class NextjsApi extends Construct {
     this.staticIntegrationRole = this.createStaticIntegrationRole();
     this.createStaticIntegrations();
     if (props.serverFunction) {
+      this.createImageIntegration(props.serverFunction);
       this.createDynamicIntegration(props.serverFunction);
     } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
@@ -254,9 +255,9 @@ export class NextjsApi extends Construct {
   }
 
   /**
-   * Create Lambda Proxy integration for all other routes
+   * Create Lambda Proxy integration for the `_next/image` route.
    */
-  private createDynamicIntegration(serverFunction: IFunction) {
+  private createImageIntegration(serverFunction: IFunction) {
     // The default Next.js server doesn't stream image responses, which
     // causes API Gateway to return a 502 in STREAM mode, so BUFFERED is used
     // when falling back to serverFunction. A supplied imageFunction is
@@ -271,10 +272,14 @@ export class NextjsApi extends Construct {
       ...this.props.overrides?.dynamicIntegrationProps,
       ...this.props.overrides?.imageIntegrationProps,
     });
-    // Add _next/image route
     const imageResource = this.nextResource.addResource("image");
     imageResource.addMethod("ANY", imageIntegration);
+  }
 
+  /**
+   * Create Lambda Proxy integration for all other routes
+   */
+  private createDynamicIntegration(serverFunction: IFunction) {
     // All other routes use streaming for better performance
     const streamingIntegration = new LambdaIntegration(serverFunction, {
       responseTransferMode: ResponseTransferMode.STREAM,
