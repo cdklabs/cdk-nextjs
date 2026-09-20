@@ -53,7 +53,7 @@ function getHeaders(
 
 async function fetchFromS3(
   url: string,
-): Promise<{ buffer: Buffer; contentType: string | null }> {
+): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
   // `url` already includes `basePath` (baked in by next-image-loader for
   // static imports, or added manually per Next.js convention for string
   // paths), and static assets are uploaded to S3 under that same basePath
@@ -82,6 +82,7 @@ async function fetchFromS3(
   return {
     buffer: Buffer.concat(chunks),
     contentType: response.ContentType || null,
+    etag: response.ETag || "",
   };
 }
 
@@ -130,7 +131,7 @@ export const handler = awslambda.streamifyResponse(
             buffer: result.buffer,
             contentType: result.contentType,
             cacheControl: null,
-            etag: "",
+            etag: result.etag,
           }));
 
       const {
