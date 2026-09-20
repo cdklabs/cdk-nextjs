@@ -1,5 +1,24 @@
 # Breaking Changes
 
+## Unreleased
+
+### NextjsApi: `imageFunction` now required alongside `serverFunction`
+
+Only affects direct consumers of `NextjsApi` — `NextjsGlobalFunctions` and
+`NextjsRegionalFunctions` users are unaffected, since those root constructs
+always wire this internally.
+
+- If you construct `NextjsApi` directly with `serverFunction` set, you must
+  now also provide `imageFunction`. Previously, `_next/image` requests fell
+  back to `serverFunction` (in `BUFFERED` mode, since the default Next.js
+  server can't stream image responses).
+- **Migration:** Pass a Lambda for `imageFunction` (ideally one built with
+  Lambda response streaming support, since it's invoked with
+  `ResponseTransferMode.STREAM`). If you don't have a dedicated image
+  optimization Lambda, `serverFunction` can still be passed as
+  `imageFunction`, but override `responseTransferMode` to `BUFFERED` via
+  `overrides.imageIntegrationProps` to avoid a 502.
+
 ## 0.5.0
 
 ### Architecture Changes

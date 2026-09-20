@@ -51,13 +51,13 @@ export interface NextjsApiProps {
    */
   readonly serverFunction?: IFunction;
   /**
-   * Dedicated image optimization Lambda. Falls back to `serverFunction` for
-   * the `_next/image` route if not provided. Assumed to support Lambda
-   * response streaming (as the dedicated image Lambda this package builds
-   * does) and is invoked with `ResponseTransferMode.STREAM` accordingly. If
-   * you supply a custom `imageFunction` that doesn't support streaming,
-   * override `responseTransferMode` to `BUFFERED` via
-   * `overrides.imageIntegrationProps`, otherwise API Gateway returns a 502.
+   * Required if `serverFunction` is set. Dedicated image optimization
+   * Lambda for the `_next/image` route. Assumed to support Lambda response
+   * streaming (as the dedicated image Lambda this package builds does) and
+   * is invoked with `ResponseTransferMode.STREAM` accordingly. If you supply
+   * a custom `imageFunction` that doesn't support streaming, override
+   * `responseTransferMode` to `BUFFERED` via `overrides.imageIntegrationProps`,
+   * otherwise API Gateway returns a 502.
    */
   readonly imageFunction?: IFunction;
   /**
@@ -95,7 +95,8 @@ export class NextjsApi extends Construct {
     this.staticIntegrationRole = this.createStaticIntegrationRole();
     this.createStaticIntegrations();
     if (props.serverFunction) {
-      this.createImageIntegration(props.serverFunction);
+      // validateProps guarantees imageFunction is set alongside serverFunction
+      this.createImageIntegration(props.imageFunction as IFunction);
       this.createDynamicIntegration(props.serverFunction);
     } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
@@ -105,6 +106,11 @@ export class NextjsApi extends Construct {
   private validateProps(props: NextjsApiProps) {
     if (!props.serverFunction && !props.vpc) {
       throw new Error("serverFunction or vpc must be set in NextjsApiProps");
+    }
+    if (props.serverFunction && !props.imageFunction) {
+      throw new Error(
+        "imageFunction must be set in NextjsApiProps when serverFunction is set",
+      );
     }
   }
 
@@ -257,18 +263,13 @@ export class NextjsApi extends Construct {
   /**
    * Create Lambda Proxy integration for the `_next/image` route.
    */
-  private createImageIntegration(serverFunction: IFunction) {
-    // The default Next.js server doesn't stream image responses, which
-    // causes API Gateway to return a 502 in STREAM mode, so BUFFERED is used
-    // when falling back to serverFunction. A supplied imageFunction is
-    // assumed to be the dedicated, streaming-capable image Lambda (see its
-    // doc comment); override responseTransferMode via imageIntegrationProps
-    // if that assumption doesn't hold for a custom imageFunction.
-    const imageFunction = this.props.imageFunction ?? serverFunction;
+  private createImageIntegration(imageFunction: IFunction) {
+    // imageFunction is assumed to be the dedicated, streaming-capable image
+    // Lambda (see its doc comment); override responseTransferMode via
+    // imageIntegrationProps if that assumption doesn't hold for a custom
+    // imageFunction, otherwise API Gateway returns a 502.
     const imageIntegration = new LambdaIntegration(imageFunction, {
-      responseTransferMode: this.props.imageFunction
-        ? ResponseTransferMode.STREAM
-        : ResponseTransferMode.BUFFERED,
+      responseTransferMode: ResponseTransferMode.STREAM,
       ...this.props.overrides?.dynamicIntegrationProps,
       ...this.props.overrides?.imageIntegrationProps,
     });
