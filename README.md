@@ -171,15 +171,20 @@ architecture-beta
     service cloudfront(server)[CloudFront Distribution] in aws
     service s3static(disk)[S3 Static Assets] in aws
     service lambda(server)[Lambda Function] in aws
+    service imagelambda(server)[Image Optimization Lambda] in aws
     service dynamodb(database)[DynamoDB Table] in cache
     service s3cache(disk)[S3 Cache Bucket] in cache
 
     user:R --> L:cloudfront
     cloudfront:R --> L:s3static
     cloudfront:R --> L:lambda
+    cloudfront:B --> T:imagelambda
+    imagelambda:R --> L:s3static
     lambda:R --> L:dynamodb
     lambda:R --> L:s3cache
 ```
+
+`_next/image` requests are routed by CloudFront directly to a dedicated, streaming-capable Image Optimization Lambda (not the server function above), so image requests don't pay for the server function's cold start or block on its concurrency.
 
 ### `NextjsGlobalContainers`
 
@@ -242,15 +247,20 @@ architecture-beta
     service apigateway(server)[API Gateway REST API] in aws
     service s3static(disk)[S3 Static Assets] in aws
     service lambda(server)[Lambda Function] in aws
+    service imagelambda(server)[Image Optimization Lambda] in aws
     service dynamodb(database)[DynamoDB Table] in cache
     service s3cache(disk)[S3 Cache Bucket] in cache
 
     user:R --> L:apigateway
     apigateway:R --> L:s3static
     apigateway:R --> L:lambda
+    apigateway:B --> T:imagelambda
+    imagelambda:R --> L:s3static
     lambda:R --> L:dynamodb
     lambda:R --> L:s3cache
 ```
+
+`_next/image` requests are routed by API Gateway directly to a dedicated, streaming-capable Image Optimization Lambda (not the server function above), so image requests don't pay for the server function's cold start or block on its concurrency.
 
 ## Why
 
@@ -344,7 +354,7 @@ Note: CloudFront distributions take several minutes to create/update, so this ar
 - If using `NextjsGlobalFunctions` or `NextjsGlobalContainers` (which use CloudFront), the number of top level files/directories cannot exceed 25, the max number of behaviors a CloudFront Distribution supports. We recommend you put all of your public assets into one top level directory (i.e. public/static) so you don't reach this limit. See [CloudFront Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) for more information.
 - If using `NextjsGlobalFunctions`, when [revalidating data in Next.js](https://nextjs.org/docs/app/building-your-application/data-fetching/fetching-caching-and-revalidating#on-demand-revalidation) (i.e. [revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath)), the CloudFront Cache will still hold stale data. You'll need to use AWS SDK JS V3 [CreateInvalidationCommand](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-cloudfront/Class/CreateInvalidationCommand/) to manually invalidate the path in CloudFront. See more [here](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html).
 - If using `NextjsGlobalFunctions`, setting an Authorization header won't work by default because of Lambda Function URL with IAM Auth is already using the Authorization header. You can use the `AWS_LWA_AUTHORIZATION_SOURCE` environment variable of [AWS Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter) to set an alternative Authorization header in the client which will then be set to the Authorization header when it reaches your app.
-- `NextjsRegionalFunctions` doesn't support streaming because API Gateway doesn't support streaming yet.
+- `NextjsRegionalFunctions`'s `_next/image` route always streams (API Gateway REST APIs now support [Lambda response streaming](https://docs.aws.amazon.com/apigateway/latest/developerguide/response-transfer-mode-lambda.html), and the dedicated image optimization Lambda always uses it). Streaming for the server function's own routes depends on whether your server Lambda supports response streaming (e.g. [AWS Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter)'s `AWS_LWA_INVOKE_MODE`) — override `overrides.nextjsApi.dynamicIntegrationProps.responseTransferMode` to `BUFFERED` if it doesn't, otherwise API Gateway returns a 500 for every request.
 - If using `NextjsRegionalFunctions` without a custom domain, API Gateway REST APIs require a [stage name](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-stages.html) (default: `/prod`) to be specified. This causes links to pages and static assets to break because they're not prefixed with the stage name. You can work around this issue by specifying [basePath](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) in next.config.js as your stage name. Additionally, you'll need to add middleware logic to rewrite requests to include the stage name because API Gateway does not include the stage name in the path passed to Lambda. See [examples/app-playground/middleware.ts](./examples/app-playground/middleware.ts).
 
 ## Additional Security Recommendations

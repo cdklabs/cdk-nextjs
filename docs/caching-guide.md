@@ -50,11 +50,17 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Where**: Server
 **Duration**: Persistent (can be revalidated)
 **Kind**: `IMAGE`
-**cdk-nextjs Implementation**:
+**cdk-nextjs Implementation** (Containers only — `NextjsGlobalContainers`/`NextjsRegionalContainers`):
 
 - **Storage**: S3 bucket at `/{buildId}/{cache-key}`
 - **Optimization**: Cached resized, format-converted images
 - **Revalidation**: Time-based or on-demand revalidation
+
+`NextjsGlobalFunctions`/`NextjsRegionalFunctions` route `_next/image` to a dedicated
+image optimization Lambda (`NextjsImageFunction`) instead of the server function,
+so this cache kind is never written for those deployments. That Lambda relies on
+HTTP caching instead (`Cache-Control`/`ETag` response headers, browser/CDN-cached),
+not this persistent S3-backed cache.
 
 ### 5. Redirect Cache (REDIRECT)
 

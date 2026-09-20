@@ -37,19 +37,22 @@ if (reqCtxStr) {
 }
 ```
 
-#### 3. Image Path Prefixing
+#### 3. Image Path Prefixing (raw URLs only)
 
 ```typescript
-// For static images that Next.js Image optimization needs to fetch
-<Image src={getImageSrc('/static/image.jpg')} ... />
+// Only for raw, browser-fetched URLs (e.g. CSS background-image) — do NOT
+// wrap <Image src=...> with this. next/image already accounts for basePath
+// on its own (see "Image Optimization" below), and the dedicated image
+// optimization Lambda strips basePath itself before resolving the S3 key.
+<div style={{ backgroundImage: `url('${getImageSrc('/static/grid.svg')}')` }} />
 ```
 
-The `getImageSrc()` helper adds the `/prod` prefix to image src paths when `NEXT_PUBLIC_IMAGE_SRC_PREFIX` is set.
+The `getImageSrc()` helper adds the `/prod` prefix to a path when `NEXT_PUBLIC_IMAGE_SRC_PREFIX` is set. It's needed for URLs the browser fetches directly (not through `next/image`), since those aren't routed through basePath at all — everything else (`<Image src=...>`, page links) is handled automatically by Next.js/API Gateway/the image Lambda without it.
 
 ### Why Both Middleware and NEXT_PUBLIC_IMAGE_SRC_PREFIX?
 
 - **Middleware**: Reconstructs the full path by prepending the stage name (from `x-amzn-request-context` header) that Lambda Web Adapter doesn't include in the URL path
-- **NEXT_PUBLIC_IMAGE_SRC_PREFIX**: Ensures Next.js Image optimization requests source images with the correct `/prod/static/*` path, so they route correctly through API Gateway
+- **NEXT_PUBLIC_IMAGE_SRC_PREFIX**: Prefixes raw, browser-fetched asset URLs (CSS `background-image`, etc.) that never go through basePath-aware Next.js routing
 
 ### Request Flow Example
 
@@ -62,10 +65,11 @@ The `getImageSrc()` helper adds the `/prod` prefix to image src paths when `NEXT
 
 **Image Optimization:**
 
-1. Browser: `GET /prod/_next/image?url=/prod/static/image.jpg`
-2. Next.js Image optimization fetches source: `GET /prod/static/image.jpg`
-3. Request routes through API Gateway correctly
-4. Image optimized and returned
+1. Browser: `GET /prod/_next/image?url=/static/image.jpg` (plain string paths in `<Image src>` are passed through unprefixed by `next/image`; the `/prod` on the request itself comes from `basePath`)
+2. API Gateway routes `/prod/_next/image` to the dedicated image optimization Lambda (not the server function)
+3. The Lambda resolves `url` directly against the S3 static assets bucket, which has no `/prod` prefix, and returns the optimized image
+
+Statically *imported* images (`import logo from './logo.png'`) are a special case: `next-image-loader` bakes `basePath` into their generated `url` (e.g. `/prod/_next/static/media/logo.<hash>.png`), so the image Lambda strips a leading `basePath` from `url` before treating it as an S3 key.
 
 ## Usage
 
