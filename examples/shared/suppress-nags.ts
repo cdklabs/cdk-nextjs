@@ -102,7 +102,14 @@ function suppressCloudFrontInvalidationWildcard(stack: Stack, path: string) {
         "cloudfront:CreateInvalidation can't be scoped to the specific distribution because its ID isn't known until after this compute resource is created (the distribution depends on this compute's URL/ALB as its origin); scoping to it would create a circular CloudFormation dependency",
       appliesTo: [
         "Action::cloudfront:CreateInvalidation",
+        // Depending on whether the stack has an explicit env, CDK may resolve
+        // the account/partition pseudo params before cdk-nag sees the ARN, so
+        // match both the token and already-resolved forms.
         "Resource::arn:<AWS::Partition>:cloudfront::<AWS::AccountId>:distribution/*",
+        {
+          regex:
+            "/^Resource::arn:(aws|aws-cn|aws-us-gov):cloudfront::\\d+:distribution\\/\\*$/",
+        },
       ],
     },
   ]);
