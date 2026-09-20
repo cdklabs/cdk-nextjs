@@ -126,13 +126,13 @@ describe("resolveErrorResponse", () => {
     });
   });
 
-  it("maps a missing S3 object to 404", () => {
+  it("maps a missing S3 object to the same 400 Next.js's own local-image fetch produces", () => {
     const error = new Error("NoSuchKey: does not exist");
     error.name = "NoSuchKey";
 
     expect(resolveErrorResponse(error)).toEqual({
-      statusCode: 404,
-      message: "Not Found",
+      statusCode: 400,
+      message: "The requested resource isn't a valid image.",
     });
   });
 

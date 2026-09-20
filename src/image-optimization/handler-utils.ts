@@ -59,8 +59,13 @@ export function getFileNameWithExtension(
 /**
  * Maps an error thrown while processing an image request to the HTTP
  * status/message it should produce, preserving the status Next.js's own
- * `ImageError`/`fetchExternalImage` attach and mapping a missing S3 object
- * to 404 instead of a generic 500.
+ * `ImageError`/`fetchExternalImage` attach. A missing S3 object is mapped to
+ * the same 400 Next.js's own local-image fetch path (`fetchInternalImage` in
+ * image-optimizer.js) produces for a missing file: it never inspects the
+ * internal request's status code, so a 404 there just flows into the normal
+ * "not a valid image" content-type check as if it were malformed image
+ * bytes. This mirrors that behavior instead of surfacing a 404, so Functions
+ * and Containers deployments respond identically for this case.
  */
 export function resolveErrorResponse(error: unknown): {
   statusCode: number;
@@ -70,7 +75,10 @@ export function resolveErrorResponse(error: unknown): {
     return { statusCode: error.statusCode, message: error.message };
   }
   if (error instanceof Error && error.name === "NoSuchKey") {
-    return { statusCode: 404, message: "Not Found" };
+    return {
+      statusCode: 400,
+      message: "The requested resource isn't a valid image.",
+    };
   }
   return { statusCode: 500, message: "Internal Server Error" };
 }
