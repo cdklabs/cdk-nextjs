@@ -3,6 +3,7 @@
 jest.mock("@aws-sdk/client-s3");
 jest.mock("@aws-sdk/client-dynamodb");
 jest.mock("@aws-sdk/client-cloudfront");
+jest.mock("@aws-sdk/client-ssm");
 
 import {
   CloudFrontClient,
@@ -19,6 +20,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { SSMClient } from "@aws-sdk/client-ssm";
 import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
@@ -30,6 +32,7 @@ import { S3CacheHandler } from "./s3-cache-handler";
 const mockS3Send = jest.fn();
 const mockDynamoSend = jest.fn();
 const mockCloudFrontSend = jest.fn();
+const mockSsmSend = jest.fn();
 
 (S3Client as jest.Mock).mockImplementation(() => ({
   send: mockS3Send,
@@ -41,6 +44,10 @@ const mockCloudFrontSend = jest.fn();
 
 (CloudFrontClient as jest.Mock).mockImplementation(() => ({
   send: mockCloudFrontSend,
+}));
+
+(SSMClient as jest.Mock).mockImplementation(() => ({
+  send: mockSsmSend,
 }));
 
 describe("S3DynamoCacheHandler", () => {
@@ -73,6 +80,7 @@ describe("S3DynamoCacheHandler", () => {
     mockS3Send.mockReset();
     mockDynamoSend.mockReset();
     mockCloudFrontSend.mockReset();
+    mockSsmSend.mockReset();
   });
 
   afterEach(() => {
@@ -81,7 +89,7 @@ describe("S3DynamoCacheHandler", () => {
     delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
     delete process.env.CDK_NEXTJS_BUILD_ID;
     delete process.env.AWS_REGION;
-    delete process.env.CDK_NEXTJS_DISTRIBUTION_ID;
+    delete process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME;
 
     // Restore console.warn
     jest.restoreAllMocks();
@@ -269,8 +277,8 @@ describe("S3DynamoCacheHandler", () => {
       await expect(handler.revalidateTag("error-tag")).resolves.not.toThrow();
     });
 
-    it("should create a CloudFront invalidation for affected paths when a distribution is configured", async () => {
-      process.env.CDK_NEXTJS_DISTRIBUTION_ID = "test-distribution-id";
+    it("should create a CloudFront invalidation for affected paths when a distribution parameter is configured", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
       const handlerWithDistribution = new S3CacheHandler({
         context: mockContext,
       });
@@ -285,10 +293,14 @@ describe("S3DynamoCacheHandler", () => {
       mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
       mockDynamoSend.mockResolvedValue({}); // For update commands
       mockS3Send.mockResolvedValue({}); // For delete commands
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
       mockCloudFrontSend.mockResolvedValue({});
 
       await handlerWithDistribution.revalidateTag("test-tag");
 
+      expect(mockSsmSend).toHaveBeenCalledWith(expect.any(Object));
       expect(mockCloudFrontSend).toHaveBeenCalledWith(
         expect.any(CreateInvalidationCommand),
       );
@@ -301,7 +313,7 @@ describe("S3DynamoCacheHandler", () => {
       );
     });
 
-    it("should not call CloudFront when no distribution is configured", async () => {
+    it("should not call SSM or CloudFront when no distribution parameter is configured", async () => {
       const mockQueryResponse = {
         Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }],
       };
@@ -312,11 +324,12 @@ describe("S3DynamoCacheHandler", () => {
 
       await handler.revalidateTag("test-tag");
 
+      expect(mockSsmSend).not.toHaveBeenCalled();
       expect(mockCloudFrontSend).not.toHaveBeenCalled();
     });
 
-    it("should handle CloudFront invalidation errors gracefully", async () => {
-      process.env.CDK_NEXTJS_DISTRIBUTION_ID = "test-distribution-id";
+    it("should handle SSM/CloudFront invalidation errors gracefully", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
       const handlerWithDistribution = new S3CacheHandler({
         context: mockContext,
       });
@@ -328,7 +341,7 @@ describe("S3DynamoCacheHandler", () => {
       mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
       mockDynamoSend.mockResolvedValue({});
       mockS3Send.mockResolvedValue({});
-      mockCloudFrontSend.mockRejectedValueOnce(new Error("CloudFront Error"));
+      mockSsmSend.mockRejectedValueOnce(new Error("SSM Error"));
 
       await expect(
         handlerWithDistribution.revalidateTag("test-tag"),

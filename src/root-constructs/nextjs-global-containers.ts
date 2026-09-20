@@ -1,6 +1,9 @@
+import { Stack } from "aws-cdk-lib";
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
 import { ICluster } from "aws-cdk-lib/aws-ecs";
 import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
@@ -99,17 +102,56 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
 
   /**
    * Grants the task role permission to invalidate the distribution and passes
-   * its ID so on-demand revalidation (revalidateTag/revalidatePath) can evict
-   * stale responses from the CDN edge cache, not just the origin's S3/DynamoDB cache.
+   * along a way to look up its ID, so on-demand revalidation
+   * (revalidateTag/revalidatePath) can evict stale responses from the CDN
+   * edge cache, not just the origin's S3/DynamoDB cache.
+   *
+   * The distribution ID is published to an SSM Parameter (whose *name* is
+   * static and safe to embed in the task's environment) rather than passed
+   * directly, and the IAM grant is scoped to all distributions in this
+   * account/region rather than this specific one. See the equivalent method
+   * in `NextjsGlobalFunctions` for why: the same pattern is used here for
+   * consistency, even though containers' distribution (ALB-origin-based)
+   * doesn't hit the circular CloudFormation dependency functions' does.
    */
   private wireCloudFrontInvalidation(): void {
+    const stack = Stack.of(this);
     const { taskDefinition } = this.nextjsContainers.albFargateService;
-    this.nextjsDistribution.distribution.grantCreateInvalidation(
-      taskDefinition.taskRole,
+    const distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
+
+    new StringParameter(this, "DistributionIdParameter", {
+      parameterName: distributionIdParameterName,
+      stringValue: this.nextjsDistribution.distribution.distributionId,
+    });
+
+    taskDefinition.addToTaskRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:GetParameter"],
+        resources: [
+          stack.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName: distributionIdParameterName,
+          }),
+        ],
+      }),
+    );
+    taskDefinition.addToTaskRolePolicy(
+      new PolicyStatement({
+        actions: ["cloudfront:CreateInvalidation"],
+        resources: [
+          stack.formatArn({
+            service: "cloudfront",
+            region: "",
+            resource: "distribution",
+            resourceName: "*",
+          }),
+        ],
+      }),
     );
     taskDefinition.defaultContainer?.addEnvironment(
-      "CDK_NEXTJS_DISTRIBUTION_ID",
-      this.nextjsDistribution.distribution.distributionId,
+      "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
+      distributionIdParameterName,
     );
   }
 

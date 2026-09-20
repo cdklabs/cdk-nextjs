@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { waitXSec } from "./utils/wait-5-sec";
+import { waitForFreshTimestamp } from "./utils/wait-for-fresh-timestamp";
 import { getPageTimestamp, isTimestampRecent } from "./utils/timestamp-helpers";
 
 test.describe("revalidation", () => {
@@ -33,13 +34,14 @@ test.describe("revalidation", () => {
     });
     console.log("Revalidation API called successfully");
 
-    // Step 4: Wait for revalidation to propagate (DynamoDB + S3 + CloudFront invalidation)
-    await waitXSec(5);
-
-    // Step 5: Visit ISR page again - should show fresh timestamp
+    // Step 4: Visit ISR page again - poll until fresh, since CloudFront
+    // invalidation and cross-instance cache eviction are eventually
+    // consistent with no fixed completion time.
     await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const revalidatedTimestamp = await getPageTimestamp(page);
-    expect(revalidatedTimestamp).toBeTruthy();
+    const revalidatedTimestamp = await waitForFreshTimestamp(
+      page,
+      initialTimestamp,
+    );
     console.log(`After revalidation: ${revalidatedTimestamp}`);
 
     // Verify the page was freshly rendered (different timestamp, and recent)
@@ -76,12 +78,16 @@ test.describe("revalidation", () => {
     await page.goto("./api/revalidate?collection=collection", {
       waitUntil: "networkidle",
     });
-    await waitXSec(5);
 
-    // Step 3: Check all pages were revalidated
+    // Step 3: Check all pages were revalidated. Poll until fresh, since
+    // CloudFront invalidation and cross-instance cache eviction are
+    // eventually consistent with no fixed completion time.
     for (const postId of posts) {
       await page.goto(`./isr/${postId}`, { waitUntil: "networkidle" });
-      const timestamp = await getPageTimestamp(page);
+      const timestamp = await waitForFreshTimestamp(
+        page,
+        initialTimestamps.get(postId) ?? null,
+      );
 
       console.log(`Post ${postId} after revalidation: ${timestamp}`);
 
@@ -115,11 +121,14 @@ test.describe("revalidation", () => {
     );
     expect(response?.status()).toBe(200);
 
-    await waitXSec(5);
-
-    // Verify revalidation worked
+    // Verify revalidation worked. Poll until fresh, since CloudFront
+    // invalidation and cross-instance cache eviction are eventually
+    // consistent with no fixed completion time.
     await page.goto("./isr/2", { waitUntil: "networkidle" });
-    const revalidatedTimestamp = await getPageTimestamp(page);
+    const revalidatedTimestamp = await waitForFreshTimestamp(
+      page,
+      initialTimestamp,
+    );
     console.log(`After revalidation: ${revalidatedTimestamp}`);
 
     expect(revalidatedTimestamp).not.toBe(initialTimestamp);
@@ -205,11 +214,12 @@ test.describe("revalidation", () => {
     await page.goto("./api/revalidate?collection=collection", {
       waitUntil: "networkidle",
     });
-    await waitXSec(5);
 
-    // Step 3: Page should be revalidated (fresh timestamp)
+    // Step 3: Page should be revalidated (fresh timestamp). Poll until
+    // fresh, since CloudFront invalidation and cross-instance cache eviction
+    // are eventually consistent with no fixed completion time.
     await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const afterTimestamp = await getPageTimestamp(page);
+    const afterTimestamp = await waitForFreshTimestamp(page, beforeTimestamp);
     console.log(`After revalidation: ${afterTimestamp}`);
 
     // Should show fresh data
