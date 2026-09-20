@@ -198,6 +198,21 @@ function bundle() {
     minify: true,
     outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
+  project.bundler.addBundle("src/image-optimization/handler.mts", {
+    platform: "node",
+    target,
+    outfile: "../../../lib/image-optimization/handler.mjs",
+    // Unlike adapter.mts/cache-handler.ts, this Lambda doesn't run inside the
+    // customer's own Next.js server process, so "next" must be bundled in.
+    // "sharp" stays external: it's a native binary vendored separately by
+    // NextjsBuild into node_modules alongside this bundle. "@opentelemetry/api"
+    // stays external too: next/dist/server/lib/trace/tracer.js requires it in
+    // a try/catch and falls back to its own vendored copy when missing.
+    externals: ["sharp", "@opentelemetry/api"],
+    format: "esm",
+    banner:
+      "const require = (await import('node:module')).createRequire(import.meta.url);",
+  });
 }
 
 function copyDockerfiles() {

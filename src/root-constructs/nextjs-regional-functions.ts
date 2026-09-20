@@ -15,6 +15,10 @@ import {
   NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 import {
+  NextjsImageFunction,
+  NextjsImageFunctionOverrides,
+} from "../nextjs-compute/nextjs-image-function";
+import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
@@ -33,6 +37,7 @@ export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseCon
 export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
+  readonly nextjsImageFunction?: NextjsImageFunctionOverrides;
   readonly nextjsApi?: NextjsApiOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
@@ -50,6 +55,7 @@ export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
  */
 export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
+  nextjsImageFunction: NextjsImageFunction;
   nextjsApi: NextjsApi;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
@@ -67,6 +73,9 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     this.props = props;
 
     this.nextjsFunctions = this.createNextjsFunctions();
+    this.nextjsImageFunction = this.createNextjsImageFunction(
+      this.props.overrides?.nextjsImageFunction,
+    );
     this.nextjsApi = this.createNextjsApi();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
@@ -90,6 +99,8 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     return new NextjsApi(this, "NextjsApi", {
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       serverFunction: this.nextjsFunctions.function,
+      imageFunction: this.nextjsImageFunction.function,
+      imageFunctionSupportsStreaming: true,
       basePath: this.baseProps.basePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
