@@ -73,7 +73,6 @@ export class NextjsImageFunction extends Construct {
 
   private createFunction(): LambdaFunction {
     const fn = new LambdaFunction(this, "Fn", {
-      architecture: getLambdaArchitecture(),
       code: Code.fromAsset(this.props.imageOptimizationAssetPath),
       handler: "handler.handler",
       memorySize: 2048,
@@ -81,6 +80,10 @@ export class NextjsImageFunction extends Construct {
       timeout: Duration.seconds(30),
       vpc: this.props.vpc,
       ...this.props.overrides?.functionProps,
+      // Must not be overridable: NextjsBuild bundles glibc `sharp` binaries
+      // matching the synth machine's architecture, so the deployed Lambda's
+      // architecture must always match what was bundled.
+      architecture: getLambdaArchitecture(),
       environment: {
         CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
           this.props.staticAssetsBucket.bucketName,
