@@ -31,6 +31,7 @@ runs:
         cd examples/${{ inputs.example_directory }}
         pnpm run deploy:ci
         export E2E_BASE_URL=$(jq -r '."${{ inputs.stack_name }}".CdkNextjsUrl' outputs.json)
+        export E2E_EXAMPLE_DIRECTORY=${{ inputs.example_directory }}
         cd ../e2e-tests
         pnpm ${{ inputs.test_script }}
     - uses: actions/upload-artifact@v4

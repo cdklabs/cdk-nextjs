@@ -58,8 +58,14 @@ test.describe("image-optimization", () => {
   });
 
   // regression test: a missing S3 object used to also surface as a generic
-  // 500 instead of 404.
+  // 500 instead of 404. Only applies to the dedicated image-optimization
+  // Lambda (Functions deployments); Containers use Next.js's built-in
+  // server-side image optimizer, which returns 400 for a missing local file.
   test("should return 404 for a missing local asset", async ({ page }) => {
+    test.skip(
+      !!process.env["E2E_EXAMPLE_DIRECTORY"]?.includes("containers"),
+      "Containers don't use the dedicated image-optimization Lambda",
+    );
     const url = await getOptimizedImageUrl(page, "Public image");
     url.searchParams.set("url", "/static/does-not-exist-e2e-test.png");
     const response = await page.request.get(url.toString());
