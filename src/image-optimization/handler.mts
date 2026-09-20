@@ -143,7 +143,7 @@ export const handler = awslambda.streamifyResponse(
         imageUpstream,
         paramsResult,
         {
-          experimental: {},
+          experimental: nextConfig.experimental,
           images: {
             dangerouslyAllowSVG: imagesConfig.dangerouslyAllowSVG,
             minimumCacheTTL: imagesConfig.minimumCacheTTL,
