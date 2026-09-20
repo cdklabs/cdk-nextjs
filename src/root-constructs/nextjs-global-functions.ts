@@ -6,7 +6,6 @@ import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNext
 import {
   NextjsFunctions,
   NextjsFunctionsOverrides,
-  NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 import {
   NextjsImageFunction,
@@ -28,7 +27,6 @@ import {
 } from "./nextjs-base-construct";
 
 export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
-  readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
@@ -79,27 +77,14 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     super(scope, id, props, NextjsType.GLOBAL_FUNCTIONS);
     this.props = props;
 
-    this.nextjsFunctions = this.createNextjsFunctions();
+    this.nextjsFunctions = this.createNextjsFunctions(
+      this.props.overrides?.nextjsFunctions,
+    );
     this.nextjsImageFunction = this.createNextjsImageFunction(
       this.props.overrides?.nextjsImageFunction,
     );
     this.nextjsDistribution = this.createNextjsDistribution();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
-  }
-
-  private createNextjsFunctions(): NextjsFunctions {
-    // Create functions with local build output
-    return new NextjsFunctions(this, "NextjsFunctions", {
-      ...this.computeBaseProps(),
-      overrides: {
-        ...this.props.overrides?.nextjsFunctions,
-        dockerImageFunctionProps: {
-          ...this.props.overrides?.nextjsFunctions?.dockerImageFunctionProps,
-          vpc: this.baseProps.vpc,
-        },
-      },
-      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionsProps,
-    });
   }
 
   private createNextjsDistribution() {

@@ -12,7 +12,6 @@ import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNext
 import {
   NextjsFunctions,
   NextjsFunctionsOverrides,
-  NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 import {
   NextjsImageFunction,
@@ -24,7 +23,6 @@ import {
 } from "../nextjs-post-deploy";
 
 export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
-  readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsApiProps?: NextjsApiProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
@@ -72,27 +70,14 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     super(scope, id, props, NextjsType.REGIONAL_FUNCTIONS);
     this.props = props;
 
-    this.nextjsFunctions = this.createNextjsFunctions();
+    this.nextjsFunctions = this.createNextjsFunctions(
+      this.props.overrides?.nextjsFunctions,
+    );
     this.nextjsImageFunction = this.createNextjsImageFunction(
       this.props.overrides?.nextjsImageFunction,
     );
     this.nextjsApi = this.createNextjsApi();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
-  }
-
-  private createNextjsFunctions(): NextjsFunctions {
-    // Create functions with local build output
-    return new NextjsFunctions(this, "NextjsFunctions", {
-      ...this.computeBaseProps(),
-      overrides: {
-        ...this.props.overrides?.nextjsFunctions,
-        dockerImageFunctionProps: {
-          ...this.props.overrides?.nextjsFunctions?.dockerImageFunctionProps,
-          vpc: this.baseProps.vpc,
-        },
-      },
-      ...this.props.overrides?.nextjsRegionalFunctions?.nextjsFunctionsProps,
-    });
   }
 
   private createNextjsApi() {

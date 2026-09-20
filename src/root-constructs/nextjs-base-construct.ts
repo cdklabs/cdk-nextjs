@@ -9,6 +9,11 @@ import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
 import { NextjsComputeBaseProps } from "../nextjs-compute/nextjs-compute-base-props";
 import {
+  NextjsFunctions,
+  NextjsFunctionsOverrides,
+  NextjsFunctionsProps,
+} from "../nextjs-compute/nextjs-functions";
+import {
   NextjsImageFunction,
   NextjsImageFunctionOverrides,
 } from "../nextjs-compute/nextjs-image-function";
@@ -24,6 +29,7 @@ import {
 export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsCacheProps?: OptionalNextjsCacheProps;
+  readonly nextjsFunctionsProps?: NextjsFunctionsProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
@@ -203,6 +209,25 @@ export abstract class NextjsBaseConstruct extends Construct {
       basePath: this.baseProps.basePath,
       overrides: this.baseProps.overrides?.nextjsStaticAssets,
       ...this.constructOverrides?.nextjsStaticAssetsProps,
+    });
+  }
+
+  /**
+   * Shared by `NextjsGlobalFunctions` and `NextjsRegionalFunctions`.
+   */
+  protected createNextjsFunctions(
+    overrides?: NextjsFunctionsOverrides,
+  ): NextjsFunctions {
+    return new NextjsFunctions(this, "NextjsFunctions", {
+      ...this.computeBaseProps(),
+      overrides: {
+        ...overrides,
+        dockerImageFunctionProps: {
+          ...overrides?.dockerImageFunctionProps,
+          vpc: this.baseProps.vpc,
+        },
+      },
+      ...this.constructOverrides?.nextjsFunctionsProps,
     });
   }
 
