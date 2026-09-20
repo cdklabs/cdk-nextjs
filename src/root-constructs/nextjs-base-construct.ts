@@ -9,6 +9,10 @@ import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
 import { NextjsComputeBaseProps } from "../nextjs-compute/nextjs-compute-base-props";
 import {
+  NextjsImageFunction,
+  NextjsImageFunctionOverrides,
+} from "../nextjs-compute/nextjs-image-function";
+import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
@@ -199,6 +203,28 @@ export abstract class NextjsBaseConstruct extends Construct {
       basePath: this.baseProps.basePath,
       overrides: this.baseProps.overrides?.nextjsStaticAssets,
       ...this.constructOverrides?.nextjsStaticAssetsProps,
+    });
+  }
+
+  /**
+   * Shared by `NextjsGlobalFunctions` and `NextjsRegionalFunctions`, the only
+   * two `NextjsType`s for which `NextjsBuild` produces an image optimization
+   * asset.
+   */
+  protected createNextjsImageFunction(
+    overrides?: NextjsImageFunctionOverrides,
+  ): NextjsImageFunction {
+    if (!this.nextjsBuild.imageOptimizationAssetPath) {
+      throw new Error(
+        `Missing NextjsBuild.imageOptimizationAssetPath for NextjsType.${this.nextjsType}`,
+      );
+    }
+    return new NextjsImageFunction(this, "NextjsImageFunction", {
+      nextjsType: this.nextjsType,
+      imageOptimizationAssetPath: this.nextjsBuild.imageOptimizationAssetPath,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      vpc: this.baseProps.vpc,
+      overrides,
     });
   }
 }

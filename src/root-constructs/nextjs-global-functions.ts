@@ -80,7 +80,9 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     this.props = props;
 
     this.nextjsFunctions = this.createNextjsFunctions();
-    this.nextjsImageFunction = this.createNextjsImageFunction();
+    this.nextjsImageFunction = this.createNextjsImageFunction(
+      this.props.overrides?.nextjsImageFunction,
+    );
     this.nextjsDistribution = this.createNextjsDistribution();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
@@ -97,21 +99,6 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
         },
       },
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionsProps,
-    });
-  }
-
-  private createNextjsImageFunction(): NextjsImageFunction {
-    if (!this.nextjsBuild.imageOptimizationAssetPath) {
-      throw new Error(
-        "Missing NextjsBuild.imageOptimizationAssetPath for NextjsType.GLOBAL_FUNCTIONS",
-      );
-    }
-    return new NextjsImageFunction(this, "NextjsImageFunction", {
-      nextjsType: this.nextjsType,
-      imageOptimizationAssetPath: this.nextjsBuild.imageOptimizationAssetPath,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      vpc: this.baseProps.vpc,
-      overrides: this.props.overrides?.nextjsImageFunction,
     });
   }
 

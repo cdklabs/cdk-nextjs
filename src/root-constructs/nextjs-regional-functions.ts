@@ -73,7 +73,9 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     this.props = props;
 
     this.nextjsFunctions = this.createNextjsFunctions();
-    this.nextjsImageFunction = this.createNextjsImageFunction();
+    this.nextjsImageFunction = this.createNextjsImageFunction(
+      this.props.overrides?.nextjsImageFunction,
+    );
     this.nextjsApi = this.createNextjsApi();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
@@ -90,21 +92,6 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
         },
       },
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsFunctionsProps,
-    });
-  }
-
-  private createNextjsImageFunction(): NextjsImageFunction {
-    if (!this.nextjsBuild.imageOptimizationAssetPath) {
-      throw new Error(
-        "Missing NextjsBuild.imageOptimizationAssetPath for NextjsType.REGIONAL_FUNCTIONS",
-      );
-    }
-    return new NextjsImageFunction(this, "NextjsImageFunction", {
-      nextjsType: this.nextjsType,
-      imageOptimizationAssetPath: this.nextjsBuild.imageOptimizationAssetPath,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      vpc: this.baseProps.vpc,
-      overrides: this.props.overrides?.nextjsImageFunction,
     });
   }
 
