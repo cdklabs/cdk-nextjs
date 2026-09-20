@@ -51,11 +51,14 @@ export interface NextjsApiProps {
    */
   readonly serverFunction?: IFunction;
   /**
-   * Required if `serverFunction` is set. Dedicated image optimization
-   * Lambda for the `_next/image` route. Assumed to support Lambda response
-   * streaming (as the dedicated image Lambda this package builds does) and
-   * is invoked with `ResponseTransferMode.STREAM` accordingly. If you supply
-   * a custom `imageFunction` that doesn't support streaming, override
+   * Dedicated image optimization Lambda for the `_next/image` route. When
+   * omitted, no `_next/image` resource is created and those requests fall
+   * through to `serverFunction` via the `{proxy+}` catch-all.
+   *
+   * When provided, it is assumed to support Lambda response streaming (as the
+   * dedicated image Lambda this package builds does) and is invoked with
+   * `ResponseTransferMode.STREAM` accordingly. If you supply a custom
+   * `imageFunction` that doesn't support streaming, override
    * `responseTransferMode` to `BUFFERED` via `overrides.imageIntegrationProps`,
    * otherwise API Gateway returns a 502.
    */
@@ -95,8 +98,11 @@ export class NextjsApi extends Construct {
     this.staticIntegrationRole = this.createStaticIntegrationRole();
     this.createStaticIntegrations();
     if (props.serverFunction) {
-      // validateProps guarantees imageFunction is set alongside serverFunction
-      this.createImageIntegration(props.imageFunction as IFunction);
+      // Without a dedicated image function, `_next/image` falls through to the
+      // `{proxy+}` catch-all on the server function.
+      if (props.imageFunction) {
+        this.createImageIntegration(props.imageFunction);
+      }
       this.createDynamicIntegration(props.serverFunction);
     } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
@@ -106,11 +112,6 @@ export class NextjsApi extends Construct {
   private validateProps(props: NextjsApiProps) {
     if (!props.serverFunction && !props.vpc) {
       throw new Error("serverFunction or vpc must be set in NextjsApiProps");
-    }
-    if (props.serverFunction && !props.imageFunction) {
-      throw new Error(
-        "imageFunction must be set in NextjsApiProps when serverFunction is set",
-      );
     }
   }
 

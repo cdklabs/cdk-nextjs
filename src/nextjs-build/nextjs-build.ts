@@ -19,6 +19,7 @@ import { Construct } from "constructs";
 import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
+import { useDedicatedImageFunction } from "../utils/experimental-flags";
 import { getNodeArchitecture } from "../utils/get-architecture";
 
 const debug = getDebug("cdk-nextjs:nextjs-build");
@@ -86,7 +87,9 @@ export class NextjsBuild extends Construct {
   /**
    * Absolute path to the directory prepared for the image optimization Lambda
    * asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`.
-   * Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and {@link NextjsType.REGIONAL_FUNCTIONS}.
+   * Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and
+   * {@link NextjsType.REGIONAL_FUNCTIONS}, and only when the dedicated image
+   * optimization Lambda is enabled.
    */
   imageOptimizationAssetPath?: string;
 
@@ -134,19 +137,24 @@ export class NextjsBuild extends Construct {
       props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
       props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
 
+    const dedicatedImageFunction = isFunctions && useDedicatedImageFunction();
+
     // Strip whatever platform-specific Sharp binaries `next build`'s output
-    // file tracing bundled in either way. Functions deployments never invoke
-    // Sharp from the standalone server itself (`_next/image` is always
-    // routed to the dedicated image optimization Lambda below), so there's
-    // no musl replacement to install. Containers deployments have no
-    // dedicated image Lambda and still serve `_next/image` from this same
-    // standalone server, so they need working musl binaries.
+    // file tracing bundled in either way, since they're the host's (e.g.
+    // macOS/glibc) rather than the deployment target's.
     this.removeExistingSharpBinaries(standalonePath);
-    if (!isFunctions) {
+    // The standalone server serves `_next/image` itself unless a dedicated
+    // image optimization Lambda takes over that route, and it runs on
+    // node:24-alpine (see functions.Dockerfile) / the same Alpine base for
+    // Containers, so it needs musl binaries. Skipping this install when Sharp
+    // *is* invoked from the server is silent: `imageOptimizer` catches the
+    // load failure internally and returns the unoptimized original with an
+    // HTTP 200.
+    if (!dedicatedImageFunction) {
       this.downloadAndInstallSharpBinaries();
     }
 
-    if (isFunctions) {
+    if (dedicatedImageFunction) {
       this.imageOptimizationAssetPath =
         this.prepareImageOptimizationAssets(standalonePath);
     }
@@ -407,9 +415,9 @@ export class NextjsBuild extends Construct {
    * `sharp`'s JS wrapper (already dereferenced from the pnpm store by Next's
    * output file tracing into the standalone build), glibc `sharp` binaries
    * (the standard Lambda managed runtime is Amazon Linux 2023/glibc, unlike
-   * the musl binaries installed above for the Docker/Lambda Web Adapter
-   * server function), and `required-server-files.json` (read by the handler
-   * at cold start to build `nextConfig`).
+   * the musl binaries the Docker/Lambda Web Adapter server function needs),
+   * and `required-server-files.json` (read by the handler at cold start to
+   * build `nextConfig`).
    */
   private prepareImageOptimizationAssets(standalonePath: string): string {
     const assetPath = join(this.dotNextPath, "cdk-nextjs-image-optimization");

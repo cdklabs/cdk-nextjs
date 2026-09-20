@@ -77,8 +77,11 @@ export interface NextjsDistributionProps {
    */
   readonly functionUrl?: IFunctionUrl;
   /**
-   * Function URL of the dedicated image optimization Lambda. Required if
-   * `NextjsType.GLOBAL_FUNCTIONS`.
+   * Function URL of the dedicated image optimization Lambda. Only applicable
+   * to `NextjsType.GLOBAL_FUNCTIONS`, and only when the dedicated image
+   * function is enabled. When omitted, the `_next/image*` behavior points at
+   * the dynamic origin, which serves image optimization from the Next.js
+   * server itself.
    */
   readonly imageFunctionUrl?: IFunctionUrl;
   /**
@@ -193,17 +196,19 @@ export class NextjsDistribution extends Construct {
     }
   }
   /**
-   * The dedicated image optimization Lambda only exists for
-   * `NextjsType.GLOBAL_FUNCTIONS`; other compute types keep serving
-   * `_next/image*` from the dynamic origin (their server can stream image
-   * responses natively).
+   * A dedicated image optimization Lambda is only wired up when
+   * {@link NextjsDistributionProps.imageFunctionUrl} is supplied, which today
+   * only `NextjsType.GLOBAL_FUNCTIONS` does. Otherwise `_next/image*` keeps
+   * going to the dynamic origin, where the Next.js server optimizes images
+   * itself.
+   *
+   * The `_next/image*` behavior is kept either way: its cache policy
+   * (`queryStringBehavior: all()`, `accept` in the cache key) is the right one
+   * for image requests regardless of which origin answers them.
    */
   private createImageOrigin(): IOrigin {
-    if (!this.isFunctionCompute) {
+    if (!this.isFunctionCompute || !this.props.imageFunctionUrl) {
       return this.dynamicOrigin;
-    }
-    if (!this.props.imageFunctionUrl) {
-      throw new Error("Missing NextjsDistributionProps.imageFunctionUrl");
     }
     return FunctionUrlOrigin.withOriginAccessControl(
       this.props.imageFunctionUrl,

@@ -37,6 +37,11 @@ jobs:
   glbl-fns:
     needs: wait-for-approval
     runs-on: ubuntu-24.04-arm
+    # Exercises the experimental dedicated image optimization Lambda. rgnl-fns
+    # deliberately leaves it off so both `_next/image` paths get coverage:
+    # dedicated Lambda here, Next.js server function there.
+    env:
+      CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION: "1"
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4

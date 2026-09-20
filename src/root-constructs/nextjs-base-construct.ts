@@ -246,7 +246,9 @@ export abstract class NextjsBaseConstruct extends Construct {
   /**
    * Shared by `NextjsGlobalFunctions` and `NextjsRegionalFunctions`, the only
    * two `NextjsType`s for which `NextjsBuild` produces an image optimization
-   * asset.
+   * asset. Only called when the dedicated image optimization Lambda is
+   * enabled, which is what makes the missing-asset check below an invariant
+   * violation rather than a supported configuration.
    */
   protected createNextjsImageFunction(
     overrides?: NextjsImageFunctionOverrides,

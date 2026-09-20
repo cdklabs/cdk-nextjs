@@ -65,11 +65,11 @@ The `getImageSrc()` helper adds the `/prod` prefix to a path when `NEXT_PUBLIC_I
 
 **Image Optimization:**
 
-1. Browser: `GET /prod/_next/image?url=/static/image.jpg` (plain string paths in `<Image src>` are passed through unprefixed by `next/image`; the `/prod` on the request itself comes from `basePath`)
-2. API Gateway routes `/prod/_next/image` to the dedicated image optimization Lambda (not the server function)
-3. The Lambda resolves `url` directly against the S3 static assets bucket, which has no `/prod` prefix, and returns the optimized image
+`_next/image` is served by the server function, so Next.js middleware runs for image requests:
 
-Statically *imported* images (`import logo from './logo.png'`) are a special case: `next-image-loader` bakes `basePath` into their generated `url` (e.g. `/prod/_next/static/media/logo.<hash>.png`), so the image Lambda strips a leading `basePath` from `url` before treating it as an S3 key.
+1. Browser: `GET /prod/_next/image?url=/static/image.jpg` (plain string paths in `<Image src>` are passed through unprefixed by `next/image`; the `/prod` on the request itself comes from `basePath`)
+2. API Gateway routes `/prod/_next/image` to the server function via the `{proxy+}` catch-all
+3. Next.js fetches the source image back through API Gateway and returns the optimized image
 
 ## Usage
 

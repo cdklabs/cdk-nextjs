@@ -2,22 +2,6 @@
 
 ## 0.6.0
 
-### `_next/image` no longer runs Next.js middleware (Functions only)
-
-Affects `NextjsGlobalFunctions` and `NextjsRegionalFunctions`. Containers
-deployments are unaffected, since they still serve `_next/image` from the
-standalone server.
-
-`_next/image` is now routed to a dedicated image optimization Lambda instead of
-the standalone server. Next.js's default middleware matcher (`/:path*`) matches
-`/_next/image`, so any middleware you relied on for image requests — auth
-checks, geo-gating, rewrites — no longer runs for them.
-
-- **Migration:** If middleware was gating image access, enforce it somewhere
-  that still runs: put the check in a CloudFront function / ALB rule ahead of
-  the Lambda, or mark those images `unoptimized` so they're served as static
-  assets under your existing rules.
-
 ### Functions-only overrides moved off the Containers constructs
 
 `nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
@@ -29,22 +13,25 @@ ignored there.
 - **Migration:** Remove those keys from Containers construct overrides. If you
   were setting them and expecting an effect, there wasn't one.
 
-### NextjsApi: `imageFunction` now required alongside `serverFunction`
+### New (non-breaking): lower-level image optimization building blocks
 
-Only affects direct consumers of `NextjsApi` — `NextjsGlobalFunctions` and
-`NextjsRegionalFunctions` users are unaffected, since those root constructs
-always wire this internally.
+`_next/image` behavior is unchanged — the Next.js server function still serves
+it on every `NextjsType`, so Next.js middleware still runs for image requests.
 
-- If you construct `NextjsApi` directly with `serverFunction` set, you must
-  now also provide `imageFunction`. Previously, `_next/image` requests fell
-  back to `serverFunction` (in `BUFFERED` mode, since the default Next.js
-  server can't stream image responses).
-- **Migration:** Pass a Lambda for `imageFunction` (ideally one built with
-  Lambda response streaming support, since it's invoked with
-  `ResponseTransferMode.STREAM`). If you don't have a dedicated image
-  optimization Lambda, `serverFunction` can still be passed as
-  `imageFunction`, but override `responseTransferMode` to `BUFFERED` via
-  `overrides.imageIntegrationProps` to avoid a 502.
+These additive, optional props let you wire your own image optimization Lambda
+if you want one:
+
+- `NextjsApiProps.imageFunction` — when omitted, `_next/image` falls through to
+  `serverFunction` via the `{proxy+}` catch-all, as before.
+- `NextjsDistributionProps.imageFunctionUrl` — when omitted, the `_next/image*`
+  behavior points at the dynamic origin, as before.
+- The `NextjsImageFunction` construct is exported for direct use.
+
+`NextjsGlobalFunctions.nextjsImageFunction` and
+`NextjsRegionalFunctions.nextjsImageFunction` are `undefined` unless the
+dedicated image Lambda is enabled, which no supported prop does yet. A future
+release routes `_next/image` through the adapter runtime after middleware; see
+`docs/plans/adapter-runtime-release.md`.
 
 ## 0.5.0
 
