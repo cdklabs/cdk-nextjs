@@ -469,7 +469,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The entrypoint JavaScript file used as an argument for Node.js to run the Next.js standalone server relative to the standalone directory. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from the standalone directory to the package containing the Next.js app. This is automatically detected from the standalone build output. |
-| <code><a href="#cdk-nextjs.NextjsBuild.property.imageOptimizationAssetPath">imageOptimizationAssetPath</a></code> | <code>string</code> | Absolute path to the directory prepared for the image optimization Lambda asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`. Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and {@link NextjsType.REGIONAL_FUNCTIONS}. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.imageOptimizationAssetPath">imageOptimizationAssetPath</a></code> | <code>string</code> | Absolute path to the directory prepared for the image optimization Lambda asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`. Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and {@link NextjsType.REGIONAL_FUNCTIONS}, and only when the dedicated image optimization Lambda is enabled. |
 
 ---
 
@@ -595,7 +595,7 @@ public readonly imageOptimizationAssetPath: string;
 
 - *Type:* string
 
-Absolute path to the directory prepared for the image optimization Lambda asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`. Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and {@link NextjsType.REGIONAL_FUNCTIONS}.
+Absolute path to the directory prepared for the image optimization Lambda asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`. Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and {@link NextjsType.REGIONAL_FUNCTIONS}, and only when the dedicated image optimization Lambda is enabled.
 
 ---
 
@@ -1628,8 +1628,8 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsImageFunction">nextjsImageFunction</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsImageFunction">nextjsImageFunction</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a></code> | Only created when the (experimental, unsupported) dedicated image optimization Lambda is enabled. |
 
 ---
 
@@ -1705,16 +1705,6 @@ public readonly nextjsFunctions: NextjsFunctions;
 
 ---
 
-##### `nextjsImageFunction`<sup>Required</sup> <a name="nextjsImageFunction" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsImageFunction"></a>
-
-```typescript
-public readonly nextjsImageFunction: NextjsImageFunction;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a>
-
----
-
 ##### `nextjsPostDeploy`<sup>Required</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsPostDeploy"></a>
 
 ```typescript
@@ -1722,6 +1712,21 @@ public readonly nextjsPostDeploy: NextjsPostDeploy;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
+
+---
+
+##### `nextjsImageFunction`<sup>Optional</sup> <a name="nextjsImageFunction" id="cdk-nextjs.NextjsGlobalFunctions.property.nextjsImageFunction"></a>
+
+```typescript
+public readonly nextjsImageFunction: NextjsImageFunction;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a>
+
+Only created when the (experimental, unsupported) dedicated image optimization Lambda is enabled.
+
+`_next/image` is otherwise served by
+{@link nextjsFunctions}.
 
 ---
 
@@ -2380,8 +2385,8 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsApi">nextjsApi</a></code> | <code><a href="#cdk-nextjs.NextjsApi">NextjsApi</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsFunctions">nextjsFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsFunctions">NextjsFunctions</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsImageFunction">nextjsImageFunction</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctions.property.nextjsImageFunction">nextjsImageFunction</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a></code> | Only created when the (experimental, unsupported) dedicated image optimization Lambda is enabled. |
 
 ---
 
@@ -2457,16 +2462,6 @@ public readonly nextjsFunctions: NextjsFunctions;
 
 ---
 
-##### `nextjsImageFunction`<sup>Required</sup> <a name="nextjsImageFunction" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsImageFunction"></a>
-
-```typescript
-public readonly nextjsImageFunction: NextjsImageFunction;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a>
-
----
-
 ##### `nextjsPostDeploy`<sup>Required</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsPostDeploy"></a>
 
 ```typescript
@@ -2474,6 +2469,21 @@ public readonly nextjsPostDeploy: NextjsPostDeploy;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
+
+---
+
+##### `nextjsImageFunction`<sup>Optional</sup> <a name="nextjsImageFunction" id="cdk-nextjs.NextjsRegionalFunctions.property.nextjsImageFunction"></a>
+
+```typescript
+public readonly nextjsImageFunction: NextjsImageFunction;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsImageFunction">NextjsImageFunction</a>
+
+Only created when the (experimental, unsupported) dedicated image optimization Lambda is enabled.
+
+`_next/image` is otherwise served by
+{@link nextjsFunctions}.
 
 ---
 
@@ -2728,7 +2738,7 @@ const nextjsApiProps: NextjsApiProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add resources to API Gateway REST API for public directory to go directly to S3. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | The S3 bucket containing static assets. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.basePath">basePath</a></code> | <code>string</code> | Optional base path for the application. |
-| <code><a href="#cdk-nextjs.NextjsApiProps.property.imageFunction">imageFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `serverFunction` is set. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.imageFunction">imageFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Dedicated image optimization Lambda for the `_next/image` route. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `NextjsRegionalContainers`. |
@@ -2779,13 +2789,16 @@ public readonly imageFunction: IFunction;
 
 - *Type:* aws-cdk-lib.aws_lambda.IFunction
 
-Required if `serverFunction` is set.
+Dedicated image optimization Lambda for the `_next/image` route.
 
-Dedicated image optimization
-Lambda for the `_next/image` route. Assumed to support Lambda response
-streaming (as the dedicated image Lambda this package builds does) and
-is invoked with `ResponseTransferMode.STREAM` accordingly. If you supply
-a custom `imageFunction` that doesn't support streaming, override
+When
+omitted, no `_next/image` resource is created and those requests fall
+through to `serverFunction` via the `{proxy+}` catch-all.
+
+When provided, it is assumed to support Lambda response streaming (as the
+dedicated image Lambda this package builds does) and is invoked with
+`ResponseTransferMode.STREAM` accordingly. If you supply a custom
+`imageFunction` that doesn't support streaming, override
 `responseTransferMode` to `BUFFERED` via `overrides.imageIntegrationProps`,
 otherwise API Gateway returns a 502.
 
@@ -2849,8 +2862,6 @@ const nextjsBaseConstructOverrides: NextjsBaseConstructOverrides = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsBaseConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsBaseConstructOverrides.property.nextjsImageFunctionProps">nextjsImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 
 ---
@@ -2872,26 +2883,6 @@ public readonly nextjsCacheProps: OptionalNextjsCacheProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a>
-
----
-
-##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsBaseConstructOverrides.property.nextjsFunctionsProps"></a>
-
-```typescript
-public readonly nextjsFunctionsProps: NextjsFunctionsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a>
-
----
-
-##### `nextjsImageFunctionProps`<sup>Optional</sup> <a name="nextjsImageFunctionProps" id="cdk-nextjs.NextjsBaseConstructOverrides.property.nextjsImageFunctionProps"></a>
-
-```typescript
-public readonly nextjsImageFunctionProps: NextjsImageFunctionProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a>
 
 ---
 
@@ -4141,8 +4132,11 @@ public readonly imageFunctionUrl: IFunctionUrl;
 
 Function URL of the dedicated image optimization Lambda.
 
-Required if
-`NextjsType.GLOBAL_FUNCTIONS`.
+Only applicable
+to `NextjsType.GLOBAL_FUNCTIONS`, and only when the dedicated image
+function is enabled. When omitted, the `_next/image*` behavior points at
+the dynamic origin, which serves image optimization from the Next.js
+server itself.
 
 ---
 
@@ -4167,6 +4161,84 @@ public readonly overrides: NextjsDistributionOverrides;
 - *Type:* <a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a>
 
 Override props for every construct.
+
+---
+
+### NextjsFunctionsConstructOverrides <a name="NextjsFunctionsConstructOverrides" id="cdk-nextjs.NextjsFunctionsConstructOverrides"></a>
+
+Adds the overrides that only apply to the two Functions `NextjsType`s.
+
+The
+Containers types serve `_next/image` from the standalone server itself and
+have no Lambda functions to configure, so they would silently ignore these.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsFunctionsConstructOverrides.Initializer"></a>
+
+```typescript
+import { NextjsFunctionsConstructOverrides } from 'cdk-nextjs'
+
+const nextjsFunctionsConstructOverrides: NextjsFunctionsConstructOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsImageFunctionProps">nextjsImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a></code> | *No description.* |
+
+---
+
+##### `nextjsBuildProps`<sup>Optional</sup> <a name="nextjsBuildProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsBuildProps"></a>
+
+```typescript
+public readonly nextjsBuildProps: OptionalNextjsBuildProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a>
+
+---
+
+##### `nextjsCacheProps`<sup>Optional</sup> <a name="nextjsCacheProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsCacheProps"></a>
+
+```typescript
+public readonly nextjsCacheProps: OptionalNextjsCacheProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a>
+
+---
+
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
+##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
+
+```typescript
+public readonly nextjsFunctionsProps: NextjsFunctionsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a>
+
+---
+
+##### `nextjsImageFunctionProps`<sup>Optional</sup> <a name="nextjsImageFunctionProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsImageFunctionProps"></a>
+
+```typescript
+public readonly nextjsImageFunctionProps: NextjsImageFunctionProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a>
 
 ---
 
@@ -4351,8 +4423,6 @@ const nextjsGlobalContainersConstructOverrides: NextjsGlobalContainersConstructO
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsImageFunctionProps">nextjsImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsContainersProps">nextjsContainersProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps">OptionalNextjsContainersProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
@@ -4377,26 +4447,6 @@ public readonly nextjsCacheProps: OptionalNextjsCacheProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a>
-
----
-
-##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsFunctionsProps"></a>
-
-```typescript
-public readonly nextjsFunctionsProps: NextjsFunctionsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a>
-
----
-
-##### `nextjsImageFunctionProps`<sup>Optional</sup> <a name="nextjsImageFunctionProps" id="cdk-nextjs.NextjsGlobalContainersConstructOverrides.property.nextjsImageFunctionProps"></a>
-
-```typescript
-public readonly nextjsImageFunctionProps: NextjsImageFunctionProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a>
 
 ---
 
@@ -4792,9 +4842,9 @@ const nextjsGlobalFunctionsConstructOverrides: NextjsGlobalFunctionsConstructOve
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsImageFunctionProps">nextjsImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
 
@@ -4820,6 +4870,16 @@ public readonly nextjsCacheProps: OptionalNextjsCacheProps;
 
 ---
 
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
 ##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
 
 ```typescript
@@ -4837,16 +4897,6 @@ public readonly nextjsImageFunctionProps: NextjsImageFunctionProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a>
-
----
-
-##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
-
-```typescript
-public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
 
 ---
 
@@ -5479,8 +5529,6 @@ const nextjsRegionalContainersConstructOverrides: NextjsRegionalContainersConstr
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsImageFunctionProps">nextjsImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsContainerProps">nextjsContainerProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps">OptionalNextjsContainersProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
@@ -5504,26 +5552,6 @@ public readonly nextjsCacheProps: OptionalNextjsCacheProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a>
-
----
-
-##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsFunctionsProps"></a>
-
-```typescript
-public readonly nextjsFunctionsProps: NextjsFunctionsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a>
-
----
-
-##### `nextjsImageFunctionProps`<sup>Optional</sup> <a name="nextjsImageFunctionProps" id="cdk-nextjs.NextjsRegionalContainersConstructOverrides.property.nextjsImageFunctionProps"></a>
-
-```typescript
-public readonly nextjsImageFunctionProps: NextjsImageFunctionProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a>
 
 ---
 
@@ -5882,9 +5910,9 @@ const nextjsRegionalFunctionsConstructOverrides: NextjsRegionalFunctionsConstruc
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsImageFunctionProps">nextjsImageFunctionProps</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsApiProps">nextjsApiProps</a></code> | <code><a href="#cdk-nextjs.NextjsApiProps">NextjsApiProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
 
@@ -5910,6 +5938,16 @@ public readonly nextjsCacheProps: OptionalNextjsCacheProps;
 
 ---
 
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
 ##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
 
 ```typescript
@@ -5927,16 +5965,6 @@ public readonly nextjsImageFunctionProps: NextjsImageFunctionProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsImageFunctionProps">NextjsImageFunctionProps</a>
-
----
-
-##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
-
-```typescript
-public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
 
 ---
 
@@ -10950,8 +10978,11 @@ public readonly imageFunctionUrl: IFunctionUrl;
 
 Function URL of the dedicated image optimization Lambda.
 
-Required if
-`NextjsType.GLOBAL_FUNCTIONS`.
+Only applicable
+to `NextjsType.GLOBAL_FUNCTIONS`, and only when the dedicated image
+function is enabled. When omitted, the `_next/image*` behavior points at
+the dynamic origin, which serves image optimization from the Next.js
+server itself.
 
 ---
 
