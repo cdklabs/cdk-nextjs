@@ -15,10 +15,12 @@ import {
   SetIncrementalResponseCacheContext,
   SetIncrementalFetchCacheContext,
 } from "next/dist/server/response-cache";
+import { getTags } from "./cache-utils";
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
   expiresAt: number; // Timestamp in milliseconds
+  tags: string[];
 }
 
 export interface MemoryCacheHandlerOptions {
@@ -141,7 +143,7 @@ export class MemoryCacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    _ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void> {
     if (!data) {
       // Delete from memory cache
@@ -162,6 +164,7 @@ export class MemoryCacheHandler implements CacheHandler {
     const entry: MemoryCacheEntry = {
       value: cacheHandlerValue,
       expiresAt: Date.now() + this.ttlMs,
+      tags: getTags(ctx) || [],
     };
 
     // Clean up expired entries before adding new one
@@ -180,15 +183,24 @@ export class MemoryCacheHandler implements CacheHandler {
 
   async revalidateTag(tag: string | string[]): Promise<void> {
     const tags = Array.isArray(tag) ? tag : [tag];
-    this.debug(`MEMORY REVALIDATE TAGS (no-op): [${tags.join(", ")}]`);
-    // Memory cache does not track tags because:
-    // 1. In distributed environments (multiple Lambda functions or Fargate containers),
-    //    tag revalidation only clears cache on the current instance. Other instances
-    //    would continue serving stale data until their TTL expires anyway.
-    // 2. The S3 cache handler with DynamoDB provides the authoritative source of truth
-    //    for tag revalidations across all instances.
-    // 3. Memory cache relies on TTL-based expiration for simplicity and consistency.
-    //    If strong consistency is required, set CDK_NEXTJS_MEMORY_CACHE_TTL_MS=0.
+    let invalidatedCount = 0;
+
+    for (const [key, entry] of this.inMemoryCache.entries()) {
+      if (entry.tags.some((entryTag) => tags.includes(entryTag))) {
+        this.inMemoryCache.delete(key);
+        invalidatedCount++;
+      }
+    }
+
+    this.debug(
+      `MEMORY REVALIDATE TAGS: [${tags.join(", ")}] removed ${invalidatedCount} entries`,
+    );
+
+    // Note: this only clears the cache on the instance handling this request.
+    // In distributed environments (multiple Lambda functions or Fargate containers),
+    // other instances continue serving their own memory-cached entries until those
+    // entries expire (ttlMs). Set CDK_NEXTJS_MEMORY_CACHE_TTL_MS=0 to disable the
+    // memory cache entirely if strong cross-instance consistency is required.
   }
 
   async resetRequestCache(): Promise<void> {

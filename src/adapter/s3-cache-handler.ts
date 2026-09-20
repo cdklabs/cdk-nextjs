@@ -2,7 +2,12 @@
   S3 and DynamoDB cache handler for Next.js incremental cache
 */
 /* eslint-disable import/no-extraneous-dependencies */
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import {
+  CloudFrontClient,
+  CreateInvalidationCommand,
+} from "@aws-sdk/client-cloudfront";
 import {
   DynamoDBClient,
   QueryCommand,
@@ -42,17 +47,25 @@ interface DynamoDBRevalidationConfig {
   buildId: string;
 }
 
+interface CloudFrontInvalidationConfig {
+  distributionId: string;
+  region: string;
+}
+
 export interface S3CacheHandlerOptions {
   context: CacheHandlerContext;
   s3Config?: Partial<S3CacheConfig>;
   dynamoConfig?: Partial<DynamoDBRevalidationConfig>;
+  cloudFrontConfig?: Partial<CloudFrontInvalidationConfig>;
 }
 
 export class S3CacheHandler implements CacheHandler {
   private s3Client: S3Client;
   private dynamoClient: DynamoDBClient;
+  private cloudFrontClient: CloudFrontClient;
   private s3Config: S3CacheConfig;
   private dynamoConfig: DynamoDBRevalidationConfig;
+  private cloudFrontConfig: CloudFrontInvalidationConfig;
   private debug = getDebug("cdk-nextjs:cache-handler:s3");
 
   constructor(options: S3CacheHandlerOptions) {
@@ -79,10 +92,29 @@ export class S3CacheHandler implements CacheHandler {
       buildId: options.dynamoConfig?.buildId || buildId,
     };
 
+    // Initialize CloudFront configuration from environment variables and options.
+    // Only set for CloudFront-fronted deployments (NextjsGlobalFunctions/Containers).
+    // When unset, on-demand revalidation skips CDN invalidation and relies on the
+    // distribution's cache policy TTL (driven by the origin's Cache-Control header)
+    // to eventually pick up fresh content.
+    this.cloudFrontConfig = {
+      distributionId:
+        options.cloudFrontConfig?.distributionId ||
+        process.env.CDK_NEXTJS_DISTRIBUTION_ID ||
+        "",
+      region:
+        options.cloudFrontConfig?.region ||
+        process.env.AWS_REGION ||
+        "us-east-1",
+    };
+
     // Initialize AWS clients
     this.s3Client = new S3Client({ region: this.s3Config.region });
     this.dynamoClient = new DynamoDBClient({
       region: this.dynamoConfig.region,
+    });
+    this.cloudFrontClient = new CloudFrontClient({
+      region: this.cloudFrontConfig.region,
     });
 
     if (!this.s3Config.bucketName) {
@@ -363,6 +395,62 @@ export class S3CacheHandler implements CacheHandler {
 
         await Promise.all(deletePromises.filter(Boolean));
       }
+
+      // Invalidate the CDN edge cache so CloudFront-fronted deployments don't
+      // keep serving stale responses until the cache policy's TTL naturally expires.
+      if (this.cloudFrontConfig.distributionId) {
+        const invalidationPaths = cacheKeys
+          .filter((s3Key): s3Key is string => Boolean(s3Key))
+          .map((s3Key) => this.s3KeyToInvalidationPath(s3Key));
+        await this.invalidateCloudFrontPaths(invalidationPaths);
+      }
+    }
+  }
+
+  /**
+   * Reverses `buildS3Key` to recover the request path CloudFront cached the
+   * response under. Fetch-cache entries (opaque hash keys, not page routes)
+   * translate to a path that won't match anything cached, which is harmless.
+   */
+  private s3KeyToInvalidationPath(s3Key: string): string {
+    const prefix = `${this.s3Config.buildId}/`;
+    const withoutPrefix = s3Key.startsWith(prefix)
+      ? s3Key.slice(prefix.length)
+      : s3Key;
+    const withoutSuffix = withoutPrefix.endsWith(".json")
+      ? withoutPrefix.slice(0, -".json".length)
+      : withoutPrefix;
+
+    return withoutSuffix === "index" ? "/" : `/${withoutSuffix}`;
+  }
+
+  private async invalidateCloudFrontPaths(paths: string[]): Promise<void> {
+    const uniquePaths = Array.from(new Set(paths));
+    if (uniquePaths.length === 0) {
+      return;
+    }
+
+    try {
+      this.debug(
+        `CLOUDFRONT INVALIDATION: [${uniquePaths.join(", ")}] on distribution ${this.cloudFrontConfig.distributionId}`,
+      );
+
+      await this.cloudFrontClient.send(
+        new CreateInvalidationCommand({
+          DistributionId: this.cloudFrontConfig.distributionId,
+          InvalidationBatch: {
+            CallerReference: randomUUID(),
+            Paths: {
+              Quantity: uniquePaths.length,
+              Items: uniquePaths,
+            },
+          },
+        }),
+      );
+    } catch (error) {
+      // Log but don't fail - the S3/DynamoDB invalidation already succeeded,
+      // and the CloudFront cache policy TTL provides an eventual fallback.
+      console.warn("Failed to create CloudFront invalidation:", error);
     }
   }
 

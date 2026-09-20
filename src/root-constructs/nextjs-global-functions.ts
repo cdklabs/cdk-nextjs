@@ -75,7 +75,23 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
 
     this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsDistribution = this.createNextjsDistribution();
+    this.wireCloudFrontInvalidation();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
+  }
+
+  /**
+   * Grants the function permission to invalidate the distribution and passes
+   * its ID so on-demand revalidation (revalidateTag/revalidatePath) can evict
+   * stale responses from the CDN edge cache, not just the origin's S3/DynamoDB cache.
+   */
+  private wireCloudFrontInvalidation(): void {
+    this.nextjsDistribution.distribution.grantCreateInvalidation(
+      this.nextjsFunctions.function,
+    );
+    this.nextjsFunctions.function.addEnvironment(
+      "CDK_NEXTJS_DISTRIBUTION_ID",
+      this.nextjsDistribution.distribution.distributionId,
+    );
   }
 
   private createNextjsFunctions(): NextjsFunctions {

@@ -2,8 +2,7 @@ import { test, expect } from "@playwright/test";
 import { waitXSec } from "./utils/wait-5-sec";
 import { getPageTimestamp, isTimestampRecent } from "./utils/timestamp-helpers";
 
-// too flaky to run in CI right now
-test.describe.skip("revalidation", () => {
+test.describe("revalidation", () => {
   test("should revalidate ISR page when calling revalidate API", async ({
     page,
     baseURL,
@@ -34,8 +33,8 @@ test.describe.skip("revalidation", () => {
     });
     console.log("Revalidation API called successfully");
 
-    // Step 4: Wait for revalidation to propagate (DynamoDB + S3)
-    await waitXSec(2);
+    // Step 4: Wait for revalidation to propagate (DynamoDB + S3 + CloudFront invalidation)
+    await waitXSec(5);
 
     // Step 5: Visit ISR page again - should show fresh timestamp
     await page.goto("./isr/1", { waitUntil: "networkidle" });
@@ -77,7 +76,7 @@ test.describe.skip("revalidation", () => {
     await page.goto("./api/revalidate?collection=collection", {
       waitUntil: "networkidle",
     });
-    await waitXSec(2);
+    await waitXSec(5);
 
     // Step 3: Check all pages were revalidated
     for (const postId of posts) {
@@ -116,7 +115,7 @@ test.describe.skip("revalidation", () => {
     );
     expect(response?.status()).toBe(200);
 
-    await waitXSec(2);
+    await waitXSec(5);
 
     // Verify revalidation worked
     await page.goto("./isr/2", { waitUntil: "networkidle" });
@@ -167,7 +166,7 @@ test.describe.skip("revalidation", () => {
     await page.goto("./api/revalidate?collection=collection", {
       waitUntil: "networkidle",
     });
-    await waitXSec(2);
+    await waitXSec(5);
 
     // Step 2: Visit page to create fresh cache entry
     await page.goto("./isr/1", { waitUntil: "networkidle" });
@@ -206,7 +205,7 @@ test.describe.skip("revalidation", () => {
     await page.goto("./api/revalidate?collection=collection", {
       waitUntil: "networkidle",
     });
-    await waitXSec(2);
+    await waitXSec(5);
 
     // Step 3: Page should be revalidated (fresh timestamp)
     await page.goto("./isr/1", { waitUntil: "networkidle" });

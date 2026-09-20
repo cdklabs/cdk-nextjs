@@ -93,7 +93,24 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
 
     this.nextjsContainers = this.createNextjsContainers();
     this.nextjsDistribution = this.createNextjsDistribution();
+    this.wireCloudFrontInvalidation();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
+  }
+
+  /**
+   * Grants the task role permission to invalidate the distribution and passes
+   * its ID so on-demand revalidation (revalidateTag/revalidatePath) can evict
+   * stale responses from the CDN edge cache, not just the origin's S3/DynamoDB cache.
+   */
+  private wireCloudFrontInvalidation(): void {
+    const { taskDefinition } = this.nextjsContainers.albFargateService;
+    this.nextjsDistribution.distribution.grantCreateInvalidation(
+      taskDefinition.taskRole,
+    );
+    taskDefinition.defaultContainer?.addEnvironment(
+      "CDK_NEXTJS_DISTRIBUTION_ID",
+      this.nextjsDistribution.distribution.distributionId,
+    );
   }
 
   private createNextjsContainers(): NextjsContainers {

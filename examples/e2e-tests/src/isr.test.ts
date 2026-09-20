@@ -2,8 +2,7 @@ import { test, expect } from "@playwright/test";
 import { waitXSec } from "./utils/wait-5-sec";
 import { getPageTimestamp, isTimestampRecent } from "./utils/timestamp-helpers";
 
-// too flaky to run in CI right now
-test.describe.skip("isr", () => {
+test.describe("isr", () => {
   test("should revalidate after 10 seconds", async ({ page, baseURL }) => {
     // no cache in dev mode
     test.skip(baseURL?.includes("localhost") === true);
@@ -39,8 +38,8 @@ test.describe.skip("isr", () => {
       "Request after 11s triggered revalidation, still serving stale",
     );
 
-    // Wait a moment for revalidation to complete
-    await waitXSec(2);
+    // Wait a moment for revalidation to complete (including CloudFront invalidation)
+    await waitXSec(5);
 
     // Next request should serve the freshly revalidated page
     await page.reload({ waitUntil: "networkidle" });

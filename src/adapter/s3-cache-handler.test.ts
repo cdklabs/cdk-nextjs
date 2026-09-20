@@ -2,7 +2,12 @@
 // Mock AWS SDK
 jest.mock("@aws-sdk/client-s3");
 jest.mock("@aws-sdk/client-dynamodb");
+jest.mock("@aws-sdk/client-cloudfront");
 
+import {
+  CloudFrontClient,
+  CreateInvalidationCommand,
+} from "@aws-sdk/client-cloudfront";
 import {
   DynamoDBClient,
   QueryCommand,
@@ -24,6 +29,7 @@ import { S3CacheHandler } from "./s3-cache-handler";
 
 const mockS3Send = jest.fn();
 const mockDynamoSend = jest.fn();
+const mockCloudFrontSend = jest.fn();
 
 (S3Client as jest.Mock).mockImplementation(() => ({
   send: mockS3Send,
@@ -31,6 +37,10 @@ const mockDynamoSend = jest.fn();
 
 (DynamoDBClient as jest.Mock).mockImplementation(() => ({
   send: mockDynamoSend,
+}));
+
+(CloudFrontClient as jest.Mock).mockImplementation(() => ({
+  send: mockCloudFrontSend,
 }));
 
 describe("S3DynamoCacheHandler", () => {
@@ -62,6 +72,7 @@ describe("S3DynamoCacheHandler", () => {
     // Reset mocks
     mockS3Send.mockReset();
     mockDynamoSend.mockReset();
+    mockCloudFrontSend.mockReset();
   });
 
   afterEach(() => {
@@ -70,6 +81,7 @@ describe("S3DynamoCacheHandler", () => {
     delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
     delete process.env.CDK_NEXTJS_BUILD_ID;
     delete process.env.AWS_REGION;
+    delete process.env.CDK_NEXTJS_DISTRIBUTION_ID;
 
     // Restore console.warn
     jest.restoreAllMocks();
@@ -255,6 +267,72 @@ describe("S3DynamoCacheHandler", () => {
 
       // Should not throw
       await expect(handler.revalidateTag("error-tag")).resolves.not.toThrow();
+    });
+
+    it("should create a CloudFront invalidation for affected paths when a distribution is configured", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID = "test-distribution-id";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      const mockQueryResponse = {
+        Items: [
+          { sk: { S: "test-tag#test-build-id/isr/1.json" } },
+          { sk: { S: "test-tag#test-build-id/isr/2.json" } },
+        ],
+      };
+
+      mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
+      mockDynamoSend.mockResolvedValue({}); // For update commands
+      mockS3Send.mockResolvedValue({}); // For delete commands
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      expect(mockCloudFrontSend).toHaveBeenCalledWith(
+        expect.any(CreateInvalidationCommand),
+      );
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.DistributionId).toBe("test-distribution-id");
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
+        expect.arrayContaining(["/isr/1", "/isr/2"]),
+      );
+    });
+
+    it("should not call CloudFront when no distribution is configured", async () => {
+      const mockQueryResponse = {
+        Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }],
+      };
+
+      mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
+      mockDynamoSend.mockResolvedValue({});
+      mockS3Send.mockResolvedValue({});
+
+      await handler.revalidateTag("test-tag");
+
+      expect(mockCloudFrontSend).not.toHaveBeenCalled();
+    });
+
+    it("should handle CloudFront invalidation errors gracefully", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID = "test-distribution-id";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      const mockQueryResponse = {
+        Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }],
+      };
+
+      mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
+      mockDynamoSend.mockResolvedValue({});
+      mockS3Send.mockResolvedValue({});
+      mockCloudFrontSend.mockRejectedValueOnce(new Error("CloudFront Error"));
+
+      await expect(
+        handlerWithDistribution.revalidateTag("test-tag"),
+      ).resolves.not.toThrow();
     });
   });
 
