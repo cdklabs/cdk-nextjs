@@ -84,6 +84,7 @@ const project = new CdklabsConstructLibrary({
     "ash_output",
     "~$*.xlsx",
     ".kiro",
+    ".claude/worktrees",
   ],
   projenrcTs: true,
   // tsconfig: {
