@@ -51,9 +51,12 @@ test.describe("isr", () => {
       initialTimestamp,
     );
 
-    // Should be a different (newer) timestamp
+    // Should be a different (newer) timestamp. Not asserting recency here:
+    // the timestamp reflects when the server regenerated the content, which
+    // can precede this check by longer than any fixed window if CloudFront's
+    // edge invalidation propagation was slow to reach this client - the
+    // content changing at all is the meaningful signal.
     expect(revalidatedTimestamp).not.toBe(initialTimestamp);
-    expect(isTimestampRecent(revalidatedTimestamp, 15)).toBe(true);
     console.log(`Revalidated page has new timestamp: ${revalidatedTimestamp}`);
   });
 
