@@ -51,6 +51,9 @@ export class RegionalFunctionsStack extends Stack {
               metricsEnabled: true,
             },
           },
+          // Only applies to the server function's route: NextjsApi never lets
+          // this leak into the dedicated image Lambda's own (always
+          // streaming) integration. Must match AWS_LWA_INVOKE_MODE below.
           dynamicIntegrationProps: {
             responseTransferMode: ResponseTransferMode.BUFFERED,
           },
@@ -61,8 +64,10 @@ export class RegionalFunctionsStack extends Stack {
               DEBUG: "cdk-nextjs:*",
               // Tell middleware to prepend API Gateway stage name since API Gateway strips it
               PREPEND_APIGW_STAGE: "1",
-              AWS_LWA_INVOKE_MODE: "buffered", // TODO: figure out why this is required for images
-              // I get 502 Bad Gateway errors from API Gateway _next/image route without this
+              // Lambda Web Adapter in this app doesn't support response
+              // streaming; must match dynamicIntegrationProps above or API
+              // Gateway returns a 500 for every request to this function.
+              AWS_LWA_INVOKE_MODE: "buffered",
             },
           },
         },

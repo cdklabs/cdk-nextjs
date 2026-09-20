@@ -267,10 +267,13 @@ export class NextjsApi extends Construct {
     // imageFunction is assumed to be the dedicated, streaming-capable image
     // Lambda (see its doc comment); override responseTransferMode via
     // imageIntegrationProps if that assumption doesn't hold for a custom
-    // imageFunction, otherwise API Gateway returns a 502.
+    // imageFunction, otherwise API Gateway returns a 502. Deliberately
+    // doesn't inherit dynamicIntegrationProps: that's for serverFunction,
+    // a different Lambda with different (and possibly conflicting, e.g.
+    // BUFFERED for a non-streaming Lambda Web Adapter setup) streaming
+    // requirements than the always-streaming dedicated image Lambda.
     const imageIntegration = new LambdaIntegration(imageFunction, {
       responseTransferMode: ResponseTransferMode.STREAM,
-      ...this.props.overrides?.dynamicIntegrationProps,
       ...this.props.overrides?.imageIntegrationProps,
     });
     const imageResource = this.nextResource.addResource("image");
