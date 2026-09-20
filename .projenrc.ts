@@ -210,14 +210,24 @@ function bundle() {
     // a try/catch and falls back to its own vendored copy when missing.
     externals: ["sharp", "@opentelemetry/api"],
     format: "esm",
-    // Unlike the other bundles' await-import banner, this one must be a
-    // static import: this bundle inlines Next.js's compiled internals
-    // (e.g. next/dist/compiled/@hapi/accept), which reference `__dirname`
-    // as a bare CJS global. Node's ESM/CJS format detection sees that
-    // alongside a top-level await in the same file and refuses to load it
-    // ("Cannot determine intended module format").
-    banner:
-      "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+    // Unlike the other bundles' await-import banner, this one must shim
+    // `require`/`__dirname`/`__filename` via static imports: this bundle
+    // inlines Next.js's compiled internals (e.g. next/dist/compiled/@hapi/accept),
+    // which reference those as bare CJS globals (even if unused at runtime,
+    // e.g. nccwpck's `__nccwpck_require__.ab = __dirname + "/"` boilerplate
+    // present in every compiled module). A top-level await banner combined
+    // with that `__dirname` reference makes Node's ESM/CJS format detection
+    // refuse to load the file ("Cannot determine intended module format"),
+    // and even once that's avoided, `__dirname`/`__filename` simply don't
+    // exist in real ESM scope, so they must be defined too.
+    banner: [
+      "import { createRequire } from 'node:module';",
+      "import { fileURLToPath } from 'node:url';",
+      "import { dirname } from 'node:path';",
+      "const require = createRequire(import.meta.url);",
+      "const __filename = fileURLToPath(import.meta.url);",
+      "const __dirname = dirname(__filename);",
+    ].join(" "),
   });
 }
 
