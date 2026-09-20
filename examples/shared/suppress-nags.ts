@@ -210,6 +210,18 @@ export function suppressLambdaNags(stack: Stack) {
     `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
     "Lambda functions need wildcard S3 permissions to access cache and static assets",
   );
+
+  suppressLambdaExecutionRole(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/Resource`,
+  );
+
+  suppressS3WildcardPermissions(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/DefaultPolicy/Resource`,
+    "Image optimization Lambda needs wildcard S3 permissions to read static assets",
+    { includeAbort: false, includeDelete: false, includeStaticAssets: true },
+  );
 }
 
 export function suppressContainerNags(stack: Stack) {
