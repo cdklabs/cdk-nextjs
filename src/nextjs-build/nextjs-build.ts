@@ -392,16 +392,8 @@ export class NextjsBuild extends Construct {
     const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
 
     this.installSharpPackages(imgPath, [
-      {
-        name: `sharp-libvips-linuxmusl-${arch}`,
-        version: "1.2.4",
-        url: `https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-${arch}/-/sharp-libvips-linuxmusl-${arch}-1.2.4.tgz`,
-      },
-      {
-        name: `sharp-linuxmusl-${arch}`,
-        version: "0.34.5",
-        url: `https://registry.npmjs.org/@img/sharp-linuxmusl-${arch}/-/sharp-linuxmusl-${arch}-0.34.5.tgz`,
-      },
+      { name: `sharp-libvips-linuxmusl-${arch}`, version: "1.2.4" },
+      { name: `sharp-linuxmusl-${arch}`, version: "0.34.5" },
     ]);
   }
 
@@ -446,16 +438,8 @@ export class NextjsBuild extends Construct {
 
     const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
     this.installSharpPackages(imgPath, [
-      {
-        name: `sharp-libvips-linux-${arch}`,
-        version: "1.2.4",
-        url: `https://registry.npmjs.org/@img/sharp-libvips-linux-${arch}/-/sharp-libvips-linux-${arch}-1.2.4.tgz`,
-      },
-      {
-        name: `sharp-linux-${arch}`,
-        version: "0.34.5",
-        url: `https://registry.npmjs.org/@img/sharp-linux-${arch}/-/sharp-linux-${arch}-0.34.5.tgz`,
-      },
+      { name: `sharp-libvips-linux-${arch}`, version: "1.2.4" },
+      { name: `sharp-linux-${arch}`, version: "0.34.5" },
     ]);
 
     return assetPath;
@@ -467,7 +451,7 @@ export class NextjsBuild extends Construct {
    */
   private installSharpPackages(
     imgPath: string,
-    packages: { name: string; version: string; url: string }[],
+    packages: { name: string; version: string }[],
   ): void {
     const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
     if (!existsSync(cacheDir)) {
@@ -477,6 +461,7 @@ export class NextjsBuild extends Construct {
     for (const pkg of packages) {
       try {
         const targetDir = join(imgPath, pkg.name);
+        const url = `https://registry.npmjs.org/@img/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`;
 
         // Create a consistent filename based on package name and version
         const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
@@ -507,7 +492,7 @@ export class NextjsBuild extends Construct {
             // handles transient connection drops so a partial transfer
             // isn't cached as valid.
             execSync(
-              `curl -L --fail --retry 3 --retry-delay 1 -o "${tempFile}" "${pkg.url}"`,
+              `curl -L --fail --retry 3 --retry-delay 1 -o "${tempFile}" "${url}"`,
               { stdio: "pipe" },
             );
 
