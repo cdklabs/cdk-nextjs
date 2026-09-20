@@ -1,9 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { waitXSec } from "./utils/wait-5-sec";
-import { getPageTimestamp, isTimestampRecent } from "./utils/timestamp-helpers";
+import { waitForFreshTimestamp } from "./utils/wait-for-fresh-timestamp";
+import { getPageTimestamp } from "./utils/timestamp-helpers";
 
-// too flaky to run in CI right now
-test.describe.skip("isr", () => {
+test.describe("isr", () => {
   test("should revalidate after 10 seconds", async ({ page, baseURL }) => {
     // no cache in dev mode
     test.skip(baseURL?.includes("localhost") === true);
@@ -12,14 +12,16 @@ test.describe.skip("isr", () => {
     await page.goto("./api/revalidate?collection=collection", {
       waitUntil: "networkidle",
     });
-    await waitXSec(2);
 
-    // First visit - get fresh timestamp
+    // First visit after revalidating - just establish a baseline timestamp
+    // to compare against below. Not asserting recency: CloudFront
+    // invalidation propagation has no bounded SLA, so this may still be
+    // serving a not-yet-evicted stale copy, which the cached/stale checks
+    // below tolerate either way.
     await page.goto("./isr/1", { waitUntil: "networkidle" });
     const initialTimestamp = await getPageTimestamp(page);
     expect(initialTimestamp).toBeTruthy();
-    expect(isTimestampRecent(initialTimestamp, 10)).toBe(true);
-    console.log(`Initial render timestamp: ${initialTimestamp} (fresh)`);
+    console.log(`Initial render timestamp: ${initialTimestamp}`);
 
     // Immediate reload - should serve cached version (same timestamp)
     await page.reload({ waitUntil: "networkidle" });
@@ -39,16 +41,21 @@ test.describe.skip("isr", () => {
       "Request after 11s triggered revalidation, still serving stale",
     );
 
-    // Wait a moment for revalidation to complete
-    await waitXSec(2);
-
-    // Next request should serve the freshly revalidated page
+    // Next request should serve the freshly revalidated page. Poll until
+    // fresh, since CloudFront invalidation and cross-instance cache eviction
+    // are eventually consistent with no fixed completion time.
     await page.reload({ waitUntil: "networkidle" });
-    const revalidatedTimestamp = await getPageTimestamp(page);
+    const revalidatedTimestamp = await waitForFreshTimestamp(
+      page,
+      initialTimestamp,
+    );
 
-    // Should be a different (newer) timestamp
+    // Should be a different (newer) timestamp. Not asserting recency here:
+    // the timestamp reflects when the server regenerated the content, which
+    // can precede this check by longer than any fixed window if CloudFront's
+    // edge invalidation propagation was slow to reach this client - the
+    // content changing at all is the meaningful signal.
     expect(revalidatedTimestamp).not.toBe(initialTimestamp);
-    expect(isTimestampRecent(revalidatedTimestamp, 15)).toBe(true);
     console.log(`Revalidated page has new timestamp: ${revalidatedTimestamp}`);
   });
 

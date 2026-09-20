@@ -1,4 +1,7 @@
+import { Stack } from "aws-cdk-lib";
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
@@ -75,7 +78,68 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
 
     this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsDistribution = this.createNextjsDistribution();
+    this.wireCloudFrontInvalidation();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
+  }
+
+  /**
+   * Grants the function permission to invalidate the distribution and passes
+   * along a way to look up its ID, so on-demand revalidation
+   * (revalidateTag/revalidatePath) can evict stale responses from the CDN
+   * edge cache, not just the origin's S3/DynamoDB cache.
+   *
+   * The distribution ID can't be passed as a plain env var or scoped IAM
+   * resource ARN: the distribution's origin references this function's URL,
+   * so making the function's role/environment reference the distribution's
+   * ID in return would create a circular CloudFormation dependency. Instead,
+   * the ID is published to an SSM Parameter (whose *name* is static and safe
+   * to embed) that the function reads at runtime, and the IAM grant is
+   * scoped to all distributions in this account/region rather than this
+   * specific (not-yet-known-at-synth-time) distribution.
+   */
+  private wireCloudFrontInvalidation(): void {
+    const stack = Stack.of(this);
+    const distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
+
+    new StringParameter(this, "DistributionIdParameter", {
+      parameterName: distributionIdParameterName,
+      stringValue: this.nextjsDistribution.distribution.distributionId,
+    });
+
+    this.nextjsFunctions.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:GetParameter"],
+        resources: [
+          stack.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName: distributionIdParameterName,
+          }),
+        ],
+      }),
+    );
+    this.nextjsFunctions.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["cloudfront:CreateInvalidation"],
+        // Can't scope this to the specific distribution: the distribution's
+        // origin already depends on this function (via its FunctionUrl), so
+        // referencing the distribution's ID here would create a circular
+        // CloudFormation dependency. Hence the SSM parameter indirection
+        // above for looking up the ID at runtime instead of synth time.
+        resources: [
+          stack.formatArn({
+            service: "cloudfront",
+            region: "",
+            resource: "distribution",
+            resourceName: "*",
+          }),
+        ],
+      }),
+    );
+    this.nextjsFunctions.function.addEnvironment(
+      "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
+      distributionIdParameterName,
+    );
   }
 
   private createNextjsFunctions(): NextjsFunctions {

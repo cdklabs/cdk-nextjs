@@ -2,6 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./src",
+  /* Some isr/revalidation assertions poll for CDN invalidation / cross-instance
+   * cache eviction, which are eventually consistent with no fixed completion
+   * time - give them headroom beyond the default 30s. */
+  timeout: 120_000,
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

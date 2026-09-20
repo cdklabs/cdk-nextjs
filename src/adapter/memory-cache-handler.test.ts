@@ -82,6 +82,76 @@ describe("MemoryCacheHandler", () => {
     });
   });
 
+  describe("revalidateTag", () => {
+    const testData: IncrementalCacheValue = {
+      kind: CachedRouteKind.APP_PAGE,
+      html: "<html>tagged</html>",
+      rscData: undefined,
+      headers: undefined,
+      postponed: undefined,
+      segmentData: undefined,
+      status: undefined,
+    };
+
+    it("should remove entries tagged with the revalidated tag", async () => {
+      await handler.set("tagged-key", testData, {
+        fetchCache: true as const,
+        tags: ["collection"],
+      });
+
+      await handler.revalidateTag("collection");
+
+      const result = await handler.get("tagged-key", {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      });
+      expect(result).toBeNull();
+      expect(handler.getCacheSize()).toBe(0);
+    });
+
+    it("should not remove entries with unrelated tags", async () => {
+      await handler.set("unrelated-key", testData, {
+        fetchCache: true as const,
+        tags: ["other-tag"],
+      });
+
+      await handler.revalidateTag("collection");
+
+      const result = await handler.get("unrelated-key", {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      });
+      expect(result).not.toBeNull();
+      expect(handler.getCacheSize()).toBe(1);
+    });
+
+    it("should accept an array of tags and remove any matching entries", async () => {
+      await handler.set("key-a", testData, {
+        fetchCache: true as const,
+        tags: ["tag-a"],
+      });
+      await handler.set("key-b", testData, {
+        fetchCache: true as const,
+        tags: ["tag-b"],
+      });
+
+      await handler.revalidateTag(["tag-a", "tag-b"]);
+
+      expect(handler.getCacheSize()).toBe(0);
+    });
+
+    it("should be a no-op when no entries match the tag", async () => {
+      await handler.set("untagged-key", testData, {
+        fetchCache: true as const,
+      });
+
+      await expect(
+        handler.revalidateTag("nonexistent-tag"),
+      ).resolves.not.toThrow();
+      expect(handler.getCacheSize()).toBe(1);
+    });
+  });
+
   describe("resetRequestCache", () => {
     it("should clear all caches", async () => {
       const testData: IncrementalCacheValue = {

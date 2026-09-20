@@ -88,6 +88,34 @@ function suppressS3WildcardPermissions(
 }
 
 /**
+ * Helper function to suppress IAM5 for the wildcard `cloudfront:CreateInvalidation`
+ * permission on-demand revalidation needs. It can't be scoped to the specific
+ * distribution: the distribution's origin already depends on this compute (via
+ * its function URL/ALB), so referencing the distribution's ID back in the
+ * compute's IAM policy would create a circular CloudFormation dependency.
+ */
+function suppressCloudFrontInvalidationWildcard(stack: Stack, path: string) {
+  NagSuppressions.addResourceSuppressionsByPath(stack, path, [
+    {
+      id: "AwsSolutions-IAM5",
+      reason:
+        "cloudfront:CreateInvalidation can't be scoped to the specific distribution because its ID isn't known until after this compute resource is created (the distribution depends on this compute's URL/ALB as its origin); scoping to it would create a circular CloudFormation dependency",
+      appliesTo: [
+        "Action::cloudfront:CreateInvalidation",
+        // Depending on whether the stack has an explicit env, CDK may resolve
+        // the account/partition pseudo params before cdk-nag sees the ARN, so
+        // match both the token and already-resolved forms.
+        "Resource::arn:<AWS::Partition>:cloudfront::<AWS::AccountId>:distribution/*",
+        {
+          regex:
+            "/^Resource::arn:(aws|aws-cn|aws-us-gov):cloudfront::\\d+:distribution\\/\\*$/",
+        },
+      ],
+    },
+  ]);
+}
+
+/**
  * Helper function to suppress L1 for Lambda runtime (CDK-managed Lambdas)
  */
 function suppressLambdaRuntime(
@@ -210,6 +238,11 @@ export function suppressLambdaNags(stack: Stack) {
     `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
     "Lambda functions need wildcard S3 permissions to access cache and static assets",
   );
+
+  suppressCloudFrontInvalidationWildcard(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
+  );
 }
 
 export function suppressContainerNags(stack: Stack) {
@@ -262,6 +295,11 @@ export function suppressContainerNags(stack: Stack) {
     stack,
     `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
     "Container task role needs wildcard S3 permissions to access cache and static assets",
+  );
+
+  suppressCloudFrontInvalidationWildcard(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
   );
 }
 

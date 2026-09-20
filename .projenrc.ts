@@ -31,6 +31,7 @@ const project = new CdklabsConstructLibrary({
     "@aws-sdk/client-cloudfront",
     "@aws-sdk/client-dynamodb",
     "@aws-sdk/client-s3",
+    "@aws-sdk/client-ssm",
     "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
     "@smithy/signature-v4",
