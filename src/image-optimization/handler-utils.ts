@@ -1,0 +1,76 @@
+/* eslint-disable import/no-extraneous-dependencies */
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { ImageError } from "next/dist/server/image-optimizer.js";
+import { getExtension } from "next/dist/server/serve-static.js";
+
+/**
+ * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
+ * `url` already includes `basePath` (baked in by next-image-loader for
+ * static imports, or added manually per Next.js convention for string
+ * paths), and static assets are uploaded to S3 under that same basePath
+ * prefix, so the key matches the url as-is.
+ */
+export async function fetchFromS3(
+  s3: S3Client,
+  bucket: string,
+  url: string,
+): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
+  const key = url.replace(/^\//, "");
+
+  const response = await s3.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }),
+  );
+
+  const body = response.Body;
+  if (!body) {
+    throw new Error(`Empty response from S3 for key: ${key}`);
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    chunks.push(Buffer.from(chunk));
+  }
+
+  return {
+    buffer: Buffer.concat(chunks),
+    contentType: response.ContentType || null,
+    etag: response.ETag || "",
+  };
+}
+
+/** Mirrors Next.js's own `getFileNameWithExtension` in image-optimizer.js. */
+export function getFileNameWithExtension(
+  url: string,
+  contentType: string | null,
+): string {
+  const [urlWithoutQueryParams] = url.split("?", 1);
+  const fileNameWithExtension = urlWithoutQueryParams.split("/").pop();
+  if (!contentType || !fileNameWithExtension) {
+    return "image.bin";
+  }
+  const [fileName] = fileNameWithExtension.split(".", 1);
+  const extension = getExtension(contentType);
+  return `${fileName}.${extension}`;
+}
+
+/**
+ * Maps an error thrown while processing an image request to the HTTP
+ * status/message it should produce, preserving the status Next.js's own
+ * `ImageError`/`fetchExternalImage` attach and mapping a missing S3 object
+ * to 404 instead of a generic 500.
+ */
+export function resolveErrorResponse(error: unknown): {
+  statusCode: number;
+  message: string;
+} {
+  if (error instanceof ImageError) {
+    return { statusCode: error.statusCode, message: error.message };
+  }
+  if (error instanceof Error && error.name === "NoSuchKey") {
+    return { statusCode: 404, message: "Not Found" };
+  }
+  return { statusCode: 500, message: "Internal Server Error" };
+}

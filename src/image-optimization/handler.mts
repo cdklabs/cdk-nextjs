@@ -2,20 +2,23 @@
 import { readFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import type { APIGatewayProxyEvent, LambdaFunctionURLEvent } from "aws-lambda";
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { S3Client } from "@aws-sdk/client-s3";
 import {
-  ImageError,
   ImageOptimizerCache,
   imageOptimizer,
   fetchExternalImage,
 } from "next/dist/server/image-optimizer.js";
-import { getExtension } from "next/dist/server/serve-static.js";
 import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
 import {
   getNextConfigRuntime,
   type NextConfigComplete,
 } from "next/dist/server/config-shared.js";
 import getDebug from "debug";
+import {
+  fetchFromS3,
+  getFileNameWithExtension,
+  resolveErrorResponse,
+} from "./handler-utils";
 
 const debug = getDebug("cdk-nextjs:image-optimization");
 
@@ -50,56 +53,6 @@ function getHeaders(
     }
   }
   return { headers } as Pick<IncomingMessage, "headers">;
-}
-
-/** Mirrors Next.js's own `getFileNameWithExtension` in image-optimizer.js. */
-function getFileNameWithExtension(
-  url: string,
-  contentType: string | null,
-): string {
-  const [urlWithoutQueryParams] = url.split("?", 1);
-  const fileNameWithExtension = urlWithoutQueryParams.split("/").pop();
-  if (!contentType || !fileNameWithExtension) {
-    return "image.bin";
-  }
-  const [fileName] = fileNameWithExtension.split(".", 1);
-  const extension = getExtension(contentType);
-  return `${fileName}.${extension}`;
-}
-
-async function fetchFromS3(
-  url: string,
-): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
-  // `url` already includes `basePath` (baked in by next-image-loader for
-  // static imports, or added manually per Next.js convention for string
-  // paths), and static assets are uploaded to S3 under that same basePath
-  // prefix, so the key matches the url as-is.
-  const key = url.replace(/^\//, "");
-
-  debug(`Fetching from S3: bucket=${STATIC_ASSETS_BUCKET} key=${key}`);
-
-  const response = await s3.send(
-    new GetObjectCommand({
-      Bucket: STATIC_ASSETS_BUCKET,
-      Key: key,
-    }),
-  );
-
-  const body = response.Body;
-  if (!body) {
-    throw new Error(`Empty response from S3 for key: ${key}`);
-  }
-
-  const chunks: Buffer[] = [];
-  for await (const chunk of body as AsyncIterable<Uint8Array>) {
-    chunks.push(Buffer.from(chunk));
-  }
-
-  return {
-    buffer: Buffer.concat(chunks),
-    contentType: response.ContentType || null,
-    etag: response.ETag || "",
-  };
 }
 
 export const handler = awslambda.streamifyResponse(
@@ -143,7 +96,7 @@ export const handler = awslambda.streamifyResponse(
             imagesConfig.maximumResponseBody,
             imagesConfig.maximumRedirects,
           )
-        : await fetchFromS3(href).then((result) => ({
+        : await fetchFromS3(s3, STATIC_ASSETS_BUCKET, href).then((result) => ({
             buffer: result.buffer,
             contentType: result.contentType,
             cacheControl: null,
@@ -197,15 +150,7 @@ export const handler = awslambda.streamifyResponse(
       stream.end();
     } catch (error) {
       debug("Error processing image:", error);
-      let statusCode = 500;
-      let message = "Internal Server Error";
-      if (error instanceof ImageError) {
-        statusCode = error.statusCode;
-        message = error.message;
-      } else if (error instanceof Error && error.name === "NoSuchKey") {
-        statusCode = 404;
-        message = "Not Found";
-      }
+      const { statusCode, message } = resolveErrorResponse(error);
       const stream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode,
         headers: { "Content-Type": "text/plain" },
