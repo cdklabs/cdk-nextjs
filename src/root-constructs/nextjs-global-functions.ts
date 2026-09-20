@@ -121,6 +121,11 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     this.nextjsFunctions.function.addToRolePolicy(
       new PolicyStatement({
         actions: ["cloudfront:CreateInvalidation"],
+        // Can't scope this to the specific distribution: the distribution's
+        // origin already depends on this function (via its FunctionUrl), so
+        // referencing the distribution's ID here would create a circular
+        // CloudFormation dependency. Hence the SSM parameter indirection
+        // above for looking up the ID at runtime instead of synth time.
         resources: [
           stack.formatArn({
             service: "cloudfront",

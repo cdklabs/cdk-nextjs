@@ -139,6 +139,12 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     taskDefinition.addToTaskRolePolicy(
       new PolicyStatement({
         actions: ["cloudfront:CreateInvalidation"],
+        // Scoped to all distributions (not just this one) for consistency
+        // with NextjsGlobalFunctions, which can't scope this to its specific
+        // distribution due to a circular CloudFormation dependency (see the
+        // class doc comment above and the equivalent method there). Hence
+        // the SSM parameter indirection above for looking up the ID at
+        // runtime instead of synth time.
         resources: [
           stack.formatArn({
             service: "cloudfront",
