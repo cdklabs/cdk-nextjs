@@ -207,7 +207,10 @@ export class NextjsDistribution extends Construct {
     }
     return FunctionUrlOrigin.withOriginAccessControl(
       this.props.imageFunctionUrl,
-      this.props.overrides?.imageFunctionUrlOriginWithOACProps,
+      {
+        ...this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
+        ...this.props.overrides?.imageFunctionUrlOriginWithOACProps,
+      },
     );
   }
   /**
