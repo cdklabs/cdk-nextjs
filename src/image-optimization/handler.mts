@@ -32,7 +32,6 @@ const requiredServerFiles: RequiredServerFiles = JSON.parse(
 );
 const nextConfig = getNextConfigRuntime(requiredServerFiles.config);
 const imagesConfig = { ...imageConfigDefault, ...nextConfig.images };
-const BASE_PATH = nextConfig.basePath || "";
 
 /**
  * Next's `ImageOptimizerCache.validateParams` and this handler only ever read
@@ -55,9 +54,11 @@ function getHeaders(
 async function fetchFromS3(
   url: string,
 ): Promise<{ buffer: Buffer; contentType: string | null }> {
-  const key = BASE_PATH
-    ? `${BASE_PATH.replace(/^\//, "")}/${url.replace(/^\//, "")}`
-    : url.replace(/^\//, "");
+  // `url` already includes `basePath` (baked in by next-image-loader for
+  // static imports, or added manually per Next.js convention for string
+  // paths), and static assets are uploaded to S3 under that same basePath
+  // prefix, so the key matches the url as-is.
+  const key = url.replace(/^\//, "");
 
   debug(`Fetching from S3: bucket=${STATIC_ASSETS_BUCKET} key=${key}`);
 
