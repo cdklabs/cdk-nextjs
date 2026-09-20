@@ -43,6 +43,17 @@ const imagesConfig = { ...imageConfigDefault, ...nextConfig.images };
  * is common to both `LambdaFunctionURLEvent` (Global Functions) and
  * `APIGatewayProxyEvent` (Regional Functions, via streaming proxy integration).
  */
+/**
+ * Regional Functions reaches this handler through an API Gateway streaming
+ * proxy integration, Global Functions through a Lambda Function URL. Only the
+ * REST API event carries `httpMethod`.
+ */
+function isApiGatewayEvent(
+  event: LambdaFunctionURLEvent | APIGatewayProxyEvent,
+): event is APIGatewayProxyEvent {
+  return "httpMethod" in event;
+}
+
 function getHeaders(
   event: LambdaFunctionURLEvent | APIGatewayProxyEvent,
 ): Pick<IncomingMessage, "headers"> {
@@ -147,12 +158,15 @@ export const handler = awslambda.streamifyResponse(
             ETag: etag,
           },
         });
-        // A stream with zero payload bytes after the metadata delimiter
-        // makes API Gateway's InvokeWithResponseStream integration return a
-        // 502: it never recognizes the response as complete. A single
-        // space, discarded by clients on a body-less 304 anyway, keeps the
-        // stream non-empty without affecting the response semantically.
-        stream.write(" ");
+        // A stream with zero payload bytes after the metadata delimiter makes
+        // API Gateway's InvokeWithResponseStream integration return a 502: it
+        // never recognizes the response as complete. A single space keeps the
+        // stream non-empty. RFC 9110 forbids a body on a 304 though, so this
+        // is confined to the integration that needs it rather than also being
+        // sent to CloudFront and on to caches and HTTP/2 clients.
+        if (isApiGatewayEvent(event)) {
+          stream.write(" ");
+        }
         stream.end();
         return;
       }
