@@ -2,6 +2,22 @@
 
 ## 0.6.0
 
+### `_next/image` no longer runs Next.js middleware (Functions only)
+
+Affects `NextjsGlobalFunctions` and `NextjsRegionalFunctions`. Containers
+deployments are unaffected, since they still serve `_next/image` from the
+standalone server.
+
+`_next/image` is now routed to a dedicated image optimization Lambda instead of
+the standalone server. Next.js's default middleware matcher (`/:path*`) matches
+`/_next/image`, so any middleware you relied on for image requests — auth
+checks, geo-gating, rewrites — no longer runs for them.
+
+- **Migration:** If middleware was gating image access, enforce it somewhere
+  that still runs: put the check in a CloudFront function / ALB rule ahead of
+  the Lambda, or mark those images `unoptimized` so they're served as static
+  assets under your existing rules.
+
 ### Functions-only overrides moved off the Containers constructs
 
 `nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
