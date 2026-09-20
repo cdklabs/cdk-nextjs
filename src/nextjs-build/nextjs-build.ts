@@ -19,6 +19,7 @@ import { Construct } from "constructs";
 import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
+import { getNodeArchitecture } from "../utils/get-architecture";
 
 const debug = getDebug("cdk-nextjs:nextjs-build");
 
@@ -389,7 +390,7 @@ export class NextjsBuild extends Construct {
       "node_modules",
     );
     const imgPath = join(nodeModulesPath, "@img");
-    const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
+    const arch = getNodeArchitecture();
 
     this.installSharpPackages(
       imgPath,
@@ -445,7 +446,7 @@ export class NextjsBuild extends Construct {
     }
     cpSync(requiredServerFiles, join(assetPath, "required-server-files.json"));
 
-    const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
+    const arch = getNodeArchitecture();
     this.installSharpPackages(
       imgPath,
       this.getSharpBinaryPackages(sharpSource, `linux-${arch}`),
