@@ -56,7 +56,7 @@ up for the duration of this work — do not delete or modify them.
 | 5 — wire constructs, Functions to zip, Containers Dockerfiles | done |
 | 6 — delete `output: "standalone"` + dedicated image function | done |
 | 7 — splitting (`functionGroups`) | done |
-| 8 — tests, docs, breaking-changes | not started |
+| 8 — tests, docs, breaking-changes | done, with three exit criteria unmet (see step 8 entry) |
 
 Exit criteria are tracked in the plan, not duplicated here. Record against them
 in the final entry.
@@ -1052,3 +1052,130 @@ Gateway's resolution of a group's `{proxy+}` against the root `{proxy+}`, and th
   from *different* Lambdas and both still work.
 - Everything still open from step 6 (`healthCheckPath`,
   `docs/breaking-changes.md`, the five `dev-*`/`adptr-*` stacks to tear down).
+
+## Step 8 — tests, docs, breaking-changes
+
+**Landed**: the e2e coverage the plan's exit criteria name, the docs rewrite, and
+three product bug fixes that the new coverage exposed. Those three are separate
+commits ahead of this one, because each stands alone and each is a bug present on
+`main`:
+
+- `fix: build image S3 keys from the asset key prefix, not basePath`
+- `fix: forward conditional GETs to S3 through API Gateway`
+- `fix: seed the init cache under the route, not the served URL`
+
+New e2e files (`examples/e2e-tests/src/`):
+
+- `function-groups.test.ts` — 3 tests. Proves a grouped route and an ungrouped one
+  are served by *different* Lambdas, by having the app report its own function
+  name (`examples/app-playground/lib/runtime-identity.ts` plus the
+  `/runtime-identity` page and `/api/runtime-identity` route). Skipped unless
+  `E2E_FUNCTION_GROUPS` is set, which the `glbl-fns` CI job now sets to `api`.
+- `middleware.test.ts` — the plan's "middleware e2e proving interception on
+  `_next/image`". `proxy.ts` 403s exactly one image URL
+  (`/static/e2e-middleware-image.png`, a committed fixture); the test asserts the
+  403. Without middleware in the image path the request would 200.
+- `headers.test.ts` — 4 tests: ETag shape, compression when asked for, no
+  compression when not, and a conditional GET returning 304. The compression pair
+  is the plan's "response compression verified on both Functions types" — the LWA
+  replacement, since API Gateway does not compress a streamed response.
+
+Changed: `isr.test.ts` and `revalidation.test.ts` now settle on a timestamp
+(`waitForSettledTimestamp` in `utils/wait-for-fresh-timestamp.ts`) instead of
+trusting the first load after an invalidation; `examples/global-functions/app.ts`
+declares `functionGroups: [{ name: "api", routes: ["/api/**"] }]` unconditionally
+so CI always exercises splitting; `suppressLambdaNags` takes the group names;
+`.github/workflows/e2e-tests.yml` drops
+`CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION` from both fns jobs.
+
+Docs: `README.md` gains a "Splitting a Large App Across Functions" section and
+corrects the Docker prerequisite (Containers only) and the Dockerfile-overwrite
+rule; `docs/breaking-changes.md` covers the adapter runtime, zip Lambdas,
+`dockerImageFunctionProps` → `functionProps`, the removed env var and image
+construct, and `functionGroups`; `docs/next-build-output-guide.md` described
+standalone output and now describes the staged deployment root.
+
+**Decisions**
+
+1. **The three bug fixes are commits of their own, not part of this one.** They
+   change `src/`, not tests, and each is independently revertable. They are
+   documented above so a reader of this doc alone does not have to diff to find
+   them.
+2. **`functionGroups` is on in the `glbl-fns` example permanently**, not behind a
+   CI-only flag. A split configuration that only exists in CI is one nobody runs
+   locally; the app does not need the split, so the only cost is one extra Lambda.
+3. **The middleware e2e blocks a request rather than rewriting one.** A 403 on a
+   URL nothing else requests is unambiguous and cheap; a rewrite would have to
+   assert on image *bytes* to prove anything.
+4. **`headers.test.ts` asserts the ETag *shape*, not a literal.** Which shape you
+   get is a property of the deployment type — S3's MD5 for CDN types, `send`'s
+   `<size>-<mtime>` for Regional Containers serving off local disk, and CloudFront
+   weakens either when it compresses. The test discriminates file ETags from
+   Next.js's rendered-page ETags, which is the actual claim.
+
+**Measured**
+
+Unit: `pnpm compile` 0 errors, `pnpm eslint` clean, `npx jest` 17 suites / 266
+tests.
+
+e2e against four `dev-*` stacks on this branch, `--workers=1`:
+
+| type | result |
+| --- | --- |
+| `dev-glbl-fns` (with the `api` split) | 32 passed |
+| `dev-glbl-cntnrs` | 29 passed, 3 skipped |
+| `dev-rgnl-cntnrs` | 29 passed, 3 skipped |
+| `dev-rgnl-fns` | 29 passed, 3 skipped |
+
+The 3 skips are the `function-groups` tests, which require `E2E_FUNCTION_GROUPS`.
+
+`rgnl-fns` reached green only after the three fixes above. It is **red on `main`**
+for two of the same reasons — GitHub Actions run 35591295859 on `main` shows its
+`rgnl-fns` job failing the same 5 image tests plus `ssg:5` and `streaming:11` —
+so this is a pre-existing failure this branch repairs, not a regression it caused.
+
+Cold start, `dev-rgnl-fns` vs. the `main-rgnl-fns` oracle, read-only from CW Logs:
+init-only p50 **2061 ms → 342 ms (6×)**. End-to-end cold path is the honest
+number and it is smaller: this branch defers server boot to the first invocation,
+so ~2.5 s → ~1.4 s (**≈1.8×**). Recorded as measured, not as the 6× headline.
+
+**Verified vs. assumed**
+
+Verified on AWS: splitting deploys and serves (step 7's main "assumed"); a
+grouped and an ungrouped route come from different function names; middleware
+intercepts `_next/image`; both Functions types compress HTML; conditional GETs
+304 on all four types; build-time prerenders are `x-nextjs-cache: HIT` on all
+four.
+
+Assumed still: the 250 MB per-root check's threshold (unreachable with
+`app-playground`), and `ownedRouteError`'s message.
+
+**Not done — exit criteria not met**
+
+Stated explicitly rather than quietly dropped:
+
+1. **PPR e2e — blocked.** Next.js 16.3 folded `experimental.ppr` into
+   `cacheComponents`, which is incompatible with `dynamicParams`,
+   `dynamic = "force-dynamic"` and per-route `experimental_ppr` — all of which
+   `app-playground` uses, giving 12 build errors when `cacheComponents` is on.
+   Getting this criterion needs a decision: migrate `app-playground` off those
+   three features, add a separate minimal PPR app and stack, or defer the
+   criterion. Consequence of deferring: whether manual resume code is needed
+   stays unsettled.
+2. **Official Next.js test harness on `NextjsRegionalFunctions` — not started.**
+   The three `scripts/` executables and the filtered manifest do not exist.
+3. **`healthCheckPath` API question — open.** Still required on all four root
+   constructs while only the two Containers types use it.
+
+**Deferred / open**
+
+- `s3KeyToInvalidationPath` reverses the cache key into a CloudFront invalidation
+  path without re-adding the app's `basePath`, so on a Global type *with* a
+  `basePath` the invalidation misses the path CloudFront actually cached. Same bug
+  class as the fix above, different direction, and not reachable by any current
+  example (the `basePath` examples are the API Gateway types, which have no CDN).
+  Left for its own change rather than widened into this one.
+- Six stacks of mine to tear down when the branch is done: `dev-glbl-fns`,
+  `dev-rgnl-fns`, `dev-glbl-cntnrs`, `dev-rgnl-cntnrs`, `adptr-rgnl-fns`,
+  `split-glbl-fns`. The four `main-*` oracles and the four `pr-267-*` stacks are
+  not mine and stay.

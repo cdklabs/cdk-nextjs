@@ -1,6 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { waitXSec } from "./utils/wait-5-sec";
-import { waitForFreshTimestamp } from "./utils/wait-for-fresh-timestamp";
+import {
+  waitForFreshTimestamp,
+  waitForSettledTimestamp,
+} from "./utils/wait-for-fresh-timestamp";
 import { getPageTimestamp } from "./utils/timestamp-helpers";
 
 test.describe("isr", () => {
@@ -13,13 +16,13 @@ test.describe("isr", () => {
       waitUntil: "networkidle",
     });
 
-    // First visit after revalidating - just establish a baseline timestamp
-    // to compare against below. Not asserting recency: CloudFront
-    // invalidation propagation has no bounded SLA, so this may still be
-    // serving a not-yet-evicted stale copy, which the cached/stale checks
-    // below tolerate either way.
+    // Establish a baseline, but only once the revalidation has finished landing:
+    // it triggers both a re-render and a CloudFront invalidation, and while
+    // either is in flight two identical requests can return different content
+    // through no fault of ISR. Everything below compares against this, so it has
+    // to be a settled value, not the first thing served.
     await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const initialTimestamp = await getPageTimestamp(page);
+    const initialTimestamp = await waitForSettledTimestamp(page);
     expect(initialTimestamp).toBeTruthy();
     console.log(`Initial render timestamp: ${initialTimestamp}`);
 
@@ -33,12 +36,21 @@ test.describe("isr", () => {
     console.log("Waiting 11 seconds for revalidation period to expire...");
     await waitXSec(11);
 
-    // This request should trigger background revalidation but still serve stale
-    await page.reload({ waitUntil: "networkidle" });
+    // This request must be answered from the cache and revalidate in the
+    // background, not block on a re-render. `x-nextjs-cache` is the assertion,
+    // not the timestamp: whether the timestamp has already advanced depends on
+    // whether a background revalidation landed first, which stale-while-
+    // revalidate deliberately leaves unspecified. (It used to assert the
+    // timestamp was unchanged here, which only held because revalidation on the
+    // old `next start` path was slow enough to still be in flight.) `MISS` is
+    // the failure this catches: a synchronous re-render of an expired entry.
+    const staleResponse = await page.reload({ waitUntil: "networkidle" });
+    const cacheState = staleResponse?.headers()["x-nextjs-cache"];
+    expect(["STALE", "HIT"]).toContain(cacheState);
     const staleTimestamp = await getPageTimestamp(page);
-    expect(staleTimestamp).toBe(initialTimestamp);
+    expect(staleTimestamp).toBeTruthy();
     console.log(
-      "Request after 11s triggered revalidation, still serving stale",
+      `Request after 11s served from cache (x-nextjs-cache: ${cacheState})`,
     );
 
     // Next request should serve the freshly revalidated page. Poll until
@@ -90,9 +102,14 @@ test.describe("isr", () => {
     // no cache in dev mode
     test.skip(baseURL?.includes("localhost") === true);
 
-    // First visit
+    // First visit. Settle first for the same reason as the test above - a
+    // revalidation left in flight by another test would otherwise change the
+    // content under this one - with a short poll interval so the settled read
+    // and the 3s wait below both stay inside one 10s revalidation window.
     await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const firstTimestamp = await getPageTimestamp(page);
+    const firstTimestamp = await waitForSettledTimestamp(page, {
+      intervalMs: 1_000,
+    });
     expect(firstTimestamp).toBeTruthy();
     console.log(`First visit timestamp: ${firstTimestamp}`);
 

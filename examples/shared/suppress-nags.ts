@@ -227,23 +227,35 @@ export function suppressCommonNags(stack: Stack) {
   );
 }
 
-export function suppressLambdaNags(stack: Stack) {
-  suppressLambdaExecutionRole(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/Resource`,
-  );
+/**
+ * @param functionGroupNames names of any `functionGroups` the stack declares.
+ * Each becomes its own Lambda function, at construct id `Functions-<name>`, and
+ * needs the same suppressions as the default one.
+ */
+export function suppressLambdaNags(
+  stack: Stack,
+  functionGroupNames: string[] = [],
+) {
+  const constructIds = [
+    "Functions",
+    ...functionGroupNames.map((name) => `Functions-${name}`),
+  ];
+  for (const constructId of constructIds) {
+    const role = `/${stack.stackName}/Nextjs/NextjsFunctions/${constructId}/ServiceRole`;
+    suppressLambdaExecutionRole(stack, `${role}/Resource`);
 
-  suppressS3WildcardPermissions(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
-    "Lambda functions need wildcard S3 permissions to access cache and static assets",
-    { includeStaticAssets: true },
-  );
+    suppressS3WildcardPermissions(
+      stack,
+      `${role}/DefaultPolicy/Resource`,
+      "Lambda functions need wildcard S3 permissions to access cache and static assets",
+      { includeStaticAssets: true },
+    );
 
-  suppressCloudFrontInvalidationWildcard(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
-  );
+    suppressCloudFrontInvalidationWildcard(
+      stack,
+      `${role}/DefaultPolicy/Resource`,
+    );
+  }
 }
 
 export function suppressContainerNags(stack: Stack) {

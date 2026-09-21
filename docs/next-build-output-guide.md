@@ -1,31 +1,41 @@
 # Next.js Output Guide
 
-When a Next.js app is built with `next build` with standalone mode, here is a simplified version of it's output:
+cdk-nextjs registers a [Deployment Adapter](https://nextjs.org/docs/app/api-reference/adapters), and its `onBuildComplete` hook stages what gets deployed. Here is a simplified version of a build's output:
 
 - public ([Public Folder](https://nextjs.org/docs/app/api-reference/file-conventions/public-folder))
 - .next
-  - standalone
-    - relative/path/to/package
-      - .next
-        - server
-          - app ([Full Route Cache](https://nextjs.org/docs/app/deep-dive/caching#full-route-cache))
-            - api
-              - health
-                - route.js
-              - health.body
-              - health.meta
-            - my-dynamic-page
-              - page.js
-            - my-static-page
-              - page.js
-            - my-static-page.html
-            - my-static-page.meta
-            - my-static-page.rsc
+  - cdk-nextjs-adapter — the staged deployment root(s), one per function group
+    - manifest.json — routes, entrypoints and config the runtime dispatches from
+    - app — `app` when not splitting, otherwise one directory per group
+      - cdk-nextjs-runtime
+        - lambda.mjs (or server.mjs, for the Containers types) — the entrypoint
+        - manifest.json
+      - relative/path/to/package
+        - .next
+          - required-server-files.json, \*-manifest.json, BUILD_ID
+          - server
+            - app ([Full Route Cache](https://nextjs.org/docs/app/deep-dive/caching#full-route-cache))
+              - api
+                - health
+                  - route.js
+                - health.body
+                - health.meta
+              - my-dynamic-page
+                - page.js
+              - my-static-page
+                - page.js
+              - my-static-page.html
+              - my-static-page.meta
+              - my-static-page.rsc
+      - node_modules — only the files the routes in this group trace to
+  - cdk-nextjs-init-cache — prerendered pages as cache entries, keyed by route
   - static ([Static Assets](https://nextjs.org/docs/app/guides/self-hosting#static-assets))
 
 Notes:
 
-- [Standalone Output](https://nextjs.org/docs/pages/api-reference/config/next-config-js/output#automatically-copying-traced-files) copies only the necessary files for a production deployment including select files in node_modules which is ideal for keeping compute container image small. However, `next build` does not automatically copy the public and static folders into the standalone directory so that needs to be done.
+- The staged tree is keyed by path relative to the repo root, so in a monorepo the app sits at its own relative path inside the deployment root rather than at the top. `manifest.json` records that path.
+- `output: "standalone"` is **not** used. Standalone and the adapter are alternatives rather than layers: both close over the same [Node File Trace](https://nextjs.org/docs/pages/api-reference/config/next-config-js/output#automatically-copying-traced-files) results, so staging from the adapter hook produces the same closure while also letting cdk-nextjs split it per function group and add the runtime entrypoint.
+- `public` and `.next/static` are deliberately **not** in the deployment root: they are in S3, and a second copy of them can push a Lambda past the 250 MB unzipped cap on its own. `NextjsRegionalContainers` is the exception — it has no CDN in front of it, so its Dockerfile copies both into the image and its own server answers those requests.
 - .body, .meta, .html, and .rsc files are updated by Next.js as a part of [ISR](https://nextjs.org/docs/app/guides/incremental-static-regeneration)
 
 We could ship this off to Lambda/Fargate and call it a day, but then we wouldn't have a content delivery network serving our static assets nor a shared cache between compute containers. We use S3/CloudFront for serving static assets and S3/DDB for shared cache between compute containers.
