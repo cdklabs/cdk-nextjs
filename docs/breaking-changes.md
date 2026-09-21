@@ -13,6 +13,52 @@ ignored there.
 - **Migration:** Remove those keys from Containers construct overrides. If you
   were setting them and expecting an effect, there wasn't one.
 
+### `basePath` is reconciled with your Next.js app's own `basePath`
+
+The `basePath` prop and the `basePath` in your app's `next.config.js` are two
+different things — where the infrastructure serves the app from (and which S3 key
+prefix the static assets land under) versus the prefix the app emits its own
+links and asset hrefs under. They used to be set independently, which silently
+404'd static assets when they disagreed. They're now checked against each other
+at synth, and derived from the app where there's only one value that can work.
+
+- `NextjsGlobalFunctions` / `NextjsGlobalContainers`: leave the prop unset and it
+  now follows your app's `basePath`. CloudFront hands its S3 origin the request
+  path verbatim as the object key, so the two can't differ — a prop that
+  disagrees with your app throws at synth.
+- `NextjsRegionalFunctions`: the prop is never derived (API Gateway strips the
+  stage before matching resources, so an app served at the `prod` stage sets
+  `basePath: "/prod"` and leaves the prop unset). If you do set it, your app's
+  `basePath` must end with it — either equal to it, or prefixed by the stage or
+  base path mapping API Gateway strips (`basePath: "/prod/base"` with the prop
+  set to `"/base"`). Anything else throws.
+- `NextjsRegionalContainers`: unchanged. The ALB forwards every path to the
+  container, which serves its own static assets, so the prop only namespaces the
+  S3 bucket and is unconstrained.
+- A trailing slash on the prop is now trimmed, since it would otherwise produce
+  cache behaviors like `/base//_next/static*` against keys uploaded under
+  `base/_next/...`.
+- On the Global constructs, an
+  `overrides.nextjsStaticAssets.bucketDeploymentProps.destinationKeyPrefix` that
+  doesn't match `basePath` now throws: CloudFront's S3 origin has no way to ask
+  for the objects anywhere but the request path, so a different prefix 404s every
+  static request.
+- `NextjsGlobalFunctions.url` and `NextjsGlobalContainers.url` now include
+  `basePath`, and `NextjsRegionalFunctions.url` reports the custom domain and
+  base path mapping when one is configured. All three previously returned a URL
+  the app answers with a 404 under these setups.
+
+- **Migration:** If your app sets `basePath` and you deploy a Global construct,
+  either drop the `basePath` prop or set it to the same value your app uses. The
+  first deploy after upgrading uploads the static assets under `<basePath>/` in
+  S3 and adds `<basePath>/_next/static*` (and `<basePath>/*`) cache behaviors to
+  the distribution. If you were reading `url` and appending `basePath` yourself,
+  remove that — it's included now.
+
+Note: when `.next/required-server-files.json` can't be read, cdk-nextjs assumes
+your app sets no `basePath` and now warns rather than staying silent, since that
+fallback is otherwise indistinguishable from an app that genuinely sets none.
+
 ### New (non-breaking): lower-level image optimization building blocks
 
 `_next/image` behavior is unchanged — the Next.js server function still serves
