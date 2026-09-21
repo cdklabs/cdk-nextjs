@@ -55,9 +55,20 @@ export interface AdapterManifest {
   readonly config: AdapterManifestConfig;
   /** `ctx.routing` verbatim, including `middlewareMatchers`. */
   readonly routing: unknown;
-  /** pages + pagesApi + appPages + appRoutes + staticFiles pathnames. */
+  /**
+   * Every pathname `resolveRoutes` is allowed to match: the {@link entrypoints}
+   * keys plus {@link staticFiles}. Sorted and deduped.
+   */
   readonly pathnames: string[];
-  /** Route *template* (`/blog/[slug]`) → entrypoint. */
+  /**
+   * Route *template* (`/blog/[slug]`) → entrypoint. Keys are basePath- and
+   * locale-prefixed exactly as `resolveRoutes` reports `resolvedPathname`, so
+   * the lookup is a plain index with no normalization.
+   *
+   * Includes dynamic *prerender* templates (notably Pages Router
+   * `/_next/data/<buildId>/<locale>/blog/[slug].json`) mapped to the entrypoint
+   * of the route that owns them.
+   */
   readonly entrypoints: Record<string, AdapterEntrypoint>;
   readonly middleware: AdapterMiddleware | null;
   readonly staticFiles: string[];

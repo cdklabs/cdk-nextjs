@@ -562,6 +562,7 @@
             "@aws-sdk/client-ssm",
             "@aws-sdk/lib-storage",
             "@mrgrain/jsii-struct-builder",
+            "@next/routing",
             "@smithy/signature-v4",
             "@types/aws-lambda",
             "@types/debug",

@@ -13,6 +13,8 @@
  *   NEXTJS_BASE_PATH=/prod node scripts/capture-adapter-fixture.mjs \
  *     app-playground --name app-playground-base-path
  *
+ * Pass `--reuse-capture` to re-trim the previous run's dump without rebuilding.
+ *
  * How it captures: `examples/<app>`'s `prebuild` script copies this repo's
  * bundled adapter into its own `node_modules/cdk-nextjs`, and `next.config.ts`
  * resolves `adapterPath` to that copy. The copy is untracked build output, so we
@@ -35,6 +37,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PLACEHOLDER_ROOT = "/repo";
 /** Per kept output, how many `node_modules/` asset keys to retain. */
 const NODE_MODULES_ASSET_SAMPLE = 8;
+/** Cap on *concrete* prerenders. Dynamic templates are always kept in full. */
 const MAX_PRERENDERS = 12;
 const MAX_STATIC_FILES = 8;
 
@@ -69,6 +72,9 @@ function main() {
   }
   const nameFlag = args.indexOf("--name");
   const name = nameFlag === -1 ? app : args[nameFlag + 1];
+  // Re-trim the dump a previous run left behind instead of rebuilding. For when
+  // the trim rules change but `next` has not; skips a ~2 minute `next build`.
+  const reuse = args.includes("--reuse-capture");
 
   const appDir = join(repoRoot, "examples", app);
   const dumpPath = join(appDir, ".next", `adapter-ctx-capture.json`);
@@ -80,15 +86,17 @@ function main() {
     `${name}.json`,
   );
 
-  // The example app's `prebuild` copies this repo's *bundled* adapter, so a
-  // stale bundle would silently capture the previous implementation.
-  run("pnpm", ["bundle"], repoRoot);
-  run("pnpm", ["prebuild"], appDir);
-  patchAdapterCopy(appDir);
-  rmSync(dumpPath, { force: true });
-  run("npx", ["next", "build"], appDir, {
-    CDK_NEXTJS_DUMP_CTX: dumpPath,
-  });
+  if (!reuse) {
+    // The example app's `prebuild` copies this repo's *bundled* adapter, so a
+    // stale bundle would silently capture the previous implementation.
+    run("pnpm", ["bundle"], repoRoot);
+    run("pnpm", ["prebuild"], appDir);
+    patchAdapterCopy(appDir);
+    rmSync(dumpPath, { force: true });
+    run("npx", ["next", "build"], appDir, {
+      CDK_NEXTJS_DUMP_CTX: dumpPath,
+    });
+  }
 
   const raw = JSON.parse(readFileSync(dumpPath, "utf8"));
   const fixture = trim(raw, { app, name });
@@ -232,9 +240,18 @@ function trim(raw, { app, name }) {
     pagesApi: raw.outputs.pagesApi.filter(keepOutput).map(trimOutput),
     appPages: raw.outputs.appPages.filter(keepOutput).map(trimOutput),
     appRoutes: raw.outputs.appRoutes.filter(keepOutput).map(trimOutput),
-    prerenders: raw.outputs.prerenders
-      .filter((p) => keptTemplates.has(p.route))
-      .slice(0, MAX_PRERENDERS)
+    prerenders: [
+      // Dynamic templates are never dropped: they are what
+      // `buildAdapterManifest` turns into extra `entrypoints`/`pathnames`
+      // entries (Pages Router `/_next/data/…/[slug].json` in particular), so a
+      // fixture without them would not exercise that path at all.
+      ...raw.outputs.prerenders.filter(
+        (p) => keptTemplates.has(p.route) && p.pathname.includes("["),
+      ),
+      ...raw.outputs.prerenders
+        .filter((p) => keptTemplates.has(p.route) && !p.pathname.includes("["))
+        .slice(0, MAX_PRERENDERS),
+    ]
       .map((p) => ({
         ...p,
         fallback: p.fallback
@@ -266,7 +283,7 @@ function trim(raw, { app, name }) {
         repoRootRewrittenTo: PLACEHOLDER_ROOT,
         keptRouteTemplates: [...keptTemplates].sort(),
         nodeModulesAssetsPerOutput: NODE_MODULES_ASSET_SAMPLE,
-        maxPrerenders: MAX_PRERENDERS,
+        maxConcretePrerenders: MAX_PRERENDERS,
         maxStaticFiles: MAX_STATIC_FILES,
       },
     },

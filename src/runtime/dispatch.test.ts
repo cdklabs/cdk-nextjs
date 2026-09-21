@@ -1,0 +1,366 @@
+/* eslint-disable import/no-extraneous-dependencies */
+import { MiddlewareResult } from "@next/routing";
+import {
+  createDispatcher,
+  DispatchRequest,
+  Dispatcher,
+  toRedirect,
+} from "./dispatch";
+import { AdapterManifest } from "./manifest";
+import appPlaygroundBasePath from "../adapter/__fixtures__/app-playground-base-path.json";
+import appPlayground from "../adapter/__fixtures__/app-playground.json";
+import pagesI18n from "../adapter/__fixtures__/pages-i18n.json";
+import {
+  BuildCompleteContext,
+  buildAdapterManifest,
+} from "../adapter/build-outputs";
+
+/**
+ * Dispatch is tested against the manifests that step 1 produces from real
+ * `onBuildComplete` captures, rather than against hand-written manifests: the
+ * thing most likely to break is the correspondence between how the build keys
+ * `entrypoints` and how `resolveRoutes` reports `resolvedPathname`, and a
+ * hand-written manifest would assume that correspondence instead of proving it.
+ */
+function manifestOf(fixture: unknown): AdapterManifest {
+  const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    return buildAdapterManifest(
+      structuredClone(fixture) as BuildCompleteContext,
+    ).manifest;
+  } finally {
+    warn.mockRestore();
+  }
+}
+
+const manifests = {
+  "app-playground": manifestOf(appPlayground),
+  "app-playground-base-path": manifestOf(appPlaygroundBasePath),
+  "pages-i18n": manifestOf(pagesI18n),
+} as const;
+
+const ORIGIN = "https://example.test";
+
+function request(url: string, headers: Record<string, string> = {}) {
+  const result: DispatchRequest = {
+    url: new URL(url, ORIGIN),
+    headers: new Headers({ host: "example.test", ...headers }),
+    // GET/HEAD have no body, but `resolveRoutes` requires a stream.
+    body: new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    }),
+  };
+  return result;
+}
+
+function dispatcherFor(
+  name: keyof typeof manifests,
+  invokeMiddleware?: () => Promise<MiddlewareResult>,
+): Dispatcher {
+  const manifest = manifests[name];
+  return createDispatcher({
+    manifest,
+    invokeMiddleware: manifest.middleware
+      ? (invokeMiddleware ?? (async () => ({})))
+      : undefined,
+  });
+}
+
+describe("Dispatcher entrypoint resolution", () => {
+  it("resolves a dynamic App Router page to its template entrypoint", async () => {
+    const result = await dispatcherFor("app-playground").dispatch(
+      request("/isr/1"),
+    );
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    // `resolvedPathname` is the template; `invocationTarget` is concrete. Both
+    // are needed: the first picks the module, the second is what it renders.
+    expect(result.resolvedPathname).toBe("/isr/[id]");
+    expect(result.invocationTarget).toEqual({
+      pathname: "/isr/1",
+      query: { nxtPid: "1" },
+    });
+    expect(result.query).toEqual({ nxtPid: "1" });
+    expect(result.routeMatches).toMatchObject({ nxtPid: "1" });
+    expect(result.entrypoint.filePath).toContain("isr/[id]/page.js");
+    expect(result.entrypoint.type).toBe("app-page");
+  });
+
+  it("resolves an App Router route handler", async () => {
+    const result = await dispatcherFor("app-playground").dispatch(
+      request("/api/health"),
+    );
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    expect(result.entrypoint.type).toBe("app-route");
+    expect(result.resolvedPathname).toBe("/api/health");
+  });
+
+  it("matches basePath-prefixed entrypoint keys without normalization", async () => {
+    // Step 1 keyed `entrypoints` by the basePath-prefixed `output.pathname` and
+    // left open whether `resolvedPathname` comes back prefixed. It does — this
+    // test is what closes that question.
+    const dispatcher = dispatcherFor("app-playground-base-path");
+    const result = await dispatcher.dispatch(request("/prod/isr/1"));
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    expect(result.resolvedPathname).toBe("/prod/isr/[id]");
+    expect(result.invocationTarget.pathname).toBe("/prod/isr/1");
+
+    // The same path without the prefix is not the app's.
+    const unprefixed = await dispatcher.dispatch(request("/isr/1"));
+    expect(unprefixed.kind).toBe("not-found");
+  });
+
+  it("resolves a Pages Router page and API route", async () => {
+    const dispatcher = dispatcherFor("pages-i18n");
+    const page = await dispatcher.dispatch(request("/en-US/ssr"));
+    expect(page.kind).toBe("entrypoint");
+    if (page.kind === "entrypoint") {
+      expect(page.entrypoint.type).toBe("page");
+    }
+    const api = await dispatcher.dispatch(request("/api/hello"));
+    expect(api.kind).toBe("entrypoint");
+    if (api.kind === "entrypoint") {
+      expect(api.entrypoint.type).toBe("page-api");
+    }
+  });
+
+  it("resolves a Pages Router ISR data URL via its prerender template", async () => {
+    // This only works because `buildAdapterManifest` adds dynamic *prerender*
+    // templates to `pathnames`/`entrypoints`: `/_next/data/…/[slug].json` is
+    // not a route output, so without it this URL 404s while `next start` serves
+    // it.
+    const { buildId } = manifests["pages-i18n"];
+    const result = await dispatcherFor("pages-i18n").dispatch(
+      request(`/_next/data/${buildId}/fr/blog/hello.json`),
+    );
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    expect(result.resolvedPathname).toBe(
+      `/_next/data/${buildId}/fr/blog/[slug].json`,
+    );
+    expect(result.entrypoint.filePath).toContain("blog/[slug]");
+    expect(result.query).toMatchObject({ nxtPslug: "hello" });
+  });
+});
+
+describe("Dispatcher non-entrypoint outcomes", () => {
+  it("serves a build asset as a static file with its immutable cache header", async () => {
+    const manifest = manifests["app-playground"];
+    const pathname = manifest.staticFiles.find((file) =>
+      file.startsWith("/_next/static/"),
+    )!;
+    const result = await dispatcherFor("app-playground").dispatch(
+      request(pathname),
+    );
+    expect(result.kind).toBe("static-file");
+    if (result.kind !== "static-file") return;
+    expect(result.pathname).toBe(pathname);
+    expect(result.responseHeaders.get("cache-control")).toBe(
+      "public,max-age=31536000,immutable",
+    );
+  });
+
+  it("routes /_next/image to the optimizer, basePath included", async () => {
+    const query = "?url=%2Ffoo.png&w=640&q=75";
+    const plain = await dispatcherFor("app-playground").dispatch(
+      request(`/_next/image${query}`),
+    );
+    expect(plain.kind).toBe("image-optimization");
+
+    const prefixed = await dispatcherFor("app-playground-base-path").dispatch(
+      request(`/prod/_next/image${query}`),
+    );
+    expect(prefixed.kind).toBe("image-optimization");
+    if (prefixed.kind !== "image-optimization") return;
+    expect(prefixed.url.searchParams.get("url")).toBe("/foo.png");
+  });
+
+  it("redirects a trailing slash", async () => {
+    const result = await dispatcherFor("app-playground").dispatch(
+      request("/isr/1/"),
+    );
+    expect(result).toMatchObject({
+      kind: "redirect",
+      status: 308,
+      location: "/isr/1",
+    });
+  });
+
+  it("redirects to the default locale", async () => {
+    // Arrives as a bare `status` plus a `location` in `resolvedHeaders`, never
+    // as `ResolveRoutesResult.redirect`; `toRedirect` normalizes both.
+    const result = await dispatcherFor("pages-i18n").dispatch(request("/"));
+    expect(result).toMatchObject({
+      kind: "redirect",
+      status: 308,
+      location: "/en-US",
+    });
+  });
+
+  it("returns a direct response for a route that forces a status", async () => {
+    const base = manifests["app-playground"];
+    const manifest: AdapterManifest = {
+      ...base,
+      middleware: null,
+      routing: {
+        ...(base.routing as Record<string, unknown>),
+        beforeFiles: [
+          {
+            sourceRegex: "^/blocked$",
+            status: 403,
+            headers: { "x-why": "no" },
+          },
+        ],
+      },
+    };
+    const result = await createDispatcher({ manifest }).dispatch(
+      request("/blocked"),
+    );
+    expect(result).toMatchObject({ kind: "response", status: 403 });
+    expect(result.responseHeaders.get("x-why")).toBe("no");
+  });
+
+  it("reports an unknown path as not found", async () => {
+    const result = await dispatcherFor("app-playground").dispatch(
+      request("/definitely-not-a-route"),
+    );
+    expect(result.kind).toBe("not-found");
+    if (result.kind !== "not-found") return;
+    expect(result.pathname).toBe("/definitely-not-a-route");
+  });
+
+  it("resolves the 404 target per router flavor", () => {
+    expect(dispatcherFor("app-playground").notFound).toMatchObject({
+      kind: "entrypoint",
+      pathname: "/_not-found",
+    });
+    expect(dispatcherFor("app-playground-base-path").notFound).toMatchObject({
+      kind: "entrypoint",
+      pathname: "/prod/_not-found",
+    });
+    // Pages Router has no `/_not-found`; `_error` is the invocable equivalent.
+    expect(dispatcherFor("pages-i18n").notFound).toMatchObject({
+      kind: "entrypoint",
+      pathname: "/_error",
+    });
+  });
+
+  it("falls back to a prerendered 404, then to nothing", () => {
+    const base = manifests["app-playground"];
+    const withoutEntrypoints: AdapterManifest = {
+      ...base,
+      entrypoints: {},
+      middleware: null,
+    };
+    expect(createDispatcher({ manifest: withoutEntrypoints }).notFound).toEqual(
+      {
+        kind: "static-file",
+        pathname: "/404",
+      },
+    );
+    expect(
+      createDispatcher({
+        manifest: { ...withoutEntrypoints, staticFiles: [] },
+      }).notFound,
+    ).toEqual({ kind: "none" });
+  });
+});
+
+describe("toRedirect", () => {
+  it("prefers the documented redirect field", () => {
+    // `resolveRoutes` does not populate `ResolveRoutesResult.redirect` in
+    // next 16.3.5 — every redirect arrives as bare status + `location` — so this
+    // is the only coverage that branch can have until it does.
+    expect(
+      toRedirect(
+        { redirect: { url: new URL("https://e.test/x"), status: 301 } },
+        new Headers(),
+      ),
+    ).toEqual({ location: "https://e.test/x", status: 301 });
+  });
+
+  it("ignores a location header on a non-3xx status", () => {
+    const headers = new Headers({ location: "/x" });
+    expect(toRedirect({ status: 200 }, headers)).toBeUndefined();
+    expect(toRedirect({ status: 403 }, headers)).toBeUndefined();
+    expect(toRedirect({}, headers)).toBeUndefined();
+    expect(toRedirect({ status: 308 }, new Headers())).toBeUndefined();
+  });
+});
+
+describe("Dispatcher middleware handling", () => {
+  it("reports a middleware response without resolving a route", async () => {
+    const result = await dispatcherFor("app-playground", async () => ({
+      bodySent: true,
+      responseHeaders: new Headers({ "x-mw": "responded" }),
+    })).dispatch(request("/isr/1"));
+    expect(result.kind).toBe("middleware-responded");
+  });
+
+  it("normalizes a middleware redirect", async () => {
+    const result = await dispatcherFor("app-playground", async () => ({
+      redirect: { url: new URL("/login", ORIGIN), status: 307 },
+    })).dispatch(request("/isr/1"));
+    expect(result).toMatchObject({
+      kind: "redirect",
+      status: 307,
+      location: `${ORIGIN}/login`,
+    });
+  });
+
+  it("follows an internal middleware rewrite to the rewritten entrypoint", async () => {
+    const result = await dispatcherFor("app-playground", async () => ({
+      rewrite: new URL("/api/health", ORIGIN),
+    })).dispatch(request("/isr/1"));
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    expect(result.resolvedPathname).toBe("/api/health");
+  });
+
+  it("reports an external middleware rewrite as a proxy target", async () => {
+    const result = await dispatcherFor("app-playground", async () => ({
+      rewrite: new URL("https://upstream.test/x"),
+    })).dispatch(request("/isr/1"));
+    expect(result.kind).toBe("external-rewrite");
+    if (result.kind !== "external-rewrite") return;
+    expect(result.url.href).toBe("https://upstream.test/x");
+  });
+
+  it("carries middleware request headers forward and response headers back", async () => {
+    // `resolveRoutes` drops `MiddlewareResult.requestHeaders`: it neither
+    // returns them nor mutates the `headers` it was given. Dispatch captures
+    // them from the callback, which is what keeps
+    // `NextResponse.next({ request: { headers } })` working.
+    const result = await dispatcherFor("app-playground", async () => ({
+      requestHeaders: new Headers({ host: "example.test", "x-user": "42" }),
+      responseHeaders: new Headers({ "x-mw": "ran" }),
+    })).dispatch(request("/isr/1"));
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    expect(result.requestHeaders.get("x-user")).toBe("42");
+    expect(result.responseHeaders.get("x-mw")).toBe("ran");
+  });
+
+  it("passes the caller's request headers through when middleware adds none", async () => {
+    const result = await dispatcherFor("app-playground").dispatch(
+      request("/isr/1", { "x-caller": "yes" }),
+    );
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    expect(result.requestHeaders.get("x-caller")).toBe("yes");
+  });
+
+  it("refuses to construct without a runner when the build has middleware", () => {
+    expect(() =>
+      createDispatcher({ manifest: manifests["app-playground"] }),
+    ).toThrow(/needs an `invokeMiddleware` implementation/);
+    // No middleware in the build, so no runner is required.
+    expect(() =>
+      createDispatcher({ manifest: manifests["pages-i18n"] }),
+    ).not.toThrow();
+  });
+});

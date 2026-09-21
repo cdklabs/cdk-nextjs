@@ -34,6 +34,10 @@ const project = new CdklabsConstructLibrary({
     "@aws-sdk/client-ssm",
     "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
+    // Exact-pinned to `next` and bumped with it: it is first-party and versioned
+    // in lockstep, so a mismatch is a routing behavior difference. Bundled into
+    // the runtime by esbuild, not resolved from the deployment tree.
+    "@next/routing@16.3.5",
     "@smithy/signature-v4",
     "@types/aws-lambda",
     "@types/debug",

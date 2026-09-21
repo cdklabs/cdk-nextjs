@@ -79,8 +79,13 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
         ...ctx.outputs.appPages,
         ...ctx.outputs.appRoutes,
       ].map((o) => o.pathname);
+      // Plus dynamic prerender templates, which `addPrerenderTemplates` maps to
+      // the entrypoint of the route that owns them.
+      const templates = ctx.outputs.prerenders
+        .filter((o) => o.pathname.includes("["))
+        .map((o) => o.pathname);
       expect(Object.keys(manifest.entrypoints).sort()).toEqual(
-        [...new Set(expected)].sort(),
+        [...new Set([...expected, ...templates])].sort(),
       );
       for (const [pathname, entry] of Object.entries(manifest.entrypoints)) {
         expect(entry.filePath).toMatch(/^[^/]/);
@@ -94,7 +99,7 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
       }
     });
 
-    it("lists pathnames as the sorted union of routes and static files", () => {
+    it("lists pathnames as the sorted union of entrypoints and static files", () => {
       expect(manifest.pathnames).toEqual([...manifest.pathnames].sort());
       expect(new Set(manifest.pathnames).size).toBe(manifest.pathnames.length);
       for (const key of Object.keys(manifest.entrypoints)) {
@@ -174,6 +179,43 @@ describe("buildAdapterManifest edge cases", () => {
       asContext(pagesI18n),
     );
     expect(noMiddleware.middleware).toBeNull();
+  });
+
+  it("maps a Pages Router data-route template to its owning route", () => {
+    // `/_next/data/<buildId>/<locale>/blog/[slug].json` exists only as a
+    // prerender. Without it, the ISR data URLs `next start` serves would 404.
+    const { manifest } = buildAdapterManifest(asContext(pagesI18n));
+    const dataTemplate = `/_next/data/${manifest.buildId}/fr/blog/[slug].json`;
+    expect(manifest.entrypoints[dataTemplate]).toEqual({
+      id: dataTemplate,
+      filePath: manifest.entrypoints["/fr/blog/[slug]"].filePath,
+      type: "page",
+    });
+    expect(manifest.pathnames).toContain(dataTemplate);
+  });
+
+  it("leaves an App Router fallback template on its own entrypoint", () => {
+    // `/isr/[id]` is a prerender *and* an appPages output. The output wins, so
+    // `id` stays the route's own rather than being rewritten.
+    const { manifest } = buildAdapterManifest(asContext(appPlayground));
+    expect(manifest.entrypoints["/isr/[id]"].id).toBe("/isr/[id]");
+    expect(manifest.entrypoints["/isr/[id].rsc"]).toBeDefined();
+  });
+
+  it("warns instead of throwing when a template has no owning route", () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const ctx = asContext(pagesI18n);
+    ctx.outputs.prerenders[0].route = "/gone/[slug]";
+    ctx.outputs.prerenders[0].pathname = "/gone/[slug]";
+    const { manifest } = buildAdapterManifest(ctx);
+    expect(manifest.entrypoints["/gone/[slug]"]).toBeUndefined();
+    expect(
+      warn.mock.calls
+        .map((call) => String(call[0]))
+        .filter((message) => message.includes("will 404")),
+    ).toEqual([
+      expect.stringContaining('/gone/[slug] (route: "/gone/[slug]")'),
+    ]);
   });
 
   it("warns once per unsupported route config key", () => {

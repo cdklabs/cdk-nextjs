@@ -143,11 +143,14 @@ export function buildAdapterManifest(
     }
   }
 
+  addPrerenderTemplates(
+    entrypoints,
+    outputs.prerenders,
+    ctx.config.basePath || "",
+  );
+
   const pathnames = sortedUnique([
-    ...outputs.pages.map((o) => o.pathname),
-    ...outputs.pagesApi.map((o) => o.pathname),
-    ...outputs.appPages.map((o) => o.pathname),
-    ...outputs.appRoutes.map((o) => o.pathname),
+    ...Object.keys(entrypoints),
     ...outputs.staticFiles.map((o) => o.pathname),
   ]);
 
@@ -325,6 +328,65 @@ function addEntrypoint(
     );
   }
   entrypoints[output.pathname] = { id: output.id, filePath, type };
+}
+
+/**
+ * Add the dynamic *prerender* templates that no invocable output claims.
+ *
+ * `resolveRoutes` can only match a pathname present in `manifest.pathnames`, and
+ * for a dynamic match it returns the **template** it matched. Routes and static
+ * files cover most of that, but Pages Router ISR data URLs do not: a request for
+ * `/_next/data/<buildId>/fr/blog/hello.json` only resolves if
+ * `/_next/data/<buildId>/fr/blog/[slug].json` is listed, and that pathname exists
+ * solely as a `prerenders` entry. `next start` serves those URLs, so omitting them
+ * is a behavior difference.
+ *
+ * Only templates (`[` in the pathname) are added. Adding *concrete* prerender
+ * pathnames instead was measured to be actively wrong: `/isr/1` then resolves to
+ * itself rather than to `/isr/[id]`, losing the `nxtPid` query param the route
+ * needs.
+ *
+ * The owning entrypoint comes from `prerender.route`, which is the unprefixed and
+ * unlocalized source route (`/blog/[slug]`), hence the basePath-then-bare ladder.
+ * Locale variants of one page share a `filePath`, so any locale's entrypoint is
+ * the right target.
+ */
+function addPrerenderTemplates(
+  entrypoints: Record<string, AdapterEntrypoint>,
+  prerenders: AdapterOutputs["prerenders"],
+  basePath: string,
+): void {
+  const orphans: string[] = [];
+  for (const prerender of prerenders) {
+    if (!prerender.pathname.includes("[") || entrypoints[prerender.pathname]) {
+      continue;
+    }
+    const owner =
+      entrypoints[`${basePath}${prerender.route}`] ??
+      entrypoints[prerender.route];
+    if (!owner) {
+      orphans.push(`${prerender.pathname} (route: "${prerender.route}")`);
+      continue;
+    }
+    entrypoints[prerender.pathname] = {
+      id: prerender.id,
+      filePath: owner.filePath,
+      type: owner.type,
+    };
+  }
+
+  if (orphans.length > 0) {
+    // Warn rather than throw: an unmapped template degrades one URL shape to a
+    // 404, which is what would happen without this function at all. A throw
+    // would break the build outright on an output shape a future `next` minor
+    // might introduce.
+    console.warn(
+      `${LOG_PREFIX} ${orphans.length} dynamic prerender template(s) have no ` +
+        `matching route entrypoint and will 404: ` +
+        `${orphans.slice(0, 5).join(", ")}` +
+        `${orphans.length > 5 ? `, and ${orphans.length - 5} more` : ""}.`,
+    );
+  }
 }
 
 function buildMiddleware(

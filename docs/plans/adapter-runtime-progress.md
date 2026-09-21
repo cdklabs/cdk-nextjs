@@ -50,7 +50,7 @@ up for the duration of this work — do not delete or modify them.
 | Plan step | State |
 | --- | --- |
 | 1 — build outputs (`onBuildComplete`) | done |
-| 2 — dispatch via `@next/routing` | not started |
+| 2 — dispatch via `@next/routing` | done |
 | 3 — middleware runner | not started |
 | 4 — runtime core + two shells | not started |
 | 5 — wire constructs, Functions to zip, Containers Dockerfiles | not started |
@@ -204,3 +204,145 @@ Assumed, not yet proven:
 - Fixtures are POSIX-keyed with a `/repo` placeholder, so the unit tests assume a
   POSIX `path.relative`. They would need adjusting to run on Windows; CI is
   Linux/macOS.
+
+## Step 2 — dispatch via `@next/routing`
+
+**Landed** — commit `feat: resolve requests through @next/routing` (referenced by
+subject, not SHA: this entry ships inside that commit)
+
+- `.projenrc.ts` — added `@next/routing@16.3.5` to `devDeps`, exact-pinned with a
+  comment explaining why. `pnpm projen` regenerated `package.json` /
+  `.projen/deps.json` / `.projen/tasks.json` / `pnpm-lock.yaml`.
+- `src/runtime/dispatch.ts` — `Dispatcher` / `createDispatcher`. Takes a
+  `DispatchRequest` (`url`, `headers`, `body` stream), calls
+  `resolveRoutes`, and returns a `DispatchResult` discriminated union:
+  `entrypoint`, `static-file`, `image-optimization`, `redirect`,
+  `external-rewrite`, `middleware-responded`, `response`, `not-found`. Pure
+  decision-making — no filesystem, no `require` of any entrypoint, no `Response`
+  construction. All of that is step 4.
+- `src/adapter/build-outputs.ts` — `addPrerenderTemplates`, which adds dynamic
+  *prerender* templates to `entrypoints`/`pathnames`. See decision 2.
+- `src/runtime/manifest.ts` — doc-only: `entrypoints` and `pathnames` now say what
+  they contain and that keys need no normalization.
+- `scripts/capture-adapter-fixture.mjs` — dynamic prerender templates are now
+  never trimmed away (the `MAX_PRERENDERS` cap applies to concrete prerenders
+  only), and a `--reuse-capture` flag re-trims the previous dump without a
+  ~2 minute rebuild. All three fixtures regenerated; buildIds changed, so any
+  hard-coded buildId in a future test will break — read it off the manifest.
+- `src/runtime/dispatch.test.ts` — 22 tests. `src/adapter/build-outputs.test.ts`
+  grew to 32.
+
+**Decisions**
+
+1. **Nothing is normalized between the manifest and `resolveRoutes`.** Step 1's
+   open basePath question is closed: `resolvedPathname` comes back **both
+   basePath- and locale-prefixed**, matching `manifest.entrypoints` keys exactly
+   (`/prod/isr/[id]`, `/fr/blog/[slug]`). The lookup is a plain object index. Step
+   1 decision 3 was correct as written; no stripping anywhere.
+2. **Dynamic prerender templates are added to `entrypoints` and `pathnames`, and
+   concrete prerenders are not.** `resolveRoutes` can only match a pathname that
+   is in `pathnames`, and the plan defined `pathnames` as routes + staticFiles.
+   That leaves Pages Router ISR data URLs unresolved:
+   `/_next/data/<buildId>/fr/blog/hello.json` needs
+   `/_next/data/<buildId>/fr/blog/[slug].json` listed, and that pathname exists
+   only as a `prerenders` entry. `next start` serves those URLs, so omitting them
+   is a behavior difference. The owner comes from `prerender.route` (unprefixed,
+   unlocalized — hence a `basePath + route` then bare `route` ladder); locale
+   variants share a `filePath`, so any locale's entrypoint is the right target.
+   Adding *concrete* prerender pathnames instead was measured to be actively
+   wrong: with `/isr/1` in `pathnames`, `/isr/1` resolves to itself rather than to
+   `/isr/[id]` and the `nxtPid` query param is lost. An orphan template warns
+   rather than throws — an unmapped template degrades one URL shape to a 404,
+   which is the status quo without the feature, whereas a throw would break builds
+   on an output shape a future `next` minor might introduce.
+3. **Dispatch captures `MiddlewareResult.requestHeaders` itself.**
+   `resolveRoutes` **drops** them: it neither returns them in
+   `ResolveRoutesResult` nor mutates the `headers` object it was handed (verified
+   by probe). Left alone that silently breaks
+   `NextResponse.next({ request: { headers } })`. The `invokeMiddleware` wrapper
+   stashes them and every result carries `requestHeaders`.
+4. **`resolvedHeaders` is treated strictly as response headers, and a redirect is
+   normalized from two shapes.** Every redirect observed — the i18n default-locale
+   308, the `trailingSlash` 308, a middleware `NextResponse.redirect()`, and
+   `next.config` `redirects()` (which compile to routes carrying
+   `headers: { Location }` + `status`) — arrives as a bare `status` with
+   `location` in `resolvedHeaders`, never as `ResolveRoutesResult.redirect`.
+   `toRedirect` handles both; it is exported solely so the today-unreachable
+   documented branch is still tested.
+5. **The 404 target is resolved once at construction, not per request.**
+   `Dispatcher.notFound` is an entrypoint (`/_not-found` for App Router, `/_error`
+   for Pages), else the prerendered `/404`, else `none`. Locale-aware selection
+   among `/fr/404` etc. and honoring `notFound()` thrown by a route are step 4's
+   job; dispatch only reports the candidate.
+6. **Constructing a `Dispatcher` throws if the build has middleware and no
+   `invokeMiddleware` was supplied.** Silently skipping middleware would change
+   auth and rewrite behavior, which is the worst possible failure mode to make
+   quiet.
+
+**Measured**
+
+| What | Value | Command |
+| --- | --- | --- |
+| tests | 112 passed, 8 suites | `pnpm jest` |
+| `dispatch.ts` coverage | 99.2% stmts, 95.7% branch | `pnpm jest src/runtime/dispatch.test.ts` |
+| `build-outputs.ts` coverage | 98.9% stmts, 94.0% branch | `pnpm jest src/adapter/build-outputs.test.ts` |
+| fixture sizes after regeneration | 229 KB / 230 KB / 168 KB | `ls -l src/adapter/__fixtures__` |
+
+**Verified vs. assumed**
+
+Verified by test against the real captured manifests:
+
+- basePath-prefixed entrypoint keys match `resolvedPathname` with no
+  normalization, and an unprefixed path under a basePath app is a 404.
+- `/isr/1` → template `/isr/[id]`, `invocationTarget` `/isr/1`, `nxtPid: "1"` in
+  both `query` and `routeMatches`.
+- App Router route handler, Pages Router page and API route each resolve to the
+  right `type`.
+- `/_next/data/<buildId>/fr/blog/hello.json` → template entrypoint (decision 2).
+- A `/_next/static/...` asset → `static-file` carrying
+  `cache-control: public,max-age=31536000,immutable` from the `onMatch` rule.
+- `/_next/image` → `image-optimization`, with and without basePath.
+- Trailing-slash 308, i18n default-locale 308 to `/en-US`, and a route forcing a
+  bare `status: 403` with a header.
+- Middleware: `bodySent` → `middleware-responded`; `redirect` → normalized
+  `redirect`; internal `rewrite` → the rewritten entrypoint; external `rewrite` →
+  `external-rewrite`; `requestHeaders` forwarded; `responseHeaders` returned;
+  caller headers passed through when middleware sets none; constructor throws
+  without a runner.
+- 404 target per router flavor, plus the `/404` and `none` fallbacks.
+
+Assumed, not yet proven:
+
+- That a real middleware bundle can be invoked to produce the `MiddlewareResult`
+  these tests hand-write. That is step 3.
+- That `invocationTarget` + `routeMatches` + `query` are sufficient to render a
+  route correctly. Step 4 is the first thing that actually renders.
+- Everything about response bodies, streaming, and `waitUntil`. Dispatch never
+  builds a `Response`.
+
+**Deferred / open**
+
+- `_next/image` is matched by exact pathname (`basePath + "/_next/image"`). If
+  `trailingSlash: true` rewrites that URL shape, step 4 must confirm the
+  comparison still holds; no fixture covers it.
+- The `result.invocationTarget ?? { … }` fallback in `dispatch` is the only
+  uncovered line in the file. It is defensive against a `next` shape change and
+  is unreachable today — `invocationTarget` is always present alongside
+  `resolvedPathname`.
+- `Route.status` on a matched route is carried through as `DispatchResult.status`
+  on `entrypoint` and `static-file` results, but nothing consumes it yet. Step 4
+  must apply it to the outgoing response.
+- `routing.rsc` is in the manifest (part of `ctx.routing` verbatim) and is
+  **not** in `ResolveRoutesParams["routes"]`. It is passed through the cast and
+  presumably ignored. If RSC request handling turns out to need it, step 4 owns
+  reading it directly.
+- `shouldNormalizeNextData` is `false` in the pages-i18n capture even though the
+  build emits `/_next/data/…` outputs, and dispatch still resolves those URLs
+  correctly — the step 1 open question is answered: `resolveRoutes` needs no help
+  there.
+- `src/runtime/dispatch.ts` is JSII-compiled into `lib/` even though it is only
+  ever consumed through the esbuild bundle (step 5 adds that bundle). The compiled
+  copy's `require("@next/routing")` would fail at runtime, since the package is a
+  devDependency. Harmless as long as nothing imports `lib/runtime/dispatch.js`,
+  which mirrors how `src/adapter/cache-handler.ts` already works — but it is a
+  trap worth remembering.

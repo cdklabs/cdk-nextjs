@@ -44,6 +44,9 @@ importers:
       '@mrgrain/jsii-struct-builder':
         specifier: ^0.7.64
         version: 0.7.64(projen@0.101.22(constructs@10.5.1))
+      '@next/routing':
+        specifier: 16.3.5
+        version: 16.3.5
       '@smithy/signature-v4':
         specifier: ^2.3.0
         version: 2.3.0
@@ -1114,6 +1117,9 @@ packages:
 
   '@next/env@16.3.5':
     resolution: {integrity: sha512-NWEXVDMqoEo0ktmU6u0sE2Vg0LOcsD7NnOTJNo3/fEaTfsg+F1bMIxuDmQbda4e3yTIQwVdUREF2yIuMOusKtg==}
+
+  '@next/routing@16.3.5':
+    resolution: {integrity: sha512-3gj3xvXCSz/87XNJKtAss+kI4BKXnRREumdBb2bQvWIS237MOBx5mnz9wWXll2lYFF10/zW5keYM0CUCpZMwbw==}
 
   '@next/swc-darwin-arm64@16.3.5':
     resolution: {integrity: sha512-pMmGgETfKvElucLHtVaeiMRbp2zUbvKx7b1yGko0liBz3cw1mKSggWN/Rp/wPz8z+E1O82u3r4L1Co+ZS5hokQ==}
@@ -5313,6 +5319,8 @@ snapshots:
     optional: true
 
   '@next/env@16.3.5': {}
+
+  '@next/routing@16.3.5': {}
 
   '@next/swc-darwin-arm64@16.3.5':
     optional: true

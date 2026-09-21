@@ -16,7 +16,7 @@
         "/isr/[id]"
       ],
       "nodeModulesAssetsPerOutput": 8,
-      "maxPrerenders": 12,
+      "maxConcretePrerenders": 12,
       "maxStaticFiles": 8
     }
   },
@@ -261,7 +261,7 @@
     ],
     "onMatch": [
       {
-        "sourceRegex": "/_next/static/(?:[^/]+/pages|pages|chunks|immutable|runtime|css|image|media|bwOIRVbDZ8J0cw4haIXjC)/.+",
+        "sourceRegex": "/_next/static/(?:[^/]+/pages|pages|chunks|immutable|runtime|css|image|media|8\\-U6h3t2HOChih\\-jVBfbV)/.+",
         "headers": {
           "cache-control": "public,max-age=31536000,immutable"
         }
@@ -340,9 +340,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -367,7 +367,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -375,7 +375,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -446,9 +446,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -473,7 +473,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -481,7 +481,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -557,9 +557,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -589,7 +589,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -597,7 +597,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -673,9 +673,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -705,7 +705,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -713,7 +713,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -789,9 +789,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -821,7 +821,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -829,7 +829,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -905,9 +905,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -937,7 +937,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -945,7 +945,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1022,9 +1022,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1055,7 +1055,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1063,7 +1063,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1140,9 +1140,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1173,7 +1173,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1181,7 +1181,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1253,9 +1253,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1281,7 +1281,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1289,7 +1289,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1361,9 +1361,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1389,7 +1389,7 @@
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_0k81cz3._.js": "c313e26a7f074f94d7c1f4cbd580c195",
           "app-playground/.next/server/chunks/ssr/node_modules__pnpm_1oe605z._.js": "1d7e96ab6257d2b7e5f133ab2bd66adc",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1397,7 +1397,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1458,9 +1458,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1473,7 +1473,7 @@
           "app-playground/.next/server/chunks/[turbopack]_runtime.js": "f7be49fcc0880387c131ff3b5cf167ec",
           "app-playground/.next/server/chunks/app-playground__next-internal_server_app_api_health_route_actions_1pkrhpf.js": "b0e230f08c5117f009905a2d47331873",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1481,7 +1481,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1540,9 +1540,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1555,7 +1555,7 @@
           "app-playground/.next/server/chunks/[turbopack]_runtime.js": "f7be49fcc0880387c131ff3b5cf167ec",
           "app-playground/.next/server/chunks/app-playground__next-internal_server_app_api_health_route_actions_1pkrhpf.js": "b0e230f08c5117f009905a2d47331873",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1563,7 +1563,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1623,9 +1623,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1639,7 +1639,7 @@
           "app-playground/.next/server/chunks/_00_j9ky._.js": "e955741386192d0ee84d651e8d492161",
           "app-playground/.next/server/chunks/app-playground__next-internal_server_app_api_revalidate_route_actions_088b7bi.js": "d231c4a68dc739983f97d6e329e1b4b7",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1647,7 +1647,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1707,9 +1707,9 @@
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
         },
         "assetsHashes": {
-          "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+          "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
           "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-          "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+          "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
           "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
           "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
           "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -1723,7 +1723,7 @@
           "app-playground/.next/server/chunks/_00_j9ky._.js": "e955741386192d0ee84d651e8d492161",
           "app-playground/.next/server/chunks/app-playground__next-internal_server_app_api_revalidate_route_actions_088b7bi.js": "d231c4a68dc739983f97d6e329e1b4b7",
           "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-          "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+          "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
           "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
           "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
           "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -1731,7 +1731,7 @@
           "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
           "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
           "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+          "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
           "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
           "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
           "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -1751,6 +1751,75 @@
       }
     ],
     "prerenders": [
+      {
+        "id": "/isr/[id]",
+        "type": "PRERENDER",
+        "pathname": "/isr/[id]",
+        "parentOutputId": "/isr/[id]",
+        "groupId": 41,
+        "route": "/isr/[id]",
+        "config": {
+          "allowQuery": [
+            "nxtPid"
+          ],
+          "allowHeader": [
+            "host",
+            "x-matched-path",
+            "x-prerender-revalidate",
+            "x-prerender-revalidate-if-generated",
+            "x-next-revalidated-tags",
+            "x-next-revalidate-tag-token"
+          ],
+          "bypassFor": [
+            {
+              "type": "header",
+              "key": "next-action"
+            },
+            {
+              "type": "header",
+              "key": "content-type",
+              "value": "multipart/form-data;.*"
+            }
+          ],
+          "bypassToken": "f29130efc5bd115db980ee814229cd82"
+        },
+        "routeType": "page",
+        "response": "empty",
+        "compute": "blocking"
+      },
+      {
+        "id": "/isr/[id].rsc",
+        "type": "PRERENDER",
+        "pathname": "/isr/[id].rsc",
+        "parentOutputId": "/isr/[id]",
+        "groupId": 41,
+        "route": "/isr/[id]",
+        "config": {
+          "allowQuery": [
+            "nxtPid"
+          ],
+          "allowHeader": [
+            "host",
+            "x-matched-path",
+            "x-prerender-revalidate",
+            "x-prerender-revalidate-if-generated",
+            "x-next-revalidated-tags",
+            "x-next-revalidate-tag-token"
+          ],
+          "bypassFor": [
+            {
+              "type": "header",
+              "key": "next-action"
+            },
+            {
+              "type": "header",
+              "key": "content-type",
+              "value": "multipart/form-data;.*"
+            }
+          ],
+          "bypassToken": "f29130efc5bd115db980ee814229cd82"
+        }
+      },
       {
         "id": "/",
         "type": "PRERENDER",
@@ -2213,21 +2282,21 @@
       },
       {
         "type": "STATIC_FILE",
-        "id": "static/bwOIRVbDZ8J0cw4haIXjC/_buildManifest.js",
-        "pathname": "/_next/static/bwOIRVbDZ8J0cw4haIXjC/_buildManifest.js",
-        "filePath": "/repo/app-playground/.next/static/bwOIRVbDZ8J0cw4haIXjC/_buildManifest.js"
+        "id": "static/8-U6h3t2HOChih-jVBfbV/_buildManifest.js",
+        "pathname": "/_next/static/8-U6h3t2HOChih-jVBfbV/_buildManifest.js",
+        "filePath": "/repo/app-playground/.next/static/8-U6h3t2HOChih-jVBfbV/_buildManifest.js"
       },
       {
         "type": "STATIC_FILE",
-        "id": "static/bwOIRVbDZ8J0cw4haIXjC/_clientMiddlewareManifest.js",
-        "pathname": "/_next/static/bwOIRVbDZ8J0cw4haIXjC/_clientMiddlewareManifest.js",
-        "filePath": "/repo/app-playground/.next/static/bwOIRVbDZ8J0cw4haIXjC/_clientMiddlewareManifest.js"
+        "id": "static/8-U6h3t2HOChih-jVBfbV/_clientMiddlewareManifest.js",
+        "pathname": "/_next/static/8-U6h3t2HOChih-jVBfbV/_clientMiddlewareManifest.js",
+        "filePath": "/repo/app-playground/.next/static/8-U6h3t2HOChih-jVBfbV/_clientMiddlewareManifest.js"
       },
       {
         "type": "STATIC_FILE",
-        "id": "static/bwOIRVbDZ8J0cw4haIXjC/_ssgManifest.js",
-        "pathname": "/_next/static/bwOIRVbDZ8J0cw4haIXjC/_ssgManifest.js",
-        "filePath": "/repo/app-playground/.next/static/bwOIRVbDZ8J0cw4haIXjC/_ssgManifest.js"
+        "id": "static/8-U6h3t2HOChih-jVBfbV/_ssgManifest.js",
+        "pathname": "/_next/static/8-U6h3t2HOChih-jVBfbV/_ssgManifest.js",
+        "filePath": "/repo/app-playground/.next/static/8-U6h3t2HOChih-jVBfbV/_ssgManifest.js"
       },
       {
         "type": "STATIC_FILE",
@@ -2282,9 +2351,9 @@
         "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js": "/repo/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/baggage/internal/symbol.js"
       },
       "assetsHashes": {
-        "app-playground/.next/BUILD_ID": "90a399f3b1b36aeab4477c5b50f6541768ee335d23ad7a6bc0f78cb53e26dddc",
+        "app-playground/.next/BUILD_ID": "ad5d493c0ffed94980e95c41a806a5db366e474dfb4536f4723c347fa170a758",
         "app-playground/.next/app-path-routes-manifest.json": "5ca67cc11393148edd7a4a78fb90b5d6f55ea469604afc6d1cfab7b642b221fd",
-        "app-playground/.next/build-manifest.json": "41b1787f90e656eefd8deacf7e6a451845df1b6c07ad764cb1688c2379df34b6",
+        "app-playground/.next/build-manifest.json": "10570e880dd1dbd841210463831524c6537d80892c8a2efa94df4b1ae11f2f9b",
         "app-playground/.next/package.json": "bb2db0c3d1ad007b1c3d3dd56ada34231c01b125ae0924a389b2fe3de2d86bac",
         "app-playground/.next/prerender-manifest.json": "644d8d7ab74964cbeee5c849a40535481ee6fc73993670972dd72ccc82157743",
         "app-playground/.next/required-server-files.json": "b2cff5a0a6549ea2fe9dafa21c27ea660a4f035815b17654ac12405503ccba5a",
@@ -2296,7 +2365,7 @@
         "app-playground/.next/server/chunks/[root-of-the-server]__0b3ms7r._.js": "13210601fba177d3e80eb7f6f2b2d71b",
         "app-playground/.next/server/chunks/[turbopack]_runtime.js": "f7be49fcc0880387c131ff3b5cf167ec",
         "app-playground/.next/server/functions-config-manifest.json": "48cf096195559d0900685c28eed1897f8b0eb446f8d99a48d76b554f09db65ba",
-        "app-playground/.next/server/middleware-build-manifest.js": "ed5020b0b3625bdb42c2a042ffa9fa21639e874c482083850ce1f8757a59be3c",
+        "app-playground/.next/server/middleware-build-manifest.js": "3a9317fd318ccd8718f0ba3dbd4d1c5c155b189faec1158dbbae5e2e6882e0e4",
         "app-playground/.next/server/middleware-manifest.json": "d276e374c815ce6d1868919dae54b178e5943d8c1904b0a65bacf88dc35f9608",
         "app-playground/.next/server/next-font-manifest.js": "64ea5121678ca857e89aa8c2d12466168a1a469ef24bfc3cfbdb3e06a749f57c",
         "app-playground/.next/server/next-font-manifest.json": "9df20901a6804d495228d550129f7226ba6c7a42686d2162789248061bd91e1a",
@@ -2304,7 +2373,7 @@
         "app-playground/.next/server/prefetch-hints.json": "020ed6e0a321cacc99bd3644e804ebf36ea20b458d069a75d354d5ba914ef587",
         "app-playground/.next/server/server-reference-manifest.js": "dd1b1f9e9931a0e84610c2eab6f0cefd9f76f75f7e5214b9dadd0ed21dae7e2f",
         "app-playground/.next/server/server-reference-manifest.json": "9ce1478e31b3df728229aaeebe50e0ac31dc1d6caa7e10a56767790a4db44ba2",
-        "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "b95830a8acfa2499ebace7d8ae580126",
+        "app-playground/node_modules/cdk-nextjs/lib/adapter/adapter.mjs": "14594d95c7eedefdfcd424f30d9bea9d",
         "app-playground/node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs": "418841a7e5ad760f995f49a18b90ba9c",
         "app-playground/node_modules/next": "b289a4d164f666657f2501bae0a0e93d",
         "node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/src/api/context.js": "172e2d0e47a44b837ebd71535e967798",
@@ -2341,7 +2410,7 @@
   "repoRoot": "/repo",
   "distDir": "/repo/app-playground/.next",
   "nextVersion": "16.3.5",
-  "buildId": "bwOIRVbDZ8J0cw4haIXjC",
+  "buildId": "8-U6h3t2HOChih-jVBfbV",
   "config": {
     "basePath": "",
     "trailingSlash": false,
