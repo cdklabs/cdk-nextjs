@@ -37,9 +37,7 @@ jobs:
   glbl-fns:
     needs: wait-for-approval
     runs-on: ubuntu-24.04-arm
-    # Exercises the experimental dedicated image optimization Lambda. rgnl-fns
-    # deliberately leaves it off so both `_next/image` paths get coverage:
-    # dedicated Lambda here, Next.js server function there.
+    # Exercises the experimental dedicated image optimization Lambda.
     env:
       CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION: "1"
     steps:
@@ -86,6 +84,18 @@ jobs:
   rgnl-fns:
     needs: wait-for-approval
     runs-on: ubuntu-22.04
+    # Also runs through the dedicated image optimization Lambda: `_next/image`
+    # via the Next.js server function itself is incompatible with serving
+    # public/static assets from S3 instead of the server's own filesystem
+    # (Next's built-in image optimizer re-invokes the app's own request
+    # handler for local image paths, which has no route for S3-served
+    # assets). Fixed by the adapter runtime work
+    # (docs/plans/adapter-runtime-release.md), which serves `_next/image`
+    # through cdk-nextjs's own S3-aware handler instead of Next's internal
+    # dispatch. Until then, both fns e2e jobs exercise only the dedicated
+    # Lambda path.
+    env:
+      CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION: "1"
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
