@@ -2,17 +2,6 @@
 
 ## 0.6.0
 
-### Functions-only overrides moved off the Containers constructs
-
-`nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
-`NextjsBaseConstructOverrides` to the new `NextjsFunctionsConstructOverrides`,
-which only the two Functions root constructs extend. They were previously
-accepted by `NextjsGlobalContainers` / `NextjsRegionalContainers` and silently
-ignored there.
-
-- **Migration:** Remove those keys from Containers construct overrides. If you
-  were setting them and expecting an effect, there wasn't one.
-
 ### `basePath` is reconciled with your Next.js app's own `basePath`
 
 The `basePath` prop and the `basePath` in your app's `next.config.js` are two
@@ -58,6 +47,19 @@ at synth, and derived from the app where there's only one value that can work.
 Note: when `.next/required-server-files.json` can't be read, cdk-nextjs assumes
 your app sets no `basePath` and now warns rather than staying silent, since that
 fallback is otherwise indistinguishable from an app that genuinely sets none.
+
+## 0.5.16
+
+### Functions-only overrides moved off the Containers constructs
+
+`nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
+`NextjsBaseConstructOverrides` to the new `NextjsFunctionsConstructOverrides`,
+which only the two Functions root constructs extend. They were previously
+accepted by `NextjsGlobalContainers` / `NextjsRegionalContainers` and silently
+ignored there.
+
+- **Migration:** Remove those keys from Containers construct overrides. If you
+  were setting them and expecting an effect, there wasn't one.
 
 ### New (non-breaking): lower-level image optimization building blocks
 
