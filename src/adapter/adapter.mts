@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { serializeCacheValue } from "./cache-utils.js";
+import {
+  prerenderPathToCacheKey,
+  serializeCacheValue,
+} from "./cache-utils.js";
 import { writeBuildOutputs } from "./build-outputs.js";
 import { LOG_PREFIX } from "../constants.js";
 import getDebug from "debug";
@@ -170,11 +173,12 @@ const adapter: NextAdapter = {
           continue;
         }
 
-        // Write cache entry to file
-        const cacheKey =
-          basePath === "/"
-            ? "index"
-            : basePath.replace(/^\//, "").replace(/\//g, "/");
+        // Write cache entry to file, under the route rather than the URL it is
+        // served at - see `prerenderPathToCacheKey`.
+        const cacheKey = prerenderPathToCacheKey(
+          basePath,
+          ctx.config.basePath || "",
+        );
         const cacheFilePath = join(cacheDir, `${cacheKey}.json`);
 
         // Ensure parent directory exists

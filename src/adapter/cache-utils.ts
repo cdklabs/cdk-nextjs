@@ -92,6 +92,32 @@ export function parseCacheValue(jsonString: string): any {
 }
 
 /**
+ * The cache key a prerendered route's seeded entry has to be written under.
+ *
+ * `ctx.outputs.prerenders[].pathname` is the *URL* the page is served at, so it
+ * carries the app's `basePath`. The key the server later looks entries up under
+ * is the route, which does not — Next.js strips `basePath` before routing, so the
+ * cache handler never sees it at request time. Seeding `/prod/ssg/1` verbatim
+ * therefore writes `<buildId>/prod/ssg/1.json` while the server asks for
+ * `<buildId>/ssg/1.json`: every build-time prerender is a MISS that re-renders on
+ * first request, and the page is only "static" from the second visit onwards.
+ */
+export function prerenderPathToCacheKey(
+  pathname: string,
+  basePath: string,
+): string {
+  // Matching on a path boundary so a sibling route like `/production` is not
+  // read as basePath `/prod` plus `uction`.
+  const hasBasePath =
+    !!basePath &&
+    (pathname === basePath || pathname.startsWith(`${basePath}/`));
+  const route = (hasBasePath ? pathname.slice(basePath.length) : pathname)
+    // Leading slashes would make an S3 key with an empty first segment.
+    .replace(/^\/+/, "");
+  return route === "" ? "index" : route;
+}
+
+/**
  * Helper to safely extract tags from context
  */
 export function getTags(
