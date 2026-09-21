@@ -1,6 +1,5 @@
-# Adapter runtime — one release, all four `NextjsType`s
+# Adapter runtime — one branch, one release, all four `NextjsType`s
 
-Plan for the release *after* Phase 0 (`docs/plans/phase-0-image-function-opt-in.md`).
 Self-contained; assumes no context from the session that wrote it.
 
 Verified against Next.js **16.3.5** (the version in `package.json`) and the
@@ -14,6 +13,47 @@ the existing image handler serves `_next/image`, and the Next.js entrypoints
 render. No new `NextjsType`s. Phases 1-3 ship as one user-facing release.
 
 **Phase 4 (per-output Lambda splitting) is out of this release.**
+
+## Execution model: one branch, no runtime-selection flag
+
+Everything in this plan — Spike 0 through Phase 3, plus the testing work —
+happens on a single feature branch and merges to `main` as one PR (or a small
+number of PRs merged in immediate succession, with no release cut in between).
+`main` runs `server.js` unchanged for the entire duration of development; the
+branch is where the new runtime is built, iterated on, and proven, and nothing
+crosses over until it's ready to fully replace the old path.
+
+This is a deliberate departure from `docs/plans/phase-0-image-function-opt-in.md`,
+which shipped incrementally to `main` behind
+`CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION=1` across many small merged
+PRs. That pattern is not used here:
+
+- **No env var gate.** There is no `CDK_NEXTJS_EXPERIMENTAL_ADAPTER_RUNTIME`
+  or equivalent, in any form — undocumented or otherwise. The old and new
+  runtimes are never both reachable from the same `main` commit. Selection
+  between them is "which branch you're on," not a flag evaluated at synth or
+  request time.
+- **No incremental merges to `main`.** Phase boundaries are checkpoints on the
+  branch (commits, or PRs against the branch if that helps reviewability), not
+  points where anything ships to users. Semantic-release does not see this work
+  until the branch merges.
+- **CI runs on the branch,** the same way it would on any long-lived feature
+  branch — via normal branch/PR CI against the branch, not via a matrix that
+  toggles a flag on `main`.
+
+Consequence: there is no cheap "known-good `server.js` path" oracle available
+on the same commit to byte-diff against mid-development, since the two paths
+never coexist. That's fine — the official adapter compatibility harness (see
+Testing, below) is the primary correctness gate regardless, and is a stronger
+signal than a homegrown byte-diff would have been. If a byte-diff comparison
+is useful while iterating, do it by checking out `main` in a worktree and
+diffing output against the branch, not by carrying a flag.
+
+The other reason an earlier draft hedged with new `*_ADAPTER` types or a flag
+is also gone: the dispatcher was going to be a large hand-written component,
+which made sharing it between Lambda and Fargate look expensive. `@next/routing`
+supplies it (below), so one request path across all four types is cheap enough
+to build and prove out entirely on the branch before it ever reaches `main`.
 
 ## Terminology, because "go all in on adapters" is two separate things
 
@@ -39,35 +79,6 @@ dispatch (hence middleware on `_next/image`) and per-route splitting. Keep the
 release notes precise about this: the claim is "cdk-nextjs now serves requests
 through the adapter entrypoints", not "cdk-nextjs now uses the adapters API",
 which has been true for a while.
-
-## Why no new `NextjsType`
-
-An earlier draft of this plan proposed new `*_ADAPTER` types so the known-good
-`server.js` path stayed available as a byte-diff oracle. That oracle is still
-worth having, but it does not need public API:
-
-- Gate the new runtime on an **undocumented env var**
-  (`CDK_NEXTJS_EXPERIMENTAL_ADAPTER_RUNTIME=1`) during development. An env var
-  keeps the JSII public surface untouched, so there is nothing to deprecate or
-  document, and it gets deleted in the final PR.
-- The e2e matrix runs both paths off the same stack definition by toggling that
-  var, which is the same coverage two `NextjsType`s would have bought.
-- Minting public types you intend to delete is worse churn than a flag nobody
-  ever sees. The end state is four types, not six.
-
-The other reason for hedging is also gone: the dispatcher was going to be a
-large hand-written component, which made sharing it between Lambda and Fargate
-look expensive. `@next/routing` supplies it (below), so one request path across
-all four types is cheap.
-
-## One release narrative, many merged PRs
-
-Do not hold a long-lived branch. Semantic-release runs off `main`:
-
-- Each phase merges as its own PR. Everything new is dead code behind the env
-  var, so the intermediate minor releases change no existing stack's template.
-- The final PR deletes the env var, makes entrypoint invocation the only path,
-  updates examples and docs, and carries the `BREAKING CHANGE:` footer.
 
 ## Spike 0 — packaging (before any Phase 3 code)
 
@@ -225,11 +236,14 @@ types invoke entrypoints and the closure is proven, it can go — and with it th
 alpine standalone server and the `@img/sharp-linuxmusl-*` download
 (`src/nextjs-build/nextjs-build.ts:403`).
 
-**Sequencing within the release:** do the Functions types first — that is where
-the benefit is concentrated. Containers second, in the same release, so there is
-one request path to test rather than two. If Containers slips, shipping
-Functions-only is acceptable but leaves the dual path in place permanently until
-a follow-up; that is a scope call, not a default.
+**Sequencing on the branch:** do the Functions types first — that is where the
+benefit is concentrated. Containers second, before the branch merges, so there
+is one request path proven rather than two. Both must land before the PR opens
+against `main`; unlike an incremental-release plan, there is no "ship
+Functions-only, follow up on Containers later" option here — the branch isn't
+done, and doesn't merge, until all four types are on the new runtime. If
+Containers work turns out to be substantially harder than Functions, that's a
+timeline/scope conversation to have explicitly, not a default fallback.
 
 ## Phase 4 — splitting (NOT in this release)
 
@@ -244,7 +258,8 @@ Next.js ships a
 [compatibility test harness](https://nextjs.org/docs/app/api-reference/adapters/testing-adapters)
 that runs **vercel/next.js's own e2e suite against a real deployment**. This is a
 far better gate than any fixture app we would write, and it is the single most
-valuable item in this plan.
+valuable item in this plan — more so now that there's no env-var-toggled
+byte-diff oracle to lean on mid-development.
 
 Wiring: three executables in `scripts/`, pointed at by env vars —
 
@@ -267,12 +282,14 @@ The example workflow shards 16 ways with a 60-minute timeout per shard.
 
 Cost and time are the real constraints here: 16 shards each deploying a CDK
 stack is not a per-PR gate. Run it `workflow_dispatch` + nightly against the
-release branch, and keep `examples/e2e-tests/` as the fast per-PR check.
+release branch while the branch is under development, and keep
+`examples/e2e-tests/` as the fast per-commit check on the branch itself. Both
+must be green before the branch merges to `main`.
 
-The existing suite stays, but do not trust it as the gate for a runtime rewrite:
-it asserts status codes and one content-type, and **it cannot see the class of
-bug that produced this work** — a broken `sharp` returning HTTP 200 with
-unoptimized original bytes, through four green e2e jobs. Add byte- and
+The existing suite stays, but do not trust it as the sole gate for a runtime
+rewrite: it asserts status codes and one content-type, and **it cannot see the
+class of bug that produced this work** — a broken `sharp` returning HTTP 200
+with unoptimized original bytes, through four green e2e jobs. Add byte- and
 header-level assertions (`etag` shape: Next.js uses sha256/base64url while S3
 uses MD5 — that difference is what caught it), plus a middleware e2e proving a
 403 or redirect on `_next/image`.
@@ -321,15 +338,25 @@ semantics.
 5. `onCacheEntryV2` versus the existing `cacheHandler`: which owns propagation to
    S3/DynamoDB? Pick one.
 6. `@next/routing` version pinning against `next`.
+7. What happens to `docs/plans/phase-0-image-function-opt-in.md`'s
+   `CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION` flag and the dedicated
+   image Lambda it introduced. This plan's dispatcher makes that Lambda
+   unnecessary (`_next/image` is reached through dispatch after middleware on
+   every `NextjsType`), so the flag, the dedicated Lambda, and the branching it
+   caused in `suppress-nags.ts`/`NextjsApi` are candidates for deletion in the
+   same PR rather than being carried forward.
 
-## Exit criteria for making it the only path
+## Exit criteria for merging to `main`
 
 - Official harness green (or every exclusion documented with a reason).
 - All existing e2e suites green, including `streaming`, `isr`, `revalidation`,
-  `server-actions`.
+  `server-actions`, on **all four** `NextjsType`s — not a subset.
 - Middleware e2e proving interception on `_next/image`.
 - Cold-start measurement on a non-trivial app versus the LWA path.
 - `docs/breaking-changes.md` covering the removed `dedicatedImageFunction` prop
   and — if Functions stop being container images — the
   `nextjsFunctionsProps.dockerImageFunctionProps` override keys, which become
   meaningless. That is a real breaking change for anyone using them.
+- No env var, flag, or dead code path left behind from development. If Spike 0
+  or an earlier phase produced throwaway scaffolding, it is deleted before the
+  PR opens, not carried into `main` "to remove later."
