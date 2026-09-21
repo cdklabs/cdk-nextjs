@@ -64,6 +64,14 @@ export class RegionalFunctionsStack extends Stack {
               DEBUG: "cdk-nextjs:*",
               // Tell middleware to prepend API Gateway stage name since API Gateway strips it
               PREPEND_APIGW_STAGE: "1",
+              // Fallback stage name for proxy.ts's re-prepend logic when a
+              // request has no x-amzn-request-context header to read it
+              // from, e.g. Next.js's own internal fetches for local
+              // `_next/image` sources.
+              API_GATEWAY_STAGE: process.env["NEXTJS_BASE_PATH"]!.replace(
+                /^\//,
+                "",
+              ),
               // Lambda Web Adapter in this app doesn't support response
               // streaming; must match dynamicIntegrationProps above or API
               // Gateway returns a 500 for every request to this function.

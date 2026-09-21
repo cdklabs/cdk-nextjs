@@ -10,22 +10,21 @@ export default function proxy(request: NextRequest) {
     // We need to prepend it back so Next.js basePath works correctly.
     // See: https://github.com/awslabs/aws-lambda-web-adapter?tab=readme-ov-file#request-context
     const reqCtxStr = request.headers.get('x-amzn-request-context');
-
+    let stage: string | undefined;
     if (reqCtxStr) {
       const reqCtx = JSON.parse(reqCtxStr);
-      const stage = reqCtx.stage;
+      stage = reqCtx.stage;
+    }
 
-      // Next.js internally re-enters this middleware for its own local
-      // fetches (e.g. resolving `_next/image` sources), using a mocked
-      // request with no `x-amzn-request-context` header carried over from
-      // the original call chain in some cases, and without a real API
-      // Gateway invocation context at all in others. Without this guard,
-      // `stage` is `undefined`/`null` there and the rewrite below produces
-      // a literal "/null" or "/undefined" path prefix instead of skipping.
-      if (!stage) {
-        return NextResponse.next();
-      }
+    // Next.js re-enters this middleware for its own internal fetches (e.g.
+    // resolving `_next/image` local sources) using a mocked request that
+    // doesn't carry the original `x-amzn-request-context` header, so `stage`
+    // can't be derived per-request there. Fall back to the stage name baked
+    // in at deploy time so those internal fetches still resolve to the
+    // correct path instead of getting a literal "/null" prefix or 404ing.
+    stage ??= process.env.API_GATEWAY_STAGE;
 
+    if (stage) {
       const url = new URL(request.url);
       const originalPath = url.pathname;
 
