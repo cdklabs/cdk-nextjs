@@ -239,6 +239,23 @@ export function suppressLambdaNags(stack: Stack) {
     "Lambda functions need wildcard S3 permissions to access cache and static assets",
   );
 
+  // NextjsImageFunction only exists behind this experimental flag (see
+  // src/utils/experimental-flags.ts); suppressing a path with no matching
+  // resource throws.
+  if (process.env.CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION === "1") {
+    suppressLambdaExecutionRole(
+      stack,
+      `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/Resource`,
+    );
+
+    suppressS3WildcardPermissions(
+      stack,
+      `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/DefaultPolicy/Resource`,
+      "Image optimization Lambda needs wildcard S3 permissions to read static assets",
+      { includeAbort: false, includeDelete: false, includeStaticAssets: true },
+    );
+  }
+
   suppressCloudFrontInvalidationWildcard(
     stack,
     `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,

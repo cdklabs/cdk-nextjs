@@ -4,9 +4,15 @@
  * For CloudFront deployments: Returns the path as-is
  * For API Gateway deployments: Prefixes with stage name (e.g., /prod)
  *
+ * Only for raw, browser-fetched URLs (e.g. CSS `background-image`). Don't
+ * use this for `<Image src=...>`: `_next/image` already lives under the API
+ * Gateway stage automatically, and its `url` query param must be the
+ * unprefixed, app-relative path — the dedicated image-optimization Lambda
+ * resolves it directly against S3, which has no stage prefix.
+ *
  * Usage:
  * ```tsx
- * <Image src={getImageSrc('/static/image.jpg')} ... />
+ * <div style={{ backgroundImage: `url('${getImageSrc('/static/image.jpg')}')` }} />
  * ```
  */
 export function getImageSrc(path: string): string {

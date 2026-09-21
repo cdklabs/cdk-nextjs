@@ -4,13 +4,22 @@ import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
+import {
+  NextjsFunctionsConstructOverrides,
+  NextjsBaseOverrides,
+  NextjsBaseConstruct,
+  NextjsBaseProps,
+} from "./nextjs-base-construct";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsFunctions,
   NextjsFunctionsOverrides,
-  NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
+import {
+  NextjsImageFunction,
+  NextjsImageFunctionOverrides,
+} from "../nextjs-compute/nextjs-image-function";
 import {
   NextjsDistribution,
   NextjsDistributionOverrides,
@@ -19,15 +28,9 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
-import {
-  NextjsBaseConstructOverrides,
-  NextjsBaseOverrides,
-  NextjsBaseConstruct,
-  NextjsBaseProps,
-} from "./nextjs-base-construct";
+import { useDedicatedImageFunction } from "../utils/experimental-flags";
 
-export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
-  readonly nextjsFunctionsProps?: NextjsFunctionsProps;
+export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
@@ -40,6 +43,7 @@ export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConst
 export interface NextjsGlobalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
+  readonly nextjsImageFunction?: NextjsImageFunctionOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
@@ -64,6 +68,12 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
  */
 export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
+  /**
+   * Only created when the (experimental, unsupported) dedicated image
+   * optimization Lambda is enabled. `_next/image` is otherwise served by
+   * {@link nextjsFunctions}.
+   */
+  nextjsImageFunction?: NextjsImageFunction;
   nextjsDistribution: NextjsDistribution;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
@@ -76,7 +86,14 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     super(scope, id, props, NextjsType.GLOBAL_FUNCTIONS);
     this.props = props;
 
-    this.nextjsFunctions = this.createNextjsFunctions();
+    this.nextjsFunctions = this.createNextjsFunctions(
+      this.props.overrides?.nextjsFunctions,
+    );
+    if (useDedicatedImageFunction()) {
+      this.nextjsImageFunction = this.createNextjsImageFunction(
+        this.props.overrides?.nextjsImageFunction,
+      );
+    }
     this.nextjsDistribution = this.createNextjsDistribution();
     this.wireCloudFrontInvalidation();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
@@ -142,26 +159,12 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     );
   }
 
-  private createNextjsFunctions(): NextjsFunctions {
-    // Create functions with local build output
-    return new NextjsFunctions(this, "NextjsFunctions", {
-      ...this.computeBaseProps(),
-      overrides: {
-        ...this.props.overrides?.nextjsFunctions,
-        dockerImageFunctionProps: {
-          ...this.props.overrides?.nextjsFunctions?.dockerImageFunctionProps,
-          vpc: this.baseProps.vpc,
-        },
-      },
-      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsFunctionsProps,
-    });
-  }
-
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
       basePath: this.baseProps.basePath,
       functionUrl: this.nextjsFunctions.functionUrl,
+      imageFunctionUrl: this.nextjsImageFunction?.functionUrl,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,

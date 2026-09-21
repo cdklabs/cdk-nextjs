@@ -6,7 +6,6 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import { CartCount } from './cart-count';
-import { getImageSrc } from '#/lib/image-utils';
 
 export function Header() {
   return (
@@ -42,7 +41,7 @@ export function Header() {
         </div>
 
         <Image
-          src={getImageSrc('/static/prince-akachi-LWkFHEGpleE-unsplash.jpg')}
+          src="/static/prince-akachi-LWkFHEGpleE-unsplash.jpg"
           className="rounded-full"
           width={40}
           height={40}

@@ -96,6 +96,9 @@
         },
         {
           "spawn": "bundle:nextjs-build/patch-fetch"
+        },
+        {
+          "spawn": "bundle:image-optimization/handler"
         }
       ]
     },
@@ -132,6 +135,24 @@
       "steps": [
         {
           "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\" --watch"
+        }
+      ]
+    },
+    "bundle:image-optimization/handler": {
+      "name": "bundle:image-optimization/handler",
+      "description": "Create a JavaScript bundle from src/image-optimization/handler.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
+        }
+      ]
+    },
+    "bundle:image-optimization/handler:watch": {
+      "name": "bundle:image-optimization/handler:watch",
+      "description": "Continuously update the JavaScript bundle from src/image-optimization/handler.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
         }
       ]
     },

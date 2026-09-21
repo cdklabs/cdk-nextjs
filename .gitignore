@@ -39,6 +39,7 @@ jspm_packages/
 ash_output
 ~$*.xlsx
 .kiro
+.claude/worktrees
 /test-reports/
 junit.xml
 /coverage/

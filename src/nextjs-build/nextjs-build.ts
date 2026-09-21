@@ -7,6 +7,7 @@ import {
   writeFileSync,
   rmSync,
   mkdirSync,
+  cpSync,
   renameSync,
   statSync,
 } from "node:fs";
@@ -18,6 +19,8 @@ import { Construct } from "constructs";
 import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
+import { useDedicatedImageFunction } from "../utils/experimental-flags";
+import { getNodeArchitecture } from "../utils/get-architecture";
 
 const debug = getDebug("cdk-nextjs:nextjs-build");
 
@@ -81,6 +84,14 @@ export class NextjsBuild extends Construct {
    * Absolute path to the .next directory containing Next.js build artifacts
    */
   dotNextPath: string;
+  /**
+   * Absolute path to the directory prepared for the image optimization Lambda
+   * asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`.
+   * Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and
+   * {@link NextjsType.REGIONAL_FUNCTIONS}, and only when the dedicated image
+   * optimization Lambda is enabled.
+   */
+  imageOptimizationAssetPath?: string;
 
   private props: NextjsBuildProps;
   private buildCommand: string;
@@ -122,8 +133,31 @@ export class NextjsBuild extends Construct {
     this.publicDirEntries = this.getLocalPublicDirEntries();
 
     const standalonePath = join(this.dotNextPath, "standalone");
+    const isFunctions =
+      props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
+      props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
+
+    const dedicatedImageFunction = isFunctions && useDedicatedImageFunction();
+
+    // Strip whatever platform-specific Sharp binaries `next build`'s output
+    // file tracing bundled in either way, since they're the host's (e.g.
+    // macOS/glibc) rather than the deployment target's.
     this.removeExistingSharpBinaries(standalonePath);
-    this.downloadAndInstallSharpBinaries();
+    // The standalone server serves `_next/image` itself unless a dedicated
+    // image optimization Lambda takes over that route, and it runs on
+    // node:24-alpine (see functions.Dockerfile) / the same Alpine base for
+    // Containers, so it needs musl binaries. Skipping this install when Sharp
+    // *is* invoked from the server is silent: `imageOptimizer` catches the
+    // load failure internally and returns the unoptimized original with an
+    // HTTP 200.
+    if (!dedicatedImageFunction) {
+      this.downloadAndInstallSharpBinaries();
+    }
+
+    if (dedicatedImageFunction) {
+      this.imageOptimizationAssetPath =
+        this.prepareImageOptimizationAssets(standalonePath);
+    }
   }
 
   /**
@@ -364,38 +398,211 @@ export class NextjsBuild extends Construct {
       "node_modules",
     );
     const imgPath = join(nodeModulesPath, "@img");
+    const arch = getNodeArchitecture();
 
-    // Create a consistent cache directory for Sharp packages
+    this.installSharpPackages(
+      imgPath,
+      this.getSharpBinaryPackages(
+        this.findSharpPackage(nodeModulesPath),
+        `linuxmusl-${arch}`,
+      ),
+    );
+  }
+
+  /**
+   * Assemble the deployment asset for the dedicated image optimization
+   * Lambda: the pre-bundled handler (from this package's own `lib/` output),
+   * `sharp`'s JS wrapper (already dereferenced from the pnpm store by Next's
+   * output file tracing into the standalone build), glibc `sharp` binaries
+   * (the standard Lambda managed runtime is Amazon Linux 2023/glibc, unlike
+   * the musl binaries the Docker/Lambda Web Adapter server function needs),
+   * and `required-server-files.json` (read by the handler at cold start to
+   * build `nextConfig`).
+   */
+  private prepareImageOptimizationAssets(standalonePath: string): string {
+    const assetPath = join(this.dotNextPath, "cdk-nextjs-image-optimization");
+    const nodeModulesPath = join(assetPath, "node_modules");
+    const imgPath = join(nodeModulesPath, "@img");
+
+    rmSync(assetPath, { recursive: true, force: true });
+    mkdirSync(imgPath, { recursive: true });
+
+    // Pre-bundled by esbuild into this package's own lib/ output.
+    cpSync(join(__dirname, "..", "image-optimization"), assetPath, {
+      recursive: true,
+    });
+
+    const sharpSource = this.findSharpPackage(
+      join(standalonePath, "node_modules"),
+    );
+    if (sharpSource) {
+      this.copySharpRuntime(sharpSource, nodeModulesPath);
+    } else {
+      console.warn(
+        `${LOG_PREFIX} "sharp" not found in standalone build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
+      );
+    }
+
+    const requiredServerFiles = join(
+      this.dotNextPath,
+      "required-server-files.json",
+    );
+    if (!existsSync(requiredServerFiles)) {
+      throw new Error(
+        `${LOG_PREFIX} "required-server-files.json" not found at ${requiredServerFiles}. The image optimization Lambda reads it at cold start to build its Next.js config.`,
+      );
+    }
+    cpSync(requiredServerFiles, join(assetPath, "required-server-files.json"));
+
+    const arch = getNodeArchitecture();
+    this.installSharpPackages(
+      imgPath,
+      this.getSharpBinaryPackages(sharpSource, `linux-${arch}`),
+    );
+
+    return assetPath;
+  }
+
+  /**
+   * Locate `sharp`'s JS wrapper inside a standalone `node_modules`.
+   *
+   * Next's output file tracing preserves the installer's on-disk layout, so
+   * npm/yarn produce a hoisted `node_modules/sharp` while pnpm only
+   * materializes `node_modules/.pnpm/sharp@<version>/node_modules/sharp`.
+   */
+  private findSharpPackage(nodeModulesPath: string): string | undefined {
+    const hoisted = join(nodeModulesPath, "sharp");
+    if (existsSync(join(hoisted, "package.json"))) {
+      return hoisted;
+    }
+
+    const pnpmPath = join(nodeModulesPath, ".pnpm");
+    if (!existsSync(pnpmPath)) {
+      return undefined;
+    }
+
+    const candidates = readdirSync(pnpmPath)
+      .filter((name) => name.startsWith("sharp@"))
+      .sort();
+    for (const candidate of candidates.reverse()) {
+      const nested = join(pnpmPath, candidate, "node_modules", "sharp");
+      if (existsSync(join(nested, "package.json"))) {
+        return nested;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Copy `sharp` plus the transitive `dependencies` closure `require("sharp")`
+   * pulls in (`@img/colour`, `detect-libc`, `semver`) into `targetPath`.
+   *
+   * Copying only `sharp` itself leaves those requires unresolvable, and
+   * `imageOptimizer` swallows the resulting `MODULE_NOT_FOUND` by falling back
+   * to serving the unoptimized original, so the omission is otherwise silent.
+   */
+  private copySharpRuntime(sharpSource: string, targetPath: string): void {
+    // Under pnpm a package's dependencies are symlinked into the sibling
+    // directory alongside it, which is also where a hoisted layout keeps
+    // them, so the same lookup covers both.
+    const lookupPath = join(sharpSource, "..");
+    const queue = ["sharp"];
+    const copied = new Set<string>();
+
+    while (queue.length > 0) {
+      const name = queue.shift()!;
+      if (copied.has(name)) {
+        continue;
+      }
+
+      const source = name === "sharp" ? sharpSource : join(lookupPath, name);
+      if (!existsSync(join(source, "package.json"))) {
+        console.warn(
+          `${LOG_PREFIX} "sharp" dependency "${name}" not found in standalone build output; image optimization may fall back to serving unoptimized images.`,
+        );
+        continue;
+      }
+
+      // `dereference` resolves pnpm's symlinks into real files, since the
+      // Lambda asset is a standalone directory with no store to link into.
+      cpSync(source, join(targetPath, name), {
+        recursive: true,
+        dereference: true,
+      });
+      copied.add(name);
+
+      const manifest = JSON.parse(
+        readFileSync(join(source, "package.json"), "utf-8"),
+      );
+      // Platform binaries are optionalDependencies, installed separately at
+      // the versions this same manifest pins, so only `dependencies` here.
+      queue.push(...Object.keys(manifest.dependencies ?? {}));
+    }
+
+    debug(
+      `${LOG_PREFIX} Copied sharp runtime: ${[...copied].sort().join(", ")}`,
+    );
+  }
+
+  /**
+   * Resolve the `@img/sharp-<platform>` and `@img/sharp-libvips-<platform>`
+   * versions to install for a given platform.
+   *
+   * These must match the `sharp` JS wrapper that output file tracing put in
+   * the standalone build: `sharp`'s `lib/libvips.js` compares the binary's
+   * reported libvips version against its own `minimumLibvipsVersion` and
+   * throws at load when they disagree. `sharp` pins both in its
+   * `optionalDependencies`, so that manifest is the authoritative source.
+   */
+  private getSharpBinaryPackages(
+    sharpSource: string | undefined,
+    platform: string,
+  ): { name: string; version: string }[] {
+    const fallback = [
+      { name: `sharp-libvips-${platform}`, version: "1.2.4" },
+      { name: `sharp-${platform}`, version: "0.34.5" },
+    ];
+
+    if (!sharpSource) {
+      return fallback;
+    }
+
+    const manifest = JSON.parse(
+      readFileSync(join(sharpSource, "package.json"), "utf-8"),
+    );
+    const optionalDependencies: Record<string, string> =
+      manifest.optionalDependencies ?? {};
+
+    return fallback.map((pkg) => {
+      const version = optionalDependencies[`@img/${pkg.name}`];
+      if (!version) {
+        console.warn(
+          `${LOG_PREFIX} sharp@${manifest.version} does not pin "@img/${pkg.name}"; falling back to ${pkg.version}.`,
+        );
+        return pkg;
+      }
+      return { name: pkg.name, version };
+    });
+  }
+
+  /**
+   * Download (with caching) and extract Sharp's platform-specific binary
+   * packages into `imgPath`.
+   */
+  private installSharpPackages(
+    imgPath: string,
+    packages: { name: string; version: string }[],
+  ): void {
     const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
     if (!existsSync(cacheDir)) {
       mkdirSync(cacheDir, { recursive: true });
     }
 
-    // Ensure @img directory exists
-    if (!existsSync(imgPath)) {
-      mkdirSync(imgPath, { recursive: true });
-    }
-
-    // Detect architecture for correct Sharp binaries
-    const arch = process.arch.startsWith("arm") ? "arm64" : "x64";
-
-    // Sharp binary packages to download
-    const sharpPackages = [
-      {
-        name: `sharp-libvips-linuxmusl-${arch}`,
-        version: "1.2.4",
-        url: `https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-${arch}/-/sharp-libvips-linuxmusl-${arch}-1.2.4.tgz`,
-      },
-      {
-        name: `sharp-linuxmusl-${arch}`,
-        version: "0.34.5",
-        url: `https://registry.npmjs.org/@img/sharp-linuxmusl-${arch}/-/sharp-linuxmusl-${arch}-0.34.5.tgz`,
-      },
-    ];
-
-    for (const pkg of sharpPackages) {
+    for (const pkg of packages) {
       try {
         const targetDir = join(imgPath, pkg.name);
+        const url = `https://registry.npmjs.org/@img/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`;
 
         // Create a consistent filename based on package name and version
         const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
@@ -426,7 +633,7 @@ export class NextjsBuild extends Construct {
             // handles transient connection drops so a partial transfer
             // isn't cached as valid.
             execSync(
-              `curl -L --fail --retry 3 --retry-delay 1 -o "${tempFile}" "${pkg.url}"`,
+              `curl -L --fail --retry 3 --retry-delay 1 -o "${tempFile}" "${url}"`,
               { stdio: "pipe" },
             );
 
@@ -448,10 +655,7 @@ export class NextjsBuild extends Construct {
           );
         }
 
-        // Create target directory
         mkdirSync(targetDir, { recursive: true });
-
-        // Extract from cached file
         execSync(
           `tar -xzf "${cachedFile}" -C "${targetDir}" --strip-components=1`,
           { stdio: "pipe" },

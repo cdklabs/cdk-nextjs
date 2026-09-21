@@ -56,6 +56,12 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 - **Optimization**: Cached resized, format-converted images
 - **Revalidation**: Time-based or on-demand revalidation
 
+This applies on every `NextjsType`, since `_next/image` is served by the Next.js
+server. If you replace that route with your own image optimization Lambda (via
+`NextjsApiProps.imageFunction` or `NextjsDistributionProps.imageFunctionUrl`),
+this cache kind is no longer written and you rely on HTTP caching instead
+(`Cache-Control`/`ETag` response headers, browser/CDN-cached).
+
 ### 5. Redirect Cache (REDIRECT)
 
 **What**: Cached redirect configurations for dynamic redirects.

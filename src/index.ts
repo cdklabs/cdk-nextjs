@@ -3,6 +3,7 @@ export { NextjsApi, NextjsApiProps, NextjsApiOverrides } from "./nextjs-api";
 
 export {
   NextjsBaseConstructOverrides,
+  NextjsFunctionsConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
@@ -29,6 +30,11 @@ export {
   NextjsFunctionsOverrides,
   NextjsFunctionsProps,
 } from "./nextjs-compute/nextjs-functions";
+export {
+  NextjsImageFunction,
+  NextjsImageFunctionOverrides,
+  NextjsImageFunctionProps,
+} from "./nextjs-compute/nextjs-image-function";
 export {
   NextjsCache,
   NextjsCacheOverrides,

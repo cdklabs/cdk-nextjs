@@ -1,5 +1,38 @@
 # Breaking Changes
 
+## 0.6.0
+
+### Functions-only overrides moved off the Containers constructs
+
+`nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
+`NextjsBaseConstructOverrides` to the new `NextjsFunctionsConstructOverrides`,
+which only the two Functions root constructs extend. They were previously
+accepted by `NextjsGlobalContainers` / `NextjsRegionalContainers` and silently
+ignored there.
+
+- **Migration:** Remove those keys from Containers construct overrides. If you
+  were setting them and expecting an effect, there wasn't one.
+
+### New (non-breaking): lower-level image optimization building blocks
+
+`_next/image` behavior is unchanged — the Next.js server function still serves
+it on every `NextjsType`, so Next.js middleware still runs for image requests.
+
+These additive, optional props let you wire your own image optimization Lambda
+if you want one:
+
+- `NextjsApiProps.imageFunction` — when omitted, `_next/image` falls through to
+  `serverFunction` via the `{proxy+}` catch-all, as before.
+- `NextjsDistributionProps.imageFunctionUrl` — when omitted, the `_next/image*`
+  behavior points at the dynamic origin, as before.
+- The `NextjsImageFunction` construct is exported for direct use.
+
+`NextjsGlobalFunctions.nextjsImageFunction` and
+`NextjsRegionalFunctions.nextjsImageFunction` are `undefined` unless the
+dedicated image Lambda is enabled, which no supported prop does yet. A future
+release routes `_next/image` through the adapter runtime after middleware; see
+`docs/plans/adapter-runtime-release.md`.
+
 ## 0.5.0
 
 ### Architecture Changes
