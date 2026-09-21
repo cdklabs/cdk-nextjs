@@ -324,6 +324,29 @@ describe("Dispatcher middleware handling", () => {
     expect(result.resolvedPathname).toBe("/api/health");
   });
 
+  it("routes /_next/image when middleware is what put the request on it", async () => {
+    // The API Gateway examples' middleware rewrites `/x` to `/<stage>/x` so the
+    // build's `basePath` lines up. `resolveRoutes` never reports the rewritten
+    // URL back — and cannot resolve `/_next/image` itself — so matching the URL
+    // as received would 404 every optimized image behind such a rewrite.
+    const query = "?url=%2Ffoo.png&w=640&q=75";
+    const result = await dispatcherFor(
+      "app-playground-base-path",
+      async () => ({ rewrite: new URL(`/prod/_next/image${query}`, ORIGIN) }),
+    ).dispatch(request(`/_next/image${query}`));
+    expect(result.kind).toBe("image-optimization");
+    if (result.kind !== "image-optimization") return;
+    expect(result.url.searchParams.get("url")).toBe("/foo.png");
+  });
+
+  it("does not leak the internal rewrite header it consumed", async () => {
+    const result = await dispatcherFor("app-playground", async () => ({
+      rewrite: new URL("/api/health", ORIGIN),
+      responseHeaders: new Headers({ "x-middleware-rewrite": "/api/health" }),
+    })).dispatch(request("/isr/1"));
+    expect(result.responseHeaders.has("x-middleware-rewrite")).toBe(false);
+  });
+
   it("reports an external middleware rewrite as a proxy target", async () => {
     const result = await dispatcherFor("app-playground", async () => ({
       rewrite: new URL("https://upstream.test/x"),

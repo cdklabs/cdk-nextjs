@@ -218,6 +218,7 @@ export class Dispatcher {
     // the caller's headers object outlives this call.
     const requestHeaders = new Headers(request.headers);
     let middlewareRequestHeaders: Headers | undefined;
+    let middlewareRewrite: URL | undefined;
 
     const result = await resolveRoutes({
       url: request.url,
@@ -240,11 +241,23 @@ export class Dispatcher {
         if (middleware.requestHeaders) {
           middlewareRequestHeaders = middleware.requestHeaders;
         }
+        // Captured for the same reason: `resolveRoutes` routes the rewritten URL
+        // internally but never reports it back, and `/_next/image` is matched
+        // here rather than by `resolveRoutes` (see below), so this is the only
+        // way to see the path middleware actually asked for.
+        if (middleware.rewrite) {
+          middlewareRewrite = middleware.rewrite;
+        }
         return middleware;
       },
     });
 
     const responseHeaders = new Headers(result.resolvedHeaders ?? undefined);
+    // `@next/routing` echoes the rewrite it followed into `resolvedHeaders`;
+    // Next.js's own router consumes that header rather than sending it, and so do
+    // we — it is an internal routing signal, and forwarding it would expose the
+    // app's post-middleware paths to clients.
+    responseHeaders.delete("x-middleware-rewrite");
     const forwardedHeaders = middlewareRequestHeaders ?? requestHeaders;
     const status = result.status;
 
@@ -308,10 +321,16 @@ export class Dispatcher {
     // never appear in `pathnames` and always lands here. That is the intended
     // design, not a gap: image optimization has to run *after* middleware, and
     // dispatch is the first point where that is true.
-    if (request.url.pathname === this.imagePathname) {
+    //
+    // Matched against the rewritten URL when middleware rewrote one, because
+    // middleware may be what puts the request on the image path at all: the
+    // API Gateway examples rewrite `/_next/image` to `/<stage>/_next/image` so
+    // that `basePath` lines up, and comparing the URL as received would miss it.
+    const resolvedUrl = middlewareRewrite ?? request.url;
+    if (resolvedUrl.pathname === this.imagePathname) {
       return {
         kind: "image-optimization",
-        url: request.url,
+        url: resolvedUrl,
         requestHeaders: forwardedHeaders,
         responseHeaders,
       };
@@ -319,7 +338,7 @@ export class Dispatcher {
 
     return {
       kind: "not-found",
-      pathname: resolvedPathname ?? request.url.pathname,
+      pathname: resolvedPathname ?? resolvedUrl.pathname,
       notFound: this.notFound,
       requestHeaders: forwardedHeaders,
       responseHeaders,
