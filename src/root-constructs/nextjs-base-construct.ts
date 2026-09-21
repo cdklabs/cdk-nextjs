@@ -2,7 +2,7 @@ import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { NextjsType } from "../constants";
+import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
@@ -23,6 +23,7 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
+import { normalizeBasePath } from "../utils/read-next-config-base-path";
 import { resolveBasePath } from "../utils/resolve-base-path";
 
 /**
@@ -67,11 +68,12 @@ export interface NextjsBaseProps {
    *   static assets from S3 using the request path as the object key, so the two
    *   have to be identical and a mismatch 404s all of them. Setting a different
    *   value throws.
-   * - `NextjsRegionalFunctions`: if you set this, the app must set the same
-   *   value. Leaving it unset while the app sets one is correct and common —
-   *   API Gateway strips the stage before matching resources, so an app served
-   *   at the default `prod` stage sets `basePath: "/prod"` and leaves this
-   *   alone.
+   * - `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
+   *   with it — either equal to it, or prefixed by the stage or base path
+   *   mapping API Gateway strips before matching resources (`basePath:
+   *   "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
+   *   sets one is correct and common — an app served at the default `prod` stage
+   *   sets `basePath: "/prod"` and leaves this alone.
    * - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
    *   every path to the container, which serves its own static assets, so this
    *   is unconstrained.
@@ -191,6 +193,38 @@ export abstract class NextjsBaseConstruct extends Construct {
     );
     this.nextjsCache = this.createNextjsCache();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
+    this.validateStaticAssetsKeyPrefix();
+  }
+
+  /**
+   * CloudFront hands its S3 origin the request path verbatim as the object key,
+   * so for the Global `NextjsType`s the key prefix isn't a free choice: it has
+   * to be `basePath`, the prefix the app emits its asset hrefs under. An
+   * `overrides.nextjsStaticAssets.bucketDeploymentProps.destinationKeyPrefix`
+   * that moves the objects elsewhere has no way to tell the distribution about
+   * it (unlike the image Lambda and `NextjsApi`, which read
+   * `NextjsStaticAssets.keyPrefix`), so fail at synth rather than 404 every
+   * static request.
+   */
+  private validateStaticAssetsKeyPrefix(): void {
+    if (
+      this.nextjsType !== NextjsType.GLOBAL_FUNCTIONS &&
+      this.nextjsType !== NextjsType.GLOBAL_CONTAINERS
+    ) {
+      return;
+    }
+    const expected = normalizeBasePath(this.resolvedBasePath);
+    const actual = this.nextjsStaticAssets.keyPrefix;
+    if (actual !== expected) {
+      throw new Error(
+        `${LOG_PREFIX} static assets key prefix mismatch for NextjsType.${this.nextjsType}: ` +
+          `the assets are uploaded under ${actual ? `"${actual}"` : "the bucket root"} ` +
+          `but CloudFront will request them under ${expected ? `"${expected}"` : "the bucket root"}, ` +
+          "using the request path as the S3 object key, so every `_next/static` and `public/` request would 404. " +
+          "Drop the `destinationKeyPrefix` override, or set it to the same value as `basePath`. " +
+          "To namespace a shared bucket, use `basePath` — it prefixes the keys and the URLs together.",
+      );
+    }
   }
 
   /**

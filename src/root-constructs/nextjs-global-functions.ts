@@ -28,6 +28,7 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
+import { appendBasePath } from "../utils/append-base-path";
 import { useDedicatedImageFunction } from "../utils/experimental-flags";
 
 export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
@@ -76,8 +77,16 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsImageFunction?: NextjsImageFunction;
   nextjsDistribution: NextjsDistribution;
   nextjsPostDeploy: NextjsPostDeploy;
+  /**
+   * Public URL of the app, including `basePath` — the app only answers under
+   * that prefix, and it's derived from the app's own `basePath` when the prop is
+   * left unset, so it's there whether or not you asked for it.
+   */
   get url(): string {
-    return `https://${this.nextjsDistribution.distribution.domainName}`;
+    return appendBasePath(
+      `https://${this.nextjsDistribution.distribution.domainName}`,
+      this.resolvedBasePath,
+    );
   }
 
   private props: NextjsGlobalFunctionsProps;

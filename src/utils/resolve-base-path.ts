@@ -25,9 +25,14 @@ export function resolveBasePath(
 ): string | undefined {
   const prop = normalizeBasePath(propBasePath);
   const config = normalizeBasePath(nextConfigBasePath);
-  // Hand back the prop verbatim rather than the normalized form so an existing
-  // stack's cache behaviors and S3 keys don't shift shape.
-  const propOrUndefined = prop ? propBasePath : undefined;
+  // Hand back the prop with only its trailing slashes trimmed rather than the
+  // fully normalized form: an existing stack's cache behaviors and S3 keys
+  // shouldn't shift shape over a leading slash, but a trailing one has to go,
+  // since `NextjsDistribution` would build "/base//_next/static*" from it while
+  // `BucketDeployment` collapses it and uploads keys under "base/_next/...".
+  const propOrUndefined = prop
+    ? (propBasePath ?? "").replace(/\/+$/, "")
+    : undefined;
   if (prop === config) {
     return propOrUndefined;
   }
@@ -60,12 +65,20 @@ export function resolveBasePath(
       if (!prop) {
         return undefined;
       }
-      // The reverse never works: the prop moves every resource, including the
+      // The prop only has to be the tail of what the app emits, not all of it,
+      // because the stripped prefix is part of the app's `basePath` but never
+      // part of the resource path: an app at the `prod` stage nested under
+      // "/base" sets `basePath: "/prod/base"` and the prop to "/base". Checked
+      // on a path boundary so "/prod/base" doesn't accept a prop of "se".
+      if (config.endsWith(`/${prop}`)) {
+        return propOrUndefined;
+      }
+      // Anything else never works: the prop moves every resource, including the
       // `ANY` catch-all, under a path the app never links to.
       throw new Error(
         mismatch +
           "The `basePath` prop nests every API Gateway resource under that path, including the catch-all, so the app has to emit its links under the same prefix or every request 404s. " +
-          "Either set your app's `basePath` to match, or leave the prop unset — unset is what you want when the app's `basePath` is the API Gateway stage name, since the stage isn't part of the resource path.",
+          'Either set your app\'s `basePath` to end with the prop (optionally prefixed by the stage or base path mapping API Gateway strips, e.g. `basePath: "/prod/base"` with a prop of "/base"), or leave the prop unset — unset is what you want when the app\'s `basePath` is the API Gateway stage name, since the stage isn\'t part of the resource path.',
       );
     case NextjsType.REGIONAL_CONTAINERS:
       // The ALB forwards every path to the container, which serves its own

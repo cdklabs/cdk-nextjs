@@ -12,11 +12,19 @@ describe("resolveBasePath", () => {
       expect(resolveBasePath(nextjsType, "/")).toBeUndefined();
     });
 
-    it("keeps the prop verbatim when it matches the app", () => {
+    it("keeps the prop's leading slash (or lack of one) when it matches the app", () => {
       // Returning the prop rather than the normalized form keeps an existing
       // stack's cache behaviors and S3 keys from shifting shape.
       expect(resolveBasePath(nextjsType, "/base", "/base")).toBe("/base");
-      expect(resolveBasePath(nextjsType, "base/", "/base")).toBe("base/");
+      expect(resolveBasePath(nextjsType, "base", "/base")).toBe("base");
+    });
+
+    // A trailing slash is the one part of the prop's shape that can't be kept:
+    // `NextjsDistribution` would build "/base//_next/static*" from it while
+    // `BucketDeployment` uploads the keys under "base/_next/...".
+    it("trims a trailing slash off the prop", () => {
+      expect(resolveBasePath(nextjsType, "/base/", "/base")).toBe("/base");
+      expect(resolveBasePath(nextjsType, "base//", "/base")).toBe("base");
     });
   });
 
@@ -54,6 +62,26 @@ describe("resolveBasePath", () => {
       expect(
         resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, undefined, "/prod"),
       ).toBeUndefined();
+    });
+
+    // The stripped prefix is part of what the app emits but never part of the
+    // resource path, so an app at the `prod` stage nested under "/base" sets
+    // basePath: "/prod/base" and the prop to "/base".
+    it("accepts an app basePath that ends with the prop", () => {
+      expect(
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/base", "/prod/base"),
+      ).toBe("/base");
+    });
+
+    it("only accepts the prop as a whole trailing path segment", () => {
+      expect(() =>
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/se", "/prod/base"),
+      ).toThrow(/nests every API Gateway resource under that path/);
+      // Leading, not trailing: API Gateway strips the stage, so the app would
+      // emit "/prod/..." while the resources live under "/prod/base/...".
+      expect(() =>
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/prod", "/prod/base"),
+      ).toThrow(/nests every API Gateway resource under that path/);
     });
 
     // The reverse is never right: the prop nests every resource, including the

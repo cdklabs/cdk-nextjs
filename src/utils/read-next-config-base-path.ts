@@ -1,9 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-// eslint-disable-next-line import/no-extraneous-dependencies
-import getDebug from "debug";
-
-const debug = getDebug("cdk-nextjs:nextjs-build");
+import { LOG_PREFIX } from "../constants";
 
 /**
  * Read the Next.js app's own `basePath` out of `required-server-files.json`,
@@ -15,21 +12,36 @@ const debug = getDebug("cdk-nextjs:nextjs-build");
  * Degrades to `""` rather than throwing: all this powers is a consistency check
  * against the CDK `basePath` prop, and an unreadable file shouldn't be enough
  * to fail a deployment that would otherwise work.
+ *
+ * The fallback warns rather than staying silent because `""` is
+ * indistinguishable from an app that genuinely sets no `basePath`: for the
+ * `NextjsType`s that derive `basePath` from the app, an unreadable file means
+ * the derivation quietly doesn't happen and every static asset 404s, and for
+ * the ones that validate the prop against it, it means synth reports the app as
+ * setting no `basePath` when it may well set one.
  */
 export function readNextConfigBasePath(dotNextPath: string): string {
   const requiredServerFiles = join(dotNextPath, "required-server-files.json");
-  if (!existsSync(requiredServerFiles)) {
-    debug(
-      `"required-server-files.json" not found at ${requiredServerFiles}, assuming the app sets no basePath`,
+  const fallback = (reason: string) => {
+    console.warn(
+      `${LOG_PREFIX} ${reason}. Assuming your Next.js app sets no \`basePath\`: ` +
+        "if it does set one, static assets will 404 and any `basePath` prop " +
+        "mismatch reported at synth will name the wrong value.",
     );
     return "";
+  };
+  if (!existsSync(requiredServerFiles)) {
+    return fallback(
+      `"required-server-files.json" not found at ${requiredServerFiles}`,
+    );
   }
   try {
     const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
     return normalizeBasePath(config?.basePath);
   } catch (error) {
-    debug(`Could not read basePath from ${requiredServerFiles}: ${error}`);
-    return "";
+    return fallback(
+      `Could not read basePath from ${requiredServerFiles}: ${error}`,
+    );
   }
 }
 

@@ -25,6 +25,15 @@ export async function fetchFromS3(
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
   // Matching on a path boundary keeps a sibling like "/basement/logo.png"
   // from being treated as nextBasePath "/base" plus "ment/logo.png".
+  //
+  // A baked-in prefix is still indistinguishable from a real `public/`
+  // subdirectory of the same name, so an app with `basePath: "/base"` and a
+  // `public/base/` directory loses: "/base/logo.png" is read as the prefix and
+  // resolves to the key "logo.png". Stripping is the right default — every
+  // statically imported image carries the prefix, while a directory colliding
+  // with the app's own basePath is a naming accident — and the alternative
+  // (only stripping when the un-stripped key is missing) costs an extra S3
+  // round trip on every request to serve that accident.
   const hasNextBasePath =
     !!nextBasePath &&
     (url === nextBasePath || url.startsWith(`${nextBasePath}/`));
