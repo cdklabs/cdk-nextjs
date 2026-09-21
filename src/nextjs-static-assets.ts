@@ -23,7 +23,7 @@ import {
 } from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
-import { normalizeBasePath } from "./utils/read-next-config-base-path";
+import { normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;
@@ -62,14 +62,12 @@ export class NextjsStaticAssets extends Construct {
   deployment: BucketDeployment;
   /**
    * S3 key prefix the assets are actually uploaded under, normalized to a bare
-   * path segment (no leading or trailing slash, empty when assets live at the
-   * bucket root).
+   * path segment (empty when they live at the bucket root).
    *
    * Consumers that read assets back out of the bucket (the image optimization
    * Lambda, `NextjsApi`'s S3 integrations) must use this rather than the
-   * `basePath` prop: `overrides.bucketDeploymentProps` can replace the prefix
-   * outright, and a `basePath` with surrounding slashes doesn't survive into
-   * the uploaded keys verbatim.
+   * `basePath` prop, since `overrides.bucketDeploymentProps` can replace the
+   * prefix outright.
    */
   readonly keyPrefix: string;
   private stagingDir?: string;

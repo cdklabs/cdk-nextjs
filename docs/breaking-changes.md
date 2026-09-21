@@ -24,9 +24,14 @@ at synth, and derived from the app where there's only one value that can work.
 - `NextjsRegionalContainers`: unchanged. The ALB forwards every path to the
   container, which serves its own static assets, so the prop only namespaces the
   S3 bucket and is unconstrained.
-- A trailing slash on the prop is now trimmed, since it would otherwise produce
-  cache behaviors like `/base//_next/static*` against keys uploaded under
-  `base/_next/...`.
+- Surrounding slashes on the prop are now normalized away, so `"/base"`,
+  `"base"` and `"/base/"` all behave identically. Previously the prop was passed
+  through to `NextjsDistribution` as written, so a trailing slash produced cache
+  behaviors like `/base//_next/static*` against keys uploaded under
+  `base/_next/...`, and a missing leading slash produced `base/_next/static*`.
+  **If you passed `basePath` without a leading slash**, your distribution's cache
+  behavior path patterns change from `base/…` to `/base/…` on the next deploy.
+  This is an in-place update of the existing distribution, not a replacement.
 - On the Global constructs, an
   `overrides.nextjsStaticAssets.bucketDeploymentProps.destinationKeyPrefix` that
   doesn't match `basePath` now throws: CloudFront's S3 origin has no way to ask

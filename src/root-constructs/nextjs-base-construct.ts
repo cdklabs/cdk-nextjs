@@ -23,8 +23,7 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
-import { normalizeBasePath } from "../utils/read-next-config-base-path";
-import { resolveBasePath } from "../utils/resolve-base-path";
+import { resolveBasePath } from "../utils/base-path";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
@@ -167,7 +166,8 @@ export abstract class NextjsBaseConstruct extends Construct {
   /**
    * The `basePath` everything downstream is built from: the `basePath` prop when
    * set, otherwise the app's own `basePath` for the `NextjsType`s where the two
-   * are necessarily the same. Use this instead of `baseProps.basePath`.
+   * are necessarily the same. Normalized to a bare path segment, `undefined` for
+   * no `basePath`. Use this instead of `baseProps.basePath`.
    */
   protected readonly resolvedBasePath?: string;
 
@@ -197,13 +197,11 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * CloudFront hands its S3 origin the request path verbatim as the object key,
-   * so for the Global `NextjsType`s the key prefix isn't a free choice: it has
-   * to be `basePath`, the prefix the app emits its asset hrefs under. An
-   * `overrides.nextjsStaticAssets.bucketDeploymentProps.destinationKeyPrefix`
-   * that moves the objects elsewhere has no way to tell the distribution about
-   * it (unlike the image Lambda and `NextjsApi`, which read
-   * `NextjsStaticAssets.keyPrefix`), so fail at synth rather than 404 every
+   * For the Global `NextjsType`s the key prefix isn't a free choice: it has to be
+   * `basePath` (see `resolveBasePath`). A `destinationKeyPrefix` override that
+   * moves the objects elsewhere has no way to tell the distribution about it —
+   * unlike the image Lambda and `NextjsApi`, which read
+   * `NextjsStaticAssets.keyPrefix` — so fail at synth rather than 404 every
    * static request.
    */
   private validateStaticAssetsKeyPrefix(): void {
@@ -213,7 +211,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     ) {
       return;
     }
-    const expected = normalizeBasePath(this.resolvedBasePath);
+    const expected = this.resolvedBasePath ?? "";
     const actual = this.nextjsStaticAssets.keyPrefix;
     if (actual !== expected) {
       throw new Error(

@@ -2,19 +2,18 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ImageError } from "next/dist/server/image-optimizer.js";
 import { getExtension } from "next/dist/server/serve-static.js";
+import { joinPath } from "../utils/base-path";
 
 /**
  * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
  *
- * `url` is inconsistent: next-image-loader bakes the Next.js app's own
- * `basePath` into the href for statically imported images, while plain
- * string paths are passed through as literally written by the app. `nextBasePath`
- * (read from the bundled Next.js config) strips that baked-in prefix if
- * present. `staticAssetsKeyPrefix` (`NextjsStaticAssets.keyPrefix`, which
- * namespaces a shared bucket) is then applied as the S3 key prefix. The two
- * must be handled separately: nothing requires them to be the same value, e.g.
- * a deployment may set the Next.js app's `basePath` to match an API Gateway
- * stage without setting the CDK `basePath` prop.
+ * `url` is inconsistent: next-image-loader bakes the app's own `basePath` into
+ * the href for statically imported images, while plain string paths are passed
+ * through as literally written. So `nextBasePath` (the app's config) is stripped
+ * off, then `staticAssetsKeyPrefix` (`NextjsStaticAssets.keyPrefix`) applied.
+ * The two are separate arguments because nothing requires them to be the same
+ * value — e.g. an app whose `basePath` is an API Gateway stage, deployed without
+ * the CDK `basePath` prop.
  */
 export async function fetchFromS3(
   s3: S3Client,
@@ -23,31 +22,18 @@ export async function fetchFromS3(
   nextBasePath: string,
   staticAssetsKeyPrefix: string = "",
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
-  // Matching on a path boundary keeps a sibling like "/basement/logo.png"
-  // from being treated as nextBasePath "/base" plus "ment/logo.png".
-  //
-  // A baked-in prefix is still indistinguishable from a real `public/`
-  // subdirectory of the same name, so an app with `basePath: "/base"` and a
-  // `public/base/` directory loses: "/base/logo.png" is read as the prefix and
-  // resolves to the key "logo.png". Stripping is the right default — every
-  // statically imported image carries the prefix, while a directory colliding
-  // with the app's own basePath is a naming accident — and the alternative
-  // (only stripping when the un-stripped key is missing) costs an extra S3
-  // round trip on every request to serve that accident.
+  // Matching on a path boundary keeps a sibling like "/basement/logo.png" from
+  // being treated as nextBasePath "/base" plus "ment/logo.png". It's still
+  // indistinguishable from a real `public/base/` directory, which loses; that's
+  // the right trade, since every statically imported image carries the prefix
+  // and the alternative costs an S3 round trip per request to detect it.
   const hasNextBasePath =
     !!nextBasePath &&
     (url === nextBasePath || url.startsWith(`${nextBasePath}/`));
-  const withoutNextBasePath = hasNextBasePath
-    ? url.slice(nextBasePath.length)
-    : url;
-  // Trim both ends: BucketDeployment collapses a trailing slash when uploading
-  // ("base/" lands objects at "base/static/..."), so keeping one here would
-  // produce "base//static/...".
-  const keyPrefix = staticAssetsKeyPrefix
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "");
-  const path = withoutNextBasePath.replace(/^\/+/, "");
-  const key = keyPrefix ? `${keyPrefix}/${path}` : path;
+  const key = joinPath(
+    staticAssetsKeyPrefix,
+    hasNextBasePath ? url.slice(nextBasePath.length) : url,
+  );
 
   const response = await s3.send(
     new GetObjectCommand({

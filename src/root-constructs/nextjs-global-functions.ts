@@ -28,7 +28,7 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
-import { appendBasePath } from "../utils/append-base-path";
+import { joinPath } from "../utils/base-path";
 import { useDedicatedImageFunction } from "../utils/experimental-flags";
 
 export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
@@ -83,7 +83,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
    * left unset, so it's there whether or not you asked for it.
    */
   get url(): string {
-    return appendBasePath(
+    return joinPath(
       `https://${this.nextjsDistribution.distribution.domainName}`,
       this.resolvedBasePath,
     );

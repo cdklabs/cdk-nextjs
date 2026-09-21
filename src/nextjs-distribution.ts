@@ -43,6 +43,7 @@ import { NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import { joinPath, normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
@@ -66,6 +67,10 @@ export interface NextjsDistributionProps {
    * Must be provided if you want to serve static files.
    */
   readonly assetsBucket: IBucket;
+  /**
+   * URI path prefix the app is served at. Surrounding slashes are normalized
+   * away, so "/base", "base" and "/base/" all produce the same cache behaviors.
+   */
   readonly basePath?: string;
   /**
    * Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`
@@ -105,6 +110,13 @@ export class NextjsDistribution extends Construct {
 
   private props: NextjsDistributionProps;
   /**
+   * `props.basePath` normalized to a bare path segment. This construct is the
+   * one place that needs it with a leading slash — CloudFront path patterns are
+   * written against the request path — so it prepends its own rather than
+   * relying on the caller having passed one.
+   */
+  private basePath: string;
+  /**
    * Common security headers applied by default to all origins
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html#managed-response-headers-policies-security
    */
@@ -140,6 +152,7 @@ export class NextjsDistribution extends Construct {
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
     super(scope, id);
     this.props = props;
+    this.basePath = normalizeBasePath(props.basePath);
     this.staticOrigin = this.createStaticOrigin();
     this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
     this.dynamicOrigin = this.createDynamicOrigin();
@@ -406,10 +419,10 @@ export class NextjsDistribution extends Construct {
       this.imageBehaviorOptions,
     );
     // Root Path Behaviors
-    if (this.props.basePath) {
+    if (this.basePath) {
       // because we already have a basePath we don't use / instead we use /base-path
       this.distribution.addBehavior(
-        this.props.basePath,
+        `/${this.basePath}`,
         this.dynamicBehaviorOptions.origin,
         this.dynamicBehaviorOptions,
       );
@@ -456,10 +469,8 @@ export class NextjsDistribution extends Construct {
    * Optionally prepends base path to given path pattern.
    */
   private getPathPattern(pathPattern: string) {
-    if (this.props.basePath) {
-      return `${this.props.basePath}/${pathPattern}`;
-    } else {
-      return pathPattern;
-    }
+    return this.basePath
+      ? `/${joinPath(this.basePath, pathPattern)}`
+      : pathPattern;
   }
 }

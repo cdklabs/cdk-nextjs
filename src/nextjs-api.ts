@@ -23,7 +23,7 @@ import { IFunction } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
-import { normalizeBasePath } from "./utils/read-next-config-base-path";
+import { joinPath, normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsApiOverrides {
   readonly restApiProps?: RestApiProps;
@@ -95,12 +95,9 @@ export class NextjsApi extends Construct {
   public readonly api: RestApi;
 
   /**
-   * Public URL of the app. Prefers a custom domain configured through
-   * `overrides.restApiProps.domainName` over the execute-api endpoint, and
-   * includes whatever path segments the API nests the app under: the deployment
-   * stage on execute-api (a custom domain reaches the stage through a base path
-   * mapping instead, so the stage name isn't in the path there), a base path
-   * mapping when one is configured, and `basePath`.
+   * Public URL of the app, including every path segment the API nests it under.
+   * Prefers a custom domain configured through `overrides.restApiProps.domainName`
+   * over the execute-api endpoint.
    *
    * A domain attached after this construct is created (`api.addDomainName()`) is
    * still used for the host, but CDK keeps its base path mappings private, so a
@@ -108,25 +105,18 @@ export class NextjsApi extends Construct {
    */
   get url(): string {
     const customDomain = this.api.domainName;
-    const segments: string[] = [];
-    let origin: string;
-    if (customDomain) {
-      origin = `https://${customDomain.domainName}`;
-      const mapping = normalizeBasePath(
-        this.props.overrides?.restApiProps?.domainName?.basePath,
-      );
-      if (mapping) {
-        segments.push(mapping);
-      }
-    } else {
-      origin = `https://${this.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com`;
-      segments.push(this.api.deploymentStage.stageName);
-    }
-    const basePath = normalizeBasePath(this.props.basePath);
-    if (basePath) {
-      segments.push(basePath);
-    }
-    return [origin, ...segments].join("/");
+    // A custom domain reaches the stage through a base path mapping, so the
+    // stage name isn't in the path there; the mapping may be, when set.
+    const [origin, prefix] = customDomain
+      ? [
+          `https://${customDomain.domainName}`,
+          this.props.overrides?.restApiProps?.domainName?.basePath,
+        ]
+      : [
+          `https://${this.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com`,
+          this.api.deploymentStage.stageName,
+        ];
+    return joinPath(origin, prefix, this.props.basePath);
   }
 
   private readonly baseResource: IResource;
@@ -177,15 +167,8 @@ export class NextjsApi extends Construct {
    */
   private createBaseResource(basePath?: string): IResource {
     // Create base resource path if needed
-    let baseResource = this.api.root;
-    if (basePath) {
-      const _basePath = basePath.startsWith("/")
-        ? basePath.substring(1)
-        : basePath;
-
-      baseResource = this.api.root.addResource(_basePath);
-    }
-    return baseResource;
+    const normalized = normalizeBasePath(basePath);
+    return normalized ? this.api.root.addResource(normalized) : this.api.root;
   }
 
   private createStaticIntegrationRole() {
@@ -245,8 +228,7 @@ export class NextjsApi extends Construct {
    * since the S3 integrations address objects by key rather than by URL.
    */
   private s3Key(key: string): string {
-    const prefix = normalizeBasePath(this.props.staticAssetsKeyPrefix);
-    return prefix ? `${prefix}/${key}` : key;
+    return joinPath(this.props.staticAssetsKeyPrefix, key);
   }
 
   /**

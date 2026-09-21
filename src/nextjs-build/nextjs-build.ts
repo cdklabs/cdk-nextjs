@@ -19,9 +19,9 @@ import { Construct } from "constructs";
 import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
+import { readNextConfigBasePath } from "../utils/base-path";
 import { useDedicatedImageFunction } from "../utils/experimental-flags";
 import { getNodeArchitecture } from "../utils/get-architecture";
-import { readNextConfigBasePath } from "../utils/read-next-config-base-path";
 
 const debug = getDebug("cdk-nextjs:nextjs-build");
 
@@ -86,15 +86,11 @@ export class NextjsBuild extends Construct {
    */
   dotNextPath: string;
   /**
-   * The Next.js app's own `basePath`, read out of the build's
-   * `required-server-files.json`. Normalized to a bare path segment with no
-   * surrounding slashes, empty when the app sets none.
-   *
-   * This is the URL prefix the app generates its own links and asset hrefs
-   * under, which is a distinct thing from the CDK `basePath` prop (where the
-   * infrastructure serves the app, and for `NextjsStaticAssets` which key
-   * prefix the objects land under). Exposed so root constructs can check that
-   * the two line up where they have to.
+   * The Next.js app's own `basePath` — the URL prefix it generates its links and
+   * asset hrefs under — read out of the build's `required-server-files.json`.
+   * Normalized to a bare path segment, empty when the app sets none. Exposed so
+   * root constructs can reconcile it with the CDK `basePath` prop, which is a
+   * distinct thing; see `resolveBasePath`.
    */
   nextConfigBasePath: string;
   /**

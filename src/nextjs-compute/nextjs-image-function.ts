@@ -39,15 +39,10 @@ export interface NextjsImageFunctionProps {
    * S3 key prefix the static assets were uploaded under, i.e.
    * `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
    *
-   * Distinct from the Next.js app's own `basePath` config (baked into hrefs by
-   * next-image-loader), so it must be threaded through explicitly rather than
-   * read from the app's bundled config. The two are only guaranteed to line up
-   * when the app's `basePath` is also the URL prefix the assets are served
-   * from: `NextjsGlobalFunctions`/`NextjsGlobalContainers` build CloudFront
-   * behaviors as `${basePath}/_next/static*` and use the request path verbatim
-   * as the S3 key, so there the CDK `basePath` must match the app's. They
-   * diverge when the app's `basePath` comes from somewhere else entirely, e.g.
-   * an API Gateway stage under `NextjsRegionalFunctions`.
+   * Threaded through explicitly rather than read from the app's bundled config,
+   * because it's distinct from the app's own `basePath` (which next-image-loader
+   * bakes into hrefs) — the two diverge when the app's `basePath` comes from
+   * elsewhere, e.g. an API Gateway stage under `NextjsRegionalFunctions`.
    */
   readonly staticAssetsKeyPrefix?: string;
   readonly vpc?: IVpc;
