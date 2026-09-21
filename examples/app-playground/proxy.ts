@@ -14,6 +14,18 @@ export default function proxy(request: NextRequest) {
     if (reqCtxStr) {
       const reqCtx = JSON.parse(reqCtxStr);
       const stage = reqCtx.stage;
+
+      // Next.js internally re-enters this middleware for its own local
+      // fetches (e.g. resolving `_next/image` sources), using a mocked
+      // request with no `x-amzn-request-context` header carried over from
+      // the original call chain in some cases, and without a real API
+      // Gateway invocation context at all in others. Without this guard,
+      // `stage` is `undefined`/`null` there and the rewrite below produces
+      // a literal "/null" or "/undefined" path prefix instead of skipping.
+      if (!stage) {
+        return NextResponse.next();
+      }
+
       const url = new URL(request.url);
       const originalPath = url.pathname;
 
