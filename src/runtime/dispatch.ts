@@ -24,9 +24,15 @@ import {
 } from "@next/routing";
 import { AdapterEntrypoint, AdapterManifest } from "./manifest";
 
-/** Runs the app's middleware. Supplied by the middleware runner (step 3). */
+/**
+ * Runs the app's middleware. Supplied by `MiddlewareRunner` in `./middleware`.
+ *
+ * `MiddlewareContext` carries no method — `resolveRoutes` never needs one — but
+ * middleware very much does (`if (request.method === "POST")`), so dispatch adds
+ * it from the request it was given.
+ */
 export type MiddlewareInvoker = (
-  ctx: MiddlewareContext,
+  ctx: MiddlewareContext & { readonly method: string },
 ) => Promise<MiddlewareResult>;
 
 export interface DispatcherOptions {
@@ -40,6 +46,7 @@ export interface DispatcherOptions {
 }
 
 export interface DispatchRequest {
+  readonly method: string;
   readonly url: URL;
   readonly headers: Headers;
   /**
@@ -216,7 +223,10 @@ export class Dispatcher {
       routes: this.routes,
       i18n: this.i18n,
       invokeMiddleware: async (ctx) => {
-        const middleware = await this.invokeMiddleware(ctx);
+        const middleware = await this.invokeMiddleware({
+          ...ctx,
+          method: request.method,
+        });
         // `resolveRoutes` drops `MiddlewareResult.requestHeaders` entirely: it
         // neither returns them nor mutates the `headers` passed in. Capturing
         // them here is what keeps `NextResponse.next({ request: { headers } })`

@@ -43,6 +43,7 @@ const ORIGIN = "https://example.test";
 
 function request(url: string, headers: Record<string, string> = {}) {
   const result: DispatchRequest = {
+    method: "GET",
     url: new URL(url, ORIGIN),
     headers: new Headers({ host: "example.test", ...headers }),
     // GET/HEAD have no body, but `resolveRoutes` requires a stream.

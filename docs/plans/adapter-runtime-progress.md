@@ -51,7 +51,7 @@ up for the duration of this work — do not delete or modify them.
 | --- | --- |
 | 1 — build outputs (`onBuildComplete`) | done |
 | 2 — dispatch via `@next/routing` | done |
-| 3 — middleware runner | not started |
+| 3 — middleware runner | done |
 | 4 — runtime core + two shells | not started |
 | 5 — wire constructs, Functions to zip, Containers Dockerfiles | not started |
 | 6 — delete `output: "standalone"` + dedicated image function | not started |
@@ -346,3 +346,130 @@ Assumed, not yet proven:
   devDependency. Harmless as long as nothing imports `lib/runtime/dispatch.js`,
   which mirrors how `src/adapter/cache-handler.ts` already works — but it is a
   trap worth remembering.
+
+## Step 3 — middleware runner
+
+**Landed** — commit `feat: run built middleware through the routing callback`
+(referenced by subject, not SHA: this entry ships inside that commit)
+
+- `src/runtime/middleware.ts` — `MiddlewareRunner` / `createMiddlewareRunner`.
+  `invokerFor(perRequest)` returns the `MiddlewareInvoker` that
+  `Dispatcher.dispatch` hands to `resolveRoutes`: it builds a `Request`, calls the
+  built handler, and returns `responseToMiddlewareResult(response, headers, url)`.
+  That is the whole file. No matcher evaluation (`resolveRoutes` gates from
+  `routing.middlewareMatchers`, which already carries the injected
+  `x-prerender-revalidate` `missing` rule) and no hand-written `x-middleware-*`
+  parsing, per the plan.
+- `loadMiddlewareHandler` — `createRequire(absolute)(absolute)` then **`await`**
+  the result, and pull `.handler` off it. Two throws with actionable text: the
+  module not loading ("deployment package is incomplete") and no `handler` export
+  ("Next.js changed the shape of `next/dist/build/templates/middleware.js`").
+- `src/runtime/dispatch.ts` — `DispatchRequest` gained a required `method`, and
+  `MiddlewareInvoker` now takes `MiddlewareContext & { method: string }`. See
+  decision 1. `dispatch()` spreads the method into the invoker call; nothing else
+  changed.
+- `src/runtime/middleware.test.ts` — 16 tests. `src/runtime/dispatch.test.ts`'s
+  `request()` helper supplies `method: "GET"`.
+
+**Decisions**
+
+1. **`MiddlewareInvoker` carries the request method; `MiddlewareContext` does
+   not.** `@next/routing` passes middleware only `{ url, headers, requestBody }`
+   because *routing* never needs a method — but middleware does
+   (`if (request.method === "POST")`), and `new Request(url)` defaults to GET.
+   Dispatch adds it from the `DispatchRequest` it already has, which is why
+   `DispatchRequest.method` became required in this step rather than step 2.
+2. **The body stream is attached only for methods that can have one**
+   (anything but GET/HEAD), with `duplex: "half"`. `new Request(url, { body })`
+   throws outright for GET/HEAD, and undici requires `duplex` for any stream body
+   — it is absent from TypeScript's `RequestInit`, hence the one cast in the file.
+3. **`await` the `require()` result.** Turbopack emits middleware as an *async
+   module*: `module.exports` is a Promise whose `Symbol(turbopack exports)` keys
+   are invisible to `Object.keys`, so a synchronous `require(...).handler` is
+   `undefined` and the error looks like a Next.js API change. `await` covers both
+   that and the webpack/plain-CJS shape. Verified against the real
+   `examples/app-playground/.next/server/middleware.js` and pinned by a test that
+   writes `module.exports = Promise.resolve({ handler })`.
+4. **The loaded handler is memoized on the runner as a `Promise`, and the invoker
+   is created per request.** Loading the middleware bundle pulls in the app's
+   whole middleware closure and is cold-start-expensive; holding the promise (not
+   the resolved value) means concurrent first requests share one load.
+   `waitUntil` / `signal` / `requestMeta` are per-request, so they live on
+   `invokerFor(perRequest)` instead.
+5. **A middleware throw is rethrown wrapped, never swallowed.** The wrapper adds
+   the manifest `filePath` and `METHOD /pathname` and keeps the original as
+   `cause`. `next start` 500s on a middleware throw; step 4 owns turning this into
+   that response.
+6. **`loadHandler` is an explicit option, not just a test seam.** It is also how
+   step 4 can preload middleware during Lambda init instead of on first request.
+7. **`config.env` on the middleware output stays unused.** The plan says
+   `__NEXT_BASE_PATH` and friends are DefinePlugin-inlined, and the real capture
+   confirms nodejs middleware has no `config.env` at all. `manifest.middleware.env`
+   is therefore dead weight today; left in place rather than churning the manifest
+   shape, since edge middleware (if ever supported) would need it.
+
+**Measured**
+
+| What | Value | Command |
+| --- | --- | --- |
+| tests | 129 passed, 9 suites | `pnpm jest` |
+| `middleware.ts` coverage | 100% stmts, 100% branch | `pnpm jest src/runtime/middleware.test.ts` |
+| `dispatch.ts` coverage | 99.2% stmts, 96.1% branch | `pnpm jest src/runtime/dispatch.test.ts` |
+
+**Verified vs. assumed**
+
+Verified by test, through a **real** `Dispatcher` and real `@next/routing` (only
+the handler itself is synthetic, so the `x-middleware-*` translation under test is
+the shipped one):
+
+- `x-middleware-next` → pass-through to the entrypoint;
+  `x-middleware-override-headers` + `x-middleware-request-*` → forwarded
+  `requestHeaders` (the end-to-end proof of step 2 decision 3); a plain response
+  header → `responseHeaders`; internal `x-middleware-rewrite` → the rewritten
+  entrypoint; external `x-middleware-rewrite` → `external-rewrite`; `location` +
+  307 → `redirect`; no `x-middleware-next` → `middleware-responded`.
+- Method, URL (including query) and caller headers reach the handler; GET/HEAD/`get`
+  get `request.body === null`; POST gets the stream and reads back its bytes.
+- `waitUntil` and `requestMeta` are passed straight through.
+- One load across three requests and two invokers.
+- Real module loading from a tmpdir: `exports.handler = …`,
+  `module.exports = Promise.resolve({ handler })`, a missing file, and a module
+  with no `handler`.
+
+Verified out of band this session (not pinned by a committed test, because it
+needs a real `next build` on disk):
+
+- `examples/app-playground/.next/server/middleware.js` requires to a Promise whose
+  resolved value is `{ default, handler }` with `handler.length === 2`.
+- Invoking that real handler with `(new Request(url, { method, headers }),
+  { waitUntil })` returned 200 with `x-middleware-next: 1`, `waitUntil` was called
+  once, and `responseToMiddlewareResult` produced non-empty `requestHeaders` and
+  empty `responseHeaders`. A POST with a `ReadableStream` body + `duplex: "half"`
+  also worked.
+
+New observation worth carrying into step 4: a **same-origin** `location` comes back
+from `resolveRoutes` **relative** (`/login`), not as the absolute URL middleware
+wrote. `DispatchRedirectResult.location` is therefore not always absolute.
+
+Assumed, not yet proven:
+
+- That `signal` is worth plumbing. `MiddlewarePerRequest.signal` exists and is
+  forwarded, but nothing constructs one yet; Lambda has no client-disconnect
+  signal to hook it to.
+- Everything about the response side: nothing here builds the 500 for a middleware
+  throw or streams a `middleware-responded` body. Step 4.
+
+**Deferred / open**
+
+- Edge middleware is rejected at build time, not here: `assertNodeRuntimes`
+  includes `outputs.middleware` in its invocable list, so `runtime: "edge"`
+  middleware throws in `buildAdapterManifest` before the runner ever sees it. No
+  test asserts that specific case (the existing edge test uses an `appRoutes`
+  output).
+- `MiddlewareRunner` resolves `filePath` against an injected `root`. Step 4 must
+  pass the staging root — `process.cwd()` in both shells, per step 1's layout —
+  and step 5 must make sure the Dockerfile `WORKDIR` matches.
+- The `middleware-responded` case returns no body from dispatch. The plan's
+  step 4 design has the runner holding the `Response`; today `MiddlewareRunner`
+  drops it after translation. Step 4 needs to capture it (the `bodySent` path),
+  and this is the one place where step 3's surface is knowingly incomplete.
