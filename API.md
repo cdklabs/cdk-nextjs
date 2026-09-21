@@ -1451,7 +1451,7 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.url">url</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.url">url</a></code> | <code>string</code> | Public URL of the app, including `basePath` — the app only answers under that prefix, and it's derived from the app's own `basePath` when the prop is left unset, so it's there whether or not you asked for it. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsCache">nextjsCache</a></code> | <code><a href="#cdk-nextjs.NextjsCache">NextjsCache</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainers.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
@@ -1480,6 +1480,8 @@ public readonly url: string;
 ```
 
 - *Type:* string
+
+Public URL of the app, including `basePath` — the app only answers under that prefix, and it's derived from the app's own `basePath` when the prop is left unset, so it's there whether or not you asked for it.
 
 ---
 
@@ -1665,7 +1667,7 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.url">url</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.url">url</a></code> | <code>string</code> | Public URL of the app, including `basePath` — the app only answers under that prefix, and it's derived from the app's own `basePath` when the prop is left unset, so it's there whether or not you asked for it. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsCache">nextjsCache</a></code> | <code><a href="#cdk-nextjs.NextjsCache">NextjsCache</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
@@ -1695,6 +1697,8 @@ public readonly url: string;
 ```
 
 - *Type:* string
+
+Public URL of the app, including `basePath` — the app only answers under that prefix, and it's derived from the app's own `basePath` when the prop is left unset, so it's there whether or not you asked for it.
 
 ---
 
@@ -3072,11 +3076,12 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app must set the same
-  value. Leaving it unset while the app sets one is correct and common —
-  API Gateway strips the stage before matching resources, so an app served
-  at the default `prod` stage sets `basePath: "/prod"` and leaves this
-  alone.
+- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
+  with it — either equal to it, or prefixed by the stage or base path
+  mapping API Gateway strips before matching resources (`basePath:
+  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
+  sets one is correct and common — an app served at the default `prod` stage
+  sets `basePath: "/prod"` and leaves this alone.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -3329,11 +3334,12 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app must set the same
-  value. Leaving it unset while the app sets one is correct and common —
-  API Gateway strips the stage before matching resources, so an app served
-  at the default `prod` stage sets `basePath: "/prod"` and leaves this
-  alone.
+- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
+  with it — either equal to it, or prefixed by the stage or base path
+  mapping API Gateway strips before matching resources (`basePath:
+  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
+  sets one is correct and common — an app served at the default `prod` stage
+  sets `basePath: "/prod"` and leaves this alone.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -4800,11 +4806,12 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app must set the same
-  value. Leaving it unset while the app sets one is correct and common —
-  API Gateway strips the stage before matching resources, so an app served
-  at the default `prod` stage sets `basePath: "/prod"` and leaves this
-  alone.
+- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
+  with it — either equal to it, or prefixed by the stage or base path
+  mapping API Gateway strips before matching resources (`basePath:
+  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
+  sets one is correct and common — an app served at the default `prod` stage
+  sets `basePath: "/prod"` and leaves this alone.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -5261,11 +5268,12 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app must set the same
-  value. Leaving it unset while the app sets one is correct and common —
-  API Gateway strips the stage before matching resources, so an app served
-  at the default `prod` stage sets `basePath: "/prod"` and leaves this
-  alone.
+- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
+  with it — either equal to it, or prefixed by the stage or base path
+  mapping API Gateway strips before matching resources (`basePath:
+  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
+  sets one is correct and common — an app served at the default `prod` stage
+  sets `basePath: "/prod"` and leaves this alone.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -5950,11 +5958,12 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app must set the same
-  value. Leaving it unset while the app sets one is correct and common —
-  API Gateway strips the stage before matching resources, so an app served
-  at the default `prod` stage sets `basePath: "/prod"` and leaves this
-  alone.
+- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
+  with it — either equal to it, or prefixed by the stage or base path
+  mapping API Gateway strips before matching resources (`basePath:
+  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
+  sets one is correct and common — an app served at the default `prod` stage
+  sets `basePath: "/prod"` and leaves this alone.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -6395,11 +6404,12 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app must set the same
-  value. Leaving it unset while the app sets one is correct and common —
-  API Gateway strips the stage before matching resources, so an app served
-  at the default `prod` stage sets `basePath: "/prod"` and leaves this
-  alone.
+- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
+  with it — either equal to it, or prefixed by the stage or base path
+  mapping API Gateway strips before matching resources (`basePath:
+  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
+  sets one is correct and common — an app served at the default `prod` stage
+  sets `basePath: "/prod"` and leaves this alone.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
