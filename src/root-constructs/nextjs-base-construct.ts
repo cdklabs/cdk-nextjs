@@ -23,7 +23,7 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
-import { validateBasePath } from "../utils/validate-base-path";
+import { resolveBasePath } from "../utils/resolve-base-path";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
@@ -62,9 +62,11 @@ export interface NextjsBaseProps {
    * on the construct, and synth fails on a combination that can't serve the
    * app:
    *
-   * - `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
-   *   or both be unset. CloudFront serves static assets from S3 using the
-   *   request path as the object key, so a mismatch 404s all of them.
+   * - `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+   *   follows your app's `basePath`, which is what you want — CloudFront serves
+   *   static assets from S3 using the request path as the object key, so the two
+   *   have to be identical and a mismatch 404s all of them. Setting a different
+   *   value throws.
    * - `NextjsRegionalFunctions`: if you set this, the app must set the same
    *   value. Leaving it unset while the app sets one is correct and common —
    *   API Gateway strips the stage before matching resources, so an app served
@@ -160,6 +162,12 @@ export abstract class NextjsBaseConstruct extends Construct {
   // Widest shape of the per-`NextjsType` overrides. The public interface each
   // root construct accepts is what actually gates which keys are settable.
   protected readonly constructOverrides?: NextjsFunctionsConstructOverrides;
+  /**
+   * The `basePath` everything downstream is built from: the `basePath` prop when
+   * set, otherwise the app's own `basePath` for the `NextjsType`s where the two
+   * are necessarily the same. Use this instead of `baseProps.basePath`.
+   */
+  protected readonly resolvedBasePath?: string;
 
   constructor(
     scope: Construct,
@@ -174,8 +182,9 @@ export abstract class NextjsBaseConstruct extends Construct {
 
     this.nextjsBuild = this.createNextjsBuild();
     // A basePath that doesn't line up with the app's own deploys cleanly and
-    // then 404s static assets, so fail at synth instead.
-    validateBasePath(
+    // then 404s static assets, so reconcile the two up front and fail at synth
+    // on a combination that can't work.
+    this.resolvedBasePath = resolveBasePath(
       nextjsType,
       props.basePath,
       this.nextjsBuild.nextConfigBasePath,
@@ -244,7 +253,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       bucket: this.baseProps.staticAssetsBucket,
       buildDirectory: this.baseProps.buildDirectory,
       buildId: this.nextjsBuild.buildId,
-      basePath: this.baseProps.basePath,
+      basePath: this.resolvedBasePath,
       overrides: this.baseProps.overrides?.nextjsStaticAssets,
       ...this.constructOverrides?.nextjsStaticAssetsProps,
     });

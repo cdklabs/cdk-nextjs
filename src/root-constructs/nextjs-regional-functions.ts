@@ -94,7 +94,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
       serverFunction: this.nextjsFunctions.function,
       imageFunction: this.nextjsImageFunction?.function,
-      basePath: this.baseProps.basePath,
+      basePath: this.resolvedBasePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,

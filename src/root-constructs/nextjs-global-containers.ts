@@ -182,7 +182,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
-      basePath: this.props.basePath,
+      basePath: this.resolvedBasePath,
       certificate: this.nextjsContainers.albFargateService.certificate,
       distribution: this.props.distribution,
       loadBalancer: this.nextjsContainers.albFargateService.loadBalancer,
