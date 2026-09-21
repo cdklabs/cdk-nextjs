@@ -171,12 +171,36 @@ project.package.addField("stability", "stable");
 project.gitignore.addPatterns("!/examples/**/tsconfig.json"); // must call method, cannot set in initial props
 copyDockerfiles();
 bundle();
+checkBundleSyntax();
 typeCheckEsmSources();
 updateGitHubWorkflows();
 generateStructs();
 updatePackageJson();
 
 project.synth();
+
+/**
+ * Shims the CJS globals (`require`, `__dirname`, `__filename`) that bundled CJS
+ * dependencies reference as bare identifiers but that don't exist in ESM scope.
+ *
+ * esbuild treats a banner as opaque text, so it cannot rename a source module's
+ * imports out of the way of a name the banner declares: importing
+ * `fileURLToPath` (or `createRequire`, or `dirname`) anywhere in the bundled
+ * sources would emit a hoisted `import` of the same name at the top level and
+ * the file would fail to parse with "Identifier ... has already been declared".
+ * Hence the `__cdkNextjs` prefixes — only the three CJS globals themselves,
+ * which no ESM source declares, keep their required names.
+ */
+function cjsGlobalsBanner() {
+  return [
+    "import { createRequire as __cdkNextjsCreateRequire } from 'node:module';",
+    "import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url';",
+    "import { dirname as __cdkNextjsDirname } from 'node:path';",
+    "const require = __cdkNextjsCreateRequire(import.meta.url);",
+    "const __filename = __cdkNextjsFileURLToPath(import.meta.url);",
+    "const __dirname = __cdkNextjsDirname(__filename);",
+  ].join(" ");
+}
 
 function bundle() {
   const target = `node${nodeVersion}`;
@@ -227,14 +251,7 @@ function bundle() {
     // refuse to load the file ("Cannot determine intended module format"),
     // and even once that's avoided, `__dirname`/`__filename` simply don't
     // exist in real ESM scope, so they must be defined too.
-    banner: [
-      "import { createRequire } from 'node:module';",
-      "import { fileURLToPath } from 'node:url';",
-      "import { dirname } from 'node:path';",
-      "const require = createRequire(import.meta.url);",
-      "const __filename = fileURLToPath(import.meta.url);",
-      "const __dirname = dirname(__filename);",
-    ].join(" "),
+    banner: cjsGlobalsBanner(),
   });
   // The two request-handling shells. "next" stays external: the deployment
   // already carries the traced `next` files every built entrypoint requires, and
@@ -250,14 +267,7 @@ function bundle() {
       // Same reasoning as the image handler above: bundled CJS dependencies
       // reference `require`/`__dirname`/`__filename` as bare globals, which do
       // not exist in ESM scope.
-      banner: [
-        "import { createRequire } from 'node:module';",
-        "import { fileURLToPath } from 'node:url';",
-        "import { dirname } from 'node:path';",
-        "const require = createRequire(import.meta.url);",
-        "const __filename = fileURLToPath(import.meta.url);",
-        "const __dirname = dirname(__filename);",
-      ].join(" "),
+      banner: cjsGlobalsBanner(),
     });
   }
 }
@@ -289,15 +299,32 @@ function typeCheckEsmSources() {
   project.compileTask.exec(`tsc -p ${tsconfig.fileName}`);
 }
 
+/**
+ * Parses every bundle esbuild emits. Nothing else in the repo does: the bundles
+ * are ESM run by Node in Lambda/Fargate, not by jest or jsii, so a bundle that
+ * esbuild happily writes but Node cannot parse (see `cjsGlobalsBanner`) would
+ * otherwise first surface as a `Runtime.UserCodeSyntaxError` in a deployment.
+ */
+function checkBundleSyntax() {
+  const bundleTask = project.tasks.tryFind("bundle");
+  if (!bundleTask) return;
+  for (const bundled of [
+    join("lib", "adapter", "adapter.mjs"),
+    join("lib", "adapter", "cache-handler.mjs"),
+    join("lib", "image-optimization", "handler.mjs"),
+    join("lib", "runtime", "lambda.mjs"),
+    join("lib", "runtime", "server.mjs"),
+  ]) {
+    bundleTask.exec(`node --check ${bundled}`);
+  }
+}
+
 function copyDockerfiles() {
   const bundleTask = project.tasks.tryFind("bundle");
   if (bundleTask) {
     bundleTask.exec(`mkdir -p ${join("lib", "nextjs-build")}`);
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "global-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
-    );
-    bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "regional-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,

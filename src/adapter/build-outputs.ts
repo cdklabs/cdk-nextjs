@@ -11,6 +11,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { NextAdapter } from "next";
 import { LOG_PREFIX } from "../constants";
@@ -50,6 +51,35 @@ type InvocableOutput =
  * @see https://nextjs.org/docs/app/api-reference/config/next-config-js/output
  */
 const ENV_FILES = [".env", ".env.production"];
+
+/**
+ * `next` submodules the *runtime* requires that no app ever reaches, so
+ * `next build`'s own trace never covers them: next's image optimizer and the
+ * config/`serve-static` helpers around it (`src/runtime/image.ts`). They are
+ * required from the app's `next` rather than bundled, deliberately — see
+ * `src/runtime/next-modules.ts` — which makes staging their closure this
+ * module's job.
+ */
+const RUNTIME_NEXT_MODULES = [
+  "next/dist/server/config-shared.js",
+  "next/dist/shared/lib/image-config.js",
+  "next/dist/server/image-optimizer.js",
+  "next/dist/server/serve-static.js",
+];
+
+/**
+ * The file tracer `next build` itself uses, reached through the app's own `next`
+ * so that it is the version that matches the files being traced. Not a
+ * dependency of cdk-nextjs: bundling a second copy of `@vercel/nft` into the
+ * published adapter would add megabytes to every install to do the same job.
+ */
+const NEXT_FILE_TRACER = "next/dist/compiled/@vercel/nft";
+
+/** The subset of `nodeFileTrace` this module uses. */
+type NodeFileTrace = (
+  files: string[],
+  options: { base: string },
+) => Promise<{ fileList: Set<string> }>;
 
 /**
  * Staging key (repo-root-relative POSIX) → absolute source path on the build
@@ -95,7 +125,11 @@ export async function writeBuildOutputs(
   const stagingDir = join(adapterDir, STAGING_DIR_NAME);
   const manifestPath = join(adapterDir, MANIFEST_FILE_NAME);
 
-  const { manifest, staging } = buildAdapterManifest(ctx, options);
+  const { manifest, staging: planned } = buildAdapterManifest(ctx, options);
+  // Copied because the runtime's own `next` closure has to be traced, which is
+  // async and therefore cannot happen inside `buildAdapterManifest`.
+  const staging = new Map(planned);
+  await addRuntimeNextClosure(ctx, staging);
 
   // A previous build's tree is never additive with this one's: a removed route
   // leaves behind an entrypoint the manifest no longer mentions, and a renamed
@@ -103,7 +137,9 @@ export async function writeBuildOutputs(
   await rm(adapterDir, { recursive: true, force: true });
   await mkdir(stagingDir, { recursive: true });
 
-  const stagedBytes = await stageFiles(staging, stagingDir);
+  const stagedBytes =
+    (await stageFiles(staging, stagingDir)) +
+    (await hoistStoreOnlyPackages(staging, stagingDir));
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
   return {
@@ -527,6 +563,10 @@ function buildMiddleware(
  *
  * Regular files are staged first so that a symlink whose path was already
  * materialized as a real directory is skipped rather than clobbering it.
+ *
+ * Preserved links are enough for Containers but not for the Functions zip; see
+ * {@link hoistStoreOnlyPackages} for what makes the tree resolvable once
+ * something dereferences them.
  */
 async function stageFiles(
   staging: StagingPlan,
@@ -591,6 +631,170 @@ async function stageFiles(
   }
 
   return bytes;
+}
+
+/**
+ * Adds {@link RUNTIME_NEXT_MODULES} and everything they require to the staging
+ * plan.
+ *
+ * Without this the deployment is complete for every route the app has and broken
+ * for `/_next/image`: the traced `assets` of a build output cover what the *app*
+ * reaches, and an app never reaches next's image optimizer, so
+ * `next/dist/server/image-optimizer.js` and its closure are simply absent and
+ * every image request 500s with a `MODULE_NOT_FOUND` from `nextModule`.
+ *
+ * Resolution is anchored inside `ctx.projectDir` for the same reason
+ * `useNextFrom` anchors there at runtime: it is the directory whose
+ * `node_modules` walk finds the app's `next`. A repo where that resolution fails
+ * is not a real `next build` — nothing else would have run — so it warns and
+ * continues rather than failing a build for a package it could not have needed.
+ * A missing *tracer* is different: `next` is right there and image optimization
+ * would silently 500 in production, so that throws.
+ */
+async function addRuntimeNextClosure(
+  ctx: BuildCompleteContext,
+  staging: Map<string, string>,
+): Promise<void> {
+  // The anchor file needn't exist; `createRequire` only reads its directory.
+  const nextRequire = createRequire(
+    join(ctx.projectDir, "cdk-nextjs-next-resolver.cjs"),
+  );
+
+  let entries: string[];
+  try {
+    entries = RUNTIME_NEXT_MODULES.map((specifier) =>
+      nextRequire.resolve(specifier),
+    );
+  } catch (cause) {
+    console.warn(
+      `${LOG_PREFIX} Could not resolve next's image optimizer from ` +
+        `"${ctx.projectDir}" (${(cause as Error).message}). Requests to ` +
+        `/_next/image will fail at runtime.`,
+    );
+    return;
+  }
+
+  let nodeFileTrace: NodeFileTrace;
+  try {
+    ({ nodeFileTrace } = nextRequire(NEXT_FILE_TRACER));
+  } catch (cause) {
+    throw new Error(
+      `${LOG_PREFIX} Could not load "${NEXT_FILE_TRACER}", which cdk-nextjs uses ` +
+        `to stage the \`next\` files its image optimizer requires. This Next.js ` +
+        `version may have moved it; please open an issue.`,
+      { cause },
+    );
+  }
+
+  const { fileList } = await nodeFileTrace(entries, { base: ctx.repoRoot });
+  for (const traced of fileList) {
+    const key = toPosix(traced);
+    if (staging.has(key)) {
+      continue;
+    }
+    const source = join(ctx.repoRoot, traced);
+    assertStagingKey(key, source);
+    staging.set(key, source);
+  }
+}
+
+/** `node_modules/.pnpm/<pkg>/node_modules/<name>` — pnpm's virtual store. */
+const PNPM_STORE_SEGMENT = "node_modules/.pnpm/";
+
+/**
+ * Copies every package that exists *only* inside pnpm's virtual store to
+ * `<deploymentRoot>/node_modules/<name>`, where Node finds it from anywhere in
+ * the tree as a last resort — the same job pnpm's own `.pnpm/node_modules`
+ * hoisted directory does inside a workspace.
+ *
+ * Needed because the symlinks {@link stageFiles} preserves do not survive
+ * zipping: `cdk-assets` dereferences them (verified 2026-09-21 — a published
+ * Functions asset zip contains zero symlink entries), so a store package
+ * materializes at its logical path (`app/node_modules/next/…`) while the
+ * siblings it resolves its own dependencies through stay behind in the store.
+ * The failure that motivated this was `next/dist/client/lib/console.js`
+ * requiring `@swc/helpers`, which is in the store and nowhere else, so every
+ * request 500ed with "Could not load middleware".
+ *
+ * Containers keep the symlinks (`COPY` preserves them) and so resolve through
+ * the store as before; the hoisted copies are dead weight there, but the
+ * store-only set is small — one traced package version each, and any package
+ * with a logical path of its own is skipped.
+ *
+ * Two versions of the same store-only package can't both be hoisted, so the one
+ * with the most staged code files wins and the other's consumers resolve it.
+ * That is also what pnpm's hoisted directory does (modulo which version it
+ * picks), and it only applies to a dependency no package depends on directly.
+ *
+ * Code files, rather than the first version by staging key, because a version
+ * can be staged for its metadata alone: the trace reads `semver@6.3.1`'s
+ * `package.json` and nothing else, and hoisting *that* left
+ * `node_modules/semver` without a single module in it, so `sharp` failed to
+ * load and every `/_next/image` request silently served the unoptimized
+ * original — under next's misleading "Module `sharp` not found".
+ */
+async function hoistStoreOnlyPackages(
+  staging: StagingPlan,
+  stagingDir: string,
+): Promise<number> {
+  /** name → store directory → how many staged files other than metadata. */
+  const storeRoots = new Map<string, Map<string, number>>();
+  const hasLogicalPath = new Set<string>();
+  for (const key of staging.keys()) {
+    const root = packageRootOf(key);
+    if (!root) continue;
+    if (!root.path.includes(PNPM_STORE_SEGMENT)) {
+      // Counts even when the key *is* the package root, i.e. a link: whatever
+      // dereferences it materializes the package at this logical path.
+      hasLogicalPath.add(root.name);
+    } else if (key !== root.path) {
+      // A key equal to the root is one store directory linking to another
+      // (`.pnpm/next@…/node_modules/react` → `.pnpm/react@19…`); only the
+      // directory holding the package's own files can be copied out.
+      const versions = storeRoots.get(root.name) ?? new Map<string, number>();
+      const weight = key === `${root.path}/package.json` ? 0 : 1;
+      versions.set(root.path, (versions.get(root.path) ?? 0) + weight);
+      storeRoots.set(root.name, versions);
+    }
+  }
+
+  let bytes = 0;
+  for (const [name, versions] of storeRoots) {
+    if (hasLogicalPath.has(name)) continue;
+    const [root] = [...versions].sort(
+      // Path is the tiebreak so the choice doesn't ride on staging order.
+      ([aPath, aModules], [bPath, bModules]) =>
+        bModules - aModules || aPath.localeCompare(bPath),
+    )[0];
+    const source = join(stagingDir, root);
+    const dest = join(stagingDir, "node_modules", name);
+    if (existsSync(dest)) continue;
+    await mkdir(dirname(dest), { recursive: true });
+    await cp(source, dest, { recursive: true });
+    bytes += await directorySize(dest);
+  }
+  return bytes;
+}
+
+/**
+ * The package a staging key belongs to, or `undefined` if it isn't under a
+ * `node_modules/` segment. Reads the *last* segment so that a nested
+ * `node_modules/a/node_modules/b/index.js` is attributed to `b`.
+ */
+function packageRootOf(
+  key: string,
+): { name: string; path: string } | undefined {
+  const marker = "node_modules/";
+  const at = key.lastIndexOf(marker);
+  if (at === -1) return;
+  const after = key.slice(at + marker.length).split("/");
+  const parts = after[0].startsWith("@")
+    ? after.slice(0, 2)
+    : after.slice(0, 1);
+  // A key that *is* the `node_modules/<scope>` directory names no package.
+  if (parts.length < (after[0].startsWith("@") ? 2 : 1)) return;
+  const name = parts.join("/");
+  return { name, path: key.slice(0, at + marker.length) + name };
 }
 
 async function directorySize(path: string): Promise<number> {

@@ -83,9 +83,6 @@
           "exec": "cp src/nextjs-build/global-containers.Dockerfile lib/nextjs-build"
         },
         {
-          "exec": "cp src/nextjs-build/functions.Dockerfile lib/nextjs-build"
-        },
-        {
           "exec": "cp src/nextjs-build/regional-containers.Dockerfile lib/nextjs-build"
         },
         {
@@ -105,6 +102,21 @@
         },
         {
           "spawn": "bundle:runtime/server"
+        },
+        {
+          "exec": "node --check lib/adapter/adapter.mjs"
+        },
+        {
+          "exec": "node --check lib/adapter/cache-handler.mjs"
+        },
+        {
+          "exec": "node --check lib/image-optimization/handler.mjs"
+        },
+        {
+          "exec": "node --check lib/runtime/lambda.mjs"
+        },
+        {
+          "exec": "node --check lib/runtime/server.mjs"
         }
       ]
     },
@@ -149,7 +161,7 @@
       "description": "Create a JavaScript bundle from src/image-optimization/handler.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
+          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\""
         }
       ]
     },
@@ -158,7 +170,7 @@
       "description": "Continuously update the JavaScript bundle from src/image-optimization/handler.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
+          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\" --watch"
         }
       ]
     },
@@ -203,7 +215,7 @@
       "description": "Create a JavaScript bundle from src/runtime/lambda.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
+          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\""
         }
       ]
     },
@@ -212,7 +224,7 @@
       "description": "Continuously update the JavaScript bundle from src/runtime/lambda.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
+          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\" --watch"
         }
       ]
     },
@@ -221,7 +233,7 @@
       "description": "Create a JavaScript bundle from src/runtime/server.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
+          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\""
         }
       ]
     },
@@ -230,7 +242,7 @@
       "description": "Continuously update the JavaScript bundle from src/runtime/server.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
+          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\" --watch"
         }
       ]
     },

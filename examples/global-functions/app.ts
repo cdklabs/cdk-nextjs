@@ -30,7 +30,7 @@ class GlobalFunctionsStack extends Stack {
       // skipBuild: true,
       overrides: {
         nextjsFunctions: {
-          dockerImageFunctionProps: {
+          functionProps: {
             environment: {
               DEBUG: "cdk-nextjs:*",
             },

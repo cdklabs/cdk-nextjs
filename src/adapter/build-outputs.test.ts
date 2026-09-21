@@ -7,7 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import appPlaygroundBasePath from "./__fixtures__/app-playground-base-path.json";
 import appPlayground from "./__fixtures__/app-playground.json";
 import pagesI18n from "./__fixtures__/pages-i18n.json";
@@ -318,20 +318,120 @@ describe("writeBuildOutputs", () => {
    * Builds a throwaway repo on disk so staging can be exercised for real:
    * fixture sources are `/repo` placeholders and cannot be copied.
    */
-  async function makeRepo() {
+  /**
+   * A `next` install just real enough for {@link addRuntimeNextClosure}: the
+   * modules `src/runtime/image.ts` requires, one file only the trace reaches, and
+   * a stand-in for next's vendored `@vercel/nft` that reports them. Tracing for
+   * real is next's job, not ours; what is under test is that the closure is
+   * resolved from the project dir and staged under repo-root-relative keys.
+   */
+  async function installFakeNext(repoRoot: string) {
+    const nextRoot = join(repoRoot, "node_modules", "next");
+    const files = [
+      "dist/server/config-shared.js",
+      "dist/shared/lib/image-config.js",
+      "dist/server/image-optimizer.js",
+      "dist/server/serve-static.js",
+      // Reached only through the trace, i.e. the reason tracing is needed.
+      "dist/shared/lib/match-remote-pattern.js",
+    ];
+    for (const file of files) {
+      const path = join(nextRoot, file);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `// ${file}\n`);
+    }
+    // No `exports` field: `next/dist/**` is required by path.
+    await writeFile(
+      join(nextRoot, "package.json"),
+      JSON.stringify({ name: "next", version: "0.0.0-test" }),
+    );
+
+    const tracer = join(nextRoot, "dist", "compiled", "@vercel", "nft");
+    await mkdir(tracer, { recursive: true });
+    await writeFile(
+      join(tracer, "package.json"),
+      JSON.stringify({ name: "@vercel/nft", main: "index.js" }),
+    );
+    await writeFile(
+      join(tracer, "index.js"),
+      `const files = ${JSON.stringify(files)};\n` +
+        // Real nft returns paths relative to `base`; these are already relative
+        // to the repo root, which is the `base` the adapter passes.
+        "exports.nodeFileTrace = async () => ({\n" +
+        "  fileList: new Set(files.map((f) => `node_modules/next/${f}`)),\n" +
+        "});\n",
+    );
+  }
+
+  async function makeRepo(options: { withNext?: boolean } = {}) {
     const repoRoot = await mkdtemp(join(tmpdir(), "cdk-nextjs-staging-"));
+    if (options.withNext) {
+      await installFakeNext(repoRoot);
+    }
     const projectDir = join(repoRoot, "app");
     const distDir = join(projectDir, ".next");
     const entry = join(distDir, "server", "app", "page.js");
     const dep = join(projectDir, "node_modules", "dep");
     const store = join(repoRoot, "store", "pkg");
+    // pnpm's virtual store: one package reachable only from inside it, and one
+    // that also has a logical path (`app/node_modules/dep`).
+    const virtualStore = join(repoRoot, "node_modules", ".pnpm");
+    const hidden = join(
+      virtualStore,
+      "helpers@1.0.0",
+      "node_modules",
+      "@scope",
+      "helpers",
+    );
+    const depInStore = join(virtualStore, "dep@1.0.0", "node_modules", "dep");
+    // A second version of the same package that the trace only read the
+    // `package.json` of. It sorts first, so hoisting by staging key would pick
+    // this one and leave the hoisted copy without any code in it.
+    const staleVersion = join(
+      virtualStore,
+      "helpers@0.1.0",
+      "node_modules",
+      "@scope",
+      "helpers",
+    );
+    // The shape that makes a store package reachable from another store
+    // package: a link between two store directories, no files of its own.
+    const hiddenLink = join(
+      virtualStore,
+      "dep@1.0.0",
+      "node_modules",
+      "@scope",
+      "helpers",
+    );
 
     await mkdir(join(distDir, "server", "app"), { recursive: true });
     await mkdir(dep, { recursive: true });
     await mkdir(store, { recursive: true });
+    await mkdir(hidden, { recursive: true });
+    await mkdir(depInStore, { recursive: true });
+    await mkdir(staleVersion, { recursive: true });
     await writeFile(entry, "module.exports = {};\n");
+    await writeFile(
+      join(staleVersion, "package.json"),
+      JSON.stringify({ name: "@scope/helpers", version: "0.1.0" }),
+    );
     await writeFile(join(dep, "index.js"), "// dep\n");
     await writeFile(join(store, "index.js"), "// store\n");
+    await writeFile(join(hidden, "index.js"), "// helpers\n");
+    await writeFile(join(depInStore, "index.js"), "// dep\n");
+    await mkdir(dirname(hiddenLink), { recursive: true });
+    await symlink(
+      join(
+        "..",
+        "..",
+        "..",
+        "helpers@1.0.0",
+        "node_modules",
+        "@scope",
+        "helpers",
+      ),
+      hiddenLink,
+    );
     await writeFile(join(projectDir, ".env"), "SHARED=1\n");
     await writeFile(join(projectDir, ".env.production"), "PROD=1\n");
     // A relative link whose target is itself staged: pnpm's common shape.
@@ -358,6 +458,15 @@ describe("writeBuildOutputs", () => {
           "node_modules",
           "abs-link",
         ),
+        "node_modules/.pnpm/helpers@1.0.0/node_modules/@scope/helpers/index.js":
+          join(hidden, "index.js"),
+        "node_modules/.pnpm/helpers@0.1.0/node_modules/@scope/helpers/package.json":
+          join(staleVersion, "package.json"),
+        "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js": join(
+          depInStore,
+          "index.js",
+        ),
+        "node_modules/.pnpm/dep@1.0.0/node_modules/@scope/helpers": hiddenLink,
       },
       assetsHashes: {},
     };
@@ -435,6 +544,91 @@ describe("writeBuildOutputs", () => {
     const written = JSON.parse(await readFile(result.manifestPath, "utf8"));
     expect(written).toEqual(JSON.parse(JSON.stringify(result.manifest)));
     expect(written.relativeProjectDir).toBe("app");
+  });
+
+  it("hoists store-only packages to the deployment root", async () => {
+    const { ctx } = await makeRepo();
+    const result = await write(ctx);
+    const staged = (...parts: string[]) => join(result.stagingDir, ...parts);
+
+    // Nothing resolves `@scope/helpers` once the symlinks are dereferenced
+    // (which is what zipping the asset does), so it needs a copy Node finds by
+    // walking up to the deployment root.
+    await expect(
+      readFile(staged("node_modules", "@scope", "helpers", "index.js"), "utf8"),
+    ).resolves.toContain("helpers");
+    // A link between two store directories sorts before the directory holding
+    // the files, and copying it would only produce another dangling link.
+    await expect(
+      lstat(staged("node_modules", "@scope", "helpers")).then((s) =>
+        s.isSymbolicLink(),
+      ),
+    ).resolves.toBe(false);
+    // And the version staged for its `package.json` alone must not win either:
+    // `sharp` loaded against a code-less `semver` fails, and next reports that
+    // as "Module `sharp` not found" while quietly serving unoptimized images.
+    await expect(
+      readFile(staged("node_modules", "@scope", "helpers", "package.json"), {
+        encoding: "utf8",
+      }).catch(() => "{}"),
+    ).resolves.not.toContain("0.1.0");
+    // `dep` already has a logical path, so hoisting it would only add bytes.
+    await expect(lstat(staged("node_modules", "dep"))).rejects.toThrow(
+      /ENOENT/,
+    );
+    // The store copies stay where they were staged.
+    await expect(
+      readFile(
+        staged(
+          "node_modules",
+          ".pnpm",
+          "helpers@1.0.0",
+          "node_modules",
+          "@scope",
+          "helpers",
+          "index.js",
+        ),
+        "utf8",
+      ),
+    ).resolves.toContain("helpers");
+  });
+
+  it("stages the next closure the runtime's image optimizer requires", async () => {
+    // `next build` traces what the *app* reaches, and no app reaches next's
+    // image optimizer, so without this every /_next/image request 500s on a
+    // MODULE_NOT_FOUND that nothing in the build warned about.
+    const { ctx } = await makeRepo({ withNext: true });
+    const result = await write(ctx);
+    const staged = (...parts: string[]) => join(result.stagingDir, ...parts);
+
+    await expect(
+      readFile(
+        staged("node_modules", "next", "dist", "server", "image-optimizer.js"),
+        "utf8",
+      ),
+    ).resolves.toContain("image-optimizer");
+    await expect(
+      readFile(
+        staged(
+          "node_modules",
+          "next",
+          "dist",
+          "shared",
+          "lib",
+          "match-remote-pattern.js",
+        ),
+        "utf8",
+      ),
+    ).resolves.toContain("match-remote-pattern");
+  });
+
+  it("warns instead of failing when next cannot be resolved for tracing", async () => {
+    const { ctx } = await makeRepo();
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(write(ctx)).resolves.toBeDefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("/_next/image will fail at runtime"),
+    );
   });
 
   it("removes a previous build's tree before staging", async () => {

@@ -34,7 +34,13 @@ export default function proxy(request: NextRequest) {
         return NextResponse.next();
       }
 
-      url.pathname = `/${stage}${url.pathname}`;
+      // `/` must become `/${stage}`, not `/${stage}/`: routing matches the
+      // rewritten path against the built pathnames as-is, and the
+      // `trailingSlash: false` redirect that would normally clean up
+      // `/${stage}/` runs *before* middleware, so a trailing slash here is a
+      // 404 (and redirecting would bounce off the stage root forever).
+      url.pathname =
+        originalPath === '/' ? `/${stage}` : `/${stage}${originalPath}`;
       // debug(
       //   `[PROXY] Rewriting request - Original: ${originalPath} -> Rewritten: ${url.pathname}`,
       // );

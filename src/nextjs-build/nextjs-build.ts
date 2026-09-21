@@ -19,6 +19,14 @@ import { Construct } from "constructs";
 import getDebug from "debug";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
+import {
+  ADAPTER_DIR_NAME,
+  ADAPTER_MANIFEST_VERSION,
+  AdapterManifest,
+  MANIFEST_FILE_NAME,
+  RUNTIME_DIR_NAME,
+  STAGING_DIR_NAME,
+} from "../runtime/manifest";
 import { useDedicatedImageFunction } from "../utils/experimental-flags";
 import { getNodeArchitecture } from "../utils/get-architecture";
 
@@ -67,10 +75,10 @@ export class NextjsBuild extends Construct {
    */
   publicDirEntries: PublicDirEntry[];
   /**
-   * The entrypoint JavaScript file used as an argument for Node.js to run the
-   * Next.js standalone server relative to the standalone directory.
-   * @example "./server.js"
-   * @example "./packages/ui/server.js" (monorepo)
+   * The JavaScript file Node.js runs to serve requests, relative to the
+   * deployment root. cdk-nextjs's own container shell, not `next build` output,
+   * so it is the same path for every app.
+   * @example "cdk-nextjs-runtime/server.mjs"
    */
   relativePathToEntrypoint: string;
   /**
@@ -92,6 +100,20 @@ export class NextjsBuild extends Construct {
    * optimization Lambda is enabled.
    */
   imageOptimizationAssetPath?: string;
+  /**
+   * Absolute path to the deployment root: the staged union of every shipped
+   * output's traced assets, written by the adapter's `onBuildComplete`. This is
+   * the Lambda zip asset and the Docker `COPY` source.
+   * @example "/Users/john/myapp/.next/cdk-nextjs-adapter/app"
+   */
+  deploymentRootPath: string;
+  /**
+   * From {@link deploymentRootPath} to the Next.js project dir, POSIX, `""` when
+   * the app is at the repo root. The runtime `chdir`s here; Containers pass it to
+   * their Dockerfile so `.next/static` and `public` land in the same place.
+   * @see AdapterManifest.relativeProjectDir
+   */
+  relativeProjectDir: string;
 
   private props: NextjsBuildProps;
   private buildCommand: string;
@@ -123,12 +145,6 @@ export class NextjsBuild extends Construct {
     // Auto-detect relativePathToPackage from standalone build output
     this.relativePathToPackage = this.findRelativePathToServerJs();
 
-    // Set entrypoint path using detected relativePathToPackage
-    this.relativePathToEntrypoint = joinPosix(
-      this.relativePathToPackage === "." ? "" : this.relativePathToPackage,
-      "server.js",
-    );
-
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
 
@@ -139,25 +155,107 @@ export class NextjsBuild extends Construct {
 
     const dedicatedImageFunction = isFunctions && useDedicatedImageFunction();
 
+    this.deploymentRootPath = join(
+      this.dotNextPath,
+      ADAPTER_DIR_NAME,
+      STAGING_DIR_NAME,
+    );
+    const manifest = this.readAdapterManifest();
+    this.relativeProjectDir = manifest.relativeProjectDir;
+    this.relativePathToEntrypoint = joinPosix(RUNTIME_DIR_NAME, "server.mjs");
+    this.stageRuntime(isFunctions);
+
     // Strip whatever platform-specific Sharp binaries `next build`'s output
-    // file tracing bundled in either way, since they're the host's (e.g.
-    // macOS/glibc) rather than the deployment target's.
-    this.removeExistingSharpBinaries(standalonePath);
-    // The standalone server serves `_next/image` itself unless a dedicated
-    // image optimization Lambda takes over that route, and it runs on
-    // node:24-alpine (see functions.Dockerfile) / the same Alpine base for
-    // Containers, so it needs musl binaries. Skipping this install when Sharp
-    // *is* invoked from the server is silent: `imageOptimizer` catches the
-    // load failure internally and returns the unoptimized original with an
-    // HTTP 200.
+    // file tracing staged, since they're the host's (e.g. macOS/glibc) rather
+    // than the deployment target's, then install the target's. Skipping this is
+    // silent: `imageOptimizer` catches the load failure internally and returns
+    // the unoptimized original with an HTTP 200.
+    //
+    // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc);
+    // Containers run on node:24-alpine (musl). The dedicated image optimization
+    // Lambda, when enabled, owns `_next/image` instead and carries its own
+    // glibc binaries in its own asset, so the server needs none.
+    this.removeExistingSharpBinaries(this.deploymentRootPath);
     if (!dedicatedImageFunction) {
-      this.downloadAndInstallSharpBinaries();
+      this.installSharpBinariesForTarget(isFunctions ? "linux" : "linuxmusl");
     }
 
     if (dedicatedImageFunction) {
       this.imageOptimizationAssetPath =
         this.prepareImageOptimizationAssets(standalonePath);
     }
+  }
+
+  /**
+   * Read the manifest the adapter's `onBuildComplete` wrote.
+   *
+   * Its absence means `next build` ran without cdk-nextjs's adapter registered
+   * (or with a stale `next.config`), which is worth saying plainly here: every
+   * later failure — a Lambda that cannot find `manifest.json`, an empty asset —
+   * is the same cause several steps downstream.
+   */
+  private readAdapterManifest(): AdapterManifest {
+    const manifestPath = join(
+      this.dotNextPath,
+      ADAPTER_DIR_NAME,
+      MANIFEST_FILE_NAME,
+    );
+    if (!existsSync(manifestPath)) {
+      throw new Error(
+        `cdk-nextjs adapter manifest not found at ${manifestPath}. ` +
+          `"${this.buildCommand}" must run a Next.js build with cdk-nextjs's ` +
+          `adapter registered in next.config: ` +
+          `\`adapter: "cdk-nextjs/lib/adapter/adapter.mjs"\`.`,
+      );
+    }
+    const manifest: AdapterManifest = JSON.parse(
+      readFileSync(manifestPath, "utf-8"),
+    );
+    if (manifest.version !== ADAPTER_MANIFEST_VERSION) {
+      throw new Error(
+        `The cdk-nextjs adapter manifest at ${manifestPath} is version ` +
+          `${manifest.version}, but this version of cdk-nextjs reads version ` +
+          `${ADAPTER_MANIFEST_VERSION}. The adapter that wrote it and the ` +
+          `constructs reading it come from the same package, so this means two ` +
+          `cdk-nextjs versions are installed, or the build output is stale.`,
+      );
+    }
+    return manifest;
+  }
+
+  /**
+   * Copy cdk-nextjs's own bundled request-handling shell and the manifest into
+   * `<deploymentRoot>/cdk-nextjs-runtime/`, which is where
+   * `deploymentRootOf`/`deployedManifestPath` expect to find them.
+   *
+   * Only the shell the deployment type actually runs is copied — the Lambda
+   * handler for Functions, the `node:http` server for Containers — so nothing
+   * ships ~1.5 MB of dead code and the tree says which type produced it. Both
+   * are copied from this package's `lib/`, next to the compiled construct.
+   */
+  private stageRuntime(isFunctions: boolean): void {
+    const shell = isFunctions ? "lambda.mjs" : "server.mjs";
+    const source = join(__dirname, "..", "runtime", shell);
+    if (!existsSync(source)) {
+      throw new Error(
+        `cdk-nextjs's bundled runtime shell not found at ${source}. Ensure the ` +
+          `cdk-nextjs package is properly built.`,
+      );
+    }
+
+    const runtimeDir = join(this.deploymentRootPath, RUNTIME_DIR_NAME);
+    // Removed rather than merged: a stale shell from the other deployment type
+    // would otherwise sit in the asset and change its hash for no reason.
+    rmSync(runtimeDir, { recursive: true, force: true });
+    mkdirSync(runtimeDir, { recursive: true });
+    cpSync(source, join(runtimeDir, shell));
+    cpSync(
+      join(this.dotNextPath, ADAPTER_DIR_NAME, MANIFEST_FILE_NAME),
+      join(runtimeDir, MANIFEST_FILE_NAME),
+    );
+    debug(
+      `${LOG_PREFIX} Staged ${shell} and ${MANIFEST_FILE_NAME} in ${runtimeDir}`,
+    );
   }
 
   /**
@@ -333,17 +431,20 @@ export class NextjsBuild extends Construct {
   }
 
   /**
-   * Recursively find and remove existing Sharp platform binaries
+   * Recursively find and remove existing Sharp platform binaries.
+   *
+   * `root` is walked whole rather than just its `node_modules`: the staged tree
+   * is keyed by repo-root-relative path, so in a monorepo the `node_modules`
+   * holding `sharp` is several directories down.
    */
-  private removeExistingSharpBinaries(standalonePath: string): void {
-    const nodeModulesPath = join(standalonePath, "node_modules");
-    if (!existsSync(nodeModulesPath)) {
+  private removeExistingSharpBinaries(root: string): void {
+    if (!existsSync(root)) {
       return;
     }
 
     try {
       // Use recursive readdirSync to find all Sharp binary directories and symlinks
-      const allEntries = readdirSync(nodeModulesPath, {
+      const allEntries = readdirSync(root, {
         recursive: true,
         withFileTypes: true,
       });
@@ -389,24 +490,66 @@ export class NextjsBuild extends Construct {
   }
 
   /**
-   * Download and install correct Sharp binaries for Linux MUSL
+   * Install the `sharp` platform binaries the deployment target needs into the
+   * staged tree.
+   *
+   * They go next to the staged `sharp` package rather than at the top of the
+   * tree, because that is the first place Node looks from `sharp`'s own
+   * `require("@img/sharp-<platform>")` under every installer layout: a sibling
+   * `@img` inside `node_modules/.pnpm/sharp@x/node_modules/` for pnpm, and
+   * `node_modules/@img/` for a hoisted install.
+   *
+   * @param libc `"linux"` (glibc, the Lambda managed runtime) or `"linuxmusl"`
+   * (Alpine, the container images).
    */
-  private downloadAndInstallSharpBinaries(): void {
-    const nodeModulesPath = join(
-      this.dotNextPath,
-      "standalone",
-      "node_modules",
-    );
-    const imgPath = join(nodeModulesPath, "@img");
-    const arch = getNodeArchitecture();
+  private installSharpBinariesForTarget(libc: "linux" | "linuxmusl"): void {
+    const sharpSource = this.findStagedSharpPackage();
+    if (!sharpSource) {
+      console.warn(
+        `${LOG_PREFIX} "sharp" not found in the staged build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
+      );
+      return;
+    }
 
     this.installSharpPackages(
-      imgPath,
+      join(sharpSource, "..", "@img"),
       this.getSharpBinaryPackages(
-        this.findSharpPackage(nodeModulesPath),
-        `linuxmusl-${arch}`,
+        sharpSource,
+        `${libc}-${getNodeArchitecture()}`,
       ),
     );
+  }
+
+  /**
+   * Locate `sharp`'s JS wrapper anywhere in the staged tree.
+   *
+   * Unlike a standalone build there is no single `node_modules` to look in: the
+   * tree mirrors repo-root-relative paths, so the search is by directory name.
+   */
+  private findStagedSharpPackage(): string | undefined {
+    const entries = readdirSync(this.deploymentRootPath, {
+      recursive: true,
+      withFileTypes: true,
+    });
+    const candidates: string[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name === "sharp") {
+        const path = join(entry.parentPath, entry.name);
+        if (existsSync(join(path, "package.json"))) {
+          candidates.push(path);
+        }
+      }
+    }
+    // Sorted for determinism: an app could have two `sharp` copies at different
+    // versions, and which one the *server's* `next` resolves is not knowable
+    // from here. Shortest path wins as the closest to a hoisted install.
+    candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
+    if (candidates.length > 1) {
+      debug(
+        `${LOG_PREFIX} Multiple staged "sharp" copies; using ${candidates[0]}`,
+      );
+    }
+    return candidates[0];
   }
 
   /**

@@ -120,7 +120,12 @@ export class NextjsApi extends Construct {
       binaryMediaTypes: ["*/*"],
       description: `cdk-nextjs REST API for ${Stack.of(this).stackName}`,
       endpointTypes: [EndpointType.REGIONAL],
-      minCompressionSize: Size.bytes(0), // compress all responses for better perf
+      // Inert for the dynamic routes: API Gateway does not compress a response it
+      // streams (`ResponseTransferMode.STREAM`), which every Lambda integration
+      // here uses, so the runtime gzips those itself. Kept because it still
+      // applies to the buffered S3 static integrations, and because a consumer
+      // who overrides an integration to BUFFERED gets compression back.
+      minCompressionSize: Size.bytes(0),
       ...this.props.overrides?.restApiProps,
     });
   }

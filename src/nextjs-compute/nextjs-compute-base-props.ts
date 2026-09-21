@@ -27,4 +27,22 @@ export interface NextjsComputeBaseProps {
    * Relative path from buildDirectory to the package containing Next.js app
    */
   readonly relativePathToPackage?: string;
+  /**
+   * Absolute path to the staged deployment root: the Lambda zip asset for
+   * Functions, the Docker `COPY` source for Containers.
+   * @see NextjsBuild.deploymentRootPath
+   */
+  readonly deploymentRootPath: string;
+  /**
+   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo
+   * root.
+   * @see NextjsBuild.relativeProjectDir
+   */
+  readonly relativeProjectDir: string;
+  /**
+   * S3 bucket holding `.next/static` and `public`. Both deployment styles need
+   * it: the runtime's image optimizer fetches the bytes of every non-absolute
+   * `<Image>` from S3, since they are deliberately not in the deployment package.
+   */
+  readonly staticAssetsBucket: IBucket;
 }

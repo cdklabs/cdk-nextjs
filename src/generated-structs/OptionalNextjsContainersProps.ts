@@ -33,10 +33,20 @@ export interface OptionalNextjsContainersProps {
    */
   readonly relativePathToPackage?: string;
   /**
+   * S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
+   * @stability stable
+   */
+  readonly staticAssetsBucket?: aws_s3.IBucket;
+  /**
    * DynamoDB table for revalidation metadata.
    * @stability stable
    */
   readonly revalidationTable?: aws_dynamodb.ITableV2;
+  /**
+   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo root.
+   * @stability stable
+   */
+  readonly relativeProjectDir?: string;
   /**
    * @stability stable
    */
@@ -45,6 +55,11 @@ export interface OptionalNextjsContainersProps {
    * @stability stable
    */
   readonly healthCheckPath?: string;
+  /**
+   * Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers.
+   * @stability stable
+   */
+  readonly deploymentRootPath?: string;
   /**
    * S3 bucket for cache storage.
    * @stability stable

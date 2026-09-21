@@ -35,8 +35,8 @@ export interface NextjsBaseConstructOverrides {
 
 /**
  * Adds the overrides that only apply to the two Functions `NextjsType`s. The
- * Containers types serve `_next/image` from the standalone server itself and
- * have no Lambda functions to configure, so they would silently ignore these.
+ * Containers types have no Lambda functions to configure, so they would silently
+ * ignore these.
  */
 export interface NextjsFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
@@ -189,6 +189,9 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
       relativePathToPackage: this.nextjsBuild.relativePathToPackage,
+      deploymentRootPath: this.nextjsBuild.deploymentRootPath,
+      relativeProjectDir: this.nextjsBuild.relativeProjectDir,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
     };
   }
 
@@ -234,8 +237,8 @@ export abstract class NextjsBaseConstruct extends Construct {
       ...this.computeBaseProps(),
       overrides: {
         ...overrides,
-        dockerImageFunctionProps: {
-          ...overrides?.dockerImageFunctionProps,
+        functionProps: {
+          ...overrides?.functionProps,
           vpc: this.baseProps.vpc,
         },
       },

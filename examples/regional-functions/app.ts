@@ -19,7 +19,6 @@ import { join } from "node:path";
 import {
   AccessLogFormat,
   LogGroupLogDestination,
-  ResponseTransferMode,
 } from "aws-cdk-lib/aws-apigateway";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
@@ -51,15 +50,9 @@ export class RegionalFunctionsStack extends Stack {
               metricsEnabled: true,
             },
           },
-          // Only applies to the server function's route: NextjsApi never lets
-          // this leak into the dedicated image Lambda's own (always
-          // streaming) integration. Must match AWS_LWA_INVOKE_MODE below.
-          dynamicIntegrationProps: {
-            responseTransferMode: ResponseTransferMode.BUFFERED,
-          },
         },
         nextjsFunctions: {
-          dockerImageFunctionProps: {
+          functionProps: {
             environment: {
               DEBUG: "cdk-nextjs:*",
               // Tell middleware to prepend API Gateway stage name since API Gateway strips it
@@ -72,10 +65,6 @@ export class RegionalFunctionsStack extends Stack {
                 /^\//,
                 "",
               ),
-              // Lambda Web Adapter in this app doesn't support response
-              // streaming; must match dynamicIntegrationProps above or API
-              // Gateway returns a 500 for every request to this function.
-              AWS_LWA_INVOKE_MODE: "buffered",
             },
           },
         },

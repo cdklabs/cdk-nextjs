@@ -1,28 +1,26 @@
-import { copyFileSync, existsSync } from "node:fs";
-import { join as joinPath } from "node:path";
-import { join as joinPosix } from "node:path/posix";
 import { Duration } from "aws-cdk-lib";
 import { ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
-  AssetImageCodeProps,
-  DockerImageCode,
-  DockerImageFunction,
-  DockerImageFunctionProps,
+  Code,
+  Function as LambdaFunction,
+  FunctionProps,
   FunctionUrl,
   FunctionUrlAuthType,
   InvokeMode,
+  Runtime,
+  RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
-import { LOG_PREFIX, NextjsType } from "../constants";
-import { OptionalDockerImageFunctionProps } from "../generated-structs/OptionalDockerImageFunctionProps";
+import { NextjsType } from "../constants";
+import { OptionalFunctionProps } from "../generated-structs/OptionalFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
+import { RUNTIME_DIR_NAME } from "../runtime/manifest";
 import { getLambdaArchitecture } from "../utils/get-architecture";
 
 export interface NextjsFunctionsOverrides {
-  readonly dockerImageFunctionProps?: OptionalDockerImageFunctionProps;
+  readonly functionProps?: OptionalFunctionProps;
   readonly functionUrlProps?: OptionalFunctionUrlProps;
-  readonly assetImageCodeProps?: AssetImageCodeProps;
 }
 
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
@@ -31,9 +29,16 @@ export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
 
 /**
  * Run Next.js in functions on AWS with AWS Lambda.
+ *
+ * A plain zip function on the Node.js managed runtime: the deployment root
+ * `NextjsBuild` staged is the asset, and cdk-nextjs's own bundled shell
+ * (`cdk-nextjs-runtime/lambda.mjs`) is the handler. It invokes the entrypoints
+ * `next build` produced in-process, so there is no Next.js HTTP server, no
+ * Docker image, and no Lambda Web Adapter — response streaming comes from
+ * `awslambda.streamifyResponse` directly.
  */
 export class NextjsFunctions extends Construct {
-  function: DockerImageFunction;
+  function: LambdaFunction;
   functionUrl?: FunctionUrl;
 
   private props: NextjsFunctionsProps;
@@ -55,91 +60,38 @@ export class NextjsFunctions extends Construct {
   }
 
   private createFunction() {
-    // Create DockerImageCode from local build output or use provided dockerImageCode
-    const dockerImageCode = this.createDockerImageCode();
-
-    const functionProps: DockerImageFunctionProps = {
-      architecture: getLambdaArchitecture(),
-      code: dockerImageCode,
+    const functionProps: FunctionProps = {
+      code: Code.fromAsset(this.props.deploymentRootPath),
+      handler: `${RUNTIME_DIR_NAME}/lambda.handler`,
       memorySize: 2048,
+      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
       timeout: Duration.seconds(30),
-      ...this.props.overrides?.dockerImageFunctionProps,
+      ...this.props.overrides?.functionProps,
+      // Must not be overridable: `NextjsBuild` stages `sharp` binaries matching
+      // the synth machine's architecture, so the deployed function's
+      // architecture must always match what was staged.
+      architecture: getLambdaArchitecture(),
       environment: {
-        AWS_LWA_ENABLE_COMPRESSION: "true",
-        AWS_LWA_INVOKE_MODE: "response_stream",
-        AWS_LWA_READINESS_CHECK_PATH: this.props.healthCheckPath,
-        AWS_LWA_READINESS_CHECK_PORT: "3000",
-        READINESS_CHECK_PATH: `http://127.0.0.1:3000${this.props.healthCheckPath}`,
         // Cache configuration environment variables
         CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
         CDK_NEXTJS_REVALIDATION_TABLE_NAME:
           this.props.revalidationTable.tableName,
         CDK_NEXTJS_BUILD_ID: this.props.buildId,
-        ...this.props.overrides?.dockerImageFunctionProps?.environment,
+        // Read by the runtime's image optimizer for non-absolute `<Image>` URLs,
+        // whose bytes live in S3 rather than in the deployment package.
+        CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
+          this.props.staticAssetsBucket.bucketName,
+        ...this.props.overrides?.functionProps?.environment,
       },
     };
 
-    const fn = new DockerImageFunction(this, "Functions", functionProps);
+    const fn = new LambdaFunction(this, "Functions", functionProps);
 
     // Grant cache access permissions
     this.props.cacheBucket.grantReadWrite(fn);
     this.props.revalidationTable.grantReadWriteData(fn);
+    this.props.staticAssetsBucket.grantRead(fn);
 
     return fn;
-  }
-
-  private createDockerImageCode(): DockerImageCode {
-    // Build context is the buildDirectory (where the Next.js app is located)
-    const buildContext = this.props.buildDirectory;
-    const dockerfileName = "functions.Dockerfile";
-
-    // Copy Dockerfile to build context to avoid path resolution issues
-    this.copyDockerfileToContext(buildContext, dockerfileName);
-
-    const relativeEntrypointPath = this.props.relativePathToPackage
-      ? // joinPosix b/c this will be referenced in Docker container (Linux)
-        joinPosix(this.props.relativePathToPackage, "server.js")
-      : "server.js";
-
-    return DockerImageCode.fromImageAsset(buildContext, {
-      file: dockerfileName, // Now it's just the filename in the build context
-      cmd: ["node", relativeEntrypointPath],
-      exclude: ["cdk.out"], // for common case where cdk deploy is run in same directory as nextjs app
-      buildArgs: {
-        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
-        ...this.props.overrides?.assetImageCodeProps?.buildArgs,
-      },
-      ...this.props.overrides?.assetImageCodeProps,
-    });
-  }
-
-  private copyDockerfileToContext(
-    buildContext: string,
-    dockerfileName: string,
-  ): void {
-    const targetDockerfile = joinPath(buildContext, dockerfileName);
-
-    // Check if Dockerfile already exists - if so, use the existing one (developer control)
-    if (existsSync(targetDockerfile)) {
-      console.log(`${LOG_PREFIX} Using existing Dockerfile: ${dockerfileName}`);
-    } else {
-      const sourceDockerfile = joinPath(
-        __dirname,
-        "..",
-        "nextjs-build",
-        dockerfileName,
-      );
-
-      if (!existsSync(sourceDockerfile)) {
-        throw new Error(
-          `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
-        );
-      }
-
-      copyFileSync(sourceDockerfile, targetDockerfile);
-      console.log(
-        `${LOG_PREFIX} Created ${dockerfileName} in your project directory.`,
-      );
-    }
   }
 }

@@ -237,6 +237,7 @@ export function suppressLambdaNags(stack: Stack) {
     stack,
     `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
     "Lambda functions need wildcard S3 permissions to access cache and static assets",
+    { includeStaticAssets: true },
   );
 
   // NextjsImageFunction only exists behind this experimental flag (see
@@ -312,6 +313,7 @@ export function suppressContainerNags(stack: Stack) {
     stack,
     `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
     "Container task role needs wildcard S3 permissions to access cache and static assets",
+    { includeStaticAssets: true },
   );
 
   suppressCloudFrontInvalidationWildcard(
