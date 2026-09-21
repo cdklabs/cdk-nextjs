@@ -23,6 +23,7 @@ import { IFunction } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import { normalizeBasePath } from "./utils/read-next-config-base-path";
 
 export interface NextjsApiOverrides {
   readonly restApiProps?: RestApiProps;
@@ -209,9 +210,7 @@ export class NextjsApi extends Construct {
    * since the S3 integrations address objects by key rather than by URL.
    */
   private s3Key(key: string): string {
-    const prefix = (this.props.staticAssetsKeyPrefix ?? "")
-      .replace(/^\/+/, "")
-      .replace(/\/+$/, "");
+    const prefix = normalizeBasePath(this.props.staticAssetsKeyPrefix);
     return prefix ? `${prefix}/${key}` : key;
   }
 

@@ -21,6 +21,7 @@ import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 import { useDedicatedImageFunction } from "../utils/experimental-flags";
 import { getNodeArchitecture } from "../utils/get-architecture";
+import { readNextConfigBasePath } from "../utils/read-next-config-base-path";
 
 const debug = getDebug("cdk-nextjs:nextjs-build");
 
@@ -85,6 +86,18 @@ export class NextjsBuild extends Construct {
    */
   dotNextPath: string;
   /**
+   * The Next.js app's own `basePath`, read out of the build's
+   * `required-server-files.json`. Normalized to a bare path segment with no
+   * surrounding slashes, empty when the app sets none.
+   *
+   * This is the URL prefix the app generates its own links and asset hrefs
+   * under, which is a distinct thing from the CDK `basePath` prop (where the
+   * infrastructure serves the app, and for `NextjsStaticAssets` which key
+   * prefix the objects land under). Exposed so root constructs can check that
+   * the two line up where they have to.
+   */
+  nextConfigBasePath: string;
+  /**
    * Absolute path to the directory prepared for the image optimization Lambda
    * asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`.
    * Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and
@@ -131,6 +144,7 @@ export class NextjsBuild extends Construct {
 
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
+    this.nextConfigBasePath = readNextConfigBasePath(this.dotNextPath);
 
     const standalonePath = join(this.dotNextPath, "standalone");
     const isFunctions =

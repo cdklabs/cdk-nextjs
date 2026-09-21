@@ -23,6 +23,7 @@ import {
 } from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
+import { normalizeBasePath } from "./utils/read-next-config-base-path";
 
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;
@@ -94,7 +95,7 @@ export class NextjsStaticAssets extends Construct {
       deploymentOverrides && "destinationKeyPrefix" in deploymentOverrides
         ? deploymentOverrides.destinationKeyPrefix
         : this.props.basePath;
-    return (prefix ?? "").replace(/^\/+/, "").replace(/\/+$/, "");
+    return normalizeBasePath(prefix);
   }
 
   private createBucket() {

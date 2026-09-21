@@ -23,6 +23,7 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
+import { validateBasePath } from "../utils/validate-base-path";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
@@ -53,7 +54,25 @@ export interface NextjsBaseOverrides {
 
 export interface NextjsBaseProps {
   /**
-   * Prefix to the URI path the app will be served at.
+   * Prefix to the URI path the app will be served at. Also namespaces the
+   * static assets in S3, so it doubles as a way to host multiple apps or
+   * branches out of one bucket.
+   *
+   * How this relates to the `basePath` in your app's `next.config.js` depends
+   * on the construct, and synth fails on a combination that can't serve the
+   * app:
+   *
+   * - `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
+   *   or both be unset. CloudFront serves static assets from S3 using the
+   *   request path as the object key, so a mismatch 404s all of them.
+   * - `NextjsRegionalFunctions`: if you set this, the app must set the same
+   *   value. Leaving it unset while the app sets one is correct and common —
+   *   API Gateway strips the stage before matching resources, so an app served
+   *   at the default `prod` stage sets `basePath: "/prod"` and leaves this
+   *   alone.
+   * - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
+   *   every path to the container, which serves its own static assets, so this
+   *   is unconstrained.
    * @example "/my-base-path"
    */
   readonly basePath?: string;
@@ -154,6 +173,13 @@ export abstract class NextjsBaseConstruct extends Construct {
     this.constructOverrides = this.getConstructOverrides(nextjsType);
 
     this.nextjsBuild = this.createNextjsBuild();
+    // A basePath that doesn't line up with the app's own deploys cleanly and
+    // then 404s static assets, so fail at synth instead.
+    validateBasePath(
+      nextjsType,
+      props.basePath,
+      this.nextjsBuild.nextConfigBasePath,
+    );
     this.nextjsCache = this.createNextjsCache();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
   }
