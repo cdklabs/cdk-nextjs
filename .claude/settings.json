@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "EnterWorktree": [
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "LOG=/tmp/claude-worktree-setup.log; { pnpm install; } > \"$LOG\" 2>&1; STATUS=$?; if [ \"$STATUS\" -eq 0 ]; then echo '{\"systemMessage\": \"Worktree deps installed: pnpm install\"}'; else echo \"{\\\"systemMessage\\\": \\\"Worktree dependency install failed (exit $STATUS) - see $LOG\\\"}\"; fi",
+            "timeout": 600,
+            "statusMessage": "Installing worktree dependencies (pnpm install)..."
+          }
+        ]
+      }
+    ]
+  }
+}
