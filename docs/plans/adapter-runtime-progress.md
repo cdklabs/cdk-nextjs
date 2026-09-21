@@ -57,6 +57,7 @@ up for the duration of this work — do not delete or modify them.
 | 6 — delete `output: "standalone"` + dedicated image function | done |
 | 7 — splitting (`functionGroups`) | done |
 | 8 — tests, docs, breaking-changes | done, with three exit criteria unmet (see step 8 entry) |
+| 9 — PPR: `cacheComponents` migration of `app-playground` + PPR e2e | done (clears exit criterion 1 of step 8's three) |
 
 Exit criteria are tracked in the plan, not duplicated here. Record against them
 in the final entry.
@@ -1161,7 +1162,8 @@ Stated explicitly rather than quietly dropped:
    Getting this criterion needs a decision: migrate `app-playground` off those
    three features, add a separate minimal PPR app and stack, or defer the
    criterion. Consequence of deferring: whether manual resume code is needed
-   stays unsettled.
+   stays unsettled. **Resolved in step 9** — migrated, and no manual resume code
+   is needed.
 2. **Official Next.js test harness on `NextjsRegionalFunctions` — not started.**
    The three `scripts/` executables and the filtered manifest do not exist.
 3. **`healthCheckPath` API question — open.** Still required on all four root
@@ -1179,3 +1181,161 @@ Stated explicitly rather than quietly dropped:
   `dev-rgnl-fns`, `dev-glbl-cntnrs`, `dev-rgnl-cntnrs`, `adptr-rgnl-fns`,
   `split-glbl-fns`. The four `main-*` oracles and the four `pr-267-*` stacks are
   not mine and stay.
+
+## Step 9 — PPR: `cacheComponents` in `app-playground` + a PPR e2e
+
+**Landed**: step 8's first unmet exit criterion. `app-playground` now sets
+`cacheComponents: true` (what Next.js 16.3 folded `experimental.ppr` into) and
+`examples/e2e-tests/src/ppr.test.ts` asserts the behaviour through a real
+deployment. The user chose "migrate `app-playground`" over "add a separate minimal
+PPR app", accepting churn across the existing suites.
+
+**Headline finding: no manual resume chain is needed.** The plan left open whether
+cdk-nextjs would have to drive PPR resumption itself. It does not, and the reason
+is worth writing down because the evidence looks the other way at first.
+
+A PPR route answers with `x-nextjs-postponed: 1`, `cache-control: private,
+no-store` and no `x-nextjs-cache` header. `base-server.js` only resumes from a
+request body when `this.minimalMode && req.headers['next-resume'] === '1' &&
+req.method === 'POST'` — which reads like "the platform must POST the postponed
+state back". That is the *minimal mode* path, the one Vercel uses so the shell can
+be served from the edge. We do not run that path. Our runtime invokes per-route
+entrypoints built from `build/templates/app-page-runtime.js`, where
+`isMinimalMode` comes from `getRequestMeta(req, 'minimalMode')` — request meta
+that `src/runtime/core.ts` never sets. With it false, the template takes its own
+branch: it appends a `TransformStream` to the response, calls `doRender({
+postponed })`, and pipes the second render onto the end of the shell in the same
+invocation. `next start` does exactly the same thing, and a byte-for-byte
+comparison of `next start` against `dev-glbl-fns` was how this got settled.
+
+`x-nextjs-postponed: 1` is set *before* the resume runs (`app-page-runtime.js`,
+`if (didPostpone && !isDynamicRSCRequest)`), so its presence says nothing about
+whether the hole was filled. The only honest assertion is on the body.
+
+**The migration.** Every prerender failure fell into one of the three buckets
+Next.js itself names in the error, and the bucket is decided by *what* is being
+read:
+
+- `[cache]` — a pure data function. `'use cache'` on the `fetch` in
+  `app/api/categories/getCategories.ts` and `app/api/reviews/getReviews.ts`
+  unblocked every non-dynamic layout at once. `notFound()` and the throw to
+  `error.js` stay *outside* the cached function: thrown out of a `'use cache'`
+  scope they would be what gets stored, so one upstream blip would keep serving a
+  404 for the life of the entry.
+- `[stream]` — anything that reads the request. Two sub-cases:
+  - Client URL hooks (`usePathname`, `useSearchParams`,
+    `useSelectedLayoutSegment(s)`) *suspend* under `cacheComponents`. Fixed with
+    the upstream `vercel/next-app-router-playground` idiom: a static component
+    plus a dynamic one, boundary as deep as possible, so the shell still contains
+    every nav link and tab — just none of them highlighted. `ui/global-nav.tsx`,
+    `ui/tab.tsx`, `ui/address-bar.tsx`.
+  - `params` in a dynamic route **without** `generateStaticParams`. `'use cache'`
+    does not legalize this: the shell is prerendered with no params at all, so the
+    read has to be inside a boundary. For a *layout* the directive cannot apply at
+    all, because `children` is not a cacheable value. This is what the two new
+    shared components exist for — `ui/category-tab-group.tsx` and
+    `ui/category-content.tsx` — reused by seven `[categorySlug]` layouts and
+    fourteen pages.
+- `[block]` — `export const instant = false`, used only in
+  `app/streaming/{edge,node}/layout.tsx`, whose whole point is reading the cart
+  cookie before anything can be prerendered.
+
+Route segment config that `cacheComponents` rejects outright
+(`dynamic = 'force-dynamic'`, `dynamicParams`, `revalidate`, per-route
+`experimental_ppr`) is gone. `/runtime-identity` and `/api/runtime-identity` now
+`await connection()` instead of `force-dynamic` — without it Next.js prerenders
+the response and every function reports the same empty identity, which would have
+quietly broken the `function-groups` e2e.
+
+**`cacheLife({ stale })` decides whether a route keeps ISR.** The one change here
+with consequences beyond the example app. `/isr/[id]` first came out as
+`compute: "resuming"` in `prerender-manifest.json`: served `private, no-store`,
+no `x-nextjs-cache`, no `s-maxage` — the `isr` e2e had nothing left to assert and
+CloudFront cached nothing. The cause was `cacheLife({ stale: 10, revalidate: 10,
+expire: 60 })`. `stale` is how long a client may reuse a value without asking
+again, and the prerendered shell is served with its own (`x-nextjs-stale-time:
+300`); a `'use cache'` scope with a *shorter* `stale` than the shell's cannot be
+baked into the shell, so the build postpones it. Narrowed by three builds: with
+`stale: 900` the route is `compute: "static"`, with `stale: 10` it is `resuming`,
+`revalidate` and `expire` make no difference. The fix is `cacheLife({ revalidate:
+10 })` — override only what ISR actually means and inherit the rest. `/isr/1..3`
+are back to `compute: "static"`, `initialRevalidateSeconds: 10`,
+`x-nextjs-cache: STALE`, `cache-control: s-maxage=10`.
+
+Net effect app-wide: of 69 routes, exactly one *concrete* route is not
+`compute: "static"` — `/patterns/search-params`, which reads `searchParams` and
+should not be. Every `[categorySlug]` dynamic route is `resuming` and the two
+`/streaming/*/product/[id]` routes are `blocking`. So the CDN-caching and ISR
+coverage the suite exists for is intact.
+
+**Decisions**
+
+1. **Migrate the app rather than add a PPR-only example.** The user's call. The
+   cost is real — 39 files, and PPR semantics now apply to routes whose tests were
+   written before it — but a separate minimal app would have proven PPR works in a
+   stack nobody else exercises, and a fifth stack costs CI time forever.
+2. **`CategoryTitle` renders one interpolated string, not `{prefix}{name}`.** Two
+   adjacent JSX expressions are two text nodes and React separates them in the
+   HTML with a `<!-- -->` marker, so `All <!-- -->Electronics` is what a body
+   assertion actually sees. This diverges from upstream by one line and is what
+   makes the ppr e2e assertable on bytes; the reason is in a comment above it,
+   because it looks like something to "clean up".
+3. **The ppr e2e asserts on the body, not on `x-nextjs-postponed`.** The header is
+   asserted too, but only as a precondition with a comment saying why it proves
+   nothing on its own. Cost of learning this the other way: several hours chasing
+   a resume gap that did not exist.
+4. **Deep boundaries over `instant = false`.** `instant = false` is one line and
+   would have silenced every failure, at the cost of turning the whole playground
+   into a set of blocking routes — i.e. deleting the thing under test. It appears
+   exactly twice, in the streaming demo.
+
+**Measured**
+
+Build: `npx next build` exits 0. Route table shows `◐ (Partial Prerender)` for the
+`[categorySlug]` routes, `/patterns/search-params`, `/isr/[id]`, `/ssr/[id]`,
+`/ssg/[id]` and both `/streaming/*/product/[id]`; `/isr/1..3` and `/ssg/1..2` are
+`○ (Static)` with 10s / 15m revalidate. `npx tsc --noEmit` clean, prettier clean.
+No `src/` change in this step, so no `pnpm compile` / `pnpm bundle` delta.
+
+e2e, `--workers=1`, all four stacks redeployed from this working tree:
+
+| type | result |
+| --- | --- |
+| `dev-glbl-fns` (with the `api` split) | 35 passed |
+| `dev-glbl-cntnrs` | 32 passed, 3 skipped |
+| `dev-rgnl-cntnrs` | 32 passed, 3 skipped |
+| `dev-rgnl-fns` | 32 passed, 3 skipped (first run: 31 passed, 1 failed — see below) |
+
+The 3 skips are the `function-groups` tests, which need `E2E_FUNCTION_GROUPS`.
+`dev-glbl-fns` is 35 rather than 32 because it is the stack that sets it.
+
+`dev-rgnl-fns` failed `ssr:16` on its first run and passed the full suite twice
+afterwards with no change to the deployment. It is a flake, and here is the
+evidence rather than the conclusion: the failure is the browser reporting the page
+slot empty — `template.tsx`'s `<Boundary>` with no children — while four
+consecutive curls of `/ssr/1` returned byte-identical, complete HTML (38303 bytes,
+post title present), `ssr.test.ts` passed 6/6 in isolation, and the full suite
+then passed 2/2. `isr:122` failed once in the same pattern and has not recurred.
+Both are the eventual-consistency class step 8 already wrote
+`waitForSettledTimestamp` for, reached through a different route.
+
+**Verified vs. assumed**
+
+Verified on AWS: PPR resumption completes on all four deployment types — through
+CloudFront, through API Gateway, and through an ALB — with the request-dependent
+half present in the initial HTML, not fetched later by the client; the shell
+precedes the dynamic part in the byte stream (`/patterns/search-params`, shell at
+offset 11726, dynamic at 14291); a param the build never saw
+(`/layouts/clothing`) resolves against the same shell; ISR survives the migration
+with `x-nextjs-cache: STALE` and `s-maxage=10`.
+
+Assumed still: that `ssr:16` is a flake rather than a PPR regression. The evidence
+above is strong but it is not a root cause.
+
+**Not done**
+
+1. **`ssr:16` / `isr:122` on `dev-rgnl-fns` are not root-caused**, only shown to be
+   non-reproducible. Recorded rather than retried away.
+2. Step 8's other two exit criteria are untouched by this step: the official
+   Next.js test harness on `NextjsRegionalFunctions` (not started) and the
+   `healthCheckPath` API question (open).

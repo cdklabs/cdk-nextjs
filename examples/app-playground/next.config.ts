@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 const rootWorkspace = path.join(fileURLToPath(import.meta.url), '..', '..');
 
 const nextConfig: NextConfig = {
+  // Partial Prerendering. `experimental.ppr` was merged into this in Next.js
+  // 16.3, so this is also what the PPR e2e exercises.
+  cacheComponents: true,
   experimental: {
     turbopackFileSystemCacheForBuild: true,
   },

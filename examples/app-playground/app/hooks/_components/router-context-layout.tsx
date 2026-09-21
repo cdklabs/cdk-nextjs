@@ -5,8 +5,23 @@ import {
   useSelectedLayoutSegment,
   useSelectedLayoutSegments,
 } from 'next/navigation';
+import { Suspense } from 'react';
 
+/**
+ * These hooks read the URL, which a prerender does not have, so with
+ * `cacheComponents` they suspend. The boundary lives here rather than in every
+ * layout that renders this, and renders nothing in the shell - which is what this
+ * component does for an unselected segment anyway.
+ */
 export function LayoutHooks() {
+  return (
+    <Suspense>
+      <SelectedSegments />
+    </Suspense>
+  );
+}
+
+function SelectedSegments() {
   const selectedLayoutSegment = useSelectedLayoutSegment();
   const selectedLayoutSegments = useSelectedLayoutSegments();
 

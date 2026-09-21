@@ -1,37 +1,22 @@
-import { getCategories, getCategory } from '#/app/api/categories/getCategories';
+import {
+  CategoryTabGroup,
+  CategoryTabGroupFallback,
+} from '#/ui/category-tab-group';
 import { ClickCounter } from '#/ui/click-counter';
-import { TabGroup } from '#/ui/tab-group';
+import { Suspense } from 'react';
 
-export default async function Layout(
-  props: {
-    children: React.ReactNode;
-    params: Promise<{ categorySlug: string }>;
-  }
-) {
-  const params = await props.params;
-
-  const {
-    children
-  } = props;
-
-  const category = await getCategory({ slug: params.categorySlug });
-  const categories = await getCategories({ parent: params.categorySlug });
+export default async function Layout(props: {
+  children: React.ReactNode;
+  params: Promise<{ categorySlug: string }>;
+}) {
+  const { children } = props;
 
   return (
     <div className="space-y-9">
       <div className="flex justify-between">
-        <TabGroup
-          path={`/layouts/${category.slug}`}
-          items={[
-            {
-              text: 'All',
-            },
-            ...categories.map((x) => ({
-              text: x.name,
-              slug: x.slug,
-            })),
-          ]}
-        />
+        <Suspense fallback={<CategoryTabGroupFallback />}>
+          <CategoryTabGroup basePath="/layouts" params={props.params} />
+        </Suspense>
 
         <div className="self-start">
           <ClickCounter />

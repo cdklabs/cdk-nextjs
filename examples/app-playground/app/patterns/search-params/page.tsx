@@ -22,10 +22,7 @@ const options = [
   },
 ];
 
-export const dynamic = 'force-dynamic';
-
-export default async function Page(props: { searchParams: Promise<any> }) {
-  const searchParams = await props.searchParams;
+export default function Page(props: { searchParams: Promise<any> }) {
   return (
     <div className="prose prose-sm prose-invert max-w-none">
       <h1 className="text-lg font-bold">
@@ -62,38 +59,9 @@ export default async function Page(props: { searchParams: Promise<any> }) {
               Using <code>&lt;Link&gt;</code>
             </h3>
 
-            <div className="flex items-center gap-6">
-              {options.map((option) => {
-                return (
-                  <div key={option.name}>
-                    <div className="text-gray-400">{option.name}</div>
-
-                    <div className="mt-1 flex gap-2">
-                      {option.items.map((item, i) => {
-                        const isActive =
-                          // set the first item as active if no search param is set
-                          (!searchParams[option.value] && i === 0) ||
-                          // otherwise check if the current item is the active one
-                          item === searchParams[option.value];
-
-                        // create new searchParams object for easier manipulation
-                        const params = new URLSearchParams(searchParams);
-                        params.set(option.value, item);
-                        return (
-                          <ActiveLink
-                            key={item}
-                            isActive={isActive}
-                            searchParams={params.toString()}
-                          >
-                            {item}
-                          </ActiveLink>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <Suspense fallback={<ServerLinksFallback />}>
+              <ServerLinks searchParams={props.searchParams} />
+            </Suspense>
           </Boundary>
 
           <ExternalLink href="https://nextjs.org/docs/app/api-reference/file-conventions/page">
@@ -101,6 +69,78 @@ export default async function Page(props: { searchParams: Promise<any> }) {
           </ExternalLink>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Reading `searchParams` is reading the request, so with `cacheComponents` it has
+ * to sit inside a `<Suspense>` boundary: everything above streams from the
+ * prerendered shell and only this part waits for the request. That is the whole
+ * point of Partial Prerendering, and it replaces the `dynamic = 'force-dynamic'`
+ * this page used to set, which made the entire page wait.
+ */
+async function ServerLinks({
+  searchParams: searchParamsPromise,
+}: {
+  searchParams: Promise<any>;
+}) {
+  const searchParams = await searchParamsPromise;
+  return (
+    <div className="flex items-center gap-6">
+      {options.map((option) => {
+        return (
+          <div key={option.name}>
+            <div className="text-gray-400">{option.name}</div>
+
+            <div className="mt-1 flex gap-2">
+              {option.items.map((item, i) => {
+                const isActive =
+                  // set the first item as active if no search param is set
+                  (!searchParams[option.value] && i === 0) ||
+                  // otherwise check if the current item is the active one
+                  item === searchParams[option.value];
+
+                // create new searchParams object for easier manipulation
+                const params = new URLSearchParams(searchParams);
+                params.set(option.value, item);
+                return (
+                  <ActiveLink
+                    key={item}
+                    isActive={isActive}
+                    searchParams={params.toString()}
+                  >
+                    {item}
+                  </ActiveLink>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The shell the prerender contains in place of the links. */
+function ServerLinksFallback() {
+  return (
+    <div className="flex items-center gap-6">
+      {options.map((option) => (
+        <div key={option.name}>
+          <div className="text-gray-400">{option.name}</div>
+          <div className="mt-1 flex gap-2">
+            {option.items.map((item) => (
+              <div
+                key={item}
+                className="rounded-lg bg-gray-700 px-3 py-1 text-sm text-gray-500"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
