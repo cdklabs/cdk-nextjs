@@ -262,6 +262,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       nextjsType: this.nextjsType,
       imageOptimizationAssetPath: this.nextjsBuild.imageOptimizationAssetPath,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      staticAssetsBasePath: this.baseProps.basePath,
       vpc: this.baseProps.vpc,
       overrides,
       ...this.constructOverrides?.nextjsImageFunctionProps,

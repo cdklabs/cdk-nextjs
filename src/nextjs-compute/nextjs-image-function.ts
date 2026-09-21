@@ -35,6 +35,14 @@ export interface NextjsImageFunctionProps {
    * non-absolute image URLs.
    */
   readonly staticAssetsBucket: IBucket;
+  /**
+   * The `basePath` prop passed to `NextjsStaticAssets`, used to namespace a
+   * shared bucket. Unrelated to the Next.js app's own `basePath` config
+   * (baked into hrefs by next-image-loader): nothing requires the two to
+   * match, so this must be threaded through explicitly rather than read from
+   * the app's bundled config.
+   */
+  readonly staticAssetsBasePath?: string;
   readonly vpc?: IVpc;
   /**
    * Override props of any construct.
@@ -87,6 +95,8 @@ export class NextjsImageFunction extends Construct {
       environment: {
         CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
           this.props.staticAssetsBucket.bucketName,
+        CDK_NEXTJS_STATIC_ASSETS_BASE_PATH:
+          this.props.staticAssetsBasePath ?? "",
         ...this.props.overrides?.functionProps?.environment,
       },
     });

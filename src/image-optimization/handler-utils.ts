@@ -6,24 +6,33 @@ import { getExtension } from "next/dist/server/serve-static.js";
 /**
  * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
  *
- * `NextjsStaticAssets` uploads under `basePath` as a key prefix, so every key
- * includes it. `url` is inconsistent: next-image-loader bakes `basePath` into
- * the href for statically imported images, while plain string paths are passed
- * through as literally written by the app. So the prefix is normalized to
- * exactly one occurrence rather than simply added or removed.
+ * `url` is inconsistent: next-image-loader bakes the Next.js app's own
+ * `basePath` into the href for statically imported images, while plain
+ * string paths are passed through as literally written by the app. `nextBasePath`
+ * (read from the bundled Next.js config) strips that baked-in prefix if
+ * present. `staticAssetsBasePath` (the unrelated CDK `NextjsStaticAssets`
+ * `basePath` prop, used to namespace a shared bucket) is then applied as the
+ * S3 key prefix. The two must be handled separately: nothing requires them to
+ * be the same value, e.g. a deployment may set the Next.js app's `basePath`
+ * to match an API Gateway stage without setting the CDK prop.
  */
 export async function fetchFromS3(
   s3: S3Client,
   bucket: string,
   url: string,
-  basePath: string,
+  nextBasePath: string,
+  staticAssetsBasePath: string = "",
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
   // Matching on a path boundary keeps a sibling like "/basement/logo.png"
-  // from being treated as basePath "/base" plus "ment/logo.png".
-  const hasBasePath =
-    !!basePath && (url === basePath || url.startsWith(`${basePath}/`));
-  const withoutBasePath = hasBasePath ? url.slice(basePath.length) : url;
-  const key = `${basePath}${withoutBasePath}`.replace(/^\//, "");
+  // from being treated as nextBasePath "/base" plus "ment/logo.png".
+  const hasNextBasePath =
+    !!nextBasePath &&
+    (url === nextBasePath || url.startsWith(`${nextBasePath}/`));
+  const withoutNextBasePath = hasNextBasePath
+    ? url.slice(nextBasePath.length)
+    : url;
+  const keyPrefix = staticAssetsBasePath.replace(/^\//, "");
+  const key = `${keyPrefix}${withoutNextBasePath}`.replace(/^\//, "");
 
   const response = await s3.send(
     new GetObjectCommand({

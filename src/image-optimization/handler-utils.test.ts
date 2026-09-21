@@ -63,6 +63,7 @@ describe("fetchFromS3", () => {
       "my-bucket",
       "/base/_next/static/media/a.png",
       "/base",
+      "/base",
     );
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
@@ -79,7 +80,7 @@ describe("fetchFromS3", () => {
     // Plain string paths (e.g. `<Image src="/static/foo.jpg">`) are passed
     // through by next/image as written, without basePath baked in, but the
     // S3 key still has it.
-    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", "/base");
+    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", "/base", "/base");
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
     expect(params.Key).toBe("base/static/foo.jpg");
@@ -94,10 +95,52 @@ describe("fetchFromS3", () => {
 
     // "/basement" merely shares a prefix with basePath "/base"; treating it
     // as a match would produce the key "base/ment/logo.png".
-    await fetchFromS3(s3, "my-bucket", "/basement/logo.png", "/base");
+    await fetchFromS3(s3, "my-bucket", "/basement/logo.png", "/base", "/base");
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
     expect(params.Key).toBe("base/basement/logo.png");
+  });
+
+  // regression test: the Next.js app's own `basePath` (e.g. set to match an
+  // API Gateway stage) and the CDK `NextjsStaticAssets` `basePath` prop (key
+  // namespacing) are unrelated and don't have to match. A deployment that
+  // only sets the former must not leak it into the S3 key.
+  it("doesn't apply nextBasePath as a key prefix when staticAssetsBasePath differs", async () => {
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("data")]),
+      ContentType: "image/png",
+      ETag: '"abc123"',
+    });
+
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/static/nextjs-icon-light-background.png",
+      "/prod",
+      "",
+    );
+
+    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
+    expect(params.Key).toBe("static/nextjs-icon-light-background.png");
+  });
+
+  it("strips nextBasePath from a baked-in href before applying a different staticAssetsBasePath", async () => {
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("data")]),
+      ContentType: "image/png",
+      ETag: '"abc123"',
+    });
+
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/prod/_next/static/media/imported-logo.png",
+      "/prod",
+      "",
+    );
+
+    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
+    expect(params.Key).toBe("_next/static/media/imported-logo.png");
   });
 
   it("returns the concatenated buffer, content type, and etag", async () => {

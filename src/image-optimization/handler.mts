@@ -26,6 +26,11 @@ const s3 = new S3Client({});
 
 const STATIC_ASSETS_BUCKET =
   process.env.CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME || "";
+// The CDK `NextjsStaticAssets` `basePath` prop (namespaces a shared bucket),
+// distinct from the Next.js app's own `basePath` below: nothing requires the
+// two to match.
+const STATIC_ASSETS_BASE_PATH =
+  process.env.CDK_NEXTJS_STATIC_ASSETS_BASE_PATH || "";
 
 interface RequiredServerFiles {
   config: NextConfigComplete;
@@ -112,6 +117,7 @@ export const handler = awslambda.streamifyResponse(
             STATIC_ASSETS_BUCKET,
             href,
             nextConfig.basePath,
+            STATIC_ASSETS_BASE_PATH,
           ).then((result) => ({
             buffer: result.buffer,
             contentType: result.contentType,
