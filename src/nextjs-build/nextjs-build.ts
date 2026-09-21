@@ -6,6 +6,7 @@ import {
   readdirSync,
   writeFileSync,
   rmSync,
+  unlinkSync,
   mkdirSync,
   cpSync,
   renameSync,
@@ -449,30 +450,44 @@ export class NextjsBuild extends Construct {
         withFileTypes: true,
       });
 
-      const sharpBinaryPaths: string[] = [];
+      // Symlinks are unlinked, not `rmSync`ed, and they go first. pnpm points
+      // several links at one store directory, and `rmSync(…, { recursive: true,
+      // force: true })` *silently no-ops* on a symlink whose target is already
+      // gone — `force` swallows the ENOENT its `rmdir` gets. Removing a store
+      // directory before its links therefore left dangling
+      // `@img/sharp-darwin-arm64` entries in the asset, which is a latent ENOENT
+      // in whatever next dereferences the tree (`cdk-assets` does, when it zips).
+      const symlinks: string[] = [];
+      const directories: string[] = [];
 
       for (const entry of allEntries) {
-        // Check for both directories and symlinks (pnpm creates symlinks)
-        if (entry.isDirectory() || entry.isSymbolicLink()) {
-          // Match Sharp binary packages with more comprehensive patterns
-          const isSharpBinary =
-            entry.name.includes("sharp-") ||
-            entry.name.includes("sharp-libvips");
-
-          if (isSharpBinary) {
-            // For recursive readdirSync, parentPath contains the full absolute path
-            const fullPath = join(entry.parentPath, entry.name);
-            sharpBinaryPaths.push(fullPath);
-          }
+        // `sharp-libvips-<platform>` is covered by `sharp-`; the store keys
+        // (`@img+sharp-darwin-arm64@0.35.4`) match on the same substring.
+        if (!entry.name.includes("sharp-")) continue;
+        // For recursive readdirSync, parentPath contains the full absolute path
+        const fullPath = join(entry.parentPath, entry.name);
+        if (entry.isSymbolicLink()) {
+          symlinks.push(fullPath);
+        } else if (entry.isDirectory()) {
+          directories.push(fullPath);
         }
       }
 
       debug(
-        `${LOG_PREFIX} Found ${sharpBinaryPaths.length} Sharp binary directories/symlinks to remove`,
+        `${LOG_PREFIX} Removing ${symlinks.length} Sharp binary symlinks and ${directories.length} directories`,
       );
 
-      // Remove all found Sharp binary directories and symlinks
-      for (const path of sharpBinaryPaths) {
+      for (const path of symlinks) {
+        try {
+          unlinkSync(path);
+          debug(`${LOG_PREFIX} Unlinked: ${path}`);
+        } catch (error) {
+          console.warn(
+            `${LOG_PREFIX} Warning: Could not unlink ${path}: ${error}`,
+          );
+        }
+      }
+      for (const path of directories) {
         try {
           rmSync(path, { recursive: true, force: true });
           debug(`${LOG_PREFIX} Removed: ${path}`);
