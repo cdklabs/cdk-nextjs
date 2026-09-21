@@ -216,11 +216,20 @@ export class NextjsApi extends Construct {
       options: {
         credentialsRole: this.staticIntegrationRole,
         passthroughBehavior: PassthroughBehavior.WHEN_NO_TEMPLATES, // recommended
-        requestParameters: key.includes("{key}")
-          ? {
-              "integration.request.path.key": "method.request.path.proxy",
-            }
-          : undefined,
+        requestParameters: {
+          // Without this S3 never sees the conditional request, so every
+          // revalidation of an immutable `_next/static` chunk re-downloads it
+          // with a 200 instead of getting a 304.
+          "integration.request.header.If-None-Match":
+            "method.request.header.If-None-Match",
+          "integration.request.header.If-Modified-Since":
+            "method.request.header.If-Modified-Since",
+          ...(key.includes("{key}")
+            ? {
+                "integration.request.path.key": "method.request.path.proxy",
+              }
+            : {}),
+        },
         integrationResponses: [
           {
             statusCode: "200",
@@ -229,6 +238,19 @@ export class NextjsApi extends Construct {
                 "integration.response.header.Content-Type",
               "method.response.header.Content-Length":
                 "integration.response.header.Content-Length",
+              "method.response.header.Cache-Control":
+                "integration.response.header.Cache-Control",
+              "method.response.header.ETag": "integration.response.header.ETag",
+              "method.response.header.Last-Modified":
+                "integration.response.header.Last-Modified",
+            },
+          },
+          {
+            // A 304 carries no body, and `ETag` is the header a client needs
+            // back to keep revalidating.
+            statusCode: "304",
+            selectionPattern: "304",
+            responseParameters: {
               "method.response.header.Cache-Control":
                 "integration.response.header.Cache-Control",
               "method.response.header.ETag": "integration.response.header.ETag",
@@ -249,17 +271,27 @@ export class NextjsApi extends Construct {
 
   private getStaticMethodOptions({ proxy } = { proxy: false }): MethodOptions {
     return {
-      requestParameters: proxy
-        ? {
-            "method.request.path.proxy": true,
-          }
-        : undefined,
+      requestParameters: {
+        // Declared optional (`false`): a plain GET carries neither, and
+        // requiring them would 400 it.
+        "method.request.header.If-None-Match": false,
+        "method.request.header.If-Modified-Since": false,
+        ...(proxy ? { "method.request.path.proxy": true } : {}),
+      },
       methodResponses: [
         {
           statusCode: "200",
           responseParameters: {
             "method.response.header.Content-Type": true,
             "method.response.header.Content-Length": true,
+            "method.response.header.Cache-Control": true,
+            "method.response.header.ETag": true,
+            "method.response.header.Last-Modified": true,
+          },
+        },
+        {
+          statusCode: "304",
+          responseParameters: {
             "method.response.header.Cache-Control": true,
             "method.response.header.ETag": true,
             "method.response.header.Last-Modified": true,
