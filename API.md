@@ -3043,9 +3043,11 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
-  or both be unset. CloudFront serves static assets from S3 using the
-  request path as the object key, so a mismatch 404s all of them.
+- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+  follows your app's `basePath`, which is what you want — CloudFront serves
+  static assets from S3 using the request path as the object key, so the two
+  have to be identical and a mismatch 404s all of them. Setting a different
+  value throws.
 - `NextjsRegionalFunctions`: if you set this, the app must set the same
   value. Leaving it unset while the app sets one is correct and common —
   API Gateway strips the stage before matching resources, so an app served
@@ -3298,9 +3300,11 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
-  or both be unset. CloudFront serves static assets from S3 using the
-  request path as the object key, so a mismatch 404s all of them.
+- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+  follows your app's `basePath`, which is what you want — CloudFront serves
+  static assets from S3 using the request path as the object key, so the two
+  have to be identical and a mismatch 404s all of them. Setting a different
+  value throws.
 - `NextjsRegionalFunctions`: if you set this, the app must set the same
   value. Leaving it unset while the app sets one is correct and common —
   API Gateway strips the stage before matching resources, so an app served
@@ -4767,9 +4771,11 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
-  or both be unset. CloudFront serves static assets from S3 using the
-  request path as the object key, so a mismatch 404s all of them.
+- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+  follows your app's `basePath`, which is what you want — CloudFront serves
+  static assets from S3 using the request path as the object key, so the two
+  have to be identical and a mismatch 404s all of them. Setting a different
+  value throws.
 - `NextjsRegionalFunctions`: if you set this, the app must set the same
   value. Leaving it unset while the app sets one is correct and common —
   API Gateway strips the stage before matching resources, so an app served
@@ -5226,9 +5232,11 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
-  or both be unset. CloudFront serves static assets from S3 using the
-  request path as the object key, so a mismatch 404s all of them.
+- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+  follows your app's `basePath`, which is what you want — CloudFront serves
+  static assets from S3 using the request path as the object key, so the two
+  have to be identical and a mismatch 404s all of them. Setting a different
+  value throws.
 - `NextjsRegionalFunctions`: if you set this, the app must set the same
   value. Leaving it unset while the app sets one is correct and common —
   API Gateway strips the stage before matching resources, so an app served
@@ -5913,9 +5921,11 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
-  or both be unset. CloudFront serves static assets from S3 using the
-  request path as the object key, so a mismatch 404s all of them.
+- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+  follows your app's `basePath`, which is what you want — CloudFront serves
+  static assets from S3 using the request path as the object key, so the two
+  have to be identical and a mismatch 404s all of them. Setting a different
+  value throws.
 - `NextjsRegionalFunctions`: if you set this, the app must set the same
   value. Leaving it unset while the app sets one is correct and common —
   API Gateway strips the stage before matching resources, so an app served
@@ -6356,9 +6366,11 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: must equal the app's,
-  or both be unset. CloudFront serves static assets from S3 using the
-  request path as the object key, so a mismatch 404s all of them.
+- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+  follows your app's `basePath`, which is what you want — CloudFront serves
+  static assets from S3 using the request path as the object key, so the two
+  have to be identical and a mismatch 404s all of them. Setting a different
+  value throws.
 - `NextjsRegionalFunctions`: if you set this, the app must set the same
   value. Leaving it unset while the app sets one is correct and common —
   API Gateway strips the stage before matching resources, so an app served
