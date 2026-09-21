@@ -15,24 +15,28 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { S3Client } from "@aws-sdk/client-s3";
-import {
-  getNextConfigRuntime,
-  type NextConfigComplete,
-} from "next/dist/server/config-shared.js";
-import {
-  ImageOptimizerCache,
-  fetchExternalImage,
-  imageOptimizer,
-} from "next/dist/server/image-optimizer.js";
-import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
+import type { NextConfigComplete } from "next/dist/server/config-shared.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { ShimServerResponse } from "./http/response";
 import { AdapterManifest } from "./manifest";
+import { nextModule } from "./next-modules";
 import {
   fetchFromS3,
   getFileNameWithExtension,
   resolveErrorResponse,
 } from "../image-optimization/handler-utils";
+
+/**
+ * Required through {@link nextModule} rather than imported, because `next` is
+ * external to the shell bundles and does not resolve from where they sit. Every
+ * type here is still the real one: `typeof import(...)` is erased.
+ */
+interface NextImageModules {
+  readonly configShared: typeof import("next/dist/server/config-shared.js");
+  readonly imageConfig: typeof import("next/dist/shared/lib/image-config.js");
+  readonly optimizer: typeof import("next/dist/server/image-optimizer.js");
+  readonly serveStatic: typeof import("next/dist/server/serve-static.js");
+}
 
 export interface ImageOptimizerOptions {
   readonly deploymentRoot: string;
@@ -48,7 +52,7 @@ interface RequiredServerFiles {
 
 export class RuntimeImageOptimizer {
   private readonly s3 = new S3Client({});
-  private config?: ReturnType<typeof resolveImageConfig>;
+  private loaded?: ReturnType<typeof loadImageRuntime>;
 
   public constructor(private readonly options: ImageOptimizerOptions) {}
 
@@ -58,9 +62,16 @@ export class RuntimeImageOptimizer {
     url: URL,
   ): Promise<void> {
     // Resolved on the first image request rather than at cold start: an app with
-    // no `<Image>` should not pay to parse `required-server-files.json`.
-    this.config ??= resolveImageConfig(this.options);
-    const { nextConfig, imagesConfig } = this.config;
+    // no `<Image>` should pay neither the `next` module loads nor the
+    // `required-server-files.json` parse.
+    this.loaded ??= loadImageRuntime(this.options);
+    const { next, nextConfig, imagesConfig } = this.loaded;
+    const {
+      ImageError,
+      ImageOptimizerCache,
+      fetchExternalImage,
+      imageOptimizer,
+    } = next.optimizer;
 
     try {
       const params = ImageOptimizerCache.validateParams(
@@ -137,7 +148,11 @@ export class RuntimeImageOptimizer {
         return;
       }
 
-      const fileName = getFileNameWithExtension(href, contentType);
+      const fileName = getFileNameWithExtension(
+        href,
+        contentType,
+        next.serveStatic.getExtension,
+      );
       res.statusCode = 200;
       res.setHeader("Content-Type", contentType);
       res.setHeader("Vary", "Accept");
@@ -154,7 +169,7 @@ export class RuntimeImageOptimizer {
       }
       res.end(buffer);
     } catch (error) {
-      const { statusCode, message } = resolveErrorResponse(error);
+      const { statusCode, message } = resolveErrorResponse(error, ImageError);
       if (statusCode >= 500) {
         console.error("Image optimization failed:", error);
       }
@@ -179,10 +194,13 @@ function sendText(
  * objects, and mirroring those into the manifest would be a second definition of
  * the same thing that silently goes stale on a `next` minor.
  */
-function resolveImageConfig({
-  deploymentRoot,
-  manifest,
-}: ImageOptimizerOptions) {
+function loadImageRuntime({ deploymentRoot, manifest }: ImageOptimizerOptions) {
+  const next: NextImageModules = {
+    configShared: nextModule("next/dist/server/config-shared.js"),
+    imageConfig: nextModule("next/dist/shared/lib/image-config.js"),
+    optimizer: nextModule("next/dist/server/image-optimizer.js"),
+    serveStatic: nextModule("next/dist/server/serve-static.js"),
+  };
   const path = join(
     deploymentRoot,
     manifest.relativeProjectDir,
@@ -190,9 +208,13 @@ function resolveImageConfig({
     "required-server-files.json",
   );
   const required: RequiredServerFiles = JSON.parse(readFileSync(path, "utf-8"));
-  const nextConfig = getNextConfigRuntime(required.config);
+  const nextConfig = next.configShared.getNextConfigRuntime(required.config);
   return {
+    next,
     nextConfig,
-    imagesConfig: { ...imageConfigDefault, ...nextConfig.images },
+    imagesConfig: {
+      ...next.imageConfig.imageConfigDefault,
+      ...nextConfig.images,
+    },
   };
 }

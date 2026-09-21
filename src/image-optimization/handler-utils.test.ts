@@ -3,6 +3,7 @@ jest.mock("@aws-sdk/client-s3");
 
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ImageError } from "next/dist/server/image-optimizer.js";
+import { getExtension } from "next/dist/server/serve-static.js";
 import {
   fetchFromS3,
   getFileNameWithExtension,
@@ -139,16 +140,24 @@ describe("fetchFromS3", () => {
 describe("getFileNameWithExtension", () => {
   it("derives filename and extension from the url and content type", () => {
     expect(
-      getFileNameWithExtension("/foo/bar.png?w=100&q=75", "image/webp"),
+      getFileNameWithExtension(
+        "/foo/bar.png?w=100&q=75",
+        "image/webp",
+        getExtension,
+      ),
     ).toBe("bar.webp");
   });
 
   it("falls back to image.bin when contentType is missing", () => {
-    expect(getFileNameWithExtension("/foo/bar.png", null)).toBe("image.bin");
+    expect(getFileNameWithExtension("/foo/bar.png", null, getExtension)).toBe(
+      "image.bin",
+    );
   });
 
   it("falls back to image.bin when the url has no filename segment", () => {
-    expect(getFileNameWithExtension("/", "image/png")).toBe("image.bin");
+    expect(getFileNameWithExtension("/", "image/png", getExtension)).toBe(
+      "image.bin",
+    );
   });
 });
 
@@ -156,7 +165,7 @@ describe("resolveErrorResponse", () => {
   it("preserves the status code and message from an ImageError", () => {
     const error = new ImageError(400, '"url" parameter is not allowed');
 
-    expect(resolveErrorResponse(error)).toEqual({
+    expect(resolveErrorResponse(error, ImageError)).toEqual({
       statusCode: 400,
       message: '"url" parameter is not allowed',
     });
@@ -166,18 +175,18 @@ describe("resolveErrorResponse", () => {
     const error = new Error("NoSuchKey: does not exist");
     error.name = "NoSuchKey";
 
-    expect(resolveErrorResponse(error)).toEqual({
+    expect(resolveErrorResponse(error, ImageError)).toEqual({
       statusCode: 400,
       message: "The requested resource isn't a valid image.",
     });
   });
 
   it("falls back to 500 for unrecognized errors", () => {
-    expect(resolveErrorResponse(new Error("boom"))).toEqual({
+    expect(resolveErrorResponse(new Error("boom"), ImageError)).toEqual({
       statusCode: 500,
       message: "Internal Server Error",
     });
-    expect(resolveErrorResponse("not an error")).toEqual({
+    expect(resolveErrorResponse("not an error", ImageError)).toEqual({
       statusCode: 500,
       message: "Internal Server Error",
     });

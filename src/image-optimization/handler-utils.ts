@@ -1,7 +1,14 @@
 /* eslint-disable import/no-extraneous-dependencies */
+/**
+ * Shared by the dedicated image optimization Lambda
+ * (`src/image-optimization/handler.mts`, which bundles `next` in) and the runtime
+ * core's in-process image route (`src/runtime/image.ts`, which resolves `next`
+ * from the deployed app — see `src/runtime/next-modules.ts`). Because those two
+ * get at `next` in incompatible ways, the two values from `next` that this file
+ * needs are passed in rather than imported: a static `import` here would be
+ * hoisted into the shell bundle, where it cannot resolve.
+ */
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { ImageError } from "next/dist/server/image-optimizer.js";
-import { getExtension } from "next/dist/server/serve-static.js";
 
 /**
  * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
@@ -49,10 +56,19 @@ export async function fetchFromS3(
   };
 }
 
+/** `getExtension` from `next/dist/server/serve-static.js`. */
+export type GetExtension =
+  (typeof import("next/dist/server/serve-static.js"))["getExtension"];
+
+/** `ImageError` from `next/dist/server/image-optimizer.js`. */
+export type ImageErrorClass =
+  (typeof import("next/dist/server/image-optimizer.js"))["ImageError"];
+
 /** Mirrors Next.js's own `getFileNameWithExtension` in image-optimizer.js. */
 export function getFileNameWithExtension(
   url: string,
   contentType: string | null,
+  getExtension: GetExtension,
 ): string {
   const [urlWithoutQueryParams] = url.split("?", 1);
   const fileNameWithExtension = urlWithoutQueryParams.split("/").pop();
@@ -75,7 +91,10 @@ export function getFileNameWithExtension(
  * bytes. This mirrors that behavior instead of surfacing a 404, so Functions
  * and Containers deployments respond identically for this case.
  */
-export function resolveErrorResponse(error: unknown): {
+export function resolveErrorResponse(
+  error: unknown,
+  ImageError: ImageErrorClass,
+): {
   statusCode: number;
   message: string;
 } {

@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -132,6 +133,15 @@ function stageDeployment(middlewareSource = MIDDLEWARE_STUB): string {
   write(
     join(root, manifest.relativeProjectDir, ".next/required-server-files.json"),
     JSON.stringify({ version: 1, config: {} }),
+  );
+  // A deployed tree carries the `next` closure `next build` traced, under the
+  // *project* dir rather than next to the runtime shell — which is the whole
+  // reason `next-modules.ts` exists. Linking this repo's own `node_modules` in
+  // reproduces that, so `serveStatic` here resolves by the same walk it does in
+  // Lambda instead of the test quietly exercising a different lookup.
+  symlinkSync(
+    join(__dirname, "../../node_modules"),
+    join(root, manifest.relativeProjectDir, "node_modules"),
   );
 
   for (const entrypoint of Object.values(manifest.entrypoints)) {

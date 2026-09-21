@@ -1,4 +1,3 @@
-/* eslint-disable import/no-extraneous-dependencies */
 /**
  * Serving the static files that nothing in front of the compute answers.
  *
@@ -15,9 +14,15 @@
  * disagreeing with `next start` on a 304.
  */
 import { join } from "node:path";
-import { serveStatic } from "next/dist/server/serve-static.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
+import { nextModule } from "./next-modules";
+
+const SERVE_STATIC = "next/dist/server/serve-static.js";
+type ServeStaticModule = typeof import("next/dist/server/serve-static.js");
+
+/** Resolved on the first static-file request; see {@link nextModule}. */
+let serveStaticModule: ServeStaticModule | undefined;
 
 /**
  * Returns `false` when the file is not in the deployment package, which is the
@@ -34,6 +39,8 @@ export async function serveStaticFile(
   deploymentRoot: string,
   filePath: string,
 ): Promise<boolean> {
+  serveStaticModule ??= nextModule<ServeStaticModule>(SERVE_STATIC);
+  const { serveStatic } = serveStaticModule;
   try {
     await serveStatic(
       req as unknown as Parameters<typeof serveStatic>[0],

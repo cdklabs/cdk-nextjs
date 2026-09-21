@@ -4,10 +4,12 @@ import type { IncomingMessage } from "node:http";
 import type { APIGatewayProxyEvent, LambdaFunctionURLEvent } from "aws-lambda";
 import { S3Client } from "@aws-sdk/client-s3";
 import {
+  ImageError,
   ImageOptimizerCache,
   imageOptimizer,
   fetchExternalImage,
 } from "next/dist/server/image-optimizer.js";
+import { getExtension } from "next/dist/server/serve-static.js";
 import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
 import {
   getNextConfigRuntime,
@@ -171,7 +173,11 @@ export const handler = awslambda.streamifyResponse(
         return;
       }
 
-      const fileName = getFileNameWithExtension(href, optimizedContentType);
+      const fileName = getFileNameWithExtension(
+        href,
+        optimizedContentType,
+        getExtension,
+      );
       const stream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 200,
         headers: {
@@ -187,7 +193,7 @@ export const handler = awslambda.streamifyResponse(
       stream.end();
     } catch (error) {
       debug("Error processing image:", error);
-      const { statusCode, message } = resolveErrorResponse(error);
+      const { statusCode, message } = resolveErrorResponse(error, ImageError);
       const stream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode,
         headers: { "Content-Type": "text/plain" },

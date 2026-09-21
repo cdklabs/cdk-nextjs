@@ -36,6 +36,7 @@ import {
   MANIFEST_FILE_NAME,
 } from "./manifest";
 import { createMiddlewareRunner, MiddlewareRunner } from "./middleware";
+import { useNextFrom } from "./next-modules";
 import { serveStaticFile } from "./static-files";
 
 /** One request, normalized by a shell. */
@@ -368,6 +369,9 @@ export async function loadRuntime(
     );
   }
   process.chdir(projectDir);
+  // Before anything can serve a request: the runtime's own `next` imports resolve
+  // out of the staged app, not out of the shell's directory. See `next-modules.ts`.
+  useNextFrom(projectDir);
 
   return new NextjsRuntime({
     deploymentRoot,
