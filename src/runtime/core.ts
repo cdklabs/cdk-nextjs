@@ -274,7 +274,18 @@ export class NextjsRuntime {
 
       case "not-found":
         req.headers = toIncomingHttpHeaders(result.requestHeaders);
-        await this.sendNotFound(req, res, waitUntil, result.notFound);
+        // Rendered as the path that was asked for, not as `/_not-found`: the
+        // App Router serializes the canonical URL into the RSC payload, so a
+        // client hydrated off a `/_not-found` payload reports the wrong
+        // `usePathname()` and pushes the wrong history entry. `next start`
+        // renders the not-found module against the original URL too.
+        await this.sendNotFound(
+          req,
+          res,
+          waitUntil,
+          result.notFound,
+          `${result.pathname}${url.search}`,
+        );
         return;
     }
   }
@@ -289,12 +300,18 @@ export class NextjsRuntime {
     res: ShimServerResponse,
     waitUntil: (promise: Promise<unknown>) => void,
     target: NotFoundTarget,
+    /**
+     * What to render the 404 as. Omitted by `render404`, which is called
+     * mid-render with `req.url` already pointing at the route that gave up —
+     * the path Next.js would render that 404 for.
+     */
+    requestedUrl?: string,
   ): Promise<void> {
     res.statusCode = 404;
 
     if (target.kind === "entrypoint") {
       const handler = await this.entrypoints.load(target.entrypoint);
-      req.url = target.pathname;
+      req.url = requestedUrl ?? req.url;
       await handler(req, asServerResponse(res), { waitUntil });
       if (!res.writableEnded) {
         res.end();

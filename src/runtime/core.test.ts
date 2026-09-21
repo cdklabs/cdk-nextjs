@@ -33,8 +33,10 @@ exports.handler = async (req, res, ctx) => {
   if (url.searchParams.has("boom")) {
     throw new Error("route exploded");
   }
-  if (url.searchParams.has("render404")) {
-    // What both routers do for \`notFound()\` they cannot render themselves.
+  // What both routers do for \`notFound()\` they cannot render themselves. Only
+  // the route that gave up does it: the runtime renders the 404 against the
+  // *same* URL, so the not-found module reaching here again would recurse.
+  if (url.searchParams.has("render404") && !__filename.includes("_not-found")) {
     await ctx.requestMeta.render404();
     return;
   }
@@ -269,17 +271,22 @@ describe("NextjsRuntime.handle", () => {
   });
 
   it("answers an unknown path through the /_not-found entrypoint", async () => {
-    const sink = await send({ url: "/nope" });
+    const sink = await send({ url: "/nope?q=1" });
     expect(sink.head?.statusCode).toBe(404);
     expect(stubBody(sink).file).toBe(
       join(root, "app-playground/.next/server/app/_not-found/page.js"),
     );
+    // The requested path, not `/_not-found`: the App Router puts this in the RSC
+    // payload as the canonical URL, so rendering the module against its own
+    // pathname would hand the client the wrong `usePathname()` and history entry.
+    expect(stubBody(sink).url).toBe("/nope?q=1");
   });
 
   it("renders the 404 page when a route calls requestMeta.render404()", async () => {
     const sink = await send({ url: "/?render404=1" });
     expect(sink.head?.statusCode).toBe(404);
-    expect(stubBody(sink).url).toBe("/_not-found");
+    // Whatever the route that gave up was rendering, for the same reason.
+    expect(stubBody(sink).url).toBe("/?render404=1");
   });
 
   it("redirects a trailing slash, with the Refresh fallback for a 308", async () => {
