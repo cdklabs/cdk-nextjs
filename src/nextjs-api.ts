@@ -94,6 +94,41 @@ export class NextjsApi extends Construct {
    */
   public readonly api: RestApi;
 
+  /**
+   * Public URL of the app. Prefers a custom domain configured through
+   * `overrides.restApiProps.domainName` over the execute-api endpoint, and
+   * includes whatever path segments the API nests the app under: the deployment
+   * stage on execute-api (a custom domain reaches the stage through a base path
+   * mapping instead, so the stage name isn't in the path there), a base path
+   * mapping when one is configured, and `basePath`.
+   *
+   * A domain attached after this construct is created (`api.addDomainName()`) is
+   * still used for the host, but CDK keeps its base path mappings private, so a
+   * mapping added that way won't show up here.
+   */
+  get url(): string {
+    const customDomain = this.api.domainName;
+    const segments: string[] = [];
+    let origin: string;
+    if (customDomain) {
+      origin = `https://${customDomain.domainName}`;
+      const mapping = normalizeBasePath(
+        this.props.overrides?.restApiProps?.domainName?.basePath,
+      );
+      if (mapping) {
+        segments.push(mapping);
+      }
+    } else {
+      origin = `https://${this.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com`;
+      segments.push(this.api.deploymentStage.stageName);
+    }
+    const basePath = normalizeBasePath(this.props.basePath);
+    if (basePath) {
+      segments.push(basePath);
+    }
+    return [origin, ...segments].join("/");
+  }
+
   private readonly baseResource: IResource;
   private readonly nextResource: IResource;
   private readonly props: NextjsApiProps;

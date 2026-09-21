@@ -1,4 +1,3 @@
-import { Stack } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import { NextjsApi, NextjsApiOverrides, NextjsApiProps } from "../nextjs-api";
@@ -63,7 +62,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsApi: NextjsApi;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
-    return `https://${this.nextjsApi.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com/${this.nextjsApi.api.deploymentStage.stageName}`;
+    return this.nextjsApi.url;
   }
 
   private props: NextjsRegionalFunctionsProps;

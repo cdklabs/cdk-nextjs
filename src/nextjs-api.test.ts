@@ -1,13 +1,14 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { App, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   Code,
   Function as LambdaFunction,
   Runtime,
 } from "aws-cdk-lib/aws-lambda";
 import { Bucket } from "aws-cdk-lib/aws-s3";
-import { NextjsApi } from "./nextjs-api";
+import { NextjsApi, NextjsApiProps } from "./nextjs-api";
 
 describe("NextjsApi", () => {
   let stack: Stack;
@@ -98,5 +99,96 @@ describe("NextjsApi", () => {
       "AWS::ApiGateway::Resource",
       { PathPart: "prod" },
     );
+  });
+
+  describe("url", () => {
+    function createApiWithOverrides(
+      props: Partial<NextjsApiProps> = {},
+    ): NextjsApi {
+      return new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+        ...props,
+      });
+    }
+
+    function domainName(basePath?: string) {
+      return {
+        domainName: "app.example.com",
+        certificate: Certificate.fromCertificateArn(
+          stack,
+          "Cert",
+          "arn:aws:acm:us-east-1:123456789012:certificate/abc",
+        ),
+        basePath,
+      };
+    }
+
+    /**
+     * The REST API id, the stage name and the domain name are all tokens that
+     * only resolve at deploy time, so flatten the resolved `Fn::Join` and stand
+     * each reference in for the resource it points at (minus CDK's logical id
+     * hash suffix). That keeps the assertions about *which* resource supplies
+     * each part of the URL, which is the whole question here.
+     */
+    function resolveUrl(api: NextjsApi): string {
+      const resolved = stack.resolve(api.url);
+      if (typeof resolved === "string") {
+        return resolved;
+      }
+      return resolved["Fn::Join"][1]
+        .map((part: unknown) =>
+          typeof part === "string"
+            ? part
+            : `{${(part as { Ref: string }).Ref.replace(/[0-9A-F]{8}$/, "")}}`,
+        )
+        .join("");
+    }
+
+    it("reports the execute-api endpoint with the stage appended when there's no custom domain", () => {
+      // The stage is in the path only here, which is the whole reason the
+      // regional-functions example sets an app basePath of "/prod".
+      expect(resolveUrl(createApiWithOverrides())).toBe(
+        "https://{NextjsApiRestApi}.execute-api.us-east-1.amazonaws.com/{NextjsApiRestApiDeploymentStageprod}",
+      );
+    });
+
+    it("appends basePath, which nests every resource a level down", () => {
+      expect(
+        resolveUrl(createApiWithOverrides({ basePath: "/my-base-path" })),
+      ).toBe(
+        "https://{NextjsApiRestApi}.execute-api.us-east-1.amazonaws.com/{NextjsApiRestApiDeploymentStageprod}/my-base-path",
+      );
+    });
+
+    it("prefers a custom domain and drops the stage from the path", () => {
+      // A domain mapped at the root is the cleanest Regional setup: no stage in
+      // the URL means no basePath and no stage workarounds anywhere. The stage is
+      // reached through the domain's base path mapping instead.
+      expect(
+        resolveUrl(
+          createApiWithOverrides({
+            overrides: { restApiProps: { domainName: domainName() } },
+          }),
+        ),
+      ).toBe("https://{NextjsApiRestApiCustomDomain}");
+    });
+
+    it("includes a custom domain's base path mapping", () => {
+      // CDK rejects surrounding slashes on a mapping, so it's always a bare
+      // segment by the time it gets here.
+      expect(
+        resolveUrl(
+          createApiWithOverrides({
+            overrides: { restApiProps: { domainName: domainName("team-a") } },
+          }),
+        ),
+      ).toBe("https://{NextjsApiRestApiCustomDomain}/team-a");
+    });
   });
 });
