@@ -124,7 +124,7 @@ Any object.
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsApi.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsApi.property.api">api</a></code> | <code>aws-cdk-lib.aws_apigateway.RestApi</code> | The API Gateway REST API. |
-| <code><a href="#cdk-nextjs.NextjsApi.property.url">url</a></code> | <code>string</code> | Public URL of the app. |
+| <code><a href="#cdk-nextjs.NextjsApi.property.url">url</a></code> | <code>string</code> | Public URL of the app, including every path segment the API nests it under. |
 
 ---
 
@@ -160,14 +160,10 @@ public readonly url: string;
 
 - *Type:* string
 
-Public URL of the app.
+Public URL of the app, including every path segment the API nests it under.
 
-Prefers a custom domain configured through
-`overrides.restApiProps.domainName` over the execute-api endpoint, and
-includes whatever path segments the API nests the app under: the deployment
-stage on execute-api (a custom domain reaches the stage through a base path
-mapping instead, so the stage name isn't in the path there), a base path
-mapping when one is configured, and `basePath`.
+Prefers a custom domain configured through `overrides.restApiProps.domainName`
+over the execute-api endpoint.
 
 A domain attached after this construct is created (`api.addDomainName()`) is
 still used for the host, but CDK keeps its base path mappings private, so a
@@ -490,7 +486,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsBuild.property.buildId">buildId</a></code> | <code>string</code> | Unique id for Next.js build. Used to partition cache storage and as metadata for static assets in S3 bucket. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.dotNextPath">dotNextPath</a></code> | <code>string</code> | Absolute path to the .next directory containing Next.js build artifacts. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
-| <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigBasePath">nextConfigBasePath</a></code> | <code>string</code> | The Next.js app's own `basePath`, read out of the build's `required-server-files.json`. Normalized to a bare path segment with no surrounding slashes, empty when the app sets none. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigBasePath">nextConfigBasePath</a></code> | <code>string</code> | The Next.js app's own `basePath` — the URL prefix it generates its links and asset hrefs under — read out of the build's `required-server-files.json`. Normalized to a bare path segment, empty when the app sets none. Exposed so root constructs can reconcile it with the CDK `basePath` prop, which is a distinct thing; see `resolveBasePath`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The entrypoint JavaScript file used as an argument for Node.js to run the Next.js standalone server relative to the standalone directory. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToPackage">relativePathToPackage</a></code> | <code>string</code> | Relative path from the standalone directory to the package containing the Next.js app. This is automatically detected from the standalone build output. |
@@ -561,13 +557,7 @@ public readonly nextConfigBasePath: string;
 
 - *Type:* string
 
-The Next.js app's own `basePath`, read out of the build's `required-server-files.json`. Normalized to a bare path segment with no surrounding slashes, empty when the app sets none.
-
-This is the URL prefix the app generates its own links and asset hrefs
-under, which is a distinct thing from the CDK `basePath` prop (where the
-infrastructure serves the app, and for `NextjsStaticAssets` which key
-prefix the objects land under). Exposed so root constructs can check that
-the two line up where they have to.
+The Next.js app's own `basePath` — the URL prefix it generates its links and asset hrefs under — read out of the build's `required-server-files.json`. Normalized to a bare path segment, empty when the app sets none. Exposed so root constructs can reconcile it with the CDK `basePath` prop, which is a distinct thing; see `resolveBasePath`.
 
 ---
 
@@ -2656,7 +2646,7 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.keyPrefix">keyPrefix</a></code> | <code>string</code> | S3 key prefix the assets are actually uploaded under, normalized to a bare path segment (no leading or trailing slash, empty when assets live at the bucket root). |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.keyPrefix">keyPrefix</a></code> | <code>string</code> | S3 key prefix the assets are actually uploaded under, normalized to a bare path segment (empty when they live at the bucket root). |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.bucket">bucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.deployment">deployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
 
@@ -2682,13 +2672,12 @@ public readonly keyPrefix: string;
 
 - *Type:* string
 
-S3 key prefix the assets are actually uploaded under, normalized to a bare path segment (no leading or trailing slash, empty when assets live at the bucket root).
+S3 key prefix the assets are actually uploaded under, normalized to a bare path segment (empty when they live at the bucket root).
 
 Consumers that read assets back out of the bucket (the image optimization
 Lambda, `NextjsApi`'s S3 integrations) must use this rather than the
-`basePath` prop: `overrides.bucketDeploymentProps` can replace the prefix
-outright, and a `basePath` with surrounding slashes doesn't survive into
-the uploaded keys verbatim.
+`basePath` prop, since `overrides.bucketDeploymentProps` can replace the
+prefix outright.
 
 ---
 
@@ -4163,7 +4152,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.assetsBucket">assetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket containing static assets. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
-| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
@@ -4216,6 +4205,11 @@ public readonly basePath: string;
 ```
 
 - *Type:* string
+
+URI path prefix the app is served at.
+
+Surrounding slashes are normalized
+away, so "/base", "base" and "/base/" all produce the same cache behaviors.
 
 ---
 
@@ -5530,15 +5524,10 @@ public readonly staticAssetsKeyPrefix: string;
 
 S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
 
-Distinct from the Next.js app's own `basePath` config (baked into hrefs by
-next-image-loader), so it must be threaded through explicitly rather than
-read from the app's bundled config. The two are only guaranteed to line up
-when the app's `basePath` is also the URL prefix the assets are served
-from: `NextjsGlobalFunctions`/`NextjsGlobalContainers` build CloudFront
-behaviors as `${basePath}/_next/static*` and use the request path verbatim
-as the S3 key, so there the CDK `basePath` must match the app's. They
-diverge when the app's `basePath` comes from somewhere else entirely, e.g.
-an API Gateway stage under `NextjsRegionalFunctions`.
+Threaded through explicitly rather than read from the app's bundled config,
+because it's distinct from the app's own `basePath` (which next-image-loader
+bakes into hrefs) — the two diverge when the app's `basePath` comes from
+elsewhere, e.g. an API Gateway stage under `NextjsRegionalFunctions`.
 
 ---
 
@@ -11145,7 +11134,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.assetsBucket">assetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket containing static assets. |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
@@ -11177,6 +11166,11 @@ public readonly basePath: string;
 ```
 
 - *Type:* string
+
+URI path prefix the app is served at.
+
+Surrounding slashes are normalized
+away, so "/base", "base" and "/base/" all produce the same cache behaviors.
 
 ---
 
