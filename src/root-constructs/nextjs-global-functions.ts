@@ -13,6 +13,7 @@ import {
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
+  NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
@@ -48,6 +49,19 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
    * apps on the same CloudFront distribution.
    */
   readonly distribution?: Distribution;
+  /**
+   * Package sets of routes into separate Lambda functions, each fronted by its
+   * own CloudFront behaviors.
+   *
+   * Reach for this when a single function exceeds Lambda's 250 MB unzipped
+   * limit — cdk-nextjs throws at synth with the measured size when it does. It is
+   * not a performance or isolation feature: every group ships the same Next.js
+   * runtime, so splitting only moves route-local code.
+   *
+   * @see NextjsFunctionGroup for the pattern grammar and its limits.
+   * @default - one function serves every route
+   */
+  readonly functionGroups?: NextjsFunctionGroup[];
   /**
    * Override props of any construct.
    */
@@ -106,40 +120,44 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       stringValue: this.nextjsDistribution.distribution.distributionId,
     });
 
-    this.nextjsFunctions.function.addToRolePolicy(
-      new PolicyStatement({
-        actions: ["ssm:GetParameter"],
-        resources: [
-          stack.formatArn({
-            service: "ssm",
-            resource: "parameter",
-            resourceName: distributionIdParameterName,
-          }),
-        ],
-      }),
-    );
-    this.nextjsFunctions.function.addToRolePolicy(
-      new PolicyStatement({
-        actions: ["cloudfront:CreateInvalidation"],
-        // Can't scope this to the specific distribution: the distribution's
-        // origin already depends on this function (via its FunctionUrl), so
-        // referencing the distribution's ID here would create a circular
-        // CloudFormation dependency. Hence the SSM parameter indirection
-        // above for looking up the ID at runtime instead of synth time.
-        resources: [
-          stack.formatArn({
-            service: "cloudfront",
-            region: "",
-            resource: "distribution",
-            resourceName: "*",
-          }),
-        ],
-      }),
-    );
-    this.nextjsFunctions.function.addEnvironment(
-      "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
-      distributionIdParameterName,
-    );
+    // Every group, not just the default one: `revalidateTag`/`revalidatePath` can
+    // be called from any route handler, so any function may need to invalidate.
+    for (const group of this.nextjsFunctions.functionGroups) {
+      group.function.addToRolePolicy(
+        new PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [
+            stack.formatArn({
+              service: "ssm",
+              resource: "parameter",
+              resourceName: distributionIdParameterName,
+            }),
+          ],
+        }),
+      );
+      group.function.addToRolePolicy(
+        new PolicyStatement({
+          actions: ["cloudfront:CreateInvalidation"],
+          // Can't scope this to the specific distribution: the distribution's
+          // origin already depends on this function (via its FunctionUrl), so
+          // referencing the distribution's ID here would create a circular
+          // CloudFormation dependency. Hence the SSM parameter indirection
+          // above for looking up the ID at runtime instead of synth time.
+          resources: [
+            stack.formatArn({
+              service: "cloudfront",
+              region: "",
+              resource: "distribution",
+              resourceName: "*",
+            }),
+          ],
+        }),
+      );
+      group.function.addEnvironment(
+        "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
+        distributionIdParameterName,
+      );
+    }
   }
 
   private createNextjsDistribution() {
@@ -150,6 +168,26 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      // The default group backs the default behavior, so only the rest need
+      // behaviors of their own. Routes come from the props rather than the
+      // manifest: these are the patterns to route on, not the templates that
+      // matched them.
+      functionGroups: this.props.functionGroups?.map((group) => {
+        const deployed = this.nextjsFunctions.functionGroups.find(
+          (it) => it.name === group.name,
+        );
+        if (!deployed?.functionUrl) {
+          throw new Error(
+            `Function group "${group.name}" has no Function URL to route to.`,
+          );
+        }
+        return {
+          name: group.name,
+          routes: group.routes,
+          functionUrl: deployed.functionUrl,
+        };
+      }),
+      hasDataRoutes: this.nextjsBuild.hasDataRoutes,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsDistributionProps,
     });
   }

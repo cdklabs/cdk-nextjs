@@ -44,6 +44,16 @@ const build = (ctx: BuildCompleteContext) =>
 const write = (ctx: BuildCompleteContext) =>
   writeBuildOutputs(ctx, { buildCwd: ctx.projectDir });
 
+/**
+ * The one deployment root an unsplit build stages. Asserted rather than indexed
+ * so a regression that starts splitting unasked fails here instead of silently
+ * checking group 0.
+ */
+const soleRoot = (result: { stagedGroups: Array<{ path: string }> }) => {
+  expect(result.stagedGroups).toHaveLength(1);
+  return result.stagedGroups[0].path;
+};
+
 beforeEach(() => {
   // `maxDuration` warnings are expected from the pages-i18n fixture.
   jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -502,12 +512,12 @@ describe("writeBuildOutputs", () => {
     const { ctx } = await makeRepo();
     const result = await write(ctx);
 
-    expect(result.stagingDir).toBe(
+    expect(soleRoot(result)).toBe(
       join(ctx.distDir, "cdk-nextjs-adapter", "app"),
     );
     expect(result.stagedBytes).toBeGreaterThan(0);
 
-    const staged = (...parts: string[]) => join(result.stagingDir, ...parts);
+    const staged = (...parts: string[]) => join(soleRoot(result), ...parts);
     await expect(
       readFile(staged("app", ".next", "server", "app", "page.js"), "utf8"),
     ).resolves.toContain("module.exports");
@@ -549,7 +559,7 @@ describe("writeBuildOutputs", () => {
   it("hoists store-only packages to the deployment root", async () => {
     const { ctx } = await makeRepo();
     const result = await write(ctx);
-    const staged = (...parts: string[]) => join(result.stagingDir, ...parts);
+    const staged = (...parts: string[]) => join(soleRoot(result), ...parts);
 
     // Nothing resolves `@scope/helpers` once the symlinks are dereferenced
     // (which is what zipping the asset does), so it needs a copy Node finds by
@@ -599,7 +609,7 @@ describe("writeBuildOutputs", () => {
     // MODULE_NOT_FOUND that nothing in the build warned about.
     const { ctx } = await makeRepo({ withNext: true });
     const result = await write(ctx);
-    const staged = (...parts: string[]) => join(result.stagingDir, ...parts);
+    const staged = (...parts: string[]) => join(soleRoot(result), ...parts);
 
     await expect(
       readFile(
@@ -634,10 +644,166 @@ describe("writeBuildOutputs", () => {
   it("removes a previous build's tree before staging", async () => {
     const { ctx } = await makeRepo();
     const first = await write(ctx);
-    const stale = join(first.stagingDir, "app", "stale.js");
+    const stale = join(soleRoot(first), "app", "stale.js");
     await writeFile(stale, "// removed route\n");
 
     await write(ctx);
     await expect(lstat(stale)).rejects.toThrow(/ENOENT/);
+  });
+
+  describe("with functionGroups", () => {
+    /**
+     * Two routes with one asset each, so "the group's tree holds its own route
+     * and not the other's" is checkable by file. Deliberately not `makeRepo`'s
+     * repo: its single output cannot be split.
+     */
+    async function makeSplittableRepo() {
+      const repoRoot = await mkdtemp(join(tmpdir(), "cdk-nextjs-groups-"));
+      const projectDir = join(repoRoot, "app");
+      const distDir = join(projectDir, ".next");
+      await mkdir(join(distDir, "server", "app"), { recursive: true });
+
+      const outputFor = async (name: string, pathname: string) => {
+        const entry = join(distDir, "server", "app", `${name}.js`);
+        const asset = join(projectDir, "node_modules", name, "index.js");
+        await mkdir(dirname(asset), { recursive: true });
+        await writeFile(entry, `// ${name}\n`);
+        await writeFile(asset, `// ${name} dep\n`);
+        return {
+          id: pathname,
+          pathname,
+          sourcePage: pathname,
+          filePath: entry,
+          runtime: "nodejs",
+          config: {},
+          assets: { [`app/node_modules/${name}/index.js`]: asset },
+          assetsHashes: {},
+        };
+      };
+
+      const ctx = {
+        repoRoot,
+        projectDir,
+        distDir,
+        buildId: "test-build",
+        nextVersion: "16.3.5",
+        config: {
+          basePath: "",
+          trailingSlash: false,
+          assetPrefix: "",
+          i18n: null,
+        },
+        routing: { dynamicRoutes: [] },
+        outputs: {
+          pages: [],
+          pagesApi: [],
+          appPages: [await outputFor("home", "/")],
+          appRoutes: [await outputFor("reports", "/api/reports/[id]")],
+          prerenders: [],
+          staticFiles: [],
+          middleware: undefined,
+        },
+      } as unknown as BuildCompleteContext;
+      return { ctx };
+    }
+
+    const groups = [{ name: "reports", routes: ["/api/reports/**"] }];
+
+    it("records the assignment in the manifest every group shares", async () => {
+      const { ctx } = await makeSplittableRepo();
+      const { manifest } = buildAdapterManifest(ctx, {
+        buildCwd: ctx.projectDir,
+        functionGroups: groups,
+      });
+      expect(manifest.groups).toEqual({
+        default: ["/"],
+        reports: ["/api/reports/[id]"],
+      });
+    });
+
+    it("stages one tree per group, each holding only its own routes", async () => {
+      const { ctx } = await makeSplittableRepo();
+      const result = await writeBuildOutputs(ctx, {
+        buildCwd: ctx.projectDir,
+        functionGroups: groups,
+      });
+
+      expect(result.stagedGroups.map((group) => group.name).sort()).toEqual([
+        "default",
+        "reports",
+      ]);
+      const pathOf = (name: string) => {
+        const group = result.stagedGroups.find((it) => it.name === name);
+        if (!group) {
+          throw new Error(`No staged group "${name}"`);
+        }
+        return group.path;
+      };
+      // Under `groups/<name>/`, so neither can collide with the unsplit layout.
+      expect(pathOf("reports")).toBe(
+        join(ctx.distDir, "cdk-nextjs-adapter", "groups", "reports"),
+      );
+      expect(pathOf("default")).toBe(
+        join(ctx.distDir, "cdk-nextjs-adapter", "groups", "default"),
+      );
+
+      const has = (name: string, ...parts: string[]) =>
+        lstat(join(pathOf(name), ...parts)).then(
+          () => true,
+          () => false,
+        );
+      await expect(
+        has("reports", "app", ".next", "server", "app", "reports.js"),
+      ).resolves.toBe(true);
+      await expect(
+        has("reports", "app", "node_modules", "reports", "index.js"),
+      ).resolves.toBe(true);
+      // The point of splitting: the other group's route is absent.
+      await expect(
+        has("reports", "app", ".next", "server", "app", "home.js"),
+      ).resolves.toBe(false);
+      await expect(
+        has("default", "app", ".next", "server", "app", "home.js"),
+      ).resolves.toBe(true);
+      await expect(
+        has("default", "app", ".next", "server", "app", "reports.js"),
+      ).resolves.toBe(false);
+      // The manifest is written once, above the groups; `NextjsBuild` copies it
+      // and the runtime shell into each group's reserved runtime dir afterwards,
+      // so no group's staged tree may contain that directory yet.
+      expect(result.manifestPath).toBe(
+        join(ctx.distDir, "cdk-nextjs-adapter", "manifest.json"),
+      );
+      for (const name of ["default", "reports"]) {
+        await expect(has(name, RUNTIME_DIR_NAME)).resolves.toBe(false);
+      }
+    });
+
+    it("refuses to split an i18n app, whose routes are locale-prefixed", async () => {
+      const { ctx } = await makeSplittableRepo();
+      const i18nCtx = {
+        ...ctx,
+        config: {
+          ...ctx.config,
+          i18n: { locales: ["en"], defaultLocale: "en" },
+        },
+      } as unknown as BuildCompleteContext;
+      expect(() =>
+        buildAdapterManifest(i18nCtx, {
+          buildCwd: ctx.projectDir,
+          functionGroups: groups,
+        }),
+      ).toThrow(/cannot be combined with `i18n`/);
+    });
+
+    it("throws on a pattern that matches nothing, rather than silently not splitting", async () => {
+      const { ctx } = await makeSplittableRepo();
+      expect(() =>
+        buildAdapterManifest(ctx, {
+          buildCwd: ctx.projectDir,
+          functionGroups: [{ name: "typo", routes: ["/api/report/**"] }],
+        }),
+      ).toThrow(/matches no route in this build/);
+    });
   });
 });

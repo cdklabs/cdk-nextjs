@@ -14,6 +14,14 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { NextAdapter } from "next";
+import {
+  DEFAULT_FUNCTION_GROUP,
+  FUNCTION_GROUPS_ENV_VAR,
+  FunctionGroupSpec,
+  assertNoI18nSplitting,
+  assignRoutesToGroups,
+  parseFunctionGroupsEnv,
+} from "./function-groups";
 import { LOG_PREFIX } from "../constants";
 import {
   ADAPTER_DIR_NAME,
@@ -24,7 +32,7 @@ import {
   AdapterMiddleware,
   MANIFEST_FILE_NAME,
   RUNTIME_DIR_NAME,
-  STAGING_DIR_NAME,
+  groupStagingDirName,
 } from "../runtime/manifest";
 
 /**
@@ -94,21 +102,63 @@ export interface BuildOutputsOptions {
    * unit tests can drive the fixtures' synthetic project dirs.
    */
   readonly buildCwd?: string;
+  /**
+   * Resolved `functionGroups`. Defaults to {@link FUNCTION_GROUPS_ENV_VAR},
+   * which is how the constructs get them here: `onBuildComplete` runs inside
+   * `next build` and cannot read CDK props.
+   *
+   * `undefined` means one deployment root holding every route, which is the
+   * default and the only thing the Containers types ever do.
+   */
+  readonly functionGroups?: FunctionGroupSpec[];
+}
+
+/** One deployment root: the staging plan for it, and where it goes. */
+export interface StagedGroup {
+  /**
+   * Group name, `default` for the implicit group. Always present — a build with
+   * no `functionGroups` produces exactly one {@link StagedGroup} named `default`,
+   * so callers never branch on "is this split".
+   */
+  readonly name: string;
+  /**
+   * Directory inside `cdk-nextjs-adapter`, POSIX: `app` when not splitting,
+   * `groups/<name>` when splitting.
+   */
+  readonly dirName: string;
+  readonly staging: StagingPlan;
 }
 
 export interface BuildAdapterManifestResult {
   readonly manifest: AdapterManifest;
+  /**
+   * The union of every group's plan. One group's plan is a subset of this; with
+   * no splitting it *is* this. Kept separately because the cross-output
+   * `assetsHashes` conflict check is only meaningful across the whole build.
+   */
   readonly staging: StagingPlan;
+  /** One entry per deployment root to stage. Length 1 unless splitting. */
+  readonly groups: StagedGroup[];
+}
+
+/** A staged deployment root on disk. */
+export interface StagedGroupResult {
+  readonly name: string;
+  /** Absolute path to the deployment root. */
+  readonly path: string;
+  readonly fileCount: number;
+  /** Bytes staged into this root. Recorded to keep the 250 MB cap honest. */
+  readonly stagedBytes: number;
 }
 
 export interface WriteBuildOutputsResult extends BuildAdapterManifestResult {
   /** Absolute path to `<distDir>/cdk-nextjs-adapter`. */
   readonly adapterDir: string;
-  /** Absolute path to `<distDir>/cdk-nextjs-adapter/app`, the deployment root. */
-  readonly stagingDir: string;
   /** Absolute path to the written manifest. */
   readonly manifestPath: string;
-  /** Total bytes staged. Recorded to keep the 250 MB zip budget honest. */
+  /** One per deployment root, in the order they were staged. */
+  readonly stagedGroups: StagedGroupResult[];
+  /** Total bytes across every deployment root. */
   readonly stagedBytes: number;
 }
 
@@ -122,34 +172,69 @@ export async function writeBuildOutputs(
   options: BuildOutputsOptions = {},
 ): Promise<WriteBuildOutputsResult> {
   const adapterDir = join(ctx.distDir, ADAPTER_DIR_NAME);
-  const stagingDir = join(adapterDir, STAGING_DIR_NAME);
   const manifestPath = join(adapterDir, MANIFEST_FILE_NAME);
 
-  const { manifest, staging: planned } = buildAdapterManifest(ctx, options);
-  // Copied because the runtime's own `next` closure has to be traced, which is
-  // async and therefore cannot happen inside `buildAdapterManifest`.
-  const staging = new Map(planned);
-  await addRuntimeNextClosure(ctx, staging);
+  const {
+    manifest,
+    staging: planned,
+    groups,
+  } = buildAdapterManifest(ctx, options);
+
+  // Traced once and merged into every group. The trace is async, which is why it
+  // cannot happen inside `buildAdapterManifest`, and it is the same set of files
+  // for every group: `/_next/image` is served by all of them.
+  const runtimeClosure = new Map<string, string>();
+  await addRuntimeNextClosure(ctx, runtimeClosure);
+
+  const staging = merged(planned, runtimeClosure);
 
   // A previous build's tree is never additive with this one's: a removed route
-  // leaves behind an entrypoint the manifest no longer mentions, and a renamed
-  // chunk leaves dead bytes inside the 250 MB budget.
+  // leaves behind an entrypoint the manifest no longer mentions, a renamed chunk
+  // leaves dead bytes inside the 250 MB budget, and a regrouped build leaves a
+  // whole deployment root nothing deploys.
   await rm(adapterDir, { recursive: true, force: true });
-  await mkdir(stagingDir, { recursive: true });
 
-  const stagedBytes =
-    (await stageFiles(staging, stagingDir)) +
-    (await hoistStoreOnlyPackages(staging, stagingDir));
+  const stagedGroups: StagedGroupResult[] = [];
+  for (const group of groups) {
+    const groupStaging = merged(group.staging, runtimeClosure);
+    const path = join(adapterDir, ...group.dirName.split("/"));
+    await mkdir(path, { recursive: true });
+    const stagedBytes =
+      (await stageFiles(groupStaging, path)) +
+      (await hoistStoreOnlyPackages(groupStaging, path));
+    stagedGroups.push({
+      name: group.name,
+      path,
+      fileCount: groupStaging.size,
+      stagedBytes,
+    });
+  }
+
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
   return {
     manifest,
     staging,
+    groups,
     adapterDir,
-    stagingDir,
     manifestPath,
-    stagedBytes,
+    stagedGroups,
+    stagedBytes: stagedGroups.reduce((sum, g) => sum + g.stagedBytes, 0),
   };
+}
+
+/** Left wins, as everywhere else in this module: first writer of a key keeps it. */
+function merged(
+  base: StagingPlan,
+  additions: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const result = new Map(base);
+  for (const [key, source] of additions) {
+    if (!result.has(key)) {
+      result.set(key, source);
+    }
+  }
+  return result;
 }
 
 /**
@@ -178,7 +263,8 @@ export function buildAdapterManifest(
   warnOnDroppedRouteConfig(invocable);
 
   const staging = collectStagingPlan(ctx, invocable);
-  const staticFiles = collectStaticFiles(ctx, staging);
+  const staticFiles = collectStaticFiles(ctx);
+  stageServedStaticFiles(ctx, staging);
 
   const entrypoints: Record<string, AdapterEntrypoint> = {};
   for (const { outputs: group, type } of [
@@ -203,6 +289,23 @@ export function buildAdapterManifest(
     ...Object.keys(staticFiles),
   ]);
 
+  const functionGroups =
+    options.functionGroups ??
+    parseFunctionGroupsEnv(process.env[FUNCTION_GROUPS_ENV_VAR]);
+  const assignment = functionGroups
+    ? assignRoutesToGroups(
+        functionGroups,
+        Object.entries(entrypoints).map(([template, entrypoint]) => ({
+          template,
+          entrypointId: entrypoint.id,
+        })),
+        { basePath: ctx.config.basePath || "" },
+      )
+    : undefined;
+  if (assignment) {
+    assertNoI18nSplitting(ctx.config.i18n ?? null);
+  }
+
   const manifest: AdapterManifest = {
     version: ADAPTER_MANIFEST_VERSION as 1,
     buildId: ctx.buildId,
@@ -220,9 +323,61 @@ export function buildAdapterManifest(
     entrypoints,
     middleware: buildMiddleware(repoRoot, outputs.middleware),
     staticFiles,
+    ...(assignment ? { groups: assignment } : {}),
   };
 
-  return { manifest, staging };
+  const groups: StagedGroup[] = assignment
+    ? Object.entries(assignment).map(([name, templates]) => ({
+        name,
+        dirName: groupStagingDirName(name),
+        staging: collectGroupStagingPlan(
+          ctx,
+          invocable,
+          entrypoints,
+          templates,
+        ),
+      }))
+    : [
+        {
+          name: DEFAULT_FUNCTION_GROUP,
+          dirName: groupStagingDirName(),
+          staging,
+        },
+      ];
+
+  return { manifest, staging, groups };
+}
+
+/**
+ * One group's slice of the staging plan: the assets of the outputs it owns, and
+ * nothing else.
+ *
+ * Middleware is in every group, not just the default one — it runs on every
+ * request wherever that request lands, so it is duplicated by design, as is the
+ * `next` closure the entrypoints share. The same goes for the static files the
+ * runtime serves itself (`404.html`, `favicon.ico.body`): any group can be asked
+ * for them.
+ *
+ * Ownership is matched on `output.id` rather than on pathname because the manifest
+ * is what decided the grouping, and its entrypoints are keyed by *template* while
+ * an output may back several templates.
+ */
+function collectGroupStagingPlan(
+  ctx: BuildCompleteContext,
+  invocable: InvocableOutput[],
+  entrypoints: Record<string, AdapterEntrypoint>,
+  templates: string[],
+): Map<string, string> {
+  const ownedIds = new Set(
+    templates.map((template) => entrypoints[template].id),
+  );
+  const middleware = ctx.outputs.middleware;
+  const owned = invocable.filter(
+    (output) => ownedIds.has(output.id) || output === middleware,
+  );
+  const staging = collectStagingPlan(ctx, owned);
+  stageServedStaticFiles(ctx, staging);
+  return staging;
 }
 
 /**
@@ -383,13 +538,11 @@ function collectStagingPlan(
  * resolve a pathname to "static file, not a 404" either way; the runtime 404s if
  * the file turns out not to be in the package, which is only reachable when the
  * distribution is misrouted.
+ *
+ * Staging is {@link stageServedStaticFiles}, applied once per deployment root.
  */
-function collectStaticFiles(
-  ctx: BuildCompleteContext,
-  staging: Map<string, string>,
-): Record<string, string> {
-  const { repoRoot, distDir } = ctx;
-  const clientStaticDir = join(distDir, "static") + sep;
+function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
+  const { repoRoot } = ctx;
   const staticFiles: Record<string, string> = {};
 
   for (const output of sortedByPathname(ctx.outputs.staticFiles)) {
@@ -403,17 +556,38 @@ function collectStaticFiles(
       );
     }
     staticFiles[output.pathname] = key;
-
-    const servedByS3 =
-      output.filePath.startsWith(clientStaticDir) ||
-      !output.filePath.startsWith(distDir + sep);
-    if (!servedByS3) {
-      assertStagingKey(key, output.filePath);
-      staging.set(key, output.filePath);
-    }
   }
 
   return staticFiles;
+}
+
+/**
+ * Add the static files the *runtime* serves to a staging plan — the "everything
+ * else" population described on {@link collectStaticFiles}, all of it under
+ * `<distDir>/server/`.
+ *
+ * Separate from building the manifest's `staticFiles` map because the map is the
+ * same for every group while the staging is applied once per deployment root:
+ * any group can be asked for `/404`, so every group ships these.
+ */
+function stageServedStaticFiles(
+  ctx: BuildCompleteContext,
+  staging: Map<string, string>,
+): void {
+  const { repoRoot, distDir } = ctx;
+  const clientStaticDir = join(distDir, "static") + sep;
+
+  for (const output of sortedByPathname(ctx.outputs.staticFiles)) {
+    const servedByS3 =
+      output.filePath.startsWith(clientStaticDir) ||
+      !output.filePath.startsWith(distDir + sep);
+    if (servedByS3) {
+      continue;
+    }
+    const key = toPosix(relative(repoRoot, output.filePath));
+    assertStagingKey(key, output.filePath);
+    staging.set(key, output.filePath);
+  }
 }
 
 /**

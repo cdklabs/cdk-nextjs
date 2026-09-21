@@ -1,5 +1,10 @@
 export { NextjsType } from "./constants";
-export { NextjsApi, NextjsApiProps, NextjsApiOverrides } from "./nextjs-api";
+export {
+  NextjsApi,
+  NextjsApiProps,
+  NextjsApiOverrides,
+  NextjsApiFunctionGroup,
+} from "./nextjs-api";
 
 export {
   NextjsBaseConstructOverrides,
@@ -12,6 +17,8 @@ export {
 export {
   NextjsBuild,
   NextjsBuildProps,
+  NextjsDeploymentRoot,
+  NextjsFunctionGroupRoutes,
   PublicDirEntry,
 } from "./nextjs-build/nextjs-build";
 export { NextjsComputeBaseProps } from "./nextjs-compute/nextjs-compute-base-props";
@@ -22,10 +29,13 @@ export {
 } from "./nextjs-compute/nextjs-containers";
 export {
   NextjsDistribution,
+  NextjsDistributionFunctionGroup,
   NextjsDistributionOverrides,
   NextjsDistributionProps,
 } from "./nextjs-distribution";
 export {
+  NextjsFunctionGroup,
+  NextjsFunctionGroupResources,
   NextjsFunctions,
   NextjsFunctionsOverrides,
   NextjsFunctionsProps,

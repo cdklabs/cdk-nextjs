@@ -10,6 +10,7 @@ import {
 } from "./nextjs-base-construct";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
+  NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
@@ -36,6 +37,21 @@ export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
 }
 
 export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
+  /**
+   * Package sets of routes into separate Lambda functions, each fronted by its
+   * own API Gateway resources.
+   *
+   * Reach for this when a single function exceeds Lambda's 250 MB unzipped
+   * limit — cdk-nextjs throws at synth with the measured size when it does. It is
+   * not a performance or isolation feature: every group ships the same Next.js
+   * runtime, so splitting only moves route-local code.
+   *
+   * @see NextjsFunctionGroup for the pattern grammar and its limits. API Gateway
+   * could express more than CloudFront can, but the grammar is deliberately the
+   * same in both so switching deployment type never regroups routes.
+   * @default - one function serves every route
+   */
+  readonly functionGroups?: NextjsFunctionGroup[];
   /**
    * Override props of any construct.
    */
@@ -78,6 +94,24 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       basePath: this.baseProps.basePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      // `serverFunction` above is the default group's, which the `{proxy+}`
+      // catch-all reaches; the rest get resources of their own.
+      functionGroups: this.props.functionGroups?.map((group) => {
+        const deployed = this.nextjsFunctions.functionGroups.find(
+          (it) => it.name === group.name,
+        );
+        if (!deployed) {
+          throw new Error(
+            `Function group "${group.name}" was not deployed as a function.`,
+          );
+        }
+        return {
+          name: group.name,
+          routes: group.routes,
+          function: deployed.function,
+        };
+      }),
+      hasDataRoutes: this.nextjsBuild.hasDataRoutes,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
     });
   }

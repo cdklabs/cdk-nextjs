@@ -55,7 +55,7 @@ up for the duration of this work — do not delete or modify them.
 | 4 — runtime core + two shells | done |
 | 5 — wire constructs, Functions to zip, Containers Dockerfiles | done |
 | 6 — delete `output: "standalone"` + dedicated image function | done |
-| 7 — splitting (`functionGroups`) | not started |
+| 7 — splitting (`functionGroups`) | done |
 | 8 — tests, docs, breaking-changes | not started |
 
 Exit criteria are tracked in the plan, not duplicated here. Record against them
@@ -949,3 +949,106 @@ fixtures).
   when the branch is done: `dev-glbl-fns`, `dev-rgnl-fns`, `dev-glbl-cntnrs`,
   `dev-rgnl-cntnrs`, `adptr-rgnl-fns`. The four `main-*` oracle stacks were only
   read and curled.
+
+## Step 7 — splitting (`functionGroups`)
+
+**Landed** (SHA filled in below once committed): an opt-in `functionGroups` prop
+on `NextjsGlobalFunctions` and `NextjsRegionalFunctions` that packages declared
+route groups into separate Lambda functions, each routed to by its own CloudFront
+behaviors (Global) or API Gateway resources (Regional). Default behavior is
+unchanged: no prop, one function, one deployment root, byte-identical synth.
+
+New files:
+
+- `src/adapter/function-groups.ts` — the grammar and resolution rules, pure and
+  free of `aws-cdk-lib` so the adapter bundle can import it. Exports
+  `validateFunctionGroups`, `assignRoutesToGroups`, `pathPatternsFor`,
+  `parseFunctionGroupsEnv`, `assertNoI18nSplitting`, and the three constants
+  (`DEFAULT_FUNCTION_GROUP`, `CDK_NEXTJS_FUNCTION_GROUPS`,
+  `CDK_NEXTJS_FUNCTION_GROUP`).
+- `src/adapter/function-groups.test.ts` — 36 tests.
+- `src/nextjs-distribution.test.ts` — 8 synth tests, the behavior-order one being
+  the assertion the plan explicitly asks for ("Assert with a synth test, not
+  careful code").
+
+Changed: `build-outputs.ts` stages one tree per group under
+`.next/cdk-nextjs-adapter/groups/<name>/` and records the assignment as
+`manifest.groups`; `nextjs-build.ts` resolves the staged roots, runs
+`stageRuntime` + the sharp strip/install per root, and measures each;
+`nextjs-functions.ts` creates one Lambda (+ Function URL) per root;
+`nextjs-distribution.ts` and `nextjs-api.ts` route to them; `entrypoints.ts`
+explains a misroute.
+
+**Decisions**
+
+1. **One source of truth, shared by two processes.** `next build` (which stages
+   the trees) and synth (which wires the routing) must agree exactly, or
+   CloudFront sends a request to a function whose zip lacks the entrypoint. So
+   the rules live in one pure module both sides import, the resolved groups reach
+   `onBuildComplete` through `CDK_NEXTJS_FUNCTION_GROUPS` (the plan's suggested
+   mechanism, precedent `CDK_NEXTJS_INIT_CACHE_DIR`), and synth reads the result
+   back off `manifest.groups` rather than recomputing it.
+2. **`NextjsBuild` throws when the props and the manifest disagree.** Both
+   directions: props asking for groups the build did not stage, and vice versa.
+   The cause is always the same — a `.next` from a build that did not see this
+   `functionGroups`, i.e. a stale build or `skipBuild: true` run by hand — and
+   every downstream symptom is unrecognizable as that.
+3. **`functionGroups` + `i18n` throws.** Not in the plan. With `i18n` every route
+   template is locale-prefixed, so honoring `/pricing` would take one behavior
+   per locale per pattern against a budget of 25; the alternative, a `*` in the
+   locale position, captures other groups' routes. Refusing beats either.
+4. **A pattern of `/` throws.** CloudFront has no path pattern matching only the
+   root (the default behavior serves it), so the home page always belongs to
+   `default`.
+5. **A group owning a Pages Router route also gets an `_next/data/*/…` pattern**
+   rather than being rejected — `NextjsBuild.hasDataRoutes` (true when any
+   entrypoint is `type: "page"`) turns it on. Ownership is recorded per
+   *entrypoint id*, not per template, so a page and its `_next/data` sibling — one
+   file — can never be split into two zips.
+6. **`NextjsFunctionGroup.overrides` is `NextjsFunctionsOverrides`, not
+   `OptionalFunctionProps`** as the plan sketched. A superset: it also carries
+   `functionUrlProps`, and it matches the construct-wide `overrides` key it merges
+   over, so there is one shape to learn instead of two.
+7. **The default group keeps the construct id `NextjsFunctions/Functions`.**
+   Non-default groups are `Functions-<name>`. Adding `functionGroups` to a
+   deployed app therefore does not replace the function already serving traffic.
+8. **The behavior-budget error replaced the `publicDirEntries >= 22` throw** with
+   one count covering all three claims (cdk-nextjs's fixed behaviors, `public/`
+   entries, group patterns) and a message naming each. Incidentally corrects an
+   off-by-one — the old check allowed 24 of 25 — and the basePath case, which the
+   old check ignored entirely.
+
+**Measured**
+
+Nothing new on AWS yet; see Deferred. Unit/synth only:
+
+```bash
+pnpm compile   # jsii 0 errors, 0 warnings
+pnpm eslint    # 0
+pnpm jest      # 16 suites / 259 tests passed
+```
+
+**Verified vs. assumed**
+
+Verified by test: the grammar's every rejection; longest-pattern-wins on both
+sides (assignment *and* CloudFront behavior order, independently); that a group's
+staged tree contains its own routes' files and not the other group's; that the
+manifest is written once and shared; that `_next/data` patterns are emitted when
+Pages Router routes exist; that basePath prefixes group patterns; that the budget
+error names every claim; that an unsplit build stages exactly one root and adds no
+extra behaviors.
+
+Assumed, not yet verified: **that a split app actually deploys and serves.** No
+`functionGroups` deployment has been made. Also assumed: the 250 MB per-root check
+fires correctly (its threshold is not reachable with `app-playground`), API
+Gateway's resolution of a group's `{proxy+}` against the root `{proxy+}`, and the
+`ownedRouteError` message (it needs a deliberate misroute to see).
+
+**Deferred / open**
+
+- The plan's exit criterion "at least one e2e exercising a split" is not met.
+  Doing it next, as part of step 8, on `examples/nextjs-global-functions` with a
+  group owning `/api/**` — the split to verify is that `/api/health` and `/` come
+  from *different* Lambdas and both still work.
+- Everything still open from step 6 (`healthCheckPath`,
+  `docs/breaking-changes.md`, the five `dev-*`/`adptr-*` stacks to tear down).

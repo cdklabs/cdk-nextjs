@@ -9,6 +9,7 @@ import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
 import { NextjsComputeBaseProps } from "../nextjs-compute/nextjs-compute-base-props";
 import {
+  NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
   NextjsFunctionsProps,
@@ -176,6 +177,22 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
+   * `functionGroups`, which only the two Functions root constructs accept —
+   * Containers deploy one task definition and have no 250 MB package limit to
+   * split around.
+   *
+   * Read off `baseProps` with a cast for the same reason as
+   * {@link getConstructOverrides}: `createNextjsBuild` and
+   * `createNextjsFunctions` are shared here, but the prop is declared on the
+   * subclasses, so nothing weaker than a cast can see it. Adding it to
+   * `NextjsBaseProps` would offer it to Containers, where it does nothing.
+   */
+  protected get functionGroups(): NextjsFunctionGroup[] | undefined {
+    const props = this.baseProps as { functionGroups?: NextjsFunctionGroup[] };
+    return props.functionGroups;
+  }
+
+  /**
    * Get compute base props for both Lambda functions and containers
    */
   protected computeBaseProps(): NextjsComputeBaseProps {
@@ -198,6 +215,9 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
       skipBuild: this.baseProps.skipBuild,
+      // The build resolves the split, since only it knows the route templates;
+      // the constructs read the result back off the manifest.
+      functionGroups: this.functionGroups,
       ...this.constructOverrides?.nextjsBuildProps,
     });
   }
@@ -232,6 +252,8 @@ export abstract class NextjsBaseConstruct extends Construct {
   ): NextjsFunctions {
     return new NextjsFunctions(this, "NextjsFunctions", {
       ...this.computeBaseProps(),
+      deploymentRoots: this.nextjsBuild.deploymentRoots,
+      functionGroups: this.functionGroups,
       overrides: {
         ...overrides,
         functionProps: {

@@ -75,7 +75,7 @@ export class NextjsRuntime {
 
   public constructor(private readonly options: NextjsRuntimeOptions) {
     const { manifest, deploymentRoot } = options;
-    this.entrypoints = new EntrypointRegistry(deploymentRoot);
+    this.entrypoints = new EntrypointRegistry(deploymentRoot, manifest);
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
       manifest,

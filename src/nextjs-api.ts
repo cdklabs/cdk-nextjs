@@ -57,6 +57,27 @@ export interface NextjsApiProps {
    * [Future] Required if `NextjsRegionalContainers`. VPC to create VPC Link and ECS Service Discovery
    */
   readonly vpc?: IVpc;
+  /**
+   * The non-`default` function groups, each needing its own resources so the
+   * routes it was packaged with reach it rather than {@link serverFunction}.
+   * @default - no splitting; `{proxy+}` serves every dynamic route
+   */
+  readonly functionGroups?: NextjsApiFunctionGroup[];
+  /**
+   * Whether the app has Pages Router routes, and therefore a
+   * `/_next/data/<buildId>/…json` URL space that has to be routed alongside the
+   * HTML one. Ignored without {@link functionGroups}.
+   * @default false
+   */
+  readonly hasDataRoutes?: boolean;
+}
+
+/** A non-default function group and the Lambda its routes must reach. */
+export interface NextjsApiFunctionGroup {
+  readonly name: string;
+  /** Path patterns the group owns, as written in `NextjsFunctionGroup.routes`. */
+  readonly routes: string[];
+  readonly function: IFunction;
 }
 
 /**
@@ -84,6 +105,9 @@ export class NextjsApi extends Construct {
     this.staticIntegrationRole = this.createStaticIntegrationRole();
     this.createStaticIntegrations();
     if (props.serverFunction) {
+      // Group resources before the catch-all, so `addResource` sees a clean tree
+      // and a group can claim a path the catch-all would otherwise serve.
+      this.createFunctionGroupIntegrations();
       // `_next/image` has no resource of its own: it falls through to the
       // `{proxy+}` catch-all, and the server function optimizes in-process.
       this.createDynamicIntegration(props.serverFunction);
@@ -247,6 +271,73 @@ export class NextjsApi extends Construct {
       ],
       ...this.props.overrides?.s3MethodOptions,
     };
+  }
+
+  /**
+   * One resource subtree per function group pattern.
+   *
+   * Unlike CloudFront this needs no ordering: API Gateway matches on a resource
+   * *tree*, so `/api/reports/{proxy+}` beats `/api/{proxy+}` beats `/{proxy+}`
+   * structurally, and "longest pattern wins" comes for free. What does need care
+   * is not creating the same path twice — two groups under `/api` share the `api`
+   * resource — so every segment goes through {@link resourceFor}.
+   */
+  private createFunctionGroupIntegrations() {
+    const groups = this.props.functionGroups;
+    if (!groups?.length) {
+      return;
+    }
+    for (const group of groups) {
+      const integration = new LambdaIntegration(group.function, {
+        responseTransferMode: ResponseTransferMode.STREAM,
+        ...this.props.overrides?.dynamicIntegrationProps,
+      });
+      for (const route of group.routes) {
+        for (const path of this.resourcePathsFor(route)) {
+          this.resourceFor(path).addMethod("ANY", integration);
+        }
+      }
+    }
+  }
+
+  /**
+   * Resource paths, as segment arrays, for one group pattern.
+   *
+   * A subtree gets `{proxy+}` as its last segment and so owns everything *under*
+   * the path but not the path itself, matching both the CloudFront translation and
+   * `assignRoutesToGroups`. An exact path gets no proxy segment, which leaves its
+   * children falling through to the root `{proxy+}` — also the CloudFront result.
+   */
+  private resourcePathsFor(route: string): string[][] {
+    const isSubtree = route.endsWith("/**");
+    const base = (isSubtree ? route.slice(0, -3) : route)
+      .split("/")
+      .filter(Boolean);
+    const paths = [isSubtree ? [...base, "{proxy+}"] : base];
+    if (this.props.hasDataRoutes) {
+      // `<buildId>` changes every build, so it is a path parameter rather than a
+      // literal — the integration ignores it, the runtime reads it off the URL.
+      const dataPrefix = ["_next", "data", "{buildId}"];
+      paths.push(
+        isSubtree
+          ? [...dataPrefix, ...base, "{proxy+}"]
+          : [
+              ...dataPrefix,
+              ...base.slice(0, -1),
+              `${base[base.length - 1]}.json`,
+            ],
+      );
+    }
+    return paths;
+  }
+
+  /** Walk or create a resource path, reusing whatever already exists. */
+  private resourceFor(segments: string[]): IResource {
+    let resource = this.baseResource;
+    for (const segment of segments) {
+      resource = resource.getResource(segment) ?? resource.addResource(segment);
+    }
+    return resource;
   }
 
   /**

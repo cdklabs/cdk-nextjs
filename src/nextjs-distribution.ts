@@ -39,6 +39,7 @@ import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2
 import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
+import { pathPatternsFor } from "./adapter/function-groups";
 import { NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
@@ -89,6 +90,28 @@ export interface NextjsDistributionProps {
    * add static behaviors to distribution.
    */
   readonly publicDirEntries: PublicDirEntry[];
+  /**
+   * The non-`default` function groups, each needing its own behaviors so the
+   * routes it was packaged with reach it rather than the default function.
+   * @default - no splitting; the default behavior serves every dynamic route
+   */
+  readonly functionGroups?: NextjsDistributionFunctionGroup[];
+  /**
+   * Whether the app has Pages Router routes, and therefore a
+   * `/_next/data/<buildId>/…json` URL space that has to be routed alongside the
+   * HTML one. Ignored without {@link functionGroups}.
+   * @default false
+   */
+  readonly hasDataRoutes?: boolean;
+}
+
+/** A non-default function group and the origin its routes must reach. */
+export interface NextjsDistributionFunctionGroup {
+  readonly name: string;
+  /** Path patterns the group owns, as written in `NextjsFunctionGroup.routes`. */
+  readonly routes: string[];
+  /** The group's Lambda Function URL. */
+  readonly functionUrl: IFunctionUrl;
 }
 
 export class NextjsDistribution extends Construct {
@@ -377,6 +400,10 @@ export class NextjsDistribution extends Construct {
       this.imageBehaviorOptions.origin,
       this.imageBehaviorOptions,
     );
+    // Function group behaviors, before the basePath catch-all below and after
+    // `_next/image*` (no group pattern can match an image request, and keeping
+    // the order of the unsplit case byte-identical is worth more than symmetry).
+    this.addFunctionGroupBehaviors();
     // Root Path Behaviors
     if (this.props.basePath) {
       // because we already have a basePath we don't use / instead we use /base-path
@@ -395,18 +422,67 @@ export class NextjsDistribution extends Construct {
       // if no base path, then default behavior will handle all other paths
     }
   }
+  /**
+   * One behavior per group pattern, most specific first.
+   *
+   * The order is the whole mechanism. CloudFront evaluates behaviors in order
+   * and stops at the first whose path pattern matches, and `addBehavior`
+   * appends — so `api/*` added before `api/reports/*` would swallow every
+   * report request and send it to a function whose package has no report
+   * entrypoint. Sorting here is what makes "longest pattern wins" true at the
+   * edge, matching how `assignRoutesToGroups` packaged the same routes.
+   */
+  private addFunctionGroupBehaviors() {
+    const groups = this.props.functionGroups;
+    if (!groups?.length) {
+      return;
+    }
+    if (!this.isFunctionCompute) {
+      throw new Error(
+        "`functionGroups` is only supported by NextjsGlobalFunctions.",
+      );
+    }
+    const behaviors = groups
+      .flatMap((group) =>
+        group.routes.flatMap((route) =>
+          pathPatternsFor(route, {
+            hasDataRoutes: this.props.hasDataRoutes ?? false,
+          }).map((pattern) => ({ group, route, pattern })),
+        ),
+      )
+      .sort(
+        (a, b) =>
+          behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
+      );
+
+    const originPerGroup = new Map<string, IOrigin>();
+    for (const { group, pattern } of behaviors) {
+      let origin = originPerGroup.get(group.name);
+      if (!origin) {
+        origin = FunctionUrlOrigin.withOriginAccessControl(
+          group.functionUrl,
+          this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
+        );
+        originPerGroup.set(group.name, origin);
+      }
+      // Same behavior options as every other dynamic route — only the origin
+      // differs, and it is passed separately.
+      const { origin: _ignored, ...behaviorOptions } =
+        this.dynamicBehaviorOptions;
+      this.distribution.addBehavior(
+        this.getPathPattern(pattern),
+        origin,
+        behaviorOptions,
+      );
+    }
+  }
   private addStaticBehaviors() {
     this.distribution.addBehavior(
       this.getPathPattern("_next/static*"),
       this.staticOrigin,
       this.staticBehaviorOptions,
     );
-    // 22 = 25 (max) - 1 (_next/image) - 1 (_next/static) - 1 (*)
-    if (this.props.publicDirEntries.length >= 22) {
-      throw new Error(
-        `Too many public/ files in Next.js build. CloudFront limits Distributions to 25 Cache Behaviors. See documented limit here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions. Try including all public files into 1 top level directory (i.e. static/*).`,
-      );
-    }
+    this.assertBehaviorBudget();
     for (const publicFile of this.props.publicDirEntries) {
       const pathPattern = publicFile.isDirectory
         ? `${publicFile.name}/*`
@@ -425,6 +501,54 @@ export class NextjsDistribution extends Construct {
     }
   }
   /**
+   * CloudFront allows 25 cache behaviors per distribution, counting the default
+   * one, and there are now three things competing for them: `public/` entries,
+   * function groups, and cdk-nextjs's own fixed set. Checked in one place so the
+   * error can say which of the three to cut.
+   *
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
+   */
+  private assertBehaviorBudget() {
+    const groupPatterns = (this.props.functionGroups ?? []).reduce(
+      (total, group) =>
+        total +
+        group.routes.reduce(
+          (count, route) =>
+            count +
+            pathPatternsFor(route, {
+              hasDataRoutes: this.props.hasDataRoutes ?? false,
+            }).length,
+          0,
+        ),
+      0,
+    );
+    // The default behavior, `_next/image*`, `_next/static*`, and — with a
+    // basePath — the two that stand in for the default behavior's coverage.
+    const fixed = 3 + (this.props.basePath ? 2 : 0);
+    const total = fixed + this.props.publicDirEntries.length + groupPatterns;
+    if (total <= MAX_CACHE_BEHAVIORS) {
+      return;
+    }
+    const parts = [
+      `${fixed} used by cdk-nextjs itself`,
+      `${this.props.publicDirEntries.length} for top-level public/ entries`,
+    ];
+    if (groupPatterns) {
+      parts.push(`${groupPatterns} for \`functionGroups\` patterns`);
+    }
+    throw new Error(
+      `This Next.js app needs ${total} CloudFront cache behaviors, over the ` +
+        `limit of ${MAX_CACHE_BEHAVIORS} per distribution: ${parts.join(", ")}. ` +
+        `Move public/ files into a single top-level directory (one behavior ` +
+        `serves \`static/*\`)` +
+        (groupPatterns
+          ? `, and prefer one subtree pattern per function group over several ` +
+            `exact paths.`
+          : `.`) +
+        ` See https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions`,
+    );
+  }
+  /**
    * Optionally prepends base path to given path pattern.
    */
   private getPathPattern(pathPattern: string) {
@@ -434,4 +558,17 @@ export class NextjsDistribution extends Construct {
       return pathPattern;
     }
   }
+}
+
+/** CloudFront's per-distribution cache behavior limit, including the default. */
+const MAX_CACHE_BEHAVIORS = 25;
+
+/**
+ * Rank a CloudFront path pattern so the most specific is added first. Mirrors
+ * `assignRoutesToGroups`' ranking, on the already-translated pattern: segments
+ * dominate, length breaks ties, and a trailing `/*` is not a segment.
+ */
+function behaviorSpecificity(pattern: string): number {
+  const base = pattern.endsWith("/*") ? pattern.slice(0, -2) : pattern;
+  return base.split("/").filter(Boolean).length * 10000 + base.length;
 }

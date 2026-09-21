@@ -34,6 +34,28 @@ export const ADAPTER_DIR_NAME = "cdk-nextjs-adapter";
  */
 export const STAGING_DIR_NAME = "app";
 
+/**
+ * Parent of the per-group deployment roots, used instead of
+ * {@link STAGING_DIR_NAME} when `functionGroups` splits the app: each group is
+ * staged at `<distDir>/cdk-nextjs-adapter/groups/<name>/`, including the implicit
+ * `default` one.
+ *
+ * Splitting gets its own subtree rather than reusing `app/` for the default group
+ * so that a tree left over from a build with different grouping can never be
+ * mistaken for this build's, and so `du` on either directory answers "how big is
+ * the thing I deploy" without qualification.
+ */
+export const GROUPS_DIR_NAME = "groups";
+
+/**
+ * Directory inside {@link ADAPTER_DIR_NAME} holding one deployment root, relative
+ * and POSIX. `undefined` means "not splitting", which is its own layout rather
+ * than a group named `default`.
+ */
+export function groupStagingDirName(group?: string): string {
+  return group === undefined ? STAGING_DIR_NAME : `${GROUPS_DIR_NAME}/${group}`;
+}
+
 /** {@link AdapterManifest}, written inside {@link ADAPTER_DIR_NAME}. */
 export const MANIFEST_FILE_NAME = "manifest.json";
 
@@ -108,7 +130,15 @@ export interface AdapterManifest {
    * deployment type; see `stageServedStaticFiles` in `build-outputs.ts`.
    */
   readonly staticFiles: Record<string, string>;
-  /** Step 5 only: group name → route templates. Absent when not splitting. */
+  /**
+   * Group name → the route templates that group's deployment package holds,
+   * including the implicit `default`. Absent when `functionGroups` is not used.
+   *
+   * Every group gets the *same* manifest, because routing is identical in all of
+   * them: middleware, redirects and rewrites are duplicated by design, and a
+   * group has to be able to resolve a pathname it does not own in order to say so
+   * rather than crash on a missing file. This field is what lets it say so.
+   */
   readonly groups?: Record<string, string[]>;
 }
 

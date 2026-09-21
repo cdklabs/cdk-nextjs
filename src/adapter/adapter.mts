@@ -41,12 +41,18 @@ const adapter: NextAdapter = {
   async onBuildComplete(ctx) {
     // Stage the deployment root and write the manifest the runtime dispatches
     // from. This is what replaces `output: "standalone"`.
-    const { manifest, staging, stagingDir, stagedBytes } =
-      await writeBuildOutputs(ctx);
-    console.log(
-      `${LOG_PREFIX} Staged ${staging.size} files (${(stagedBytes / 1e6).toFixed(1)} MB) ` +
-        `for ${Object.keys(manifest.entrypoints).length} entrypoints in ${stagingDir}`,
-    );
+    const { manifest, adapterDir, stagedGroups } = await writeBuildOutputs(ctx);
+    const entrypointCount = Object.keys(manifest.entrypoints).length;
+    for (const group of stagedGroups) {
+      const routes = manifest.groups?.[group.name];
+      console.log(
+        `${LOG_PREFIX} Staged ${group.fileCount} files ` +
+          `(${(group.stagedBytes / 1e6).toFixed(1)} MB) for ` +
+          `${routes ? `${routes.length} of ${entrypointCount}` : entrypointCount} ` +
+          `entrypoints in ${group.path}`,
+      );
+    }
+    debug(`Adapter output directory: ${adapterDir}`);
 
     const cacheDir =
       process.env.CDK_NEXTJS_INIT_CACHE_DIR ||
