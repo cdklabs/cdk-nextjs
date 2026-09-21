@@ -68,6 +68,17 @@ export interface NextjsApiProps {
    */
   readonly staticAssetsBucket: IBucket;
   /**
+   * S3 key prefix the static assets were uploaded under, i.e.
+   * `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
+   *
+   * Independent of `basePath` above: that one is the URL prefix the REST API
+   * serves the app at (commonly the API Gateway stage), while this one is where
+   * the objects live in the bucket. `_next/static` and public directory
+   * requests are mapped to S3 keys directly, so they 404 unless this prefix is
+   * applied.
+   */
+  readonly staticAssetsKeyPrefix?: string;
+  /**
    * [Future] Required if `NextjsRegionalContainers`. VPC to create VPC Link and ECS Service Discovery
    */
   readonly vpc?: IVpc;
@@ -165,7 +176,7 @@ export class NextjsApi extends Construct {
       .addResource("{proxy+}")
       .addMethod(
         "GET",
-        this.createS3Integration({ key: "_next/static/{key}" }),
+        this.createS3Integration({ key: this.s3Key("_next/static/{key}") }),
         this.getStaticMethodOptions({ proxy: true }),
       );
     // add public directory files/directories that exist at top level but need to go to S3.
@@ -176,7 +187,9 @@ export class NextjsApi extends Construct {
           .addResource("{proxy+}")
           .addMethod(
             "GET",
-            this.createS3Integration({ key: `${publicDirEntry.name}/{key}` }),
+            this.createS3Integration({
+              key: this.s3Key(`${publicDirEntry.name}/{key}`),
+            }),
             this.getStaticMethodOptions({ proxy: true }),
           );
       } else {
@@ -184,11 +197,22 @@ export class NextjsApi extends Construct {
           .addResource(publicDirEntry.name)
           .addMethod(
             "GET",
-            this.createS3Integration({ key: publicDirEntry.name }),
+            this.createS3Integration({ key: this.s3Key(publicDirEntry.name) }),
             this.getStaticMethodOptions(),
           );
       }
     }
+  }
+
+  /**
+   * Prefixes a request path with the key prefix the assets were uploaded under,
+   * since the S3 integrations address objects by key rather than by URL.
+   */
+  private s3Key(key: string): string {
+    const prefix = (this.props.staticAssetsKeyPrefix ?? "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    return prefix ? `${prefix}/${key}` : key;
   }
 
   /**

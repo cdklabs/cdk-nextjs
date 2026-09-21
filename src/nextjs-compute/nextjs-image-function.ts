@@ -36,13 +36,20 @@ export interface NextjsImageFunctionProps {
    */
   readonly staticAssetsBucket: IBucket;
   /**
-   * The `basePath` prop passed to `NextjsStaticAssets`, used to namespace a
-   * shared bucket. Unrelated to the Next.js app's own `basePath` config
-   * (baked into hrefs by next-image-loader): nothing requires the two to
-   * match, so this must be threaded through explicitly rather than read from
-   * the app's bundled config.
+   * S3 key prefix the static assets were uploaded under, i.e.
+   * `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
+   *
+   * Distinct from the Next.js app's own `basePath` config (baked into hrefs by
+   * next-image-loader), so it must be threaded through explicitly rather than
+   * read from the app's bundled config. The two are only guaranteed to line up
+   * when the app's `basePath` is also the URL prefix the assets are served
+   * from: `NextjsGlobalFunctions`/`NextjsGlobalContainers` build CloudFront
+   * behaviors as `${basePath}/_next/static*` and use the request path verbatim
+   * as the S3 key, so there the CDK `basePath` must match the app's. They
+   * diverge when the app's `basePath` comes from somewhere else entirely, e.g.
+   * an API Gateway stage under `NextjsRegionalFunctions`.
    */
-  readonly staticAssetsBasePath?: string;
+  readonly staticAssetsKeyPrefix?: string;
   readonly vpc?: IVpc;
   /**
    * Override props of any construct.
@@ -95,8 +102,8 @@ export class NextjsImageFunction extends Construct {
       environment: {
         CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
           this.props.staticAssetsBucket.bucketName,
-        CDK_NEXTJS_STATIC_ASSETS_BASE_PATH:
-          this.props.staticAssetsBasePath ?? "",
+        CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX:
+          this.props.staticAssetsKeyPrefix ?? "",
         ...this.props.overrides?.functionProps?.environment,
       },
     });

@@ -59,6 +59,18 @@ export interface NextjsStaticAssetsProps {
 export class NextjsStaticAssets extends Construct {
   bucket: IBucket;
   deployment: BucketDeployment;
+  /**
+   * S3 key prefix the assets are actually uploaded under, normalized to a bare
+   * path segment (no leading or trailing slash, empty when assets live at the
+   * bucket root).
+   *
+   * Consumers that read assets back out of the bucket (the image optimization
+   * Lambda, `NextjsApi`'s S3 integrations) must use this rather than the
+   * `basePath` prop: `overrides.bucketDeploymentProps` can replace the prefix
+   * outright, and a `basePath` with surrounding slashes doesn't survive into
+   * the uploaded keys verbatim.
+   */
+  readonly keyPrefix: string;
   private stagingDir?: string;
 
   private props: NextjsStaticAssetsProps;
@@ -66,8 +78,23 @@ export class NextjsStaticAssets extends Construct {
   constructor(scope: Construct, id: string, props: NextjsStaticAssetsProps) {
     super(scope, id);
     this.props = props;
+    this.keyPrefix = this.resolveKeyPrefix();
     this.bucket = props.bucket ?? this.createBucket();
     this.deployment = this.createDeployment();
+  }
+
+  /**
+   * Mirrors how `createDeployment` resolves `destinationKeyPrefix` (including
+   * the `bucketDeploymentProps` override winning, since it's spread last) so
+   * `keyPrefix` can't drift from where the assets land.
+   */
+  private resolveKeyPrefix(): string {
+    const deploymentOverrides = this.props.overrides?.bucketDeploymentProps;
+    const prefix =
+      deploymentOverrides && "destinationKeyPrefix" in deploymentOverrides
+        ? deploymentOverrides.destinationKeyPrefix
+        : this.props.basePath;
+    return (prefix ?? "").replace(/^\/+/, "").replace(/\/+$/, "");
   }
 
   private createBucket() {
@@ -94,14 +121,10 @@ export class NextjsStaticAssets extends Construct {
       );
     }
 
-    const destinationKeyPrefix = this.props.basePath
-      ? this.props.basePath.replace(/^\//, "")
-      : undefined;
-
     return new BucketDeployment(this, "Deployment", {
       sources: [Source.asset(this.stagingDir)],
       destinationBucket: this.bucket,
-      destinationKeyPrefix,
+      destinationKeyPrefix: this.keyPrefix || undefined,
       // Add BUILD_ID as metadata to all objects for version tracking
       metadata: {
         BUILD_ID: this.props.buildId,

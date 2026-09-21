@@ -48,7 +48,7 @@ describe("fetchFromS3", () => {
     });
   });
 
-  it("keeps a single basePath prefix when the url already includes it", async () => {
+  it("applies the key prefix once when the url already includes the app basePath", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
@@ -70,7 +70,7 @@ describe("fetchFromS3", () => {
     expect(params.Key).toBe("base/_next/static/media/a.png");
   });
 
-  it("adds the basePath prefix when the url omits it", async () => {
+  it("applies the key prefix when the url omits the app basePath", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
@@ -105,7 +105,7 @@ describe("fetchFromS3", () => {
   // API Gateway stage) and the CDK `NextjsStaticAssets` `basePath` prop (key
   // namespacing) are unrelated and don't have to match. A deployment that
   // only sets the former must not leak it into the S3 key.
-  it("doesn't apply nextBasePath as a key prefix when staticAssetsBasePath differs", async () => {
+  it("doesn't apply nextBasePath as a key prefix when the key prefix differs", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
@@ -124,7 +124,7 @@ describe("fetchFromS3", () => {
     expect(params.Key).toBe("static/nextjs-icon-light-background.png");
   });
 
-  it("strips nextBasePath from a baked-in href before applying a different staticAssetsBasePath", async () => {
+  it("strips nextBasePath from a baked-in href before applying a different key prefix", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
@@ -141,6 +141,21 @@ describe("fetchFromS3", () => {
 
     const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
     expect(params.Key).toBe("_next/static/media/imported-logo.png");
+  });
+
+  it("doesn't double the separator when the key prefix has a trailing slash", async () => {
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("data")]),
+      ContentType: "image/png",
+      ETag: '"abc123"',
+    });
+
+    // BucketDeployment collapses the trailing slash when uploading, so the
+    // object is at "base/static/foo.jpg", not "base//static/foo.jpg".
+    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", "", "/base/");
+
+    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
+    expect(params.Key).toBe("base/static/foo.jpg");
   });
 
   it("returns the concatenated buffer, content type, and etag", async () => {

@@ -10,18 +10,18 @@ import { getExtension } from "next/dist/server/serve-static.js";
  * `basePath` into the href for statically imported images, while plain
  * string paths are passed through as literally written by the app. `nextBasePath`
  * (read from the bundled Next.js config) strips that baked-in prefix if
- * present. `staticAssetsBasePath` (the unrelated CDK `NextjsStaticAssets`
- * `basePath` prop, used to namespace a shared bucket) is then applied as the
- * S3 key prefix. The two must be handled separately: nothing requires them to
- * be the same value, e.g. a deployment may set the Next.js app's `basePath`
- * to match an API Gateway stage without setting the CDK prop.
+ * present. `staticAssetsKeyPrefix` (`NextjsStaticAssets.keyPrefix`, which
+ * namespaces a shared bucket) is then applied as the S3 key prefix. The two
+ * must be handled separately: nothing requires them to be the same value, e.g.
+ * a deployment may set the Next.js app's `basePath` to match an API Gateway
+ * stage without setting the CDK `basePath` prop.
  */
 export async function fetchFromS3(
   s3: S3Client,
   bucket: string,
   url: string,
   nextBasePath: string,
-  staticAssetsBasePath: string = "",
+  staticAssetsKeyPrefix: string = "",
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
   // Matching on a path boundary keeps a sibling like "/basement/logo.png"
   // from being treated as nextBasePath "/base" plus "ment/logo.png".
@@ -31,8 +31,14 @@ export async function fetchFromS3(
   const withoutNextBasePath = hasNextBasePath
     ? url.slice(nextBasePath.length)
     : url;
-  const keyPrefix = staticAssetsBasePath.replace(/^\//, "");
-  const key = `${keyPrefix}${withoutNextBasePath}`.replace(/^\//, "");
+  // Trim both ends: BucketDeployment collapses a trailing slash when uploading
+  // ("base/" lands objects at "base/static/..."), so keeping one here would
+  // produce "base//static/...".
+  const keyPrefix = staticAssetsKeyPrefix
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  const path = withoutNextBasePath.replace(/^\/+/, "");
+  const key = keyPrefix ? `${keyPrefix}/${path}` : path;
 
   const response = await s3.send(
     new GetObjectCommand({
