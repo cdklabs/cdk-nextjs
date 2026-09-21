@@ -124,6 +124,7 @@ Any object.
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsApi.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsApi.property.api">api</a></code> | <code>aws-cdk-lib.aws_apigateway.RestApi</code> | The API Gateway REST API. |
+| <code><a href="#cdk-nextjs.NextjsApi.property.url">url</a></code> | <code>string</code> | Public URL of the app. |
 
 ---
 
@@ -148,6 +149,29 @@ public readonly api: RestApi;
 - *Type:* aws-cdk-lib.aws_apigateway.RestApi
 
 The API Gateway REST API.
+
+---
+
+##### `url`<sup>Required</sup> <a name="url" id="cdk-nextjs.NextjsApi.property.url"></a>
+
+```typescript
+public readonly url: string;
+```
+
+- *Type:* string
+
+Public URL of the app.
+
+Prefers a custom domain configured through
+`overrides.restApiProps.domainName` over the execute-api endpoint, and
+includes whatever path segments the API nests the app under: the deployment
+stage on execute-api (a custom domain reaches the stage through a base path
+mapping instead, so the stage name isn't in the path there), a base path
+mapping when one is configured, and `basePath`.
+
+A domain attached after this construct is created (`api.addDomainName()`) is
+still used for the host, but CDK keeps its base path mappings private, so a
+mapping added that way won't show up here.
 
 ---
 
