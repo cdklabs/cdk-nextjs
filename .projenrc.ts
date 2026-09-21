@@ -171,6 +171,7 @@ project.package.addField("stability", "stable");
 project.gitignore.addPatterns("!/examples/**/tsconfig.json"); // must call method, cannot set in initial props
 copyDockerfiles();
 bundle();
+typeCheckEsmSources();
 updateGitHubWorkflows();
 generateStructs();
 updatePackageJson();
@@ -235,6 +236,57 @@ function bundle() {
       "const __dirname = dirname(__filename);",
     ].join(" "),
   });
+  // The two request-handling shells. "next" stays external: the deployment
+  // already carries the traced `next` files every built entrypoint requires, and
+  // a second bundled copy would be a different module instance of the same
+  // singletons. "@next/routing" and the AWS SDK are bundled (see devDeps).
+  for (const shell of ["lambda", "server"]) {
+    project.bundler.addBundle(`src/runtime/${shell}.mts`, {
+      platform: "node",
+      target,
+      outfile: `../../../lib/runtime/${shell}.mjs`,
+      externals: ["next", "sharp", "@opentelemetry/api"],
+      format: "esm",
+      // Same reasoning as the image handler above: bundled CJS dependencies
+      // reference `require`/`__dirname`/`__filename` as bare globals, which do
+      // not exist in ESM scope.
+      banner: [
+        "import { createRequire } from 'node:module';",
+        "import { fileURLToPath } from 'node:url';",
+        "import { dirname } from 'node:path';",
+        "const require = createRequire(import.meta.url);",
+        "const __filename = fileURLToPath(import.meta.url);",
+        "const __dirname = dirname(__filename);",
+      ].join(" "),
+    });
+  }
+}
+
+/**
+ * `.mts` sources are bundled by esbuild, which does not type-check, and jsii's
+ * `include` of `src/**\/*.ts` does not match `.mts` — so without this the runtime
+ * shells and the build adapter would be the only unchecked code in the repo.
+ *
+ * A separate config rather than widening jsii's: these files are ESM with
+ * `import.meta`, resolved the way esbuild resolves them (extensionless relative
+ * imports), which is not how the JSII assembly is compiled.
+ */
+function typeCheckEsmSources() {
+  const tsconfig = new javascript.TypescriptConfig(project, {
+    fileName: "tsconfig.esm.json",
+    extends: javascript.TypescriptConfigExtends.fromPaths(["./tsconfig.json"]),
+    // The `.ts` files are included because the `.mts` entrypoints import them;
+    // they are checked again here under ESM resolution rules.
+    include: ["src/**/*.mts", "src/**/*.ts"],
+    compilerOptions: {
+      noEmit: true,
+      declaration: false,
+      noEmitOnError: false,
+      module: "esnext",
+      moduleResolution: javascript.TypeScriptModuleResolution.BUNDLER,
+    },
+  });
+  project.compileTask.exec(`tsc -p ${tsconfig.fileName}`);
 }
 
 function copyDockerfiles() {

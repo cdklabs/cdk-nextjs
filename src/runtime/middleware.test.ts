@@ -14,9 +14,14 @@ import {
   buildAdapterManifest,
 } from "../adapter/build-outputs";
 
-const manifest: AdapterManifest = buildAdapterManifest(
-  structuredClone(appPlayground) as unknown as BuildCompleteContext,
-).manifest;
+const fixtureContext = structuredClone(
+  appPlayground,
+) as unknown as BuildCompleteContext;
+// The fixture's project dir is a synthetic `/repo/…` path, so the build cwd has
+// to be stated; see `assertBuildCwd`.
+const manifest: AdapterManifest = buildAdapterManifest(fixtureContext, {
+  buildCwd: fixtureContext.projectDir,
+}).manifest;
 
 const ORIGIN = "https://example.test";
 

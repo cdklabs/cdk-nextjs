@@ -16,10 +16,10 @@
  *   `MiddlewareResult`. Hand-rolling that is how the previous implementation
  *   drifted from `next start`.
  */
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { responseToMiddlewareResult } from "@next/routing";
 import { MiddlewareInvoker } from "./dispatch";
+import { loadBuiltModule, requireFunctionExport } from "./load-module";
 import { AdapterMiddleware } from "./manifest";
 
 /**
@@ -74,7 +74,15 @@ export class MiddlewareRunner {
    * `waitUntil` / `signal` / `requestMeta` are per-request while the loaded
    * handler is not.
    */
-  public invokerFor(perRequest: MiddlewarePerRequest = {}): MiddlewareInvoker {
+  public invokerFor(
+    perRequest: MiddlewarePerRequest = {},
+    /**
+     * Receives the raw `Response` middleware returned. `resolveRoutes` reports
+     * `middlewareResponded: true` without carrying the response, so this is the
+     * only way the caller can stream middleware's own body.
+     */
+    onResponse?: (response: Response) => void,
+  ): MiddlewareInvoker {
     return async ({ url, headers, requestBody, method }) => {
       const handler = await this.load();
       const hasBody = !BODYLESS_METHODS.has(method.toUpperCase());
@@ -101,6 +109,8 @@ export class MiddlewareRunner {
         );
       }
 
+      onResponse?.(response);
+
       // Mutates `headers` in place as well as returning the result, which is
       // why dispatch hands it a copy it owns.
       return responseToMiddlewareResult(response, headers, url);
@@ -121,14 +131,7 @@ export function createMiddlewareRunner(
   return new MiddlewareRunner(options);
 }
 
-/**
- * `require` the built middleware module and pull `handler` off it.
- *
- * `createRequire` rather than a bare `require` or a dynamic `import`: this file
- * is both compiled to CJS by JSII and bundled to ESM by esbuild, and in the ESM
- * bundle the ambient `require` resolves from `lib/runtime/`, not from the staged
- * app tree. Anchoring it to the middleware file itself is correct in both.
- */
+/** `require` the built middleware module and pull `handler` off it. */
 async function loadMiddlewareHandler(
   root: string,
   middleware: AdapterMiddleware,
@@ -136,9 +139,7 @@ async function loadMiddlewareHandler(
   const absolute = join(root, middleware.filePath);
   let exports: unknown;
   try {
-    // Turbopack emits *async* modules whose `module.exports` is a Promise;
-    // webpack builds export the namespace directly. `await` covers both.
-    exports = await createRequire(absolute)(absolute);
+    exports = await loadBuiltModule(absolute);
   } catch (error) {
     throw new Error(
       `Could not load middleware from "${absolute}" (manifest filePath ` +
@@ -146,14 +147,9 @@ async function loadMiddlewareHandler(
       { cause: error },
     );
   }
-
-  const handler = (exports as { handler?: unknown })?.handler;
-  if (typeof handler !== "function") {
-    throw new Error(
-      `Middleware at "${absolute}" does not export a \`handler\` function ` +
-        `(got ${typeof handler}). This means Next.js changed the shape of ` +
-        `next/dist/build/templates/middleware.js.`,
-    );
-  }
-  return handler as MiddlewareHandler;
+  return requireFunctionExport<MiddlewareHandler>(
+    exports,
+    "handler",
+    () => `Middleware at "${absolute}"`,
+  );
 }

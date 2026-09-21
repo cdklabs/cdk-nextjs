@@ -33,6 +33,17 @@ const fixtures = {
 const asContext = (fixture: unknown): BuildCompleteContext =>
   structuredClone(fixture) as BuildCompleteContext;
 
+/**
+ * `buildAdapterManifest` requires the build cwd to be the project dir — see
+ * `assertBuildCwd`. The fixtures' project dirs are synthetic `/repo/…` paths, so
+ * every call supplies it rather than letting it default to `process.cwd()`. The
+ * assertion itself is covered separately below.
+ */
+const build = (ctx: BuildCompleteContext) =>
+  buildAdapterManifest(ctx, { buildCwd: ctx.projectDir });
+const write = (ctx: BuildCompleteContext) =>
+  writeBuildOutputs(ctx, { buildCwd: ctx.projectDir });
+
 beforeEach(() => {
   // `maxDuration` warnings are expected from the pages-i18n fixture.
   jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -46,7 +57,7 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
   "buildAdapterManifest(%s)",
   (name) => {
     const ctx = asContext(fixtures[name]);
-    const { manifest, staging } = buildAdapterManifest(ctx);
+    const { manifest, staging } = build(ctx);
 
     it("stamps the manifest version and build identity", () => {
       expect(manifest.version).toBe(1);
@@ -61,6 +72,8 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
         basePath: ctx.config.basePath ?? "",
         trailingSlash: ctx.config.trailingSlash === true,
         assetPrefix: ctx.config.assetPrefix ?? "",
+        distDir: ".next",
+        compress: true,
         i18n: ctx.config.i18n ?? null,
       });
     });
@@ -108,9 +121,29 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
       for (const file of ctx.outputs.staticFiles) {
         expect(manifest.pathnames).toContain(file.pathname);
       }
-      expect(manifest.staticFiles).toEqual(
+      expect(Object.keys(manifest.staticFiles)).toEqual(
         [...new Set(ctx.outputs.staticFiles.map((f) => f.pathname))].sort(),
       );
+    });
+
+    it("maps each static file to a repo-root-relative key", () => {
+      for (const [pathname, key] of Object.entries(manifest.staticFiles)) {
+        const output = ctx.outputs.staticFiles.find(
+          (f) => f.pathname === pathname,
+        )!;
+        expect(key).toBe(output.filePath.replace("/repo/", ""));
+        expect(key.startsWith("/")).toBe(false);
+      }
+    });
+
+    it("stages the static files nothing in front of the compute serves", () => {
+      // `<distDir>/static` goes to S3; `<distDir>/server/**` (404.html,
+      // favicon.ico.body, fully-static Pages Router HTML) does not, so the
+      // runtime must be able to read it off disk.
+      for (const [pathname, key] of Object.entries(manifest.staticFiles)) {
+        const servedByS3 = pathname.includes("/_next/static/");
+        expect(staging.has(key)).toBe(!servedByS3);
+      }
     });
 
     it("stages only keys that land inside the deployment root", () => {
@@ -133,8 +166,23 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
 );
 
 describe("buildAdapterManifest edge cases", () => {
+  it("throws when `next build` ran from outside the project directory", () => {
+    const ctx = asContext(appPlayground);
+    expect(() => buildAdapterManifest(ctx, { buildCwd: "/repo" })).toThrow(
+      /must run from the Next.js project directory/,
+    );
+  });
+
+  it("defaults the build cwd to process.cwd()", () => {
+    // Which is this package's root, never a fixture's `/repo/…` project dir, so
+    // the assertion fires — proving the default is wired and not just the option.
+    expect(() => buildAdapterManifest(asContext(appPlayground))).toThrow(
+      /must run from the Next.js project directory/,
+    );
+  });
+
   it("keys locale variants of one page to the same entrypoint file", () => {
-    const { manifest } = buildAdapterManifest(asContext(pagesI18n));
+    const { manifest } = build(asContext(pagesI18n));
     // i18n fans one page out into one output per locale, plus a
     // `/_next/data/<buildId>/…json` sibling each. They share `filePath` and
     // `type`; `id` stays per-pathname (locale-prefixed), so it is not a dedup key.
@@ -159,7 +207,7 @@ describe("buildAdapterManifest edge cases", () => {
   it("carries basePath in pathnames but not in entrypoint ids", () => {
     // `output.pathname` is basePath-prefixed while `output.id` is not. Dispatch
     // keys off the pathname, so the prefix has to stay.
-    const { manifest } = buildAdapterManifest(asContext(appPlaygroundBasePath));
+    const { manifest } = build(asContext(appPlaygroundBasePath));
     expect(manifest.config.basePath).toBe("/prod");
     expect(manifest.entrypoints["/prod/api/health"]).toBeDefined();
     expect(manifest.entrypoints["/prod/api/health"].id).toBe("/api/health");
@@ -167,24 +215,20 @@ describe("buildAdapterManifest edge cases", () => {
   });
 
   it("records middleware without duplicating its matchers", () => {
-    const { manifest, staging } = buildAdapterManifest(
-      asContext(appPlayground),
-    );
+    const { manifest, staging } = build(asContext(appPlayground));
     expect(manifest.middleware).not.toBeNull();
     expect(manifest.middleware!.filePath).toMatch(/^[^/]/);
     expect(staging.has(manifest.middleware!.filePath)).toBe(true);
     expect(manifest.middleware).not.toHaveProperty("matchers");
 
-    const { manifest: noMiddleware } = buildAdapterManifest(
-      asContext(pagesI18n),
-    );
+    const { manifest: noMiddleware } = build(asContext(pagesI18n));
     expect(noMiddleware.middleware).toBeNull();
   });
 
   it("maps a Pages Router data-route template to its owning route", () => {
     // `/_next/data/<buildId>/<locale>/blog/[slug].json` exists only as a
     // prerender. Without it, the ISR data URLs `next start` serves would 404.
-    const { manifest } = buildAdapterManifest(asContext(pagesI18n));
+    const { manifest } = build(asContext(pagesI18n));
     const dataTemplate = `/_next/data/${manifest.buildId}/fr/blog/[slug].json`;
     expect(manifest.entrypoints[dataTemplate]).toEqual({
       id: dataTemplate,
@@ -197,7 +241,7 @@ describe("buildAdapterManifest edge cases", () => {
   it("leaves an App Router fallback template on its own entrypoint", () => {
     // `/isr/[id]` is a prerender *and* an appPages output. The output wins, so
     // `id` stays the route's own rather than being rewritten.
-    const { manifest } = buildAdapterManifest(asContext(appPlayground));
+    const { manifest } = build(asContext(appPlayground));
     expect(manifest.entrypoints["/isr/[id]"].id).toBe("/isr/[id]");
     expect(manifest.entrypoints["/isr/[id].rsc"]).toBeDefined();
   });
@@ -207,7 +251,7 @@ describe("buildAdapterManifest edge cases", () => {
     const ctx = asContext(pagesI18n);
     ctx.outputs.prerenders[0].route = "/gone/[slug]";
     ctx.outputs.prerenders[0].pathname = "/gone/[slug]";
-    const { manifest } = buildAdapterManifest(ctx);
+    const { manifest } = build(ctx);
     expect(manifest.entrypoints["/gone/[slug]"]).toBeUndefined();
     expect(
       warn.mock.calls
@@ -220,7 +264,7 @@ describe("buildAdapterManifest edge cases", () => {
 
   it("warns once per unsupported route config key", () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-    buildAdapterManifest(asContext(pagesI18n));
+    build(asContext(pagesI18n));
     const messages = warn.mock.calls.map((call) => String(call[0]));
     expect(messages.filter((m) => m.includes("`maxDuration`"))).toHaveLength(1);
     expect(messages[0]).toContain("ssr");
@@ -231,12 +275,10 @@ describe("buildAdapterManifest edge cases", () => {
   it("throws on an edge-runtime output", () => {
     const ctx = asContext(appPlayground);
     ctx.outputs.appRoutes[0].runtime = "edge";
-    expect(() => buildAdapterManifest(ctx)).toThrow(
+    expect(() => build(ctx)).toThrow(
       /cannot deploy routes built for the edge runtime/,
     );
-    expect(() => buildAdapterManifest(ctx)).toThrow(
-      ctx.outputs.appRoutes[0].sourcePage,
-    );
+    expect(() => build(ctx)).toThrow(ctx.outputs.appRoutes[0].sourcePage);
   });
 
   it("throws when two outputs map one key to different content", () => {
@@ -246,24 +288,20 @@ describe("buildAdapterManifest edge cases", () => {
     first.assetsHashes[key] = "hash-a";
     second.assets[key] = first.assets[key];
     second.assetsHashes[key] = "hash-b";
-    expect(() => buildAdapterManifest(ctx)).toThrow(
-      /map "[^"]+" to different content/,
-    );
+    expect(() => build(ctx)).toThrow(/map "[^"]+" to different content/);
   });
 
   it("throws on an asset key outside the deployment root", () => {
     const ctx = asContext(appPlayground);
     ctx.outputs.appPages[0].assets["../escape.js"] = "/elsewhere/escape.js";
-    expect(() => buildAdapterManifest(ctx)).toThrow(
-      /outside the deployment root/,
-    );
+    expect(() => build(ctx)).toThrow(/outside the deployment root/);
   });
 
   it("throws on an asset key shadowing the reserved runtime directory", () => {
     const ctx = asContext(appPlayground);
     ctx.outputs.appPages[0].assets[`${RUNTIME_DIR_NAME}/lambda.mjs`] =
       "/repo/whatever.mjs";
-    expect(() => buildAdapterManifest(ctx)).toThrow(
+    expect(() => build(ctx)).toThrow(
       new RegExp(`"${RUNTIME_DIR_NAME}/" is reserved`),
     );
   });
@@ -271,9 +309,7 @@ describe("buildAdapterManifest edge cases", () => {
   it("throws when two outputs claim one pathname from different files", () => {
     const ctx = asContext(appPlayground);
     ctx.outputs.appRoutes[0].pathname = ctx.outputs.appPages[0].pathname;
-    expect(() => buildAdapterManifest(ctx)).toThrow(
-      /claim the pathname "[^"]+"/,
-    );
+    expect(() => build(ctx)).toThrow(/claim the pathname "[^"]+"/);
   });
 });
 
@@ -355,7 +391,7 @@ describe("writeBuildOutputs", () => {
 
   it("stages the tree, preserves symlinks, and writes the manifest", async () => {
     const { ctx } = await makeRepo();
-    const result = await writeBuildOutputs(ctx);
+    const result = await write(ctx);
 
     expect(result.stagingDir).toBe(
       join(ctx.distDir, "cdk-nextjs-adapter", "app"),
@@ -403,11 +439,11 @@ describe("writeBuildOutputs", () => {
 
   it("removes a previous build's tree before staging", async () => {
     const { ctx } = await makeRepo();
-    const first = await writeBuildOutputs(ctx);
+    const first = await write(ctx);
     const stale = join(first.stagingDir, "app", "stale.js");
     await writeFile(stale, "// removed route\n");
 
-    await writeBuildOutputs(ctx);
+    await write(ctx);
     await expect(lstat(stale)).rejects.toThrow(/ENOENT/);
   });
 });

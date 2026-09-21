@@ -52,7 +52,7 @@ up for the duration of this work — do not delete or modify them.
 | 1 — build outputs (`onBuildComplete`) | done |
 | 2 — dispatch via `@next/routing` | done |
 | 3 — middleware runner | done |
-| 4 — runtime core + two shells | not started |
+| 4 — runtime core + two shells | done |
 | 5 — wire constructs, Functions to zip, Containers Dockerfiles | not started |
 | 6 — delete `output: "standalone"` + dedicated image function | not started |
 | 7 — splitting (`functionGroups`) | not started |
@@ -473,3 +473,157 @@ Assumed, not yet proven:
   step 4 design has the runner holding the `Response`; today `MiddlewareRunner`
   drops it after translation. Step 4 needs to capture it (the `bodySent` path),
   and this is the one place where step 3's surface is knowingly incomplete.
+
+## Step 4 — runtime core + two shells
+
+**Landed** — commit `feat: serve requests from one runtime core behind two shells`
+(referenced by subject, not SHA: this entry ships inside that commit)
+
+Nothing in the deployed stacks changes yet. This step builds the request path and
+covers it with unit tests; step 5 is what makes a construct point at it.
+
+- `src/runtime/http/request.ts` — `ShimIncomingMessage`, a synthesized
+  `http.IncomingMessage` over a fake socket (lineage: `serverless-http`). Both
+  shells use it, *including Containers*: handing the container path a real
+  `IncomingMessage` would mean the container e2e suite proves nothing about the
+  Lambda path.
+- `src/runtime/http/response.ts` — `ShimServerResponse`, a `Readable` that emits a
+  one-shot `"head"` event (status + flat headers + `set-cookie` array) on the first
+  body byte, then the body. `asServerResponse()` is the cast boundary;
+  `splitSetCookie()` splits a combined `set-cookie` without cutting an `Expires`
+  comma. `addTrailers`/`assignSocket`/`writeContinue`/`writeEarlyHints` throw named
+  errors rather than silently doing nothing.
+- `src/runtime/http/sink.ts` — `ResponseSink` (`begin(head) → Writable`, optional
+  `padEmptyBody`) and `pipeToSink(req, res, sink, { compress })`, which owns gzip.
+- `src/runtime/core.ts` — `NextjsRuntime.handle(request, sink)`: absolute URL from
+  the forwarded headers, body split, dispatch, then one case per
+  `DispatchResult.kind` (entrypoint, static file, image optimization, redirect,
+  external rewrite, middleware-responded, direct response, not-found).
+  `loadRuntime(deploymentRoot)` reads the manifest, probes for the staged project,
+  and `chdir`s into it.
+- `src/runtime/deployment-root.ts` — `deploymentRootOf(shellDir)`: asserts the
+  shell lives at `<deploymentRoot>/cdk-nextjs-runtime/` and returns the parent.
+- `src/runtime/lambda.mts` — the Functions shell. `awslambda.streamifyResponse`,
+  handling **both** event shapes: Function URL payload v2 (Global Functions) and
+  API Gateway REST proxy (Regional Functions, which is also the one that needs
+  `padEmptyBody`).
+- `src/runtime/server.mts` — the Containers shell. `node:http` server on
+  `PORT`/`HOSTNAME`, translating the real request into a `RuntimeRequest` and
+  writing through a `NodeResponseSink`; SIGTERM/SIGINT drain via `server.close()`.
+- `src/runtime/static-files.ts`, `src/runtime/image.ts`,
+  `src/runtime/entrypoints.ts`, `src/runtime/load-module.ts` — the four things the
+  core calls out to. `load-module.ts` is shared with the middleware runner because
+  Turbopack's async modules (`module.exports` is a `Promise`, keys behind
+  `Symbol(turbopack exports)`) have to be `await`ed or `handler` reads `undefined`.
+- Manifest/build-output additions this step needed:
+  `config.distDir` and `config.compress`; `staticFiles` became a
+  `Record<pathname, repoRootRelativeKey>` (a static file's on-disk key is not
+  derivable from its pathname); and `assertBuildCwd`, which pins
+  `buildCwd === projectDir` so the `relativeProjectDir` Next.js inlines stays `""`
+  and the runtime's `chdir` is the whole of the cwd contract.
+- `.projenrc.ts` — bundles both shells (`lib/runtime/{lambda,server}.mjs`) and adds
+  a `tsconfig.esm.json` + `tsc -p` step to `compile`.
+- Tests: `src/runtime/http/{request,response,sink}.test.ts` (50) and
+  `src/runtime/core.test.ts` (16, driving the real `handle` against a staged
+  deployment tree in a tmpdir).
+
+**Decisions**
+
+1. **The `Dispatcher` is built per request; the `MiddlewareRunner` and
+   `EntrypointRegistry` are not.** `resolveRoutes` reports
+   `middlewareResponded: true` without carrying the `Response`, so the runner hands
+   it back through a closure (`invokerFor(perRequest, onResponse)`) — and a closure
+   shared across requests would cross-talk under the concurrency the container
+   shell has. `waitUntil` is per request for the same reason. What *is* shared is
+   the expensive part: the memoized middleware module and the per-`filePath`
+   entrypoint modules. (`createDispatcher` also throws for a middleware manifest
+   with no invoker, so a constructor-built dispatcher was not an option anyway.)
+2. **`requestMeta` carries exactly `initURL`, `hostname`, `render404`.** Read out of
+   `next@16.3.5`, not guessed:
+   - `initURL` — without it `RouteModule.prepare()` falls back to
+     `http://localhost${req.url}` and every absolute URL a route builds is wrong.
+   - `hostname` — `route-module.js` `getRouterServerContext` reads it; the port is
+     included because it is concatenated into absolute URLs.
+   - `render404` — `pages-handler.js` and `app-page-runtime.js` call it for a
+     `notFound()` they cannot render themselves, and fall back to
+     `res.end('This page could not be found')` (no status, no app 404 page) when
+     it is absent.
+   Deliberately **not** passed: `params`/`query` (the invocation target's `nxtP`
+   query values are the documented deployed-proxy contract, and `prepare()` reads
+   them), `relativeProjectDir` (`app-page-runtime.js` ignores the override and uses
+   the DefinePlugin-inlined value against `process.cwd()` — hence the `chdir`), and
+   `revalidate` (not consumed on any path we take).
+3. **gzip lives in shared runtime code, not in a shell or in infrastructure.**
+   API Gateway's `minCompressionSize` is inert under `ResponseTransferMode.STREAM`,
+   and CloudFront needs a `Content-Length` a streamed response does not have. Lambda
+   Web Adapter used to do this, which is why nothing in the old code mentions it.
+   `res.flush()` is rewired to `compressor.flush(Z_SYNC_FLUSH)` because Next.js
+   calls it after every chunk (`pipe-readable.js`); without that, streamed HTML
+   sits in zlib's buffer and arrives all at once.
+4. **`waitUntil` promises are awaited after the response stream closes.** Lambda
+   freezes the sandbox the moment the handler resolves, so ISR revalidation
+   registered with `waitUntil` would otherwise never finish. Client latency is
+   unaffected; billed duration extends, which is the right trade.
+5. **A broken response stream is logged, not rethrown.** Once the head is out there
+   is nothing to say; rethrowing would make Lambda retry a request the client
+   already abandoned.
+6. **`deploymentRootOf(dirname(fileURLToPath(import.meta.url)))`**, not
+   `LAMBDA_TASK_ROOT` or the image `WORKDIR`: one rule both shells and the tests
+   agree on, and a consumer overriding `WORKDIR` cannot break path resolution.
+7. **New `tsconfig.esm.json` type-checks `.mts`.** The repo's jsii `include` is
+   `src/**/*.ts` and its eslint task is `--ext .ts,.tsx`, so both shells — the
+   largest new surface in this step — were invisible to every check. `pnpm compile`
+   now runs `tsc -p tsconfig.esm.json` (noEmit, `moduleResolution: bundler`) over
+   `.mts` too. It found one real pre-existing error (an unused type in
+   `adapter.mts`, deleted). `.mts` is still not linted; that is pre-existing.
+
+**Measured**
+
+| What | Value | Command |
+| --- | --- | --- |
+| tests | 203 passed, 13 suites | `pnpm jest` |
+| `core.ts` coverage | 81.6% stmts, 65.2% branch | `pnpm jest src/runtime/core.test.ts` |
+| `sink.ts` coverage | 100% stmts | `pnpm jest src/runtime/http` |
+| lint / types | clean | `pnpm eslint`, `pnpm compile` |
+| shell bundles | `lambda.mjs` 1.5 MB, `server.mjs` 1.5 MB | `pnpm bundle` |
+
+**Verified vs. assumed**
+
+`core.test.ts` stages a real deployment tree in a tmpdir from the app-playground
+fixture — real manifest, real `Dispatcher`, real `@next/routing`, real
+`MiddlewareRunner`, real gzip — with a stub CJS module at every entrypoint
+`filePath` that echoes what the runtime handed it. Verified that way: the
+`requestMeta` fields above arrive; `cwd` is the staged project dir; a dynamic route
+gets `/isr/42?nxtPid=42`; `x-forwarded-host` beats the `host` CloudFront rewrote;
+middleware's `x-middleware-override-headers` reaches the route; a static file is
+served off disk; an unknown path renders through `/_not-found` with status 404;
+`requestMeta.render404()` does the same from inside a route; a trailing slash
+redirects 308 with the `Refresh` fallback; HTML is gzipped for a client that
+accepts it; a `waitUntil` timer completes before `handle` resolves; a throwing
+entrypoint answers 500; middleware's own `Response` streams through with its
+cookies split. Plus both `loadRuntime` failure messages.
+
+Not covered by a test, and known to be unproven until the e2e suites in steps 5–7:
+
+- **Both shells.** `lambda.mts` and `server.mts` are type-checked and bundled but
+  have no tests: the event/response translation is thin, and the parts worth
+  asserting (streaming semantics, API Gateway's zero-byte 502) only fail against
+  real infrastructure. The e2e suites are where they get proven.
+- **`proxyExternal` and the image path.** Both need a live upstream / S3.
+- **Real entrypoints.** Every test entrypoint is a stub. Nothing here has yet run
+  a module that `next build` produced — that is step 5's first deploy.
+
+**Deferred / open**
+
+- `next` stays **external** in both shell bundles, so `static-files.ts` and
+  `image.ts` reach `next/dist/server/serve-static.js` and
+  `next/dist/server/image-optimizer.js` at runtime. Image optimization used to be
+  its own Lambda with `next` bundled *in*, so step 5 (Functions zip) and step 6
+  (dropping the dedicated image function) must confirm those two modules actually
+  resolve out of the traced assets the manifest stages. If they do not, the fix is
+  a targeted `--external` change, not a design change.
+- `RuntimeRequest.signal` is wired end to end (shell → `res.destroy()` →
+  middleware `AbortSignal`), but only the container shell can produce one: Lambda
+  has no client-disconnect signal.
+- `padEmptyBody` is asserted at the sink level, not against API Gateway. The
+  integration test that matters is step 5's `main-rgnl-fns` equivalent.

@@ -25,9 +25,10 @@ import {
 function manifestOf(fixture: unknown): AdapterManifest {
   const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
   try {
-    return buildAdapterManifest(
-      structuredClone(fixture) as BuildCompleteContext,
-    ).manifest;
+    const ctx = structuredClone(fixture) as BuildCompleteContext;
+    // The fixtures' project dirs are synthetic `/repo/…` paths, so the build cwd
+    // has to be stated; see `assertBuildCwd`.
+    return buildAdapterManifest(ctx, { buildCwd: ctx.projectDir }).manifest;
   } finally {
     warn.mockRestore();
   }
@@ -151,7 +152,7 @@ describe("Dispatcher entrypoint resolution", () => {
 describe("Dispatcher non-entrypoint outcomes", () => {
   it("serves a build asset as a static file with its immutable cache header", async () => {
     const manifest = manifests["app-playground"];
-    const pathname = manifest.staticFiles.find((file) =>
+    const pathname = Object.keys(manifest.staticFiles).find((file) =>
       file.startsWith("/_next/static/"),
     )!;
     const result = await dispatcherFor("app-playground").dispatch(
@@ -261,11 +262,12 @@ describe("Dispatcher non-entrypoint outcomes", () => {
       {
         kind: "static-file",
         pathname: "/404",
+        filePath: base.staticFiles["/404"],
       },
     );
     expect(
       createDispatcher({
-        manifest: { ...withoutEntrypoints, staticFiles: [] },
+        manifest: { ...withoutEntrypoints, staticFiles: {} },
       }).notFound,
     ).toEqual({ kind: "none" });
   });

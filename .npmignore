@@ -24,6 +24,7 @@ tsconfig.tsbuildinfo
 /projenrc/tsconfig.json
 !.jsii
 !/assets/
+/tsconfig.esm.json
 /.gitattributes
 /.projenrc.ts
 /projenrc

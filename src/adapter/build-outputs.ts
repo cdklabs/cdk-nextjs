@@ -57,6 +57,15 @@ const ENV_FILES = [".env", ".env.production"];
  */
 export type StagingPlan = ReadonlyMap<string, string>;
 
+export interface BuildOutputsOptions {
+  /**
+   * The directory `next build` was invoked from. Defaults to `process.cwd()`,
+   * which is the real answer inside `onBuildComplete`; a parameter only so the
+   * unit tests can drive the fixtures' synthetic project dirs.
+   */
+  readonly buildCwd?: string;
+}
+
 export interface BuildAdapterManifestResult {
   readonly manifest: AdapterManifest;
   readonly staging: StagingPlan;
@@ -80,12 +89,13 @@ export interface WriteBuildOutputsResult extends BuildAdapterManifestResult {
  */
 export async function writeBuildOutputs(
   ctx: BuildCompleteContext,
+  options: BuildOutputsOptions = {},
 ): Promise<WriteBuildOutputsResult> {
   const adapterDir = join(ctx.distDir, ADAPTER_DIR_NAME);
   const stagingDir = join(adapterDir, STAGING_DIR_NAME);
   const manifestPath = join(adapterDir, MANIFEST_FILE_NAME);
 
-  const { manifest, staging } = buildAdapterManifest(ctx);
+  const { manifest, staging } = buildAdapterManifest(ctx, options);
 
   // A previous build's tree is never additive with this one's: a removed route
   // leaves behind an entrypoint the manifest no longer mentions, and a renamed
@@ -116,8 +126,10 @@ export async function writeBuildOutputs(
  */
 export function buildAdapterManifest(
   ctx: BuildCompleteContext,
+  options: BuildOutputsOptions = {},
 ): BuildAdapterManifestResult {
   const { outputs, repoRoot } = ctx;
+  assertBuildCwd(ctx, options.buildCwd ?? process.cwd());
   const invocable: InvocableOutput[] = [
     ...outputs.pages,
     ...outputs.pagesApi,
@@ -130,6 +142,7 @@ export function buildAdapterManifest(
   warnOnDroppedRouteConfig(invocable);
 
   const staging = collectStagingPlan(ctx, invocable);
+  const staticFiles = collectStaticFiles(ctx, staging);
 
   const entrypoints: Record<string, AdapterEntrypoint> = {};
   for (const { outputs: group, type } of [
@@ -151,7 +164,7 @@ export function buildAdapterManifest(
 
   const pathnames = sortedUnique([
     ...Object.keys(entrypoints),
-    ...outputs.staticFiles.map((o) => o.pathname),
+    ...Object.keys(staticFiles),
   ]);
 
   const manifest: AdapterManifest = {
@@ -162,13 +175,15 @@ export function buildAdapterManifest(
       basePath: ctx.config.basePath || "",
       trailingSlash: ctx.config.trailingSlash === true,
       assetPrefix: ctx.config.assetPrefix || "",
+      distDir: toPosix(relative(ctx.projectDir, ctx.distDir)),
+      compress: ctx.config.compress !== false,
       i18n: ctx.config.i18n ?? null,
     },
     routing: ctx.routing,
     pathnames,
     entrypoints,
     middleware: buildMiddleware(repoRoot, outputs.middleware),
-    staticFiles: sortedUnique(outputs.staticFiles.map((o) => o.pathname)),
+    staticFiles,
   };
 
   return { manifest, staging };
@@ -260,7 +275,7 @@ function warnOnDroppedRouteConfig(invocable: InvocableOutput[]): void {
 function collectStagingPlan(
   ctx: BuildCompleteContext,
   invocable: InvocableOutput[],
-): StagingPlan {
+): Map<string, string> {
   const { repoRoot } = ctx;
   const staging = new Map<string, string>();
   const hashes = new Map<string, string>();
@@ -310,6 +325,97 @@ function collectStagingPlan(
   }
 
   return staging;
+}
+
+/**
+ * Job 2, third part: the static files the *runtime* has to serve, and their
+ * sources.
+ *
+ * `outputs.staticFiles` mixes two populations with the same `STATIC_FILE` type:
+ *
+ * - **`<distDir>/static/**` and `public/**`** — uploaded to S3 by
+ *   `NextjsStaticAssets`, and CloudFront / API Gateway answer them before the
+ *   request ever reaches the compute. Not staged: `public/` alone can be
+ *   hundreds of megabytes against a 250 MB unzipped Lambda cap, and it would be
+ *   a second copy of bytes already in S3.
+ * - **everything else**, all of it under `<distDir>/server/` — `404.html`,
+ *   `500.html`, `favicon.ico.body`, and fully-static Pages Router HTML. Nothing
+ *   in front of the compute serves these, so they are staged. Bounded by route
+ *   count and small.
+ *
+ * The pathname → key map is returned for *all* of them, because dispatch has to
+ * resolve a pathname to "static file, not a 404" either way; the runtime 404s if
+ * the file turns out not to be in the package, which is only reachable when the
+ * distribution is misrouted.
+ */
+function collectStaticFiles(
+  ctx: BuildCompleteContext,
+  staging: Map<string, string>,
+): Record<string, string> {
+  const { repoRoot, distDir } = ctx;
+  const clientStaticDir = join(distDir, "static") + sep;
+  const staticFiles: Record<string, string> = {};
+
+  for (const output of sortedByPathname(ctx.outputs.staticFiles)) {
+    const key = toPosix(relative(repoRoot, output.filePath));
+    const existing = staticFiles[output.pathname];
+    if (existing !== undefined && existing !== key) {
+      throw new Error(
+        `${LOG_PREFIX} Two static files claim the pathname ` +
+          `"${output.pathname}" ("${existing}" and "${key}"). Dispatch cannot ` +
+          `choose between them.`,
+      );
+    }
+    staticFiles[output.pathname] = key;
+
+    const servedByS3 =
+      output.filePath.startsWith(clientStaticDir) ||
+      !output.filePath.startsWith(distDir + sep);
+    if (!servedByS3) {
+      assertStagingKey(key, output.filePath);
+      staging.set(key, output.filePath);
+    }
+  }
+
+  return staticFiles;
+}
+
+/**
+ * `sortedUnique` used to give the manifest's `staticFiles` a stable order. Object
+ * keys preserve insertion order, so sorting the outputs keeps `manifest.json`
+ * byte-stable across builds — which is what makes it diffable and keeps the CDK
+ * asset hash from churning.
+ */
+function sortedByPathname<T extends { pathname: string }>(outputs: T[]): T[] {
+  return [...outputs].sort((a, b) => (a.pathname < b.pathname ? -1 : 1));
+}
+
+/**
+ * The invariant behind `manifest.relativeProjectDir`: `next build` must run from
+ * the project directory.
+ *
+ * Next inlines `relative(process.cwd(), projectDir)` into every entrypoint
+ * (`define-env.js`) and the built code resolves it against the *runtime*
+ * `process.cwd()`. Keeping build cwd and project dir equal makes that inlined
+ * value `""`, so the runtime only has to `chdir` to the staged project dir. A
+ * build run from elsewhere would inline a non-empty relative path — often one
+ * pointing outside the staging tree — and every entrypoint would fail to find
+ * `required-server-files.json` at runtime with no hint as to why.
+ */
+function assertBuildCwd(ctx: BuildCompleteContext, buildCwd: string): void {
+  const cwd = resolve(buildCwd);
+  if (cwd === resolve(ctx.projectDir)) {
+    return;
+  }
+  throw new Error(
+    `${LOG_PREFIX} \`next build\` must run from the Next.js project ` +
+      `directory. It ran from "${cwd}" with the project at ` +
+      `"${ctx.projectDir}". Next.js bakes the relative path between those two ` +
+      `into every built entrypoint, and cdk-nextjs cannot reproduce that layout ` +
+      `in the deployment package. Change directory first (\`cd ` +
+      `${relative(cwd, ctx.projectDir) || "."} && next build\`) instead of ` +
+      `passing the directory as an argument.`,
+  );
 }
 
 function addEntrypoint(

@@ -82,10 +82,12 @@ export interface DispatchEntrypointResult extends DispatchResultBase {
   readonly requestHeaders: Headers;
 }
 
-/** A file in `manifest.staticFiles`: served from S3/CloudFront, not invoked. */
+/** A file in `manifest.staticFiles`: read off disk, not invoked. */
 export interface DispatchStaticFileResult extends DispatchResultBase {
   readonly kind: "static-file";
   readonly pathname: string;
+  /** Repo-root-relative key inside the deployment root. */
+  readonly filePath: string;
 }
 
 /** `/_next/image`: our own optimizer, deliberately reached after middleware. */
@@ -148,7 +150,11 @@ export type NotFoundTarget =
       readonly pathname: string;
       readonly entrypoint: AdapterEntrypoint;
     }
-  | { readonly kind: "static-file"; readonly pathname: string }
+  | {
+      readonly kind: "static-file";
+      readonly pathname: string;
+      readonly filePath: string;
+    }
   | { readonly kind: "none" };
 
 /**
@@ -179,7 +185,7 @@ export class Dispatcher {
 
   private readonly routes: ResolveRoutesParams["routes"];
   private readonly i18n: ResolveRoutesParams["i18n"] | undefined;
-  private readonly staticFiles: Set<string>;
+  private readonly staticFiles: Record<string, string>;
   private readonly imagePathname: string;
   private readonly invokeMiddleware: MiddlewareInvoker;
 
@@ -187,7 +193,7 @@ export class Dispatcher {
     const { manifest } = options;
     this.routes = asRoutes(manifest.routing);
     this.i18n = asI18n(manifest.config.i18n);
-    this.staticFiles = new Set(manifest.staticFiles);
+    this.staticFiles = manifest.staticFiles;
     this.imagePathname = `${manifest.config.basePath}/_next/image`;
     this.notFound = resolveNotFoundTarget(manifest);
 
@@ -282,10 +288,12 @@ export class Dispatcher {
           status,
         };
       }
-      if (this.staticFiles.has(resolvedPathname)) {
+      const filePath = this.staticFiles[resolvedPathname];
+      if (filePath !== undefined) {
         return {
           kind: "static-file",
           pathname: resolvedPathname,
+          filePath,
           responseHeaders,
           status,
         };
@@ -371,8 +379,9 @@ function resolveNotFoundTarget(manifest: AdapterManifest): NotFoundTarget {
     }
   }
   const staticNotFound = `${basePath}/404`;
-  if (manifest.staticFiles.includes(staticNotFound)) {
-    return { kind: "static-file", pathname: staticNotFound };
+  const filePath = manifest.staticFiles[staticNotFound];
+  if (filePath !== undefined) {
+    return { kind: "static-file", pathname: staticNotFound, filePath };
   }
   return { kind: "none" };
 }

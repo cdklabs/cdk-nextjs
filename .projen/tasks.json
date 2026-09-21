@@ -99,6 +99,12 @@
         },
         {
           "spawn": "bundle:image-optimization/handler"
+        },
+        {
+          "spawn": "bundle:runtime/lambda"
+        },
+        {
+          "spawn": "bundle:runtime/server"
         }
       ]
     },
@@ -192,6 +198,42 @@
         }
       ]
     },
+    "bundle:runtime/lambda": {
+      "name": "bundle:runtime/lambda",
+      "description": "Create a JavaScript bundle from src/runtime/lambda.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
+        }
+      ]
+    },
+    "bundle:runtime/lambda:watch": {
+      "name": "bundle:runtime/lambda:watch",
+      "description": "Continuously update the JavaScript bundle from src/runtime/lambda.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
+        }
+      ]
+    },
+    "bundle:runtime/server": {
+      "name": "bundle:runtime/server",
+      "description": "Create a JavaScript bundle from src/runtime/server.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
+        }
+      ]
+    },
+    "bundle:runtime/server:watch": {
+      "name": "bundle:runtime/server:watch",
+      "description": "Continuously update the JavaScript bundle from src/runtime/server.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
+        }
+      ]
+    },
     "clobber": {
       "name": "clobber",
       "description": "hard resets to HEAD of origin and cleans the local repo",
@@ -239,6 +281,9 @@
       "steps": [
         {
           "exec": "jsii --silence-warnings=reserved-word"
+        },
+        {
+          "exec": "tsc -p tsconfig.esm.json"
         }
       ]
     },

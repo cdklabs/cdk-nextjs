@@ -53,7 +53,6 @@ const adapter: NextAdapter = {
     debug(`Init cache directory: ${cacheDir}`);
 
     // Group prerenders by their base pathname
-    type Prerender = (typeof ctx.outputs.prerenders)[number];
     const prerenderGroups = groupPrerendersByBasePath(ctx.outputs.prerenders);
     debug(`Prerender groups: ${prerenderGroups.size} groups`);
 
