@@ -5290,6 +5290,7 @@ const nextjsImageFunctionProps: NextjsImageFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket containing static assets, read by the handler to serve non-absolute image URLs. |
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionOverrides">NextjsImageFunctionOverrides</a></code> | Override props of any construct. |
+| <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsBasePath">staticAssetsBasePath</a></code> | <code>string</code> | The `basePath` prop passed to `NextjsStaticAssets`, used to namespace a shared bucket. |
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
 
 ---
@@ -5339,6 +5340,23 @@ public readonly overrides: NextjsImageFunctionOverrides;
 - *Type:* <a href="#cdk-nextjs.NextjsImageFunctionOverrides">NextjsImageFunctionOverrides</a>
 
 Override props of any construct.
+
+---
+
+##### `staticAssetsBasePath`<sup>Optional</sup> <a name="staticAssetsBasePath" id="cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsBasePath"></a>
+
+```typescript
+public readonly staticAssetsBasePath: string;
+```
+
+- *Type:* string
+
+The `basePath` prop passed to `NextjsStaticAssets`, used to namespace a shared bucket.
+
+Unrelated to the Next.js app's own `basePath` config
+(baked into hrefs by next-image-loader): nothing requires the two to
+match, so this must be threaded through explicitly rather than read from
+the app's bundled config.
 
 ---
 
