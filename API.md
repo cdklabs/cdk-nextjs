@@ -2609,6 +2609,7 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.keyPrefix">keyPrefix</a></code> | <code>string</code> | S3 key prefix the assets are actually uploaded under, normalized to a bare path segment (no leading or trailing slash, empty when assets live at the bucket root). |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.bucket">bucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.deployment">deployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
 
@@ -2623,6 +2624,24 @@ public readonly node: Node;
 - *Type:* constructs.Node
 
 The tree node.
+
+---
+
+##### `keyPrefix`<sup>Required</sup> <a name="keyPrefix" id="cdk-nextjs.NextjsStaticAssets.property.keyPrefix"></a>
+
+```typescript
+public readonly keyPrefix: string;
+```
+
+- *Type:* string
+
+S3 key prefix the assets are actually uploaded under, normalized to a bare path segment (no leading or trailing slash, empty when assets live at the bucket root).
+
+Consumers that read assets back out of the bucket (the image optimization
+Lambda, `NextjsApi`'s S3 integrations) must use this rather than the
+`basePath` prop: `overrides.bucketDeploymentProps` can replace the prefix
+outright, and a `basePath` with surrounding slashes doesn't survive into
+the uploaded keys verbatim.
 
 ---
 
@@ -2741,6 +2760,7 @@ const nextjsApiProps: NextjsApiProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.imageFunction">imageFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Dedicated image optimization Lambda for the `_next/image` route. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `NextjsRegionalContainers`. |
 
 ---
@@ -2827,6 +2847,24 @@ public readonly serverFunction: IFunction;
 Required if `NextjsRegionalFunctions`.
 
 The Lambda function for server-side rendering
+
+---
+
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.NextjsApiProps.property.staticAssetsKeyPrefix"></a>
+
+```typescript
+public readonly staticAssetsKeyPrefix: string;
+```
+
+- *Type:* string
+
+S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
+
+Independent of `basePath` above: that one is the URL prefix the REST API
+serves the app at (commonly the API Gateway stage), while this one is where
+the objects live in the bucket. `_next/static` and public directory
+requests are mapped to S3 keys directly, so they 404 unless this prefix is
+applied.
 
 ---
 
@@ -5290,7 +5328,7 @@ const nextjsImageFunctionProps: NextjsImageFunctionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket containing static assets, read by the handler to serve non-absolute image URLs. |
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsImageFunctionOverrides">NextjsImageFunctionOverrides</a></code> | Override props of any construct. |
-| <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsBasePath">staticAssetsBasePath</a></code> | <code>string</code> | The `basePath` prop passed to `NextjsStaticAssets`, used to namespace a shared bucket. |
+| <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. |
 | <code><a href="#cdk-nextjs.NextjsImageFunctionProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | *No description.* |
 
 ---
@@ -5343,20 +5381,25 @@ Override props of any construct.
 
 ---
 
-##### `staticAssetsBasePath`<sup>Optional</sup> <a name="staticAssetsBasePath" id="cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsBasePath"></a>
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.NextjsImageFunctionProps.property.staticAssetsKeyPrefix"></a>
 
 ```typescript
-public readonly staticAssetsBasePath: string;
+public readonly staticAssetsKeyPrefix: string;
 ```
 
 - *Type:* string
 
-The `basePath` prop passed to `NextjsStaticAssets`, used to namespace a shared bucket.
+S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
 
-Unrelated to the Next.js app's own `basePath` config
-(baked into hrefs by next-image-loader): nothing requires the two to
-match, so this must be threaded through explicitly rather than read from
-the app's bundled config.
+Distinct from the Next.js app's own `basePath` config (baked into hrefs by
+next-image-loader), so it must be threaded through explicitly rather than
+read from the app's bundled config. The two are only guaranteed to line up
+when the app's `basePath` is also the URL prefix the assets are served
+from: `NextjsGlobalFunctions`/`NextjsGlobalContainers` build CloudFront
+behaviors as `${basePath}/_next/static*` and use the request path verbatim
+as the S3 key, so there the CDK `basePath` must match the app's. They
+diverge when the app's `basePath` comes from somewhere else entirely, e.g.
+an API Gateway stage under `NextjsRegionalFunctions`.
 
 ---
 
