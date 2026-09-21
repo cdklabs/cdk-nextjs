@@ -36,7 +36,7 @@ import {
   MANIFEST_FILE_NAME,
 } from "./manifest";
 import { createMiddlewareRunner, MiddlewareRunner } from "./middleware";
-import { useNextFrom } from "./next-modules";
+import { setupNodeEnvironment, useNextFrom } from "./next-modules";
 import { serveStaticFile } from "./static-files";
 
 /** One request, normalized by a shell. */
@@ -392,6 +392,9 @@ export async function loadRuntime(
   // Before anything can serve a request: the runtime's own `next` imports resolve
   // out of the staged app, not out of the shell's directory. See `next-modules.ts`.
   useNextFrom(projectDir);
+  // Then, before any entrypoint (or middleware) can be loaded: Next's own
+  // node-environment bootstrap. See `setupNodeEnvironment`.
+  setupNodeEnvironment();
 
   return new NextjsRuntime({
     deploymentRoot,

@@ -1339,3 +1339,66 @@ above is strong but it is not a root cause.
 2. Step 8's other two exit criteria are untouched by this step: the official
    Next.js test harness on `NextjsRegionalFunctions` (not started) and the
    `healthCheckPath` API question (open).
+
+## Step 10a — `fix: run Next.js's node-environment bootstrap before any entrypoint`
+
+**Landed** — a real runtime bug, found by the harness work in step 10 before a
+single official test had run. Recorded as its own commit because it is a product
+fix, not test infrastructure.
+
+**Symptom.** A dynamic app-page render in an app with **no middleware** kills the
+Lambda: `Error: Invariant: AsyncLocalStorage accessed in runtime where it is not
+available`, thrown out of `next/dist/server/app-render/async-local-storage.js`, so
+the request comes back as `Runtime.ExitError` and the sandbox is destroyed.
+
+**Cause.** That module reads `globalThis.AsyncLocalStorage` *at module scope* and
+keeps whatever it saw — if the global is not set yet, every app-render storage in
+the process is Next's `FakeAsyncLocalStorage`, whose every method throws. The
+global is set by `next/dist/server/node-environment-baseline.js`, and inside the
+precompiled `app-page-turbo.runtime.prod.js` the load order is against us:
+`work-async-storage.external.js` is required before `route-module.js` reaches the
+bootstrap. Traced with a `Module._load` hook over the staged bundle:
+
+```
+[1] next/dist/compiled/next-server/app-page-turbo.runtime.prod.js   <- from the page chunk
+[2]   next/dist/server/app-render/work-async-storage.external.js
+[3]     ./work-async-storage-instance  -> async-local-storage.js -> throw
+[5] next/dist/server/node-environment  <- from setup-node-env.external.js, too late
+```
+
+**Why no e2e caught it.** `next/dist/build/templates/middleware.js` requires the
+same bootstrap, and `src/runtime/core.ts` runs middleware before it loads a page
+entrypoint. `examples/app-playground` has middleware, so every one of the four
+stacks was accidentally fine. The condition is narrow and entirely plausible in a
+user's app: no middleware **and** a route that actually renders dynamically.
+
+**Fix.** `setupNodeEnvironment()` in `src/runtime/next-modules.ts` requires
+`next/dist/build/adapter/setup-node-env.external.js` — the bootstrap Next.js
+publishes for adapters, whose own header says it "can be used to ensure Node.js
+APIs are setup as expected without requiring `next-server`" — and `loadRuntime`
+calls it immediately after `useNextFrom`, before anything can serve a request. It
+also installs `next/dist/server/require-hook` (the `react`/`react-dom` aliasing)
+and `node-polyfill-crypto`, which we were equally relying on middleware for.
+
+Safe to call more than once: `node-environment-baseline.js` guards each global
+with a `typeof` check, and CJS caching means the file body runs once per process
+regardless.
+
+**Measured**
+
+- Reproduced off AWS by driving the staged `lambda.mjs` directly with a Function
+  URL v2 event and an `awslambda` shim: throws before the fix, renders 200 HTML
+  after (`node --require` of the bootstrap alone was the bisect).
+- Reproduced on AWS: `/ssr` on a no-middleware fixture returned
+  `Runtime.ExitError` before, `200` and a body that changes between requests
+  after.
+- `npx jest src/runtime src/adapter` — 243 passed, including a new
+  `next-modules.test.ts` case asserting the global is a function afterwards.
+  `pnpm compile`, `pnpm bundle`, `pnpm eslint` clean.
+
+**Not done**
+
+The four `dev-*` stacks were not redeployed for this fix, and the `examples`
+e2e suite was not re-run against it. The change is additive and load-order-only,
+and `examples/app-playground` has middleware, so it exercises the same end state
+either way — the fixture without middleware is what proves the fix.

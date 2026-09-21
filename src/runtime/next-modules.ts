@@ -42,6 +42,36 @@ export function useNextFrom(projectDir: string): void {
 }
 
 /**
+ * The bootstrap Next.js exposes for adapters — "can be used to ensure Node.js
+ * APIs are setup as expected without requiring `next-server`", in its own words.
+ * It installs the globals, the `react`/`react-dom` require hook, and the
+ * `console`/`Error`/`Date`/crypto extensions that `next start` installs before it
+ * loads any route.
+ *
+ * Its most load-bearing effect is `globalThis.AsyncLocalStorage`, which
+ * `next/dist/server/app-render/async-local-storage.js` reads *at module scope* —
+ * whatever is loaded first wins, permanently.
+ *
+ * Without this, `next/dist/compiled/next-server/app-page-turbo.runtime.prod.js`
+ * requires `work-async-storage.external.js` before its own
+ * `route-module.js` gets to the bootstrap, and the app-render storage is created
+ * as Next's `FakeAsyncLocalStorage`, which throws "Invariant: AsyncLocalStorage
+ * accessed in runtime where it is not available" on the first dynamic render.
+ *
+ * It is easy to miss, because an app with middleware is accidentally fine:
+ * `next/dist/build/templates/middleware.js` requires the same bootstrap, and the
+ * runtime runs middleware before it loads a page entrypoint. Only an app with no
+ * middleware — and only on a dynamic app-page render — reaches the invariant.
+ *
+ * `next/dist/build/adapter/setup-node-env.external.js` is side-effect-only and
+ * idempotent (`node-environment.js` guards its own re-entry), so calling this
+ * more than once is harmless.
+ */
+export function setupNodeEnvironment(): void {
+  nextModule("next/dist/build/adapter/setup-node-env.external.js");
+}
+
+/**
  * `require` a `next` submodule from the staged app.
  *
  * Pass the module's own type — `nextModule<typeof import("next/dist/...")>(...)` —

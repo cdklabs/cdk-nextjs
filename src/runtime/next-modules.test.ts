@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { nextModule, useNextFrom } from "./next-modules";
+import { nextModule, setupNodeEnvironment, useNextFrom } from "./next-modules";
 
 /** This repo's own root, which has a `node_modules/next`, as a stand-in for a staged project dir. */
 const repoRoot = join(__dirname, "../..");
@@ -18,6 +18,15 @@ describe("nextModule", () => {
     expect(() => nextModule("next/dist/server/not-a-real-module.js")).toThrow(
       /Could not resolve .* from the deployed Next.js project/,
     );
+  });
+
+  it("makes AsyncLocalStorage global, which app-render reads at module scope", () => {
+    // The symptom of skipping this is "Invariant: AsyncLocalStorage accessed in
+    // runtime where it is not available" on the first dynamic app-page render.
+    useNextFrom(repoRoot);
+    setupNodeEnvironment();
+    const polyfilled = globalThis as { AsyncLocalStorage?: unknown };
+    expect(typeof polyfilled.AsyncLocalStorage).toBe("function");
   });
 
   it("explains that the runtime was not loaded when nothing pointed it anywhere", () => {
