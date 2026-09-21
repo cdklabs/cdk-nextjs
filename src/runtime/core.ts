@@ -66,6 +66,8 @@ export interface NextjsRuntimeOptions {
   readonly manifest: AdapterManifest;
   /** `CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME`. */
   readonly bucket?: string;
+  /** `CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX`. */
+  readonly bucketKeyPrefix?: string;
 }
 
 export class NextjsRuntime {
@@ -80,6 +82,7 @@ export class NextjsRuntime {
       deploymentRoot,
       manifest,
       bucket: options.bucket ?? "",
+      bucketKeyPrefix: options.bucketKeyPrefix ?? "",
     });
     // The runner is shared — it memoizes the loaded middleware module — while the
     // `invokeMiddleware` callback it produces is per request.
@@ -394,6 +397,7 @@ export async function loadRuntime(
     deploymentRoot,
     manifest,
     bucket: process.env.CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME,
+    bucketKeyPrefix: process.env.CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX,
   });
 }
 

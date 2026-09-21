@@ -59,6 +59,17 @@ export interface NextjsStaticAssetsProps {
 export class NextjsStaticAssets extends Construct {
   bucket: IBucket;
   deployment: BucketDeployment;
+  /**
+   * S3 key prefix every uploaded asset sits under, without a leading slash, or
+   * `undefined` when they sit at the root of the bucket.
+   *
+   * Exposed because the runtime's image optimizer fetches local `<Image>` sources
+   * straight out of this bucket and so has to build the same keys. It cannot
+   * derive the prefix from the app's own `basePath`: that is the prefix of the
+   * *URL* the app is served at, which for the API Gateway deployment types is the
+   * stage name and has nothing to do with where the bytes were uploaded.
+   */
+  readonly keyPrefix?: string;
   private stagingDir?: string;
 
   private props: NextjsStaticAssetsProps;
@@ -67,6 +78,9 @@ export class NextjsStaticAssets extends Construct {
     super(scope, id);
     this.props = props;
     this.bucket = props.bucket ?? this.createBucket();
+    this.keyPrefix = props.basePath
+      ? props.basePath.replace(/^\//, "")
+      : undefined;
     this.deployment = this.createDeployment();
   }
 
@@ -94,14 +108,10 @@ export class NextjsStaticAssets extends Construct {
       );
     }
 
-    const destinationKeyPrefix = this.props.basePath
-      ? this.props.basePath.replace(/^\//, "")
-      : undefined;
-
     return new BucketDeployment(this, "Deployment", {
       sources: [Source.asset(this.stagingDir)],
       destinationBucket: this.bucket,
-      destinationKeyPrefix,
+      destinationKeyPrefix: this.keyPrefix,
       // Add BUILD_ID as metadata to all objects for version tracking
       metadata: {
         BUILD_ID: this.props.buildId,

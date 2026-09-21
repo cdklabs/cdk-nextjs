@@ -214,6 +214,11 @@ export class NextjsFunctions extends Construct {
         // whose bytes live in S3 rather than in the deployment package.
         CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
           this.props.staticAssetsBucket.bucketName,
+        // Where in that bucket. Not derivable from the app's `basePath`: on the
+        // API Gateway types that is the stage name, which is part of the URL but
+        // not of the key.
+        CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX:
+          this.props.staticAssetsKeyPrefix ?? "",
         // Which group this function is. Only used to make a misroute legible:
         // if CloudFront sends a request here for a route that was packaged
         // elsewhere, the 500 says which function got it and which group it

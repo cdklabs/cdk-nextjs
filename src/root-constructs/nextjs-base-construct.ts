@@ -206,6 +206,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       deploymentRootPath: this.nextjsBuild.deploymentRootPath,
       relativeProjectDir: this.nextjsBuild.relativeProjectDir,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
     };
   }
 

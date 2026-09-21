@@ -10,27 +10,48 @@
  */
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
+/** Where the app is served versus where its assets were uploaded. */
+export interface S3AssetLocation {
+  /**
+   * The app's own `basePath` — the prefix of the *URL* it is served at. Only
+   * stripped from the href, never used to build a key: on the API Gateway
+   * deployment types this is the stage name, which never appears in S3.
+   */
+  readonly urlBasePath: string;
+  /**
+   * `NextjsStaticAssets.keyPrefix`: the S3 key prefix the assets were uploaded
+   * under, without a leading slash. Empty for a bucket-root deployment.
+   */
+  readonly keyPrefix: string;
+}
+
 /**
  * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
  *
- * `NextjsStaticAssets` uploads under `basePath` as a key prefix, so every key
- * includes it. `url` is inconsistent: next-image-loader bakes `basePath` into
- * the href for statically imported images, while plain string paths are passed
- * through as literally written by the app. So the prefix is normalized to
- * exactly one occurrence rather than simply added or removed.
+ * `url` is inconsistent about the app's `basePath`: next-image-loader bakes it
+ * into the href for statically imported images, while plain string paths are
+ * passed through as literally written by the app. So it is stripped when present,
+ * leaving a path relative to the asset root, and the bucket's own key prefix is
+ * applied to that. Deriving the key from `basePath` instead is wrong whenever the
+ * two differ, which they do for every API Gateway deployment.
  */
 export async function fetchFromS3(
   s3: S3Client,
   bucket: string,
   url: string,
-  basePath: string,
+  location: S3AssetLocation,
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
+  const { urlBasePath, keyPrefix } = location;
   // Matching on a path boundary keeps a sibling like "/basement/logo.png"
   // from being treated as basePath "/base" plus "ment/logo.png".
   const hasBasePath =
-    !!basePath && (url === basePath || url.startsWith(`${basePath}/`));
-  const withoutBasePath = hasBasePath ? url.slice(basePath.length) : url;
-  const key = `${basePath}${withoutBasePath}`.replace(/^\//, "");
+    !!urlBasePath && (url === urlBasePath || url.startsWith(`${urlBasePath}/`));
+  const assetPath = (hasBasePath ? url.slice(urlBasePath.length) : url).replace(
+    /^\/+/,
+    "",
+  );
+  const prefix = keyPrefix.replace(/^\/+|\/+$/g, "");
+  const key = prefix ? `${prefix}/${assetPath}` : assetPath;
 
   const response = await s3.send(
     new GetObjectCommand({

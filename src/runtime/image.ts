@@ -39,6 +39,11 @@ export interface ImageOptimizerOptions {
   readonly manifest: AdapterManifest;
   /** `CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME`. Empty when no images are served. */
   readonly bucket: string;
+  /**
+   * `CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX`. Empty when the assets sit at the root
+   * of the bucket, which is the default.
+   */
+  readonly bucketKeyPrefix: string;
 }
 
 /** What `required-server-files.json` is read for. */
@@ -90,12 +95,10 @@ export class RuntimeImageOptimizer {
             imagesConfig.maximumResponseBody,
             imagesConfig.maximumRedirects,
           )
-        : await fetchFromS3(
-            this.s3,
-            this.options.bucket,
-            href,
-            nextConfig.basePath,
-          ).then((result) => ({
+        : await fetchFromS3(this.s3, this.options.bucket, href, {
+            urlBasePath: nextConfig.basePath,
+            keyPrefix: this.options.bucketKeyPrefix,
+          }).then((result) => ({
             buffer: result.buffer,
             contentType: result.contentType,
             cacheControl: null,

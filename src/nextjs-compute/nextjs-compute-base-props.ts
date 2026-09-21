@@ -41,4 +41,10 @@ export interface NextjsComputeBaseProps {
    * `<Image>` from S3, since they are deliberately not in the deployment package.
    */
   readonly staticAssetsBucket: IBucket;
+  /**
+   * Key prefix the assets were uploaded under, so the image optimizer can rebuild
+   * the same keys.
+   * @see NextjsStaticAssets.keyPrefix
+   */
+  readonly staticAssetsKeyPrefix?: string;
 }

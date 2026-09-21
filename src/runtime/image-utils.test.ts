@@ -24,6 +24,9 @@ function asyncIterableFrom(chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
   };
 }
 
+/** No app `basePath`, assets at the root of the bucket: the default. */
+const ROOT = { urlBasePath: "", keyPrefix: "" };
+
 describe("fetchFromS3", () => {
   const mockSend = jest.fn();
   const s3 = new S3Client({}) as unknown as S3Client;
@@ -33,72 +36,89 @@ describe("fetchFromS3", () => {
     mockSend.mockReset();
   });
 
-  it("strips the leading slash and uses url as-is for the S3 key", async () => {
+  const ok = () =>
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("data")]),
       ContentType: "image/png",
       ETag: '"abc123"',
     });
+  const keyOf = () =>
+    (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0].Key;
 
-    await fetchFromS3(s3, "my-bucket", "/base/foo.png", "");
+  it("strips the leading slash when the assets sit at the bucket root", async () => {
+    ok();
 
-    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
-    expect(params).toEqual({
-      Bucket: "my-bucket",
-      Key: "base/foo.png",
-    });
-  });
-
-  it("keeps a single basePath prefix when the url already includes it", async () => {
-    mockSend.mockResolvedValue({
-      Body: asyncIterableFrom([Buffer.from("data")]),
-      ContentType: "image/png",
-      ETag: '"abc123"',
+    await fetchFromS3(s3, "my-bucket", "/static/foo.png", {
+      urlBasePath: "",
+      keyPrefix: "",
     });
 
-    // next-image-loader bakes "/base" into the href for statically imported
-    // images, and NextjsStaticAssets uploads under the same prefix, so the
-    // key must carry it exactly once.
-    await fetchFromS3(
-      s3,
-      "my-bucket",
-      "/base/_next/static/media/a.png",
-      "/base",
+    expect((GetObjectCommand as unknown as jest.Mock).mock.calls[0][0]).toEqual(
+      { Bucket: "my-bucket", Key: "static/foo.png" },
     );
-
-    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
-    expect(params.Key).toBe("base/_next/static/media/a.png");
   });
 
-  it("adds the basePath prefix when the url omits it", async () => {
-    mockSend.mockResolvedValue({
-      Body: asyncIterableFrom([Buffer.from("data")]),
-      ContentType: "image/png",
-      ETag: '"abc123"',
+  it("applies the bucket key prefix", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", {
+      urlBasePath: "/base",
+      keyPrefix: "base",
     });
 
-    // Plain string paths (e.g. `<Image src="/static/foo.jpg">`) are passed
-    // through by next/image as written, without basePath baked in, but the
-    // S3 key still has it.
-    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", "/base");
+    expect(keyOf()).toBe("base/static/foo.jpg");
+  });
 
-    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
-    expect(params.Key).toBe("base/static/foo.jpg");
+  it("does not repeat the prefix when the url already carries basePath", async () => {
+    ok();
+
+    // next-image-loader bakes `basePath` into the href of a statically imported
+    // image, unlike a plain string path.
+    await fetchFromS3(s3, "my-bucket", "/base/_next/static/media/a.png", {
+      urlBasePath: "/base",
+      keyPrefix: "base",
+    });
+
+    expect(keyOf()).toBe("base/_next/static/media/a.png");
+  });
+
+  /**
+   * The API Gateway deployment types serve the app under the stage name, so the
+   * app's `basePath` is `/prod` while the assets were uploaded to the root of the
+   * bucket. Building the key from `basePath` asks S3 for `prod/...`, which does
+   * not exist, and every local `<Image>` 400s.
+   */
+  it("strips a basePath that is not part of the key", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/prod/_next/static/media/a.png", {
+      urlBasePath: "/prod",
+      keyPrefix: "",
+    });
+
+    expect(keyOf()).toBe("_next/static/media/a.png");
+  });
+
+  it("leaves a url without basePath alone when there is no key prefix", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", {
+      urlBasePath: "/prod",
+      keyPrefix: "",
+    });
+
+    expect(keyOf()).toBe("static/foo.jpg");
   });
 
   it("only matches basePath on a path boundary", async () => {
-    mockSend.mockResolvedValue({
-      Body: asyncIterableFrom([Buffer.from("data")]),
-      ContentType: "image/png",
-      ETag: '"abc123"',
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/basement/logo.png", {
+      urlBasePath: "/base",
+      keyPrefix: "base",
     });
 
-    // "/basement" merely shares a prefix with basePath "/base"; treating it
-    // as a match would produce the key "base/ment/logo.png".
-    await fetchFromS3(s3, "my-bucket", "/basement/logo.png", "/base");
-
-    const params = (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0];
-    expect(params.Key).toBe("base/basement/logo.png");
+    expect(keyOf()).toBe("base/basement/logo.png");
   });
 
   it("returns the concatenated buffer, content type, and etag", async () => {
@@ -108,7 +128,7 @@ describe("fetchFromS3", () => {
       ETag: '"the-etag"',
     });
 
-    const result = await fetchFromS3(s3, "my-bucket", "/foo.jpg", "");
+    const result = await fetchFromS3(s3, "my-bucket", "/foo.jpg", ROOT);
 
     expect(result.buffer.toString()).toBe("hello");
     expect(result.contentType).toBe("image/jpeg");
@@ -122,7 +142,7 @@ describe("fetchFromS3", () => {
       ETag: undefined,
     });
 
-    const result = await fetchFromS3(s3, "my-bucket", "/foo.png", "");
+    const result = await fetchFromS3(s3, "my-bucket", "/foo.png", ROOT);
 
     expect(result.etag).toBe("");
     expect(result.contentType).toBeNull();
@@ -132,7 +152,7 @@ describe("fetchFromS3", () => {
     mockSend.mockResolvedValue({ Body: undefined });
 
     await expect(
-      fetchFromS3(s3, "my-bucket", "/missing.png", ""),
+      fetchFromS3(s3, "my-bucket", "/missing.png", ROOT),
     ).rejects.toThrow(/Empty response from S3/);
   });
 });

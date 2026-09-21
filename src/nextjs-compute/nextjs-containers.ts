@@ -227,6 +227,10 @@ export class NextjsContainers extends Construct {
             // URLs whose bytes are in S3 rather than in the image.
             CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
               this.props.staticAssetsBucket.bucketName,
+            // Where in that bucket. Not derivable from the app's `basePath`,
+            // which prefixes the URL rather than the key.
+            CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX:
+              this.props.staticAssetsKeyPrefix ?? "",
             // Merge with user-provided environment variables (user values take precedence)
             ...this.props.overrides?.taskImageOptions?.environment,
           },
