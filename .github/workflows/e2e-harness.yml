@@ -1,0 +1,121 @@
+# Runs vercel/next.js's own e2e suite against a real cdk-nextjs deployment, via
+# the Next.js adapter compatibility harness.
+#
+# Not a per-commit gate - the harness deploys a separate stack per test file, so
+# a run costs one CDK deploy per file. `e2e-tests.yml` stays the per-commit gate
+# on all four NextjsTypes; this is the correctness signal that no fixture app of
+# ours could give. See scripts/e2e-harness/README.md.
+name: e2e-harness
+on:
+  workflow_dispatch:
+    inputs:
+      nextjs_ref:
+        description: "vercel/next.js ref to test against (tag matching the `next` version in package.json by default)"
+        default: "v16.3.5"
+        type: string
+      test_filters:
+        description: "NEXT_EXTERNAL_TESTS_FILTERS, relative to the next.js checkout"
+        default: "../test/deploy-tests-manifest.json"
+        type: string
+  schedule:
+    # 06:00 UTC daily. The sweep job below also runs, catching stacks a
+    # cancelled run left behind.
+    - cron: "0 6 * * *"
+
+concurrency:
+  # Never two runs at once: concurrent runs would each deploy a stack per test
+  # file into the same account.
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  harness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
+      TEST_FILTERS: ${{ inputs.test_filters || '../test/deploy-tests-manifest.json' }}
+    steps:
+      - name: Checkout cdk-nextjs
+        uses: actions/checkout@v4
+
+      - name: Checkout vercel/next.js
+        uses: actions/checkout@v4
+        with:
+          repository: vercel/next.js
+          ref: ${{ env.NEXTJS_REF }}
+          path: nextjs
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+
+      - name: Build cdk-nextjs
+        run: |
+          pnpm i
+          pnpm bundle && pnpm compile
+
+      - name: Install and build next.js
+        working-directory: nextjs
+        # The harness runs out of a next.js checkout: `run-tests.js` and the
+        # `test/lib` helpers are repo files, not published ones.
+        run: |
+          corepack enable
+          pnpm install
+          pnpm build
+          pnpm install
+
+      - name: Install Playwright browser
+        working-directory: nextjs
+        run: pnpm playwright install --with-deps chromium
+
+      - name: Run the harness
+        working-directory: nextjs
+        env:
+          NEXT_TEST_MODE: deploy
+          NEXT_E2E_TEST_TIMEOUT: 240000
+          NEXT_EXTERNAL_TESTS_FILTERS: ${{ env.TEST_FILTERS }}
+          IS_TURBOPACK_TEST: 1
+          NEXT_TEST_JOB: 1
+          NEXT_TELEMETRY_DISABLED: 1
+          ADAPTER_DIR: ${{ github.workspace }}
+          NEXT_TEST_DEPLOY_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-deploy.sh
+          NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-logs.sh
+          NEXT_TEST_CLEANUP_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-cleanup.sh
+        # `-c 1`: concurrency here is concurrent CDK deploys, and the manifest is
+        # a short list of files. Raise it with the list.
+        run: node run-tests.js --timings -c 1 --type e2e
+
+      - name: Delete any stack the cleanup script missed
+        if: ${{ always() }}
+        # The per-test cleanup does not wait for the delete to finish, so this is
+        # both a backstop for failed cleanups and the only place a run confirms
+        # the account is empty again.
+        run: ./scripts/e2e-sweep.sh --apply
+        env:
+          HARNESS_SWEEP_MAX_AGE_HOURS: 0
+
+  sweep:
+    # Independent of the run above so that a cancelled or timed-out run still
+    # gets swept the next day: the age floor means this can never touch a stack
+    # belonging to a run in progress.
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+      - run: ./scripts/e2e-sweep.sh --apply

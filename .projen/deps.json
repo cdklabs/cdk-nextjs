@@ -69,6 +69,10 @@
       "type": "build"
     },
     {
+      "name": "aws-cdk",
+      "type": "build"
+    },
+    {
       "name": "cdk-nag",
       "type": "build"
     },

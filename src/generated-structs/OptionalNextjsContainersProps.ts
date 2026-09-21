@@ -28,6 +28,11 @@ export interface OptionalNextjsContainersProps {
    */
   readonly relativeEntrypointPath?: string;
   /**
+   * Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys.
+   * @stability stable
+   */
+  readonly staticAssetsKeyPrefix?: string;
+  /**
    * S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
    * @stability stable
    */

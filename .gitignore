@@ -40,6 +40,7 @@ ash_output
 ~$*.xlsx
 .kiro
 .claude/worktrees
+/nextjs/
 /test-reports/
 junit.xml
 /coverage/

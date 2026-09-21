@@ -39,6 +39,11 @@ const project = new CdklabsConstructLibrary({
     // the runtime by esbuild, not resolved from the deployment tree.
     "@next/routing@16.3.5",
     "@smithy/signature-v4",
+    // The CDK CLI the Next.js compatibility harness deploys with — it runs
+    // `scripts/e2e-harness/app.js` from a temporary app directory outside
+    // `examples/`, so it cannot use the examples workspace's copy.
+    // @see scripts/e2e-harness/README.md
+    "aws-cdk",
     "@types/aws-lambda",
     "@types/debug",
     "@types/mime-types",
@@ -90,6 +95,10 @@ const project = new CdklabsConstructLibrary({
     "~$*.xlsx",
     ".kiro",
     ".claude/worktrees",
+    // Where .github/workflows/e2e-harness.yml checks out vercel/next.js, and
+    // where the README tells you to put it locally. `actions/checkout` cannot
+    // write outside the workspace, so it lands in the repo.
+    "/nextjs/",
   ],
   projenrcTs: true,
   // tsconfig: {

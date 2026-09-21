@@ -58,6 +58,7 @@ up for the duration of this work — do not delete or modify them.
 | 7 — splitting (`functionGroups`) | done |
 | 8 — tests, docs, breaking-changes | done, with three exit criteria unmet (see step 8 entry) |
 | 9 — PPR: `cacheComponents` migration of `app-playground` + PPR e2e | done (clears exit criterion 1 of step 8's three) |
+| 10 — official Next.js test harness (plumbing + small slice) | plumbing done and proven end to end on AWS; step 8's exit criterion 2 **not** met — the official test files were never run (see step 10) |
 
 Exit criteria are tracked in the plan, not duplicated here. Record against them
 in the final entry.
@@ -1402,3 +1403,186 @@ The four `dev-*` stacks were not redeployed for this fix, and the `examples`
 e2e suite was not re-run against it. The change is additive and load-order-only,
 and `examples/app-playground` has middleware, so it exercises the same end state
 either way — the fixture without middleware is what proves the fix.
+
+## Step 10 — the official Next.js compatibility harness
+
+**Landed**: the plumbing for running vercel/next.js's own e2e suite against a real
+cdk-nextjs deployment, plus an explicit three-file slice to run it on. The user
+chose "plumbing + small slice" over a full port and over skipping it.
+
+**Not landed, and this is step 8's exit criterion 2:** *the official test files
+have never been run.* Running them needs a built vercel/next.js checkout
+(`run-tests.js` and `test/lib/**` are repo files, not published ones), and
+`pnpm install` inside that checkout was refused by this environment's permission
+classifier — twice, with and without `--ignore-scripts`. So the harness is proven
+against a hand-written fixture shaped like a harness temp app, on real AWS, but
+"harness green for the filtered manifest" is unproven. The nightly workflow is
+what will first answer it.
+
+### What it is
+
+| Path | Role |
+| --- | --- |
+| `scripts/e2e-deploy.sh` | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, prints the URL. |
+| `scripts/e2e-logs.sh` | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Markers, build/deploy log tails, CloudWatch tail. |
+| `scripts/e2e-cleanup.sh` | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. Deletes that one stack. |
+| `scripts/e2e-sweep.sh` | Deletes orphaned harness stacks. Dry run unless `--apply`. |
+| `scripts/e2e-harness/app.js` | The CDK app, plain CJS. `NextjsRegionalFunctions` + a Function URL. |
+| `scripts/e2e-harness/common.sh` | File names, stack naming, the tag check that gates every delete. |
+| `scripts/e2e-harness/stage-static.js` | Copies `_next/static` and `public/` into the deployment package. |
+| `test/deploy-tests-manifest.json` | v2 filter manifest; which test files run. |
+| `.github/workflows/e2e-harness.yml` | Nightly 06:00 UTC + `workflow_dispatch`, then a sweep. |
+
+The contract was read out of next.js's source rather than taken from the docs
+page, which paid for itself three times:
+
+1. `parseIdsFromCliOutput` (`test/lib/next-modes/next-deploy.ts`) matches
+   `/BUILD_ID: (.+)/` — **first match wins**. Fixtures print their own markers from
+   a chained `post-build`, so ours are written to `.adapter-markers.log` and
+   replayed *before* the build log.
+2. A non-zero exit from the logs script masks the deploy failure with "Custom
+   deploy logs script failed". `e2e-logs.sh` traps and always exits 0.
+3. `createTestDir({ skipInstall: true })` means the temp app has no
+   `node_modules`, so the deploy script installs it — and `pnpm install` prunes
+   directories it does not know about, which is why the adapter is copied in
+   *after*.
+
+Adapter injection needs no fixture cooperation: `NEXT_ADAPTER_PATH` is read
+straight into `config.adapterPath` (`next/dist/esm/server/config-shared.js`), and
+`src/adapter/adapter.mts` resolves its cache handler through
+`import.meta.resolve("cdk-nextjs/cache-handler")`, so the deploy script writes a
+real `node_modules/cdk-nextjs` package (this repo's `package.json` plus the two
+bundled `.mjs` files) — the same trick as `examples/app-playground`'s `prebuild`.
+
+### Headline finding: the deployment URL cannot have a path prefix
+
+The plan assumed API Gateway's mandatory stage prefix would cost us a documentable
+*class* of excluded tests. It is worse than that: it excludes everything.
+`getFullUrl` in `test/lib/next-test-utils.ts` assigns `parsedUrl.pathname =
+parsedPathQuery.pathname` outright, and `base.ts` builds `new URL(url, this.url)`.
+Any prefix in the deployment URL is discarded, so every absolute path a test
+requests would miss `/prod` and 404.
+
+So `app.js` deploys `NextjsRegionalFunctions` and reports a **Lambda Function
+URL** (`authType: NONE`, `invokeMode: RESPONSE_STREAM`) on the same server
+function: origin root, same Lambda, same adapter output, same `src/runtime`
+entrypoint. The API Gateway is still in the stack and its URL is a `ApiUrl` output
+for debugging by hand. Rejected alternatives: injecting a matching `basePath` (the
+harness strips it anyway), CloudFront (5–15 min to create *and* to delete, times
+one per test file), an HTTP API `$default` stage (no S3 integration), a custom
+domain (no domain or certificate to use).
+
+### Second finding: a Function URL front door is incomplete without help
+
+`_next/static` and `public/` are the two prefixes the product routes to the
+`NextjsStaticAssets` bucket, and the adapter deliberately does not stage either
+into the function (`src/runtime/static-files.ts` says so, and `public/` alone can
+blow the 250 MB unzipped cap). A bare Function URL has no S3 integration in front
+of it, so the first smoke run 404'd on every client chunk while
+`manifest.staticFiles` happily listed them.
+
+`stage-static.js` copies both directories into the staged tree between `next
+build` and `cdk deploy`. It reads the adapter's build-time
+`<distDir>/cdk-nextjs-adapter/manifest.json`, **not** the per-entrypoint
+`cdk-nextjs-runtime/manifest.json` — those, and the runtime shells beside them,
+are written by *synth*, so keying off them silently copied nothing (the bug the
+second smoke run caught). It exits non-zero when it copies nothing, because the
+alternative symptom is "every test fails on its chunks".
+
+What the harness therefore does not cover: the S3 routing itself.
+`examples/e2e-tests` gates that on every commit, on all four types.
+
+### Cost model, and how the safety works
+
+One temp app per test *file* means one CDK deploy per test file, ~2 minutes
+observed. Hence: regional functions only, nightly rather than per-commit, and an
+explicit include list rather than next.js's `test/e2e/**`.
+
+Deletes are gated twice over. Every stack carries `cdk-nextjs:harness=1` and a
+`hrns-` name prefix; `harness_stack_is_ours` refuses any stack without the tag, so
+neither the cleanup script nor the sweeper can touch anything else in the account
+even if handed a name by hand. The sweeper additionally requires the stack to be
+older than `HARNESS_SWEEP_MAX_AGE_HOURS` (default 6) so it can never delete a
+running test's stack, skips `DELETE_*` states, and re-checks the tag immediately
+before each delete.
+
+Cleanup deletes through `aws cloudformation delete-stack` rather than `cdk
+destroy`, which would re-synth — restaging the adapter output and reinstalling
+`sharp` — for no benefit. `NextjsCache` and `NextjsStaticAssets` already use
+`RemovalPolicy.DESTROY` with `autoDeleteObjects`, so a plain delete suffices.
+
+### Decisions
+
+1. **Report a Function URL, not the API Gateway URL.** Forced by `getFullUrl`; see
+   above. The cost is S3-routing coverage, which is already covered per commit.
+2. **Copy `_next/static` and `public/` into the package for harness runs only.**
+   A harness-only concession, in a harness-only script, documented at both ends.
+   The product's staging rules do not change.
+3. **Three test files, listed explicitly.** `app-static`, `app-action`,
+   `middleware-rewrites` — static/ISR, server actions, middleware. `failed` case
+   lists copied verbatim from next.js's own `deploy-tests-manifest.json` at
+   v16.3.5 (2, 5 and 1 cases), i.e. cases that fail on Vercel too. Widening is a
+   deliberate act, not a default.
+4. **`NEXT_SUPPORTS_IMMUTABLE_ASSETS: 0`.** Truthful today — static assets are
+   re-uploaded under the same keys every deploy. `docs/plans/immutable-static-assets.md`
+   flips it via `HARNESS_SUPPORTS_IMMUTABLE_ASSETS=1`.
+5. **The CDK app is plain CJS under `scripts/`, not TypeScript under `src/`.** It
+   must not enter the jsii assembly, and it runs from a temp directory outside
+   `examples/` with no tsconfig to inherit. `aws-cdk` was added as a root devDep
+   so the CLI exists at the repo root.
+6. **Derive the stack name from the app directory rather than randomly**, so
+   cleanup can recover it even if the deploy died before writing
+   `.adapter-stack.txt`. Hash the full path, not the basename: fixtures with a
+   `subDir` all end in `app`.
+
+### Measured
+
+Proven end to end against real AWS in `us-east-1`, using a hand-written fixture
+shaped like a harness temp app (`package.json` with `packageManager` pinned, a
+`post-build` that prints the three markers, and `/`, `/ssr` force-dynamic,
+`/api/hello`):
+
+| step | result |
+| --- | --- |
+| `pnpm install` into a `skipInstall` app | ok |
+| adapter copied in, `NEXT_ADAPTER_PATH` honoured | `Applying modifyConfig from cdk-nextjs-adapter`, `Running onBuildComplete` |
+| markers | `BUILD_ID: build-TfctsWXpff2fKS`, `DEPLOYMENT_ID: hrns-…`, `NEXT_SUPPORTS_IMMUTABLE_ASSETS: 0` — the DEPLOYMENT_ID proving our env var reaches the fixture's own `post-build` |
+| `stage-static.js` | `.next/static` → staged tree |
+| `cdk deploy` | `✅` in 113 s, stdout carried the Function URL and nothing else |
+| `GET /` | 200 HTML |
+| `GET /ssr` | 200, body differs between requests — a real dynamic render |
+| `GET /api/hello` | 200 JSON |
+| `GET /_next/static/chunks/*.js` | 200 `application/javascript` |
+| `GET /does-not-exist` | 404 with the app's own 404 |
+| `e2e-logs.sh` | exit 0, markers first, then build/deploy tails and the CloudWatch tail |
+| `e2e-cleanup.sh` | delete requested; stack gone |
+| `e2e-sweep.sh` | dry run listed exactly the two harness stacks and nothing else; `--apply` deleted the orphan |
+
+Static checks: `bash -n` on all five shell files, `node --check` on both JS files,
+`cdk synth` of `app.js` against `examples/app-playground` (one `AWS::Lambda::Url`
+with `NONE`/`RESPONSE_STREAM`, stack tags present), and the manifest validated by
+running next.js's real `test/get-test-filter.js` over it. `pnpm compile`,
+`npx jest src/runtime src/adapter` (243 passed), `pnpm eslint` clean.
+
+Both smoke stacks were deleted. No `main-*` or `pr-267-*` stack was touched.
+
+### Verified vs. assumed
+
+Verified: the whole script contract, against AWS, including that stdout carries
+only the URL and that a logs-script failure cannot mask a deploy error. Verified
+the two findings above by reading next.js's source and by observing the 404s.
+
+Assumed still: that the three chosen test files pass. Nothing in this step
+executed a single official test. The two things most likely to bite on the first
+nightly run are the per-file deploy time against `NEXT_E2E_TEST_TIMEOUT`, and
+tests that assert on response headers a Function URL sets differently from API
+Gateway.
+
+### Not done
+
+1. **Step 8's exit criterion 2 is not met.** Stated plainly above: the official
+   suite has not been run, because installing the vercel/next.js checkout was
+   refused in this session. Needs approval to run `pnpm install` inside that
+   checkout, or a first nightly run.
+2. `healthCheckPath` (step 8's exit criterion 3) is still open, and
+   `s3KeyToInvalidationPath`'s `basePath` gap is still deferred to its own change.

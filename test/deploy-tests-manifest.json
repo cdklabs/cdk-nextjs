@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "comment": [
+    "Which of vercel/next.js's own e2e tests the compatibility harness runs against cdk-nextjs.",
+    "Passed to the harness as NEXT_EXTERNAL_TESTS_FILTERS (see .github/workflows/e2e-harness.yml) and",
+    "read by next.js's test/get-test-filter.js: `rules.include`/`rules.exclude` are minimatch globs over",
+    "test file paths, and `suites[file].failed` lists individual test-case names to skip within a file",
+    "that is otherwise run.",
+    "",
+    "`rules.include` is deliberately a short explicit list rather than next.js's own",
+    "`test/e2e/**/*.test.{t,j}s{,x}`: the harness creates a separate app per test file, so one file is one",
+    "CDK deploy (~3-4 minutes). The full tree is thousands of deploys. Widen this list as the adapter",
+    "earns it; see scripts/e2e-harness/README.md.",
+    "",
+    "The `failed` entries below are copied from next.js's own test/deploy-tests-manifest.json at v16.3.5:",
+    "cases that do not pass on Vercel's deployment either, so they say nothing about this adapter. Any",
+    "case cdk-nextjs fails for its own reasons is a bug to fix, not an entry to add here - if one has to",
+    "be excluded anyway, say why in `excluded-notes`."
+  ],
+  "rules": {
+    "include": [
+      "test/e2e/app-dir/app-static/app-static.test.ts",
+      "test/e2e/app-dir/actions/app-action.test.ts",
+      "test/e2e/middleware-rewrites/test/index.test.ts"
+    ],
+    "exclude": []
+  },
+  "suites": {
+    "test/e2e/app-dir/app-static/app-static.test.ts": {
+      "failed": [
+        "app-dir static/dynamic handling new tags have been specified on subsequent fetch should not fetch from memory cache",
+        "app-dir static/dynamic handling new tags have been specified on subsequent fetch should not fetch from memory cache after revalidateTag is used"
+      ]
+    },
+    "test/e2e/app-dir/actions/app-action.test.ts": {
+      "failed": [
+        "app-dir action handling fetch actions should invalidate client cache when path is revalidated",
+        "app-dir action handling fetch actions should invalidate client cache when tag is revalidated",
+        "app-dir action handling fetch actions should handle revalidateTag",
+        "app-dir action handling fetch actions should store revalidation data in the prefetch cache",
+        "app-dir action handling should invalidate the client router cache if the redirect action triggers a revalidation"
+      ]
+    },
+    "test/e2e/middleware-rewrites/test/index.test.ts": {
+      "failed": ["Middleware Rewrite should handle catch-all rewrite correctly"]
+    }
+  },
+  "excluded-notes": {}
+}
