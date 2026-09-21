@@ -14,11 +14,6 @@ import {
   NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 import {
-  NextjsImageFunction,
-  NextjsImageFunctionOverrides,
-  NextjsImageFunctionProps,
-} from "../nextjs-compute/nextjs-image-function";
-import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
@@ -40,7 +35,6 @@ export interface NextjsBaseConstructOverrides {
  */
 export interface NextjsFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsFunctionsProps?: NextjsFunctionsProps;
-  readonly nextjsImageFunctionProps?: NextjsImageFunctionProps;
 }
 
 /**
@@ -77,6 +71,10 @@ export interface NextjsBaseProps {
   readonly cacheBucket?: IBucket;
   /**
    * Path to API Route Handler that returns HTTP 200 to ensure compute health.
+   *
+   * Only the Containers `NextjsType`s use this, for the ALB target group and the
+   * ECS container health check. Lambda has nothing to health-check, so the
+   * Functions types accept it and ignore it.
    * @example "/api/health"
    * @example
    * // api/health/route.ts
@@ -188,7 +186,6 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildId: this.nextjsBuild.buildId,
       buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
-      relativePathToPackage: this.nextjsBuild.relativePathToPackage,
       deploymentRootPath: this.nextjsBuild.deploymentRootPath,
       relativeProjectDir: this.nextjsBuild.relativeProjectDir,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
@@ -243,31 +240,6 @@ export abstract class NextjsBaseConstruct extends Construct {
         },
       },
       ...this.constructOverrides?.nextjsFunctionsProps,
-    });
-  }
-
-  /**
-   * Shared by `NextjsGlobalFunctions` and `NextjsRegionalFunctions`, the only
-   * two `NextjsType`s for which `NextjsBuild` produces an image optimization
-   * asset. Only called when the dedicated image optimization Lambda is
-   * enabled, which is what makes the missing-asset check below an invariant
-   * violation rather than a supported configuration.
-   */
-  protected createNextjsImageFunction(
-    overrides?: NextjsImageFunctionOverrides,
-  ): NextjsImageFunction {
-    if (!this.nextjsBuild.imageOptimizationAssetPath) {
-      throw new Error(
-        `Missing NextjsBuild.imageOptimizationAssetPath for NextjsType.${this.nextjsType}`,
-      );
-    }
-    return new NextjsImageFunction(this, "NextjsImageFunction", {
-      nextjsType: this.nextjsType,
-      imageOptimizationAssetPath: this.nextjsBuild.imageOptimizationAssetPath,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      vpc: this.baseProps.vpc,
-      overrides,
-      ...this.constructOverrides?.nextjsImageFunctionProps,
     });
   }
 }

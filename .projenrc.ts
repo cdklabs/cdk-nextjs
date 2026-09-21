@@ -229,30 +229,6 @@ function bundle() {
     minify: true,
     outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
-  project.bundler.addBundle("src/image-optimization/handler.mts", {
-    platform: "node",
-    target,
-    outfile: "../../../lib/image-optimization/handler.mjs",
-    // Unlike adapter.mts/cache-handler.ts, this Lambda doesn't run inside the
-    // customer's own Next.js server process, so "next" must be bundled in.
-    // "sharp" stays external: it's a native binary vendored separately by
-    // NextjsBuild into node_modules alongside this bundle. "@opentelemetry/api"
-    // stays external too: next/dist/server/lib/trace/tracer.js requires it in
-    // a try/catch and falls back to its own vendored copy when missing.
-    externals: ["sharp", "@opentelemetry/api"],
-    format: "esm",
-    // Unlike the other bundles' await-import banner, this one must shim
-    // `require`/`__dirname`/`__filename` via static imports: this bundle
-    // inlines Next.js's compiled internals (e.g. next/dist/compiled/@hapi/accept),
-    // which reference those as bare CJS globals (even if unused at runtime,
-    // e.g. nccwpck's `__nccwpck_require__.ab = __dirname + "/"` boilerplate
-    // present in every compiled module). A top-level await banner combined
-    // with that `__dirname` reference makes Node's ESM/CJS format detection
-    // refuse to load the file ("Cannot determine intended module format"),
-    // and even once that's avoided, `__dirname`/`__filename` simply don't
-    // exist in real ESM scope, so they must be defined too.
-    banner: cjsGlobalsBanner(),
-  });
   // The two request-handling shells. "next" stays external: the deployment
   // already carries the traced `next` files every built entrypoint requires, and
   // a second bundled copy would be a different module instance of the same
@@ -264,9 +240,8 @@ function bundle() {
       outfile: `../../../lib/runtime/${shell}.mjs`,
       externals: ["next", "sharp", "@opentelemetry/api"],
       format: "esm",
-      // Same reasoning as the image handler above: bundled CJS dependencies
-      // reference `require`/`__dirname`/`__filename` as bare globals, which do
-      // not exist in ESM scope.
+      // Bundled CJS dependencies reference `require`/`__dirname`/`__filename`
+      // as bare globals, which do not exist in ESM scope.
       banner: cjsGlobalsBanner(),
     });
   }
@@ -311,7 +286,6 @@ function checkBundleSyntax() {
   for (const bundled of [
     join("lib", "adapter", "adapter.mjs"),
     join("lib", "adapter", "cache-handler.mjs"),
-    join("lib", "image-optimization", "handler.mjs"),
     join("lib", "runtime", "lambda.mjs"),
     join("lib", "runtime", "server.mjs"),
   ]) {
@@ -572,12 +546,6 @@ function generateStructs() {
     filePath: getFilePath("OptionalFunctionUrlProps"),
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.FunctionUrlProps"))
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalDockerImageFunctionProps",
-    filePath: getFilePath("OptionalDockerImageFunctionProps"),
-  })
-    .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.DockerImageFunctionProps"))
     .allOptional();
 }
 

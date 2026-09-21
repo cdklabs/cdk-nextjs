@@ -2,15 +2,11 @@
 /**
  * `/_next/image`, folded into the runtime core.
  *
- * Same logic as the standalone `src/image-optimization/handler.mts` Lambda, with
- * the response written to a {@link ShimServerResponse} instead of straight to a
- * Lambda response stream, so it composes with routing: dispatch only classifies a
- * request as image optimization *after* middleware has had it, which is what makes
- * `NextResponse.rewrite()` onto an image work.
- *
- * The validation, fetching, and error mapping are shared with that Lambda via
- * `../image-optimization/handler-utils`, so the two cannot drift while both exist.
- * The standalone Lambda is deleted in a later step of this release.
+ * The response is written to a {@link ShimServerResponse} rather than straight to
+ * a Lambda response stream, so it composes with routing: dispatch only classifies
+ * a request as image optimization *after* middleware has had it, which is what
+ * makes `NextResponse.rewrite()` onto an image work. That is also why there is no
+ * longer a dedicated image optimization Lambda — middleware never ran for it.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,13 +14,13 @@ import { S3Client } from "@aws-sdk/client-s3";
 import type { NextConfigComplete } from "next/dist/server/config-shared.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { ShimServerResponse } from "./http/response";
-import { AdapterManifest } from "./manifest";
-import { nextModule } from "./next-modules";
 import {
   fetchFromS3,
   getFileNameWithExtension,
   resolveErrorResponse,
-} from "../image-optimization/handler-utils";
+} from "./image-utils";
+import { AdapterManifest } from "./manifest";
+import { nextModule } from "./next-modules";
 
 /**
  * Required through {@link nextModule} rather than imported, because `next` is

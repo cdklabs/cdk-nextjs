@@ -1,12 +1,12 @@
 /* eslint-disable import/no-extraneous-dependencies */
 /**
- * Shared by the dedicated image optimization Lambda
- * (`src/image-optimization/handler.mts`, which bundles `next` in) and the runtime
- * core's in-process image route (`src/runtime/image.ts`, which resolves `next`
- * from the deployed app — see `src/runtime/next-modules.ts`). Because those two
- * get at `next` in incompatible ways, the two values from `next` that this file
- * needs are passed in rather than imported: a static `import` here would be
- * hoisted into the shell bundle, where it cannot resolve.
+ * S3 fetching and error mapping for `/_next/image`, split out from
+ * {@link ./image.ts} so it is unit-testable without `next` present.
+ *
+ * The two values from `next` that this file needs are passed in rather than
+ * imported: `next` is external to the shell bundles, so a static `import` here
+ * would be hoisted into the bundle where it cannot resolve. `image.ts` requires
+ * them through `./next-modules` instead.
  */
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 

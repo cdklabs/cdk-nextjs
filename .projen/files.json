@@ -25,7 +25,6 @@
     "src/generated-structs/OptionalCustomResourceProps.ts",
     "src/generated-structs/OptionalDistributionProps.ts",
     "src/generated-structs/OptionalDockerImageAssetProps.ts",
-    "src/generated-structs/OptionalDockerImageFunctionProps.ts",
     "src/generated-structs/OptionalEdgeFunctionProps.ts",
     "src/generated-structs/OptionalFunctionProps.ts",
     "src/generated-structs/OptionalFunctionUrlProps.ts",

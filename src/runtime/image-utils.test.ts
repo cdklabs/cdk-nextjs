@@ -8,7 +8,7 @@ import {
   fetchFromS3,
   getFileNameWithExtension,
   resolveErrorResponse,
-} from "./handler-utils";
+} from "./image-utils";
 
 function asyncIterableFrom(chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
   return {

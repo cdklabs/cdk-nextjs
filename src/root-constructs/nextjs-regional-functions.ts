@@ -14,14 +14,9 @@ import {
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
 import {
-  NextjsImageFunction,
-  NextjsImageFunctionOverrides,
-} from "../nextjs-compute/nextjs-image-function";
-import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
-import { useDedicatedImageFunction } from "../utils/experimental-flags";
 
 export interface NextjsRegionalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
   readonly nextjsApiProps?: NextjsApiProps;
@@ -36,7 +31,6 @@ export interface NextjsRegionalFunctionsConstructOverrides extends NextjsFunctio
 export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
-  readonly nextjsImageFunction?: NextjsImageFunctionOverrides;
   readonly nextjsApi?: NextjsApiOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
@@ -54,12 +48,6 @@ export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
  */
 export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
-  /**
-   * Only created when the (experimental, unsupported) dedicated image
-   * optimization Lambda is enabled. `_next/image` is otherwise served by
-   * {@link nextjsFunctions}.
-   */
-  nextjsImageFunction?: NextjsImageFunction;
   nextjsApi: NextjsApi;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
@@ -79,11 +67,6 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     this.nextjsFunctions = this.createNextjsFunctions(
       this.props.overrides?.nextjsFunctions,
     );
-    if (useDedicatedImageFunction()) {
-      this.nextjsImageFunction = this.createNextjsImageFunction(
-        this.props.overrides?.nextjsImageFunction,
-      );
-    }
     this.nextjsApi = this.createNextjsApi();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
@@ -92,7 +75,6 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     return new NextjsApi(this, "NextjsApi", {
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       serverFunction: this.nextjsFunctions.function,
-      imageFunction: this.nextjsImageFunction?.function,
       basePath: this.baseProps.basePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,

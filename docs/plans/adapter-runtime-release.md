@@ -172,19 +172,22 @@ step 5, `examples/app-playground`, one function for everything):
 
 | Thing | Unzipped | Files |
 | --- | --- | --- |
-| staged deployment root, as staged | 54 MB | 942 |
+| staged deployment root, as staged | 39 MB | 953 |
 | **deployed function, symlinks dereferenced** (what counts against the cap) | **49 MB** | 1522 |
 | ⤷ `node_modules` (traced `next` + `sharp` + closures) | 34 MB | |
 | ⤷ `app-playground/.next` (entrypoints, prerenders, static) | 14 MB | |
 | ⤷ `cdk-nextjs-runtime/` (both shells, bundled) | 2 MB | |
-| published zip | 21 MB | |
+| published zip | 21 MB (21,558,128 B) | |
 
-Dereferencing is what `cdk-assets` does when it zips, and it is why the file count
-grows while the byte total falls: pnpm's store links collapse into copies, and
-synth swaps the traced darwin `sharp` binaries for linux ones. 49 MB is **20% of
-the cap** for one function serving every route, image optimization included —
-against 39 MB + a second 19 MB image function before. Measured with
-`cp -RL <cdk.out asset> /tmp/x && du -sm /tmp/x`.
+Dereferencing is what `cdk-assets` does when it zips, and it is why the byte total
+*rises*: pnpm's store links collapse into copies. (An earlier revision of this
+table read 54 MB / 942 as-staged and drew the opposite conclusion. That number was
+measured on a `.next` that had accumulated across several builds; from a clean
+`.next` the staged tree is smaller than its own dereferenced form, as it must be.)
+49 MB is **20% of the cap** for one function serving every route, image
+optimization included — against 39 MB + a second 19 MB image function before.
+Measured with `cp -RL <cdk.out asset> /tmp/x && du -sm /tmp/x`, after
+`rm -rf examples/app-playground/.next`.
 
 **If a real app exceeds the cap, the answer is splitting (step 5), never a
 container escape hatch.** The cap is per function, so duplicating the ~20–40 MB

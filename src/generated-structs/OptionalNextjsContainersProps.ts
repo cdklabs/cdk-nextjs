@@ -28,11 +28,6 @@ export interface OptionalNextjsContainersProps {
    */
   readonly relativeEntrypointPath?: string;
   /**
-   * Relative path from buildDirectory to the package containing Next.js app.
-   * @stability stable
-   */
-  readonly relativePathToPackage?: string;
-  /**
    * S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
    * @stability stable
    */

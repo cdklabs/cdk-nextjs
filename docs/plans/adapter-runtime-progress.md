@@ -54,7 +54,7 @@ up for the duration of this work — do not delete or modify them.
 | 3 — middleware runner | done |
 | 4 — runtime core + two shells | done |
 | 5 — wire constructs, Functions to zip, Containers Dockerfiles | done |
-| 6 — delete `output: "standalone"` + dedicated image function | not started |
+| 6 — delete `output: "standalone"` + dedicated image function | done |
 | 7 — splitting (`functionGroups`) | not started |
 | 8 — tests, docs, breaking-changes | not started |
 
@@ -724,7 +724,10 @@ Packaging, recorded in the plan's "Packaging budget" table: **49 MB unzipped /
 1522 files** for the one function that serves everything (34 MB `node_modules`,
 14 MB `.next`, 2 MB both shells), 21 MB zipped, against the 250 MB cap. The
 staged tree before dereferencing is 54 MB / 942 files.
-`cp -RL <cdk.out asset> /tmp/x && du -sm /tmp/x`.
+`cp -RL <cdk.out asset> /tmp/x && du -sm /tmp/x`. **(The as-staged number is
+wrong — it was measured on a `.next` that had accumulated across builds. Step 6
+re-measured from a clean `.next`: 39 MB / 953. The dereferenced figure, which is
+the one that counts against the cap, is unchanged.)**
 
 Byte diff against the oracle stacks, `curl -s -o /dev/null -w
 "%{http_code}/%{size_download}"`, all four deployment types (`dev-*` = this
@@ -798,3 +801,151 @@ Still assumed:
   rewriting it (`ENOENT lstat … @opentelemetry/api/…`). Deploy examples serially.
 - `/middleware` 404s on both, which looks like an app-playground route that never
   existed rather than a routing gap; unconfirmed.
+
+## Step 6 — delete `output: "standalone"` and the dedicated image function
+
+**Landed** — commits `fix: unlink dangling sharp symlinks instead of rmSync-ing
+them` and `refactor: drop output: "standalone" and the dedicated image function`
+(referenced by subject, not SHA: this entry ships inside the second one)
+
+Step 5 left the adapter still asking for `output: "standalone"` even though
+nothing read `.next/standalone`. That request is now gone, and with it the last
+code that only existed to serve the old layout.
+
+- `src/adapter/adapter.mts` — `output: "standalone"` deleted from `modifyConfig`.
+  The two are **alternatives, not layers**: `onBuildComplete` stages the
+  deployment root from the same NFT traces `writeStandaloneDirectory` would have
+  used, and `next build` says so itself immediately above the `onBuildComplete`
+  call — "in the future `output: standalone` might not be allowed if an adapter
+  with `onBuildComplete` is configured" (`node_modules/next/dist/build/index.js`,
+  ~line 2782). `onBuildComplete` runs *before* `writeStandaloneDirectory`, so the
+  old ordering was "stage everything, then stage it a second time into a directory
+  nobody opens."
+- `src/nextjs-build/nextjs-build.ts` — deleted `validateNextBuildOutput()`,
+  `findRelativePathToServerJs()`, the `relativePathToPackage` field, and the whole
+  `prepareImageOptimizationAssets()` / `findSharpPackage()` / `copySharpRuntime()`
+  path with its `imageOptimizationAssetPath`. Every one of them was keyed to
+  `.next/standalone` or to the second asset the image function needed.
+- **The dedicated image optimization Lambda is gone.** Deleted
+  `src/image-optimization/handler.mts`, `src/nextjs-compute/nextjs-image-function.ts`,
+  `src/utils/experimental-flags.ts`, and
+  `src/generated-structs/OptionalDockerImageFunctionProps.ts`; removed the
+  `NextjsImageFunction*` exports from `src/index.ts`, the
+  `NextjsDistributionProps.imageFunctionUrl` prop with its
+  `imageFunctionUrlOriginWithOACProps` override and `createImageOrigin()`, the
+  `NextjsApiProps.imageFunction` prop with `imageIntegrationProps` and
+  `createImageIntegration()`, and `createNextjsImageFunction()` from the base
+  construct. `_next/image*` keeps its own CloudFront behavior (its cache policy
+  differs — `queryStringBehavior: all()` plus `accept` in the key, right for
+  images and wrong for everything else) but now points at `dynamicOrigin`; on API
+  Gateway it has no resource at all and falls through to `{proxy+}`.
+- `src/image-optimization/handler-utils.{ts,test.ts}` → `git mv` to
+  `src/runtime/image-utils.{ts,test.ts}`; the `src/image-optimization/` directory
+  no longer exists.
+- `.projenrc.ts` — dropped the `src/image-optimization/handler.mts` esbuild
+  bundle, its `node --check` line, and the `OptionalDockerImageFunctionProps`
+  ProjenStruct. `examples/shared/suppress-nags.ts` lost its
+  `CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION` branch; `examples/README.md`
+  now tells readers to register the adapter via `adapterPath` instead of adding
+  `output: 'standalone'`.
+
+**Decisions**
+
+1. **`rmSync(path, { recursive: true, force: true })` silently no-ops on a
+   dangling symlink, so symlinks are `unlinkSync`ed and they go first.** This is a
+   real bug fixed here, not cleanup: `removeExistingSharpBinaries` walked the
+   staged tree removing anything matching `sharp-`, and pnpm's store directory
+   names match the same substring (`@img+sharp-darwin-arm64@0.35.4`). When the
+   walk reached a store directory before the links pointing into it, the links
+   were left behind pointing at nothing — and `force` swallows the ENOENT that
+   `rmSync`'s internal `rmdir` raises on a symlink, so the second pass reported
+   success while the link stayed. Four dangling `@img/sharp-darwin-arm64` entries
+   shipped in the asset. `cdk-assets` dereferences symlinks when it zips, so that
+   is a latent ENOENT at package time. Confirmed with a one-liner: after
+   `rmSync(p, {recursive:true, force:true})` the link is still there; after
+   `unlinkSync(p)` it is not. Now the walk collects symlinks and directories
+   separately and unlinks all the symlinks first. Verified: 0 dangling links in
+   the deployed asset.
+2. **There is no dedicated image function because middleware never ran for it.**
+   The reason `/_next/image` can now live in the runtime core is architectural, not
+   a size saving: dispatch classifies a request as image optimization only *after*
+   middleware has had it, which is what makes `NextResponse.rewrite()` onto an
+   image work at all. A separate function sitting behind its own CloudFront origin
+   cannot do that. The 19 MB second asset (glibc `sharp` + handler) going away is
+   a side effect.
+3. **`image-utils.ts` stays split from `image.ts` for testability, and takes its
+   two `next` values as parameters.** `next` is external to the shell bundles, so
+   a static `import` in this file would be hoisted into a bundle where it cannot
+   resolve; `image.ts` requires them through `./next-modules` and passes them in.
+   That also means `image-utils.test.ts` runs without `next` present.
+4. **`healthCheckPath` documents itself as Containers-only rather than becoming
+   optional.** Lambda has nothing to health-check, so the Functions types accept
+   it and ignore it. Making it optional is a public-API change with no
+   deployment-behavior payoff, and it would still have to be required for two of
+   the four types — left as a doc fix; see Deferred.
+5. **`pnpm compile` must run before `pnpm projen` when a struct loses a prop.**
+   `@mrgrain/jsii-struct-builder` reads the `.jsii` assembly, so the first
+   `pnpm projen` regenerated `OptionalNextjsContainersProps` from a stale one and
+   kept `relativePathToPackage`. Compile first, then projen.
+
+**Measured**
+
+After `rm -rf examples/app-playground/.next` and a fresh build:
+`.next/standalone` **does not exist** — the directory `next build` used to write
+unconditionally is genuinely not produced anymore. Staged deployment root 39 MB /
+953 entries; dereferenced 49 MB / 1522 files (unchanged from step 5); published
+zip 21,558,128 bytes. Corrected the plan's "Packaging budget" table, whose
+as-staged row read 54 MB / 942 — that had been measured on an accumulated `.next`
+and implied the tree *shrinks* when dereferenced, which cannot happen.
+
+Byte diff against the oracle, all four deployment types redeployed from this
+branch (`curl -s -o /dev/null -w "%{http_code}/%{size_download}"`):
+
+| Path | `dev-*` (this branch) | `main-*` (oracle) |
+| --- | --- | --- |
+| `/`, `/isr/1`, `/ssr`, `/ssg`, `/image-optimization`, `/streaming` | identical byte counts on all four types | |
+| `/api/health`, `/favicon.ico` | byte-identical | byte-identical |
+| `/_next/image` external source | identical on every type | identical |
+| `/definitely-not-a-route` | 404 / 24824–25043 B | 404 / 25015–25031 B |
+
+The only non-identical row is the 404, and it is the oracle's stale-canonical-URL
+bug documented under step 5 — this branch returns the requested path, the oracle
+sometimes returns a path from an earlier request on the same warm compute. The
+size delta is exactly that string-length difference.
+
+The image row is identical but not the *same* on every type: 200 / 1869 B on
+`rgnl-cntnrs`, 400 / 30 B on `rgnl-fns`, `glbl-fns` and `glbl-cntnrs`. Branch and
+oracle agree on each type, which is the thing being tested; the variation is the
+app's own `remotePatterns`/CloudFront caching, not the runtime.
+
+`pnpm compile` 0 errors, `pnpm eslint` 0, `pnpm bundle` 0 (three `node --check`s
+now, not four), `pnpm jest` **14 suites / 211 tests passed**.
+
+**Verified vs. assumed**
+
+Verified on real AWS with `output: "standalone"` absent, on all four deployment
+types: `dev-glbl-fns` and `dev-rgnl-fns` (glibc `sharp` in a zip Lambda),
+`dev-rgnl-cntnrs` and `dev-glbl-cntnrs` (musl `sharp` on Alpine, plus
+`/favicon.ico` served off disk). Image optimization specifically was re-checked on
+every type, since it is the thing that lost its dedicated function.
+
+Still assumed: PPR (step 8's e2e), cold-start numbers (never measured — the zip
+function replacing a container image function *should* start faster, but that is
+an expectation), and monorepo layouts (`relativeProjectDir` is non-empty only in
+fixtures).
+
+**Deferred / open**
+
+- `healthCheckPath` is still required on all four root constructs while only two
+  use it. Making it optional, or moving it onto the Containers props, is an API
+  change for step 8's breaking-changes pass to decide.
+- `docs/breaking-changes.md` still describes `.next/standalone` at lines ~45–46
+  and ~177, and does not yet cover this step's removals
+  (`NextjsImageFunction`, `OptionalDockerImageFunctionProps`,
+  `relativePathToPackage`, `NextjsDistributionProps.imageFunctionUrl`,
+  `NextjsApiProps.imageFunction`, `imageIntegrationProps`) or step 5's
+  `dockerImageFunctionProps`/`assetImageCodeProps` → `functionProps`. Step 8.
+- The five `dev-*`/`adptr-*` stacks I created are still up and should come down
+  when the branch is done: `dev-glbl-fns`, `dev-rgnl-fns`, `dev-glbl-cntnrs`,
+  `dev-rgnl-cntnrs`, `adptr-rgnl-fns`. The four `main-*` oracle stacks were only
+  read and curled.

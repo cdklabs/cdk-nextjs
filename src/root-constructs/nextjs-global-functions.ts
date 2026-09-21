@@ -17,10 +17,6 @@ import {
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
 import {
-  NextjsImageFunction,
-  NextjsImageFunctionOverrides,
-} from "../nextjs-compute/nextjs-image-function";
-import {
   NextjsDistribution,
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
@@ -28,7 +24,6 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
-import { useDedicatedImageFunction } from "../utils/experimental-flags";
 
 export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
@@ -43,7 +38,6 @@ export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctions
 export interface NextjsGlobalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
-  readonly nextjsImageFunction?: NextjsImageFunctionOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
@@ -68,12 +62,6 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
  */
 export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
-  /**
-   * Only created when the (experimental, unsupported) dedicated image
-   * optimization Lambda is enabled. `_next/image` is otherwise served by
-   * {@link nextjsFunctions}.
-   */
-  nextjsImageFunction?: NextjsImageFunction;
   nextjsDistribution: NextjsDistribution;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
@@ -89,11 +77,6 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     this.nextjsFunctions = this.createNextjsFunctions(
       this.props.overrides?.nextjsFunctions,
     );
-    if (useDedicatedImageFunction()) {
-      this.nextjsImageFunction = this.createNextjsImageFunction(
-        this.props.overrides?.nextjsImageFunction,
-      );
-    }
     this.nextjsDistribution = this.createNextjsDistribution();
     this.wireCloudFrontInvalidation();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
@@ -164,7 +147,6 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       assetsBucket: this.nextjsStaticAssets.bucket,
       basePath: this.baseProps.basePath,
       functionUrl: this.nextjsFunctions.functionUrl,
-      imageFunctionUrl: this.nextjsImageFunction?.functionUrl,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,

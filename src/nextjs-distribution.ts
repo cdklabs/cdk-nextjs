@@ -54,7 +54,6 @@ export interface NextjsDistributionOverrides {
   readonly dynamicResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly dynamicFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
   readonly dynamicVpcOriginWithEndpointProps?: VpcOriginWithEndpointProps;
-  readonly imageFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
   readonly staticBehaviorOptions?: AddBehaviorOptions;
   readonly staticResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly s3BucketOriginProps?: OptionalS3OriginBucketWithOACProps;
@@ -76,14 +75,6 @@ export interface NextjsDistributionProps {
    * Required if `NextjsType.GLOBAL_FUNCTIONS`
    */
   readonly functionUrl?: IFunctionUrl;
-  /**
-   * Function URL of the dedicated image optimization Lambda. Only applicable
-   * to `NextjsType.GLOBAL_FUNCTIONS`, and only when the dedicated image
-   * function is enabled. When omitted, the `_next/image*` behavior points at
-   * the dynamic origin, which serves image optimization from the Next.js
-   * server itself.
-   */
-  readonly imageFunctionUrl?: IFunctionUrl;
   /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`
    */
@@ -129,7 +120,6 @@ export class NextjsDistribution extends Construct {
   };
   private staticOrigin: IOrigin;
   private dynamicOrigin: IOrigin;
-  private imageOrigin: IOrigin;
   private dynamicOriginResponsePolicy: IOriginRequestPolicy;
   private dynamicCloudFrontFunctionAssociations: FunctionAssociation[];
   private isFunctionCompute: boolean;
@@ -143,7 +133,6 @@ export class NextjsDistribution extends Construct {
     this.staticOrigin = this.createStaticOrigin();
     this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
     this.dynamicOrigin = this.createDynamicOrigin();
-    this.imageOrigin = this.createImageOrigin();
     this.dynamicOriginResponsePolicy = this.createDynamicOriginRequestPolicy();
     this.dynamicCloudFrontFunctionAssociations =
       this.createDynamicCloudFrontFunctionAssociations();
@@ -194,29 +183,6 @@ export class NextjsDistribution extends Construct {
         ...this.props.overrides?.dynamicVpcOriginWithEndpointProps,
       });
     }
-  }
-  /**
-   * A dedicated image optimization Lambda is only wired up when
-   * {@link NextjsDistributionProps.imageFunctionUrl} is supplied, which today
-   * only `NextjsType.GLOBAL_FUNCTIONS` does. Otherwise `_next/image*` keeps
-   * going to the dynamic origin, where the Next.js server optimizes images
-   * itself.
-   *
-   * The `_next/image*` behavior is kept either way: its cache policy
-   * (`queryStringBehavior: all()`, `accept` in the cache key) is the right one
-   * for image requests regardless of which origin answers them.
-   */
-  private createImageOrigin(): IOrigin {
-    if (!this.isFunctionCompute || !this.props.imageFunctionUrl) {
-      return this.dynamicOrigin;
-    }
-    return FunctionUrlOrigin.withOriginAccessControl(
-      this.props.imageFunctionUrl,
-      {
-        ...this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
-        ...this.props.overrides?.imageFunctionUrlOriginWithOACProps,
-      },
-    );
   }
   /**
    * Lambda Function URLs "expect the `Host` header to contain the origin domain
@@ -331,6 +297,12 @@ export class NextjsDistribution extends Construct {
       ...dynamicBehaviorOptions,
     };
   }
+  /**
+   * `_next/image*` goes to the same origin as everything else — the Next.js
+   * server optimizes images in-process — but keeps its own behavior for the
+   * cache policy: `queryStringBehavior: all()` plus `accept` in the cache key is
+   * right for image requests and wrong for the rest.
+   */
   private createImageBehaviorOptions(): BehaviorOptions {
     const imageBehaviorOptions = this.props.overrides?.imageBehaviorOptions;
     // add default cache policy if not provided
@@ -367,7 +339,7 @@ export class NextjsDistribution extends Construct {
       allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
       cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
       functionAssociations: this.dynamicCloudFrontFunctionAssociations,
-      origin: this.imageOrigin,
+      origin: this.dynamicOrigin,
       originRequestPolicy: this.dynamicOriginResponsePolicy,
       cachePolicy,
       responseHeadersPolicy,

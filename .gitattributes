@@ -33,7 +33,6 @@
 /src/generated-structs/OptionalCustomResourceProps.ts linguist-generated
 /src/generated-structs/OptionalDistributionProps.ts linguist-generated
 /src/generated-structs/OptionalDockerImageAssetProps.ts linguist-generated
-/src/generated-structs/OptionalDockerImageFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalEdgeFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalFunctionUrlProps.ts linguist-generated

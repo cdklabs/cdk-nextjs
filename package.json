@@ -14,8 +14,6 @@
     "bundle:adapter/adapter:watch": "pnpm dlx projen bundle:adapter/adapter:watch",
     "bundle:adapter/cache-handler": "pnpm dlx projen bundle:adapter/cache-handler",
     "bundle:adapter/cache-handler:watch": "pnpm dlx projen bundle:adapter/cache-handler:watch",
-    "bundle:image-optimization/handler": "pnpm dlx projen bundle:image-optimization/handler",
-    "bundle:image-optimization/handler:watch": "pnpm dlx projen bundle:image-optimization/handler:watch",
     "bundle:lambdas/post-deploy/post-deploy.lambda": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda",
     "bundle:lambdas/post-deploy/post-deploy.lambda:watch": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda:watch",
     "bundle:nextjs-build/patch-fetch": "pnpm dlx projen bundle:nextjs-build/patch-fetch",

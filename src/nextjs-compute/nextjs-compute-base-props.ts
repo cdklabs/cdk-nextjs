@@ -24,10 +24,6 @@ export interface NextjsComputeBaseProps {
   readonly buildDirectory: string;
   readonly nextjsType: NextjsType;
   /**
-   * Relative path from buildDirectory to the package containing Next.js app
-   */
-  readonly relativePathToPackage?: string;
-  /**
    * Absolute path to the staged deployment root: the Lambda zip asset for
    * Functions, the Docker `COPY` source for Containers.
    * @see NextjsBuild.deploymentRootPath

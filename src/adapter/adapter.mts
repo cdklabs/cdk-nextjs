@@ -19,7 +19,12 @@ const adapter: NextAdapter = {
     if (phase === "phase-production-build") {
       return {
         ...config,
-        output: "standalone",
+        // No `output: "standalone"`. `onBuildComplete` stages the deployment
+        // root from the same NFT traces `writeStandaloneDirectory` would have
+        // used, so the two are alternatives rather than layers — `next build`
+        // says as much itself, immediately above the `onBuildComplete` call:
+        // "in the future `output: standalone` might not be allowed if an adapter
+        // with `onBuildComplete` is configured."
         cacheHandler: config.cacheHandler
           ? config.cacheHandler
           : fileURLToPath(import.meta.resolve("cdk-nextjs/cache-handler")),
@@ -35,8 +40,7 @@ const adapter: NextAdapter = {
   },
   async onBuildComplete(ctx) {
     // Stage the deployment root and write the manifest the runtime dispatches
-    // from. This is the replacement for `output: "standalone"`; both still run
-    // until `modifyConfig` stops setting `output`.
+    // from. This is what replaces `output: "standalone"`.
     const { manifest, staging, stagingDir, stagedBytes } =
       await writeBuildOutputs(ctx);
     console.log(

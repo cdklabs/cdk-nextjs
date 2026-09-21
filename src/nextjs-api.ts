@@ -29,7 +29,6 @@ export interface NextjsApiOverrides {
   readonly staticIntegrationProps?: AwsIntegrationProps;
   readonly s3MethodOptions?: MethodOptions;
   readonly dynamicIntegrationProps?: LambdaIntegrationOptions;
-  readonly imageIntegrationProps?: LambdaIntegrationOptions;
 }
 
 export interface NextjsApiProps {
@@ -50,19 +49,6 @@ export interface NextjsApiProps {
    * Required if `NextjsRegionalFunctions`. The Lambda function for server-side rendering
    */
   readonly serverFunction?: IFunction;
-  /**
-   * Dedicated image optimization Lambda for the `_next/image` route. When
-   * omitted, no `_next/image` resource is created and those requests fall
-   * through to `serverFunction` via the `{proxy+}` catch-all.
-   *
-   * When provided, it is assumed to support Lambda response streaming (as the
-   * dedicated image Lambda this package builds does) and is invoked with
-   * `ResponseTransferMode.STREAM` accordingly. If you supply a custom
-   * `imageFunction` that doesn't support streaming, override
-   * `responseTransferMode` to `BUFFERED` via `overrides.imageIntegrationProps`,
-   * otherwise API Gateway returns a 502.
-   */
-  readonly imageFunction?: IFunction;
   /**
    * The S3 bucket containing static assets
    */
@@ -98,11 +84,8 @@ export class NextjsApi extends Construct {
     this.staticIntegrationRole = this.createStaticIntegrationRole();
     this.createStaticIntegrations();
     if (props.serverFunction) {
-      // Without a dedicated image function, `_next/image` falls through to the
-      // `{proxy+}` catch-all on the server function.
-      if (props.imageFunction) {
-        this.createImageIntegration(props.imageFunction);
-      }
+      // `_next/image` has no resource of its own: it falls through to the
+      // `{proxy+}` catch-all, and the server function optimizes in-process.
       this.createDynamicIntegration(props.serverFunction);
     } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
@@ -264,26 +247,6 @@ export class NextjsApi extends Construct {
       ],
       ...this.props.overrides?.s3MethodOptions,
     };
-  }
-
-  /**
-   * Create Lambda Proxy integration for the `_next/image` route.
-   */
-  private createImageIntegration(imageFunction: IFunction) {
-    // imageFunction is assumed to be the dedicated, streaming-capable image
-    // Lambda (see its doc comment); override responseTransferMode via
-    // imageIntegrationProps if that assumption doesn't hold for a custom
-    // imageFunction, otherwise API Gateway returns a 502. Deliberately
-    // doesn't inherit dynamicIntegrationProps: that's for serverFunction,
-    // a different Lambda with different (and possibly conflicting, e.g.
-    // BUFFERED for a non-streaming Lambda Web Adapter setup) streaming
-    // requirements than the always-streaming dedicated image Lambda.
-    const imageIntegration = new LambdaIntegration(imageFunction, {
-      responseTransferMode: ResponseTransferMode.STREAM,
-      ...this.props.overrides?.imageIntegrationProps,
-    });
-    const imageResource = this.nextResource.addResource("image");
-    imageResource.addMethod("ANY", imageIntegration);
   }
 
   /**
