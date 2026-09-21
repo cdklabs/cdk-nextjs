@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { serializeCacheValue } from "./cache-utils.js";
+import { writeBuildOutputs } from "./build-outputs.js";
+import { LOG_PREFIX } from "../constants.js";
 import getDebug from "debug";
 
 const debug = getDebug("cdk-nextjs:adapter");
@@ -32,6 +34,16 @@ const adapter: NextAdapter = {
     return config;
   },
   async onBuildComplete(ctx) {
+    // Stage the deployment root and write the manifest the runtime dispatches
+    // from. This is the replacement for `output: "standalone"`; both still run
+    // until `modifyConfig` stops setting `output`.
+    const { manifest, staging, stagingDir, stagedBytes } =
+      await writeBuildOutputs(ctx);
+    console.log(
+      `${LOG_PREFIX} Staged ${staging.size} files (${(stagedBytes / 1e6).toFixed(1)} MB) ` +
+        `for ${Object.keys(manifest.entrypoints).length} entrypoints in ${stagingDir}`,
+    );
+
     const cacheDir =
       process.env.CDK_NEXTJS_INIT_CACHE_DIR ||
       join(ctx.distDir, "cdk-nextjs-init-cache");
