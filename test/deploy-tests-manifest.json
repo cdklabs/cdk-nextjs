@@ -60,8 +60,8 @@
       "",
       "The check throws during `next build`, so a fixture containing *any* edge route or legacy",
       "middleware fails wholesale and per-case `failed` entries cannot rescue it. Such files have to be",
-      "left out of `rules.include` entirely. ~522 of next.js's e2e files are edge-free, so this is not",
-      "much of a constraint on widening the list."
+      "left out of `rules.include` entirely. 931 of next.js's 1134 e2e files are edge-free (see the",
+      "`screening` block), so this is not much of a constraint on widening the list."
     ],
     "test/e2e/app-dir/app-static/app-static.test.ts": [
       "Excluded: ~10 `*-edge` routes declare `export const runtime = 'edge'`. See the note above.",
@@ -116,5 +116,34 @@
       "Not excluded by us: next.js itself skips this file under `isNextDeploy`. Listed only as a worked",
       "example of the README's claim that deploy mode gates out what cannot work behind a CDN."
     ]
+  },
+  "screening": {
+    "comment": [
+      "Regenerate with `node scripts/e2e-harness/screen.mjs --next ../next.js --write`,",
+      "and `--check` to verify these numbers still hold. Not read by next.js's",
+      "test/get-test-filter.js, which only looks at `version`, `suites` and `rules`.",
+      "",
+      "`candidates` is what is left after the four screens below, all of which are",
+      "explained in scripts/e2e-harness/README.md. A candidate is a file worth",
+      "spending a deploy on - not a file expected to pass. Nothing enters",
+      "`rules.include` until it has been watched to pass against a real deployment,",
+      "and anything that fails gets a verdict in docs/harness-coverage.md.",
+      "",
+      "`disqualified-by` counts overlap - a fixture can ship edge middleware *and*",
+      "be skipped upstream - so the values sum to more than `e2e-files` minus",
+      "`candidates` minus `included`."
+    ],
+    "next-version": "16.3.5",
+    "e2e-files": 1134,
+    "included": 21,
+    "edge-free": 931,
+    "candidates": 718,
+    "disqualified-by": {
+      "middleware": 127,
+      "edge": 126,
+      "isNextDeploy-gate": 123,
+      "skipped-upstream": 121,
+      "output-export": 29
+    }
   }
 }

@@ -150,15 +150,28 @@ cdk-nextjs rejects any build output whose runtime is not `nodejs`
 
 That is a product limitation and a deliberate one: the edge runtime is deprecated
 in Next.js, and cdk-nextjs supports Next.js 16's Node-runtime `proxy.ts` instead.
-Around 522 of next.js's e2e files are edge-free, so it barely constrains
-widening the list. To check a candidate before adding it:
+931 of next.js's 1134 e2e files are edge-free, so it barely constrains widening
+the list - and `scripts/e2e-harness/screen.mjs` applies this screen and the three
+below for you, recording the funnel in the manifest's `screening` block:
+
+```bash
+node scripts/e2e-harness/screen.mjs --next ../next.js          # print the funnel
+node scripts/e2e-harness/screen.mjs --next ../next.js --check   # fail if stale
+node scripts/e2e-harness/screen.mjs --next ../next.js --list cache   # candidates
+```
+
+To check one candidate by hand instead:
 
 ```bash
 # in the next.js checkout, against the fixture root (usually the test file's dir
 # or its parent)
 find <fixture> -name "middleware.*"
-grep -rl 'runtime = .edge.' <fixture>
+grep -rlE "runtime\s*[:=]\s*.(experimental-)?edge." <fixture>
 ```
+
+Both spellings matter — app router's `export const runtime = 'edge'` and pages
+router's `export const config = { runtime: 'experimental-edge' }`. Matching only
+the first undercounts by ~17 files.
 
 Mind the "or its parent": for a `test/e2e/<name>/test/index.test.ts` the fixture
 lives a directory *above* the test file, and screening only the test file's own
@@ -175,7 +188,15 @@ against the test file rather than the fixture:
 - `output: 'export'` in the fixture — a static export is not what any
   `NextjsType` deploys.
 
-`excluded-notes` in the manifest records every file left out and why.
+`excluded-notes` in the manifest records every file left out and why, and its
+`screening` block records the funnel — how many files there are, how many survive
+each screen, and how many are already included. Regenerate it with `--write`
+whenever `next` is upgraded; `--check` exits nonzero if it has drifted, which is
+the only thing that keeps those numbers worth quoting.
+
+Passing all four screens makes a file a *candidate*, not a pass. It still has to
+be deployed and watched, and anything that fails gets root-caused and given a
+verdict in `docs/harness-coverage.md` before it is either fixed or written off.
 
 ## Running it locally
 
