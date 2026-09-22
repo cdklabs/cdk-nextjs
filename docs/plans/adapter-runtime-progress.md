@@ -2318,3 +2318,151 @@ never written, i.e. the head `ShimServerResponse` emits never reached
 `LambdaResponseSink.begin`. The function completes in ~22ms and logs nothing.
 Details, including the Next.js `createRedirectRenderResult` sub-fetch that makes
 this path unlike any other action response, are in `docs/harness-coverage.md`.
+
+## A zero-byte streamed response loses its entire head on a Function URL
+
+Commit: `fix: pad empty streamed bodies on Lambda Function URLs too`.
+
+### What was actually wrong
+
+The fifth bug from the entry above — "an action `redirect()` answers with no head
+at all" — is not about redirects, or actions, or `basePath`. It is this:
+
+> A streamed Lambda response with **zero payload bytes after the metadata
+> delimiter** is not recognized as a metadata response at all.
+
+API Gateway's reaction to that was already known and already worked around: it
+answers 502, and `ResponseSink.padEmptyBody` writes a single space so it does not.
+A Function URL's reaction is worse, because it looks like it worked: the prelude
+is silently discarded and the client gets a bare `200 application/octet-stream`
+with an empty body, none of the app's headers, and an HTTP/2 stream that does not
+close cleanly — whatever the real status and headers were. `padEmptyBody` was set
+only for the API Gateway event shape, so Global Functions had no protection.
+
+Measured against a live `NextjsGlobalFunctions` deployment, with padding off:
+
+| Request                              | Answer                                              |
+| ------------------------------------ | --------------------------------------------------- |
+| `HEAD /base/another` (a real page)   | `200 application/octet-stream`, no `content-type`, no `etag`, no `x-nextjs-*` |
+| `HEAD` on a path that 404s           | `200`                                               |
+| action POST that only `redirect()`s  | `200 application/octet-stream`, no `x-action-redirect` |
+
+and with padding on, the same three answer `200 text/html` + `etag` +
+`x-nextjs-*`, `404 text/html`, and the redirect head intact. Normal GETs are
+byte-identical either way. So the blast radius was every bodiless response on
+Global Functions — every `HEAD`, every 204, and any response Next.js answers with
+headers alone — not three test cases.
+
+### How it was found, after three wrong guesses
+
+Reading the code produced three plausible theories (the `"head"` event racing
+`pipeToSink`'s subscription; `useDefineForClassFields` making
+`typeof res.flush !== "function"`; the sub-fetch's `content-encoding` being copied
+onto `res`), and all three were wrong. What settled it was **instrumenting the
+deployed function**: `aws lambda get-function` → download `Code.Location` →
+`console.log` probes into the bundled `lambda.mjs` at `pipeToSink` entry, the
+`head` listener, `sink.begin`, the `pipeline` settle and the handler's exit →
+`update-function-code` → curl → `aws logs filter-log-events`. The probe showed our
+side was correct end to end:
+
+```
+[probe] pipeToSink attached POST /base/client
+[probe] head {"statusCode":200,…,"x-action-redirect":"/another;push",…}
+[probe] sink.begin 200
+[probe] res close headersSent= true destroyed= true writableEnded= true
+[probe] pipeline resolved
+[probe] handle returned
+```
+
+…while the client got nothing. That is the point at which the integration, not
+the runtime, is the only remaining suspect. `aws lambda
+invoke-with-response-stream` is not in the installed CLI and
+`@aws-sdk/client-lambda` is not a dependency here, which is why patching the
+deployed code was the cheapest route to a direct observation.
+
+### The RFC objection, and why it does not cost anything
+
+RFC 9110 forbids a body on a 204 or a 304, and a single space technically
+violates it. Losing the status and every header is the worse failure. In practice
+the conflict does not arise on the CloudFront path at all: `if-none-match` is not
+in the dynamic cache policy's header allowlist, so a conditional request cannot
+reach the origin and CloudFront generates the 304 itself. (That also explains why
+a 304 appeared to work unpadded during the investigation — it never came from
+Lambda.)
+
+`src/runtime/http/sink.ts` carries all of this on `ResponseSink.padEmptyBody`, so
+nobody removes the space for looking wrong. The container sink writes to a real
+`ServerResponse` and still does not set it.
+
+## Seeded prerender headers mislabeled every RSC response as HTML
+
+Commit: `fix: stop seeding presentational headers into APP_PAGE cache entries`.
+
+### The bug
+
+An RSC request to a prerendered app page (`RSC: 1`, or `?_rsc=`) returned the
+correct flight payload with `content-type: text/html; charset=utf-8`, plus a
+doubled `x-nextjs-prerender: 1, 1` and a doubled `vary`.
+
+`ctx.outputs.prerenders[].fallback.initialHeaders` describes how a platform should
+serve the prerendered *file* directly off a CDN. For an app page it contains
+`vary`, `content-type`, `x-nextjs-stale-time`, `x-nextjs-prerender`,
+`x-next-cache-tags`, and sometimes `x-nextjs-postponed` — and Next.js emits two
+outputs per route, `/foo` with `text/html` and `/foo.rsc` with `text/x-component`.
+`onBuildComplete` was seeding the *HTML* variant's headers wholesale into the
+single `APP_PAGE` cache entry.
+
+That is not what a cache entry's `headers` field is. At request time Next.js
+stores only `metadata.headers` from the render — `x-nextjs-stale-time`,
+`x-next-cache-tags`, and whatever the app set through `headers()`/`cookies()` —
+never a `content-type`. `app-page-runtime.js` `appendHeader`s the cached headers
+onto the response and *then* serves whichever variant was asked for, and
+`send-payload.js` only sets the type when there isn't one already:
+
+```js
+if (!res.getHeader('Content-Type') && result.contentType) {
+  res.setHeader('Content-Type', result.contentType)
+}
+```
+
+So the seeded `text/html` won, on every RSC request to every prerendered page, on
+every deployment type. The doubled `vary`/`x-nextjs-prerender` came from the same
+append, since the entrypoint sets both itself.
+
+Fixed in `appPageCacheHeaders` (`src/adapter/cache-utils.ts`, unit-tested there
+rather than in the untestable `.mts`): drop `content-type`, `vary`,
+`x-nextjs-prerender`, `x-nextjs-postponed`; keep the rest. `APP_ROUTE` entries are
+deliberately left alone — a route handler's `content-type` *is* part of its cached
+response, and `app-route.js` replays those headers verbatim.
+
+### Why it mattered beyond one assertion
+
+This is the same defect as three separate harness findings:
+
+- `segment-cache/deployment-skew`'s `header is set on RSC responses` case, which
+  asserts `text/x-component` directly.
+- `app-basepath`'s three action-`redirect()` cases. Next.js's
+  `createRedirectRenderResult` fetches the redirect target back through the
+  deployment's own origin to stream it in one roundtrip, and gates that on
+  `response.headers.get('content-type')?.startsWith(RSC_CONTENT_TYPE_HEADER)`. With
+  `text/html` coming back it took the other branch — `response.body?.cancel()` and
+  `RenderResult.EMPTY` — so the reply had no body *and* no content type. Which is
+  how this bug and the `padEmptyBody` one masked each other: the empty body lost
+  the head at the Function URL, and fixing that only revealed a redirect whose
+  stream was never attached.
+- Any client-side navigation to a prerendered route, in any app. The router
+  discards a flight response that is not labeled as one.
+
+### Verified
+
+`app-basepath` now passes 13/13 on the first attempt (197s). Directly against the
+deployment:
+
+```
+GET /base/another?_rsc=probe1   (RSC: 1)
+→ 200, content-type: text/x-component, x-nextjs-prerender: 1, one vary, 3746 bytes
+```
+
+The three known e2e symptoms of it were all found by the harness and none by
+`examples/e2e-tests`, which asserts on rendered pages rather than on RSC response
+headers.

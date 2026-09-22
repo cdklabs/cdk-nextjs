@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import {
+  appPageCacheHeaders,
   prerenderPathToCacheKey,
   serializeCacheValue,
 } from "./cache-utils.js";
@@ -127,10 +128,11 @@ const adapter: NextAdapter = {
           const segmentData = await getSegmentData(segmentPrerenders);
 
           // Extract headers from the HTML or RSC prerender
-          const headers =
+          const headers = appPageCacheHeaders(
             htmlPrerender?.fallback?.initialHeaders ||
-            rscPrerender?.fallback?.initialHeaders ||
-            {};
+              rscPrerender?.fallback?.initialHeaders ||
+              {},
+          );
 
           cacheEntry = {
             lastModified: Date.now(),

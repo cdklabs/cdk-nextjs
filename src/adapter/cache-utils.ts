@@ -118,6 +118,54 @@ export function prerenderPathToCacheKey(
 }
 
 /**
+ * Headers that must not be seeded into an `APP_PAGE` cache entry, even though the
+ * adapter output lists them in `fallback.initialHeaders`.
+ *
+ * `initialHeaders` describes how a platform should serve the prerendered *file*
+ * straight off a CDN. A cache entry is a different thing: `app-page-runtime.js`
+ * `appendHeader`s `cachedData.headers` onto the response and *then* serves the
+ * variant the request actually asked for, so anything presentational in there is
+ * either wrong or doubled. At request time Next.js stores only what the render
+ * put in `metadata.headers` — `x-nextjs-stale-time`, `x-next-cache-tags`, and
+ * whatever the app set through `headers()`/`cookies()` — and never these four.
+ *
+ * `content-type` is the one that actually breaks. `send-payload.js` sets the type
+ * only when the response does not already have one
+ * (`if (!res.getHeader('Content-Type') && result.contentType)`), so a seeded
+ * `text/html; charset=utf-8` makes every RSC request to a prerendered page answer
+ * the flight payload labeled as HTML. The client router rejects that, and so does
+ * Next.js itself: `createRedirectRenderResult` checks the content type of the
+ * sub-response it fetches to stream an action `redirect()`, and on a mismatch
+ * cancels the body and returns an empty result.
+ *
+ * `vary`, `x-nextjs-prerender`, and `x-nextjs-postponed` are all set by the
+ * entrypoint itself, so seeding them only produces two of each.
+ *
+ * `APP_ROUTE` entries are deliberately *not* filtered: a route handler's
+ * `content-type` is part of its cached response, and `app-route.js` replays those
+ * headers verbatim.
+ */
+const NON_CACHEABLE_APP_PAGE_HEADERS = new Set([
+  "content-type",
+  "vary",
+  "x-nextjs-prerender",
+  "x-nextjs-postponed",
+]);
+
+/** See {@link NON_CACHEABLE_APP_PAGE_HEADERS}. */
+export function appPageCacheHeaders<T>(
+  initialHeaders: Record<string, T>,
+): Record<string, T> {
+  const headers: Record<string, T> = {};
+  for (const [name, value] of Object.entries(initialHeaders)) {
+    if (!NON_CACHEABLE_APP_PAGE_HEADERS.has(name.toLowerCase())) {
+      headers[name] = value;
+    }
+  }
+  return headers;
+}
+
+/**
  * Helper to safely extract tags from context
  */
 export function getTags(
