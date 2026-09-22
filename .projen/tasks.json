@@ -143,7 +143,7 @@
       "description": "Create a JavaScript bundle from src/image-optimization/handler.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
+          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url); import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\""
         }
       ]
     },
@@ -152,7 +152,7 @@
       "description": "Continuously update the JavaScript bundle from src/image-optimization/handler.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
+          "exec": "esbuild --bundle src/image-optimization/handler.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/image-optimization/handler.mjs\" --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url); import { fileURLToPath } from 'node:url'; import { dirname } from 'node:path'; const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);\" --watch"
         }
       ]
     },

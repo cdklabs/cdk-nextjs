@@ -238,10 +238,9 @@ function bundle() {
     // detection refuse to load the file ("Cannot determine intended module
     // format").
     banner: [
-      "import { createRequire } from 'node:module';",
+      createRequireBanner,
       "import { fileURLToPath } from 'node:url';",
       "import { dirname } from 'node:path';",
-      "const require = createRequire(import.meta.url);",
       "const __filename = fileURLToPath(import.meta.url);",
       "const __dirname = dirname(__filename);",
     ].join(" "),
