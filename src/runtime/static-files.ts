@@ -13,7 +13,7 @@
  * detection. Reimplementing those is how a "simple" file server ends up
  * disagreeing with `next start` on a 304.
  */
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { nextModule } from "./next-modules";
@@ -40,7 +40,8 @@ export async function serveStaticFile(
   filePath: string,
 ): Promise<boolean> {
   serveStaticModule ??= nextModule<ServeStaticModule>(SERVE_STATIC);
-  const { serveStatic } = serveStaticModule;
+  const { serveStatic, getContentType } = serveStaticModule;
+  setBodyFileContentType(res, filePath, getContentType);
   try {
     await serveStatic(
       req as unknown as Parameters<typeof serveStatic>[0],
@@ -53,6 +54,43 @@ export async function serveStaticFile(
       return false;
     }
     throw error;
+  }
+}
+
+/**
+ * `send` types a response from the file's own extension, and a static metadata
+ * route ships as `<route>.body` — `robots.txt.body`, `manifest.webmanifest.body`,
+ * `favicon.ico.body`. `.body` is not a media type, so every one of them would go
+ * out as `application/octet-stream`.
+ *
+ * Next.js's adapter API is where the type is lost: `build-complete.ts` pushes
+ * these through `isStaticMetadataFile()` as a bare `STATIC_FILE` — `id`,
+ * `pathname`, `filePath`, and nothing else — while the headers the route handler
+ * actually set sit unreferenced in a sibling `<route>.meta`. `next start` reads
+ * that file through the response cache and answers `text/plain`.
+ *
+ * Stripping `.body` puts the route's own extension back on the end, which for
+ * this population is the same answer: the set is closed (`favicon.ico`, `icon.*`,
+ * `apple-icon.*`, `opengraph-image.*`, `twitter-image.*`, `sitemap.xml`,
+ * `robots.txt`, `manifest.{json,webmanifest}`) and every member's type is implied
+ * by its extension. `send` skips its own detection when `Content-Type` is already
+ * set (`send/index.js`, `type()`), so this wins without reaching for `opts`.
+ */
+function setBodyFileContentType(
+  res: ShimServerResponse,
+  filePath: string,
+  getContentType: ServeStaticModule["getContentType"],
+): void {
+  if (!filePath.endsWith(".body") || res.getHeader("Content-Type")) {
+    return;
+  }
+  const ext = extname(filePath.slice(0, -".body".length)).slice(1);
+  if (!ext) {
+    return;
+  }
+  const contentType = getContentType(ext);
+  if (contentType) {
+    res.setHeader("Content-Type", contentType);
   }
 }
 

@@ -268,6 +268,10 @@ describe("NextjsRuntime.handle", () => {
     const sink = await send({ url: "/favicon.ico" });
     expect(sink.head?.statusCode).toBe(200);
     expect(sink.body).toEqual(FAVICON);
+    // Typed from the route's extension, not the file's: a static metadata route
+    // is staged as `favicon.ico.body`, and `.body` is not a media type. See
+    // `setBodyFileContentType` in static-files.ts.
+    expect(sink.head?.headers["content-type"]).toBe("image/x-icon");
   });
 
   it("answers an unknown path through the /_not-found entrypoint", async () => {
