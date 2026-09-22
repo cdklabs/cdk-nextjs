@@ -112,8 +112,11 @@ export interface PublicDirEntry {
  */
 export class NextjsBuild extends Construct {
   /**
-   * Unique id for Next.js build. Used to partition cache storage and as
+   * Unique id for this deployment. Used to partition cache storage and as
    * metadata for static assets in S3 bucket.
+   *
+   * `.next/BUILD_ID`, suffixed with the app's `deploymentId` when it sets one —
+   * see {@link getBuildId} for why that suffix is what makes this unique.
    */
   buildId: string;
   /**
@@ -609,7 +612,23 @@ export class NextjsBuild extends Construct {
   }
 
   /**
-   * Get build ID from .next directory
+   * The value every deployment-scoped store is partitioned by: `.next/BUILD_ID`,
+   * plus the app's `deploymentId` when it sets one.
+   *
+   * `BUILD_ID` alone is not unique per deployment. Setting `deploymentId` (or
+   * building with `NEXT_DEPLOYMENT_ID`) turns on skew protection, and next.js
+   * then *pins* the build ID to the constant `build-TfctsWXpff2fKS` — see
+   * `getBuildId` in `next/dist/build/index.js`, which does that deliberately so
+   * that tooling doing `.replace(escapedBuildId, …)` still has something to
+   * replace. Two successive deployments of such an app would share one cache
+   * prefix and one revalidation-table partition, and the new one would read the
+   * previous one's prerenders. Appending the deployment ID restores the "one
+   * deployment, one partition" invariant that ID exists to carry.
+   *
+   * Nothing routes on this value — the `/_next/data/<buildId>/…` URL space is
+   * matched with a path parameter, and the app's own client bundles carry
+   * whatever `BUILD_ID` next.js gave them — so it is free to be longer than
+   * next.js's own.
    */
   private getBuildId(): string {
     const buildIdPath = join(this.dotNextPath, "BUILD_ID");
@@ -620,7 +639,37 @@ export class NextjsBuild extends Construct {
           `Ensure Next.js build completed successfully.`,
       );
     }
-    return readFileSync(buildIdPath, "utf-8").trim();
+    const buildId = readFileSync(buildIdPath, "utf-8").trim();
+    const deploymentId = this.getDeploymentId();
+    return deploymentId ? `${buildId}-${deploymentId}` : buildId;
+  }
+
+  /**
+   * The app's resolved `deploymentId`, read out of `required-server-files.json`
+   * so that one computed in `next.config.js` counts as much as a literal or a
+   * `NEXT_DEPLOYMENT_ID`. Empty when the app sets none.
+   *
+   * Reduced to the characters that are safe in an S3 key prefix and a DynamoDB
+   * partition key, since this is an arbitrary user string and `/` in particular
+   * would split the prefix `prune-cache-bucket.ts` matches on.
+   */
+  private getDeploymentId(): string {
+    const requiredServerFiles = join(
+      this.dotNextPath,
+      "required-server-files.json",
+    );
+    if (!existsSync(requiredServerFiles)) return "";
+    try {
+      const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
+      const deploymentId = config?.deploymentId;
+      return typeof deploymentId === "string"
+        ? deploymentId.replace(/[^A-Za-z0-9_-]/g, "-")
+        : "";
+    } catch {
+      // `readNextConfigBasePath` already warns about an unreadable
+      // `required-server-files.json`; a second warning per synth adds nothing.
+      return "";
+    }
   }
 
   /**
