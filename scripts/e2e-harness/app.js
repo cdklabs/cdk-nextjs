@@ -83,8 +83,19 @@ class HarnessStack extends Stack {
 
     new CfnOutput(this, "HarnessUrl", {
       key: "HarnessUrl",
-      // Trailing slash: the harness treats this as a base for `new URL()`.
-      value: nextjs.url + "/",
+      // The distribution's own origin, deliberately not `nextjs.url`: that
+      // property appends the app's `basePath` (see NextjsGlobalFunctions#url),
+      // and next.js's tests expect a deployment URL without one. They build
+      // request URLs both ways - `new URL(path, next.url)`, which discards a
+      // prefix, and `` `${next.url}${path}` `` with `path` already carrying the
+      // basePath, which doubles it (`/base//base/refresh`). Vercel's deployment
+      // URL is the bare origin, so that is what a basePath fixture is written
+      // against.
+      //
+      // No trailing slash either, for the same reason: `vercel deploy` prints a
+      // bare origin, so `${next.url}${path}` is what the fixtures are written
+      // against. `new URL(path, next.url)` is unaffected - `path` is absolute.
+      value: `https://${nextjs.nextjsDistribution.distribution.domainName}`,
     });
     // Read by `scripts/e2e-deploy.sh` to invalidate between test files, and by
     // `scripts/e2e-logs.sh`.

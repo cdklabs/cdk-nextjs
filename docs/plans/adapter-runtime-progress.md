@@ -2161,3 +2161,89 @@ tarball install, most likely. Not done; carried as open.
 / 312 tests passed, and two real `app-playground` builds from the recreated CI
 starting state (symlink present): one plain, one with the escaping
 `NEXT_ADAPTER_PATH` set. Both green.
+
+## Post-PR — widening the compatibility harness manifest (screening pass, 2026-09-22)
+
+`test/deploy-tests-manifest.json` listed two of next.js's own e2e files. It now
+lists 15. This entry records how the other 22 candidates fared, because the
+failures are more useful than the additions.
+
+### What was screened
+
+Of 1134 e2e test files in the next.js checkout, 860 are edge-free and don't
+mention `isNextDeploy`. That set is mostly irrelevant to cdk-nextjs (a third of it
+is `next-config-ts` variants), so 26 were hand-picked for behavior cdk-nextjs
+actually implements — ISR/caching, prerender keys, route handlers, redirects and
+rewrites, streaming, PPR, the segment cache — and 4 of those fell out on a second
+screen: two are `describe.skip`-equivalent upstream, one fixture has edge routes,
+one has a legacy `middleware.js` a directory above the test file. The remaining 22
+were deployed and run for real, `-c 1 --retries 2`, against the shared
+`hrns-shared` stack. Roughly two hours, ~110s per file.
+
+The extra screens (upstream skips, `isNextDeploy`, `output: 'export'`, and the
+fixture-root-is-the-parent-directory trap) are now written down in
+`scripts/e2e-harness/README.md` — I hit all four the hard way.
+
+### Added: 13 files, all observed passing
+
+`headers-static-bailout`, `metadata-streaming`, `prefetching-not-found`,
+`redirect-rewrite-dynamic`, `searchparams-static-bailout`, and eight more
+`segment-cache` files (`client-params`, `encoded-slash-params`, `metadata`,
+`no-prefetch`, `prefetch-auto`, `prefetch-static-shell`, `staleness`,
+`vary-params`). All passed on the first attempt.
+
+### A harness bug, found and fixed
+
+`app.js` reported `NextjsGlobalFunctions#url` as the deployment URL. That property
+appends the app's `basePath` by design (#267), and next.js's fixtures are written
+against a Vercel deployment URL, which is a bare origin. Tests that interpolate
+rather than `new URL()` therefore got `/base//base/refresh`. Reporting the
+distribution's origin, with no trailing slash either, took
+`app-dir/app-basepath` from 7 failures to 3 — and the remaining 3 are real (below).
+
+This is worth remembering as a class of failure: a harness-shaped failure and a
+product failure look identical in the log.
+
+### Nine files not added, with reasons — three of them real bugs
+
+Full detail is in the manifest's `excluded-notes`; in brief:
+
+1. **Server actions, three files.** Every case that drives a server action and
+   then expects the client to act on the reply fails: a `ReadableStream` action
+   never streams (`actions-streaming`), an action's return value never arrives and
+   React logs "An unexpected response was received from the server"
+   (`dynamic-interception-route-revalidate`), and an action's `redirect()` never
+   navigates (the 3 remaining `app-basepath` cases). Deterministic across all
+   attempts. The function's own logs are clean — no error, ~60-80ms per invocation
+   — so Next.js is answering and something about the answer is not surviving the
+   trip back. cdk-nextjs's own `examples/e2e-tests/src/server-actions.test.ts`
+   passes, so this is narrower than "actions are broken". **The most interesting
+   open finding of the pass.**
+2. **`prerender-encoding`.** A route prerendered as `sticks & stones` 404s when
+   requested as `/sticks%20%26%20stones`. Reading `src/runtime/dispatch.ts`, the
+   resolved pathname is looked up in `manifest.entrypoints` by plain property
+   access while `lambda.mts` deliberately passes the path still percent-encoded —
+   a decoded key would never match. Hypothesis, not measured.
+   `segment-cache/encoded-slash-params` (`%2F`) passes, so it is narrower than
+   "encoded params".
+3. **`segment-cache/cached-navigations`.** 4 of 14, the same 4 every attempt:
+   three prefetches issued off the inlined app shell come back with an error
+   status, and one "no requests at all" assertion sees one. The equivalents that
+   prefetch from a navigation rather than from the HTML all pass.
+4. **`static-rsc-cache-components`.** A timing assertion measures `NaN`, i.e. the
+   navigation it wanted to time never happened.
+5. **Revalidation behind the CDN, two files** (`revalidate-dynamic`,
+   `revalidate-path-with-rewrites`). Not a defect: the route handler does revalidate
+   (`revalidated: true`), but the test refreshes about a second later and
+   CloudFront serves the page it already has. Verified by hand that a prerendered
+   page comes back `cache-control: s-maxage=31536000` and hits the edge on the
+   second request. cdk-nextjs does invalidate on explicit revalidation
+   (`invalidateCloudFrontPaths`, `src/adapter/s3-cache-handler.ts`) but
+   fire-and-forget, and `CreateInvalidation` has no bounded SLA. Vercel purges its
+   own CDN inline, which is why these aren't gated out of deploy mode upstream.
+6. **`segment-cache/refresh`.** `describe.skip` upstream, "too flaky". Recorded so
+   it isn't re-screened: it reports passing in ~5s without deploying anything.
+
+None of 1, 2, 3 or 4 is fixed here. They are recorded in `excluded-notes` with
+enough detail to be picked up cold, and each exclusion says "pending
+investigation" rather than "inapplicable" so the distinction survives.

@@ -118,6 +118,15 @@ mode upstream. Serving through CloudFront means `_next/static` and `public/` are
 answered by the `NextjsStaticAssets` bucket exactly as in production, rather than
 by some harness-only arrangement.
 
+What `app.js` reports as the deployment URL is the distribution's bare origin,
+deliberately not `NextjsGlobalFunctions#url` — that property appends the app's
+`basePath`, and the fixtures are written against a Vercel deployment URL, which
+has neither a path nor a trailing slash. `new URL(path, deploymentUrl)` would not
+care, but plenty of tests interpolate instead (`` `${next.url}${path}` `` with
+`path` already carrying the basePath), and a prefix or a trailing slash there
+shows up as `/base//base/refresh`. Reporting the origin took
+`app-dir/app-basepath` from 7 failures to 3.
+
 Two caveats worth knowing before reading a failure as a regression:
 
 - The dynamic cache policy allowlists ~10 request headers, a CloudFront quota
@@ -147,6 +156,21 @@ widening the list. To check a candidate before adding it:
 find <fixture> -name "middleware.*"
 grep -rl 'runtime = .edge.' <fixture>
 ```
+
+Mind the "or its parent": for a `test/e2e/<name>/test/index.test.ts` the fixture
+lives a directory *above* the test file, and screening only the test file's own
+directory quietly misses its `middleware.js`.
+
+Three more screens are worth running before spending a deploy on a candidate, all
+against the test file rather than the fixture:
+
+- `describe.skip` / `(isNextDev ? describe : describe.skip)` — a file skipped
+  upstream reports as passing in a few seconds without deploying anything, and
+  adding it to `rules.include` claims coverage that does not exist.
+- `isNextDeploy` — usually next.js itself gating out what cannot work behind a
+  CDN. Not always disqualifying, but read the gate before adding the file.
+- `output: 'export'` in the fixture — a static export is not what any
+  `NextjsType` deploys.
 
 `excluded-notes` in the manifest records every file left out and why.
 
