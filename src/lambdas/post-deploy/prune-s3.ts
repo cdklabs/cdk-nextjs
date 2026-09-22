@@ -23,8 +23,8 @@ interface PruneS3Props {
    */
   msTtl: number;
   /**
-   * S3 key prefix the app's static assets live under (bare, no leading or
-   * trailing slash). Scopes pruning to this app's objects so that apps or
+   * S3 key prefix the app's static assets live under. Surrounding slashes are
+   * normalized away. Scopes pruning to this app's objects so that apps or
    * branches sharing one bucket under different `basePath`s don't delete each
    * other's assets. Empty or omitted prunes the whole bucket.
    */
@@ -38,8 +38,14 @@ interface PruneS3Props {
  */
 export async function pruneS3(props: PruneS3Props) {
   const { bucketName, currentBuildId, msTtl, keyPrefix } = props;
+  // Surrounding slashes are stripped before use: `NextjsStaticAssets` hands over
+  // a bare prefix, but `overrides.customResourceProperties` lets a user set
+  // `staticAssetsKeyPrefix` directly, and "base/" or "/base" would build a
+  // Prefix ("base//", "/base/") that matches no key at all — pruning would
+  // silently become a no-op.
+  const bare = (keyPrefix || "").replace(/^\/+/, "").replace(/\/+$/, "");
   // Trailing slash so a prefix of "app" doesn't also match "app-staging/...".
-  const prefix = keyPrefix ? `${keyPrefix}/` : undefined;
+  const prefix = bare ? `${bare}/` : undefined;
 
   const cutoffDate = new Date(Date.now() - msTtl);
   const objectsToDelete: { Key: string }[] = [];

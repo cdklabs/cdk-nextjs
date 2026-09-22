@@ -137,4 +137,21 @@ describe("pruneS3", () => {
 
     expect(deletedKeys()).toEqual([]);
   });
+
+  // The construct always hands over a bare prefix, but
+  // `overrides.customResourceProperties.staticAssetsKeyPrefix` reaches this
+  // directly. "base/" would build a Prefix of "base//" and "/base" one of
+  // "/base/", neither of which matches any key, so pruning would silently stop
+  // deleting anything at all.
+  it.each([
+    ["a trailing slash", "branch-a/"],
+    ["a leading slash", "/branch-a"],
+    ["both", "/branch-a/"],
+  ])("normalizes a prefix given with %s", async (_label, prefix) => {
+    stubBucketContents([]);
+
+    await prune(prefix);
+
+    expect(listPrefixes()).toEqual(["branch-a/"]);
+  });
 });
