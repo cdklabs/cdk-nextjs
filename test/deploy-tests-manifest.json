@@ -27,6 +27,7 @@
   "rules": {
     "include": [
       "test/e2e/app-dir/actions-streaming/actions-streaming.test.ts",
+      "test/e2e/app-dir/app-basepath/index.test.ts",
       "test/e2e/app-dir/dynamic-interception-route-revalidate/dynamic-interception-route-revalidate.test.ts",
       "test/e2e/app-dir/headers-static-bailout/headers-static-bailout.test.ts",
       "test/e2e/app-dir/metadata-streaming/metadata-streaming.test.ts",
@@ -34,7 +35,9 @@
       "test/e2e/app-dir/redirect-rewrite-dynamic/redirect-rewrite-dynamic.test.ts",
       "test/e2e/app-dir/searchparams-static-bailout/searchparams-static-bailout.test.ts",
       "test/e2e/app-dir/segment-cache/basic/segment-cache-basic.test.ts",
+      "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations.test.ts",
       "test/e2e/app-dir/segment-cache/client-params/client-params.test.ts",
+      "test/e2e/app-dir/segment-cache/deployment-skew/deployment-skew.test.ts",
       "test/e2e/app-dir/segment-cache/encoded-slash-params/encoded-slash-params.test.ts",
       "test/e2e/app-dir/segment-cache/headers-keyed-caches/headers-keyed-caches.test.ts",
       "test/e2e/app-dir/segment-cache/metadata/segment-cache-metadata.test.ts",
@@ -42,7 +45,8 @@
       "test/e2e/app-dir/segment-cache/prefetch-auto/prefetch-auto.test.ts",
       "test/e2e/app-dir/segment-cache/prefetch-static-shell/prefetch-static-shell.test.ts",
       "test/e2e/app-dir/segment-cache/staleness/segment-cache-stale-time.test.ts",
-      "test/e2e/app-dir/segment-cache/vary-params/vary-params.test.ts"
+      "test/e2e/app-dir/segment-cache/vary-params/vary-params.test.ts",
+      "test/e2e/app-dir/static-rsc-cache-components/static-rsc-cache-components.test.ts"
     ],
     "exclude": []
   },
@@ -70,19 +74,6 @@
     "test/e2e/middleware-rewrites/test/index.test.ts": [
       "Excluded: the fixture ships a legacy edge `middleware.js`. See the note above."
     ],
-    "test/e2e/app-dir/segment-cache/deployment-skew/deployment-skew.test.ts": [
-      "Excluded pending investigation, NOT because the test is inapplicable - this one looks like a real",
-      "cdk-nextjs bug and should come back as a regression test once fixed.",
-      "",
-      "`header with deployment id > header is set on RSC responses` fetches `<route>?_rsc=` with an",
-      "`RSC: 1` request header and expects `content-type: text/x-component`. Through cdk-nextjs it gets",
-      "`text/html; charset=utf-8`, i.e. the HTML render rather than the flight response. Failed all three",
-      "attempts, so it is not flaky.",
-      "",
-      "Not the CloudFront header-quota caveat: `rsc` is in the dynamic cache policy's allowlist",
-      "(src/nextjs-distribution.ts). Whether the RSC request is being lost at the edge or mishandled by",
-      "the adapter's request bridge is not yet established."
-    ],
     "revalidation behind the CDN, two files": [
       "Excluded as timing-inherent, not as a cdk-nextjs defect:",
       "test/e2e/app-dir/revalidate-dynamic/revalidate-dynamic.test.ts (both cases) and",
@@ -101,31 +92,20 @@
       "deploy mode upstream."
     ],
     "test/e2e/app-dir/prerender-encoding/prerender-encoding.test.ts": [
-      "Excluded pending investigation - a real cdk-nextjs bug. The fixture prerenders one param,",
-      "`sticks & stones`, via `generateStaticParams`; requesting `/sticks%20%26%20stones` returns the 404",
-      "page instead of the prerendered route.",
+      "Excluded as unsupported, and NOT an encoding bug - encoding is handled correctly. The fixture sets",
+      "`export const dynamicParams = false`, which cdk-nextjs does not support; see",
+      "docs/harness-coverage.md for the measurement.",
       "",
-      "Untested hypothesis, from reading rather than measuring: src/runtime/lambda.mts deliberately hands",
-      "the runtime the raw percent-encoded path, and src/runtime/dispatch.ts looks the resolved pathname up",
-      "in `manifest.entrypoints` with a plain property access. If the manifest's keys are decoded and the",
-      "request's is not, nothing matches and the miss falls through to the static 404 - which is what a",
-      "404 with no error in the function logs looks like. Note that",
-      "segment-cache/encoded-slash-params (`%2F`) passes, so whatever this is is narrower than \"encoded",
-      "params\"."
-    ],
-    "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations.test.ts": [
-      "Excluded pending investigation: 4 of 14 cases fail, the same 4 on every attempt. Three are the",
-      "`... from the initial HTML for subsequent navigations` cases, which fail with `Received a response",
-      "with an error status code` on a prefetch the client issues off the inlined app shell; the fourth",
-      "expects a fully static second navigation to issue no network requests at all and sees one.",
+      "With that flag Next.js gates the route's `routing.dynamicRoutes` entries behind preview cookies",
+      "(`has: [{cookie __prerender_bypass}, {cookie __next_preview_data}]`), because the platform is",
+      "expected to serve the concrete prerendered paths off the CDN itself and 404 everything else.",
+      "cdk-nextjs registers only dynamic *templates* in `manifest.pathnames` (`addPrerenderTemplates` in",
+      "src/adapter/build-outputs.ts), so with the gate in place nothing matches and every param 404s -",
+      "`/plain` as much as `/sticks%20%26%20stones`. Remove the flag from the fixture and both resolve.",
       "",
-      "The other 10 pass, including the equivalents that prefetch from a navigation rather than from the",
-      "initial HTML, so this is specific to the HTML-inlined prefetch path."
-    ],
-    "test/e2e/app-dir/static-rsc-cache-components/static-rsc-cache-components.test.ts": [
-      "Excluded pending investigation: `navigates to prerendered route without waiting for dynamic render`",
-      "asserts a measured duration is `< 1500` and gets `NaN`, i.e. the navigation timing it wanted to",
-      "measure never happened. Timing-sensitive, and it was not flaky - it failed all three attempts."
+      "Supporting it means routing concrete prerendered paths to the owning entrypoint while still",
+      "supplying the template's `nxtP*` params, which `addPrerenderTemplates` documents as the reason it",
+      "does not simply register them."
     ],
     "test/e2e/app-dir/segment-cache/refresh/segment-cache-refresh.test.ts": [
       "Not excluded by us, and there is nothing to run: the file is `describe.skip` upstream, commented",
@@ -135,18 +115,6 @@
     "test/e2e/app-dir/segment-cache/cdn-cache-busting/cdn-cache-busting.test.ts": [
       "Not excluded by us: next.js itself skips this file under `isNextDeploy`. Listed only as a worked",
       "example of the README's claim that deploy mode gates out what cannot work behind a CDN."
-    ],
-    "test/e2e/app-dir/app-basepath/index.test.ts": [
-      "Excluded: 3 of 13 cases fail, all of them an action that calls `redirect()` (relative, absolute,",
-      "and to a path outside the `basePath`). The browser never leaves `/base/client`. The other 10 pass.",
-      "Deterministic - failed all three attempts of the 2026-09-22 run.",
-      "",
-      "Not the `x-amz-content-sha256` bug that used to make every action POST 403 here (fixed; see",
-      "docs/harness-coverage.md). With that fixed the POST reaches Next.js, but the browser records no",
-      "response at all, and by hand the reply comes back `200 application/octet-stream` with no Next.js",
-      "headers and an HTTP/2 stream that does not close cleanly - the signature of a RESPONSE_STREAM",
-      "invocation whose `HttpResponseStream.from` prelude was never written. Under investigation; this is",
-      "a cdk-nextjs bug, not a `failed` entry."
     ]
   }
 }

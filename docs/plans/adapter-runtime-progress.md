@@ -2466,3 +2466,128 @@ GET /base/another?_rsc=probe1   (RSC: 1)
 The three known e2e symptoms of it were all found by the harness and none by
 `examples/e2e-tests`, which asserts on rendered pages rather than on RSC response
 headers.
+
+## The home page's cache entry had no flight payload
+
+`fix: group the root route's .rsc and segment prerenders with its HTML`
+
+Fourth defect the compatibility harness found, and the last of the four
+`segment-cache/cached-navigations` failures. With the content-type fix above one
+of them went green; the remaining three were all
+`… from the initial HTML for subsequent navigations`, failing with:
+
+```
+GET /?_rsc=_aiG6yzaaivOHhuC
+→ 404, content-type: application/json, x-nextjs-cache: HIT, empty body
+```
+
+`x-nextjs-cache: HIT` on a `404` is the giveaway: the entry was found, and then
+something about the entry made Next.js refuse to serve it.
+
+### The bug
+
+Next.js emits up to three outputs per prerendered route — `/blog/hello`,
+`/blog/hello.rsc`, `/blog/hello.segments/*.segment.rsc` — and `onBuildComplete`
+must group them per route to seed one cache entry. `groupPrerendersByBasePath`
+did that by stripping suffixes and then, in the seeding loop, looking for
+`${basePath}.rsc`.
+
+The root route cannot be named `/.rsc`, so Next emits its HTML at `/` and its
+payloads at `/index.rsc` and `/index.segments/` — and with a `basePath`, at
+`/prod` and `/prod/index.rsc`. The old code normalized only the exact string
+`/index` → `/`, which is neither of those shapes. Measured over both fixtures:
+
+```
+no basePath      "/"            html=yes rsc=no  segments=4
+basePath /prod   "/prod"        html=yes rsc=no  segments=0
+                 "/prod/index"  html=no  rsc=yes segments=4  ← skipped, no HTML
+```
+
+So the home page's entry had `html` but `rscData: undefined`, and with a
+`basePath` no `segmentData` either. `app-page-runtime.js` handles a missing
+`rscData` by falling back to `cachedData.html.contentType`, and under
+`nextConfig.cacheComponents` does `res.statusCode = 404` with
+`sendRenderResult({ result: RenderResult.EMPTY })`. Hence the empty
+`404 application/json` on a cache hit.
+
+### The fix
+
+`groupPrerenders` (`src/adapter/cache-utils.ts`) parses the emitted names instead
+of reconstructing them, returning a `PrerenderVariants` per route, and remaps a
+trailing `/index` onto its parent only when the parent is itself a prerendered
+HTML route. The condition is load-bearing: an app with a real
+`app/index/page.tsx` has a genuine `/index` route that must keep its own group,
+and `/nested/index.rsc` with no `/nested` HTML is its own route rather than a
+remap. Both are unit-tested, along with the two root-route shapes.
+
+`groupPrerendersByBasePath` is deleted; the seeding loop now destructures
+`variants.html` / `variants.rsc` / `variants.segments` and does no string
+reconstruction at all.
+
+### Verified
+
+`cached-navigations` passes 14/14 on the first attempt (266s), up from 10/14
+before the content-type fix and 11/14 after it.
+
+## The coverage record now has no open bugs
+
+`docs: record every screened harness file, its outcome and its verdict`
+
+`docs/harness-coverage.md` and `test/deploy-tests-manifest.json` had both gone
+stale — they still described `app-basepath`, `deployment-skew` and
+`static-rsc-cache-components` as open bugs after the fixes that closed them, and
+carried a `prerender-encoding` hypothesis that measurement disproved. Rewritten
+to match what is now measured:
+
+| File                              | Was          | Now                        |
+| --------------------------------- | ------------ | -------------------------- |
+| `app-basepath`                    | bug (3/13)   | pass 13/13                 |
+| `segment-cache/deployment-skew`   | bug          | pass                       |
+| `static-rsc-cache-components`     | bug          | pass                       |
+| `segment-cache/cached-navigations`| bug (4/14)   | pass 14/14                 |
+| `prerender-encoding`              | bug          | unsupported, root-caused   |
+
+`rules.include` goes 17 → 21 files. The bug column is now empty; every one of
+the five was a real cdk-nextjs defect, four of them fixed on this branch and the
+fifth reclassified.
+
+### `prerender-encoding` is not an encoding bug
+
+Recorded because the file's name and its symptom both point the wrong way. The
+fixture prerenders the param `sticks & stones` and the request for
+`/sticks%20%26%20stones` 404s — but so does `/plain`, and dispatching the encoded
+path against the adapter manifest resolves `nxtPid` to exactly `sticks & stones`.
+Encoding is fine.
+
+The trigger is `export const dynamicParams = false`. With it, Next.js gates the
+route's `routing.dynamicRoutes` entries behind preview cookies
+(`has: [{cookie __prerender_bypass, value …}, {cookie __next_preview_data}]`),
+because the platform is expected to serve the concrete prerendered paths off its
+CDN itself and 404 everything else. cdk-nextjs registers only dynamic
+*templates* in `manifest.pathnames`, so nothing matches the gate. Proof, over the
+same app with and without the flag:
+
+```
+dynamicParams = false   "/plain"                 → not-found
+                        "/sticks%20%26%20stones" → not-found
+flag removed            "/plain"                 → /[id]  nxtPid="plain"
+                        "/sticks%20%26%20stones" → /[id]  nxtPid="sticks & stones"
+```
+
+Supporting it needs concrete prerendered paths routed to the owning entrypoint
+*with* the template's `nxtP*` params — and `addPrerenderTemplates`
+(`src/adapter/build-outputs.ts`) already documents that registering them naively
+was measured to be actively wrong, because `/isr/1` then resolves to itself
+rather than to `/isr/[id]` and loses `nxtPid`. Filed as unsupported rather than
+as a bug; it is a design change, worth doing if a user asks for it.
+
+Incidental, measured while chasing it: an unencoded `&` in a path is parsed as a
+query separator (`/a&b` → `{nxtPid:"a", b:""}`), matching Vercel.
+
+### One log-reading trap, recorded because it cost time twice
+
+A harness file that fails *wholesale* at ~120s with
+`thrown: "Exceeded timeout of 120000 ms for a hook."` in `beforeAll` has not
+failed — the CloudFormation deploy outran jest's hook timeout. That is what
+`--retries 1` is for. Read the retry, not attempt 0. Now noted in
+`docs/harness-coverage.md` too.
