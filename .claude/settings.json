@@ -1,8 +1,7 @@
 {
   "hooks": {
-    "EnterWorktree": [
+    "WorktreeCreate": [
       {
-        "matcher": "EnterWorktree",
         "hooks": [
           {
             "type": "command",
