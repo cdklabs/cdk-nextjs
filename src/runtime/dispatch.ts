@@ -188,11 +188,18 @@ export class Dispatcher {
   private readonly staticFiles: Record<string, string>;
   private readonly imagePathname: string;
   private readonly invokeMiddleware: MiddlewareInvoker;
+  /** {@link manifest}'s, plus the `trailingSlash` variants. */
+  private readonly pathnames: string[];
+  private readonly trailingSlash: boolean;
 
   public constructor(private readonly options: DispatcherOptions) {
     const { manifest } = options;
     this.routes = asRoutes(manifest.routing);
     this.i18n = asI18n(manifest.config.i18n);
+    this.trailingSlash = manifest.config.trailingSlash;
+    this.pathnames = this.trailingSlash
+      ? withTrailingSlashVariants(manifest.pathnames)
+      : manifest.pathnames;
     this.staticFiles = manifest.staticFiles;
     this.imagePathname = `${manifest.config.basePath}/_next/image`;
     this.notFound = resolveNotFoundTarget(manifest);
@@ -213,6 +220,18 @@ export class Dispatcher {
     return this.options.manifest;
   }
 
+  /**
+   * Drop the `trailingSlash` slash a resolved pathname may carry, so it can be
+   * looked up in `entrypoints`/`staticFiles` and rendered under the same cache
+   * key as its prerender. A no-op unless the app sets `trailingSlash`.
+   */
+  private normalizePathname(pathname: string | undefined): string | undefined {
+    if (!this.trailingSlash || pathname === undefined) return pathname;
+    return pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
+  }
+
   public async dispatch(request: DispatchRequest): Promise<DispatchResult> {
     // Copied because `resolveRoutes` is free to mutate what it is handed, and
     // the caller's headers object outlives this call.
@@ -226,7 +245,7 @@ export class Dispatcher {
       basePath: this.manifest.config.basePath,
       headers: requestHeaders,
       requestBody: request.body,
-      pathnames: this.manifest.pathnames,
+      pathnames: this.pathnames,
       routes: this.routes,
       i18n: this.i18n,
       invokeMiddleware: async (ctx) => {
@@ -280,7 +299,9 @@ export class Dispatcher {
       return { kind: "redirect", ...redirect, responseHeaders };
     }
 
-    const { resolvedPathname } = result;
+    // Both are keys into `entrypoints`/`staticFiles`, which never carry a
+    // trailing slash; see {@link withTrailingSlashVariants}.
+    const resolvedPathname = this.normalizePathname(result.resolvedPathname);
     if (resolvedPathname !== undefined) {
       const entrypoint = this.manifest.entrypoints[resolvedPathname];
       if (entrypoint) {
@@ -296,7 +317,9 @@ export class Dispatcher {
           // `invocationTarget` is always present alongside `resolvedPathname` in
           // practice; the fallback keeps a `next` shape change from crashing.
           invocationTarget: {
-            pathname: result.invocationTarget?.pathname ?? resolvedPathname,
+            pathname:
+              this.normalizePathname(result.invocationTarget?.pathname) ??
+              resolvedPathname,
             query,
           },
           query,
@@ -386,6 +409,41 @@ export function toRedirect(
     return { location, status: result.status };
   }
   return undefined;
+}
+
+/**
+ * Add `<pathname>/` alongside every route pathname, for a `trailingSlash` app.
+ *
+ * `trailingSlash: true` makes `/a/` the canonical URL — Next.js compiles a
+ * `priority` 308 from `/a` to `/a/` into `routing.beforeMiddleware`, and that
+ * redirect is the *first* thing `resolveRoutes` applies. But the build's output
+ * pathnames have no trailing slash (`/a`, `/api/revalidate`), and
+ * `@next/routing` matches them by exact string equality with no normalization of
+ * its own. So every canonical URL in such an app resolved to nothing: browsers
+ * followed the 308 to `/a/` and got a 404, and `fetch('/api/revalidate')` got
+ * the 404 *page* — measured against next.js's `test/e2e/app-dir/trailingslash`,
+ * where 6 of 8 cases failed this way. Dynamic routes escaped it only because
+ * their `sourceRegex` happens to end in `(?:/)?`.
+ *
+ * Normalizing the request URL before `resolveRoutes` instead would be wrong: the
+ * add-slash redirect matches the *slashless* path, so a normalized `/a/` would
+ * come back as a 308 to `/a/` and loop. Teaching the match about the slash and
+ * normalizing it off the *result* ({@link Dispatcher.normalizePathname}) keeps
+ * the redirect exactly as Next.js compiled it.
+ *
+ * Pathnames whose last segment has an extension are skipped: those are static
+ * files, and Next.js compiles the opposite redirect for them (`/x.js/` → 308
+ * `/x.js`), which this must not shadow.
+ */
+function withTrailingSlashVariants(pathnames: string[]): string[] {
+  const variants: string[] = [];
+  for (const pathname of pathnames) {
+    variants.push(pathname);
+    if (pathname !== "/" && !/\.[^/]+$/.test(pathname)) {
+      variants.push(`${pathname}/`);
+    }
+  }
+  return variants;
 }
 
 /**

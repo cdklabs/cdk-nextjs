@@ -148,6 +148,58 @@ describe("Dispatcher entrypoint resolution", () => {
     expect(result.query).toMatchObject({ nxtPslug: "hello" });
   });
 
+  it("resolves the canonical trailing-slash URL of a `trailingSlash` app", async () => {
+    // The build's pathnames never carry the slash, but `trailingSlash: true`
+    // makes `/a/` the URL Next.js's own 308 sends browsers to, and
+    // `@next/routing` matches pathnames by exact equality. Measured against
+    // next.js's `test/e2e/app-dir/trailingslash`: without this, 6 of 8 cases
+    // failed, including `fetch('/api/revalidate')` getting the 404 page.
+    const withSlash = structuredClone(
+      appPlayground as unknown,
+    ) as BuildCompleteContext;
+    (withSlash.config as { trailingSlash: boolean }).trailingSlash = true;
+    // All three captures are from apps with the default `trailingSlash: false`,
+    // so their `beforeMiddleware` carries the *strip*-slash 308 (`/a/` → `/a`).
+    // Leaving it in would make the clone incoherent — that redirect is what a
+    // real `trailingSlash: true` build replaces with the add-slash one — and it
+    // fires before any pathname is matched, so nothing below would be reached.
+    const routing = withSlash.routing as {
+      beforeMiddleware: { status?: number }[];
+    };
+    routing.beforeMiddleware = routing.beforeMiddleware.filter(
+      (route) => route.status !== 308,
+    );
+    const dispatcher = createDispatcher({
+      manifest: manifestOf(withSlash),
+      invokeMiddleware: async () => ({}),
+    });
+
+    const page = await dispatcher.dispatch(request("/isr/1/"));
+    expect(page.kind).toBe("entrypoint");
+    if (page.kind !== "entrypoint") return;
+    // Normalized on the way out, because `entrypoints` is keyed without the
+    // slash and the render has to land on its prerender's cache key.
+    expect(page.resolvedPathname).toBe("/isr/[id]");
+    expect(page.invocationTarget).toEqual({
+      pathname: "/isr/1",
+      query: { nxtPid: "1" },
+    });
+
+    const route = await dispatcher.dispatch(request("/api/health/"));
+    expect(route.kind).toBe("entrypoint");
+    if (route.kind === "entrypoint") {
+      expect(route.resolvedPathname).toBe("/api/health");
+    }
+
+    // A static file keeps its extension-bearing pathname: Next.js compiles the
+    // *opposite* redirect for those, and shadowing it would serve `/x.js/`.
+    const asset = await dispatcher.dispatch(request("/favicon.ico"));
+    expect(asset.kind).toBe("static-file");
+    expect(await dispatcher.dispatch(request("/favicon.ico/"))).toMatchObject({
+      kind: "not-found",
+    });
+  });
+
   it("gives a param whose name prefixes another param's its own value", async () => {
     // `@next/routing` expands `$nxtPid2` by replacing group names in insertion
     // order, so the `$nxtPid` prefix wins and leaves a literal `2`: the route is
