@@ -5,6 +5,13 @@
  */
 export interface OptionalPostDeployCustomResourceProperties {
   /**
+   * S3 key prefix to scope static asset pruning to.
+   * Empty or absent prunes the
+   * whole bucket.
+   * @stability stable
+   */
+  readonly staticAssetsKeyPrefix?: string;
+  /**
    * @stability stable
    */
   readonly staticAssetsBucketName?: string;

@@ -6,6 +6,11 @@ import type { aws_cloudfront, aws_dynamodb, aws_s3 } from 'aws-cdk-lib';
  */
 export interface OptionalNextjsPostDeployProps {
   /**
+   * S3 key prefix the static assets were uploaded under (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so that apps or branches sharing one bucket under different `basePath`s don't prune each other's assets.
+   * @stability stable
+   */
+  readonly staticAssetsKeyPrefix?: string;
+  /**
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
    * @stability stable
    */

@@ -22,15 +22,24 @@ interface PruneS3Props {
    * Time to live in milliseconds.
    */
   msTtl: number;
+  /**
+   * S3 key prefix the app's static assets live under (bare, no leading or
+   * trailing slash). Scopes pruning to this app's objects so that apps or
+   * branches sharing one bucket under different `basePath`s don't delete each
+   * other's assets. Empty or omitted prunes the whole bucket.
+   */
+  keyPrefix?: string;
 }
 
 /**
- * Given `bucketName`, `currentBuildId`, and `msTtl`, list all objects
- * in the bucket and delete any that 1/ do not have a metadata key of "next-build-id"
+ * Given `bucketName`, `currentBuildId`, and `msTtl`, list the objects under
+ * `keyPrefix` and delete any that 1/ do not have a metadata key of "next-build-id"
  * and value of `currentBuildId` and 2/ were created more than `msTtl` ago
  */
 export async function pruneS3(props: PruneS3Props) {
-  const { bucketName, currentBuildId, msTtl } = props;
+  const { bucketName, currentBuildId, msTtl, keyPrefix } = props;
+  // Trailing slash so a prefix of "app" doesn't also match "app-staging/...".
+  const prefix = keyPrefix ? `${keyPrefix}/` : undefined;
 
   const cutoffDate = new Date(Date.now() - msTtl);
   const objectsToDelete: { Key: string }[] = [];
@@ -43,6 +52,7 @@ export async function pruneS3(props: PruneS3Props) {
     const listObjectsV2Input: ListObjectsV2CommandInput = {
       Bucket: bucketName,
       ContinuationToken: continuationToken,
+      Prefix: prefix,
     };
     const listResponse = await s3Client.send(
       new ListObjectsV2Command(listObjectsV2Input),
