@@ -2,11 +2,7 @@ import { NextConfig } from 'next';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The repo root, not examples/: the adapter points `cacheHandler` at an
-// absolute path inside cdk-nextjs's own lib/ (node_modules/cdk-nextjs is
-// symlinked to the repo root here), and Turbopack refuses any module that
-// resolves outside its root.
-const rootWorkspace = path.join(fileURLToPath(import.meta.url), '..', '..', '..');
+const rootWorkspace = path.join(fileURLToPath(import.meta.url), '..', '..');
 
 const nextConfig: NextConfig = {
   experimental: {
