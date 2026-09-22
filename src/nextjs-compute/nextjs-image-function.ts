@@ -35,6 +35,16 @@ export interface NextjsImageFunctionProps {
    * non-absolute image URLs.
    */
   readonly staticAssetsBucket: IBucket;
+  /**
+   * S3 key prefix the static assets were uploaded under, i.e.
+   * `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
+   *
+   * Threaded through explicitly rather than read from the app's bundled config,
+   * because it's distinct from the app's own `basePath` (which next-image-loader
+   * bakes into hrefs) — the two diverge when the app's `basePath` comes from
+   * elsewhere, e.g. an API Gateway stage under `NextjsRegionalFunctions`.
+   */
+  readonly staticAssetsKeyPrefix?: string;
   readonly vpc?: IVpc;
   /**
    * Override props of any construct.
@@ -87,6 +97,8 @@ export class NextjsImageFunction extends Construct {
       environment: {
         CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
           this.props.staticAssetsBucket.bucketName,
+        CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX:
+          this.props.staticAssetsKeyPrefix ?? "",
         ...this.props.overrides?.functionProps?.environment,
       },
     });

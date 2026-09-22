@@ -2,28 +2,38 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ImageError } from "next/dist/server/image-optimizer.js";
 import { getExtension } from "next/dist/server/serve-static.js";
+import { joinPath } from "../utils/base-path";
 
 /**
  * Fetches a non-absolute (local) image referenced by an `<Image>` from S3.
  *
- * `NextjsStaticAssets` uploads under `basePath` as a key prefix, so every key
- * includes it. `url` is inconsistent: next-image-loader bakes `basePath` into
+ * `url` is inconsistent: next-image-loader bakes the app's own `basePath` into
  * the href for statically imported images, while plain string paths are passed
- * through as literally written by the app. So the prefix is normalized to
- * exactly one occurrence rather than simply added or removed.
+ * through as literally written. So `nextBasePath` (the app's config) is stripped
+ * off, then `staticAssetsKeyPrefix` (`NextjsStaticAssets.keyPrefix`) applied.
+ * The two are separate arguments because nothing requires them to be the same
+ * value — e.g. an app whose `basePath` is an API Gateway stage, deployed without
+ * the CDK `basePath` prop.
  */
 export async function fetchFromS3(
   s3: S3Client,
   bucket: string,
   url: string,
-  basePath: string,
+  nextBasePath: string,
+  staticAssetsKeyPrefix: string = "",
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
-  // Matching on a path boundary keeps a sibling like "/basement/logo.png"
-  // from being treated as basePath "/base" plus "ment/logo.png".
-  const hasBasePath =
-    !!basePath && (url === basePath || url.startsWith(`${basePath}/`));
-  const withoutBasePath = hasBasePath ? url.slice(basePath.length) : url;
-  const key = `${basePath}${withoutBasePath}`.replace(/^\//, "");
+  // Matching on a path boundary keeps a sibling like "/basement/logo.png" from
+  // being treated as nextBasePath "/base" plus "ment/logo.png". It's still
+  // indistinguishable from a real `public/base/` directory, which loses; that's
+  // the right trade, since every statically imported image carries the prefix
+  // and the alternative costs an S3 round trip per request to detect it.
+  const hasNextBasePath =
+    !!nextBasePath &&
+    (url === nextBasePath || url.startsWith(`${nextBasePath}/`));
+  const key = joinPath(
+    staticAssetsKeyPrefix,
+    hasNextBasePath ? url.slice(nextBasePath.length) : url,
+  );
 
   const response = await s3.send(
     new GetObjectCommand({

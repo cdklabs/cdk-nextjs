@@ -6,6 +6,12 @@ import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
+import {
+  NextjsBaseConstructOverrides,
+  NextjsBaseOverrides,
+  NextjsBaseConstruct,
+  NextjsBaseProps,
+} from "./nextjs-base-construct";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
@@ -21,12 +27,7 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
-import {
-  NextjsBaseConstructOverrides,
-  NextjsBaseOverrides,
-  NextjsBaseConstruct,
-  NextjsBaseProps,
-} from "./nextjs-base-construct";
+import { joinPath } from "../utils/base-path";
 
 export interface NextjsGlobalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainersProps?: OptionalNextjsContainersProps;
@@ -80,8 +81,16 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   nextjsContainers: NextjsContainers;
   nextjsDistribution: NextjsDistribution;
   nextjsPostDeploy: NextjsPostDeploy;
+  /**
+   * Public URL of the app, including `basePath` — the app only answers under
+   * that prefix, and it's derived from the app's own `basePath` when the prop is
+   * left unset, so it's there whether or not you asked for it.
+   */
   get url(): string {
-    return `https://${this.nextjsDistribution.distribution.domainName}`;
+    return joinPath(
+      `https://${this.nextjsDistribution.distribution.domainName}`,
+      this.resolvedBasePath,
+    );
   }
 
   private props: NextjsGlobalContainersProps;
@@ -182,7 +191,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
-      basePath: this.props.basePath,
+      basePath: this.resolvedBasePath,
       certificate: this.nextjsContainers.albFargateService.certificate,
       distribution: this.props.distribution,
       loadBalancer: this.nextjsContainers.albFargateService.loadBalancer,
