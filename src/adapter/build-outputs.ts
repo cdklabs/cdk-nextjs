@@ -259,7 +259,7 @@ export function buildAdapterManifest(
     ...(outputs.middleware ? [outputs.middleware] : []),
   ];
 
-  assertNodeRuntimes(invocable);
+  assertNodeRuntimes(invocable, outputs.middleware);
   warnOnDroppedRouteConfig(invocable);
 
   const staging = collectStagingPlan(ctx, invocable);
@@ -390,21 +390,47 @@ function collectGroupStagingPlan(
  * for edge pages: an entrypoint we can't invoke and no assets to invoke it
  * with.
  */
-function assertNodeRuntimes(invocable: InvocableOutput[]): void {
-  // `.rsc` variants share a `sourcePage` with their HTML sibling, so dedupe.
-  const offenders = sortedUnique(
-    invocable
-      .filter((output) => output.runtime !== "nodejs")
-      .map((output) => `${output.sourcePage} (runtime: "${output.runtime}")`),
-  );
-  if (offenders.length === 0) {
+function assertNodeRuntimes(
+  invocable: InvocableOutput[],
+  middleware: AdapterOutputs["middleware"],
+): void {
+  const offending = invocable.filter((output) => output.runtime !== "nodejs");
+  if (offending.length === 0) {
     return;
   }
+
+  // Middleware is reported separately from routes. Its `sourcePage` is `/`, so
+  // folding it in with the routes produces the actively misleading advice to
+  // remove `export const runtime = "edge"` from the home page - which is where
+  // the edge runtime is not, and may not even exist.
+  const offendingMiddleware = middleware && offending.includes(middleware);
+  // `.rsc` variants share a `sourcePage` with their HTML sibling, so dedupe.
+  const routes = sortedUnique(
+    offending
+      .filter((output) => output !== middleware)
+      .map((output) => `${output.sourcePage} (runtime: "${output.runtime}")`),
+  );
+
+  const reasons: string[] = [];
+  if (routes.length > 0) {
+    reasons.push(
+      `cdk-nextjs cannot deploy routes built for the edge runtime. ` +
+        `Remove \`export const runtime = "edge"\` from:\n` +
+        routes.map((route) => `  - ${route}`).join("\n"),
+    );
+  }
+  if (offendingMiddleware) {
+    reasons.push(
+      `cdk-nextjs cannot deploy middleware built for the edge runtime ` +
+        `(${middleware.filePath}, runtime: "${middleware.runtime}"). ` +
+        `Next.js 16 runs \`proxy.ts\` on the Node runtime; the legacy ` +
+        `\`middleware.ts\` entrypoint is edge-only.`,
+    );
+  }
+
   throw new Error(
-    `${LOG_PREFIX} cdk-nextjs cannot deploy routes built for the edge runtime. ` +
-      `Remove \`export const runtime = "edge"\` from:\n` +
-      offenders.map((o) => `  - ${o}`).join("\n") +
-      `\nThe edge runtime is deprecated in Next.js: ` +
+    `${LOG_PREFIX} ${reasons.join("\n")}\n` +
+      `The edge runtime is deprecated in Next.js: ` +
       `https://nextjs.org/docs/messages/edge-runtime-deprecated`,
   );
 }

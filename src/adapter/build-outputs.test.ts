@@ -291,6 +291,26 @@ describe("buildAdapterManifest edge cases", () => {
     expect(() => build(ctx)).toThrow(ctx.outputs.appRoutes[0].sourcePage);
   });
 
+  it("blames middleware, not `/`, for edge-runtime middleware", () => {
+    const ctx = asContext(appPlayground);
+    const middleware = ctx.outputs.middleware;
+    if (!middleware) {
+      throw new Error("fixture has no middleware output");
+    }
+    // What a legacy `middleware.ts` builds to. Its `sourcePage` is `/`, so the
+    // regression guarded here is the message telling an author to edit the home
+    // page.
+    middleware.runtime = "edge";
+
+    expect(() => build(ctx)).toThrow(
+      /cannot deploy middleware built for the edge runtime/,
+    );
+    expect(() => build(ctx)).toThrow(middleware.filePath);
+    expect(() => build(ctx)).not.toThrow(
+      /cannot deploy routes built for the edge runtime/,
+    );
+  });
+
   it("throws when two outputs map one key to different content", () => {
     const ctx = asContext(appPlayground);
     const [first, second] = ctx.outputs.appPages;
