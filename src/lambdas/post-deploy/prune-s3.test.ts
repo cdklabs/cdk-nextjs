@@ -40,6 +40,34 @@ function stubBucketContents(keys: string[], buildId = "build-1"): void {
   });
 }
 
+/**
+ * Several pages of listed objects, keyed by the continuation token that asks for
+ * each one, so the suite can assert how `pruneS3` walks a paginated listing. The
+ * last page deliberately carries no NextContinuationToken, as S3 returns it.
+ */
+function stubPagedBucketContents(pages: string[][]): void {
+  const longAgo = new Date(Date.now() - MS_TTL * 2);
+  holder.send.mockImplementation((command: unknown) => {
+    if (command instanceof ListObjectsV2Command) {
+      const token = command.input.ContinuationToken;
+      const index = token ? Number(token.replace("page-", "")) : 0;
+      return Promise.resolve({
+        Contents: (pages[index] ?? []).map((Key) => ({
+          Key,
+          LastModified: longAgo,
+        })),
+        NextContinuationToken:
+          index + 1 < pages.length ? `page-${index + 1}` : undefined,
+      });
+    }
+    if (command instanceof DeleteObjectsCommand) {
+      return Promise.resolve({});
+    }
+    // HeadObject
+    return Promise.resolve({ Metadata: { "next-build-id": "build-1" } });
+  });
+}
+
 function sentCommands<T>(type: new (...args: any[]) => T): T[] {
   return holder.send.mock.calls
     .map(([command]) => command)
@@ -153,5 +181,39 @@ describe("pruneS3", () => {
     await prune(prefix);
 
     expect(listPrefixes()).toEqual(["branch-a/"]);
+  });
+
+  describe("pagination", () => {
+    it("follows the continuation token across pages", async () => {
+      stubPagedBucketContents([["a/one.js"], ["a/two.js"], ["a/three.js"]]);
+
+      await prune("a");
+
+      expect(
+        sentCommands(ListObjectsV2Command).map(
+          (command) => command.input.ContinuationToken,
+        ),
+      ).toEqual([undefined, "page-1", "page-2"]);
+      expect(deletedKeys().sort()).toEqual([
+        "a/one.js",
+        "a/three.js",
+        "a/two.js",
+      ]);
+    });
+
+    // The last page carries no NextContinuationToken. Holding on to the previous
+    // page's token re-lists that page until the 100-iteration guard trips,
+    // re-HEADing every object on it 100 times over (~100k requests for a full
+    // 1000-key page) and pushing duplicate keys into the delete batches — enough
+    // to blow the post-deploy Lambda's timeout, which leaves the custom resource
+    // waiting on a response that never comes.
+    it("stops listing once a page returns no continuation token", async () => {
+      stubPagedBucketContents([["a/one.js"], ["a/two.js"]]);
+
+      await prune("a");
+
+      expect(sentCommands(ListObjectsV2Command)).toHaveLength(2);
+      expect(deletedKeys()).toEqual(["a/one.js", "a/two.js"]);
+    });
   });
 });

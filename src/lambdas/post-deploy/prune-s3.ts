@@ -111,9 +111,10 @@ export async function pruneS3(props: PruneS3Props) {
       ...(checkResults.filter(Boolean) as { Key: string }[]),
     );
 
-    if (listResponse.NextContinuationToken) {
-      continuationToken = listResponse.NextContinuationToken;
-    }
+    // Assigned unconditionally: the last page carries no NextContinuationToken,
+    // and keeping the previous page's token would re-list that same page until
+    // the guard below trips, re-checking every object on it 100 times over.
+    continuationToken = listResponse.NextContinuationToken;
     listObjectsCount++;
     // assume less than 100K objects (100 * 1K objects per ListObjectsV2Command = 100K)
   } while (continuationToken && listObjectsCount <= 100);
