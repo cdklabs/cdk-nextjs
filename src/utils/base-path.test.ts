@@ -91,9 +91,34 @@ describe("prefixWithBasePath", () => {
 
   it("always returns a leading slash, whatever the path came with", () => {
     // The ALB health check and the readiness check URL both need an absolute
-    // path, so the result can't come back bare.
+    // path, so the result can't come back bare. Without a basePath a bare path
+    // used to pass straight through, which concatenated into
+    // "http://127.0.0.1:3000api/health" as the readiness check URL.
     expect(prefixWithBasePath("base", "api/health")).toBe("/base/api/health");
-    expect(prefixWithBasePath(undefined, "/api/health")).toMatch(/^\//);
+    expect(prefixWithBasePath(undefined, "api/health")).toBe("/api/health");
+    expect(prefixWithBasePath("", "api/health")).toBe("/api/health");
+  });
+
+  // The path is what the app routes, without basePath, and it is prefixed
+  // whether or not it already looks prefixed: an app can route "/base/base/..."
+  // legitimately, so treating a leading "/base" as already-prefixed would make
+  // that path unreachable and give the prop two meanings. Users who prefixed
+  // `healthCheckPath` by hand to work around the missing prefix drop it on
+  // upgrade — documented in docs/breaking-changes.md under 0.6.0.
+  it("prefixes a path that already looks prefixed", () => {
+    expect(prefixWithBasePath("base", "/base/api/health")).toBe(
+      "/base/base/api/health",
+    );
+  });
+
+  // A `trailingSlash: true` app redirects "/api/health" to "/api/health/" with a
+  // 308, which an ALB health check doesn't count as healthy, so the slash the
+  // user wrote has to survive.
+  it("preserves a trailing slash", () => {
+    expect(prefixWithBasePath("base", "/api/health/")).toBe(
+      "/base/api/health/",
+    );
+    expect(prefixWithBasePath(undefined, "/api/health/")).toBe("/api/health/");
   });
 
   it("handles a nested basePath, as REGIONAL_FUNCTIONS can produce", () => {
