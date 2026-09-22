@@ -4,9 +4,15 @@
 # Runs with `cwd` set to the harness's temporary app after the test finishes,
 # pass or fail.
 #
-# Not optional for this adapter: the harness creates one app - and therefore one
-# stack - per test file, so a cleanup that silently does nothing leaks dozens of
-# stacks per run. `scripts/e2e-sweep.sh` is the backstop for the cases this
+# Deliberately does nothing in the default, shared-stack mode: every test file
+# deploys into the same stack, so deleting it here would throw away the
+# CloudFront distribution the *next* file is about to hotswap into and turn a
+# 30-second deploy back into a 12-minute one. `scripts/e2e-sweep.sh` deletes it
+# once, after the run.
+#
+# Under HARNESS_ISOLATED_STACK=1 there is a stack per test file, and then this is
+# not optional: a cleanup that silently did nothing would leak dozens of stacks
+# per run. `scripts/e2e-sweep.sh` is the backstop either way, for the cases this
 # cannot cover (a killed shard, a timed-out job).
 #
 # @see https://nextjs.org/docs/app/api-reference/adapters/testing-adapters
@@ -21,6 +27,12 @@ if [ -f "$HARNESS_STACK_FILE" ]; then
   STACK_NAME="$(cat "$HARNESS_STACK_FILE")"
 else
   STACK_NAME="$(harness_stack_name "$PWD")"
+fi
+
+if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ]; then
+  echo "cleanup: keeping shared stack $STACK_NAME for the next test file"
+  echo "cleanup: delete it after the run with \`scripts/e2e-sweep.sh --apply\` (HARNESS_SWEEP_MAX_AGE_HOURS=0)"
+  exit 0
 fi
 
 # `delete-stack` on a stack that is already gone succeeds, so the idempotency

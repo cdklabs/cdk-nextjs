@@ -5,63 +5,116 @@ deployment. It is a better correctness signal than any fixture app we would
 write, because the tests were written by the people who define the behavior.
 
 `examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
-is the nightly one, on `NextjsRegionalFunctions` only.
+is the nightly one, on `NextjsGlobalFunctions` only.
 
 ## Pieces
 
-| Path                            | Role                                                                                |
-| ------------------------------- | ----------------------------------------------------------------------------------- |
-| `scripts/e2e-deploy.sh`         | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys a stack, prints the URL. |
-| `scripts/e2e-logs.sh`           | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail. |
-| `scripts/e2e-cleanup.sh`        | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. Deletes that stack.                                |
-| `scripts/e2e-sweep.sh`          | Deletes orphaned harness stacks. Dry run unless `--apply`.                           |
-| `scripts/e2e-harness/app.js`    | The CDK app the deploy script deploys.                                              |
-| `scripts/e2e-harness/common.sh` | Shared file names, stack naming, and the tag check that gates every delete.          |
-| `scripts/e2e-harness/stage-static.js` | Copies `_next/static` and `public/` into the deployment package, which a Function URL front door needs. |
-| `test/deploy-tests-manifest.json` | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                      |
-| `.github/workflows/e2e-harness.yml` | Nightly + `workflow_dispatch`.                                                  |
+| Path                                | Role                                                                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
+| `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.        |
+| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`. |
+| `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and the shared one after a run. Dry run unless `--apply`.                         |
+| `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
+| `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
+| `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
+| `.github/workflows/e2e-harness.yml` | Nightly + `workflow_dispatch`.                                                                                     |
 
-## Why one stack per test file
+## One shared stack for the whole run
 
 The harness creates an isolated app per test file and runs the deploy script with
-`cwd` set to it. There is no way to deploy once and point the suite at it, so a
-run costs **one CDK deploy per test file** — which is why:
+`cwd` set to it, so there is no way to deploy once and point the whole suite at
+one deployment — every file genuinely has different code to ship. What there is a
+way to do is ship it into infrastructure that already exists.
 
-- It runs against `NextjsRegionalFunctions` (zip Lambda, ~3–4 minutes a deploy)
-  and not the Global types, where a CloudFront distribution adds 5–15 minutes to
-  create and again to delete, and hundreds of distributions would hit account
-  quotas.
-- `test/deploy-tests-manifest.json` lists files explicitly instead of taking
-  next.js's `test/e2e/**` include rule. Widen it deliberately.
-- It is nightly and `workflow_dispatch`, not per-commit.
+Every test file deploys into the same stack (`hrns-shared`) with
+`cdk deploy --hotswap-fallback`. The first file of a run pays ~12 minutes to
+create and propagate a CloudFront distribution; every file after it reuses it.
+That is the whole saving, and it is most of the cost of a run.
 
-## Why the deployment URL is a Function URL
+Measured against two different built apps (`cdk synth` twice into the same stack
+name, then diffing the templates), exactly five resources differ between two
+fixtures:
+
+| Resource                        | Changed properties                  | Hotswappable |
+| ------------------------------- | ----------------------------------- | ------------ |
+| `AWS::Lambda::Function`         | `Code`, `Environment`               | yes          |
+| `Custom::CDKBucketDeployment`   | `SourceObjectKeys`, key prefix      | yes          |
+| `Custom::CDKBucketDeployment`   | `SourceObjectKeys`, `UserMetadata`  | yes          |
+| `AWS::S3::Bucket`               | `Tags`                              | **no**       |
+| `AWS::CloudFront::Distribution` | `DistributionConfig.CacheBehaviors` | **no**       |
+
+So the honest expectation is that most test files take the CloudFormation
+fallback, not the hotswap path:
+
+- The cache bucket's `Tags` change because CDK stamps an
+  `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>` tag on a `BucketDeployment`'s
+  destination bucket, unconditionally, and `src/nextjs-cache.ts` uses the build ID
+  as that prefix. Any fixture with prerendered content therefore has a
+  non-hotswappable diff. (A fixture with no `.next/cdk-nextjs-init-cache` has no
+  init-cache deployment at all, and does hotswap.)
+- The distribution's cache behaviors change when a fixture's `public/` directory
+  differs from the previous one's, since `public/` entries become behaviors
+  (`src/nextjs-distribution.ts`). That is the expensive one — CloudFront has to
+  propagate.
+
+A CloudFormation update that leaves the distribution alone still costs only a
+couple of minutes, against ~12 for a stack of its own plus a slow delete, so the
+shared stack is worth it either way. `--hotswap-fallback` is kept because it is
+free and takes the fast path when it can.
+
+What the shared stack is paid for in:
+
+- **Test files must be serialized** (`run-tests.js -c 1`). Two concurrent deploys
+  into one stack would race.
+- **`e2e-cleanup.sh` must not delete the stack**, or the next file pays the
+  ~12 minutes again. It doesn't; `e2e-sweep.sh --apply` with
+  `HARNESS_SWEEP_MAX_AGE_HOURS=0` deletes it once, after the run. The workflow
+  does this in an `always()` step; a local run has to do it by hand.
+- **Nothing may leak between files.** Server cache entries are keyed by
+  `CDK_NEXTJS_BUILD_ID` (`src/adapter/s3-cache-handler.ts`), which differs per
+  file and hotswaps with the function. The edge cache is invalidated by
+  `e2e-deploy.sh` before it reports the URL — which it has to do itself, since a
+  hotswap never runs CloudFormation and therefore never runs the post-deploy
+  custom resource that normally invalidates. `app.js` pins that resource's
+  properties for the same reason: its default `buildId` and invalidation caller
+  reference change on every synth, and a changed custom-resource property is not
+  hotswappable, so either one alone would drag the deploy back through
+  CloudFormation.
+
+`test/deploy-tests-manifest.json` still lists test files explicitly rather than
+taking next.js's `test/e2e/**` include rule, and this still runs nightly rather
+than per-commit. Widen either deliberately.
+
+`HARNESS_ISOLATED_STACK=1` gives a stack per app directory instead — worth it to
+debug a single file, or to run two things at once, at the cost of a distribution
+create and delete per file.
+
+## Why `NextjsGlobalFunctions`
 
 The harness builds every request URL as `new URL(path, deploymentUrl)` —
-`getFullUrl` in `test/lib/next-test-utils.ts` assigns `pathname` outright. Any
-prefix in the deployment URL is therefore dropped, and an API Gateway REST API
-URL is always `https://<id>.execute-api.<region>.amazonaws.com/<stage>`. So the
-stage-prefixed URL that `examples/regional-functions` uses (with a matching
-`basePath`) cannot be handed to this harness: every absolute path would miss the
-stage and 404.
+`getFullUrl` in `test/lib/next-test-utils.ts` assigns `pathname` outright — so any
+prefix in the deployment URL is dropped. That rules out both Regional types:
+their API Gateway REST URL is always
+`https://<id>.execute-api.<region>.amazonaws.com/<stage>`, and every absolute
+path the suite requests would miss the stage and 404. A CloudFront distribution
+is served at the origin root.
 
-`app.js` adds a Function URL to the same server Lambda and reports that instead.
-Same function, same adapter output, same `src/runtime` entrypoint; only the front
-door differs. The stack still contains the API Gateway, and its URL is reported
-as the `ApiUrl` output for debugging by hand.
+It is also the front door the suite was written for. `NEXT_TEST_MODE=deploy` is
+the mode Vercel validates edge-fronted deployments with, so its tests tolerate a
+CDN in front of them, and the ones that cannot are already gated out of deploy
+mode upstream. Serving through CloudFront means `_next/static` and `public/` are
+answered by the `NextjsStaticAssets` bucket exactly as in production, rather than
+by some harness-only arrangement.
 
-That costs one thing. `_next/static` and `public/` are the two prefixes the
-product routes to the `NextjsStaticAssets` bucket instead of to the compute, and
-so the adapter deliberately leaves them out of the deployment package
-(`src/runtime/static-files.ts`). A bare Function URL has no S3 integration in
-front of it, so those requests arrive at the function with nothing on disk to
-answer them — every page would load without its client chunks.
+Two caveats worth knowing before reading a failure as a regression:
 
-`scripts/e2e-harness/stage-static.js` copies both directories into the staged
-tree after the build, at the layout `manifest.staticFiles` already claims, so the
-function can serve them. **What the harness therefore does not cover:** the S3
-routing itself. `examples/e2e-tests` exercises that on every commit, on all four
-types.
+- The dynamic cache policy allowlists ~10 request headers, a CloudFront quota
+  limitation documented at `src/nextjs-distribution.ts`. A test that varies on a
+  header outside that list can be served a wrong cached response. That is a real
+  product limitation, not a harness artifact — and not a regression either.
+- `NextjsGlobalContainers` and both Regional types are not covered here at all.
+  `examples/e2e-tests` is the gate on those.
 
 ## Running it locally
 
@@ -84,8 +137,9 @@ export NEXT_TEST_CLEANUP_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-cleanup.sh"
 export IS_TURBOPACK_TEST=1 NEXT_TELEMETRY_DISABLED=1
 node run-tests.js --timings -c 1 --type e2e
 
-# back in cdk-nextjs, confirm nothing leaked
-./scripts/e2e-sweep.sh
+# back in cdk-nextjs: the shared stack is still up by design. Look, then delete.
+./scripts/e2e-sweep.sh --dry-run
+HARNESS_SWEEP_MAX_AGE_HOURS=0 ./scripts/e2e-sweep.sh --apply
 ```
 
 To exercise just the deploy/logs/cleanup contract without the next.js suite,
@@ -100,13 +154,14 @@ ADAPTER_DIR=/path/to/cdk-nextjs /path/to/cdk-nextjs/scripts/e2e-cleanup.sh
 
 ## Cleanup and safety
 
-One stack per test file means a cleanup that quietly does nothing leaks dozens of
-stacks per run, so there are two layers:
+A CloudFront distribution that outlives its run is the thing to avoid, so there
+are two layers:
 
-1. `e2e-cleanup.sh` runs after every test file, pass or fail, and calls
-   `delete-stack` without waiting.
-2. `e2e-sweep.sh` deletes leftovers — the cases a cancelled or timed-out shard
-   leaves behind.
+1. `e2e-cleanup.sh` runs after every test file, pass or fail. In shared-stack
+   mode it deliberately keeps the stack; under `HARNESS_ISOLATED_STACK=1` it
+   calls `delete-stack` without waiting.
+2. `e2e-sweep.sh` deletes the shared stack after a run, and any leftovers a
+   cancelled or timed-out shard left behind.
 
 Both refuse to delete a stack unless it is named `hrns-*` **and** tagged
 `cdk-nextjs:harness=1`, re-checked immediately before the delete. The sweeper is
@@ -116,15 +171,17 @@ under a run in progress.
 
 ## Environment knobs
 
-| Variable                          | Default              | Effect                                                    |
-| --------------------------------- | -------------------- | --------------------------------------------------------- |
-| `ADAPTER_DIR`                     | _required_           | This checkout. All three scripts resolve everything from it. |
-| `CDK_BIN`                         | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                   |
-| `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` with `docs/plans/immutable-static-assets.md`. |
-| `HARNESS_CLEANUP_WAIT`            | `0`                  | Block until the stack delete completes.                   |
-| `HARNESS_LOG_LINES`               | `400`                | Tail length per log section.                              |
-| `HARNESS_LOG_SINCE`               | `30m`                | CloudWatch window for the runtime log tail.               |
-| `HARNESS_SWEEP_MAX_AGE_HOURS`     | `6`                  | Age floor for the sweeper.                                |
-| `HARNESS_SWEEP_APPLY`             | `0`                  | Same as passing `--apply`.                                |
+| Variable                            | Default                              | Effect                                                                                                 |
+| ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `ADAPTER_DIR`                       | _required_                           | This checkout. All three scripts resolve everything from it.                                           |
+| `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
+| `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` with `docs/plans/immutable-static-assets.md`. |
+| `HARNESS_ISOLATED_STACK`            | `0`                                  | One stack per test file instead of one shared one. Re-enables `e2e-cleanup.sh`.                        |
+| `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. Change it to run two suites at once.                      |
+| `HARNESS_CLEANUP_WAIT`              | `0`                                  | Block until the stack delete completes. Isolated mode only.                                            |
+| `HARNESS_LOG_LINES`                 | `400`                                | Tail length per log section.                                                                           |
+| `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
+| `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper.                                                                             |
+| `HARNESS_SWEEP_APPLY`               | `0`                                  | Same as passing `--apply`.                                                                             |
 
 [harness]: https://nextjs.org/docs/app/api-reference/adapters/testing-adapters

@@ -1,6 +1,6 @@
 /**
- * The CDK app `scripts/e2e-deploy.sh` deploys: one stack per Next.js
- * compatibility-harness test file, wrapping the temporary app the harness built.
+ * The CDK app `scripts/e2e-deploy.sh` deploys: one long-lived stack wrapping
+ * whichever temporary app the Next.js compatibility harness most recently built.
  *
  * Plain CommonJS on purpose. It runs straight from `lib/` after `pnpm compile`,
  * with no tsx, no tsconfig and no place in the jsii assembly - it is test
@@ -9,11 +9,7 @@
  * @see scripts/e2e-harness/README.md
  */
 const { App, CfnOutput, Stack } = require("aws-cdk-lib");
-const {
-  FunctionUrlAuthType,
-  InvokeMode,
-} = require("aws-cdk-lib/aws-lambda");
-const { NextjsRegionalFunctions } = require("../../lib");
+const { NextjsGlobalFunctions } = require("../../lib");
 
 const appDir = required("HARNESS_APP_DIR");
 const stackName = required("HARNESS_STACK_NAME");
@@ -33,55 +29,73 @@ class HarnessStack extends Stack {
   constructor(scope, id, props) {
     super(scope, id, props);
 
-    const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
+    // `NextjsGlobalFunctions` and not one of the Regional types, for one
+    // reason: its front door is a CloudFront distribution served at the origin
+    // root. The harness builds every request URL as `new URL(path, deployUrl)`
+    // (`getFullUrl` in `test/lib/next-test-utils.ts` assigns `pathname`), so any
+    // prefix in the deployment URL is discarded - and a Regional API Gateway
+    // REST URL is always `https://<id>.execute-api.<region>.amazonaws.com/
+    // <stage>`, whose stage every absolute path would then miss.
+    //
+    // It is also the front door the suite expects. `NEXT_TEST_MODE=deploy` is
+    // the mode Vercel validates edge-fronted deployments with, so its tests are
+    // written to tolerate a CDN, and the ones that cannot are already gated out
+    // of deploy mode upstream. Serving from CloudFront means `_next/static` and
+    // `public/` are answered by the `NextjsStaticAssets` bucket exactly as in
+    // production, rather than by some harness-only arrangement.
+    const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       buildDirectory: appDir,
       // `scripts/e2e-deploy.sh` already ran `next build`: the harness's own
       // `build` script chains a `post-build` that prints the BUILD_ID /
       // DEPLOYMENT_ID / NEXT_SUPPORTS_IMMUTABLE_ASSETS markers the harness
       // parses, so the build has to happen there rather than in this synth.
       skipBuild: true,
-      // Unused by this type (only the Containers types wire a health check),
-      // and the harness's fixtures have no health route of their own.
+      // Required by `NextjsBaseProps` even though only the Containers types wire
+      // a health check, and the harness's fixtures have no health route anyway.
       healthCheckPath: "/",
-    });
-
-    // The harness builds every request URL as `new URL(path, deploymentUrl)`
-    // (`test/lib/next-test-utils.ts`'s `getFullUrl` assigns `pathname`), which
-    // discards any prefix the deployment URL carries. An API Gateway REST API
-    // URL is always `https://<id>.execute-api.<region>.amazonaws.com/<stage>`,
-    // so every absolute path the harness requests would miss the stage and 404.
-    // A Function URL is served at the origin root, so it is the only front door
-    // for this type the harness can address - and it reaches the same Lambda,
-    // running the same adapter output and the same `src/runtime` entrypoint,
-    // that API Gateway would have.
-    //
-    // What this does not cover: API Gateway's own S3 integrations for
-    // `_next/static` and `public/`. Nothing routes those to the bucket here, and
-    // the adapter does not stage either directory into the deployment package
-    // (`src/runtime/static-files.ts`), so `scripts/e2e-harness/stage-static.js`
-    // copies them in and the function serves them off disk.
-    // `examples/e2e-tests` stays the gate on the API Gateway path.
-    const functionUrl = nextjs.nextjsFunctions.function.addFunctionUrl({
-      // A public endpoint, like the CloudFront distributions the examples
-      // deploy. It lives for the length of one test file and is torn down by
-      // `scripts/e2e-cleanup.sh`.
-      authType: FunctionUrlAuthType.NONE,
-      invokeMode: InvokeMode.RESPONSE_STREAM,
+      overrides: {
+        nextjsPostDeploy: {
+          // Pinned so that this custom resource is never what stops a deploy
+          // from hotswapping. Both defaults change on every synth - `buildId` is
+          // the real build ID, and `createInvalidationCommandInput` carries a
+          // `new Date().toISOString()` caller reference - and a changed
+          // custom-resource property is not hotswappable, so either one alone
+          // would guarantee a CloudFormation deployment for every test file.
+          //
+          // What that gives up is the post-deploy pass itself: no cache-bucket
+          // pruning of superseded build IDs, and no invalidation between test
+          // files. Neither is missed. Cache isolation between files comes from
+          // `CDK_NEXTJS_BUILD_ID` (src/adapter/s3-cache-handler.ts), which *is*
+          // hotswappable, and `scripts/e2e-deploy.sh` invalidates the
+          // distribution itself - it has to, since a hotswap never runs
+          // CloudFormation and so never runs a custom resource at all.
+          customResourceProperties: {
+            buildId: "harness",
+            // Dropped, not pinned to a fixed caller reference: CDK strips
+            // undefined properties, and `post-deploy.lambda.ts` guards on this
+            // being absent (it already is for the Regional types, which have no
+            // distribution).
+            createInvalidationCommandInput: undefined,
+          },
+        },
+      },
     });
 
     new CfnOutput(this, "HarnessUrl", {
       key: "HarnessUrl",
-      value: functionUrl.url,
+      // Trailing slash: the harness treats this as a base for `new URL()`.
+      value: nextjs.url + "/",
     });
-    // Read by `scripts/e2e-logs.sh` to tail the function's CloudWatch logs when
-    // a test fails.
+    // Read by `scripts/e2e-deploy.sh` to invalidate between test files, and by
+    // `scripts/e2e-logs.sh`.
+    new CfnOutput(this, "DistributionId", {
+      key: "DistributionId",
+      value: nextjs.nextjsDistribution.distribution.distributionId,
+    });
     new CfnOutput(this, "ServerFunctionName", {
       key: "ServerFunctionName",
       value: nextjs.nextjsFunctions.function.functionName,
     });
-    // Not used by the harness; printed so a failing run can be inspected by
-    // hand against the front door the examples use.
-    new CfnOutput(this, "ApiUrl", { key: "ApiUrl", value: nextjs.url + "/" });
   }
 }
 
@@ -92,11 +106,12 @@ new HarnessStack(app, stackName, {
     account: process.env["CDK_DEFAULT_ACCOUNT"],
     region: process.env["CDK_DEFAULT_REGION"],
   },
-  // Stack tags, so an orphaned stack is identifiable from CloudFormation alone
+  // A stack tag, so an orphaned stack is identifiable from CloudFormation alone
   // long after the temporary app directory is gone. `e2e-cleanup.sh` and
-  // `e2e-sweep.sh` both refuse to delete a stack without them.
-  tags: {
-    "cdk-nextjs:harness": "1",
-    "cdk-nextjs:harness-created": new Date().toISOString(),
-  },
+  // `e2e-sweep.sh` both refuse to delete a stack without it. Deliberately a
+  // constant: a tag whose value changed per deploy (a timestamp, say) would be
+  // a stack-level diff on every run and so a CloudFormation update, which is
+  // the one thing the hotswap path is trying to avoid. The sweeper ages stacks
+  // off CloudFormation's own `CreationTime` instead.
+  tags: { "cdk-nextjs:harness": "1" },
 });

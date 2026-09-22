@@ -4,7 +4,7 @@ Running log for the branch implementing `docs/plans/adapter-runtime-release.md`.
 
 **Purpose.** The plan says what to build; this file says what actually happened.
 It exists so a session with zero prior context — or one resuming after a
-compaction — can pick up the *facts* without reading a transcript. Write for that
+compaction — can pick up the _facts_ without reading a transcript. Write for that
 reader.
 
 **How to maintain it.** Append a section at every commit boundary in the plan's
@@ -47,18 +47,18 @@ up for the duration of this work — do not delete or modify them.
 
 ## Status
 
-| Plan step | State |
-| --- | --- |
-| 1 — build outputs (`onBuildComplete`) | done |
-| 2 — dispatch via `@next/routing` | done |
-| 3 — middleware runner | done |
-| 4 — runtime core + two shells | done |
-| 5 — wire constructs, Functions to zip, Containers Dockerfiles | done |
-| 6 — delete `output: "standalone"` + dedicated image function | done |
-| 7 — splitting (`functionGroups`) | done |
-| 8 — tests, docs, breaking-changes | done, with three exit criteria unmet (see step 8 entry) |
-| 9 — PPR: `cacheComponents` migration of `app-playground` + PPR e2e | done (clears exit criterion 1 of step 8's three) |
-| 10 — official Next.js test harness (plumbing + small slice) | plumbing done and proven end to end on AWS; step 8's exit criterion 2 **not** met — the official test files were never run (see step 10) |
+| Plan step                                                          | State                                                                                                                                                                                     |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — build outputs (`onBuildComplete`)                              | done                                                                                                                                                                                      |
+| 2 — dispatch via `@next/routing`                                   | done                                                                                                                                                                                      |
+| 3 — middleware runner                                              | done                                                                                                                                                                                      |
+| 4 — runtime core + two shells                                      | done                                                                                                                                                                                      |
+| 5 — wire constructs, Functions to zip, Containers Dockerfiles      | done                                                                                                                                                                                      |
+| 6 — delete `output: "standalone"` + dedicated image function       | done                                                                                                                                                                                      |
+| 7 — splitting (`functionGroups`)                                   | done                                                                                                                                                                                      |
+| 8 — tests, docs, breaking-changes                                  | done, with three exit criteria unmet (see step 8 entry)                                                                                                                                   |
+| 9 — PPR: `cacheComponents` migration of `app-playground` + PPR e2e | done (clears exit criterion 1 of step 8's three)                                                                                                                                          |
+| 10 — official Next.js test harness (plumbing + small slice)        | plumbing done and proven end to end on AWS; reworked onto one shared `NextjsGlobalFunctions` stack in 10b; step 8's exit criterion 2 **not** met — the official test files were never run |
 
 Exit criteria are tracked in the plan, not duplicated here. Record against them
 in the final entry.
@@ -99,7 +99,7 @@ in the final entry.
 **Decisions**
 
 1. **Symlinks in `assets` are recreated as symlinks, never dereferenced.** Under
-   pnpm, `assets` values are frequently *directory* symlinks into the store
+   pnpm, `assets` values are frequently _directory_ symlinks into the store
    (21 of 738 keys for app-playground, including `app-playground/node_modules/next`
    → the whole package). `copyFile` fails on those with `ENOTSUP`, and Next's own
    `copyTracedFiles` (`node_modules/next/dist/build/utils.js`, ~1012–1038) does
@@ -134,14 +134,14 @@ in the final entry.
 
 **Measured**
 
-| What | Value | Command |
-| --- | --- | --- |
-| app-playground staged | 738 files, 31.5 MB counted, 32 MB on disk, 122 entrypoints | `node scripts/capture-adapter-fixture.mjs app-playground`; `du -sh examples/app-playground/.next/cdk-nextjs-adapter/app` |
-| same tree, dereferenced | 96 MB (3.0×) | `du -shL examples/app-playground/.next/cdk-nextjs-adapter/app` |
-| symlinks in that tree | 21 | `find . -type l \| wc -l` in the staged tree |
-| pages-i18n staged | 218 files, 6.7 MB, 18 entrypoints | `node scripts/capture-adapter-fixture.mjs pages-i18n` |
-| fixture sizes | 227 KB / 228 KB / 168 KB | `ls -l src/adapter/__fixtures__` |
-| tests | 29 passed, 98.7% statement coverage of `build-outputs.ts` | `pnpm jest src/adapter/build-outputs.test.ts` |
+| What                    | Value                                                      | Command                                                                                                                  |
+| ----------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| app-playground staged   | 738 files, 31.5 MB counted, 32 MB on disk, 122 entrypoints | `node scripts/capture-adapter-fixture.mjs app-playground`; `du -sh examples/app-playground/.next/cdk-nextjs-adapter/app` |
+| same tree, dereferenced | 96 MB (3.0×)                                               | `du -shL examples/app-playground/.next/cdk-nextjs-adapter/app`                                                           |
+| symlinks in that tree   | 21                                                         | `find . -type l \| wc -l` in the staged tree                                                                             |
+| pages-i18n staged       | 218 files, 6.7 MB, 18 entrypoints                          | `node scripts/capture-adapter-fixture.mjs pages-i18n`                                                                    |
+| fixture sizes           | 227 KB / 228 KB / 168 KB                                   | `ls -l src/adapter/__fixtures__`                                                                                         |
+| tests                   | 29 passed, 98.7% statement coverage of `build-outputs.ts`  | `pnpm jest src/adapter/build-outputs.test.ts`                                                                            |
 
 Both `.next/standalone` and the new tree are produced right now, so neither
 number is the final packaged size. The zip-vs-image comparison the plan asks for
@@ -223,7 +223,7 @@ subject, not SHA: this entry ships inside that commit)
   decision-making — no filesystem, no `require` of any entrypoint, no `Response`
   construction. All of that is step 4.
 - `src/adapter/build-outputs.ts` — `addPrerenderTemplates`, which adds dynamic
-  *prerender* templates to `entrypoints`/`pathnames`. See decision 2.
+  _prerender_ templates to `entrypoints`/`pathnames`. See decision 2.
 - `src/runtime/manifest.ts` — doc-only: `entrypoints` and `pathnames` now say what
   they contain and that keys need no normalization.
 - `scripts/capture-adapter-fixture.mjs` — dynamic prerender templates are now
@@ -251,7 +251,7 @@ subject, not SHA: this entry ships inside that commit)
    is a behavior difference. The owner comes from `prerender.route` (unprefixed,
    unlocalized — hence a `basePath + route` then bare `route` ladder); locale
    variants share a `filePath`, so any locale's entrypoint is the right target.
-   Adding *concrete* prerender pathnames instead was measured to be actively
+   Adding _concrete_ prerender pathnames instead was measured to be actively
    wrong: with `/isr/1` in `pathnames`, `/isr/1` resolves to itself rather than to
    `/isr/[id]` and the `nxtPid` query param is lost. An orphan template warns
    rather than throws — an unmapped template degrades one URL shape to a 404,
@@ -283,12 +283,12 @@ subject, not SHA: this entry ships inside that commit)
 
 **Measured**
 
-| What | Value | Command |
-| --- | --- | --- |
-| tests | 112 passed, 8 suites | `pnpm jest` |
-| `dispatch.ts` coverage | 99.2% stmts, 95.7% branch | `pnpm jest src/runtime/dispatch.test.ts` |
-| `build-outputs.ts` coverage | 98.9% stmts, 94.0% branch | `pnpm jest src/adapter/build-outputs.test.ts` |
-| fixture sizes after regeneration | 229 KB / 230 KB / 168 KB | `ls -l src/adapter/__fixtures__` |
+| What                             | Value                     | Command                                       |
+| -------------------------------- | ------------------------- | --------------------------------------------- |
+| tests                            | 112 passed, 8 suites      | `pnpm jest`                                   |
+| `dispatch.ts` coverage           | 99.2% stmts, 95.7% branch | `pnpm jest src/runtime/dispatch.test.ts`      |
+| `build-outputs.ts` coverage      | 98.9% stmts, 94.0% branch | `pnpm jest src/adapter/build-outputs.test.ts` |
+| fixture sizes after regeneration | 229 KB / 230 KB / 168 KB  | `ls -l src/adapter/__fixtures__`              |
 
 **Verified vs. assumed**
 
@@ -377,7 +377,7 @@ Assumed, not yet proven:
 
 1. **`MiddlewareInvoker` carries the request method; `MiddlewareContext` does
    not.** `@next/routing` passes middleware only `{ url, headers, requestBody }`
-   because *routing* never needs a method — but middleware does
+   because _routing_ never needs a method — but middleware does
    (`if (request.method === "POST")`), and `new Request(url)` defaults to GET.
    Dispatch adds it from the `DispatchRequest` it already has, which is why
    `DispatchRequest.method` became required in this step rather than step 2.
@@ -385,8 +385,8 @@ Assumed, not yet proven:
    (anything but GET/HEAD), with `duplex: "half"`. `new Request(url, { body })`
    throws outright for GET/HEAD, and undici requires `duplex` for any stream body
    — it is absent from TypeScript's `RequestInit`, hence the one cast in the file.
-3. **`await` the `require()` result.** Turbopack emits middleware as an *async
-   module*: `module.exports` is a Promise whose `Symbol(turbopack exports)` keys
+3. **`await` the `require()` result.** Turbopack emits middleware as an _async
+   module_: `module.exports` is a Promise whose `Symbol(turbopack exports)` keys
    are invisible to `Object.keys`, so a synchronous `require(...).handler` is
    `undefined` and the error looks like a Next.js API change. `await` covers both
    that and the webpack/plain-CJS shape. Verified against the real
@@ -412,11 +412,11 @@ Assumed, not yet proven:
 
 **Measured**
 
-| What | Value | Command |
-| --- | --- | --- |
-| tests | 129 passed, 9 suites | `pnpm jest` |
-| `middleware.ts` coverage | 100% stmts, 100% branch | `pnpm jest src/runtime/middleware.test.ts` |
-| `dispatch.ts` coverage | 99.2% stmts, 96.1% branch | `pnpm jest src/runtime/dispatch.test.ts` |
+| What                     | Value                     | Command                                    |
+| ------------------------ | ------------------------- | ------------------------------------------ |
+| tests                    | 129 passed, 9 suites      | `pnpm jest`                                |
+| `middleware.ts` coverage | 100% stmts, 100% branch   | `pnpm jest src/runtime/middleware.test.ts` |
+| `dispatch.ts` coverage   | 99.2% stmts, 96.1% branch | `pnpm jest src/runtime/dispatch.test.ts`   |
 
 **Verified vs. assumed**
 
@@ -444,7 +444,7 @@ needs a real `next build` on disk):
 - `examples/app-playground/.next/server/middleware.js` requires to a Promise whose
   resolved value is `{ default, handler }` with `handler.length === 2`.
 - Invoking that real handler with `(new Request(url, { method, headers }),
-  { waitUntil })` returned 200 with `x-middleware-next: 1`, `waitUntil` was called
+{ waitUntil })` returned 200 with `x-middleware-next: 1`, `waitUntil` was called
   once, and `responseToMiddlewareResult` produced non-empty `requestHeaders` and
   empty `responseHeaders`. A POST with a `ReadableStream` body + `duplex: "half"`
   also worked.
@@ -486,7 +486,7 @@ covers it with unit tests; step 5 is what makes a construct point at it.
 
 - `src/runtime/http/request.ts` — `ShimIncomingMessage`, a synthesized
   `http.IncomingMessage` over a fake socket (lineage: `serverless-http`). Both
-  shells use it, *including Containers*: handing the container path a real
+  shells use it, _including Containers_: handing the container path a real
   `IncomingMessage` would mean the container e2e suite proves nothing about the
   Lambda path.
 - `src/runtime/http/response.ts` — `ShimServerResponse`, a `Readable` that emits a
@@ -536,7 +536,7 @@ covers it with unit tests; step 5 is what makes a construct point at it.
    `middlewareResponded: true` without carrying the `Response`, so the runner hands
    it back through a closure (`invokerFor(perRequest, onResponse)`) — and a closure
    shared across requests would cross-talk under the concurrency the container
-   shell has. `waitUntil` is per request for the same reason. What *is* shared is
+   shell has. `waitUntil` is per request for the same reason. What _is_ shared is
    the expensive part: the memoized middleware module and the per-`filePath`
    entrypoint modules. (`createDispatcher` also throws for a middleware manifest
    with no invoker, so a constructor-built dispatcher was not an option anyway.)
@@ -550,11 +550,11 @@ covers it with unit tests; step 5 is what makes a construct point at it.
      `notFound()` they cannot render themselves, and fall back to
      `res.end('This page could not be found')` (no status, no app 404 page) when
      it is absent.
-   Deliberately **not** passed: `params`/`query` (the invocation target's `nxtP`
-   query values are the documented deployed-proxy contract, and `prepare()` reads
-   them), `relativeProjectDir` (`app-page-runtime.js` ignores the override and uses
-   the DefinePlugin-inlined value against `process.cwd()` — hence the `chdir`), and
-   `revalidate` (not consumed on any path we take).
+     Deliberately **not** passed: `params`/`query` (the invocation target's `nxtP`
+     query values are the documented deployed-proxy contract, and `prepare()` reads
+     them), `relativeProjectDir` (`app-page-runtime.js` ignores the override and uses
+     the DefinePlugin-inlined value against `process.cwd()` — hence the `chdir`), and
+     `revalidate` (not consumed on any path we take).
 3. **gzip lives in shared runtime code, not in a shell or in infrastructure.**
    API Gateway's `minCompressionSize` is inert under `ResponseTransferMode.STREAM`,
    and CloudFront needs a `Content-Length` a streamed response does not have. Lambda
@@ -581,13 +581,13 @@ covers it with unit tests; step 5 is what makes a construct point at it.
 
 **Measured**
 
-| What | Value | Command |
-| --- | --- | --- |
-| tests | 203 passed, 13 suites | `pnpm jest` |
-| `core.ts` coverage | 81.6% stmts, 65.2% branch | `pnpm jest src/runtime/core.test.ts` |
-| `sink.ts` coverage | 100% stmts | `pnpm jest src/runtime/http` |
-| lint / types | clean | `pnpm eslint`, `pnpm compile` |
-| shell bundles | `lambda.mjs` 1.5 MB, `server.mjs` 1.5 MB | `pnpm bundle` |
+| What               | Value                                    | Command                              |
+| ------------------ | ---------------------------------------- | ------------------------------------ |
+| tests              | 203 passed, 13 suites                    | `pnpm jest`                          |
+| `core.ts` coverage | 81.6% stmts, 65.2% branch                | `pnpm jest src/runtime/core.test.ts` |
+| `sink.ts` coverage | 100% stmts                               | `pnpm jest src/runtime/http`         |
+| lint / types       | clean                                    | `pnpm eslint`, `pnpm compile`        |
+| shell bundles      | `lambda.mjs` 1.5 MB, `server.mjs` 1.5 MB | `pnpm bundle`                        |
 
 **Verified vs. assumed**
 
@@ -620,7 +620,7 @@ Not covered by a test, and known to be unproven until the e2e suites in steps 5�
 - `next` stays **external** in both shell bundles, so `static-files.ts` and
   `image.ts` reach `next/dist/server/serve-static.js` and
   `next/dist/server/image-optimizer.js` at runtime. Image optimization used to be
-  its own Lambda with `next` bundled *in*, so step 5 (Functions zip) and step 6
+  its own Lambda with `next` bundled _in_, so step 5 (Functions zip) and step 6
   (dropping the dedicated image function) must confirm those two modules actually
   resolve out of the traced assets the manifest stages. If they do not, the fix is
   a targeted `--external` change, not a design change.
@@ -654,7 +654,7 @@ still set (it goes away in step 6), but nothing reads `.next/standalone` anymore
   (breaking; step 8 documents it).
 - `src/nextjs-compute/nextjs-containers.ts` + both container Dockerfiles — `COPY`
   the deployment root instead of `.next/standalone`, `CMD node
-  cdk-nextjs-runtime/server.mjs` instead of `node server.js`, and
+cdk-nextjs-runtime/server.mjs` instead of `node server.js`, and
   `RELATIVE_PATH_TO_PACKAGE` becomes `RELATIVE_PROJECT_DIR`.
 - `src/nextjs-build/functions.Dockerfile` — deleted, along with the
   Dockerfile-copying code in `NextjsFunctions`. Functions types no longer build an
@@ -674,7 +674,7 @@ still set (it goes away in step 6), but nothing reads `.next/standalone` anymore
    `# ~~ Generated by cdk-nextjs ~~` header, and the header text itself says that
    deleting it takes ownership. Found the hard way: the first `dev-rgnl-cntnrs`
    deploy failed the ECS circuit breaker with exactly that crash loop.
-2. **Hoisting a store-only package picks the version with staged *code*, not the
+2. **Hoisting a store-only package picks the version with staged _code_, not the
    first version by staging key.** `hoistStoreOnlyPackages` broke on `semver`: the
    trace stages `semver@6.3.1/package.json` (read for metadata, nothing else) and
    the whole of `semver@7.8.5`, and `6.3.1` sorted first, so the hoisted
@@ -689,7 +689,7 @@ still set (it goes away in step 6), but nothing reads `.next/standalone` anymore
    payload claiming it is at `/_not-found`: wrong `usePathname()`, wrong history
    entry. The requested path is passed in instead, and `render404()` from inside a
    route leaves `req.url` alone (it is already the path that gave up). This is one
-   of two places the new runtime is *more* correct than the oracle — see Measured.
+   of two places the new runtime is _more_ correct than the oracle — see Measured.
 4. **The runtime consumes `x-middleware-rewrite` instead of forwarding it.**
    `@next/routing` echoes the rewrite it followed into `resolvedHeaders`; Next's
    own router treats that as an internal signal. Forwarding it leaked the app's
@@ -701,7 +701,7 @@ still set (it goes away in step 6), but nothing reads `.next/standalone` anymore
    `/_next/image` → `/<stage>/_next/image` to line `basePath` up, so comparing the
    URL as received 404s every optimized image behind such a rewrite.
 6. **`next`'s image-optimizer closure is traced and staged by the adapter.**
-   `next build` only traces what the *app* reaches, and no app reaches
+   `next build` only traces what the _app_ reaches, and no app reaches
    `next/dist/server/image-optimizer.js`, so `/_next/image` 500ed on
    `MODULE_NOT_FOUND`. `addRuntimeNextClosure` traces the four modules
    `src/runtime/image.ts` requires using next's own vendored
@@ -735,14 +735,14 @@ Byte diff against the oracle stacks, `curl -s -o /dev/null -w
 "%{http_code}/%{size_download}"`, all four deployment types (`dev-*` = this
 branch, `main-*` = oracle):
 
-| Path | dev | main |
-| --- | --- | --- |
-| `/`, `/isr/1`, `/ssr`, `/ssg`, `/image-optimization`, `/streaming` | identical byte counts on all four types | |
-| `/api/health` | byte-identical | byte-identical |
-| `/favicon.ico` (containers, served off disk) | byte-identical | byte-identical |
-| `/_next/image` external source, `w=256&q=75` | 200 / **3870 B** | 200 / 3870 B |
-| `/_next/image?url=%2Fstatic%2F…` local source | 400 / 43 B | 400 / 43 B |
-| `/definitely-not-a-route` | 404 / 24824 B | 404 / 24812–25031 B |
+| Path                                                               | dev                                     | main                |
+| ------------------------------------------------------------------ | --------------------------------------- | ------------------- |
+| `/`, `/isr/1`, `/ssr`, `/ssg`, `/image-optimization`, `/streaming` | identical byte counts on all four types |                     |
+| `/api/health`                                                      | byte-identical                          | byte-identical      |
+| `/favicon.ico` (containers, served off disk)                       | byte-identical                          | byte-identical      |
+| `/_next/image` external source, `w=256&q=75`                       | 200 / **3870 B**                        | 200 / 3870 B        |
+| `/_next/image?url=%2Fstatic%2F…` local source                      | 400 / 43 B                              | 400 / 43 B          |
+| `/definitely-not-a-route`                                          | 404 / 24824 B                           | 404 / 24812–25031 B |
 
 Endpoints these numbers came from — this branch: `dev-rgnl-fns`
 `https://b9l6a7ml5c.execute-api.us-east-1.amazonaws.com/prod`, `dev-glbl-fns`
@@ -758,11 +758,11 @@ Two places the oracle is the one that is wrong:
 
 - **The oracle leaks a stale canonical URL across requests on a warm Lambda.** Its
   404 for `/definitely-not-a-route` came back with `"c":["","middleware"]` — the
-  path of an *earlier* request. This branch returns
+  path of an _earlier_ request. This branch returns
   `"c":["","definitely-not-a-route"]`. The 12-byte size difference above is
   exactly that string-length difference.
 - `/api/og` 500s on both, and also fails during `next build` (`TypeError: fetch
-  failed … Error: not implemented... yet...` at `app/api/og/route.tsx:5:23`).
+failed … Error: not implemented... yet...` at `app/api/og/route.tsx:5:23`).
   Pre-existing, not a regression.
 
 Unit tests: `pnpm jest src/runtime` 110 passed / 7 suites;
@@ -775,7 +775,7 @@ Verified against real AWS, all four types deployed from this branch and curled
 next to their oracle: real `next build` entrypoints invoked in-process (the first
 time anything in this rewrite has run a module `next build` produced), App Router
 pages, ISR, SSR, SSG, route handlers, streaming, static files off disk
-(containers), image optimization with glibc `sharp` on Lambda *and* musl `sharp`
+(containers), image optimization with glibc `sharp` on Lambda _and_ musl `sharp`
 on Alpine, middleware rewrites including the basePath-prepending one, 404
 rendering, and gzip.
 
@@ -798,7 +798,7 @@ Still assumed:
 - `dev-glbl-fns`, `dev-rgnl-fns`, `dev-glbl-cntnrs`, `dev-rgnl-cntnrs` are up in
   the dev account and should be torn down when the branch is done. The four
   `main-*` oracle stacks were only read (`describe-stacks`) and curled.
-- Two concurrent `cdk deploy`s that both re-run `next build` in the *same* example
+- Two concurrent `cdk deploy`s that both re-run `next build` in the _same_ example
   app race: CDK's `copyDirectory` walked the staged tree while the other build was
   rewriting it (`ENOENT lstat … @opentelemetry/api/…`). Deploy examples serially.
 - `/middleware` 404s on both, which looks like an app-playground route that never
@@ -820,7 +820,7 @@ code that only existed to serve the old layout.
   used, and `next build` says so itself immediately above the `onBuildComplete`
   call — "in the future `output: standalone` might not be allowed if an adapter
   with `onBuildComplete` is configured" (`node_modules/next/dist/build/index.js`,
-  ~line 2782). `onBuildComplete` runs *before* `writeStandaloneDirectory`, so the
+  ~line 2782). `onBuildComplete` runs _before_ `writeStandaloneDirectory`, so the
   old ordering was "stage everything, then stage it a second time into a directory
   nobody opens."
 - `src/nextjs-build/nextjs-build.ts` — deleted `validateNextBuildOutput()`,
@@ -870,7 +870,7 @@ code that only existed to serve the old layout.
    the deployed asset.
 2. **There is no dedicated image function because middleware never ran for it.**
    The reason `/_next/image` can now live in the runtime core is architectural, not
-   a size saving: dispatch classifies a request as image optimization only *after*
+   a size saving: dispatch classifies a request as image optimization only _after_
    middleware has had it, which is what makes `NextResponse.rewrite()` onto an
    image work at all. A separate function sitting behind its own CloudFront origin
    cannot do that. The 19 MB second asset (glibc `sharp` + handler) going away is
@@ -898,24 +898,24 @@ unconditionally is genuinely not produced anymore. Staged deployment root 39 MB 
 953 entries; dereferenced 49 MB / 1522 files (unchanged from step 5); published
 zip 21,558,128 bytes. Corrected the plan's "Packaging budget" table, whose
 as-staged row read 54 MB / 942 — that had been measured on an accumulated `.next`
-and implied the tree *shrinks* when dereferenced, which cannot happen.
+and implied the tree _shrinks_ when dereferenced, which cannot happen.
 
 Byte diff against the oracle, all four deployment types redeployed from this
 branch (`curl -s -o /dev/null -w "%{http_code}/%{size_download}"`):
 
-| Path | `dev-*` (this branch) | `main-*` (oracle) |
-| --- | --- | --- |
-| `/`, `/isr/1`, `/ssr`, `/ssg`, `/image-optimization`, `/streaming` | identical byte counts on all four types | |
-| `/api/health`, `/favicon.ico` | byte-identical | byte-identical |
-| `/_next/image` external source | identical on every type | identical |
-| `/definitely-not-a-route` | 404 / 24824–25043 B | 404 / 25015–25031 B |
+| Path                                                               | `dev-*` (this branch)                   | `main-*` (oracle)   |
+| ------------------------------------------------------------------ | --------------------------------------- | ------------------- |
+| `/`, `/isr/1`, `/ssr`, `/ssg`, `/image-optimization`, `/streaming` | identical byte counts on all four types |                     |
+| `/api/health`, `/favicon.ico`                                      | byte-identical                          | byte-identical      |
+| `/_next/image` external source                                     | identical on every type                 | identical           |
+| `/definitely-not-a-route`                                          | 404 / 24824–25043 B                     | 404 / 25015–25031 B |
 
 The only non-identical row is the 404, and it is the oracle's stale-canonical-URL
 bug documented under step 5 — this branch returns the requested path, the oracle
 sometimes returns a path from an earlier request on the same warm compute. The
 size delta is exactly that string-length difference.
 
-The image row is identical but not the *same* on every type: 200 / 1869 B on
+The image row is identical but not the _same_ on every type: 200 / 1869 B on
 `rgnl-cntnrs`, 400 / 30 B on `rgnl-fns`, `glbl-fns` and `glbl-cntnrs`. Branch and
 oracle agree on each type, which is the thing being tested; the variation is the
 app's own `remotePatterns`/CloudFront caching, not the runtime.
@@ -932,7 +932,7 @@ types: `dev-glbl-fns` and `dev-rgnl-fns` (glibc `sharp` in a zip Lambda),
 every type, since it is the thing that lost its dedicated function.
 
 Still assumed: PPR (step 8's e2e), cold-start numbers (never measured — the zip
-function replacing a container image function *should* start faster, but that is
+function replacing a container image function _should_ start faster, but that is
 an expectation), and monorepo layouts (`relativeProjectDir` is non-empty only in
 fixtures).
 
@@ -1005,7 +1005,7 @@ explains a misroute.
 5. **A group owning a Pages Router route also gets an `_next/data/*/…` pattern**
    rather than being rejected — `NextjsBuild.hasDataRoutes` (true when any
    entrypoint is `type: "page"`) turns it on. Ownership is recorded per
-   *entrypoint id*, not per template, so a page and its `_next/data` sibling — one
+   _entrypoint id_, not per template, so a page and its `_next/data` sibling — one
    file — can never be split into two zips.
 6. **`NextjsFunctionGroup.overrides` is `NextjsFunctionsOverrides`, not
    `OptionalFunctionProps`** as the plan sketched. A superset: it also carries
@@ -1033,7 +1033,7 @@ pnpm jest      # 16 suites / 259 tests passed
 **Verified vs. assumed**
 
 Verified by test: the grammar's every rejection; longest-pattern-wins on both
-sides (assignment *and* CloudFront behavior order, independently); that a group's
+sides (assignment _and_ CloudFront behavior order, independently); that a group's
 staged tree contains its own routes' files and not the other group's; that the
 manifest is written once and shared; that `_next/data` patterns are emitted when
 Pages Router routes exist; that basePath prefixes group patterns; that the budget
@@ -1051,7 +1051,7 @@ Gateway's resolution of a group's `{proxy+}` against the root `{proxy+}`, and th
 - The plan's exit criterion "at least one e2e exercising a split" is not met.
   Doing it next, as part of step 8, on `examples/nextjs-global-functions` with a
   group owning `/api/**` — the split to verify is that `/api/health` and `/` come
-  from *different* Lambdas and both still work.
+  from _different_ Lambdas and both still work.
 - Everything still open from step 6 (`healthCheckPath`,
   `docs/breaking-changes.md`, the five `dev-*`/`adptr-*` stacks to tear down).
 
@@ -1069,14 +1069,13 @@ commits ahead of this one, because each stands alone and each is a bug present o
 New e2e files (`examples/e2e-tests/src/`):
 
 - `function-groups.test.ts` — 3 tests. Proves a grouped route and an ungrouped one
-  are served by *different* Lambdas, by having the app report its own function
+  are served by _different_ Lambdas, by having the app report its own function
   name (`examples/app-playground/lib/runtime-identity.ts` plus the
   `/runtime-identity` page and `/api/runtime-identity` route). Skipped unless
   `E2E_FUNCTION_GROUPS` is set, which the `glbl-fns` CI job now sets to `api`.
 - `middleware.test.ts` — the plan's "middleware e2e proving interception on
   `_next/image`". `proxy.ts` 403s exactly one image URL
-  (`/static/e2e-middleware-image.png`, a committed fixture); the test asserts the
-  403. Without middleware in the image path the request would 200.
+  (`/static/e2e-middleware-image.png`, a committed fixture); the test asserts the 403. Without middleware in the image path the request would 200.
 - `headers.test.ts` — 4 tests: ETag shape, compression when asked for, no
   compression when not, and a conditional GET returning 304. The compression pair
   is the plan's "response compression verified on both Functions types" — the LWA
@@ -1108,8 +1107,8 @@ standalone output and now describes the staged deployment root.
    locally; the app does not need the split, so the only cost is one extra Lambda.
 3. **The middleware e2e blocks a request rather than rewriting one.** A 403 on a
    URL nothing else requests is unambiguous and cheap; a rewrite would have to
-   assert on image *bytes* to prove anything.
-4. **`headers.test.ts` asserts the ETag *shape*, not a literal.** Which shape you
+   assert on image _bytes_ to prove anything.
+4. **`headers.test.ts` asserts the ETag _shape_, not a literal.** Which shape you
    get is a property of the deployment type — S3's MD5 for CDN types, `send`'s
    `<size>-<mtime>` for Regional Containers serving off local disk, and CloudFront
    weakens either when it compresses. The test discriminates file ETags from
@@ -1122,12 +1121,12 @@ tests.
 
 e2e against four `dev-*` stacks on this branch, `--workers=1`:
 
-| type | result |
-| --- | --- |
-| `dev-glbl-fns` (with the `api` split) | 32 passed |
-| `dev-glbl-cntnrs` | 29 passed, 3 skipped |
-| `dev-rgnl-cntnrs` | 29 passed, 3 skipped |
-| `dev-rgnl-fns` | 29 passed, 3 skipped |
+| type                                  | result               |
+| ------------------------------------- | -------------------- |
+| `dev-glbl-fns` (with the `api` split) | 32 passed            |
+| `dev-glbl-cntnrs`                     | 29 passed, 3 skipped |
+| `dev-rgnl-cntnrs`                     | 29 passed, 3 skipped |
+| `dev-rgnl-fns`                        | 29 passed, 3 skipped |
 
 The 3 skips are the `function-groups` tests, which require `E2E_FUNCTION_GROUPS`.
 
@@ -1173,7 +1172,7 @@ Stated explicitly rather than quietly dropped:
 **Deferred / open**
 
 - `s3KeyToInvalidationPath` reverses the cache key into a CloudFront invalidation
-  path without re-adding the app's `basePath`, so on a Global type *with* a
+  path without re-adding the app's `basePath`, so on a Global type _with_ a
   `basePath` the invalidation misses the path CloudFront actually cached. Same bug
   class as the fix above, different direction, and not reachable by any current
   example (the `basePath` examples are the API Gateway types, which have no CDN).
@@ -1199,7 +1198,7 @@ A PPR route answers with `x-nextjs-postponed: 1`, `cache-control: private,
 no-store` and no `x-nextjs-cache` header. `base-server.js` only resumes from a
 request body when `this.minimalMode && req.headers['next-resume'] === '1' &&
 req.method === 'POST'` — which reads like "the platform must POST the postponed
-state back". That is the *minimal mode* path, the one Vercel uses so the shell can
+state back". That is the _minimal mode_ path, the one Vercel uses so the shell can
 be served from the edge. We do not run that path. Our runtime invokes per-route
 entrypoints built from `build/templates/app-page-runtime.js`, where
 `isMinimalMode` comes from `getRequestMeta(req, 'minimalMode')` — request meta
@@ -1209,30 +1208,30 @@ postponed })`, and pipes the second render onto the end of the shell in the same
 invocation. `next start` does exactly the same thing, and a byte-for-byte
 comparison of `next start` against `dev-glbl-fns` was how this got settled.
 
-`x-nextjs-postponed: 1` is set *before* the resume runs (`app-page-runtime.js`,
+`x-nextjs-postponed: 1` is set _before_ the resume runs (`app-page-runtime.js`,
 `if (didPostpone && !isDynamicRSCRequest)`), so its presence says nothing about
 whether the hole was filled. The only honest assertion is on the body.
 
 **The migration.** Every prerender failure fell into one of the three buckets
-Next.js itself names in the error, and the bucket is decided by *what* is being
+Next.js itself names in the error, and the bucket is decided by _what_ is being
 read:
 
 - `[cache]` — a pure data function. `'use cache'` on the `fetch` in
   `app/api/categories/getCategories.ts` and `app/api/reviews/getReviews.ts`
   unblocked every non-dynamic layout at once. `notFound()` and the throw to
-  `error.js` stay *outside* the cached function: thrown out of a `'use cache'`
+  `error.js` stay _outside_ the cached function: thrown out of a `'use cache'`
   scope they would be what gets stored, so one upstream blip would keep serving a
   404 for the life of the entry.
 - `[stream]` — anything that reads the request. Two sub-cases:
   - Client URL hooks (`usePathname`, `useSearchParams`,
-    `useSelectedLayoutSegment(s)`) *suspend* under `cacheComponents`. Fixed with
+    `useSelectedLayoutSegment(s)`) _suspend_ under `cacheComponents`. Fixed with
     the upstream `vercel/next-app-router-playground` idiom: a static component
     plus a dynamic one, boundary as deep as possible, so the shell still contains
     every nav link and tab — just none of them highlighted. `ui/global-nav.tsx`,
     `ui/tab.tsx`, `ui/address-bar.tsx`.
   - `params` in a dynamic route **without** `generateStaticParams`. `'use cache'`
     does not legalize this: the shell is prerendered with no params at all, so the
-    read has to be inside a boundary. For a *layout* the directive cannot apply at
+    read has to be inside a boundary. For a _layout_ the directive cannot apply at
     all, because `children` is not a cacheable value. This is what the two new
     shared components exist for — `ui/category-tab-group.tsx` and
     `ui/category-content.tsx` — reused by seven `[categorySlug]` layouts and
@@ -1255,7 +1254,7 @@ no `x-nextjs-cache`, no `s-maxage` — the `isr` e2e had nothing left to assert 
 CloudFront cached nothing. The cause was `cacheLife({ stale: 10, revalidate: 10,
 expire: 60 })`. `stale` is how long a client may reuse a value without asking
 again, and the prerendered shell is served with its own (`x-nextjs-stale-time:
-300`); a `'use cache'` scope with a *shorter* `stale` than the shell's cannot be
+300`); a `'use cache'` scope with a _shorter_ `stale` than the shell's cannot be
 baked into the shell, so the build postpones it. Narrowed by three builds: with
 `stale: 900` the route is `compute: "static"`, with `stale: 10` it is `resuming`,
 `revalidate` and `expire` make no difference. The fix is `cacheLife({ revalidate:
@@ -1263,7 +1262,7 @@ baked into the shell, so the build postpones it. Narrowed by three builds: with
 are back to `compute: "static"`, `initialRevalidateSeconds: 10`,
 `x-nextjs-cache: STALE`, `cache-control: s-maxage=10`.
 
-Net effect app-wide: of 69 routes, exactly one *concrete* route is not
+Net effect app-wide: of 69 routes, exactly one _concrete_ route is not
 `compute: "static"` — `/patterns/search-params`, which reads `searchParams` and
 should not be. Every `[categorySlug]` dynamic route is `resuming` and the two
 `/streaming/*/product/[id]` routes are `blocking`. So the CDN-caching and ISR
@@ -1300,12 +1299,12 @@ No `src/` change in this step, so no `pnpm compile` / `pnpm bundle` delta.
 
 e2e, `--workers=1`, all four stacks redeployed from this working tree:
 
-| type | result |
-| --- | --- |
-| `dev-glbl-fns` (with the `api` split) | 35 passed |
-| `dev-glbl-cntnrs` | 32 passed, 3 skipped |
-| `dev-rgnl-cntnrs` | 32 passed, 3 skipped |
-| `dev-rgnl-fns` | 32 passed, 3 skipped (first run: 31 passed, 1 failed — see below) |
+| type                                  | result                                                            |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| `dev-glbl-fns` (with the `api` split) | 35 passed                                                         |
+| `dev-glbl-cntnrs`                     | 32 passed, 3 skipped                                              |
+| `dev-rgnl-cntnrs`                     | 32 passed, 3 skipped                                              |
+| `dev-rgnl-fns`                        | 32 passed, 3 skipped (first run: 31 passed, 1 failed — see below) |
 
 The 3 skips are the `function-groups` tests, which need `E2E_FUNCTION_GROUPS`.
 `dev-glbl-fns` is 35 rather than 32 because it is the stack that sets it.
@@ -1352,7 +1351,7 @@ Lambda: `Error: Invariant: AsyncLocalStorage accessed in runtime where it is not
 available`, thrown out of `next/dist/server/app-render/async-local-storage.js`, so
 the request comes back as `Runtime.ExitError` and the sandbox is destroyed.
 
-**Cause.** That module reads `globalThis.AsyncLocalStorage` *at module scope* and
+**Cause.** That module reads `globalThis.AsyncLocalStorage` _at module scope_ and
 keeps whatever it saw — if the global is not set yet, every app-render storage in
 the process is Next's `FakeAsyncLocalStorage`, whose every method throws. The
 global is set by `next/dist/server/node-environment-baseline.js`, and inside the
@@ -1410,8 +1409,8 @@ either way — the fixture without middleware is what proves the fix.
 cdk-nextjs deployment, plus an explicit three-file slice to run it on. The user
 chose "plumbing + small slice" over a full port and over skipping it.
 
-**Not landed, and this is step 8's exit criterion 2:** *the official test files
-have never been run.* Running them needs a built vercel/next.js checkout
+**Not landed, and this is step 8's exit criterion 2:** _the official test files
+have never been run._ Running them needs a built vercel/next.js checkout
 (`run-tests.js` and `test/lib/**` are repo files, not published ones), and
 `pnpm install` inside that checkout was refused by this environment's permission
 classifier — twice, with and without `--ignore-scripts`. So the harness is proven
@@ -1421,17 +1420,17 @@ what will first answer it.
 
 ### What it is
 
-| Path | Role |
-| --- | --- |
-| `scripts/e2e-deploy.sh` | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, prints the URL. |
-| `scripts/e2e-logs.sh` | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Markers, build/deploy log tails, CloudWatch tail. |
-| `scripts/e2e-cleanup.sh` | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. Deletes that one stack. |
-| `scripts/e2e-sweep.sh` | Deletes orphaned harness stacks. Dry run unless `--apply`. |
-| `scripts/e2e-harness/app.js` | The CDK app, plain CJS. `NextjsRegionalFunctions` + a Function URL. |
-| `scripts/e2e-harness/common.sh` | File names, stack naming, the tag check that gates every delete. |
-| `scripts/e2e-harness/stage-static.js` | Copies `_next/static` and `public/` into the deployment package. |
-| `test/deploy-tests-manifest.json` | v2 filter manifest; which test files run. |
-| `.github/workflows/e2e-harness.yml` | Nightly 06:00 UTC + `workflow_dispatch`, then a sweep. |
+| Path                                  | Role                                                                                           |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `scripts/e2e-deploy.sh`               | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, prints the URL. |
+| `scripts/e2e-logs.sh`                 | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Markers, build/deploy log tails, CloudWatch tail.         |
+| `scripts/e2e-cleanup.sh`              | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. Deletes that one stack.                                       |
+| `scripts/e2e-sweep.sh`                | Deletes orphaned harness stacks. Dry run unless `--apply`.                                     |
+| `scripts/e2e-harness/app.js`          | The CDK app, plain CJS. `NextjsRegionalFunctions` + a Function URL.                            |
+| `scripts/e2e-harness/common.sh`       | File names, stack naming, the tag check that gates every delete.                               |
+| `scripts/e2e-harness/stage-static.js` | Copies `_next/static` and `public/` into the deployment package.                               |
+| `test/deploy-tests-manifest.json`     | v2 filter manifest; which test files run.                                                      |
+| `.github/workflows/e2e-harness.yml`   | Nightly 06:00 UTC + `workflow_dispatch`, then a sweep.                                         |
 
 The contract was read out of next.js's source rather than taken from the docs
 page, which paid for itself three times:
@@ -1439,13 +1438,13 @@ page, which paid for itself three times:
 1. `parseIdsFromCliOutput` (`test/lib/next-modes/next-deploy.ts`) matches
    `/BUILD_ID: (.+)/` — **first match wins**. Fixtures print their own markers from
    a chained `post-build`, so ours are written to `.adapter-markers.log` and
-   replayed *before* the build log.
+   replayed _before_ the build log.
 2. A non-zero exit from the logs script masks the deploy failure with "Custom
    deploy logs script failed". `e2e-logs.sh` traps and always exits 0.
 3. `createTestDir({ skipInstall: true })` means the temp app has no
    `node_modules`, so the deploy script installs it — and `pnpm install` prunes
    directories it does not know about, which is why the adapter is copied in
-   *after*.
+   _after_.
 
 Adapter injection needs no fixture cooperation: `NEXT_ADAPTER_PATH` is read
 straight into `config.adapterPath` (`next/dist/esm/server/config-shared.js`), and
@@ -1457,7 +1456,7 @@ bundled `.mjs` files) — the same trick as `examples/app-playground`'s `prebuil
 ### Headline finding: the deployment URL cannot have a path prefix
 
 The plan assumed API Gateway's mandatory stage prefix would cost us a documentable
-*class* of excluded tests. It is worse than that: it excludes everything.
+_class_ of excluded tests. It is worse than that: it excludes everything.
 `getFullUrl` in `test/lib/next-test-utils.ts` assigns `parsedUrl.pathname =
 parsedPathQuery.pathname` outright, and `base.ts` builds `new URL(url, this.url)`.
 Any prefix in the deployment URL is discarded, so every absolute path a test
@@ -1468,7 +1467,7 @@ URL** (`authType: NONE`, `invokeMode: RESPONSE_STREAM`) on the same server
 function: origin root, same Lambda, same adapter output, same `src/runtime`
 entrypoint. The API Gateway is still in the stack and its URL is a `ApiUrl` output
 for debugging by hand. Rejected alternatives: injecting a matching `basePath` (the
-harness strips it anyway), CloudFront (5–15 min to create *and* to delete, times
+harness strips it anyway), CloudFront (5–15 min to create _and_ to delete, times
 one per test file), an HTTP API `$default` stage (no S3 integration), a custom
 domain (no domain or certificate to use).
 
@@ -1485,7 +1484,7 @@ of it, so the first smoke run 404'd on every client chunk while
 build` and `cdk deploy`. It reads the adapter's build-time
 `<distDir>/cdk-nextjs-adapter/manifest.json`, **not** the per-entrypoint
 `cdk-nextjs-runtime/manifest.json` — those, and the runtime shells beside them,
-are written by *synth*, so keying off them silently copied nothing (the bug the
+are written by _synth_, so keying off them silently copied nothing (the bug the
 second smoke run caught). It exits non-zero when it copies nothing, because the
 alternative symptom is "every test fails on its chunks".
 
@@ -1494,7 +1493,7 @@ What the harness therefore does not cover: the S3 routing itself.
 
 ### Cost model, and how the safety works
 
-One temp app per test *file* means one CDK deploy per test file, ~2 minutes
+One temp app per test _file_ means one CDK deploy per test file, ~2 minutes
 observed. Hence: regional functions only, nightly rather than per-commit, and an
 explicit include list rather than next.js's `test/e2e/**`.
 
@@ -1542,21 +1541,21 @@ shaped like a harness temp app (`package.json` with `packageManager` pinned, a
 `post-build` that prints the three markers, and `/`, `/ssr` force-dynamic,
 `/api/hello`):
 
-| step | result |
-| --- | --- |
-| `pnpm install` into a `skipInstall` app | ok |
-| adapter copied in, `NEXT_ADAPTER_PATH` honoured | `Applying modifyConfig from cdk-nextjs-adapter`, `Running onBuildComplete` |
-| markers | `BUILD_ID: build-TfctsWXpff2fKS`, `DEPLOYMENT_ID: hrns-…`, `NEXT_SUPPORTS_IMMUTABLE_ASSETS: 0` — the DEPLOYMENT_ID proving our env var reaches the fixture's own `post-build` |
-| `stage-static.js` | `.next/static` → staged tree |
-| `cdk deploy` | `✅` in 113 s, stdout carried the Function URL and nothing else |
-| `GET /` | 200 HTML |
-| `GET /ssr` | 200, body differs between requests — a real dynamic render |
-| `GET /api/hello` | 200 JSON |
-| `GET /_next/static/chunks/*.js` | 200 `application/javascript` |
-| `GET /does-not-exist` | 404 with the app's own 404 |
-| `e2e-logs.sh` | exit 0, markers first, then build/deploy tails and the CloudWatch tail |
-| `e2e-cleanup.sh` | delete requested; stack gone |
-| `e2e-sweep.sh` | dry run listed exactly the two harness stacks and nothing else; `--apply` deleted the orphan |
+| step                                            | result                                                                                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install` into a `skipInstall` app         | ok                                                                                                                                                                            |
+| adapter copied in, `NEXT_ADAPTER_PATH` honoured | `Applying modifyConfig from cdk-nextjs-adapter`, `Running onBuildComplete`                                                                                                    |
+| markers                                         | `BUILD_ID: build-TfctsWXpff2fKS`, `DEPLOYMENT_ID: hrns-…`, `NEXT_SUPPORTS_IMMUTABLE_ASSETS: 0` — the DEPLOYMENT_ID proving our env var reaches the fixture's own `post-build` |
+| `stage-static.js`                               | `.next/static` → staged tree                                                                                                                                                  |
+| `cdk deploy`                                    | `✅` in 113 s, stdout carried the Function URL and nothing else                                                                                                               |
+| `GET /`                                         | 200 HTML                                                                                                                                                                      |
+| `GET /ssr`                                      | 200, body differs between requests — a real dynamic render                                                                                                                    |
+| `GET /api/hello`                                | 200 JSON                                                                                                                                                                      |
+| `GET /_next/static/chunks/*.js`                 | 200 `application/javascript`                                                                                                                                                  |
+| `GET /does-not-exist`                           | 404 with the app's own 404                                                                                                                                                    |
+| `e2e-logs.sh`                                   | exit 0, markers first, then build/deploy tails and the CloudWatch tail                                                                                                        |
+| `e2e-cleanup.sh`                                | delete requested; stack gone                                                                                                                                                  |
+| `e2e-sweep.sh`                                  | dry run listed exactly the two harness stacks and nothing else; `--apply` deleted the orphan                                                                                  |
 
 Static checks: `bash -n` on all five shell files, `node --check` on both JS files,
 `cdk synth` of `app.js` against `examples/app-playground` (one `AWS::Lambda::Url`
@@ -1586,3 +1585,150 @@ Gateway.
    checkout, or a first nightly run.
 2. `healthCheckPath` (step 8's exit criterion 3) is still open, and
    `s3KeyToInvalidationPath`'s `basePath` gap is still deferred to its own change.
+
+## Step 10b — `refactor: one shared harness stack on NextjsGlobalFunctions`
+
+### Why this exists
+
+Two things forced it, in this order.
+
+**A security finding.** The harness's CDK app gave the server Lambda a Function
+URL with `FunctionUrlAuthType.NONE` so that the next.js test suite — which signs
+nothing — could reach it. Amazon's Palisade detector reported the function as
+world accessible, Epoxy auto-mitigated it, and a ticket was filed against the
+account. The user's instruction: "never do that again." The product itself was
+never affected; `src/nextjs-compute/nextjs-functions.ts` only ever creates
+`AWS_IAM` Function URLs, and this was harness-only code added in step 10.
+
+**Cost.** The step-10 design deployed and deleted a stack per test file (~3-4
+minutes each, plus the delete), which is most of a run's wall clock.
+
+### What changed
+
+`NextjsRegionalFunctions` + a public Function URL → **`NextjsGlobalFunctions`, one
+long-lived stack, `cdk deploy --hotswap-fallback`.**
+
+CloudFront is served at the origin root, which is the property the harness needs
+(`getFullUrl` in `test/lib/next-test-utils.ts` assigns `pathname` outright, so a
+deployment URL with a path prefix is silently truncated — which is what ruled out
+API Gateway's mandatory `/<stage>` in the first place). Getting that from
+CloudFront instead of from a bare Function URL means:
+
+- No unauthenticated endpoint exists at all. The distribution fronts an `AWS_IAM`
+  Function URL with OAC, exactly as a real `NextjsGlobalFunctions` deployment does.
+- `_next/static` and `public/` are answered by the `NextjsStaticAssets` bucket, so
+  `scripts/e2e-harness/stage-static.js` (added in step 10 to paper over a Function
+  URL's lack of an S3 integration) is **deleted**, and the coverage gap it
+  documented — the S3 routing itself — is closed rather than written down.
+- One distribution is created per _run_ rather than per test file.
+
+An intermediate design was written and then thrown away: keep Regional, set the
+Function URL to `AWS_IAM`, and put a localhost SigV4-signing proxy
+(`sigv4-proxy.js`) in front of it so nothing public existed. It worked on paper
+and would have been the cheapest per-file, but CloudFront makes it unnecessary.
+Deleted before commit; noted here because it is the obvious first idea.
+
+### Files
+
+| File                                  | Change                                                                                                                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/e2e-harness/app.js`          | `NextjsGlobalFunctions`; `HarnessUrl`/`DistributionId`/`ServerFunctionName` outputs; post-deploy custom-resource properties pinned; stack tag no longer carries a timestamp |
+| `scripts/e2e-harness/common.sh`       | `harness_app_id` extracted; `harness_stack_name` returns the shared `hrns-shared` unless `HARNESS_ISOLATED_STACK=1`; new `harness_stack_output`                             |
+| `scripts/e2e-deploy.sh`               | `--hotswap-fallback`; invalidate + wait after deploy; `NEXT_DEPLOYMENT_ID` per app dir rather than per stack; no more `stage-static.js`                                     |
+| `scripts/e2e-cleanup.sh`              | keeps the shared stack; deletes only under `HARNESS_ISOLATED_STACK=1`                                                                                                       |
+| `scripts/e2e-logs.sh`                 | reads outputs through `harness_stack_output`                                                                                                                                |
+| `scripts/e2e-harness/stage-static.js` | **deleted**                                                                                                                                                                 |
+| `.github/workflows/e2e-harness.yml`   | comments corrected; the final sweep is now the thing that deletes the stack, not a backstop                                                                                 |
+
+### Measured
+
+`cdk synth` of `app.js` against two different already-built example apps
+(`examples/app-playground`, `examples/pages-i18n`) into the same stack name, then
+a property-level diff of the two templates. Exactly five resources differ:
+
+| Resource                                      | Changed properties                               | Hotswappable |
+| --------------------------------------------- | ------------------------------------------------ | ------------ |
+| `AWS::Lambda::Function`                       | `Code`, `Environment`                            | yes          |
+| `Custom::CDKBucketDeployment` (static assets) | `SourceObjectKeys`, `UserMetadata`               | yes          |
+| `Custom::CDKBucketDeployment` (init cache)    | `SourceObjectKeys`, `DestinationBucketKeyPrefix` | yes          |
+| `AWS::S3::Bucket` (cache bucket)              | `Tags`                                           | **no**       |
+| `AWS::CloudFront::Distribution`               | `DistributionConfig.CacheBehaviors`              | **no**       |
+
+Both non-hotswappable diffs were root-caused rather than guessed:
+
+1. **The cache bucket's tags.** `aws-cdk-lib/aws-s3-deployment` stamps
+   `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>` on a `BucketDeployment`'s
+   destination bucket _unconditionally_ — there is no `prune` guard on that line —
+   and `src/nextjs-cache.ts:132` uses the build ID as that prefix. So any fixture
+   with a `.next/cdk-nextjs-init-cache` has a non-hotswappable diff, by
+   construction. A fixture without one has no init-cache deployment and does
+   hotswap.
+2. **The distribution's cache behaviors.** `public/` entries become behaviors
+   (`addStaticBehaviors`), so a fixture whose `public/` differs from the previous
+   one's changes the distribution. Observed directly: app-playground contributes
+   `static/*` and `test.txt`, pages-i18n contributes neither.
+
+**So the headline claim is narrower than "hotswap per test file", and the docs say
+so.** Most test files will take the CloudFormation fallback. The saving that
+survives is the one that mattered: a CloudFront distribution is created and
+propagated once per run (~12 min) instead of once per test file, and a
+CloudFormation update that leaves the distribution alone costs a couple of
+minutes. The pinned custom resource and `--hotswap-fallback` are kept because
+they are free and do take the fast path on fixtures with no init cache.
+
+Also verified in the synthesized template: `AWS::Lambda::Url` is `AWS_IAM` (the
+finding is gone), the post-deploy custom resource's properties are
+`buildId: "harness"` with no `createInvalidationCommandInput`, and the three
+outputs are present. `post-deploy.lambda.ts` guards on that property being
+absent, which is what makes dropping it safe. `bash -n` on all five shell files,
+`node --check` on `app.js`, prettier clean.
+
+### Decisions
+
+1. **Invalidation moved out of the custom resource and into the deploy script.** A
+   hotswap never runs CloudFormation and so never runs a custom resource; and the
+   CR's default `createInvalidationCommandInput` carries a
+   `new Date().toISOString()` caller reference, which would itself force a
+   CloudFormation deployment every time. So the script owns it: one
+   `create-invalidation --paths '/*'` plus `wait invalidation-completed`, before
+   the URL is reported. Blocking, because the first request the harness makes is
+   the one that would otherwise read the previous fixture's response.
+2. **`NEXT_DEPLOYMENT_ID` is now per app directory, not per stack.** With one
+   shared stack the stack name is a constant, and two builds sharing a deployment
+   ID is exactly the skew `?dpl=` exists to detect.
+3. **The stack tag lost its timestamp.** A tag value that changed per deploy is a
+   stack-level diff, i.e. a CloudFormation update, on every run. The sweeper ages
+   stacks off CloudFormation's own `CreationTime`, which it already did.
+4. **`e2e-cleanup.sh` is a deliberate no-op in shared mode**, and the workflow's
+   final `always()` sweep with `HARNESS_SWEEP_MAX_AGE_HOURS: 0` is now the thing
+   that deletes the stack rather than a backstop. `HARNESS_ISOLATED_STACK=1`
+   restores per-file stacks and per-file deletes.
+5. **`-c 1` is now load-bearing, not a tuning choice.** Two concurrent deploys
+   into one stack would race.
+
+### Verified vs. assumed
+
+Verified: the template-level premise of the whole change (which resources differ
+between two real fixtures, and which of those CDK can hotswap — read out of the
+bundled CLI's `isHotswappableLambdaFunctionChange`, whose allowlist is
+`["Code", "Environment", "Description"]`, plus its `Custom::CDKBucketDeployment`
+support). Verified that no public endpoint remains in the harness app.
+
+Assumed still: the per-file wall clock, which needs a real run to measure — no AWS
+call was made in this step, because the session's credentials needed `mwinit`. And
+still nothing has executed an official next.js test.
+
+### Not done
+
+1. **Step 8's exit criterion 2 remains unmet** — the official suite still has not
+   been run. Unchanged from step 10.
+2. **The account was not re-checked for leftovers.** The Palisade finding named
+   `hrns-next-test-1790029643-...`, which belonged to a step-10 smoke stack that
+   was deleted in that step, so the finding should be historical — but this was
+   not confirmed, because `aws` calls failed with "You need to authenticate with
+   Midway". Worth one `list-stacks --stack-status-filter ... 'hrns-*'` plus a
+   Function-URL auth-type sweep after `mwinit`.
+3. The two caveats a first run will need triage for, both documented in the
+   harness README: the dynamic cache policy's ~10-header allowlist (a real
+   CloudFront quota limitation, not a regression), and fixtures whose `public/`
+   differs paying a distribution propagation.

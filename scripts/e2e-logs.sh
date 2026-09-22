@@ -38,8 +38,8 @@ fi
 
 # Runtime logs: a deployment that came up but answers wrongly leaves its
 # evidence in CloudWatch, not in either log above.
-if [ -f "$HARNESS_OUTPUTS_FILE" ]; then
-  FUNCTION_NAME="$(harness_read_output "$HARNESS_OUTPUTS_FILE" ServerFunctionName)"
+if [ -f "$HARNESS_STACK_FILE" ]; then
+  FUNCTION_NAME="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$(cat "$HARNESS_STACK_FILE")" ServerFunctionName)"
   if [ -n "$FUNCTION_NAME" ]; then
     echo "=== /aws/lambda/$FUNCTION_NAME (last ${HARNESS_LOG_SINCE:-30m}) ==="
     aws logs tail "/aws/lambda/$FUNCTION_NAME" \

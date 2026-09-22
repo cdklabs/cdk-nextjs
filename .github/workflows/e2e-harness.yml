@@ -1,10 +1,10 @@
 # Runs vercel/next.js's own e2e suite against a real cdk-nextjs deployment, via
 # the Next.js adapter compatibility harness.
 #
-# Not a per-commit gate - the harness deploys a separate stack per test file, so
-# a run costs one CDK deploy per file. `e2e-tests.yml` stays the per-commit gate
-# on all four NextjsTypes; this is the correctness signal that no fixture app of
-# ours could give. See scripts/e2e-harness/README.md.
+# Not a per-commit gate - a run builds and ships a deployment per test file, even
+# though they all share one stack. `e2e-tests.yml` stays the per-commit gate on
+# all four NextjsTypes; this is the correctness signal that no fixture app of ours
+# could give. See scripts/e2e-harness/README.md.
 name: e2e-harness
 on:
   workflow_dispatch:
@@ -23,8 +23,8 @@ on:
     - cron: "0 6 * * *"
 
 concurrency:
-  # Never two runs at once: concurrent runs would each deploy a stack per test
-  # file into the same account.
+  # Never two runs at once: they would deploy different apps into the same shared
+  # stack and each would see the other's.
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
@@ -92,15 +92,17 @@ jobs:
           NEXT_TEST_DEPLOY_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-deploy.sh
           NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-logs.sh
           NEXT_TEST_CLEANUP_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-cleanup.sh
-        # `-c 1`: concurrency here is concurrent CDK deploys, and the manifest is
-        # a short list of files. Raise it with the list.
+        # `-c 1` is mandatory, not a tuning choice: every test file deploys into
+        # the same stack, so two at once would race. See
+        # `harness_stack_name` in scripts/e2e-harness/common.sh.
         run: node run-tests.js --timings -c 1 --type e2e
 
-      - name: Delete any stack the cleanup script missed
+      - name: Delete the shared stack
         if: ${{ always() }}
-        # The per-test cleanup does not wait for the delete to finish, so this is
-        # both a backstop for failed cleanups and the only place a run confirms
-        # the account is empty again.
+        # `e2e-cleanup.sh` keeps the stack alive between test files on purpose, so
+        # this is the step that actually deletes it - not a backstop. The age
+        # floor is dropped to 0 because the stack was created minutes ago by this
+        # very run.
         run: ./scripts/e2e-sweep.sh --apply
         env:
           HARNESS_SWEEP_MAX_AGE_HOURS: 0
