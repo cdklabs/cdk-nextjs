@@ -45,6 +45,12 @@ import { getNodeArchitecture } from "../utils/get-architecture";
  */
 const LAMBDA_UNZIPPED_LIMIT_BYTES = 250 * 1024 * 1024;
 
+/**
+ * First line of a client chunk that `patchFetchInClientJs` has already
+ * prepended to, so a second synth over the same `.next` is a no-op.
+ */
+const PATCH_FETCH_MARKER = "/* cdk-nextjs:patch-fetch */";
+
 const debug = getDebug("cdk-nextjs:nextjs-build");
 
 export interface NextjsBuildProps {
@@ -191,6 +197,16 @@ export class NextjsBuild extends Construct {
       this.runNextBuild();
     } else {
       debug(`${LOG_PREFIX} Skipping: ${this.buildCommand}`);
+    }
+
+    // Deliberately outside the `skipBuild` gate. The patch is a property of
+    // *serving* through CloudFront, not of who ran `next build`: without it
+    // every POST with a body is rejected by the Lambda Function URL before it
+    // reaches the app (see `patchFetchInClientJs`). Running it only inside
+    // `runNextBuild` meant `skipBuild: true` silently shipped an app whose
+    // server actions and POST route handlers all returned 403.
+    if (props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
+      this.patchFetchInClientJs();
     }
 
     this.buildId = this.getBuildId();
@@ -529,18 +545,30 @@ export class NextjsBuild extends Construct {
             : {}),
         },
       });
-
-      // Copy patch-fetch.js into client JS bundle after build only for NextjsGlobalFunctions
-      if (this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
-        this.patchFetchInClientJs();
-      }
     } catch (error) {
       throw new Error(`Local build failed: ${error}`);
     }
   }
 
   /**
-   * Find entrypoint client side js files to patch `fetch` only for NextjsGlobalFunctions
+   * Prepend `patch-fetch.js` to the client entrypoint chunks, for
+   * `NextjsGlobalFunctions` only.
+   *
+   * This is what makes POST work at all on that type. CloudFront reaches the
+   * server through a Lambda Function URL with `AuthType: AWS_IAM`, signed by an
+   * origin access control, and AWS documents the consequence: "If you use PUT or
+   * POST methods with your Lambda function URL, your users must compute the
+   * SHA256 of the body and include the payload hash value of the request body in
+   * the `x-amz-content-sha256` header when sending the request to CloudFront.
+   * Lambda doesn't support unsigned payloads."
+   *
+   * CloudFront signs GETs itself (empty-body hash) but will not hash a body, and
+   * a browser has no way to add that header on its own, so an unpatched app
+   * answers every server action, form submission and POST route handler with
+   * `403 InvalidSignatureException` before the request reaches Next.js. The
+   * patch installs `fetch`/`XMLHttpRequest` wrappers that compute the hash.
+   *
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
    */
   private patchFetchInClientJs() {
     const staticChunksPath = join(this.dotNextPath, "static", "chunks");
@@ -563,11 +591,19 @@ export class NextjsBuild extends Construct {
 
     const patchFetchContent = readFileSync(patchFetchPath, "utf-8");
 
-    // Prepend patch-fetch logic to each entrypoint
+    // Prepend patch-fetch logic to each entrypoint, once. Now that this runs
+    // outside `runNextBuild`, the same `.next` can be synthesized more than
+    // once (`skipBuild: true`, `cdk synth` then `cdk deploy`, a retried
+    // deploy), and prepending twice would re-wrap the wrappers.
     for (const chunkFile of chunkFiles) {
       const chunkFilePath = join(staticChunksPath, chunkFile);
       const originalContent = readFileSync(chunkFilePath, "utf-8");
-      const patchedContent = patchFetchContent + "\n" + originalContent;
+      if (originalContent.startsWith(PATCH_FETCH_MARKER)) {
+        debug(`${LOG_PREFIX} Already patched, skipping: ${chunkFilePath}`);
+        continue;
+      }
+      const patchedContent =
+        PATCH_FETCH_MARKER + "\n" + patchFetchContent + "\n" + originalContent;
       writeFileSync(chunkFilePath, patchedContent);
     }
   }

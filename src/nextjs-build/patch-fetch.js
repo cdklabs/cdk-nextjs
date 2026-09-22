@@ -1,5 +1,14 @@
-// Patch fetch to add x-amz-content-sha256 header for AWS S3 requests
-// This is required for S3 cache operations to work correctly with AWS signature v4
+// Patch `fetch`/`XMLHttpRequest` to add the `x-amz-content-sha256` header to
+// same-origin POST/PUT requests. Required by `NextjsGlobalFunctions`, whose
+// server is a Lambda Function URL with `AuthType: AWS_IAM` behind a CloudFront
+// origin access control: CloudFront signs the origin request with SigV4 but will
+// not hash a request body, and Lambda rejects unsigned payloads. Without this
+// header every server action, form submission and POST route handler is answered
+// `403 InvalidSignatureException` before it reaches Next.js.
+//
+// See src/nextjs-build/nextjs-build.ts `patchFetchInClientJs`, which prepends
+// this file to the client entrypoint chunks, and
+// https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
 
 async function sha256(data) {
   const msgBuffer =
