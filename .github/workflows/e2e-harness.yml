@@ -96,6 +96,13 @@ jobs:
           NEXT_E2E_TEST_TIMEOUT: 240000
           NEXT_EXTERNAL_TESTS_FILTERS: ${{ env.TEST_FILTERS }}
           IS_TURBOPACK_TEST: 1
+          # cdk-nextjs *is* an adapter deployment, and next.js's suite asks. Ten
+          # e2e files branch on this, most of them by way of
+          # `skipDeployment: !isAdapterTest` - left unset they report a pass in
+          # ~5s having deployed nothing. Only the Vercel deploy path reads it for
+          # anything else (a team and token), and a custom deploy script never
+          # reaches that path.
+          NEXT_ENABLE_ADAPTER: 1
           NEXT_TEST_JOB: 1
           NEXT_TELEMETRY_DISABLED: 1
           ADAPTER_DIR: ${{ github.workspace }}

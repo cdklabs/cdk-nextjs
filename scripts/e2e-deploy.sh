@@ -68,6 +68,17 @@ export NEXT_ADAPTER_PATH="$APP_DIR/$LOCAL_PKG/lib/adapter/adapter.mjs"
 # sharing a deployment ID is exactly the skew this is supposed to detect.
 export NEXT_DEPLOYMENT_ID="$(harness_app_id "$APP_DIR")"
 export NEXT_TELEMETRY_DISABLED=1
+# The harness appends a snippet to every fixture's next.config that aliases this
+# to `__NEXT_TEST_MODE` (`test/lib/next-modes/base.ts`, "alias __NEXT_TEST_MODE
+# for next-deploy"), and `define-env.ts` inlines `process.env.__NEXT_TEST_MODE`
+# into the server bundle at build time. Unset, it inlines as `false` and the
+# test-only branches are dead-code eliminated - including the
+# `<!-- PPR_BOUNDARY_SENTINEL -->` chunk that separates a PPR response's static
+# shell from its dynamic part. `splitResponseWithPPRSentinel`
+# (`test/lib/e2e-utils/ppr.ts`) then puts the entire document in `staticPart`, and
+# every `expect(result.static$('#dynamic-thing').length).toBe(0)` fails. Vercel
+# passes it as `--build-env NEXT_PRIVATE_TEST_MODE=e2e`; this is the same thing.
+export NEXT_PRIVATE_TEST_MODE=e2e
 
 echo "harness: building with NEXT_ADAPTER_PATH=$NEXT_ADAPTER_PATH"
 "${PNPM[@]}" build 2>&1 | tee "$HARNESS_BUILD_LOG"

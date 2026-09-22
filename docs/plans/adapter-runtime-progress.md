@@ -3006,3 +3006,68 @@ banks its other 3 (verified green, retry 0, 123s).
 
 Coverage record: 51 files screened, 31 whole files in `rules.include`, 3 more in
 part, 9 fixed defects, 1 open bug (`assetPrefix`), 465 candidates left.
+
+### Batches 3 and 4: twelve more files banked, three defects, two harness gaps
+
+Twenty-five file-runs across two batches, widening into error boundaries, client
+navigation, metadata, and PPR/fallback-shell behavior. Twelve files went green and
+are in `rules.include`: `catch-error`, `error-boundary-navigation`,
+`global-error/basic`, `interception-dynamic-single-segment`, `metadata-navigation`,
+`not-found-with-pages-i18n`, `optimistic-routing`, `pages-router-app-not-found`,
+`router-autoscroll`, `shallow-routing`, `static-siblings`,
+`use-selected-layout-segment-s`. That takes the record to 43 whole files plus 3 in
+part, out of 72 screened.
+
+`router-autoscroll` is the one that needed retry 1 — the fixture's own scroll
+assertions, no cdk-nextjs error on either attempt. Listed, because the harness runs
+with `--retries 1`, but flagged in `docs/harness-coverage.md` as the file to
+suspect first if a nightly goes red for no other reason.
+
+**Defect 10, the one that mattered: every fixture shared one cache namespace.**
+`error-boundary-navigation` (5 of 7) and `metadata-navigation` (1 of 7) were
+serving *another fixture's* `/_not-found` page. `next/dist/build/index.js`'s
+`getBuildId()` returns the literal constant `build-TfctsWXpff2fKS` whenever
+`config.deploymentId` is set — deliberately, so tools can `.replace()` it — and
+`scripts/e2e-deploy.sh` sets `NEXT_DEPLOYMENT_ID` per fixture. cdk-nextjs keys its
+entire cache partition off `buildId` (S3 prefix, DynamoDB pk, static-asset
+metadata, post-deploy pruning and seeding), so every app that turned on skew
+protection shared one namespace. Fixed by suffixing the deployment id; verified by
+one S3 prefix per fixture and both files going 7 of 7.
+
+Two more defects, both found and fixed the same way but verified against a re-run
+that was still in flight at this commit: **11**, an unmatched optional catchall
+arriving as `nxtPparams: ""` and making a layout render a segment nobody requested
+(`layout-params`, 1 of 6 — fixed in `repairRouteParamQuery`, unit-tested); and
+**12**, static metadata routes going out as `application/octet-stream` because they
+are staged as `<route>.body` and `send` types from the file's extension
+(`use-cache-metadata-route-handler`, 3 of 10 — fixed in `setBodyFileContentType`).
+Both are written up in full in `docs/harness-coverage.md`.
+
+**Two harness gaps, neither a product defect.** First,
+`skipDeployment: !isAdapterTest`: ten e2e files gate on `NEXT_ENABLE_ADAPTER`, and
+unset they report a pass in ~5s having deployed nothing — which is how
+`partial-fallback-shell-upgrade` "passed" in 5.361s and then produced four real
+failures once the flag was set. Second, and the reason those failures existed at
+all: the PPR tests split a response on a literal `<!-- PPR_BOUNDARY_SENTINEL -->`
+chunk that `app-page-runtime.ts` emits only under `__NEXT_TEST_MODE`, which
+`define-env.ts` inlines at build time. Unset, the branch is dead-code eliminated,
+the whole document lands in `staticPart`, and every "this should only be in the
+dynamic part" assertion fails. Vercel passes `--build-env
+NEXT_PRIVATE_TEST_MODE=e2e`; `e2e-deploy.sh` now exports the same thing. That one
+env var is the whole explanation for `partial-fallback-root-blocking` (1 of 1),
+`partial-fallback-shell-upgrade` (4 of 7) and `sub-shell-generation` (6 of 7).
+
+**Two open bugs added, neither root-caused.**
+`parallel-routes-root-param-dynamic-child` (10 of 14) times out on
+`waitForSelector('#reveal')` — a client-component checkbox in a root-params app
+with no `app/layout.tsx` — with resource 404s in the browser log.
+`incremental-cache-path-traversal` (1 of 1) answers 500 where upstream expects a
+200 rendering the traversal segments as literal params; nothing leaks, so it is a
+fidelity gap rather than a security one. It is also a screen false positive worth
+knowing about: its `describe.skip` is conditional on `__NEXT_CACHE_COMPONENTS`,
+which the harness does not set, so the file does run.
+
+Coverage record: 72 files screened, 43 whole files in `rules.include`, 3 more in
+part, 12 fixed defects, 3 open bugs (`assetPrefix`,
+`parallel-routes-root-param-dynamic-child`, `incremental-cache-path-traversal`),
+454 candidates left.

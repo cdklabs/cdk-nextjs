@@ -265,6 +265,11 @@ export NEXT_TEST_DEPLOY_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-deploy.sh"
 export NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-logs.sh"
 export NEXT_TEST_CLEANUP_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-cleanup.sh"
 export IS_TURBOPACK_TEST=1 NEXT_TELEMETRY_DISABLED=1
+# Not optional either. cdk-nextjs is an adapter deployment and ten e2e files ask,
+# most of them as `skipDeployment: !isAdapterTest` - left unset they report a pass
+# in ~5s having deployed nothing. The only other thing that reads it is the Vercel
+# deploy path (a team and token), which a custom deploy script never reaches.
+export NEXT_ENABLE_ADAPTER=1
 # Not optional. next.js defaults this to 120s and `createNext` runs inside jest's
 # `beforeAll`, so everything below is charged against it: isolating the fixture,
 # `pnpm install`, `next build`, `cdk deploy` (~52s even when it hotswaps), and the
