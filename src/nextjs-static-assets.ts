@@ -83,9 +83,11 @@ export class NextjsStaticAssets extends Construct {
   }
 
   /**
-   * Mirrors how `createDeployment` resolves `destinationKeyPrefix` (including
-   * the `bucketDeploymentProps` override winning, since it's spread last) so
-   * `keyPrefix` can't drift from where the assets land.
+   * Resolves the single prefix both the upload and the URLs use. A
+   * `bucketDeploymentProps.destinationKeyPrefix` override wins over `basePath`,
+   * but it's normalized here and `createDeployment` sets the normalized value
+   * after the override spread, so `keyPrefix` can't drift from where the assets
+   * land.
    */
   private resolveKeyPrefix(): string {
     const deploymentOverrides = this.props.overrides?.bucketDeploymentProps;
@@ -123,7 +125,6 @@ export class NextjsStaticAssets extends Construct {
     return new BucketDeployment(this, "Deployment", {
       sources: [Source.asset(this.stagingDir)],
       destinationBucket: this.bucket,
-      destinationKeyPrefix: this.keyPrefix || undefined,
       // Add BUILD_ID as metadata to all objects for version tracking
       metadata: {
         BUILD_ID: this.props.buildId,
@@ -131,6 +132,11 @@ export class NextjsStaticAssets extends Construct {
       prune: false, // Don't delete existing assets to prevent 404s during deployment, pruning will be handled by post-deploy
       // S3Deployment automatically detects content types based on file extensions
       ...this.props.overrides?.bucketDeploymentProps,
+      // Set after the spread: `resolveKeyPrefix` already folded in any
+      // `destinationKeyPrefix` override, so this is the normalized form of it.
+      // Letting the raw override through here would upload the assets somewhere
+      // other than the `keyPrefix` used to build their URLs.
+      destinationKeyPrefix: this.keyPrefix || undefined,
     });
   }
 
