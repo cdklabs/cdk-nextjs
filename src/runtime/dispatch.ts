@@ -469,8 +469,21 @@ function withTrailingSlashVariants(pathnames: string[]): string[] {
  * destinations that interpolate their own query values. Those are not route
  * params and are left alone — there is no second source of truth to repair them
  * from.
+ *
+ * The second correction is the opposite shape: a param the route *has* but the
+ * request did not fill. An optional catchall's group is the only one a match can
+ * leave unset — `^/optional\-catchall(?:/(?<nxtPparams>.+?))?(?:/)?$` against
+ * `/optional-catchall` — and the expansion substitutes the unset group with the
+ * empty string, so the query says `nxtPparams=""` where `routeMatches` correctly
+ * says nothing at all. Next.js turns that into `params.params = [""]`, one
+ * segment long, and a layout reading `params` renders a segment that was never
+ * requested; `next start` gives it no `params` key at all. Measured against
+ * `test/e2e/app-dir/layout-params`, whose fixture is
+ * `app/optional-catchall/[[...params]]`. No other param shape can be legitimately
+ * empty — a required segment captures `[^/]+?` and a required catchall `.+?` —
+ * so an empty value `routeMatches` does not vouch for is always this.
  */
-function repairRouteParamQuery(
+export function repairRouteParamQuery(
   query: ResolveRoutesQuery,
   routeMatches: Record<string, string>,
 ): ResolveRoutesQuery {
@@ -480,6 +493,12 @@ function repairRouteParamQuery(
     if (!(key in query) || query[key] === value) continue;
     repaired ??= { ...query };
     repaired[key] = value;
+  }
+  for (const [key, value] of Object.entries(repaired ?? query)) {
+    if (!key.startsWith("nxtP") || value !== "") continue;
+    if (routeMatches[key]) continue;
+    repaired ??= { ...query };
+    delete repaired[key];
   }
   return repaired ?? query;
 }

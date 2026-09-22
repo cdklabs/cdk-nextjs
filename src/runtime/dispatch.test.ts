@@ -4,6 +4,7 @@ import {
   createDispatcher,
   DispatchRequest,
   Dispatcher,
+  repairRouteParamQuery,
   toRedirect,
 } from "./dispatch";
 import { AdapterManifest } from "./manifest";
@@ -467,5 +468,36 @@ describe("Dispatcher middleware handling", () => {
     expect(() =>
       createDispatcher({ manifest: manifests["pages-i18n"] }),
     ).not.toThrow();
+  });
+});
+
+describe("repairRouteParamQuery", () => {
+  it("drops an optional catchall's param when the request filled none", () => {
+    // What `resolveRoutes` returns for `/optional-catchall` against
+    // `app/optional-catchall/[[...params]]`: the destination expansion
+    // substitutes the unset group with "", and `routeMatches` names nothing.
+    expect(repairRouteParamQuery({ nxtPparams: "" }, {})).toEqual({});
+    // A filled one is left alone, whichever source it came from.
+    expect(
+      repairRouteParamQuery({ nxtPparams: "a/b" }, { nxtPparams: "a/b" }),
+    ).toEqual({ nxtPparams: "a/b" });
+    // No route param can be legitimately empty - a required segment captures
+    // `[^/]+?`, a required catchall `.+?`, and an optional catchall that matched
+    // nothing has no group for `routeMatches` to report - so an empty value goes
+    // whether or not `routeMatches` echoes it.
+    expect(repairRouteParamQuery({ nxtPid: "" }, { nxtPid: "" })).toEqual({});
+    // Not a route param, so not ours to touch.
+    expect(repairRouteParamQuery({ q: "" }, {})).toEqual({ q: "" });
+  });
+
+  it("repairs and drops in one pass", () => {
+    // The prefix collision and the unset optional catchall in the same query:
+    // `nxtPid2` is wrong and `nxtPrest` was never requested.
+    expect(
+      repairRouteParamQuery(
+        { nxtPid: "a", nxtPid2: "a2", nxtPrest: "" },
+        { nxtPid: "a", nxtPid2: "b" },
+      ),
+    ).toEqual({ nxtPid: "a", nxtPid2: "b" });
   });
 });
