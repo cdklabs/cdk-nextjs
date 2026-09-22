@@ -1,10 +1,14 @@
 /* eslint-disable import/no-extraneous-dependencies */
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
   CachedRouteKind,
   IncrementalCacheKind,
 } from "next/dist/server/response-cache";
+import type { GetIncrementalFetchCacheContext } from "next/dist/server/response-cache";
 import CdkNextjsCacheHandler from "./cache-handler";
 
 // Mock AWS SDK clients
@@ -128,6 +132,62 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       // Clean up
       delete process.env.NEXT_PHASE;
       delete process.env.CDK_NEXTJS_BUILD_ID;
+    });
+
+    it("reads back a fetch entry it wrote, from memory and from disk", async () => {
+      // `cacheComponents` prerenders each page twice: the first pass runs the
+      // `fetch` and `set`s it, the second must find it already cached or Next.js
+      // fails the build with "encountered uncached or runtime data during
+      // prerendering". A write-only build-time handler therefore makes
+      // `cache: 'force-cache'` unbuildable - measured against next.js's
+      // `test/e2e/app-dir/resume-data-cache`.
+      process.env.NEXT_PHASE = "phase-production-build";
+      process.env.CDK_NEXTJS_INIT_CACHE_DIR = mkdtempSync(
+        join(tmpdir(), "cdk-nextjs-init-cache-"),
+      );
+      try {
+        const data: IncrementalCacheValue = {
+          kind: CachedRouteKind.FETCH,
+          data: {
+            headers: {},
+            body: "eyJyYW5kb20iOjF9",
+            status: 200,
+            url: "https://example.test/api/random",
+          },
+          revalidate: 31536000,
+        };
+        const fetchUrl = "https://example.test/api/random";
+        const setCtx = {
+          fetchCache: true as const,
+          tags: ["test"],
+          fetchUrl,
+          fetchIdx: 1,
+        };
+        const getCtx: GetIncrementalFetchCacheContext = {
+          kind: IncrementalCacheKind.FETCH,
+          revalidate: 31536000,
+          fetchUrl,
+          fetchIdx: 1,
+          tags: ["test"],
+        };
+        const buildHandler = new CdkNextjsCacheHandler(createMockContext());
+        await buildHandler.set("fetch-key", data, setCtx);
+        expect(await buildHandler.get("fetch-key", getCtx)).toMatchObject({
+          value: data,
+        });
+
+        // A second instance reads the file rather than the map: `next build`
+        // renders pages in worker processes, so the pass that writes and the
+        // pass that reads are not always the same process.
+        const otherWorker = new CdkNextjsCacheHandler(createMockContext());
+        expect(await otherWorker.get("fetch-key", getCtx)).toMatchObject({
+          value: data,
+        });
+        expect(await otherWorker.get("never-written", getCtx)).toBeNull();
+      } finally {
+        delete process.env.NEXT_PHASE;
+        delete process.env.CDK_NEXTJS_INIT_CACHE_DIR;
+      }
     });
 
     it("should initialize runtime handlers when not in build mode", () => {

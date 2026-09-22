@@ -96,8 +96,9 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null> {
     if (this.isBuildTime) {
-      // Build time doesn't read from cache
-      return null;
+      // Reads back what this build wrote, which `cacheComponents` prerendering
+      // requires; see {@link LocalFileCacheHandler.get}.
+      return this.localFileHandler?.get(cacheKey) ?? null;
     }
 
     // Runtime: try memory first
