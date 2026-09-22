@@ -57,24 +57,34 @@ fixtures:
 | `AWS::S3::Bucket`               | `Tags`                              | **no**       |
 | `AWS::CloudFront::Distribution` | `DistributionConfig.CacheBehaviors` | **no**       |
 
-So the honest expectation is that most test files take the CloudFormation
-fallback, not the hotswap path:
+That table predicted most files would take the CloudFormation fallback. Measured
+over a real 13-file run, they do not — **7 of 9 deploys hotswapped**, and only one
+of the two predicted blockers ever fires:
 
-- The cache bucket's `Tags` change because CDK stamps an
-  `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>` tag on a `BucketDeployment`'s
-  destination bucket, unconditionally, and `src/nextjs-cache.ts` uses the build ID
-  as that prefix. Any fixture with prerendered content therefore has a
-  non-hotswappable diff. (A fixture with no `.next/cdk-nextjs-init-cache` has no
-  init-cache deployment at all, and does hotswap.)
-- The distribution's cache behaviors change when a fixture's `public/` directory
-  differs from the previous one's, since `public/` entries become behaviors
-  (`src/nextjs-distribution.ts`). That is the expensive one — CloudFront has to
-  propagate.
+| Deploy path                                   | Count | Cost  |
+| --------------------------------------------- | ----- | ----- |
+| hotswap (function code + both buckets' contents) | 7  | ~52s  |
+| fallback, `DistributionConfig` rejected       | 2     | ~107s |
 
-A CloudFormation update that leaves the distribution alone still costs only a
-couple of minutes, against ~4 for a stack of its own plus a slow delete, so the
-shared stack is worth it either way. `--hotswap-fallback` is kept because it is
-free and takes the fast path when it can.
+- The **distribution** is the only real blocker. Its cache behaviors change when a
+  fixture's `public/` directory differs from the previous one's, since `public/`
+  entries become behaviors (`src/nextjs-distribution.ts`). CloudFront then has to
+  propagate, which is the expensive case.
+- The **cache bucket's `Tags`** never blocked a deploy in practice, despite the
+  `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>` tag CDK stamps on a
+  `BucketDeployment`'s destination bucket. `cdk deploy --hotswap-fallback`
+  hotswaps bucket *contents* and does not reject the tag diff.
+
+So `--hotswap-fallback` is the fast path most of the time, not a fallback in name
+only. Either way the shared stack wins: even a full CloudFormation update that
+leaves the distribution alone costs ~107s, against ~4 minutes for a stack of its
+own plus a slow delete.
+
+What that means for the timeout, because it is the single most common way to
+misread a run: a ~52s hotswap is **not** the whole `beforeAll`. Isolating the
+fixture, `pnpm install`, `next build` and the CloudFront invalidation wait are
+charged against `NEXT_E2E_TEST_TIMEOUT` too, and the sum passes 120s for most
+files even on the fast path. See "Running it locally".
 
 What the shared stack is paid for in:
 
@@ -220,7 +230,16 @@ export NEXT_TEST_DEPLOY_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-deploy.sh"
 export NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-logs.sh"
 export NEXT_TEST_CLEANUP_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-cleanup.sh"
 export IS_TURBOPACK_TEST=1 NEXT_TELEMETRY_DISABLED=1
-node run-tests.js --timings -c 1 --type e2e
+# Not optional. next.js defaults this to 120s and `createNext` runs inside jest's
+# `beforeAll`, so everything below is charged against it: isolating the fixture,
+# `pnpm install`, `next build`, `cdk deploy` (~52s even when it hotswaps), and the
+# CloudFront invalidation wait. Measured, that sums past 120s for most files, and
+# a file over budget fails *wholesale* on every retry with `Exceeded timeout of
+# 120000 ms for a hook` - which is indistinguishable from a real failure unless
+# you read the elapsed time. CI uses this same value
+# (.github/workflows/e2e-harness.yml).
+export NEXT_E2E_TEST_TIMEOUT=240000
+node run-tests.js --timings -c 1 --retries 1 --type e2e
 
 # back in cdk-nextjs: the shared stack is still up by design. Look, then delete.
 ./scripts/e2e-sweep.sh --dry-run
@@ -269,5 +288,6 @@ under a run in progress.
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper.                                                                             |
 | `HARNESS_SWEEP_APPLY`               | `0`                                  | Same as passing `--apply`.                                                                             |
 | `WARM_KEEP`                         | `0`                                  | Keep `e2e-warm.sh`'s throwaway app directory, whose deploy log says why warming failed.                |
+| `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. Use `240000`.   |
 
 [harness]: https://nextjs.org/docs/app/api-reference/adapters/testing-adapters
