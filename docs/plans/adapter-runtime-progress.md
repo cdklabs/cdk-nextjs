@@ -1842,3 +1842,65 @@ runs green, which only a first nightly will show.
    and the edge filter is known, but each file is still a deploy.
 3. The `healthCheckPath` API question (step 8 exit criterion 3) and the
    `s3KeyToInvalidationPath` basePath gap remain open, unchanged.
+
+## Final — exit criteria roll-up
+
+The plan's Status table says to record against the exit criteria in the last
+entry. This is that entry, written at the point the branch opens its PR. Every
+criterion from `docs/plans/adapter-runtime-release.md` "Exit criteria" is listed;
+nothing is dropped silently.
+
+| Plan exit criterion                                            | State                                                               |
+| -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Official harness green on the filtered manifest, stacks swept  | **met, on a different `NextjsType`** (1)                            |
+| All existing e2e suites green on all four types                | met (2)                                                             |
+| Middleware e2e proving interception on `_next/image`           | met — `examples/e2e-tests/src/middleware.test.ts`                   |
+| A PPR e2e; settles whether manual resume code is needed        | met — step 9; no manual resume code needed                          |
+| Response compression verified on both Functions types          | met — `headers.test.ts`, 2 of its 4 tests                           |
+| Cold-start measurement vs. the current path, lazy entrypoints  | met — step 8: init p50 2061 ms → 342 ms; end-to-end ~2.5 s → ~1.4 s |
+| `functionGroups` opt-in, documented, one e2e, README size note | met — `function-groups.test.ts`; `glbl-fns` CI runs split           |
+| `docs/breaking-changes.md` covering the removals               | met — step 8                                                        |
+| No env var, flag, or dead code path left from development      | met (3)                                                             |
+
+1. **Deviation, decided with the user and not a silent one.** The plan says
+   `NextjsRegionalFunctions`; the harness runs on `NextjsGlobalFunctions`. Cause:
+   `getFullUrl` in next.js's `test/lib/next-test-utils.ts` assigns
+   `parsedUrl.pathname` outright, so the mandatory API Gateway `/<stage>` prefix
+   is discarded and every absolute path the suite requests 404s. Not fixable from
+   our side. Rationale in `scripts/e2e-harness/README.md` ("Why
+   `NextjsGlobalFunctions`"). The criterion's substance — the official suite green
+   against a real deployment, every exclusion documented, stacks verifiably gone —
+   holds: two files pass on attempt 0, `run-tests.js` exits 0, exclusions are in
+   `test/deploy-tests-manifest.json`'s `excluded-notes`, and `e2e-sweep.sh`
+   deleted `hrns-shared` after the final run (dry run first, tag re-checked).
+   Honest scope: **two** test files, not a broad slice. That was the user's
+   "plumbing + small slice" choice.
+2. Step 8 measured 32 passed on `glbl-fns` (with the split) and 29 passed / 3
+   skipped on each of the other three, the skips being `function-groups` without
+   `E2E_FUNCTION_GROUPS`. Note `rgnl-fns` is **red on `main`** for two of the same
+   reasons this branch fixes.
+3. Checked at close: `src/utils/experimental-flags.ts` is gone,
+   `CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION` survives only as a
+   breaking-changes note, and the only non-product `CDK_NEXTJS_*` name left is
+   `CDK_NEXTJS_TEST_MARKER`, referenced exclusively from `src/runtime/core.test.ts`.
+
+**Final unit verification** (`pnpm compile`, `pnpm eslint`, `npx jest`): 0 TS
+errors, lint clean, **17 suites / 268 tests passed**.
+
+### Open, carried past the PR
+
+Not exit criteria — items this branch names and leaves for their own change:
+
+1. `healthCheckPath` is required on all four root constructs while only the two
+   Containers types use it. An API question, not a bug.
+2. `s3KeyToInvalidationPath` does not re-add `basePath`, so a Global type with a
+   `basePath` invalidates the wrong path. Not reachable from any current example.
+3. `deployment-skew`'s RSC content-type bug: `RSC: 1` gets
+   `text/html; charset=utf-8` instead of `text/x-component`. Characterized, not
+   diagnosed to edge vs. adapter. Excluded with a note saying it should return as
+   a regression test.
+4. The harness manifest is two files; widening is cheap now.
+5. Stacks of mine still up, to tear down after the PR merges: `dev-glbl-fns`,
+   `dev-rgnl-fns`, `dev-glbl-cntnrs`, `dev-rgnl-cntnrs`, `adptr-rgnl-fns`,
+   `split-glbl-fns`. The four `main-*` oracles and four `pr-267-*` stacks are not
+   mine and stay.
