@@ -1904,3 +1904,71 @@ Not exit criteria — items this branch names and leaves for their own change:
    `dev-rgnl-fns`, `dev-glbl-cntnrs`, `dev-rgnl-cntnrs`, `adptr-rgnl-fns`,
    `split-glbl-fns`. The four `main-*` oracles and four `pr-267-*` stacks are not
    mine and stay.
+
+## Post-PR — merge `main` (#267, derived `basePath`)
+
+PR [#271](https://github.com/cdklabs/cdk-nextjs/pull/271) is open. It arrived
+`CONFLICTING`, which had a non-obvious consequence worth recording: GitHub could
+not build the `refs/pull/271/merge` ref, so **no `pull_request`-triggered workflow
+ran at all** — `build` and `dependency-review` were simply absent from the checks
+list, while the `pull_request_target` ones (`e2e-tests`, `pull-request-lint`,
+`auto-queue`) all ran normally. A missing required check on a conflicting PR is
+not a CI outage; it is the conflict.
+
+One commit had landed on `main` since the branch point (`a01b6da`):
+`de8bee3 feat!: derive basePath from the Next.js app's config for Global constructs`
+(#267). Merged in, not rebased — the progress log above references step commits,
+and a merge keeps those SHAs valid.
+
+Ten conflicts. How each was settled:
+
+| Path                                               | Resolution                                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `src/image-optimization/handler.mts`               | stayed deleted (step 6 removed the dedicated image function)                   |
+| `src/nextjs-compute/nextjs-image-function.ts`      | stayed deleted, along with `createNextjsImageFunction` in the base construct   |
+| `src/nextjs-build/nextjs-build.ts`                 | both — kept the manifest imports, took `nextConfigBasePath`                    |
+| `src/nextjs-static-assets.ts`                      | took `main`'s `keyPrefix: string` + `resolveKeyPrefix()`, merged the docblocks |
+| `src/root-constructs/nextjs-base-construct.ts`     | `main`'s `resolvedBasePath` wiring, minus the image-function factory           |
+| `src/root-constructs/nextjs-global-functions.ts`   | kept `joinPath`, dropped `useDedicatedImageFunction`                           |
+| `src/root-constructs/nextjs-regional-functions.ts` | `basePath: this.resolvedBasePath`, dropped `imageFunction`                     |
+| `src/runtime/image-utils.ts`                       | kept this branch's `S3AssetLocation` shape, took `main`'s better comment       |
+| `src/runtime/image-utils.test.ts`                  | kept this branch's cases, ported the one `main` had that we lacked             |
+| `README.md`                                        | this branch's LWA-free limitations, `main`'s fuller stage-name note            |
+
+Notes on the judgment calls:
+
+1. **`src/runtime/image-utils.ts` is `src/image-optimization/handler-utils.ts`
+   renamed** (git tracked it as such), and the two sides had independently fixed
+   the _same_ bug — this branch as `fix: build image S3 keys from the asset key
+prefix, not basePath`, `main` as part of #267. Kept this branch's
+   `S3AssetLocation` interface rather than `main`'s two positional string
+   arguments, and deliberately did **not** adopt `main`'s `joinPath` import: the
+   file's header explains that it stays free of `next` and of construct-side
+   imports because it is bundled into the runtime shells. Ported `main`'s one
+   extra test (a `keyPrefix` with a trailing slash) since this branch's
+   normalization already handles it.
+2. **`NextjsStaticAssets.keyPrefix` changed type** from `string | undefined` to
+   `string`. `main`'s version is strictly better — it folds a
+   `destinationKeyPrefix` override into the value the URLs are built from, so the
+   two cannot drift — so this branch's duplicate assignment in the constructor was
+   deleted rather than reconciled.
+3. **`readNextConfigBasePath` reads `.next/required-server-files.json`**, which
+   step 6 might plausibly have removed along with `output: "standalone"`. It did
+   not: the file is still emitted, and this branch's runtime already loads it
+   (`src/runtime/core.ts`, `src/runtime/image.ts`). Checked rather than assumed.
+4. `main`'s README caveat about `responseTransferMode`/`AWS_LWA_INVOKE_MODE` was
+   dropped, not merged: cdk-nextjs now supplies the Lambda handler itself and it
+   streams, so the premise ("depends on whether your server Lambda supports
+   response streaming") no longer holds.
+5. Two stale doc references fixed in passing, both pointing at files this branch
+   renamed or deleted: `examples/app-playground/middleware.ts` → `proxy.ts` in the
+   README, and a `src/image-optimization/` mention in `src/runtime/http/sink.ts`.
+
+**Measured after the merge**: `pnpm compile` 0 errors, `pnpm eslint` clean,
+`npx jest` **20 suites / 312 tests passed** (up from 17/268 — `main` brought
+`base-path.test.ts`, `nextjs-api.test.ts` and `nextjs-static-assets.test.ts`).
+
+**Verified vs. assumed**: the merge is verified at the unit level only. Nothing
+was redeployed after it, so #267's derived-`basePath` behavior on top of the
+adapter runtime is **assumed**, resting on `main`'s own tests plus this branch's.
+The PR's `e2e-tests` run on all four types is what will actually confirm it.

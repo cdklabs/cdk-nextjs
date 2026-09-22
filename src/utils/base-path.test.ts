@@ -1,0 +1,223 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { NextjsType } from "../constants";
+import {
+  joinPath,
+  normalizeBasePath,
+  readNextConfigBasePath,
+  resolveBasePath,
+} from "./base-path";
+
+const GLOBAL = [NextjsType.GLOBAL_FUNCTIONS, NextjsType.GLOBAL_CONTAINERS];
+
+describe("normalizeBasePath", () => {
+  it("reduces values addressing the same path to the same segment", () => {
+    expect(normalizeBasePath("/base")).toBe("base");
+    expect(normalizeBasePath("base")).toBe("base");
+    expect(normalizeBasePath("/base/")).toBe("base");
+    expect(normalizeBasePath("//base//")).toBe("base");
+  });
+
+  it("maps undefined and empty values to an empty string", () => {
+    expect(normalizeBasePath(undefined)).toBe("");
+    expect(normalizeBasePath("")).toBe("");
+    expect(normalizeBasePath("/")).toBe("");
+  });
+
+  it("keeps interior slashes of a nested basePath", () => {
+    expect(normalizeBasePath("/team/app/")).toBe("team/app");
+  });
+});
+
+describe("joinPath", () => {
+  const origin = "https://d111111abcdef8.cloudfront.net";
+
+  it("drops empty parts", () => {
+    expect(joinPath(origin)).toBe(origin);
+    expect(joinPath(origin, "")).toBe(origin);
+    expect(joinPath(origin, undefined)).toBe(origin);
+    expect(joinPath(origin, "/")).toBe(origin);
+    expect(joinPath("", "base", undefined, "_next/static")).toBe(
+      "base/_next/static",
+    );
+  });
+
+  it("joins with exactly one slash regardless of each part's slashes", () => {
+    expect(joinPath(origin, "/base")).toBe(`${origin}/base`);
+    expect(joinPath(origin, "base/")).toBe(`${origin}/base`);
+    expect(joinPath(origin, "/team/app/")).toBe(`${origin}/team/app`);
+    expect(joinPath("/base/", "/_next/static/{key}")).toBe(
+      "base/_next/static/{key}",
+    );
+  });
+
+  it("returns an empty string when every part is empty", () => {
+    expect(joinPath()).toBe("");
+    expect(joinPath(undefined, "", "/")).toBe("");
+  });
+});
+
+describe("readNextConfigBasePath", () => {
+  let dotNextPath: string;
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    dotNextPath = mkdtempSync(join(tmpdir(), "base-path-"));
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    rmSync(dotNextPath, { recursive: true, force: true });
+  });
+
+  function writeRequiredServerFiles(contents: string) {
+    writeFileSync(join(dotNextPath, "required-server-files.json"), contents);
+  }
+
+  it("reads the app's basePath and strips the leading slash", () => {
+    writeRequiredServerFiles(JSON.stringify({ config: { basePath: "/prod" } }));
+
+    expect(readNextConfigBasePath(dotNextPath)).toBe("prod");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty string when the app sets no basePath", () => {
+    // `next build` writes basePath: "" rather than omitting it.
+    writeRequiredServerFiles(JSON.stringify({ config: { basePath: "" } }));
+
+    expect(readNextConfigBasePath(dotNextPath)).toBe("");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // Degrading to "" is deliberate, but it's indistinguishable from an app that
+  // sets no basePath, so it has to be visible: the Global constructs derive
+  // their basePath from this value and would otherwise 404 every static asset
+  // with nothing but a silent fallback to explain it.
+  it("warns when required-server-files.json is missing", () => {
+    expect(readNextConfigBasePath(dotNextPath)).toBe("");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("required-server-files.json"),
+    );
+  });
+
+  it("warns when the file isn't valid JSON", () => {
+    writeRequiredServerFiles("not json");
+
+    expect(readNextConfigBasePath(dotNextPath)).toBe("");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Could not read basePath"),
+    );
+  });
+
+  it("returns an empty string when the file has no config key", () => {
+    writeRequiredServerFiles(JSON.stringify({ files: [] }));
+
+    expect(readNextConfigBasePath(dotNextPath)).toBe("");
+  });
+});
+
+describe("resolveBasePath", () => {
+  describe.each(Object.values(NextjsType))("%s", (nextjsType) => {
+    it("resolves to undefined when both are unset", () => {
+      expect(resolveBasePath(nextjsType)).toBeUndefined();
+      expect(resolveBasePath(nextjsType, "", "")).toBeUndefined();
+      // Normalizes to empty, so it's the same as unset rather than a prefix.
+      expect(resolveBasePath(nextjsType, "/")).toBeUndefined();
+    });
+
+    // One shape out, whatever shape came in: consumers that need a leading
+    // slash (only `NextjsDistribution`'s path patterns) add their own, so
+    // nothing downstream has to re-normalize.
+    it("normalizes the prop when it matches the app", () => {
+      expect(resolveBasePath(nextjsType, "/base", "/base")).toBe("base");
+      expect(resolveBasePath(nextjsType, "base", "/base")).toBe("base");
+      expect(resolveBasePath(nextjsType, "/base/", "/base")).toBe("base");
+      expect(resolveBasePath(nextjsType, "base//", "/base")).toBe("base");
+    });
+  });
+
+  describe.each(GLOBAL)("%s", (nextjsType) => {
+    // CloudFront uses the request path verbatim as the S3 object key, so the
+    // prop has to be the prefix the app emits — there's exactly one valid value,
+    // which makes the app's config the source of truth.
+    it("derives the prop from the app's basePath", () => {
+      expect(resolveBasePath(nextjsType, undefined, "/base")).toBe("base");
+      expect(resolveBasePath(nextjsType, "", "base")).toBe("base");
+      expect(resolveBasePath(nextjsType, undefined, "/team/app/")).toBe(
+        "team/app",
+      );
+    });
+
+    it("rejects the prop setting a basePath the app doesn't", () => {
+      expect(() => resolveBasePath(nextjsType, "/base")).toThrow(
+        /CloudFront serves static assets straight from S3/,
+      );
+    });
+
+    it("rejects two different values", () => {
+      expect(() => resolveBasePath(nextjsType, "/a", "/b")).toThrow(
+        'prop is "/a" but your Next.js app\'s config sets `basePath` to "/b"',
+      );
+    });
+  });
+
+  describe(NextjsType.REGIONAL_FUNCTIONS, () => {
+    // API Gateway strips the stage before matching resources, so an app served
+    // at the default `prod` stage sets basePath: "/prod" and leaves the prop
+    // unset. Same shape as a custom domain base path mapping. Deriving here
+    // would nest every resource under a path the stage already consumed.
+    it("does not derive the app's basePath", () => {
+      expect(
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, undefined, "/prod"),
+      ).toBeUndefined();
+    });
+
+    // The stripped prefix is part of what the app emits but never part of the
+    // resource path, so an app at the `prod` stage nested under "/base" sets
+    // basePath: "/prod/base" and the prop to "/base".
+    it("accepts an app basePath that ends with the prop", () => {
+      expect(
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/base", "/prod/base"),
+      ).toBe("base");
+    });
+
+    it("only accepts the prop as a whole trailing path segment", () => {
+      expect(() =>
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/se", "/prod/base"),
+      ).toThrow(/nests every API Gateway resource under that path/);
+      // Leading, not trailing: API Gateway strips the stage, so the app would
+      // emit "/prod/..." while the resources live under "/prod/base/...".
+      expect(() =>
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/prod", "/prod/base"),
+      ).toThrow(/nests every API Gateway resource under that path/);
+    });
+
+    // The reverse is never right: the prop nests every resource, including the
+    // catch-all, under a path the app never links to.
+    it("rejects the prop setting a basePath the app doesn't", () => {
+      expect(() =>
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/base"),
+      ).toThrow(/nests every API Gateway resource under that path/);
+    });
+
+    it("rejects two different values", () => {
+      expect(() =>
+        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/a", "/b"),
+      ).toThrow(/nests every API Gateway resource under that path/);
+    });
+  });
+
+  describe(NextjsType.REGIONAL_CONTAINERS, () => {
+    // basePath only namespaces the S3 bucket here: the ALB forwards every path
+    // to the container, which serves its own static assets. So any combination
+    // is valid, and the app's basePath is never derived into the bucket prefix.
+    it("accepts any combination, always keeping the prop", () => {
+      const nextjsType = NextjsType.REGIONAL_CONTAINERS;
+      expect(resolveBasePath(nextjsType, "/a", "/b")).toBe("a");
+      expect(resolveBasePath(nextjsType, "/a")).toBe("a");
+      expect(resolveBasePath(nextjsType, undefined, "/b")).toBeUndefined();
+    });
+  });
+});

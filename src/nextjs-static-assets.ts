@@ -23,6 +23,7 @@ import {
 } from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
+import { normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;
@@ -60,16 +61,18 @@ export class NextjsStaticAssets extends Construct {
   bucket: IBucket;
   deployment: BucketDeployment;
   /**
-   * S3 key prefix every uploaded asset sits under, without a leading slash, or
-   * `undefined` when they sit at the root of the bucket.
+   * S3 key prefix the assets are actually uploaded under, normalized to a bare
+   * path segment (empty when they live at the bucket root).
    *
-   * Exposed because the runtime's image optimizer fetches local `<Image>` sources
-   * straight out of this bucket and so has to build the same keys. It cannot
-   * derive the prefix from the app's own `basePath`: that is the prefix of the
-   * *URL* the app is served at, which for the API Gateway deployment types is the
-   * stage name and has nothing to do with where the bytes were uploaded.
+   * Consumers that read assets back out of the bucket (the runtime's image
+   * optimizer, `NextjsApi`'s S3 integrations) must use this rather than the
+   * `basePath` prop, since `overrides.bucketDeploymentProps` can replace the
+   * prefix outright. Nor can they derive it from the app's own `basePath`: that
+   * is the prefix of the *URL* the app is served at, which for the API Gateway
+   * deployment types is the stage name and has nothing to do with where the
+   * bytes were uploaded.
    */
-  readonly keyPrefix?: string;
+  readonly keyPrefix: string;
   private stagingDir?: string;
 
   private props: NextjsStaticAssetsProps;
@@ -77,11 +80,25 @@ export class NextjsStaticAssets extends Construct {
   constructor(scope: Construct, id: string, props: NextjsStaticAssetsProps) {
     super(scope, id);
     this.props = props;
+    this.keyPrefix = this.resolveKeyPrefix();
     this.bucket = props.bucket ?? this.createBucket();
-    this.keyPrefix = props.basePath
-      ? props.basePath.replace(/^\//, "")
-      : undefined;
     this.deployment = this.createDeployment();
+  }
+
+  /**
+   * Resolves the single prefix both the upload and the URLs use. A
+   * `bucketDeploymentProps.destinationKeyPrefix` override wins over `basePath`,
+   * but it's normalized here and `createDeployment` sets the normalized value
+   * after the override spread, so `keyPrefix` can't drift from where the assets
+   * land.
+   */
+  private resolveKeyPrefix(): string {
+    const deploymentOverrides = this.props.overrides?.bucketDeploymentProps;
+    const prefix =
+      deploymentOverrides && "destinationKeyPrefix" in deploymentOverrides
+        ? deploymentOverrides.destinationKeyPrefix
+        : this.props.basePath;
+    return normalizeBasePath(prefix);
   }
 
   private createBucket() {
@@ -111,7 +128,6 @@ export class NextjsStaticAssets extends Construct {
     return new BucketDeployment(this, "Deployment", {
       sources: [Source.asset(this.stagingDir)],
       destinationBucket: this.bucket,
-      destinationKeyPrefix: this.keyPrefix,
       // Add BUILD_ID as metadata to all objects for version tracking
       metadata: {
         BUILD_ID: this.props.buildId,
@@ -119,6 +135,11 @@ export class NextjsStaticAssets extends Construct {
       prune: false, // Don't delete existing assets to prevent 404s during deployment, pruning will be handled by post-deploy
       // S3Deployment automatically detects content types based on file extensions
       ...this.props.overrides?.bucketDeploymentProps,
+      // Set after the spread: `resolveKeyPrefix` already folded in any
+      // `destinationKeyPrefix` override, so this is the normalized form of it.
+      // Letting the raw override through here would upload the assets somewhere
+      // other than the `keyPrefix` used to build their URLs.
+      destinationKeyPrefix: this.keyPrefix || undefined,
     });
   }
 

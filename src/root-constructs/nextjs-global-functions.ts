@@ -25,6 +25,7 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
+import { joinPath } from "../utils/base-path";
 
 export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
@@ -78,8 +79,16 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
   nextjsDistribution: NextjsDistribution;
   nextjsPostDeploy: NextjsPostDeploy;
+  /**
+   * Public URL of the app, including `basePath` — the app only answers under
+   * that prefix, and it's derived from the app's own `basePath` when the prop is
+   * left unset, so it's there whether or not you asked for it.
+   */
   get url(): string {
-    return `https://${this.nextjsDistribution.distribution.domainName}`;
+    return joinPath(
+      `https://${this.nextjsDistribution.distribution.domainName}`,
+      this.resolvedBasePath,
+    );
   }
 
   private props: NextjsGlobalFunctionsProps;
@@ -163,7 +172,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
-      basePath: this.baseProps.basePath,
+      basePath: this.resolvedBasePath,
       functionUrl: this.nextjsFunctions.functionUrl,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,

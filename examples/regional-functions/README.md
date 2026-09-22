@@ -79,4 +79,40 @@ pnpm run deploy
 
 Access your app at: `https://YOUR_API_ID.execute-api.REGION.amazonaws.com/prod/`
 
-**Note:** With a custom domain, none of this complexity is needed since you can route directly to the Lambda Function URL or use path mappings.
+## With a Custom Domain (No Stage Workarounds)
+
+Everything above exists only because the execute-api endpoint puts the stage in the URL path while API Gateway strips it before invoking Lambda. Map a custom domain at the root and the stage never appears in a URL, so all of it goes away:
+
+```ts
+const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
+  // No `basePath` — the app is served at the root.
+  buildDirectory: join(import.meta.dirname, "..", "app-playground"),
+  overrides: {
+    nextjsApi: {
+      restApiProps: {
+        domainName: {
+          domainName: "app.example.com",
+          certificate, // regional ACM certificate in the same region as the API
+          // No `basePath` either: mapping at the root is what removes the need
+          // for every workaround below.
+        },
+      },
+    },
+  },
+});
+```
+
+Then drop all four:
+
+| Setting | Why it's not needed |
+| --- | --- |
+| `basePath` in `next.config.ts` | No stage in the path, so the app's links already match the URLs the browser requests |
+| `PREPEND_APIGW_STAGE` | Nothing to re-prepend — `proxy.ts` only exists to undo the stage strip |
+| `API_GATEWAY_STAGE` | Same; it's the fallback stage name for that rewrite |
+| `NEXT_PUBLIC_IMAGE_SRC_PREFIX` | Raw browser-fetched URLs resolve at the root |
+
+Leave the construct's `basePath` prop unset too. Static asset routing needs no adjustment: `NextjsApi` applies `NextjsStaticAssets.keyPrefix` to its S3 integration keys, and the image optimization Lambda keeps the app's `basePath` and the S3 key prefix separate, so with nothing set anywhere the keys resolve at the bucket root.
+
+`nextjs.url` reports the custom domain (including a base path mapping if you configure one) rather than the execute-api endpoint.
+
+This example doesn't use a custom domain because it would need a hosted zone and certificate that CI can't provision.

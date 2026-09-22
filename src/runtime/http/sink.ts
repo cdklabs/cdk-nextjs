@@ -33,8 +33,8 @@ export interface ResponseSink {
    * Set by the API Gateway sink. A response stream with zero payload bytes after
    * the metadata delimiter makes API Gateway's `InvokeWithResponseStream`
    * integration answer 502 — it never recognizes the response as complete — so a
-   * single space is written instead of nothing. `src/image-optimization/` already
-   * carries this workaround for 304s; it is confined to the integration that
+   * single space is written instead of nothing. The pre-adapter image handler
+   * carried the same workaround for 304s; it is confined to the integration that
    * needs it because RFC 9110 forbids a body on 204/304 and CloudFront, caches,
    * and HTTP/2 clients all see the unpadded version.
    */

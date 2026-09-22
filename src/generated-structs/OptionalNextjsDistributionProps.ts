@@ -39,6 +39,9 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly certificate?: aws_certificatemanager.ICertificate;
   /**
+   * URI path prefix the app is served at.
+   * Surrounding slashes are normalized
+   * away, so "/base", "base" and "/base/" all produce the same cache behaviors.
    * @stability stable
    */
   readonly basePath?: string;

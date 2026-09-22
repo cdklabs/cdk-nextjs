@@ -23,6 +23,7 @@ import { IFunction } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import { joinPath, normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsApiOverrides {
   readonly restApiProps?: RestApiProps;
@@ -53,6 +54,17 @@ export interface NextjsApiProps {
    * The S3 bucket containing static assets
    */
   readonly staticAssetsBucket: IBucket;
+  /**
+   * S3 key prefix the static assets were uploaded under, i.e.
+   * `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket.
+   *
+   * Independent of `basePath` above: that one is the URL prefix the REST API
+   * serves the app at (commonly the API Gateway stage), while this one is where
+   * the objects live in the bucket. `_next/static` and public directory
+   * requests are mapped to S3 keys directly, so they 404 unless this prefix is
+   * applied.
+   */
+  readonly staticAssetsKeyPrefix?: string;
   /**
    * [Future] Required if `NextjsRegionalContainers`. VPC to create VPC Link and ECS Service Discovery
    */
@@ -88,6 +100,31 @@ export class NextjsApi extends Construct {
    * The API Gateway REST API
    */
   public readonly api: RestApi;
+
+  /**
+   * Public URL of the app, including every path segment the API nests it under.
+   * Prefers a custom domain configured through `overrides.restApiProps.domainName`
+   * over the execute-api endpoint.
+   *
+   * A domain attached after this construct is created (`api.addDomainName()`) is
+   * still used for the host, but CDK keeps its base path mappings private, so a
+   * mapping added that way won't show up here.
+   */
+  get url(): string {
+    const customDomain = this.api.domainName;
+    // A custom domain reaches the stage through a base path mapping, so the
+    // stage name isn't in the path there; the mapping may be, when set.
+    const [origin, prefix] = customDomain
+      ? [
+          `https://${customDomain.domainName}`,
+          this.props.overrides?.restApiProps?.domainName?.basePath,
+        ]
+      : [
+          `https://${this.api.restApiId}.execute-api.${Stack.of(this).region}.amazonaws.com`,
+          this.api.deploymentStage.stageName,
+        ];
+    return joinPath(origin, prefix, this.props.basePath);
+  }
 
   private readonly baseResource: IResource;
   private readonly nextResource: IResource;
@@ -142,15 +179,8 @@ export class NextjsApi extends Construct {
    */
   private createBaseResource(basePath?: string): IResource {
     // Create base resource path if needed
-    let baseResource = this.api.root;
-    if (basePath) {
-      const _basePath = basePath.startsWith("/")
-        ? basePath.substring(1)
-        : basePath;
-
-      baseResource = this.api.root.addResource(_basePath);
-    }
-    return baseResource;
+    const normalized = normalizeBasePath(basePath);
+    return normalized ? this.api.root.addResource(normalized) : this.api.root;
   }
 
   private createStaticIntegrationRole() {
@@ -177,7 +207,7 @@ export class NextjsApi extends Construct {
       .addResource("{proxy+}")
       .addMethod(
         "GET",
-        this.createS3Integration({ key: "_next/static/{key}" }),
+        this.createS3Integration({ key: this.s3Key("_next/static/{key}") }),
         this.getStaticMethodOptions({ proxy: true }),
       );
     // add public directory files/directories that exist at top level but need to go to S3.
@@ -188,7 +218,9 @@ export class NextjsApi extends Construct {
           .addResource("{proxy+}")
           .addMethod(
             "GET",
-            this.createS3Integration({ key: `${publicDirEntry.name}/{key}` }),
+            this.createS3Integration({
+              key: this.s3Key(`${publicDirEntry.name}/{key}`),
+            }),
             this.getStaticMethodOptions({ proxy: true }),
           );
       } else {
@@ -196,11 +228,19 @@ export class NextjsApi extends Construct {
           .addResource(publicDirEntry.name)
           .addMethod(
             "GET",
-            this.createS3Integration({ key: publicDirEntry.name }),
+            this.createS3Integration({ key: this.s3Key(publicDirEntry.name) }),
             this.getStaticMethodOptions(),
           );
       }
     }
+  }
+
+  /**
+   * Prefixes a request path with the key prefix the assets were uploaded under,
+   * since the S3 integrations address objects by key rather than by URL.
+   */
+  private s3Key(key: string): string {
+    return joinPath(this.props.staticAssetsKeyPrefix, key);
   }
 
   /**

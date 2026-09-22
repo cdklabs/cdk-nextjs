@@ -121,6 +121,19 @@ describe("fetchFromS3", () => {
     expect(keyOf()).toBe("base/basement/logo.png");
   });
 
+  // Carried over from #267, which fixed the same bug in the pre-adapter image
+  // handler: a `destinationKeyPrefix` override can arrive with a trailing slash.
+  it("doesn't double the separator when the key prefix has a trailing slash", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", {
+      urlBasePath: "",
+      keyPrefix: "base/",
+    });
+
+    expect(keyOf()).toBe("base/static/foo.jpg");
+  });
+
   it("returns the concatenated buffer, content type, and etag", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("hel"), Buffer.from("lo")]),

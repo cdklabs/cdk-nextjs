@@ -42,8 +42,11 @@ export async function fetchFromS3(
   location: S3AssetLocation,
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
   const { urlBasePath, keyPrefix } = location;
-  // Matching on a path boundary keeps a sibling like "/basement/logo.png"
-  // from being treated as basePath "/base" plus "ment/logo.png".
+  // Matching on a path boundary keeps a sibling like "/basement/logo.png" from
+  // being treated as basePath "/base" plus "ment/logo.png". It's still
+  // indistinguishable from a real `public/base/` directory, which loses; that's
+  // the right trade, since every statically imported image carries the prefix
+  // and the alternative costs an S3 round trip per request to detect it.
   const hasBasePath =
     !!urlBasePath && (url === urlBasePath || url.startsWith(`${urlBasePath}/`));
   const assetPath = (hasBasePath ? url.slice(urlBasePath.length) : url).replace(

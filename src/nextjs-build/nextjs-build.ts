@@ -34,6 +34,7 @@ import {
   RUNTIME_DIR_NAME,
   groupStagingDirName,
 } from "../runtime/manifest";
+import { readNextConfigBasePath } from "../utils/base-path";
 import { getNodeArchitecture } from "../utils/get-architecture";
 
 /**
@@ -131,6 +132,14 @@ export class NextjsBuild extends Construct {
    */
   dotNextPath: string;
   /**
+   * The Next.js app's own `basePath` — the URL prefix it generates its links and
+   * asset hrefs under — read out of the build's `required-server-files.json`.
+   * Normalized to a bare path segment, empty when the app sets none. Exposed so
+   * root constructs can reconcile it with the CDK `basePath` prop, which is a
+   * distinct thing; see `resolveBasePath`.
+   */
+  nextConfigBasePath: string;
+  /**
    * Absolute path to the deployment root: the staged union of every shipped
    * output's traced assets, written by the adapter's `onBuildComplete`. This is
    * the Lambda zip asset and the Docker `COPY` source.
@@ -186,6 +195,7 @@ export class NextjsBuild extends Construct {
 
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
+    this.nextConfigBasePath = readNextConfigBasePath(this.dotNextPath);
 
     const isFunctions =
       props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||

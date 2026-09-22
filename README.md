@@ -190,7 +190,7 @@ the framework closure every function needs), and one CloudFront behavior — or 
 Gateway resource, for `NextjsRegionalFunctions` — per pattern.
 
 **Route patterns** are either an exact path (`/settings`) or a subtree
-(`/admin/**`). A subtree owns what is *under* it, not the path itself:
+(`/admin/**`). A subtree owns what is _under_ it, not the path itself:
 `/admin/**` does not claim `/admin`. Where two groups could both match, the
 longest pattern wins, so `/api/**` and `/api/reports/**` can coexist in different
 groups. Dynamic segments (`/blog/[slug]`), route group segments
@@ -198,7 +198,7 @@ groups. Dynamic segments (`/blog/[slug]`), route group segments
 literal path prefixes and cannot express them.
 
 **What splitting does and does not save.** Every function ships the same `next`
-runtime closure, so splitting only moves route-*local* code and its dependencies.
+runtime closure, so splitting only moves route-_local_ code and its dependencies.
 A group whose routes import a large library is worth extracting; splitting an app
 in half does not halve either function.
 
@@ -340,7 +340,7 @@ cdk-nextjs supports importing existing AWS resources instead of creating new one
 ### Resource Isolation
 
 - **Cache bucket and DynamoDB table** are isolated by `buildId` prefix. Multiple branches safely share one bucket/table with no conflicts.
-- **Static assets bucket** — Next.js includes content hashes in static asset filenames, so different branches deploying the same file will produce identical content. It's safe for branches to overwrite each other. If you're already using `basePath` for routing, assets will naturally be prefixed by it.
+- **Static assets bucket** — Next.js includes content hashes in static asset filenames, so different branches deploying the same file will produce identical content. It's safe for branches to overwrite each other. If you're already using `basePath` for routing, assets will naturally be prefixed by it — `NextjsGlobalFunctions` and `NextjsGlobalContainers` read the `basePath` out of your Next.js build and use it as the S3 key prefix, since CloudFront serves assets from S3 by request path and the two can't differ. Set the `basePath` prop only if you want to be explicit about it; a value that disagrees with your app's fails at synth.
 
 ### Shared ALB and `removeAutoCreatedListener()`
 
@@ -404,7 +404,7 @@ Note: CloudFront distributions take several minutes to create/update, so this ar
 - If using `NextjsGlobalFunctions`, when [revalidating data in Next.js](https://nextjs.org/docs/app/building-your-application/data-fetching/fetching-caching-and-revalidating#on-demand-revalidation) (i.e. [revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath)), the CloudFront Cache will still hold stale data. You'll need to use AWS SDK JS V3 [CreateInvalidationCommand](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-client-cloudfront/Class/CreateInvalidationCommand/) to manually invalidate the path in CloudFront. See more [here](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html).
 - If using `NextjsGlobalFunctions`, a client-supplied `Authorization` header does not reach your app: CloudFront signs each request to the Lambda Function URL with SigV4, which uses that header. Send credentials under a different name (e.g. `x-authorization`) and read that header in your app. cdk-nextjs does not rename it for you — it no longer uses [AWS Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter), so `AWS_LWA_AUTHORIZATION_SOURCE` no longer applies.
 - Group patterns declared via [`functionGroups`](#splitting-a-large-app-across-functions) also count against the 25-behavior CloudFront limit above.
-- If using `NextjsRegionalFunctions` without a custom domain, API Gateway REST APIs require a [stage name](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-stages.html) (default: `/prod`) to be specified. This causes links to pages and static assets to break because they're not prefixed with the stage name. You can work around this issue by specifying [basePath](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) in next.config.js as your stage name. Additionally, you'll need to add middleware logic to rewrite requests to include the stage name because API Gateway does not include the stage name in the path passed to Lambda. See [examples/app-playground/middleware.ts](./examples/app-playground/middleware.ts).
+- If using `NextjsRegionalFunctions` without a custom domain, API Gateway REST APIs require a [stage name](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-stages.html) (default: `/prod`) to be specified. This causes links to pages and static assets to break because they're not prefixed with the stage name. You can work around this issue by specifying [basePath](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) in next.config.js as your stage name — leave the construct's `basePath` prop unset when you do, since API Gateway strips the stage before matching resources. Additionally, you'll need to add proxy logic to rewrite requests to include the stage name because API Gateway does not include the stage name in the path passed to Lambda. See [examples/app-playground/proxy.ts](./examples/app-playground/proxy.ts). Mapping a custom domain at the root avoids all of this — see [examples/regional-functions/README.md](./examples/regional-functions/README.md#with-a-custom-domain-no-stage-workarounds).
 
 ## Additional Security Recommendations
 
