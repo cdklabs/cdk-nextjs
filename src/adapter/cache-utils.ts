@@ -117,6 +117,86 @@ export function prerenderPathToCacheKey(
   return route === "" ? "index" : route;
 }
 
+/** The outputs one route contributes to `ctx.outputs.prerenders`. */
+export interface PrerenderVariants<T> {
+  /** The HTML render. Its pathname is the route, with no suffix. */
+  html?: T;
+  /** The flight payload, built as `<route>.rsc` — but see {@link groupPrerenders}. */
+  rsc?: T;
+  /** Per-segment flight payloads, under `<route>.segments/`. */
+  segments: T[];
+}
+
+const INDEX_SUFFIX = "/index";
+
+/**
+ * Collect `ctx.outputs.prerenders` into one entry per route.
+ *
+ * Next.js emits up to three shapes per prerendered route — `/blog/hello`,
+ * `/blog/hello.rsc`, and `/blog/hello.segments/*.segment.rsc` — and a cache entry
+ * needs all of them together, so they have to be grouped by route before anything
+ * can be seeded.
+ *
+ * The one case that is not a suffix strip is the **root route**, which cannot be
+ * named `/.rsc`: its payloads are emitted under `/index.rsc` and
+ * `/index.segments/` while its HTML stays at `/` (or at the `basePath`, e.g.
+ * `/prod` and `/prod/index.rsc`). Reconstructing names by concatenation therefore
+ * silently loses the home page's `rscData` — and with a `basePath` also its
+ * `segmentData`, because `/prod` and `/prod/index` group apart. That is not a
+ * cosmetic gap: `app-page-runtime.js` answers an RSC request for an entry with no
+ * `rscData` by checking `cachedData.html.contentType`, and under `cacheComponents`
+ * sends an empty `404`. Every client-side navigation to `/` breaks.
+ *
+ * The remap is conditional rather than unconditional so that an app with a real
+ * page at `app/index/page.tsx` — whose HTML prerender genuinely is `/index` — keeps
+ * its own group.
+ */
+export function groupPrerenders<T extends { pathname: string }>(
+  prerenders: T[],
+): Map<string, PrerenderVariants<T>> {
+  const htmlPathnames = new Set(
+    prerenders
+      .map((p) => p.pathname)
+      .filter((p) => !p.endsWith(".rsc") && !p.includes(".segments/")),
+  );
+  const groups = new Map<string, PrerenderVariants<T>>();
+
+  const variantsFor = (base: string): PrerenderVariants<T> => {
+    let variants = groups.get(base);
+    if (!variants) {
+      variants = { segments: [] };
+      groups.set(base, variants);
+    }
+    return variants;
+  };
+
+  /** `/index.rsc` belongs to `/`, `/prod/index.rsc` to `/prod`. */
+  const routeOf = (base: string): string => {
+    if (base.endsWith(INDEX_SUFFIX) && !htmlPathnames.has(base)) {
+      const parent = base.slice(0, -INDEX_SUFFIX.length) || "/";
+      if (htmlPathnames.has(parent)) {
+        return parent;
+      }
+    }
+    return base;
+  };
+
+  for (const prerender of prerenders) {
+    const { pathname } = prerender;
+    if (pathname.includes(".segments/")) {
+      variantsFor(routeOf(pathname.split(".segments/")[0])).segments.push(
+        prerender,
+      );
+    } else if (pathname.endsWith(".rsc")) {
+      variantsFor(routeOf(pathname.slice(0, -".rsc".length))).rsc = prerender;
+    } else {
+      variantsFor(pathname).html = prerender;
+    }
+  }
+
+  return groups;
+}
+
 /**
  * Headers that must not be seeded into an `APP_PAGE` cache entry, even though the
  * adapter output lists them in `fallback.initialHeaders`.

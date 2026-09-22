@@ -1,4 +1,8 @@
-import { appPageCacheHeaders, prerenderPathToCacheKey } from "./cache-utils";
+import {
+  appPageCacheHeaders,
+  groupPrerenders,
+  prerenderPathToCacheKey,
+} from "./cache-utils";
 
 describe("prerenderPathToCacheKey", () => {
   it("drops the leading slash", () => {
@@ -26,6 +30,73 @@ describe("prerenderPathToCacheKey", () => {
     expect(prerenderPathToCacheKey("/production/1", "/prod")).toBe(
       "production/1",
     );
+  });
+});
+
+describe("groupPrerenders", () => {
+  const at = (...pathnames: string[]) =>
+    pathnames.map((pathname) => ({
+      pathname,
+    }));
+
+  it("groups a route's html, rsc and segment outputs together", () => {
+    const groups = groupPrerenders(
+      at(
+        "/blog/hello",
+        "/blog/hello.rsc",
+        "/blog/hello.segments/$c$.segment.rsc",
+        "/blog/hello.segments/$c$/__PAGE__.segment.rsc",
+      ),
+    );
+    expect(groups.size).toBe(1);
+    const variants = groups.get("/blog/hello");
+    expect(variants?.html?.pathname).toBe("/blog/hello");
+    expect(variants?.rsc?.pathname).toBe("/blog/hello.rsc");
+    expect(variants?.segments).toHaveLength(2);
+  });
+
+  /**
+   * The regression: the root route's HTML is emitted as `/` but its flight payload
+   * as `/index.rsc`, so grouping by a reconstructed `${route}.rsc` left `/` with no
+   * `rscData` and every client-side navigation to the home page 404'd.
+   */
+  it("gives the root route the /index.rsc payload", () => {
+    const groups = groupPrerenders(
+      at("/", "/index.rsc", "/index.segments/$c$.segment.rsc"),
+    );
+    expect(Array.from(groups.keys())).toEqual(["/"]);
+    expect(groups.get("/")?.rsc?.pathname).toBe("/index.rsc");
+    expect(groups.get("/")?.segments).toHaveLength(1);
+  });
+
+  /** With a `basePath` the split is `/prod` vs `/prod/index`. */
+  it("gives the basePath root its /index.rsc payload", () => {
+    const groups = groupPrerenders(
+      at("/prod", "/prod/index.rsc", "/prod/index.segments/$c$.segment.rsc"),
+    );
+    expect(Array.from(groups.keys())).toEqual(["/prod"]);
+    expect(groups.get("/prod")?.rsc?.pathname).toBe("/prod/index.rsc");
+    expect(groups.get("/prod")?.segments).toHaveLength(1);
+  });
+
+  /** An app with a real `app/index/page.tsx` keeps its own group. */
+  it("leaves a genuine /index route alone", () => {
+    const groups = groupPrerenders(at("/", "/index", "/index.rsc"));
+    expect(Array.from(groups.keys()).sort()).toEqual(["/", "/index"]);
+    expect(groups.get("/")?.rsc).toBeUndefined();
+    expect(groups.get("/index")?.rsc?.pathname).toBe("/index.rsc");
+  });
+
+  /** `/nested/index.rsc` with no `/nested` HTML is its own route, not a remap. */
+  it("only remaps when the parent really is a prerendered route", () => {
+    const groups = groupPrerenders(at("/nested/index.rsc"));
+    expect(Array.from(groups.keys())).toEqual(["/nested/index"]);
+  });
+
+  it("keeps segments whose route has no other output", () => {
+    const groups = groupPrerenders(at("/ppr.segments/$c$.segment.rsc"));
+    expect(groups.get("/ppr")?.segments).toHaveLength(1);
+    expect(groups.get("/ppr")?.html).toBeUndefined();
   });
 });
 

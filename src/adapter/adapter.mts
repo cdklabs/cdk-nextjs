@@ -8,6 +8,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import {
   appPageCacheHeaders,
+  groupPrerenders,
   prerenderPathToCacheKey,
   serializeCacheValue,
 } from "./cache-utils.js";
@@ -66,8 +67,8 @@ const adapter: NextAdapter = {
     await mkdir(cacheDir, { recursive: true });
     debug(`Init cache directory: ${cacheDir}`);
 
-    // Group prerenders by their base pathname
-    const prerenderGroups = groupPrerendersByBasePath(ctx.outputs.prerenders);
+    // One entry per route, with its HTML, `.rsc` and segment outputs together
+    const prerenderGroups = groupPrerenders(ctx.outputs.prerenders);
     debug(`Prerender groups: ${prerenderGroups.size} groups`);
 
     // Build mapping of route paths to their cache kinds (needs prerender paths for dynamic routes)
@@ -79,7 +80,7 @@ const adapter: NextAdapter = {
     debug(`Route mapping: ${routeToCacheKind.size} routes`);
 
     // Process each group and create cache entries
-    for (const [basePath, prerenders] of prerenderGroups) {
+    for (const [basePath, variants] of prerenderGroups) {
       try {
         // Skip dynamic route templates (they don't have actual content)
         if (basePath.includes("[")) {
@@ -96,13 +97,11 @@ const adapter: NextAdapter = {
 
         debug(`Processing ${basePath} (${kind})`);
 
-        const htmlPrerender = prerenders.find((p) => p.pathname === basePath);
-        const rscPrerender = prerenders.find(
-          (p) => p.pathname === `${basePath}.rsc`,
-        );
-        const segmentPrerenders = prerenders.filter((p) =>
-          p.pathname.includes(".segments/"),
-        );
+        const {
+          html: htmlPrerender,
+          rsc: rscPrerender,
+          segments: segmentPrerenders,
+        } = variants;
 
         if (!htmlPrerender && !rscPrerender) {
           debug(`SKIP: No prerender files found for ${basePath}`);
@@ -338,41 +337,4 @@ function getRouteToCacheKindMap(
   }
 
   return routeToCacheKind;
-}
-
-/**
- * Group prerenders by their base pathname (without .rsc, .segments, etc.)
- */
-function groupPrerendersByBasePath<T extends { pathname: string }>(
-  prerenders: T[],
-): Map<string, T[]> {
-  const prerenderGroups = new Map<string, T[]>();
-
-  for (const prerender of prerenders) {
-    // Extract base pathname (e.g., "/ssg/1" from "/ssg/1.rsc")
-    let basePath = prerender.pathname;
-    // Remove .rsc extension first
-    if (basePath.endsWith(".rsc")) {
-      basePath = basePath.replace(/\.rsc$/, "");
-    }
-    // Then check if it's a segment and extract the base
-    if (basePath.includes(".segments/")) {
-      basePath = basePath.split(".segments/")[0];
-    }
-
-    // Normalize /index to / (Next.js root route handling)
-    if (basePath === "/index") {
-      basePath = "/";
-    }
-
-    if (!prerenderGroups.has(basePath)) {
-      prerenderGroups.set(basePath, []);
-    }
-    const group = prerenderGroups.get(basePath);
-    if (group) {
-      group.push(prerender);
-    }
-  }
-
-  return prerenderGroups;
 }
