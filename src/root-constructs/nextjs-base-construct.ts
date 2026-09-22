@@ -23,7 +23,7 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
-import { joinPath, resolveBasePath } from "../utils/base-path";
+import { prefixWithBasePath, resolveBasePath } from "../utils/base-path";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
@@ -260,11 +260,10 @@ export abstract class NextjsBaseConstruct extends Construct {
    * the deployment rolls back.
    */
   private resolvedHealthCheckPath(): string {
-    const appBasePath = this.nextjsBuild.nextConfigBasePath;
-    if (!appBasePath) {
-      return this.baseProps.healthCheckPath;
-    }
-    return `/${joinPath(appBasePath, this.baseProps.healthCheckPath)}`;
+    return prefixWithBasePath(
+      this.nextjsBuild.nextConfigBasePath,
+      this.baseProps.healthCheckPath,
+    );
   }
 
   protected computeBaseProps(): NextjsComputeBaseProps {

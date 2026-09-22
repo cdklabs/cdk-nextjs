@@ -21,6 +21,23 @@ export function joinPath(...parts: (string | undefined)[]): string {
 }
 
 /**
+ * Prefixes an absolute app path (a health check path, say) with `basePath`,
+ * keeping the leading slash the path came with. An empty or unset `basePath`
+ * leaves the path untouched.
+ *
+ * Use this for paths handed to something that talks to the app directly — an ALB
+ * target group health check, the Lambda Web Adapter readiness check — since the
+ * app only answers under its own `basePath`.
+ */
+export function prefixWithBasePath(
+  basePath: string | undefined,
+  path: string,
+): string {
+  const normalized = normalizeBasePath(basePath);
+  return normalized ? `/${joinPath(normalized, path)}` : path;
+}
+
+/**
  * Read the Next.js app's own `basePath` out of `required-server-files.json`,
  * which `next build` writes into `.next` with the fully resolved config (so
  * this picks up a `basePath` computed in `next.config.js`, not only a literal

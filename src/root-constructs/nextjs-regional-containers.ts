@@ -18,6 +18,7 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
+import { joinPath } from "../utils/base-path";
 
 export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
@@ -71,10 +72,10 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
    * serves from.
    */
   get url(): string {
-    const appBasePath = this.nextjsBuild.nextConfigBasePath;
-    return appBasePath
-      ? `${this.nextjsContainers.url}/${appBasePath}`
-      : this.nextjsContainers.url;
+    return joinPath(
+      this.nextjsContainers.url,
+      this.nextjsBuild.nextConfigBasePath,
+    );
   }
 
   private props: NextjsRegionalContainersProps;
