@@ -117,7 +117,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   }
 
   private createNextjsPostDeploy(): NextjsPostDeploy {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
       buildId: this.nextjsBuild.buildId,
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
@@ -125,5 +125,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsPostDeploy,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsPostDeployProps,
     });
+    this.orderAfterInitCache(postDeploy);
+    return postDeploy;
   }
 }

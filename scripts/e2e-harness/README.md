@@ -208,6 +208,30 @@ Passing all four screens makes a file a *candidate*, not a pass. It still has to
 be deployed and watched, and anything that fails gets root-caused and given a
 verdict in `docs/harness-coverage.md` before it is either fixed or written off.
 
+## Keeping the passing part of a partly-failing file
+
+Written off does not have to mean the whole file. A file listed in the manifest's
+`suites` is **included**, with the cases named in its `failed` array skipped —
+next.js's `test/get-test-filter.js` turns them into `excludedCases` and
+`run-tests.js` passes them as a negative `--testNamePattern`. That is the right
+home for a file whose residual failures already have an *acceptable* verdict, and
+it is how `trailingslash` contributes 6 of its 8 cases:
+
+```json
+"suites": {
+  "test/e2e/app-dir/trailingslash/trailingslash.test.ts": {
+    "failed": ["app-dir trailingSlash handling should revalidate a page with generated static params (withSlash=true)"],
+    "flakey": []
+  }
+}
+```
+
+Two things to get right. The names are full jest names — every enclosing
+`describe` title, space-joined, and for `it.each` the interpolated title, so
+`(withSlash=$withSlash)` has to be spelled out per case. And a `failed` entry is
+never how a cdk-nextjs bug gets handled: fix it, or give it a verdict first.
+Add a `comment` array to the entry naming the verdict it stands on.
+
 ## Running it locally
 
 Needs a next.js checkout at the tag matching this repo's `next` version, built

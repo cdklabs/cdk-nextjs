@@ -35,10 +35,12 @@ import {
   SetIncrementalFetchCacheContext,
   SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
-import { serializeCacheValue, parseCacheValue, getTags } from "./cache-utils";
-
-/** `NEXT_CACHE_TAGS_HEADER`, inlined so this file imports no Next.js internals. */
-const NEXT_CACHE_TAGS_HEADER = "x-next-cache-tags";
+import {
+  serializeCacheValue,
+  parseCacheValue,
+  getTags,
+  NEXT_CACHE_TAGS_HEADER,
+} from "./cache-utils";
 
 /**
  * The tags a stored entry has to be tag-revalidated against.
@@ -65,6 +67,45 @@ function entryTags(stored: {
     return [];
   }
   return header.split(",").filter(Boolean);
+}
+
+/** `NEXT_CACHE_IMPLICIT_TAG_ID`, inlined like {@link NEXT_CACHE_TAGS_HEADER}. */
+const NEXT_CACHE_IMPLICIT_TAG_ID = "_N_T_";
+
+/**
+ * The request path a `revalidatePath` tag names, or undefined for an app tag.
+ *
+ * `revalidatePath("/blog")` reaches the cache handler as the implicit tag
+ * `_N_T_/blog` - the path is right there in the tag, which is what makes the CDN
+ * copy of a build-time prerender reachable at all. A `revalidateTag("posts")`
+ * carries no path and depends on the mapping rows instead.
+ */
+function implicitTagPath(tag: string): string | undefined {
+  if (!tag.startsWith(`${NEXT_CACHE_IMPLICIT_TAG_ID}/`)) {
+    return undefined;
+  }
+  const path = tag.slice(NEXT_CACHE_IMPLICIT_TAG_ID.length);
+  // A dynamic route template ("/blog/[slug]") matches no cached URI. Harmless to
+  // send, but it costs an invalidation path, and those are metered.
+  return path.includes("[") ? undefined : path;
+}
+
+/**
+ * Every URI CloudFront could be holding the response for `path` under.
+ *
+ * An invalidation path matches only the query string it spells out, and a page's
+ * RSC payload is cached under `?_rsc=<hash>`; dropping the HTML while leaving the
+ * payload behind leaves the router navigating to the pre-revalidation page. The
+ * slash variant covers `trailingSlash` apps, where the cached URI is the
+ * redirect target rather than the route.
+ */
+function invalidationVariants(path: string): string[] {
+  const variants = [path, `${path}?*`];
+  if (path !== "/") {
+    const other = path.endsWith("/") ? path.slice(0, -1) : `${path}/`;
+    variants.push(other, `${other}?*`);
+  }
+  return variants;
 }
 
 interface S3CacheConfig {
@@ -406,23 +447,26 @@ export class S3CacheHandler implements CacheHandler {
 
     const queryResponse = await this.dynamoClient.send(queryCommand);
 
-    if (queryResponse.Items) {
+    {
+      const items = queryResponse.Items ?? [];
       // Extract S3 keys from sort keys (format: "tag#s3Key")
-      const cacheKeys = queryResponse.Items.map((item) => {
-        const sk = item.sk?.S;
-        if (sk) {
-          const hashIndex = sk.indexOf("#");
-          return hashIndex !== -1 ? sk.substring(hashIndex + 1) : null;
-        }
-        return null;
-      }).filter(Boolean);
+      const cacheKeys = items
+        .map((item) => {
+          const sk = item.sk?.S;
+          if (sk) {
+            const hashIndex = sk.indexOf("#");
+            return hashIndex !== -1 ? sk.substring(hashIndex + 1) : null;
+          }
+          return null;
+        })
+        .filter(Boolean);
 
       this.debug(
         `TAG ${tag}: Found ${cacheKeys.length} cache entries to invalidate`,
       );
 
       // Update revalidation timestamp for all cache keys with this tag
-      const updatePromises = queryResponse.Items.map(async (item) => {
+      const updatePromises = items.map(async (item) => {
         const sk = item.sk?.S;
         if (sk) {
           const updateCommand = new UpdateItemCommand({
@@ -468,10 +512,21 @@ export class S3CacheHandler implements CacheHandler {
       // Invalidate the CDN edge cache so CloudFront-fronted deployments don't
       // keep serving stale responses until the cache policy's TTL naturally expires.
       if (this.cloudFrontConfig.distributionIdParameterName) {
-        const invalidationPaths = cacheKeys
+        const paths = cacheKeys
           .filter((s3Key): s3Key is string => Boolean(s3Key))
           .map((s3Key) => this.s3KeyToInvalidationPath(s3Key));
-        await this.invalidateCloudFrontPaths(invalidationPaths);
+
+        // A `revalidatePath` names its path in the tag itself, which is the only
+        // way to reach a build-time prerender's CDN copy: those entries have no
+        // mapping rows, because no runtime `set` ever wrote them.
+        const implicitPath = implicitTagPath(tag);
+        if (implicitPath) {
+          paths.push(implicitPath);
+        }
+
+        await this.invalidateCloudFrontPaths(
+          paths.flatMap(invalidationVariants),
+        );
       }
     }
   }

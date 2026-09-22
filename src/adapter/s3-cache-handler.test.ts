@@ -395,8 +395,57 @@ describe("S3DynamoCacheHandler", () => {
       ).mock.calls[0];
       expect(invalidationInput.DistributionId).toBe("test-distribution-id");
       expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
-        expect.arrayContaining(["/isr/1", "/isr/2"]),
+        // `?*` too: an invalidation path matches only the query string it
+        // spells out, and a page's RSC payload is cached under `?_rsc=<hash>`.
+        expect.arrayContaining(["/isr/1", "/isr/1?*", "/isr/2", "/isr/2?*"]),
       );
+    });
+
+    it("invalidates the path a revalidatePath tag names even with no mapping rows", async () => {
+      // A build-time prerender has no mapping rows, so the query comes back
+      // empty and there is nothing to derive a CloudFront path from - except the
+      // tag, which for `revalidatePath` is `_N_T_<path>`. Without this the CDN
+      // answers with the pre-revalidation page until `s-maxage=31536000`
+      // expires. Measured against next.js's `test/e2e/app-dir/trailingslash`.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({ query: { Items: [] } });
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("_N_T_/en/legacy/");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      // Both slash variants: a `trailingSlash` app's cached URI is the redirect
+      // target, not the route.
+      expect(invalidationInput.InvalidationBatch.Paths.Items.sort()).toEqual([
+        "/en/legacy",
+        "/en/legacy/",
+        "/en/legacy/?*",
+        "/en/legacy?*",
+      ]);
+    });
+
+    it("does not invalidate a CloudFront path for an app tag", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({ query: { Items: [] } });
+
+      await handlerWithDistribution.revalidateTag("posts");
+
+      // Nothing to invalidate: an app tag names no path, and no entry is mapped
+      // to it.
+      expect(mockCloudFrontSend).not.toHaveBeenCalled();
     });
 
     it("should not call SSM or CloudFront when no distribution parameter is configured", async () => {

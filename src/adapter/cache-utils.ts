@@ -245,6 +245,27 @@ export function appPageCacheHeaders<T>(
   return headers;
 }
 
+/** `NEXT_CACHE_TAGS_HEADER`, inlined so this file imports no Next.js internals. */
+export const NEXT_CACHE_TAGS_HEADER = "x-next-cache-tags";
+
+/**
+ * Name of the file the adapter writes into the init cache directory mapping each
+ * cache tag to the cache keys of the build-time prerenders carrying it.
+ *
+ * It rides to S3 with the rest of the init cache, and the post-deploy custom
+ * resource turns it into the DynamoDB `tag#cacheKey` rows a runtime `set` would
+ * have written. Without those rows `revalidateTag` knows a prerender is stale
+ * (see `checkIfRevalidated`) but not which CloudFront paths to invalidate, so
+ * the CDN keeps serving the old response until its TTL expires - a year, for a
+ * prerender.
+ *
+ * The leading underscore keeps it clear of cache keys, which are route paths.
+ */
+export const INIT_CACHE_TAG_MANIFEST = "_cdk-nextjs-tag-manifest.json";
+
+/** Contents of {@link INIT_CACHE_TAG_MANIFEST}: tag -> init cache keys. */
+export type InitCacheTagManifest = Record<string, string[]>;
+
 /**
  * Helper to safely extract tags from context
  */

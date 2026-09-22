@@ -4,6 +4,7 @@ import { createInvalidation } from "./create-invalidation";
 import { pruneCacheBucket } from "./prune-cache-bucket";
 import { pruneRevalidationTable } from "./prune-revalidation-table";
 import { pruneS3 } from "./prune-s3";
+import { seedTagMappings } from "./seed-tag-mappings";
 import { PostDeployCustomResourceProperties } from "../../nextjs-post-deploy";
 import { cfnResponse, CfnResponseStatus } from "../utils";
 
@@ -18,7 +19,8 @@ type ResourceProps = PostDeployCustomResourceProperties & {
  * 1. CloudFront Invalidation
  * 2. Prune cache bucket of old BUILD_ID prefixed objects
  * 3. Prune DynamoDB revalidation table of old BUILD_ID prefixed entries
- * 4. Prunes objects in static assets S3 that do not have metadata with current BUILD_ID and
+ * 4. Seed the revalidation table with the build-time prerenders' tag mappings
+ * 5. Prunes objects in static assets S3 that do not have metadata with current BUILD_ID and
  * were modified over `msTtl` ago (default 30 days).
  */
 export const handler: CloudFormationCustomResourceHandler = async (
@@ -55,6 +57,15 @@ export const handler: CloudFormationCustomResourceHandler = async (
           pruneRevalidationTable({
             tableName: revalidationTableName,
             currentBuildId: buildId,
+          }),
+        );
+      }
+      if (cacheBucketName && revalidationTableName) {
+        promises.push(
+          seedTagMappings({
+            bucketName: cacheBucketName,
+            tableName: revalidationTableName,
+            buildId,
           }),
         );
       }

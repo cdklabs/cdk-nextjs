@@ -277,6 +277,21 @@ export abstract class NextjsBaseConstruct extends Construct {
     };
   }
 
+  /**
+   * Run the post-deploy custom resource after the init cache upload.
+   *
+   * It reads the tag manifest that upload puts in the cache bucket, and
+   * invalidating the CDN before the new cache is in place would only re-cache
+   * the responses the invalidation was meant to drop. CloudFormation infers no
+   * ordering between the two custom resources on its own.
+   */
+  protected orderAfterInitCache(postDeploy: Construct): void {
+    const initCacheDeployment = this.nextjsCache.bucketDeployment;
+    if (initCacheDeployment) {
+      postDeploy.node.addDependency(initCacheDeployment);
+    }
+  }
+
   private createNextjsBuild(): NextjsBuild {
     return new NextjsBuild(this, "NextjsBuild", {
       buildCommand: this.baseProps.buildCommand,

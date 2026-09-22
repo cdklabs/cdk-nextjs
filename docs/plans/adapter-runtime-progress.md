@@ -2740,3 +2740,212 @@ A dead end ruled out on the way: `hasCustomCacheHandler` in
 Both configurations now build. Regression test:
 `src/adapter/cache-handler.test.ts` — set, then get from the same instance *and*
 from a second one, proving the file path and not just the map.
+
+## Batch 1, resolved: every verdict written down
+
+`docs: record batch 1's verdicts, and fix tag revalidation for prerenders`
+
+The rerun with `NEXT_E2E_TEST_TIMEOUT=240000` settled what batch 1 actually
+found. Eight of the thirteen candidates pass and are now in `rules.include`:
+`app-client-cache/client-cache.defaults`, `interception-dynamic-segment`,
+`metadata-icons`, `not-found-default`, `segment-cache/prefetch-app-shell`,
+`server-actions-relative-redirect`, `use-cache-private`,
+`use-cache-search-params`. `use-params` joins them now that defect 5 is fixed —
+it passed on the first attempt, 166s.
+
+`metadata-icons` is worth naming: it was recorded as a batch-1 failure and was
+not one. It timed out at 121.9s against a 120s `NEXT_E2E_TEST_TIMEOUT` while the
+deploy it was waiting on took 53s, so the budget was the whole problem. Nothing
+about the deploy path needed changing.
+
+That leaves one open bug and one more defect.
+
+### `asset-prefix` is a real gap, and it is not about routing
+
+**Verdict: bug**, 2 of 7 cases, reproducible across two attempts (127.9s,
+107.2s). Left out of `rules.include` with the reason recorded in the manifest's
+`excluded-notes` and the measurement in `docs/harness-coverage.md`.
+
+The stack traces all point at the fixture's rewrite cases, and that is a red
+herring: the bundle assertions live in an un-awaited
+`bundles.forEach(async (src) => { … })`, so jest attributes the rejection to
+whichever test happened to be running. Every trace resolves to the `forEach`
+line.
+
+Routing is fine, measured directly. Running the full runtime locally against a
+hand-assembled deployment root — no AWS at all, `PORT=3999 node
+cdk-nextjs-runtime/server.mjs` — returns `200 {"message":"test"}` for
+`/api/test-json`, `/not-custom-asset-prefix/api/test-json` and
+`/custom-asset-prefix/api/test-json`.
+
+What fails is the prefixed bundle URL. From the built manifest: `assetPrefix` is
+`/custom-asset-prefix`, the 13 `staticFiles` keys are all unprefixed
+(`/_next/static/…`), and the staged Lambda tree has no `.next/static` directory —
+the assets live in S3 behind CloudFront's `_next/static*` behavior. So
+`/custom-asset-prefix/_next/static/…` misses that behavior, falls through to the
+compute's default behavior, gets rewritten to `/_next/static/…`, and 404s on a
+file that was never packaged. Two candidate fixes, neither a one-liner: an extra
+behavior for `${assetPrefix}/_next/static*` on the static origin plus a
+prefix-stripping function, or deploying the static assets under the prefixed key
+as well. `assetPrefix` is also undocumented in `README.md` and `docs/`.
+
+### Defect 8 — `revalidateTag` could not reach a single build-time prerender
+
+`fix: make tag revalidation reach build-time prerenders`
+
+Three files were failing on the same thing, which is what made it findable:
+
+| File                                    | Failing case                                              |
+| --------------------------------------- | --------------------------------------------------------- |
+| `app-dir/trailingslash`                 | `should revalidate a page with generated static params` ×2 |
+| `app-dir/segment-cache/prefetch-inlining` | `preserves prefetch hints after on-demand revalidation`  |
+| `app-dir/resume-data-cache`             | the static/dynamic consistency pair, flakily — retry 0 failed the `fetch cache` variant, retry 1 the `use cache` one |
+
+`trailingslash` is the clearest reading: the page renders, the revalidation
+returns, and `generated-at` never changes.
+
+```
+expect(received).not.toBe(expected)
+Expected: not "2026-09-22T19:26:01.255Z"
+```
+
+Two bugs, both in `src/adapter/s3-cache-handler.ts`.
+
+**Seeded prerenders had no tags to check.** A build-time prerender is written as
+a JSON file by the adapter's `onBuildComplete`, never through `set`, so it has no
+`tags` array and no DynamoDB mapping rows. `get` read tags only from that array,
+found none, and skipped the revalidation check entirely — so no statically
+prerendered page was reachable by `revalidateTag`/`revalidatePath` until some
+later runtime re-render happened to replace the entry. An app whose pages are all
+static never revalidated at all. Verified against a real seeded entry, which
+carries them in the render's header instead, exactly where Next.js's own
+`IncrementalCache.get` looks:
+
+```
+"x-next-cache-tags": "_N_T_/layout,_N_T_/page,_N_T_/,_N_T_/index,test"
+```
+
+**The revalidation was recorded in the wrong place.** `revalidateSingleTag`
+stamped `revalidatedAt` onto the tag's existing mapping rows, which are per cache
+*key* — so a tag with no rows recorded nothing at all, and
+`checkIfRevalidated` then read whichever row a `begins_with` + `Limit: 1` query
+happened to return, judging one entry against another's timestamp. It now writes
+a marker row keyed by the bare tag (mapping rows are `tag#cacheKey`, so no
+collision) and reads that row by primary key, in parallel across the entry's tags
+because a prerender carries its whole implicit `_N_T_/…` chain.
+
+One more thing fell out of reading it: `storeDynamoDBTagMappings` set
+`revalidatedAt = now` when *creating* a mapping row. That timestamp is taken
+after the entry's own `lastModified`, so every tagged entry looked revalidated the
+moment it was stored — `checkIfRevalidated` deleted healthy entries and the page
+re-rendered on every request. Mapping rows now record only `createdAt`.
+
+Ruled out along the way, so it is not re-investigated: `postponed` (which carries
+the resume data cache, serialized as `<len>:<postponed><renderResumeDataCache>`)
+*is* seeded, `segmentData` round-trips with the right keys (`/_tree`, `/_full`,
+`/__PAGE__`), and a missing `cacheControl` on a seeded entry is harmless —
+Next.js takes cache control from the prerender manifest, not from the entry.
+
+Regression test: `src/adapter/s3-cache-handler.test.ts` walks a seeded entry
+through all three marker states (absent, older, newer) and asserts the marker
+row's shape.
+
+### Defect 9 — on-demand revalidation left the CDN copy of a prerender untouched
+
+Defect 8 fixed the origin: after a `revalidatePath` the Lambda re-renders. The
+browser still saw the old page. A prerendered app-router response is served
+`cache-control: s-maxage=31536000`, so CloudFront answered from the edge, and
+`revalidateTag` derived its invalidation paths only from the tag's DynamoDB
+mapping rows — which a build-time prerender does not have, for exactly the reason
+defect 8 turned on. Measured before fixing:
+
+```
+$ curl -sI 'https://…/?_rsc=probe' -H 'RSC: 1' -H 'Next-Router-Prefetch: 1' \
+    -H 'Next-Router-Segment-Prefetch: /__PAGE__'
+cache-control: s-maxage=31536000
+x-cache: Miss from cloudfront      # `Hit from cloudfront` on the second call
+```
+
+Three parts, in `src/adapter/s3-cache-handler.ts` and
+`src/lambdas/post-deploy/`:
+
+- **The tag names the path.** `revalidatePath("/blog")` reaches the handler as
+  tag `_N_T_/blog` (`NEXT_CACHE_IMPLICIT_TAG_ID`), so `implicitTagPath` recovers
+  a CDN path with no mapping row at all. A dynamic template (`_N_T_/blog/[slug]`)
+  is skipped — it matches no cached URI. `revalidateSingleTag`'s tail was
+  restructured so the CloudFront step still runs when the query returns zero
+  rows; previously it was inside `if (queryResponse.Items)`.
+- **Four URI forms per path** (`invalidationVariants`). An invalidation path
+  matches only the query string it spells out, and a page's RSC payload is cached
+  under `?_rsc=<hash>`; dropping the HTML while leaving the payload behind leaves
+  the router navigating to the pre-revalidation page. Both slash variants too,
+  because a `trailingSlash` app's cached URI is the redirect target. `?*` is
+  accepted by `CreateInvalidation` — validated live, not assumed.
+- **Mapping rows for build-time prerenders.** The adapter writes
+  `_cdk-nextjs-tag-manifest.json` (tag → cache keys, from each entry's
+  `x-next-cache-tags`) into the init cache, and the post-deploy custom resource
+  turns it into the rows a runtime `set` would have written, which is what
+  `revalidateTag("posts")` on a static page needs. That resource now also depends
+  on the init-cache upload: CloudFormation orders nothing between the two custom
+  resources, and invalidating before the new cache is uploaded would only re-cache
+  what the invalidation was meant to drop. Constants shared via
+  `src/adapter/cache-utils.ts` so three call sites cannot drift.
+
+Measured after: `segment-cache/prefetch-inlining` went 14/15 → **15/15 on retry
+0**, so it joins `rules.include`. `trailingslash` stayed 6/8, identically on both
+attempts — and that turned out to be a stopwatch, not a defect. `retry()` in
+next.js's `test/lib/next-test-utils.ts` defaults to `duration = 3000`;
+`prefetch-inlining` passes `15000`. An invalidation lands inside 15s and not
+inside 3s. Same verdict as the already-recorded `revalidate-dynamic` pair.
+
+Only the first two parts are under harness coverage: the harness updates Lambda
+code by hotswap, which never runs CloudFormation, so the post-deploy resource does
+not fire between fixtures. `seedTagMappings` has a unit test instead
+(`src/lambdas/post-deploy/seed-tag-mappings.test.ts`, 3 cases — row shape,
+missing-manifest no-op, and 26 rows batching into 3 `BatchWriteItem` calls with
+`UnprocessedItems` retried).
+
+One trap worth recording: that test wrote nothing at first. The module builds its
+`S3Client`/`DynamoDBClient` at import time, which happens on the hoisted
+`import`, before any `mockImplementation` statement in the test body runs — so it
+captured automock instances whose `send` returned `undefined`. Mock
+`Client.prototype.send`, not the constructor.
+
+### Partly-failing files now contribute their passing cases
+
+Three of the user's asks converge here: document which cases have been tried and
+why each failure is acceptable, keep widening, and keep the overview machine-
+readable. next.js already has the mechanism — a file listed in the manifest's
+`suites` is *included*, with the cases in its `failed` array skipped
+(`test/get-test-filter.js` → `excludedCases` → a negative `--testNamePattern` in
+`run-tests.js`). The project had never used it; `suites` was `{}`.
+
+Two files moved in, each verified by its own deploy run rather than assumed:
+
+| File                        | Cases | Skipped                                        | Result           |
+| --------------------------- | ----- | ---------------------------------------------- | ---------------- |
+| `app-dir/trailingslash`     | 6 / 8 | the 2 `revalidate a page with generated static params` | green, retry 0, 123s |
+| `app-dir/resume-data-cache` | 3 / 5 | the 2 `consistent data between static and dynamic renders` | green, retry 0, 139s |
+
+Names have to be full jest names, `describe` title included, and for `it.each`
+the interpolated title spelled out per case.
+
+`resume-data-cache` gets a new verdict class, **architectural**: the skipped cases
+assert that the first dynamic RSC request after a tag revalidation still returns
+*stale* data. Next.js keeps tag staleness in `tagsManifest`, a plain in-process
+`Map` in `tags-manifest.external.ts`, and `areTagsStale` reads only that Map. A
+distributed cache handler has no channel for "stale, serve it anyway" — `null` is
+a miss and `lastModified: -1` is also a blocking render — so ours is immediately
+fresh. The failing assertion is that cdk-nextjs is *too* fresh. The second of the
+two would additionally fail from CloudFront serving the first case's payload under
+an identical `_rsc` hash.
+
+Also in this commit: `screen.mjs` now counts `suites` files as included rather
+than as candidates (a new `included-in-part` figure; candidates 718 → 706), and
+both the manifest's top-level comment and
+`scripts/e2e-harness/README.md` record the convention — a cdk-nextjs bug is never
+a `failed` entry, but once a failure has an acceptable verdict in
+`docs/harness-coverage.md`, `suites` is how the rest of the file keeps earning.
+
+Coverage record: 39 files deployed, 31 whole files in `rules.include`, 2 more in
+part, 9 fixed defects, 1 open bug (`assetPrefix`).

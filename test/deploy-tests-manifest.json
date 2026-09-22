@@ -18,8 +18,10 @@
     "Every file listed here has been run against a real deployment and observed to pass. Add nothing on",
     "the assumption that it will - the first version of this list was three files, all of which turned",
     "out to be unbuildable by cdk-nextjs (see `excluded-notes`). Any case cdk-nextjs fails for its own",
-    "reasons is a bug to fix, not a `failed` entry - if one has to be excluded anyway, say why in",
-    "`excluded-notes`.",
+    "reasons is a bug to fix, not a `failed` entry. Once it has a verdict in docs/harness-coverage.md",
+    "saying the failure is acceptable, put the file in `suites` with those case names in `failed` and a",
+    "`comment` saying which verdict - that runs the rest of the file, which is the point. Whole files",
+    "left out entirely get their reason in `excluded-notes` instead.",
     "",
     "docs/harness-coverage.md is the human-readable companion to this file: every screened file, its",
     "outcome, and for each failure an explanation plus a verdict on whether it is a bug or acceptable."
@@ -28,9 +30,13 @@
     "include": [
       "test/e2e/app-dir/actions-streaming/actions-streaming.test.ts",
       "test/e2e/app-dir/app-basepath/index.test.ts",
+      "test/e2e/app-dir/app-client-cache/client-cache.defaults.test.ts",
       "test/e2e/app-dir/dynamic-interception-route-revalidate/dynamic-interception-route-revalidate.test.ts",
       "test/e2e/app-dir/headers-static-bailout/headers-static-bailout.test.ts",
+      "test/e2e/app-dir/interception-dynamic-segment/interception-dynamic-segment.test.ts",
+      "test/e2e/app-dir/metadata-icons/metadata-icons.test.ts",
       "test/e2e/app-dir/metadata-streaming/metadata-streaming.test.ts",
+      "test/e2e/app-dir/not-found-default/index.test.ts",
       "test/e2e/app-dir/prefetching-not-found/prefetching-not-found.test.ts",
       "test/e2e/app-dir/redirect-rewrite-dynamic/redirect-rewrite-dynamic.test.ts",
       "test/e2e/app-dir/searchparams-static-bailout/searchparams-static-bailout.test.ts",
@@ -42,15 +48,51 @@
       "test/e2e/app-dir/segment-cache/headers-keyed-caches/headers-keyed-caches.test.ts",
       "test/e2e/app-dir/segment-cache/metadata/segment-cache-metadata.test.ts",
       "test/e2e/app-dir/segment-cache/no-prefetch/no-prefetch.test.ts",
+      "test/e2e/app-dir/segment-cache/prefetch-app-shell/prefetch-app-shell.test.ts",
       "test/e2e/app-dir/segment-cache/prefetch-auto/prefetch-auto.test.ts",
+      "test/e2e/app-dir/segment-cache/prefetch-inlining/prefetch-inlining.test.ts",
       "test/e2e/app-dir/segment-cache/prefetch-static-shell/prefetch-static-shell.test.ts",
       "test/e2e/app-dir/segment-cache/staleness/segment-cache-stale-time.test.ts",
       "test/e2e/app-dir/segment-cache/vary-params/vary-params.test.ts",
-      "test/e2e/app-dir/static-rsc-cache-components/static-rsc-cache-components.test.ts"
+      "test/e2e/app-dir/server-actions-relative-redirect/server-actions-relative-redirect.test.ts",
+      "test/e2e/app-dir/static-rsc-cache-components/static-rsc-cache-components.test.ts",
+      "test/e2e/app-dir/use-cache-private/use-cache-private.test.ts",
+      "test/e2e/app-dir/use-cache-search-params/use-cache-search-params.test.ts",
+      "test/e2e/app-dir/use-params/use-params.test.ts"
     ],
     "exclude": []
   },
-  "suites": {},
+  "suites": {
+    "test/e2e/app-dir/trailingslash/trailingslash.test.ts": {
+      "comment": [
+        "6 of 8 cases. A file in `suites` is included with its named cases skipped,",
+        "which is next.js's own mechanism for a partially passing file - see",
+        "test/get-test-filter.js. The two skipped cases refresh the browser within",
+        "`retry`'s 3s default window after a `revalidatePath`, which is shorter than a",
+        "CloudFront invalidation takes; see docs/harness-coverage.md."
+      ],
+      "failed": [
+        "app-dir trailingSlash handling should revalidate a page with generated static params (withSlash=true)",
+        "app-dir trailingSlash handling should revalidate a page with generated static params (withSlash=false)"
+      ],
+      "flakey": []
+    },
+    "test/e2e/app-dir/resume-data-cache/resume-data-cache.test.ts": {
+      "comment": [
+        "3 of 5 cases. The two skipped ones assert that the first dynamic RSC request",
+        "after a tag revalidation still returns *stale* data. Next.js tracks tag",
+        "staleness in an in-process Map (tags-manifest.external.ts), so a distributed",
+        "cache handler has no way to say \"stale, serve it anyway\" - ours is",
+        "immediately fresh instead. Unreachable rather than broken; see",
+        "docs/harness-coverage.md."
+      ],
+      "failed": [
+        "resume-data-cache should have consistent data between static and dynamic renders with use cache",
+        "resume-data-cache should have consistent data between static and dynamic renders with fetch cache"
+      ],
+      "flakey": []
+    }
+  },
   "excluded-notes": {
     "edge runtime, generally": [
       "cdk-nextjs refuses at build time to deploy any output whose runtime is not `nodejs`",
@@ -78,18 +120,22 @@
       "Excluded as timing-inherent, not as a cdk-nextjs defect:",
       "test/e2e/app-dir/revalidate-dynamic/revalidate-dynamic.test.ts (both cases) and",
       "test/e2e/app-dir/revalidate-path-with-rewrites/revalidate-path-with-rewrites.test.ts (1 of 2).",
+      "The two skipped `trailingslash` cases in `suites` are the same problem.",
       "",
       "Each loads a prerendered page, calls a route handler that runs `revalidatePath`/`revalidateTag`,",
-      "asserts the handler returned `revalidated: true` (it does), refreshes immediately and expects new",
-      "content. The refresh is served from the CloudFront edge: a prerendered app-router page comes back",
+      "asserts the handler returned `revalidated: true` (it does), refreshes and expects new content.",
+      "The refresh is served from the CloudFront edge: a prerendered app-router page comes back",
       "with `cache-control: s-maxage=31536000` and the second request to it reports `x-cache: Hit from",
       "cloudfront` (verified by hand against a harness deployment).",
       "",
       "cdk-nextjs does invalidate the edge on explicit revalidation (`invalidateCloudFrontPaths` in",
-      "src/adapter/s3-cache-handler.ts, and see docs/caching-guide.md), but fire-and-forget:",
-      "`CreateInvalidation` has no bounded completion SLA and these tests re-request within about a second.",
-      "Vercel purges its own CDN as part of the revalidate, which is why the tests are not gated out of",
-      "deploy mode upstream."
+      "src/adapter/s3-cache-handler.ts, and see docs/caching-guide.md) - including for a build-time",
+      "prerender, as of the `_N_T_` implicit-tag fix - but fire-and-forget: `CreateInvalidation` has no",
+      "bounded completion SLA. What decides whether a case survives that is how long it waits, and",
+      "`retry()` in next.js's test/lib/next-test-utils.ts defaults to 3000ms. segment-cache/",
+      "prefetch-inlining passes 15000 and is in `rules.include`; these take the default, or re-request",
+      "immediately. Vercel purges its own CDN synchronously as part of the revalidate, which is why the",
+      "tests are not gated out of deploy mode upstream."
     ],
     "test/e2e/app-dir/prerender-encoding/prerender-encoding.test.ts": [
       "Excluded as unsupported, and NOT an encoding bug - encoding is handled correctly. The fixture sets",
@@ -106,6 +152,17 @@
       "Supporting it means routing concrete prerendered paths to the owning entrypoint while still",
       "supplying the template's `nxtP*` params, which `addPrerenderTemplates` documents as the reason it",
       "does not simply register them."
+    ],
+    "test/e2e/app-dir/asset-prefix/asset-prefix.test.ts": [
+      "Excluded as an OPEN BUG, not as acceptable: 2 of 7 cases fail reproducibly because cdk-nextjs does",
+      "not serve `${assetPrefix}/_next/static/…`. Routing is fine - the failing assertions live in an",
+      "un-awaited `bundles.forEach(async …)`, which is why jest reports them against the rewrite cases.",
+      "",
+      "With `assetPrefix: '/custom-asset-prefix'` Next.js emits script srcs under that prefix, while the",
+      "build's `staticFiles` keys stay unprefixed and the Lambda package has no `.next/static` at all (the",
+      "assets live in S3 behind CloudFront's `_next/static*` behavior). The prefixed URL misses that",
+      "behavior, falls through to the compute's default behavior, is rewritten to `/_next/static/…` and",
+      "404s. See docs/harness-coverage.md for the measurement and the two candidate fixes."
     ],
     "test/e2e/app-dir/segment-cache/refresh/segment-cache-refresh.test.ts": [
       "Not excluded by us, and there is nothing to run: the file is `describe.skip` upstream, commented",
@@ -129,15 +186,19 @@
       "`rules.include` until it has been watched to pass against a real deployment,",
       "and anything that fails gets a verdict in docs/harness-coverage.md.",
       "",
+      "`included-in-part` counts files in `suites`: run, minus the cases named in",
+      "their `failed` arrays. They are excluded from `candidates` too.",
+      "",
       "`disqualified-by` counts overlap - a fixture can ship edge middleware *and*",
       "be skipped upstream - so the values sum to more than `e2e-files` minus",
       "`candidates` minus `included`."
     ],
     "next-version": "16.3.5",
     "e2e-files": 1134,
-    "included": 21,
+    "included": 31,
+    "included-in-part": 2,
     "edge-free": 931,
-    "candidates": 718,
+    "candidates": 706,
     "disqualified-by": {
       "middleware": 127,
       "edge": 126,

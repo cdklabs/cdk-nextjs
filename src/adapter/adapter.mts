@@ -11,6 +11,9 @@ import {
   groupPrerenders,
   prerenderPathToCacheKey,
   serializeCacheValue,
+  INIT_CACHE_TAG_MANIFEST,
+  InitCacheTagManifest,
+  NEXT_CACHE_TAGS_HEADER,
 } from "./cache-utils.js";
 import { writeBuildOutputs } from "./build-outputs.js";
 import { LOG_PREFIX } from "../constants.js";
@@ -78,6 +81,10 @@ const adapter: NextAdapter = {
       prerenderPaths,
     );
     debug(`Route mapping: ${routeToCacheKind.size} routes`);
+
+    // Tag -> cache keys, for the rows a runtime `set` would have written.
+    // See `INIT_CACHE_TAG_MANIFEST`.
+    const tagManifest: InitCacheTagManifest = {};
 
     // Process each group and create cache entries
     for (const [basePath, variants] of prerenderGroups) {
@@ -192,15 +199,43 @@ const adapter: NextAdapter = {
 
         await writeFile(cacheFilePath, serializeCacheValue(cacheEntry));
 
+        for (const tag of cacheEntryTags(cacheEntry)) {
+          (tagManifest[tag] ??= []).push(cacheKey);
+        }
+
         debug(`Created cache entry: ${cacheFilePath}`);
       } catch (error) {
         console.error(`Error processing prerender group ${basePath}:`, error);
       }
     }
+
+    const taggedKeys = Object.keys(tagManifest).length;
+    if (taggedKeys > 0) {
+      await writeFile(
+        join(cacheDir, INIT_CACHE_TAG_MANIFEST),
+        JSON.stringify(tagManifest),
+      );
+      debug(`Wrote ${INIT_CACHE_TAG_MANIFEST} with ${taggedKeys} tags`);
+    }
   },
 };
 
 export default adapter;
+
+/**
+ * The tags a prerender was rendered with, as Next.js records them: in the
+ * entry's own `x-next-cache-tags` header, comma separated, including the
+ * implicit `_N_T_/…` path chain `revalidatePath` uses.
+ */
+function cacheEntryTags(entry: CacheHandlerValue): string[] {
+  const headers =
+    entry.value && "headers" in entry.value ? entry.value.headers : undefined;
+  const header = headers?.[NEXT_CACHE_TAGS_HEADER];
+  if (typeof header !== "string") {
+    return [];
+  }
+  return header.split(",").filter(Boolean);
+}
 
 /**
  * Read file content from a prerender as UTF-8 string

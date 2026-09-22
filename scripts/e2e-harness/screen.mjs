@@ -112,10 +112,15 @@ if (testFiles.length === 0) {
 
 const manifest = JSON.parse(readFileSync(MANIFEST, "utf8"));
 const included = new Set(manifest.rules.include);
+/**
+ * A file in `suites` runs too - minus its named cases - so it is neither a
+ * candidate nor an unscreened file.
+ */
+const inPart = new Set(Object.keys(manifest.suites ?? {}));
 
 const rows = testFiles.map((file) => ({
   file,
-  included: included.has(file),
+  included: included.has(file) || inPart.has(file),
   reasons: screen(file),
   cases: (read(file).match(/^\s*it(\.each)?\(/gm) ?? []).length,
 }));
@@ -143,6 +148,9 @@ const screening = {
     "`rules.include` until it has been watched to pass against a real deployment,",
     "and anything that fails gets a verdict in docs/harness-coverage.md.",
     "",
+    "`included-in-part` counts files in `suites`: run, minus the cases named in",
+    "their `failed` arrays. They are excluded from `candidates` too.",
+    "",
     "`disqualified-by` counts overlap - a fixture can ship edge middleware *and*",
     "be skipped upstream - so the values sum to more than `e2e-files` minus",
     "`candidates` minus `included`.",
@@ -152,6 +160,7 @@ const screening = {
   ).version,
   "e2e-files": rows.length,
   included: included.size,
+  "included-in-part": inPart.size,
   "edge-free": edgeFree,
   candidates: candidates.length,
   "disqualified-by": Object.fromEntries(

@@ -203,7 +203,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   }
 
   private createNextjsPostDeploy(): NextjsPostDeploy {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
       buildId: this.nextjsBuild.buildId,
       distribution: this.nextjsDistribution.distribution,
       cacheBucket: this.nextjsCache.cacheBucket,
@@ -212,5 +212,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsPostDeploy,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
+    this.orderAfterInitCache(postDeploy);
+    return postDeploy;
   }
 }
