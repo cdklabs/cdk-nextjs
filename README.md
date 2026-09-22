@@ -46,22 +46,27 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 ## Getting Started
 
 1. Install `cdk-nextjs` in the package(s) containing your CDK and Next.js app with `npm i cdk-nextjs`
-2. Update next.config.ts to include `adapterPath`:
+2. Deploy your Next.js app to AWS: `cdk deploy`. Make sure you have [AWS credentials](https://docs.aws.amazon.com/cli/v1/userguide/cli-chap-configure.html) configured.
+3. Visit URL printed in terminal (CloudFormation Output) to view your Next.js app!
+
+No `next.config` change is needed: cdk-nextjs runs `next build` itself, and sets [`NEXT_ADAPTER_PATH`](https://nextjs.org/docs/app/api-reference/config/next-config-js/adapterPath) on that build so Next.js loads cdk-nextjs's [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters).
+
+### Registering the adapter yourself
+
+Set `adapterPath` in `next.config` when cdk-nextjs is not the thing running your build — most commonly with `skipBuild: true`, or when you build in CI and hand the output to CDK. An explicit `adapterPath` always wins over `NEXT_ADAPTER_PATH`, so it is also the way to pin a specific adapter.
 
 ```ts
 import { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // ...
-  adapterPath: import.meta.resolve("cdk-nextjs/adapter"), // for ESM
-  // adapterPath: require.resolve("cdk-nextjs/adapter"), // for CJS
+  adapterPath: require.resolve("cdk-nextjs/adapter"),
 };
 
 export default nextConfig;
 ```
 
-3. Deploy your Next.js app to AWS: `cdk deploy`. Make sure you have [AWS credentials](https://docs.aws.amazon.com/cli/v1/userguide/cli-chap-configure.html) configured.
-4. Visit URL printed in terminal (CloudFormation Output) to view your Next.js app!
+`require.resolve` works in an ESM `next.config.ts` too, because Next.js transpiles the config to CJS before evaluating it. (For the same reason `import.meta.resolve` returns a plain absolute path there rather than a `file://` URL. Prefer `require.resolve`: Next.js resolves `adapterPath` with `require.resolve`, which rejects a `file://` URL, so `import.meta.resolve` only happens to work inside a config file.)
 
 ### cdk-nextjs Created Dockerfile
 
@@ -642,7 +647,7 @@ Q: What is difference between `NextjsGlobalFunctionsProps.overrides.nextjsDistri
 A: `NextjsGlobalFunctionsProps.overrides.nextjsDistribution` allows you to customize any construct's props _within_ `NextjsDistribution` and is likely what you want whereas `NextjsGlobalFunctionsProps.overrides.nextjsGlobalFunctions.nextjsDistributionProps` allows you to customize the props passed into the construct: `NextjsDistribution`. This principle also applies to other similarly named overrides.
 
 Q: Why use container image for `NextjsGlobalFunctions`?<br />
-A: Read [The case for containers on Lambda (with benchmarks)](https://aaronstuyvenberg.com/posts/containers-on-lambda). Also, we depend upon [AWS Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter) to transform lambda event payloads into HTTP requests that Next.js expects.
+A: Read [The case for containers on Lambda (with benchmarks)](https://aaronstuyvenberg.com/posts/containers-on-lambda).
 
 Q: How can I `cdk bootstrap --cloudformation-execution-policies ...` my AWS Account with limited permissions for cdk-nextjs to deploy?<br />
 A: See [docs/cdk-nextjs-cfn-exec-policy.json](./docs/cdk-nextjs-cfn-exec-policy.json). Note, this IAM Policy is scoped to all cdk-nextjs constructs so you can remove services if you know the construct you're using doesn't use that service.

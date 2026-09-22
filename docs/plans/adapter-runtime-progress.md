@@ -1972,3 +1972,120 @@ prefix, not basePath`, `main` as part of #267. Kept this branch's
 was redeployed after it, so #267's derived-`basePath` behavior on top of the
 adapter runtime is **assumed**, resting on `main`'s own tests plus this branch's.
 The PR's `e2e-tests` run on all four types is what will actually confirm it.
+
+## Post-PR — docs congruence sweep + zero-config `NEXT_ADAPTER_PATH`
+
+**Commit**: `docs: reconcile docs with the adapter runtime and make adapterPath optional`
+
+**First**: the PR's `e2e-tests` run on `d6ac7fc` finished green on all four types
+(`glbl-fns`, `rgnl-fns`, `glbl-cntnrs`, `rgnl-cntnrs`). That is the confirmation
+the previous entry said was still outstanding: #267's derived `basePath` works on
+top of the adapter runtime, verified rather than assumed.
+
+### What this entry covers
+
+Two things the user asked for after the PR opened: (a) a sweep of the prose docs
+for claims this branch made false, and (b) whether `NEXT_ADAPTER_PATH` can remove
+the `next.config` edit from the Getting Started steps. Plus a third question —
+"`output: standalone` can be removed, right?" — which was already done in step 6
+and is only confirmed here.
+
+### `NEXT_ADAPTER_PATH`: adopted
+
+Next.js sets `adapterPath: process.env.NEXT_ADAPTER_PATH || undefined` as part of
+`defaultConfig` (`next/dist/server/config-shared.js`). Because it is a _default_,
+an app that sets `adapterPath` explicitly still wins, so adopting this breaks
+nothing. `NextjsBuild` already spawns `next build` with a controlled environment,
+so `adapterPathEnv()` in `src/nextjs-build/nextjs-build.ts` is the whole change.
+
+**The judgment call that mattered, and the one I got wrong first.** My initial
+implementation resolved the adapter from cdk-nextjs's own location
+(`join(__dirname, "..", "adapter", "adapter.mjs")`, matching `stageRuntime`'s
+pattern), reasoning that it guarantees the adapter matches the constructs reading
+its manifest. A real build proved that wrong:
+
+```
+Error [TurbopackInternalError]: FileSystemPath("app-playground")
+  .join("./../../lib/adapter/cache-handler.mjs") leaves the filesystem root
+- Execution of NextConfig::cache_handler failed
+```
+
+The adapter resolves its own sibling cache handler with
+`import.meta.resolve("cdk-nextjs/cache-handler")` — relative to wherever _it_ was
+loaded from. Loading it from outside the app's tree therefore hands Next.js a
+`cacheHandler` path outside `turbopack.root`, which Turbopack refuses. So it
+resolves from the app instead:
+`require.resolve("cdk-nextjs/adapter", { paths: [buildDirectory] })`, which is
+also exactly what the app's own `next.config` would have computed. When that
+throws (legitimate: the Next.js app and the CDK app can be separate packages),
+the variable is left unset and `readAdapterManifest`'s error explains it.
+
+**Verified, not assumed.** `examples/app-playground` had its `adapterPath` removed
+and was built with only `NEXT_ADAPTER_PATH` set:
+
+```
+▲ Next.js 16.3.5 (Turbopack)
+  Applying modifyConfig from cdk-nextjs-adapter
+✓ Running next.config.ts took 21ms
+...
+.next/cdk-nextjs-adapter/manifest.json   88315 bytes
+```
+
+The removal is kept, so every future e2e run covers the zero-config path for
+free. `examples/pages-i18n` keeps `adapterPath` explicit — its build is run by
+`scripts/capture-adapter-fixture.mjs`, not by the constructs, which is the case
+where the config entry is still required.
+
+One gap, stated in the README and in the error message rather than worked around:
+with `skipBuild: true`, or any build run outside CDK, nothing sets the variable
+and `adapterPath` in `next.config` is still required.
+
+### `output: "standalone"`: already gone
+
+Removed in step 6. Confirmed by loading `examples/app-playground`'s config through
+Next.js's own loader: `output` comes back `undefined`. `docs/breaking-changes.md`
+(0.5.16) and `docs/next-build-output-guide.md` already document it.
+
+### Docs the branch had made false
+
+| Location                                      | Was                                                                                                                                                                                       | Now                                                                                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` Getting Started                   | Step 2 required the `adapterPath` edit                                                                                                                                                    | Two steps, no config edit; a separate "Registering the adapter yourself" section covers `skipBuild` and pinning                 |
+| `README.md` FAQ (containers-on-Lambda answer) | "we depend upon AWS Lambda Web Adapter to transform lambda event payloads"                                                                                                                | sentence dropped — `src/runtime/lambda.mts` does this now                                                                       |
+| `docs/breaking-changes.md` 0.5.16             | "`adapterPath` in `next.config` was already required"                                                                                                                                     | records that it is now optional, and when it isn't                                                                              |
+| `docs/caching-guide.md` image cache           | escape hatch via `NextjsApiProps.imageFunction` / `NextjsDistributionProps.imageFunctionUrl`                                                                                              | both props no longer exist (grep: no hits in `src/`); replaced with how `_next/image` is actually served                        |
+| `docs/next-build-output-guide.md`             | `NextjsAssetsDeployment`                                                                                                                                                                  | `NextjsStaticAssets` (the construct's real name; predates this branch)                                                          |
+| `examples/regional-functions/README.md` ×6    | "Lambda Web Adapter translates", stage "available in `x-amzn-request-context` header", "Middleware", "the image optimization Lambda", "fetches the source image back through API Gateway" | cdk-nextjs's own Lambda shell, the stage from `API_GATEWAY_STAGE`, "proxy", the runtime's image optimizer, and a direct S3 read |
+
+The `x-amzn-request-context` header was the sharpest of these: it was an LWA
+invention, and nothing in `src/` emits it now (grep: no hits). So
+`examples/app-playground/proxy.ts` was reading a header that is never present and
+silently falling through to its `API_GATEWAY_STAGE` fallback on every request —
+working, but for a reason the code and docs both denied. The dead branch is
+removed and the env var is now the documented mechanism, with the reason it has to
+be an env var (Next.js re-enters the proxy with a synthetic request for its own
+internal fetches, so there is no per-request value to read) kept.
+
+### Checked and deliberately left alone
+
+- `docs/init-cache-deployment.md`, `docs/pruning-guide.md`,
+  `docs/development-guide.md`, `examples/README.md`,
+  `examples/{app-playground,bring-your-own,e2e-tests,load-tests,pages-i18n,private-containers}/README.md`
+  — swept for `server.js`, `standalone`, `image-optimization`,
+  `NextjsRevalidation`, `dockerImageFunctionProps`, LWA, and removed symbol
+  names. Congruent.
+- A cross-check of every `Nextjs*` identifier in the prose docs against the
+  package's exports turned up only the `NextjsAssetsDeployment` rename above.
+  `NextjsRevalidation` in `docs/caching-guide.md` is a deliberate reference to a
+  removed construct, and `NextjsApp` in `docs/pruning-guide.md` is a construct
+  _id_ in an example snippet.
+- `examples/e2e-tests/README.md`'s deploy-role policy still grants `sqs:*`, left
+  over from the removed revalidation queue. Not narrowed: it is broader than
+  needed rather than wrong, `FunctionProps.deadLetterQueueEnabled` is still a
+  supported opt-in that would need it, and anyone who has already created the
+  role would not pick up the change anyway.
+
+**Measured**: `pnpm compile` 0 errors, `pnpm eslint` clean, `pnpm test` **20
+suites / 312 tests passed**, one real `next build` of `app-playground` green with
+`adapterPath` unset. `API.md` is unaffected (no public API change), so no
+self-mutation commit is expected on this one.

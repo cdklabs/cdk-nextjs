@@ -75,9 +75,13 @@ cdk-nextjs stages those outputs and their traced dependencies into
 `.next/cdk-nextjs-adapter/`, and its own server invokes the built entrypoints
 in-process.
 
-Nothing in the construct API changes for the common case: `adapterPath` in
-`next.config` was already required, and the four root constructs take the same
-props. What changes:
+Nothing in the construct API changes for the common case: the four root
+constructs take the same props, and `adapterPath` in `next.config` — already
+required before this — keeps working. It is now optional, since cdk-nextjs sets
+`NEXT_ADAPTER_PATH` on the build it runs itself; an explicit `adapterPath` still
+wins, because Next.js reads the variable only as that option's default. You still
+need it when cdk-nextjs is not running your build, i.e. `skipBuild: true`. What
+changes:
 
 - **If you set `output: "standalone"` yourself, remove it.** Standalone and the
   adapter are alternatives, not layers — `next build` says so, and a future
@@ -95,7 +99,7 @@ props. What changes:
   you were relying on the old layout.
 - **`.env` and `.env.production` are staged explicitly.** `writeStandaloneDirectory`
   used to copy them; the adapter hook has no equivalent, so cdk-nextjs copies
-  them itself. Same result, but if you were depending on some *other* env file
+  them itself. Same result, but if you were depending on some _other_ env file
   reaching the server because standalone happened to copy it, it did not — only
   those two were ever copied.
 

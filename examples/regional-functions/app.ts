@@ -55,12 +55,11 @@ export class RegionalFunctionsStack extends Stack {
           functionProps: {
             environment: {
               DEBUG: "cdk-nextjs:*",
-              // Tell middleware to prepend API Gateway stage name since API Gateway strips it
+              // Tell proxy.ts to prepend the API Gateway stage name since API
+              // Gateway strips it
               PREPEND_APIGW_STAGE: "1",
-              // Fallback stage name for proxy.ts's re-prepend logic when a
-              // request has no x-amzn-request-context header to read it
-              // from, e.g. Next.js's own internal fetches for local
-              // `_next/image` sources.
+              // The stage name proxy.ts prepends. Read from the environment
+              // rather than per-request; see proxy.ts.
               API_GATEWAY_STAGE: process.env["NEXTJS_BASE_PATH"]!.replace(
                 /^\//,
                 "",

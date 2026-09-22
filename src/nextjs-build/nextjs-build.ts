@@ -380,8 +380,13 @@ export class NextjsBuild extends Construct {
       throw new Error(
         `cdk-nextjs adapter manifest not found at ${manifestPath}. ` +
           `"${this.buildCommand}" must run a Next.js build with cdk-nextjs's ` +
-          `adapter registered in next.config: ` +
-          `\`adapter: "cdk-nextjs/lib/adapter/adapter.mjs"\`.`,
+          `adapter registered. cdk-nextjs sets \`NEXT_ADAPTER_PATH\` on the ` +
+          `build it runs itself, so this usually means either the build command ` +
+          `does not reach \`next build\` (a wrapper that drops the environment, ` +
+          `or a cached build that did not re-run), or \`skipBuild: true\` and ` +
+          `the build happened outside CDK. For the latter, set ` +
+          `\`adapterPath: require.resolve("cdk-nextjs/adapter")\` in ` +
+          `next.config.`,
       );
     }
     const manifest: AdapterManifest = JSON.parse(
@@ -439,6 +444,45 @@ export class NextjsBuild extends Construct {
   }
 
   /**
+   * `NEXT_ADAPTER_PATH` for the build, so `adapterPath` in `next.config` is
+   * optional.
+   *
+   * Next.js reads the variable as the *default* value of `adapterPath`
+   * (`next/dist/server/config-shared.js`, `defaultConfig`), so an app that does
+   * set `adapterPath` still wins and nothing existing changes.
+   *
+   * Resolved from the Next.js app rather than from cdk-nextjs's own `__dirname`,
+   * even though the latter would guarantee the adapter matches these constructs.
+   * The adapter resolves its sibling cache handler with
+   * `import.meta.resolve("cdk-nextjs/cache-handler")`, i.e. relative to wherever
+   * it was loaded from; loading it from outside the app's tree therefore hands
+   * Next.js a `cacheHandler` outside `turbopack.root`, which Turbopack rejects
+   * ("leaves the filesystem root"). Resolving from the app is also the same
+   * resolution the app's own `next.config` would have done.
+   *
+   * Empty — leaving the app to register the adapter itself — when `cdk-nextjs`
+   * is not resolvable from the app, which is legitimate: the Next.js app and the
+   * CDK app can be separate packages. {@link readAdapterManifest} is what
+   * reports the resulting failure, and names this case.
+   */
+  private adapterPathEnv(): Record<string, string> {
+    try {
+      return {
+        NEXT_ADAPTER_PATH: require.resolve("cdk-nextjs/adapter", {
+          paths: [this.props.buildDirectory],
+        }),
+      };
+    } catch {
+      debug(
+        `${LOG_PREFIX} Could not resolve "cdk-nextjs/adapter" from ` +
+          `${this.props.buildDirectory}; leaving NEXT_ADAPTER_PATH unset, so ` +
+          `next.config must set \`adapterPath\`.`,
+      );
+      return {};
+    }
+  }
+
+  /**
    * Execute local build command in the specified directory
    */
   private runNextBuild() {
@@ -459,6 +503,7 @@ export class NextjsBuild extends Construct {
         env: {
           ...process.env,
           CDK_NEXTJS_INIT_CACHE_DIR: this.initCacheDir,
+          ...this.adapterPathEnv(),
           // `onBuildComplete` runs inside this process and cannot read CDK
           // props, so the resolved groups travel as JSON. Absent when not
           // splitting, which the adapter reads as "one deployment root".
