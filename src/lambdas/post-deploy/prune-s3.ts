@@ -22,15 +22,30 @@ interface PruneS3Props {
    * Time to live in milliseconds.
    */
   msTtl: number;
+  /**
+   * S3 key prefix the app's static assets live under. Surrounding slashes are
+   * normalized away. Scopes pruning to this app's objects so that apps or
+   * branches sharing one bucket under different `basePath`s don't delete each
+   * other's assets. Empty or omitted prunes the whole bucket.
+   */
+  keyPrefix?: string;
 }
 
 /**
- * Given `bucketName`, `currentBuildId`, and `msTtl`, list all objects
- * in the bucket and delete any that 1/ do not have a metadata key of "next-build-id"
+ * Given `bucketName`, `currentBuildId`, and `msTtl`, list the objects under
+ * `keyPrefix` and delete any that 1/ do not have a metadata key of "next-build-id"
  * and value of `currentBuildId` and 2/ were created more than `msTtl` ago
  */
 export async function pruneS3(props: PruneS3Props) {
-  const { bucketName, currentBuildId, msTtl } = props;
+  const { bucketName, currentBuildId, msTtl, keyPrefix } = props;
+  // Surrounding slashes are stripped before use: `NextjsStaticAssets` hands over
+  // a bare prefix, but `overrides.customResourceProperties` lets a user set
+  // `staticAssetsKeyPrefix` directly, and "base/" or "/base" would build a
+  // Prefix ("base//", "/base/") that matches no key at all — pruning would
+  // silently become a no-op.
+  const bare = (keyPrefix || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  // Trailing slash so a prefix of "app" doesn't also match "app-staging/...".
+  const prefix = bare ? `${bare}/` : undefined;
 
   const cutoffDate = new Date(Date.now() - msTtl);
   const objectsToDelete: { Key: string }[] = [];
@@ -43,6 +58,7 @@ export async function pruneS3(props: PruneS3Props) {
     const listObjectsV2Input: ListObjectsV2CommandInput = {
       Bucket: bucketName,
       ContinuationToken: continuationToken,
+      Prefix: prefix,
     };
     const listResponse = await s3Client.send(
       new ListObjectsV2Command(listObjectsV2Input),
@@ -95,9 +111,10 @@ export async function pruneS3(props: PruneS3Props) {
       ...(checkResults.filter(Boolean) as { Key: string }[]),
     );
 
-    if (listResponse.NextContinuationToken) {
-      continuationToken = listResponse.NextContinuationToken;
-    }
+    // Assigned unconditionally: the last page carries no NextContinuationToken,
+    // and keeping the previous page's token would re-list that same page until
+    // the guard below trips, re-checking every object on it 100 times over.
+    continuationToken = listResponse.NextContinuationToken;
     listObjectsCount++;
     // assume less than 100K objects (100 * 1K objects per ListObjectsV2Command = 100K)
   } while (continuationToken && listObjectsCount <= 100);

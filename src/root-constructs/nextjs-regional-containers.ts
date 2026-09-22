@@ -18,6 +18,7 @@ import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
+import { joinPath } from "../utils/base-path";
 
 export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
@@ -63,8 +64,18 @@ export interface NextjsRegionalContainersProps extends NextjsBaseProps {
 export class NextjsRegionalContainers extends NextjsBaseConstruct {
   nextjsContainers: NextjsContainers;
   nextjsPostDeploy: NextjsPostDeploy;
+  /**
+   * The ALB forwards every path to the container unchanged, so the app only
+   * answers under its own `basePath`. `resolvedBasePath` is deliberately not
+   * used here: for this `NextjsType` it only namespaces the S3 bucket and has no
+   * routing meaning, whereas the app's own `basePath` is what the container
+   * serves from.
+   */
   get url(): string {
-    return this.nextjsContainers.url;
+    return joinPath(
+      this.nextjsContainers.url,
+      this.nextjsBuild.nextConfigBasePath,
+    );
   }
 
   private props: NextjsRegionalContainersProps;
@@ -105,6 +116,7 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
       overrides: this.props.overrides?.nextjsPostDeploy,
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
     });

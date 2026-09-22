@@ -209,6 +209,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
       overrides: this.props.overrides?.nextjsPostDeploy,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });

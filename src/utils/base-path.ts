@@ -21,6 +21,33 @@ export function joinPath(...parts: (string | undefined)[]): string {
 }
 
 /**
+ * Prefixes an absolute app path (a health check path, say) with `basePath`,
+ * always returning a leading slash. An empty or unset `basePath` only
+ * normalizes that leading slash. Anything after the first segment is passed
+ * through as given, trailing slash included, since a `trailingSlash` app
+ * answers "/api/health" and "/api/health/" differently.
+ *
+ * Use this for paths handed to something that talks to the app directly — an ALB
+ * target group health check, the Lambda Web Adapter readiness check — since the
+ * app only answers under its own `basePath`.
+ *
+ * Prefixes unconditionally, so `path` has to arrive as the app routes it,
+ * without `basePath`: for an app based at "/base", "/base/api/health" becomes
+ * "/base/base/api/health". Deliberately not special-cased — an app can route
+ * "/base/base/..." legitimately, and accepting both spellings would give the
+ * path two meanings. See `docs/breaking-changes.md` (0.6.0), which tells users
+ * who prefixed `healthCheckPath` by hand to drop the prefix.
+ */
+export function prefixWithBasePath(
+  basePath: string | undefined,
+  path: string,
+): string {
+  const normalized = normalizeBasePath(basePath);
+  const absolute = path.startsWith("/") ? path : `/${path}`;
+  return normalized ? `/${normalized}${absolute}` : absolute;
+}
+
+/**
  * Read the Next.js app's own `basePath` out of `required-server-files.json`,
  * which `next build` writes into `.next` with the fully resolved config (so
  * this picks up a `basePath` computed in `next.config.js`, not only a literal
