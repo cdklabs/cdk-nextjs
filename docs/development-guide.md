@@ -50,17 +50,19 @@ Expanding Turbopack's root to include the entire monorepo causes it to repeatedl
 
 ### The Solution (Hack)
 
-The `examples/app-playground/package.json` includes a `prebuild` script that copies the necessary files directly into `node_modules` without symlinks:
+The `examples/app-playground/package.json` includes a `sync-cdk-nextjs` script that copies the necessary files directly into `node_modules` without symlinks:
 
 ```json
-"prebuild": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs"
+"sync-cdk-nextjs": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs"
 ```
 
-This runs automatically before `pnpm build`, ensuring fresh copies of the adapter files are present. While hacky, it:
+Both `build` and `dev` chain it explicitly (`npm run sync-cdk-nextjs && next …`) so the copy happens no matter which package manager invokes them. While hacky, it:
 
 - Avoids symlink issues entirely
 - Keeps Turbopack's root narrow
 - Simulates real npm package installation
 - Enables proper package export resolution
 
-For iterative development, just run `pnpm build` from the root to rebuild the adapter, then `pnpm build` in the example app—prebuild will copy the latest version.
+For iterative development, just run `pnpm build` from the root to rebuild the adapter, then `pnpm build` in the example app—the sync step will copy the latest version.
+
+Note that `pnpm install` recreates the `link:../..` symlink, so always go through `pnpm build` / `pnpm dev`. Invoking `next build` or `next dev` directly skips the sync and Turbopack then fails on the symlinked path, e.g. `FileSystemPath("app-playground").join("./../../lib/adapter/cache-handler.mjs") leaves the filesystem root`.

@@ -175,14 +175,30 @@ project.synth();
 
 function bundle() {
   const target = `node${nodeVersion}`;
+  // esbuild's CJS-interop shim calls `require` for inlined CommonJS deps, so
+  // these ESM bundles must define it. Use a *static* import rather than
+  // `await import('node:module')`: these files get pulled into the user's own
+  // Next.js build (the cache handler is injected via `cacheHandler`, which
+  // webpack traces into `.next/server/middleware.js`), and webpack rewrites a
+  // dynamic `import()` of a CJS module through its `__webpack_require__.t`
+  // namespace helper. That helper only copies named exports when
+  // `typeof exports === "object"`; `node:module` exports a *function*, so the
+  // namespace ends up as `{ default }` and `.createRequire` is undefined —
+  // producing "(intermediate value).createRequire is not a function" at
+  // runtime (cdklabs/cdk-nextjs#270). A static import also keeps the bundles
+  // free of top-level await, so Node can still `require()` them instead of
+  // throwing ERR_REQUIRE_ASYNC_MODULE.
+  const createRequireBanner = [
+    "import { createRequire } from 'node:module';",
+    "const require = createRequire(import.meta.url);",
+  ].join(" ");
   project.bundler.addBundle("src/adapter/cache-handler.ts", {
     platform: "node",
     target,
     outfile: "../../../lib/adapter/cache-handler.mjs",
     externals: ["next"],
     format: "esm",
-    banner:
-      "const require = (await import('node:module')).createRequire(import.meta.url);",
+    banner: createRequireBanner,
   });
   project.bundler.addBundle("src/adapter/adapter.mts", {
     platform: "node",
@@ -190,8 +206,7 @@ function bundle() {
     outfile: "../../../lib/adapter/adapter.mjs",
     externals: ["next"],
     format: "esm",
-    banner:
-      "const require = (await import('node:module')).createRequire(import.meta.url);",
+    banner: createRequireBanner,
   });
   project.bundler.addBundle("src/nextjs-build/patch-fetch.js", {
     platform: "browser",
@@ -212,21 +227,20 @@ function bundle() {
     // a try/catch and falls back to its own vendored copy when missing.
     externals: ["sharp", "@opentelemetry/api"],
     format: "esm",
-    // Unlike the other bundles' await-import banner, this one must shim
-    // `require`/`__dirname`/`__filename` via static imports: this bundle
-    // inlines Next.js's compiled internals (e.g. next/dist/compiled/@hapi/accept),
-    // which reference those as bare CJS globals (even if unused at runtime,
-    // e.g. nccwpck's `__nccwpck_require__.ab = __dirname + "/"` boilerplate
-    // present in every compiled module). A top-level await banner combined
-    // with that `__dirname` reference makes Node's ESM/CJS format detection
-    // refuse to load the file ("Cannot determine intended module format"),
-    // and even once that's avoided, `__dirname`/`__filename` simply don't
-    // exist in real ESM scope, so they must be defined too.
+    // On top of `require` (see createRequireBanner above), this bundle must
+    // also shim `__dirname`/`__filename`: it inlines Next.js's compiled
+    // internals (e.g. next/dist/compiled/@hapi/accept), which reference those
+    // as bare CJS globals (even if unused at runtime, e.g. nccwpck's
+    // `__nccwpck_require__.ab = __dirname + "/"` boilerplate present in every
+    // compiled module), and they simply don't exist in real ESM scope. They
+    // must be defined via static imports too — a top-level await banner
+    // combined with that `__dirname` reference makes Node's ESM/CJS format
+    // detection refuse to load the file ("Cannot determine intended module
+    // format").
     banner: [
-      "import { createRequire } from 'node:module';",
+      createRequireBanner,
       "import { fileURLToPath } from 'node:url';",
       "import { dirname } from 'node:path';",
-      "const require = createRequire(import.meta.url);",
       "const __filename = fileURLToPath(import.meta.url);",
       "const __dirname = dirname(__filename);",
     ].join(" "),
