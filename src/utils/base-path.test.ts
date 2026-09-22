@@ -5,6 +5,7 @@ import { NextjsType } from "../constants";
 import {
   joinPath,
   normalizeBasePath,
+  prefixWithBasePath,
   readNextConfigBasePath,
   resolveBasePath,
 } from "./base-path";
@@ -55,6 +56,53 @@ describe("joinPath", () => {
   it("returns an empty string when every part is empty", () => {
     expect(joinPath()).toBe("");
     expect(joinPath(undefined, "", "/")).toBe("");
+  });
+
+  // How `NextjsRegionalContainers.url` appends the app's basePath: the ALB
+  // forwards every path to the container unchanged, so the app only answers
+  // under its own basePath and the bare ALB URL would 404.
+  it("appends an app basePath to a bare ALB origin", () => {
+    const alb = "http://my-alb-123.us-east-1.elb.amazonaws.com";
+    expect(joinPath(alb, "base")).toBe(`${alb}/base`);
+    expect(joinPath(alb, "team/app")).toBe(`${alb}/team/app`);
+    // An app with no basePath is served at the origin itself.
+    expect(joinPath(alb, "")).toBe(alb);
+  });
+});
+
+describe("prefixWithBasePath", () => {
+  // The health check path is handed to things that talk to the app directly (an
+  // ALB target group, the Lambda Web Adapter readiness check), and the app only
+  // answers under its basePath. Unprefixed, every check 404s: the target never
+  // turns healthy, so tasks are killed on the health check interval and the
+  // deployment rolls back.
+  it("prefixes a health check path with the app's basePath", () => {
+    expect(prefixWithBasePath("base", "/api/health")).toBe("/base/api/health");
+    expect(prefixWithBasePath("/base/", "/api/health")).toBe(
+      "/base/api/health",
+    );
+  });
+
+  it("leaves the path untouched when the app sets no basePath", () => {
+    expect(prefixWithBasePath(undefined, "/api/health")).toBe("/api/health");
+    expect(prefixWithBasePath("", "/api/health")).toBe("/api/health");
+    expect(prefixWithBasePath("/", "/api/health")).toBe("/api/health");
+  });
+
+  it("always returns a leading slash, whatever the path came with", () => {
+    // The ALB health check and the readiness check URL both need an absolute
+    // path, so the result can't come back bare.
+    expect(prefixWithBasePath("base", "api/health")).toBe("/base/api/health");
+    expect(prefixWithBasePath(undefined, "/api/health")).toMatch(/^\//);
+  });
+
+  it("handles a nested basePath, as REGIONAL_FUNCTIONS can produce", () => {
+    // An app at the `prod` stage nested under "/base" sets `basePath:
+    // "/prod/base"`, and the readiness check hits the local server, so the
+    // whole prefix has to be there.
+    expect(prefixWithBasePath("/prod/base", "/api/health")).toBe(
+      "/prod/base/api/health",
+    );
   });
 });
 
