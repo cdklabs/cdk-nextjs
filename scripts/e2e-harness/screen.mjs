@@ -12,7 +12,7 @@
  * time next.js is upgraded, and a stale count is indistinguishable from a
  * measured one. `--check` is what makes the recorded overview trustworthy.
  *
- * The four disqualifying screens are the ones in this directory's README, in the
+ * The disqualifying screens are the ones in this directory's README, in the
  * order that costs least to apply:
  *
  * - **edge / middleware** — cdk-nextjs throws during `next build` for any
@@ -21,12 +21,19 @@
  * - **skipped-upstream** — `describe.skip`, so the file reports "passing" in
  *   seconds without deploying anything. Adding it claims coverage that does not
  *   exist.
+ * - **skipDeployment** — the same trap, spelled in the `nextTestSetup` call:
+ *   next.js replaces the whole file with `it.only('should skip next deploy')`.
+ *   The costliest screen to have been missing — it covers 236 of what were
+ *   otherwise counted as candidates, and two files had already been added to
+ *   `rules.include` on the strength of a 4s "pass".
  * - **isNextDeploy-gate** — usually next.js itself gating out what cannot work
  *   behind a CDN. Not always disqualifying; read the gate before dismissing it.
  * - **output-export** — a static export is not what any `NextjsType` deploys.
+ * - **scaffold** — `test-template/{{ toFileName name }}`, a `pnpm new-test`
+ *   template rather than a test.
  *
- * "Clean" means only that none of those four apply. It is a candidate list, not
- * a prediction: a clean file still has to be deployed and watched before it goes
+ * "Clean" means only that none of those apply. It is a candidate list, not a
+ * prediction: a clean file still has to be deployed and watched before it goes
  * into `rules.include`.
  */
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -84,7 +91,7 @@ function fixtureRoot(testFile) {
   return basename(dir) === "test" ? dirname(dir) : dir;
 }
 
-/** Which of the four screens disqualify this file, if any. */
+/** Which of the screens disqualify this file, if any. */
 function screen(testFile) {
   const reasons = [];
   const test = read(testFile);
@@ -97,6 +104,14 @@ function screen(testFile) {
   if (sources.some((p) => EDGE_RUNTIME_RE.test(read(p)))) reasons.push("edge");
   if (/describe\.skip/.test(test)) reasons.push("skipped-upstream");
   if (/isNextDeploy/.test(test)) reasons.push("isNextDeploy-gate");
+  // `nextTestSetup({ skipDeployment: true })` returns `skipped`, the file
+  // early-returns, and jest reports it as passing in ~4s having deployed
+  // nothing. next.js declaring a file out of scope for deploy mode is the same
+  // signal as `isNextDeploy`, just spelled in the setup call.
+  if (/skipDeployment:\s*true/.test(test)) reasons.push("skipDeployment");
+  // `test/e2e/**/test-template/{{ toFileName name }}/…` is a scaffold for
+  // `pnpm new-test`, not a test.
+  if (testFile.includes("{{")) reasons.push("scaffold");
   if (sources.some((p) => /output:\s*['"]export['"]/.test(read(p)))) {
     reasons.push("output-export");
   }
@@ -142,7 +157,7 @@ const screening = {
     "and `--check` to verify these numbers still hold. Not read by next.js's",
     "test/get-test-filter.js, which only looks at `version`, `suites` and `rules`.",
     "",
-    "`candidates` is what is left after the four screens below, all of which are",
+    "`candidates` is what is left after the screens below, all of which are",
     "explained in scripts/e2e-harness/README.md. A candidate is a file worth",
     "spending a deploy on - not a file expected to pass. Nothing enters",
     "`rules.include` until it has been watched to pass against a real deployment,",

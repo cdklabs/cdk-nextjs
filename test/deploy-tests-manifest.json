@@ -31,12 +31,13 @@
       "test/e2e/app-dir/actions-streaming/actions-streaming.test.ts",
       "test/e2e/app-dir/app-basepath/index.test.ts",
       "test/e2e/app-dir/app-client-cache/client-cache.defaults.test.ts",
+      "test/e2e/app-dir/app-root-params-getters/generate-static-params.test.ts",
+      "test/e2e/app-dir/catchall-specificity/catchall-specificity.test.ts",
       "test/e2e/app-dir/dynamic-interception-route-revalidate/dynamic-interception-route-revalidate.test.ts",
       "test/e2e/app-dir/headers-static-bailout/headers-static-bailout.test.ts",
       "test/e2e/app-dir/interception-dynamic-segment/interception-dynamic-segment.test.ts",
       "test/e2e/app-dir/metadata-icons/metadata-icons.test.ts",
       "test/e2e/app-dir/metadata-streaming/metadata-streaming.test.ts",
-      "test/e2e/app-dir/not-found-default/index.test.ts",
       "test/e2e/app-dir/prefetching-not-found/prefetching-not-found.test.ts",
       "test/e2e/app-dir/redirect-rewrite-dynamic/redirect-rewrite-dynamic.test.ts",
       "test/e2e/app-dir/searchparams-static-bailout/searchparams-static-bailout.test.ts",
@@ -57,7 +58,6 @@
       "test/e2e/app-dir/server-actions-relative-redirect/server-actions-relative-redirect.test.ts",
       "test/e2e/app-dir/static-rsc-cache-components/static-rsc-cache-components.test.ts",
       "test/e2e/app-dir/use-cache-private/use-cache-private.test.ts",
-      "test/e2e/app-dir/use-cache-search-params/use-cache-search-params.test.ts",
       "test/e2e/app-dir/use-params/use-params.test.ts"
     ],
     "exclude": []
@@ -89,6 +89,23 @@
       "failed": [
         "resume-data-cache should have consistent data between static and dynamic renders with use cache",
         "resume-data-cache should have consistent data between static and dynamic renders with fetch cache"
+      ],
+      "flakey": []
+    },
+    "test/e2e/dynamic-route-interpolation/index.test.ts": {
+      "comment": [
+        "3 of 7 cases. The four skipped ones request a path with *unencoded* square",
+        "brackets (`/blog/[slug]`), which CloudFront rejects itself:",
+        "`400`, `content-length: 0`, `x-cache: Error from cloudfront` - the Lambda",
+        "never sees the request. Percent-encoded, the same route is correct",
+        "(`/blog/%5Bslug%5D` renders `[slug]`), so nothing on the cdk-nextjs side is",
+        "wrong. See docs/harness-coverage.md."
+      ],
+      "failed": [
+        "Dynamic Route Interpolation should work with parameter itself",
+        "Dynamic Route Interpolation should work with brackets",
+        "Dynamic Route Interpolation should work with parameter itself in API routes",
+        "Dynamic Route Interpolation should work with brackets in API routes"
       ],
       "flakey": []
     }
@@ -172,6 +189,20 @@
     "test/e2e/app-dir/segment-cache/cdn-cache-busting/cdn-cache-busting.test.ts": [
       "Not excluded by us: next.js itself skips this file under `isNextDeploy`. Listed only as a worked",
       "example of the README's claim that deploy mode gates out what cannot work behind a CDN."
+    ],
+    "skipDeployment, 236 files": [
+      "`nextTestSetup({ skipDeployment: true })` makes next.js replace the entire file with",
+      "`it.only('should skip next deploy')` and set `skipped`, so the file early-returns. jest then",
+      "reports it as passing in about 4 seconds having deployed nothing - the same false-coverage trap as",
+      "`describe.skip`, which is why screen.mjs now disqualifies it. 236 of what were previously counted",
+      "as candidates are in this class, and two files (app-dir/not-found-default,",
+      "app-dir/use-cache-search-params) had been added to `rules.include` on the strength of such a pass;",
+      "both have been removed. Eleven more were tried in one batch before the screen existed:",
+      "404-page-ssg, 500-page, app-dir/app-client-cache/client-cache.original, app-dir/app-fetch-deduping,",
+      "app-dir/app-prefetch/prefetching.stale-times, app-dir/binary/rsc-binary, draft-mode,",
+      "dynamic-optional-routing, gssp-redirect, index-index, route-indexes.",
+      "",
+      "A file that 'finishes' in under ~10s deployed nothing. Read the duration, not the exit code."
     ]
   },
   "screening": {
@@ -180,7 +211,7 @@
       "and `--check` to verify these numbers still hold. Not read by next.js's",
       "test/get-test-filter.js, which only looks at `version`, `suites` and `rules`.",
       "",
-      "`candidates` is what is left after the four screens below, all of which are",
+      "`candidates` is what is left after the screens below, all of which are",
       "explained in scripts/e2e-harness/README.md. A candidate is a file worth",
       "spending a deploy on - not a file expected to pass. Nothing enters",
       "`rules.include` until it has been watched to pass against a real deployment,",
@@ -196,15 +227,17 @@
     "next-version": "16.3.5",
     "e2e-files": 1134,
     "included": 31,
-    "included-in-part": 2,
+    "included-in-part": 3,
     "edge-free": 931,
-    "candidates": 706,
+    "candidates": 465,
     "disqualified-by": {
+      "skipDeployment": 375,
       "middleware": 127,
       "edge": 126,
       "isNextDeploy-gate": 123,
       "skipped-upstream": 121,
-      "output-export": 29
+      "output-export": 29,
+      "scaffold": 2
     }
   }
 }

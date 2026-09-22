@@ -187,9 +187,14 @@ Mind the "or its parent": for a `test/e2e/<name>/test/index.test.ts` the fixture
 lives a directory *above* the test file, and screening only the test file's own
 directory quietly misses its `middleware.js`.
 
-Three more screens are worth running before spending a deploy on a candidate, all
+Four more screens are worth running before spending a deploy on a candidate, all
 against the test file rather than the fixture:
 
+- `skipDeployment: true` in the `nextTestSetup` call — next.js replaces the whole
+  file with `it.only('should skip next deploy')` and sets `skipped`, so the body
+  early-returns (`test/lib/e2e-utils/index.ts`). The costliest screen to have been
+  missing: it accounts for a third of what was previously counted as the candidate
+  pool, and two files reached `rules.include` on the strength of a 4s "pass".
 - `describe.skip` / `(isNextDev ? describe : describe.skip)` — a file skipped
   upstream reports as passing in a few seconds without deploying anything, and
   adding it to `rules.include` claims coverage that does not exist.
@@ -198,13 +203,19 @@ against the test file rather than the fixture:
 - `output: 'export'` in the fixture — a static export is not what any
   `NextjsType` deploys.
 
+None of these is watertight, because a file can also gate on `isNextStart` /
+`isNextDev` and leave deploy mode nothing but a stub `it` — `app-fetch-deduping`
+does. The measured backstop covers all of them: **a file that passes in under ~10
+seconds deployed nothing.** Check the `--timings` duration before believing a
+pass.
+
 `excluded-notes` in the manifest records every file left out and why, and its
 `screening` block records the funnel — how many files there are, how many survive
 each screen, and how many are already included. Regenerate it with `--write`
 whenever `next` is upgraded; `--check` exits nonzero if it has drifted, which is
 the only thing that keeps those numbers worth quoting.
 
-Passing all four screens makes a file a *candidate*, not a pass. It still has to
+Passing every screen makes a file a *candidate*, not a pass. It still has to
 be deployed and watched, and anything that fails gets root-caused and given a
 verdict in `docs/harness-coverage.md` before it is either fixed or written off.
 

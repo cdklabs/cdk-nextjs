@@ -2949,3 +2949,60 @@ a `failed` entry, but once a failure has an acceptable verdict in
 
 Coverage record: 39 files deployed, 31 whole files in `rules.include`, 2 more in
 part, 9 fixed defects, 1 open bug (`assetPrefix`).
+
+### Batch 2: a third of the candidate pool was never going to run
+
+Fourteen candidates picked for breadth (pages-router routing, client cache,
+fetch deduping, root params, binary RSC). Eleven of them finished in about four
+seconds each, having deployed nothing.
+
+The cause is a screen that did not exist: `nextTestSetup({ skipDeployment: true })`
+makes next.js replace the whole file with `it.only('should skip next deploy')` and
+set `skipped`, so the body early-returns (`test/lib/e2e-utils/index.ts`). jest
+reports a pass. It is the same false-coverage trap as `describe.skip`, and it is
+far more common — **236 of the 706 files then counted as candidates**. Screening
+for it took the pool to 465, and added a `scaffold` screen on the way
+(`test-template/{{ toFileName name }}` is a `pnpm new-test` template, not a test).
+
+Worse, it had already cost two rows: `app-dir/not-found-default` and
+`app-dir/use-cache-search-params` were in `rules.include` on the strength of such
+a pass and had never run. Both removed. That is the second time the coverage
+record has had to be corrected downward for claiming a file it had not measured,
+so the rule is now written in both the README and `docs/harness-coverage.md` as a
+measured backstop rather than a pattern list: **a file that passes in under ~10
+seconds deployed nothing.** `--timings` prints the duration, which for a passing
+file is the only signal in the log — `run-tests.js` prints output on failure only.
+
+`app-fetch-deduping` is why the backstop is needed and not just the screen: it has
+no `skipDeployment`, it branches on `isNextStart`/`isNextDev`, and deploy mode gets
+`it('should skip other scenarios', () => {})`.
+
+Of the three files that did deploy: `app-dir/catchall-specificity` (2 cases) and
+`app-dir/app-root-params-getters/generate-static-params` (4) passed and are in
+`rules.include`.
+
+### Defect-free finding: CloudFront rejects unencoded `[` and `]`
+
+`dynamic-route-interpolation` failed 4 of 7, identically on both attempts. Every
+failure requests a path whose square brackets are literal rather than a dynamic
+segment — `/blog/[slug]`, `/api/dynamic/[abc]` — and every one received an empty
+body. Probed directly against the deployment:
+
+```
+$ curl -sg --path-as-is -D - -o /dev/null 'https://…/blog/[slug]'
+HTTP/2 400
+content-length: 0
+x-cache: Error from cloudfront
+```
+
+`x-cache: Error from cloudfront` with no body: CloudFront answers before the
+Lambda is reached. Percent-encoded, the same routes are correct —
+`/blog/%5Bslug%5D` renders `[slug]` into `#slug` and `/api/dynamic/%5Bslug%5D`
+returns `slug: [slug]` — so routing and param interpolation are fine and it is
+the wire format CloudFront refuses. `[` and `]` are `gen-delims`, reserved for
+IPv6 literals in the authority and not legal in a path, so CloudFront is within
+spec. Verdict CDN-inherent; the file is in `suites` with those 4 excluded, which
+banks its other 3 (verified green, retry 0, 123s).
+
+Coverage record: 51 files screened, 31 whole files in `rules.include`, 3 more in
+part, 9 fixed defects, 1 open bug (`assetPrefix`), 465 candidates left.
