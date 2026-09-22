@@ -53,7 +53,11 @@ No `next.config` change is needed: cdk-nextjs runs `next build` itself, and sets
 
 ### Registering the adapter yourself
 
-Set `adapterPath` in `next.config` when cdk-nextjs is not the thing running your build — most commonly with `skipBuild: true`, or when you build in CI and hand the output to CDK. An explicit `adapterPath` always wins over `NEXT_ADAPTER_PATH`, so it is also the way to pin a specific adapter.
+Set `adapterPath` in `next.config` in three cases. An explicit `adapterPath` always wins over `NEXT_ADAPTER_PATH`, so this is also how you pin a specific adapter.
+
+- **cdk-nextjs isn't running your build** — `skipBuild: true`, or you build in CI and hand the output to CDK.
+- **cdk-nextjs isn't a dependency of the Next.js app**, only of the CDK app. cdk-nextjs resolves the adapter from your app's directory, so it can't find it in that layout.
+- **cdk-nextjs is linked from outside your project root** — a `link:`/`file:` dependency on a checkout elsewhere on disk, as this repo's own examples use. The symlink resolves out of the project, and the adapter derives its cache handler path from its own location, so Next.js gets a `cacheHandler` outside `turbopack.root` and Turbopack rejects it. Setting `adapterPath` fixes this because the build resolves it, after whatever put the adapter in place.
 
 ```ts
 import { NextConfig } from "next";

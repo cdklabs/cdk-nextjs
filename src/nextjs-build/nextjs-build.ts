@@ -451,19 +451,29 @@ export class NextjsBuild extends Construct {
    * (`next/dist/server/config-shared.js`, `defaultConfig`), so an app that does
    * set `adapterPath` still wins and nothing existing changes.
    *
-   * Resolved from the Next.js app rather than from cdk-nextjs's own `__dirname`,
-   * even though the latter would guarantee the adapter matches these constructs.
-   * The adapter resolves its sibling cache handler with
-   * `import.meta.resolve("cdk-nextjs/cache-handler")`, i.e. relative to wherever
-   * it was loaded from; loading it from outside the app's tree therefore hands
-   * Next.js a `cacheHandler` outside `turbopack.root`, which Turbopack rejects
-   * ("leaves the filesystem root"). Resolving from the app is also the same
-   * resolution the app's own `next.config` would have done.
+   * Resolved from the Next.js app, not from cdk-nextjs's own `__dirname` and not
+   * left as a bare specifier. Both alternatives were tried and both are wrong:
    *
-   * Empty — leaving the app to register the adapter itself — when `cdk-nextjs`
-   * is not resolvable from the app, which is legitimate: the Next.js app and the
-   * CDK app can be separate packages. {@link readAdapterManifest} is what
-   * reports the resulting failure, and names this case.
+   * - cdk-nextjs's own location loses because the adapter resolves its sibling
+   *   cache handler relative to wherever *it* was loaded from. An adapter loaded
+   *   from outside the app's tree hands Next.js a `cacheHandler` outside
+   *   `turbopack.root`, which Turbopack rejects outright ("leaves the filesystem
+   *   root").
+   * - A bare specifier loses because Next.js resolves `adapterPath` from inside
+   *   its own config loader, i.e. from `next`'s realpath. Under pnpm that is the
+   *   virtual store (`node_modules/.pnpm/next@…/node_modules/next/`), and the
+   *   walk up from there never reaches the app's own `node_modules`.
+   *
+   * Unset when `cdk-nextjs` is not resolvable from the app, which is legitimate:
+   * the Next.js app and the CDK app can be separate packages, and only the CDK one
+   * necessarily depends on cdk-nextjs. {@link readAdapterManifest} reports the
+   * resulting failure and names this case.
+   *
+   * One setup this cannot serve, and the reason this repo's own examples still set
+   * `adapterPath`: a `link:`/`file:` dependency on a cdk-nextjs checkout *outside*
+   * the app's project root. The symlink resolves out of the project, so the
+   * `cacheHandler` escape above applies. Set `adapterPath` in `next.config` there
+   * — it is resolved by the build, after whatever put the adapter in place.
    */
   private adapterPathEnv(): Record<string, string> {
     try {

@@ -11,11 +11,15 @@ const nextConfig: NextConfig = {
   experimental: {
     turbopackFileSystemCacheForBuild: true,
   },
-  // `adapterPath` is deliberately unset here: cdk-nextjs sets
-  // `NEXT_ADAPTER_PATH` on the build it runs, so every e2e run over this app
-  // covers the zero-config path. `examples/pages-i18n` sets it explicitly,
-  // because its build is run by `scripts/capture-adapter-fixture.mjs` rather
-  // than by the constructs — the case where the config entry is still required.
+  // cdk-nextjs sets `NEXT_ADAPTER_PATH` on the build it runs, so an app
+  // installed from npm needs none of this. The examples can't rely on it: they
+  // depend on cdk-nextjs with `link:../..`, and resolving that symlink at synth
+  // time lands outside `turbopack.root`, which makes Turbopack reject the
+  // `cacheHandler` the adapter derives from its own location. `prebuild` copies
+  // the adapter into this app's `node_modules` instead, and this entry resolves
+  // that copy — after the copy exists, since Next.js resolves `adapterPath`
+  // during the build.
+  adapterPath: import.meta.resolve('cdk-nextjs/adapter'),
   // needed for NextjsRegionalFunctions with API GW which adds /prod base path by default
   // see examples/regional-functions/app.ts
   basePath: process.env['NEXTJS_BASE_PATH'],

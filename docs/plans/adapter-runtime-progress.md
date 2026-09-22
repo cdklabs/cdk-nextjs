@@ -2031,11 +2031,6 @@ and was built with only `NEXT_ADAPTER_PATH` set:
 .next/cdk-nextjs-adapter/manifest.json   88315 bytes
 ```
 
-The removal is kept, so every future e2e run covers the zero-config path for
-free. `examples/pages-i18n` keeps `adapterPath` explicit — its build is run by
-`scripts/capture-adapter-fixture.mjs`, not by the constructs, which is the case
-where the config entry is still required.
-
 One gap, stated in the README and in the error message rather than worked around:
 with `skipBuild: true`, or any build run outside CDK, nothing sets the variable
 and `adapterPath` in `next.config` is still required.
@@ -2089,3 +2084,80 @@ internal fetches, so there is no per-request value to read) kept.
 suites / 312 tests passed**, one real `next build` of `app-playground` green with
 `adapterPath` unset. `API.md` is unaffected (no public API change), so no
 self-mutation commit is expected on this one.
+
+## Post-PR — `NEXT_ADAPTER_PATH`, corrected after e2e failed
+
+**Commit**: `fix: resolve the adapter from the Next.js app, keep adapterPath in the examples`
+
+The previous entry claimed zero-config was verified and that removing
+`adapterPath` from `examples/app-playground` would let e2e cover it. **The e2e run
+failed on all four types**, with the same Turbopack error I had already hit once
+locally:
+
+```
+TurbopackInternalError: FileSystemPath("app-playground")
+  .join("./../../lib/adapter/cache-handler.mjs") leaves the filesystem root
+```
+
+### Why the local verification didn't catch it
+
+`examples/app-playground` depends on cdk-nextjs with `link:../..`, so
+`node_modules/cdk-nextjs` is a **symlink to the repo root**, and its `prebuild`
+script replaces that symlink with a directory holding copies of `adapter.mjs` and
+`cache-handler.mjs`. My local run had the copies left over from an earlier build,
+so synth-time resolution found them. CI starts from a fresh `pnpm install`, where
+the symlink is what exists at synth time — resolution followed it out of the
+project, and the adapter then derived a `cacheHandler` outside `turbopack.root`.
+
+The lesson is narrow and worth stating: **a resolution test that depends on
+`node_modules` state is only valid from the state CI starts in.** The re-test
+below recreates the symlink first.
+
+### Two dead ends, and why the third form is the one
+
+| Form                                                                          | Fails because                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `join(__dirname, "..", "adapter", "adapter.mjs")` — cdk-nextjs's own location | The adapter resolves its sibling cache handler relative to where _it_ was loaded from, so this puts `cacheHandler` outside the app's tree                                                                                                                                                                                    |
+| `"cdk-nextjs/adapter"` — bare specifier, resolved by the build                | Next.js resolves `adapterPath` from inside its own config loader, i.e. from `next`'s realpath. Under pnpm that is the virtual store (`node_modules/.pnpm/next@…/node_modules/next/`), and the walk up never reaches the app's `node_modules`. Tried and measured: `MODULE_NOT_FOUND` with a `requireStack` rooted in `.pnpm` |
+| `require.resolve("cdk-nextjs/adapter", { paths: [buildDirectory] })`          | **Kept.** Correct for any real install, hoisted or not, because a real install's realpath is inside the project                                                                                                                                                                                                              |
+
+### What the examples do now, and why
+
+`examples/app-playground` **keeps** `adapterPath`. Its `link:` dependency is
+exactly the layout the env var cannot serve, and the comment in
+`next.config.ts` says so. This is not a workaround for a product bug: an app
+installed from npm resolves inside its own project and works with no config.
+
+Verified that the two coexist safely — the constructs will set
+`NEXT_ADAPTER_PATH=/Users/stickb/Code/cdk-nextjs/lib/adapter/adapter.mjs` here,
+the escaping path, and the build is still green because the explicit
+`adapterPath` wins:
+
+```
+$ rm -rf node_modules/cdk-nextjs && ln -s ../../.. node_modules/cdk-nextjs
+$ rm -rf .next
+$ NEXT_ADAPTER_PATH=/Users/stickb/Code/cdk-nextjs/lib/adapter/adapter.mjs npm run build
+exit=0     .next/cdk-nextjs-adapter/manifest.json   88313 bytes
+```
+
+That is the property that matters for every existing user: setting the variable
+cannot change the behavior of an app that already configures `adapterPath`.
+
+The README now lists three cases where you still set `adapterPath` yourself —
+`skipBuild`/external builds, cdk-nextjs being a dependency of only the CDK app,
+and a `link:`/`file:` checkout outside the project root.
+
+### Coverage gap, stated rather than hidden
+
+**CI does not exercise `NEXT_ADAPTER_PATH`.** Every deploying example builds
+`app-playground`, which must keep `adapterPath` for the reason above, so the
+zero-config path is covered only by the local build recorded in the previous
+entry (`adapterPath` removed, manifest written, `Applying modifyConfig from
+cdk-nextjs-adapter` in the log). Closing it properly needs an example whose
+cdk-nextjs comes from a real install rather than a workspace link — a packed
+tarball install, most likely. Not done; carried as open.
+
+**Measured**: `pnpm compile` 0 errors, `pnpm eslint` clean, `pnpm test` 20 suites
+/ 312 tests passed, and two real `app-playground` builds from the recreated CI
+starting state (symlink present): one plain, one with the escaping
+`NEXT_ADAPTER_PATH` set. Both green.
