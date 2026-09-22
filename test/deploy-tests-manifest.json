@@ -19,10 +19,15 @@
     "the assumption that it will - the first version of this list was three files, all of which turned",
     "out to be unbuildable by cdk-nextjs (see `excluded-notes`). Any case cdk-nextjs fails for its own",
     "reasons is a bug to fix, not a `failed` entry - if one has to be excluded anyway, say why in",
-    "`excluded-notes`."
+    "`excluded-notes`.",
+    "",
+    "docs/harness-coverage.md is the human-readable companion to this file: every screened file, its",
+    "outcome, and for each failure an explanation plus a verdict on whether it is a bug or acceptable."
   ],
   "rules": {
     "include": [
+      "test/e2e/app-dir/actions-streaming/actions-streaming.test.ts",
+      "test/e2e/app-dir/dynamic-interception-route-revalidate/dynamic-interception-route-revalidate.test.ts",
       "test/e2e/app-dir/headers-static-bailout/headers-static-bailout.test.ts",
       "test/e2e/app-dir/metadata-streaming/metadata-streaming.test.ts",
       "test/e2e/app-dir/prefetching-not-found/prefetching-not-found.test.ts",
@@ -78,28 +83,6 @@
       "(src/nextjs-distribution.ts). Whether the RSC request is being lost at the edge or mishandled by",
       "the adapter's request bridge is not yet established."
     ],
-    "server actions, three files": [
-      "Excluded pending investigation, and the most interesting failure in the 2026-09-22 screening pass:",
-      "every case that drives a server action and then expects the client to act on the response fails,",
-      "while everything else in the same files passes.",
-      "",
-      "- test/e2e/app-dir/actions-streaming/actions-streaming.test.ts: an action returning a",
-      "  `ReadableStream`. The button never leaves its pending state and no chunk ever renders.",
-      "- test/e2e/app-dir/dynamic-interception-route-revalidate/dynamic-interception-route-revalidate.test.ts:",
-      "  an action that calls `revalidatePath` and returns a number. `#result` never appears, and the page",
-      "  logs `PlaywrightError: An unexpected response was received from the server.` - React rejecting the",
-      "  action's reply.",
-      "- test/e2e/app-dir/app-basepath/index.test.ts: 3 of 13 cases, all of them an action that",
-      "  `redirect()`s (relative, absolute, and to a path outside the `basePath`). The browser stays on",
-      "  `/base/client`. The other 10 pass.",
-      "",
-      "Deterministic - each failed all three attempts. The server function's own logs are clean: no error,",
-      "no timeout, ~60-80ms per invocation, so the POST reaches Next.js and Next.js answers. That points at",
-      "the response rather than the request: either the streamed reply is buffered or truncated on the way",
-      "back, or a header the client needs is being dropped. cdk-nextjs's own e2e suite covers server",
-      "actions (examples/e2e-tests/src/server-actions.test.ts) and passes, so whatever this is, it is",
-      "narrower than \"actions are broken\"."
-    ],
     "revalidation behind the CDN, two files": [
       "Excluded as timing-inherent, not as a cdk-nextjs defect:",
       "test/e2e/app-dir/revalidate-dynamic/revalidate-dynamic.test.ts (both cases) and",
@@ -152,6 +135,18 @@
     "test/e2e/app-dir/segment-cache/cdn-cache-busting/cdn-cache-busting.test.ts": [
       "Not excluded by us: next.js itself skips this file under `isNextDeploy`. Listed only as a worked",
       "example of the README's claim that deploy mode gates out what cannot work behind a CDN."
+    ],
+    "test/e2e/app-dir/app-basepath/index.test.ts": [
+      "Excluded: 3 of 13 cases fail, all of them an action that calls `redirect()` (relative, absolute,",
+      "and to a path outside the `basePath`). The browser never leaves `/base/client`. The other 10 pass.",
+      "Deterministic - failed all three attempts of the 2026-09-22 run.",
+      "",
+      "Not the `x-amz-content-sha256` bug that used to make every action POST 403 here (fixed; see",
+      "docs/harness-coverage.md). With that fixed the POST reaches Next.js, but the browser records no",
+      "response at all, and by hand the reply comes back `200 application/octet-stream` with no Next.js",
+      "headers and an HTTP/2 stream that does not close cleanly - the signature of a RESPONSE_STREAM",
+      "invocation whose `HttpResponseStream.from` prelude was never written. Under investigation; this is",
+      "a cdk-nextjs bug, not a `failed` entry."
     ]
   }
 }

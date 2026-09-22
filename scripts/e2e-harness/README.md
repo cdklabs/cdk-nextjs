@@ -7,6 +7,9 @@ write, because the tests were written by the people who define the behavior.
 `examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
 is the nightly one, on `NextjsGlobalFunctions` only.
 
+What has actually been run, what failed, and whether each failure is a bug or
+acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
+
 ## Pieces
 
 | Path                                | Role                                                                                                               |

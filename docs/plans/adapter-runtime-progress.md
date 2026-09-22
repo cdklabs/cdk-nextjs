@@ -2247,3 +2247,74 @@ Full detail is in the manifest's `excluded-notes`; in brief:
 None of 1, 2, 3 or 4 is fixed here. They are recorded in `excluded-notes` with
 enough detail to be picked up cold, and each exclusion says "pending
 investigation" rather than "inapplicable" so the distinction survives.
+
+## Server actions on `NextjsGlobalFunctions` were broken, and the coverage record
+
+Two commits: `fix: patch client fetch even when skipBuild is set`, and this one.
+
+### The bug
+
+Finding 1 above ("server actions, three files") turned out to be a real product
+defect, not a harness artifact, and the diagnosis in that entry was wrong in the
+instructive way: the function's clean logs were read as "Next.js answered and the
+answer was lost on the way back". The Playwright traces (`test/traces/`, written
+because `run-tests.js` sets `TRACE_PLAYWRIGHT=true`) showed the opposite — every
+action POST came back **`403 InvalidSignatureException` from the edge**, having
+never reached Next.js at all.
+
+`NextjsGlobalFunctions` serves through CloudFront to a Lambda Function URL with
+`AuthType: AWS_IAM`, signed by an origin access control. AWS documents that
+CloudFront will sign a GET for you but will not hash a request body: the viewer
+has to send `x-amz-content-sha256`, because "Lambda doesn't support unsigned
+payloads". A browser cannot do that on its own.
+
+cdk-nextjs has always had the answer — `src/nextjs-build/patch-fetch.js`, wrapping
+`fetch`/`XMLHttpRequest` to compute the hash, prepended to the client entrypoint
+chunks by `NextjsBuild#patchFetchInClientJs`. The bug was *where the call lived*:
+inside `runNextBuild()`, so `skipBuild: true` skipped the patch along with the
+build. The harness must use `skipBuild: true` (`scripts/e2e-deploy.sh` runs
+`next build` itself, to emit the markers the harness parses), so every harness
+deployment shipped an unpatched client — as did every user's, with that prop.
+
+Fixed by moving the call into the constructor, outside the build gate, still
+guarded on `NextjsType.GLOBAL_FUNCTIONS`. Because the same `.next` can now be
+synthesized more than once (`skipBuild: true`, `synth` then `deploy`, a retried
+deploy), the prepend is guarded by a `/* cdk-nextjs:patch-fetch */` marker so it
+cannot double-wrap its own wrappers.
+
+Two notes for whoever reads this next:
+
+- `examples/e2e-tests` covers server actions and is green on
+  `NextjsGlobalFunctions`, but only ever on the `skipBuild: false` path. It could
+  not have caught this. The harness is the regression test, and there is no
+  `NextjsBuild` unit test to add it to short of fabricating a whole `.next`.
+- Read the trace before theorising from logs. A clean function log is consistent
+  with the request never arriving.
+
+### What that bought
+
+`actions-streaming` and `dynamic-interception-route-revalidate` now pass and are
+in `rules.include` (17 files). `app-basepath` goes from 13 failures to 3.
+
+### The coverage record
+
+`docs/harness-coverage.md` is new, and is the answer to "which files have we
+tested, which failed, why, and is the failure acceptable". Every screened file has
+an outcome and an explicit verdict — `pass` / `fixed` / `bug` / `unsupported` /
+`CDN-inherent` / `no signal` — where "acceptable" means understood and not worth
+fixing, and every `bug` row is a defect that should return as a regression test.
+The manifest's `excluded-notes` stays the machine-adjacent half; the new doc is
+linked from it and from `scripts/e2e-harness/README.md`.
+
+### Still open, and a new one
+
+The four bugs above (2, 3, 4 and `segment-cache/deployment-skew`) are unchanged.
+The new fifth: `app-basepath`'s 3 remaining cases are all an action `redirect()`,
+and they now fail *differently*. The POST carries the hash and reaches the origin,
+but the reply arrives as `200 application/octet-stream` with none of Next.js's
+headers and an HTTP/2 stream that does not close cleanly — the signature of a
+`RESPONSE_STREAM` invocation whose `awslambda.HttpResponseStream.from` prelude was
+never written, i.e. the head `ShimServerResponse` emits never reached
+`LambdaResponseSink.begin`. The function completes in ~22ms and logs nothing.
+Details, including the Next.js `createRedirectRenderResult` sub-fetch that makes
+this path unlike any other action response, are in `docs/harness-coverage.md`.
