@@ -50,10 +50,10 @@ function isApiGatewayEvent(event: LambdaEvent): event is APIGatewayProxyEvent {
 }
 
 class LambdaResponseSink implements ResponseSink {
-  public constructor(
-    private readonly responseStream: Writable,
-    public readonly padEmptyBody: boolean,
-  ) {}
+  /** See {@link ResponseSink.padEmptyBody}. Both integrations need it. */
+  public readonly padEmptyBody = true;
+
+  public constructor(private readonly responseStream: Writable) {}
 
   public begin(head: ResponseHead): Writable {
     // The prelude has to precede the first body byte, which is why
@@ -72,9 +72,7 @@ export const handler = awslambda.streamifyResponse(
     const runtime = await runtimePromise;
     await runtime.handle(
       toRuntimeRequest(event),
-      // See `ResponseSink.padEmptyBody`: only the API Gateway integration turns a
-      // zero-byte streamed body into a 502.
-      new LambdaResponseSink(responseStream, isApiGatewayEvent(event)),
+      new LambdaResponseSink(responseStream),
     );
   },
 );

@@ -30,13 +30,25 @@ import { ResponseHead, ShimServerResponse } from "./response";
 
 export interface ResponseSink {
   /**
-   * Set by the API Gateway sink. A response stream with zero payload bytes after
-   * the metadata delimiter makes API Gateway's `InvokeWithResponseStream`
-   * integration answer 502 — it never recognizes the response as complete — so a
-   * single space is written instead of nothing. The pre-adapter image handler
-   * carried the same workaround for 304s; it is confined to the integration that
-   * needs it because RFC 9110 forbids a body on 204/304 and CloudFront, caches,
-   * and HTTP/2 clients all see the unpadded version.
+   * Set by the Lambda sink, for both integrations: a streamed Lambda response
+   * with zero payload bytes after the metadata delimiter is not recognized as a
+   * metadata response at all, so a single space is written instead of nothing.
+   *
+   * API Gateway answers 502. A Function URL is worse because it looks like it
+   * worked: the prelude is discarded and the response arrives as a bare
+   * `200 application/octet-stream` with an empty body, none of the app's headers,
+   * and an HTTP/2 stream that does not close cleanly — whatever the real status
+   * was. Measured against a `NextjsGlobalFunctions` deployment: `HEAD` on a 404
+   * page answered `200`, and a server action whose reply is empty (an action that
+   * only `redirect()`s, which Next.js answers with `x-action-redirect` and no
+   * body) lost the redirect header and so never navigated.
+   *
+   * The pre-adapter image handler carried the same workaround for 304s. RFC 9110
+   * forbids a body on 204/304, and a space technically violates that, but losing
+   * the status entirely is the worse failure — and on the CloudFront path a
+   * conditional request cannot reach the origin anyway, because `if-none-match`
+   * is not in the dynamic cache policy's header allowlist. The container sink
+   * writes to a real `ServerResponse` and does not set this.
    */
   readonly padEmptyBody?: boolean;
   /**

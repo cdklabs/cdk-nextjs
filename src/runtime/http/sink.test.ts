@@ -156,8 +156,28 @@ describe("pipeToSink empty-body padding", () => {
       },
       { padEmptyBody: true },
     );
-    // Zero payload bytes after the prelude makes API Gateway answer 502.
+    // Zero payload bytes after the prelude makes API Gateway answer 502, and
+    // makes a Function URL drop the prelude and answer a bare
+    // `200 application/octet-stream`.
     expect(sink.body.toString("utf-8")).toBe(" ");
+  });
+
+  it("pads a HEAD response, whose body is empty by definition", async () => {
+    const sink = await run(
+      (res) => {
+        res.setHeader("content-type", "text/html; charset=utf-8");
+        res.setHeader("content-length", "5798");
+        res.end();
+      },
+      {
+        padEmptyBody: true,
+        req: requestWith({ "accept-encoding": "gzip" }, "HEAD"),
+      },
+    );
+    expect(sink.body.toString("utf-8")).toBe(" ");
+    // The head still describes what a GET would return; the padding byte is not
+    // a body and the integration overwrites `content-length` with 0.
+    expect(sink.head?.headers["content-length"]).toBe("5798");
   });
 
   it("leaves a non-empty body alone", async () => {
