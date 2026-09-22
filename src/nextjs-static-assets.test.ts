@@ -67,5 +67,26 @@ describe("NextjsStaticAssets", () => {
           .keyPrefix,
       ).toBe("");
     });
+
+    // A JSII language binding, or a programmatically built props object, can
+    // materialize an unset optional field as an explicit `undefined`. Treating
+    // that as an intentional "move the assets to the bucket root" override would
+    // upload them there while CloudFront still requested them under basePath,
+    // failing synth with a key prefix mismatch that names neither the override
+    // nor the cause.
+    it("falls back to basePath when the override key is present but undefined", () => {
+      const staticAssets = new NextjsStaticAssets(stack, "NextjsStaticAssets", {
+        buildDirectory,
+        buildId: "test-build-id",
+        basePath: "/base",
+        overrides: {
+          bucketDeploymentProps: {
+            destinationKeyPrefix: undefined,
+          } as any,
+        },
+      });
+
+      expect(staticAssets.keyPrefix).toBe("base");
+    });
   });
 });
