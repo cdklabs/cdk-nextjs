@@ -11,6 +11,7 @@ import {
 } from "@aws-sdk/client-cloudfront";
 import {
   DynamoDBClient,
+  GetItemCommand,
   QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
@@ -59,6 +60,23 @@ describe("S3DynamoCacheHandler", () => {
     fetchCache: true as const,
     tags,
   });
+
+  /**
+   * Answer DynamoDB by command type rather than by call order: `revalidateTag`
+   * writes its tag marker before querying the tag's mapping rows, and which of
+   * those comes first is an implementation detail.
+   */
+  const dynamoResponses = (responses: { query?: unknown; get?: unknown }) => {
+    mockDynamoSend.mockImplementation((command: unknown) => {
+      if (command instanceof QueryCommand) {
+        return Promise.resolve(responses.query ?? {});
+      }
+      if (command instanceof GetItemCommand) {
+        return Promise.resolve(responses.get ?? {});
+      }
+      return Promise.resolve({});
+    });
+  };
 
   beforeEach(() => {
     mockContext = { dev: false } as CacheHandlerContext;
@@ -156,6 +174,67 @@ describe("S3DynamoCacheHandler", () => {
       expect(result).toBeNull();
     });
 
+    it("invalidates a seeded prerender only when its tag marker is newer", async () => {
+      // A build-time prerender is written as a file by the adapter's
+      // `onBuildComplete`, never through `set`, so it has no `tags` array and no
+      // DynamoDB mapping rows - its tags live in the render's
+      // `x-next-cache-tags` header. Two bugs met here: those header tags were
+      // ignored, so `revalidateTag` could not reach any static page; and the
+      // mapping rows `set` writes were stamped `revalidatedAt = now`, which is
+      // *after* the entry's own `lastModified`, so a tagged entry looked
+      // revalidated the moment it was stored and every request re-rendered.
+      // Measured against next.js's `test/e2e/app-dir/resume-data-cache`.
+      const lastModified = Date.now();
+      const seeded = {
+        lastModified,
+        value: {
+          kind: CachedRouteKind.APP_PAGE,
+          html: "<html>seeded</html>",
+          headers: { "x-next-cache-tags": "_N_T_/,_N_T_/page,test" },
+        },
+      };
+      const s3Body = () => ({
+        Body: {
+          transformToString: jest
+            .fn()
+            .mockResolvedValue(JSON.stringify(seeded)),
+        },
+        ContentType: "application/json",
+      });
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(command instanceof GetObjectCommand ? s3Body() : {}),
+      );
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+
+      // No marker at all: the tag was never revalidated.
+      dynamoResponses({});
+      expect(await handler.get("index", getCtx)).toMatchObject({
+        lastModified,
+      });
+
+      // A marker older than the entry means the entry already reflects it.
+      dynamoResponses({
+        get: { Item: { revalidatedAt: { N: String(lastModified - 1000) } } },
+      });
+      expect(await handler.get("index", getCtx)).toMatchObject({
+        lastModified,
+      });
+      expect(mockS3Send).not.toHaveBeenCalledWith(
+        expect.any(DeleteObjectCommand),
+      );
+
+      // A newer marker: miss, and drop the stale object so the re-render's entry
+      // replaces it.
+      dynamoResponses({
+        get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
+      });
+      expect(await handler.get("index", getCtx)).toBeNull();
+      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+    });
+
     it("should handle S3 errors and return null", async () => {
       mockS3Send.mockRejectedValueOnce(new Error("S3 Error"));
 
@@ -245,8 +324,7 @@ describe("S3DynamoCacheHandler", () => {
         ],
       };
 
-      mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
-      mockDynamoSend.mockResolvedValue({}); // For update commands
+      dynamoResponses({ query: mockQueryResponse });
       mockS3Send.mockResolvedValue({}); // For delete commands
 
       await handler.revalidateTag("test-tag");
@@ -256,6 +334,15 @@ describe("S3DynamoCacheHandler", () => {
         expect.any(UpdateItemCommand),
       );
       expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+
+      // The tag marker `checkIfRevalidated` reads: keyed by the bare tag, so
+      // entries with no mapping row of their own still see the revalidation.
+      const markerWrite = (UpdateItemCommand as unknown as jest.Mock).mock.calls
+        .map(([input]) => input)
+        .find((input) => input.Key.sk.S === "test-tag");
+      expect(markerWrite).toMatchObject({
+        UpdateExpression: "SET revalidatedAt = :timestamp",
+      });
     });
 
     it("should not revalidate when DynamoDB table is not configured", async () => {
@@ -290,8 +377,7 @@ describe("S3DynamoCacheHandler", () => {
         ],
       };
 
-      mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
-      mockDynamoSend.mockResolvedValue({}); // For update commands
+      dynamoResponses({ query: mockQueryResponse });
       mockS3Send.mockResolvedValue({}); // For delete commands
       mockSsmSend.mockResolvedValue({
         Parameter: { Value: "test-distribution-id" },
@@ -318,8 +404,7 @@ describe("S3DynamoCacheHandler", () => {
         Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }],
       };
 
-      mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
-      mockDynamoSend.mockResolvedValue({});
+      dynamoResponses({ query: mockQueryResponse });
       mockS3Send.mockResolvedValue({});
 
       await handler.revalidateTag("test-tag");
@@ -338,8 +423,7 @@ describe("S3DynamoCacheHandler", () => {
         Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }],
       };
 
-      mockDynamoSend.mockResolvedValueOnce(mockQueryResponse);
-      mockDynamoSend.mockResolvedValue({});
+      dynamoResponses({ query: mockQueryResponse });
       mockS3Send.mockResolvedValue({});
       mockSsmSend.mockRejectedValueOnce(new Error("SSM Error"));
 

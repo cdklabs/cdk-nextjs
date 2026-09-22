@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/client-cloudfront";
 import {
   DynamoDBClient,
+  GetItemCommand,
   QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
@@ -35,6 +36,36 @@ import {
   SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { serializeCacheValue, parseCacheValue, getTags } from "./cache-utils";
+
+/** `NEXT_CACHE_TAGS_HEADER`, inlined so this file imports no Next.js internals. */
+const NEXT_CACHE_TAGS_HEADER = "x-next-cache-tags";
+
+/**
+ * The tags a stored entry has to be tag-revalidated against.
+ *
+ * A runtime `set` records `tags` alongside the entry, but a build-time prerender
+ * does not: those entries are written as files by the adapter's
+ * `onBuildComplete` rather than through `set`, and carry their tags only in the
+ * render's `x-next-cache-tags` header — the same place Next.js's own
+ * `IncrementalCache.get` reads them from when it decides staleness. Without this
+ * fallback no prerendered page is reachable by `revalidateTag`/`revalidatePath`
+ * until some later runtime re-render happens to replace the seeded entry, so an
+ * app whose pages are all static never revalidates at all. Measured against
+ * next.js's `test/e2e/app-dir/resume-data-cache`.
+ */
+function entryTags(stored: {
+  tags?: string[];
+  value?: { headers?: Record<string, unknown> };
+}): string[] {
+  if (stored.tags?.length) {
+    return stored.tags;
+  }
+  const header = stored.value?.headers?.[NEXT_CACHE_TAGS_HEADER];
+  if (typeof header !== "string" || header === "") {
+    return [];
+  }
+  return header.split(",").filter(Boolean);
+}
 
 interface S3CacheConfig {
   bucketName: string;
@@ -206,7 +237,7 @@ export class S3CacheHandler implements CacheHandler {
         };
 
         // Check if cache has been invalidated by tag revalidation
-        const storedTags = parsedValue.tags || [];
+        const storedTags = entryTags(parsedValue);
         if (storedTags.length > 0 && this.dynamoConfig.tableName) {
           const isInvalidated = await this.checkIfRevalidated(
             cacheValue.lastModified,
@@ -343,6 +374,26 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   private async revalidateSingleTag(tag: string): Promise<void> {
+    // Record the revalidation against the tag itself, not only against the cache
+    // keys already mapped to it. The mapping rows only exist for entries some
+    // runtime `set` wrote; a build-time prerender has none, so without this
+    // marker `revalidateTag` would have nothing to act on for a static page.
+    // See `checkIfRevalidated`, which reads it.
+    await this.dynamoClient.send(
+      new UpdateItemCommand({
+        TableName: this.dynamoConfig.tableName,
+        Key: {
+          pk: { S: this.dynamoConfig.buildId },
+          // Mapping rows are `tag#cacheKey`, so a bare tag cannot collide.
+          sk: { S: tag },
+        },
+        UpdateExpression: "SET revalidatedAt = :timestamp",
+        ExpressionAttributeValues: {
+          ":timestamp": { N: Date.now().toString() },
+        },
+      }),
+    );
+
     // Query all paths associated with this tag
     const queryCommand = new QueryCommand({
       TableName: this.dynamoConfig.tableName,
@@ -536,8 +587,13 @@ export class S3CacheHandler implements CacheHandler {
             pk: { S: this.dynamoConfig.buildId },
             sk: { S: tagCacheKey },
           },
-          UpdateExpression:
-            "SET createdAt = if_not_exists(createdAt, :now), revalidatedAt = :now",
+          // Deliberately no `revalidatedAt`: a mapping row records only that an
+          // entry carries the tag. Stamping it at write time made every tagged
+          // entry look revalidated one millisecond after it was stored — the
+          // row's timestamp is taken after the entry's `lastModified` — so
+          // `checkIfRevalidated` deleted healthy entries and the page
+          // re-rendered on every request.
+          UpdateExpression: "SET createdAt = if_not_exists(createdAt, :now)",
           ExpressionAttributeValues: {
             ":now": { N: Date.now().toString() },
           },
@@ -553,34 +609,44 @@ export class S3CacheHandler implements CacheHandler {
     }
   }
 
+  /**
+   * Whether any of `tags` was revalidated after this entry was stored.
+   *
+   * Reads the per-tag marker row `revalidateSingleTag` writes, by primary key.
+   * Scanning the tag's mapping rows instead would answer the wrong question:
+   * those rows exist per cache *key*, so which one a `Limit: 1` query returned
+   * depended on sort order, and an entry could be judged against another
+   * entry's timestamp.
+   */
   private async checkIfRevalidated(
     cacheLastModified: number,
     tags: string[],
   ): Promise<boolean> {
     try {
-      // Check each tag to see if it has been revalidated after the cache was created
-      for (const tag of tags) {
-        const queryCommand = new QueryCommand({
-          TableName: this.dynamoConfig.tableName,
-          KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
-          ExpressionAttributeValues: {
-            ":pk": { S: this.dynamoConfig.buildId },
-            ":skPrefix": { S: `${tag}#` },
-          },
-          ProjectionExpression: "revalidatedAt",
-          Limit: 1, // We only need to check if any entry exists with this tag
-        });
+      // In parallel: a prerendered page carries its whole implicit `_N_T_/…`
+      // chain plus the app's own tags, and these are on the request path.
+      const markers = await Promise.all(
+        tags.map(async (tag) => {
+          const response = await this.dynamoClient.send(
+            new GetItemCommand({
+              TableName: this.dynamoConfig.tableName,
+              Key: {
+                pk: { S: this.dynamoConfig.buildId },
+                sk: { S: tag },
+              },
+              ProjectionExpression: "revalidatedAt",
+            }),
+          );
+          return { tag, revalidatedAt: response.Item?.revalidatedAt?.N };
+        }),
+      );
 
-        const queryResponse = await this.dynamoClient.send(queryCommand);
-
-        if (queryResponse.Items && queryResponse.Items.length > 0) {
-          const revalidatedAt = queryResponse.Items[0].revalidatedAt?.N;
-          if (revalidatedAt && parseInt(revalidatedAt) > cacheLastModified) {
-            this.debug(
-              `Tag ${tag} was revalidated at ${revalidatedAt}, cache created at ${cacheLastModified}`,
-            );
-            return true; // Cache is invalidated
-          }
+      for (const { tag, revalidatedAt } of markers) {
+        if (revalidatedAt && parseInt(revalidatedAt) > cacheLastModified) {
+          this.debug(
+            `Tag ${tag} was revalidated at ${revalidatedAt}, cache created at ${cacheLastModified}`,
+          );
+          return true; // Cache is invalidated
         }
       }
 
