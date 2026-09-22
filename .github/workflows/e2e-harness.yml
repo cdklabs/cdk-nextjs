@@ -79,6 +79,16 @@ jobs:
         working-directory: nextjs
         run: pnpm playwright install --with-deps chromium
 
+      - name: Warm the shared stack
+        # Creating the CloudFront distribution takes ~240s, and the harness
+        # runs `createNext` inside jest's `beforeAll` - so without this the first
+        # test file is charged that wait against NEXT_E2E_TEST_TIMEOUT below,
+        # fails wholesale, and only passes on retry. Pay it once, here, where
+        # nothing is timing us.
+        run: ./scripts/e2e-warm.sh
+        env:
+          ADAPTER_DIR: ${{ github.workspace }}
+
       - name: Run the harness
         working-directory: nextjs
         env:

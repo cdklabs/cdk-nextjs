@@ -47,18 +47,18 @@ up for the duration of this work — do not delete or modify them.
 
 ## Status
 
-| Plan step                                                          | State                                                                                                                                                                                     |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — build outputs (`onBuildComplete`)                              | done                                                                                                                                                                                      |
-| 2 — dispatch via `@next/routing`                                   | done                                                                                                                                                                                      |
-| 3 — middleware runner                                              | done                                                                                                                                                                                      |
-| 4 — runtime core + two shells                                      | done                                                                                                                                                                                      |
-| 5 — wire constructs, Functions to zip, Containers Dockerfiles      | done                                                                                                                                                                                      |
-| 6 — delete `output: "standalone"` + dedicated image function       | done                                                                                                                                                                                      |
-| 7 — splitting (`functionGroups`)                                   | done                                                                                                                                                                                      |
-| 8 — tests, docs, breaking-changes                                  | done, with three exit criteria unmet (see step 8 entry)                                                                                                                                   |
-| 9 — PPR: `cacheComponents` migration of `app-playground` + PPR e2e | done (clears exit criterion 1 of step 8's three)                                                                                                                                          |
-| 10 — official Next.js test harness (plumbing + small slice)        | plumbing done and proven end to end on AWS; reworked onto one shared `NextjsGlobalFunctions` stack in 10b; step 8's exit criterion 2 **not** met — the official test files were never run |
+| Plan step                                                          | State                                                                                                                                                                    |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 — build outputs (`onBuildComplete`)                              | done                                                                                                                                                                     |
+| 2 — dispatch via `@next/routing`                                   | done                                                                                                                                                                     |
+| 3 — middleware runner                                              | done                                                                                                                                                                     |
+| 4 — runtime core + two shells                                      | done                                                                                                                                                                     |
+| 5 — wire constructs, Functions to zip, Containers Dockerfiles      | done                                                                                                                                                                     |
+| 6 — delete `output: "standalone"` + dedicated image function       | done                                                                                                                                                                     |
+| 7 — splitting (`functionGroups`)                                   | done                                                                                                                                                                     |
+| 8 — tests, docs, breaking-changes                                  | done, with three exit criteria unmet (see step 8 entry)                                                                                                                  |
+| 9 — PPR: `cacheComponents` migration of `app-playground` + PPR e2e | done (clears exit criterion 1 of step 8's three)                                                                                                                         |
+| 10 — official Next.js test harness (plumbing + small slice)        | done; one shared warmed `NextjsGlobalFunctions` stack (10b, 10c). Step 8's exit criterion 2 **met** in 10c: two next.js e2e files pass against a real deployment, exit 0 |
 
 Exit criteria are tracked in the plan, not duplicated here. Record against them
 in the final entry.
@@ -1732,3 +1732,113 @@ still nothing has executed an official next.js test.
    harness README: the dynamic cache policy's ~10-header allowlist (a real
    CloudFront quota limitation, not a regression), and fixtures whose `public/`
    differs paying a distribution propagation.
+
+## Step 10c — `test: warm the shared stack and run only verified test files`
+
+The first step in which vercel/next.js's own e2e suite actually ran against a
+cdk-nextjs deployment. **Step 8's exit criterion 2 is now met.**
+
+Final result, against the committed manifest, on a warmed stack:
+
+```
+test/e2e/app-dir/segment-cache/basic/segment-cache-basic.test.ts finished on retry 0/2 in 265.728s
+test/e2e/app-dir/segment-cache/headers-keyed-caches/headers-keyed-caches.test.ts finished on retry 0/2 in 113.259s
+exiting with code 0
+```
+
+Both on attempt 0, no retries spent. Getting there turned up three things, none
+of which were visible from `cdk synth`.
+
+### 1. Every file in the previous manifest was unbuildable
+
+The step-10 manifest listed three test files and had never been run. All three
+fail at `next build`, not at a test:
+
+| File                                     | Blocker                     |
+| ---------------------------------------- | --------------------------- |
+| `middleware-rewrites/test/index.test.ts` | legacy edge `middleware.js` |
+| `app-dir/actions/app-action.test.ts`     | legacy edge `middleware.js` |
+| `app-dir/app-static/app-static.test.ts`  | ~10 `*-edge` routes         |
+
+`assertNodeRuntimes` (`src/adapter/build-outputs.ts`) throws on any output whose
+runtime is not `nodejs`, during the build, so the whole fixture dies and a
+per-case `failed` entry cannot rescue it. This is a deliberate product limitation
+— the edge runtime is deprecated upstream and cdk-nextjs supports Next.js 16's
+Node-runtime `proxy.ts` — so the files are excluded with the reason recorded in
+the manifest's `excluded-notes`, at the user's direction ("can we ignore the
+nextjs harness tests that assume edge?"). ~522 of next.js's e2e files are
+edge-free, so this barely constrains widening the list.
+
+The replacements were chosen by running them, not by reading them. That is now
+written into the manifest's own comment as a rule.
+
+### 2. The first test file of every run failed, and only passed on retry
+
+A cold stack create is ~240s and the harness runs `createNext` inside jest's
+`beforeAll`, so it is charged against `NEXT_E2E_TEST_TIMEOUT` — 240000 in CI, the
+same order. Measured unwarmed: all 11 tests failed at 242s, then the retry passed
+in 213s. Survivable only because `run-tests.js` retries twice, which spends a
+retry the next real failure needs.
+
+`scripts/e2e-warm.sh` now creates the stack from a throwaway app before
+`run-tests.js` starts, via `e2e-deploy.sh` itself so a successful warm-up proves
+the same path the test files take. Verified cold: stack deleted, warm-up created
+it in 242s, then `segment-cache-basic` passed on attempt 0 where unwarmed it had
+failed. Wired into the workflow before "Run the harness".
+
+One bug found while testing it: the warm app had no `packageManager`, and
+`e2e-deploy.sh` installs with `corepack pnpm`, which then resolved a pnpm it had
+never downloaded and died with `MODULE_NOT_FOUND`. Both the `next` version and
+`packageManager` are now read out of this repo's `package.json` so they cannot
+drift from what the real fixtures use.
+
+### 3. `deployment-skew` is a real failure, excluded pending investigation
+
+`header with deployment id > header is set on RSC responses` fetches
+`<route>?_rsc=` with an `RSC: 1` header and expects
+`content-type: text/x-component`. cdk-nextjs returns
+`text/html; charset=utf-8` — the HTML render, not the flight response. Failed all
+three attempts, so not flaky.
+
+Not the CloudFront header-quota caveat: `rsc` is in the dynamic cache policy
+allowlist (`src/nextjs-distribution.ts`). Whether the RSC request is lost at the
+edge or mishandled by the adapter's request bridge is **not established** — it
+needs its own change. Recorded in `excluded-notes` as a bug to fix and bring back
+as a regression test, explicitly not as an inapplicable test.
+
+### Also in this step
+
+- **Timings corrected to measured values.** The README, `common.sh`,
+  `e2e-warm.sh` and the workflow all claimed "~12 minutes" for a distribution
+  create, carried over from step 10's estimate. Measured twice at ~240s.
+- **The account was re-checked** (the item step 10b left open). No `hrns-*`
+  stacks, and all 8 Lambda Function URLs in the account are `AWS_IAM` with zero
+  `NONE`. The Palisade finding is historical.
+- **The sweeper was exercised end to end** — it deleted `hrns-shared` after
+  re-checking the tag, which is how the cold warm-up test was set up.
+- Committed separately as `fix:`, since it is a product fix rather than test
+  infrastructure: `assertNodeRuntimes` blamed `/` for edge middleware, because
+  middleware's `sourcePage` is `/`. It now reports middleware by file path and
+  points at `proxy.ts`. New unit test.
+
+### Verified vs assumed
+
+Verified on real AWS: the full green path (temp app → install → build through the
+adapter → `cdk deploy` → invalidate → tests pass); the warm-up cold, including
+that it fixes the first-file failure; both manifest files passing on attempt 0;
+the sweeper's tag-gated delete; the CloudFormation output fallback in
+`harness_stack_output`; and the pinned post-deploy custom resource. Everything
+step 10b asserted from `cdk synth` alone is now confirmed against AWS.
+
+Assumed still: that `-c 1` is enough to keep two files from racing (never
+observed failing, but never adversarially tested); and that the nightly workflow
+runs green, which only a first nightly will show.
+
+### Not done
+
+1. **`deployment-skew`'s RSC content-type bug is not fixed**, only characterized
+   and excluded. See above.
+2. **The manifest is two files.** Widening it is cheap now that warm-up exists
+   and the edge filter is known, but each file is still a deploy.
+3. The `healthCheckPath` API question (step 8 exit criterion 3) and the
+   `s3KeyToInvalidationPath` basePath gap remain open, unchanged.

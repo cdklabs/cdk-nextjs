@@ -9,41 +9,62 @@
     "",
     "`rules.include` is deliberately a short explicit list rather than next.js's own",
     "`test/e2e/**/*.test.{t,j}s{,x}`: the harness creates a separate app per test file, so one file is one",
-    "CDK deploy (~3-4 minutes). The full tree is thousands of deploys. Widen this list as the adapter",
+    "CDK deploy (~2-4 minutes). The full tree is thousands of deploys. Widen this list as the adapter",
     "earns it; see scripts/e2e-harness/README.md.",
     "",
-    "The `failed` entries below are copied from next.js's own test/deploy-tests-manifest.json at v16.3.5:",
-    "cases that do not pass on Vercel's deployment either, so they say nothing about this adapter. Any",
-    "case cdk-nextjs fails for its own reasons is a bug to fix, not an entry to add here - if one has to",
-    "be excluded anyway, say why in `excluded-notes`."
+    "Every file listed here has been run against a real deployment and observed to pass. Add nothing on",
+    "the assumption that it will - the first version of this list was three files, all of which turned",
+    "out to be unbuildable by cdk-nextjs (see `excluded-notes`). Any case cdk-nextjs fails for its own",
+    "reasons is a bug to fix, not a `failed` entry - if one has to be excluded anyway, say why in",
+    "`excluded-notes`."
   ],
   "rules": {
     "include": [
-      "test/e2e/app-dir/app-static/app-static.test.ts",
-      "test/e2e/app-dir/actions/app-action.test.ts",
-      "test/e2e/middleware-rewrites/test/index.test.ts"
+      "test/e2e/app-dir/segment-cache/basic/segment-cache-basic.test.ts",
+      "test/e2e/app-dir/segment-cache/headers-keyed-caches/headers-keyed-caches.test.ts"
     ],
     "exclude": []
   },
-  "suites": {
-    "test/e2e/app-dir/app-static/app-static.test.ts": {
-      "failed": [
-        "app-dir static/dynamic handling new tags have been specified on subsequent fetch should not fetch from memory cache",
-        "app-dir static/dynamic handling new tags have been specified on subsequent fetch should not fetch from memory cache after revalidateTag is used"
-      ]
-    },
-    "test/e2e/app-dir/actions/app-action.test.ts": {
-      "failed": [
-        "app-dir action handling fetch actions should invalidate client cache when path is revalidated",
-        "app-dir action handling fetch actions should invalidate client cache when tag is revalidated",
-        "app-dir action handling fetch actions should handle revalidateTag",
-        "app-dir action handling fetch actions should store revalidation data in the prefetch cache",
-        "app-dir action handling should invalidate the client router cache if the redirect action triggers a revalidation"
-      ]
-    },
-    "test/e2e/middleware-rewrites/test/index.test.ts": {
-      "failed": ["Middleware Rewrite should handle catch-all rewrite correctly"]
-    }
-  },
-  "excluded-notes": {}
+  "suites": {},
+  "excluded-notes": {
+    "edge runtime, generally": [
+      "cdk-nextjs refuses at build time to deploy any output whose runtime is not `nodejs`",
+      "(`assertNodeRuntimes` in src/adapter/build-outputs.ts). That is a deliberate product limitation -",
+      "the edge runtime is deprecated in Next.js, and cdk-nextjs supports Next.js 16's Node-runtime",
+      "`proxy.ts` instead of the legacy edge-only `middleware.ts`.",
+      "",
+      "The check throws during `next build`, so a fixture containing *any* edge route or legacy",
+      "middleware fails wholesale and per-case `failed` entries cannot rescue it. Such files have to be",
+      "left out of `rules.include` entirely. ~522 of next.js's e2e files are edge-free, so this is not",
+      "much of a constraint on widening the list."
+    ],
+    "test/e2e/app-dir/app-static/app-static.test.ts": [
+      "Excluded: ~10 `*-edge` routes declare `export const runtime = 'edge'`. See the note above.",
+      "Worth revisiting as a source of individual cases to port, since it is the densest coverage of the",
+      "ISR/caching behavior cdk-nextjs's cache handler implements."
+    ],
+    "test/e2e/app-dir/actions/app-action.test.ts": [
+      "Excluded: the fixture ships a legacy edge `middleware.js`. See the note above."
+    ],
+    "test/e2e/middleware-rewrites/test/index.test.ts": [
+      "Excluded: the fixture ships a legacy edge `middleware.js`. See the note above."
+    ],
+    "test/e2e/app-dir/segment-cache/deployment-skew/deployment-skew.test.ts": [
+      "Excluded pending investigation, NOT because the test is inapplicable - this one looks like a real",
+      "cdk-nextjs bug and should come back as a regression test once fixed.",
+      "",
+      "`header with deployment id > header is set on RSC responses` fetches `<route>?_rsc=` with an",
+      "`RSC: 1` request header and expects `content-type: text/x-component`. Through cdk-nextjs it gets",
+      "`text/html; charset=utf-8`, i.e. the HTML render rather than the flight response. Failed all three",
+      "attempts, so it is not flaky.",
+      "",
+      "Not the CloudFront header-quota caveat: `rsc` is in the dynamic cache policy's allowlist",
+      "(src/nextjs-distribution.ts). Whether the RSC request is being lost at the edge or mishandled by",
+      "the adapter's request bridge is not yet established."
+    ],
+    "test/e2e/app-dir/segment-cache/cdn-cache-busting/cdn-cache-busting.test.ts": [
+      "Not excluded by us: next.js itself skips this file under `isNextDeploy`. Listed only as a worked",
+      "example of the README's claim that deploy mode gates out what cannot work behind a CDN."
+    ]
+  }
 }

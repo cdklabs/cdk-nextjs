@@ -14,6 +14,7 @@ is the nightly one, on `NextjsGlobalFunctions` only.
 | `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
 | `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.        |
 | `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`. |
+| `scripts/e2e-warm.sh`               | Creates the shared stack before the suite starts, so no test file pays for it. Run it first.                       |
 | `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and the shared one after a run. Dry run unless `--apply`.                         |
 | `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
 | `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
@@ -28,9 +29,18 @@ one deployment — every file genuinely has different code to ship. What there i
 way to do is ship it into infrastructure that already exists.
 
 Every test file deploys into the same stack (`hrns-shared`) with
-`cdk deploy --hotswap-fallback`. The first file of a run pays ~12 minutes to
-create and propagate a CloudFront distribution; every file after it reuses it.
-That is the whole saving, and it is most of the cost of a run.
+`cdk deploy --hotswap-fallback`. Creating and propagating the CloudFront
+distribution costs ~4 minutes once per run; every test file reuses it. That is
+the whole saving, and it is most of the cost of a run.
+
+`scripts/e2e-warm.sh` pays that cost **before `run-tests.js` starts**, and
+is not optional. The harness calls `createNext` inside jest's `beforeAll`, so a
+stack create is charged against `NEXT_E2E_TEST_TIMEOUT` (240s in CI) and the
+first test file fails wholesale, then passes on retry once the stack exists.
+Measured: unwarmed, the first file failed all 11 tests at 242s and passed on
+retry 1 in 213s; against an already-created stack, a file passes on its first
+attempt in 107s. Retries make that survivable, not correct - it spends a retry
+the next real failure needs, and a create slower than two retries goes red.
 
 Measured against two different built apps (`cdk synth` twice into the same stack
 name, then diffing the templates), exactly five resources differ between two
@@ -59,7 +69,7 @@ fallback, not the hotswap path:
   propagate.
 
 A CloudFormation update that leaves the distribution alone still costs only a
-couple of minutes, against ~12 for a stack of its own plus a slow delete, so the
+couple of minutes, against ~4 for a stack of its own plus a slow delete, so the
 shared stack is worth it either way. `--hotswap-fallback` is kept because it is
 free and takes the fast path when it can.
 
@@ -68,7 +78,7 @@ What the shared stack is paid for in:
 - **Test files must be serialized** (`run-tests.js -c 1`). Two concurrent deploys
   into one stack would race.
 - **`e2e-cleanup.sh` must not delete the stack**, or the next file pays the
-  ~12 minutes again. It doesn't; `e2e-sweep.sh --apply` with
+  create again. It doesn't; `e2e-sweep.sh --apply` with
   `HARNESS_SWEEP_MAX_AGE_HOURS=0` deletes it once, after the run. The workflow
   does this in an `always()` step; a local run has to do it by hand.
 - **Nothing may leak between files.** Server cache entries are keyed by
@@ -84,7 +94,8 @@ What the shared stack is paid for in:
 
 `test/deploy-tests-manifest.json` still lists test files explicitly rather than
 taking next.js's `test/e2e/**` include rule, and this still runs nightly rather
-than per-commit. Widen either deliberately.
+than per-commit. Widen either deliberately - and only with files you have watched
+pass, since a file can be unbuildable rather than merely failing (see below).
 
 `HARNESS_ISOLATED_STACK=1` gives a stack per app directory instead — worth it to
 debug a single file, or to run two things at once, at the cost of a distribution
@@ -116,6 +127,29 @@ Two caveats worth knowing before reading a failure as a regression:
 - `NextjsGlobalContainers` and both Regional types are not covered here at all.
   `examples/e2e-tests` is the gate on those.
 
+## Which test files can run at all
+
+cdk-nextjs rejects any build output whose runtime is not `nodejs`
+(`assertNodeRuntimes` in `src/adapter/build-outputs.ts`), and it throws during
+`next build`. So a fixture containing even one edge route, or a legacy edge
+`middleware.ts`, does not fail some tests - it fails to build, and no per-case
+`failed` entry in the manifest can rescue it. Such files have to stay out of
+`rules.include`.
+
+That is a product limitation and a deliberate one: the edge runtime is deprecated
+in Next.js, and cdk-nextjs supports Next.js 16's Node-runtime `proxy.ts` instead.
+Around 522 of next.js's e2e files are edge-free, so it barely constrains
+widening the list. To check a candidate before adding it:
+
+```bash
+# in the next.js checkout, against the fixture root (usually the test file's dir
+# or its parent)
+find <fixture> -name "middleware.*"
+grep -rl 'runtime = .edge.' <fixture>
+```
+
+`excluded-notes` in the manifest records every file left out and why.
+
 ## Running it locally
 
 Needs a next.js checkout at the tag matching this repo's `next` version, built
@@ -126,6 +160,9 @@ deploy.
 ```bash
 # in the cdk-nextjs checkout
 pnpm i && pnpm bundle && pnpm compile
+
+# create the shared stack before the suite runs; ~4 minutes, once
+ADAPTER_DIR=$PWD ./scripts/e2e-warm.sh
 
 # in the next.js checkout
 export ADAPTER_DIR=/path/to/cdk-nextjs
@@ -183,5 +220,6 @@ under a run in progress.
 | `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper.                                                                             |
 | `HARNESS_SWEEP_APPLY`               | `0`                                  | Same as passing `--apply`.                                                                             |
+| `WARM_KEEP`                         | `0`                                  | Keep `e2e-warm.sh`'s throwaway app directory, whose deploy log says why warming failed.                |
 
 [harness]: https://nextjs.org/docs/app/api-reference/adapters/testing-adapters

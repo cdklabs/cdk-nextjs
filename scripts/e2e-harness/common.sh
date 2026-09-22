@@ -43,7 +43,7 @@ harness_app_id() {
 # One shared stack by default. The harness builds a *different* app per test
 # file, so the deploy itself cannot be skipped - but the CloudFront distribution
 # it goes behind can be created once instead of once per file, which is where
-# ~12 of every 13 minutes went. That only works if every test file lands in the
+# most of the wall-clock went. That only works if every test file lands in the
 # same stack, which in turn means:
 #
 #   - Test files must be serialized (`run-tests.js -c 1`). Two concurrent
