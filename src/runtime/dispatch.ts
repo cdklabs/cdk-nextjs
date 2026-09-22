@@ -284,18 +284,23 @@ export class Dispatcher {
     if (resolvedPathname !== undefined) {
       const entrypoint = this.manifest.entrypoints[resolvedPathname];
       if (entrypoint) {
+        const routeMatches = result.routeMatches ?? {};
+        const query = repairRouteParamQuery(
+          result.resolvedQuery ?? {},
+          routeMatches,
+        );
         return {
           kind: "entrypoint",
           entrypoint,
           resolvedPathname,
           // `invocationTarget` is always present alongside `resolvedPathname` in
           // practice; the fallback keeps a `next` shape change from crashing.
-          invocationTarget: result.invocationTarget ?? {
-            pathname: resolvedPathname,
-            query: result.resolvedQuery ?? {},
+          invocationTarget: {
+            pathname: result.invocationTarget?.pathname ?? resolvedPathname,
+            query,
           },
-          query: result.resolvedQuery ?? {},
-          routeMatches: result.routeMatches ?? {},
+          query,
+          routeMatches,
           requestHeaders: forwardedHeaders,
           responseHeaders,
           status,
@@ -381,6 +386,44 @@ export function toRedirect(
     return { location, status: result.status };
   }
   return undefined;
+}
+
+/**
+ * Correct the `nxtP` route params in a resolved query from `routeMatches`.
+ *
+ * `@next/routing` expands a dynamic route's destination
+ * (`/[id]/[id2]?nxtPid=$nxtPid&nxtPid2=$nxtPid2`) by looping over the source
+ * regex's named groups and doing one global string replace per group name. Group
+ * names are substituted in insertion order, so `$nxtPid` — a *prefix* of
+ * `$nxtPid2` — is replaced first and leaves the trailing `2` behind as a
+ * literal: `/a/b` resolves with `nxtPid2=a2` instead of `nxtPid2=b`. Next.js
+ * recovers `params` from exactly these query values (`RouteModule.prepare`), so
+ * the page renders `id2: "a2"` — measured against
+ * `test/e2e/app-dir/use-params`, whose fixture is `app/[id]/[id2]/page.tsx`.
+ *
+ * `routeMatches` is the raw capture map, before any destination expansion, so it
+ * is the authority for every param it names. Only keys the expansion already
+ * produced are overwritten: adding others would invent params for a rewrite that
+ * deliberately dropped them.
+ *
+ * The same prefix collision reaches positional placeholders (`$1` inside `$10`,
+ * so a route with ten or more captures), and `next.config` `rewrites()`
+ * destinations that interpolate their own query values. Those are not route
+ * params and are left alone — there is no second source of truth to repair them
+ * from.
+ */
+function repairRouteParamQuery(
+  query: ResolveRoutesQuery,
+  routeMatches: Record<string, string>,
+): ResolveRoutesQuery {
+  let repaired: ResolveRoutesQuery | undefined;
+  for (const [key, value] of Object.entries(routeMatches)) {
+    if (!key.startsWith("nxtP")) continue;
+    if (!(key in query) || query[key] === value) continue;
+    repaired ??= { ...query };
+    repaired[key] = value;
+  }
+  return repaired ?? query;
 }
 
 /**

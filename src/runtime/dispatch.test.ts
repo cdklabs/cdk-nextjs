@@ -147,6 +147,33 @@ describe("Dispatcher entrypoint resolution", () => {
     expect(result.entrypoint.filePath).toContain("blog/[slug]");
     expect(result.query).toMatchObject({ nxtPslug: "hello" });
   });
+
+  it("gives a param whose name prefixes another param's its own value", async () => {
+    // `@next/routing` expands `$nxtPid2` by replacing group names in insertion
+    // order, so the `$nxtPid` prefix wins and leaves a literal `2`: the route is
+    // invoked with `nxtPid2=a2`. `repairRouteParamQuery` corrects it from
+    // `routeMatches`. Measured against `test/e2e/app-dir/use-params`, whose
+    // fixture is `app/[id]/[id2]/page.tsx`; the committed fixtures have no two
+    // params where one name prefixes the other, so this renames a pair that the
+    // app-playground capture does have.
+    const renamed = JSON.parse(
+      JSON.stringify(appPlayground)
+        .replace(/subCategorySlug/g, "id2")
+        .replace(/categorySlug/g, "id"),
+    );
+    const result = await createDispatcher({
+      manifest: manifestOf(renamed),
+      invokeMiddleware: async () => ({}),
+    }).dispatch(request("/context/a/b"));
+    expect(result.kind).toBe("entrypoint");
+    if (result.kind !== "entrypoint") return;
+    expect(result.resolvedPathname).toBe("/context/[id]/[id2]");
+    expect(result.invocationTarget).toEqual({
+      pathname: "/context/a/b",
+      query: { nxtPid: "a", nxtPid2: "b" },
+    });
+    expect(result.query).toEqual({ nxtPid: "a", nxtPid2: "b" });
+  });
 });
 
 describe("Dispatcher non-entrypoint outcomes", () => {
