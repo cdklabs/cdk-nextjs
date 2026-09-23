@@ -259,7 +259,7 @@
     "included": 61,
     "included-in-part": 3,
     "edge-free": 931,
-    "candidates": 438,
+    "candidates": 435,
     "disqualified-by": {
       "skipDeployment": 375,
       "middleware": 127,
@@ -267,6 +267,7 @@
       "skipped-upstream": 121,
       "isNextDeploy-gate": 120,
       "output-export": 29,
+      "mode-gated": 25,
       "scaffold": 2
     }
   }

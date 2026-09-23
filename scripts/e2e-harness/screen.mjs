@@ -30,6 +30,13 @@
  *   The costliest screen to have been missing — it covers 236 of what were
  *   otherwise counted as candidates, and two files had already been added to
  *   `rules.include` on the strength of a 4s "pass".
+ * - **mode-gated** — the third spelling of the same trap, and the one that cost a
+ *   deploy slot to find: the file's real cases sit inside `if (isNextStart)` or
+ *   `if (isNextDev)`, and every other mode gets an empty
+ *   `it('should skip …', () => {})`. `app-fetch-deduping` reported a pass in 5.9s
+ *   having deployed nothing. A stub whose title names *dev* is the opposite case
+ *   — the file runs everywhere but dev, `app-prefetch-static` being one — so
+ *   those are left in.
  * - **isNextDeploy-gate** — usually next.js itself gating out what cannot work
  *   behind a CDN. Not always disqualifying; read the gate before dismissing it.
  * - **output-export** — a static export is not what any `NextjsType` deploys.
@@ -56,6 +63,13 @@ const TEST_RE = /\.test\.[tj]sx?$/;
  * first undercounts by ~17 files.
  */
 const EDGE_RUNTIME_RE = /runtime\s*[:=]\s*['"](experimental-)?edge['"]/;
+/**
+ * An empty `it('should skip …', () => {})` — next.js's stub for the modes a
+ * mode-gated file does not cover. `dev` in the title means dev is the excluded
+ * mode and deploy is not, so those are deliberately not matched.
+ */
+const MODE_GATED_STUB_RE =
+  /it\(\s*(['"`])should skip (?!.*\bdev\b)[^'"`]*\1\s*,\s*\(\s*\)\s*=>\s*\{\s*\}\s*\)/;
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -107,6 +121,10 @@ function screen(testFile) {
   }
   if (sources.some((p) => EDGE_RUNTIME_RE.test(read(p)))) reasons.push("edge");
   if (/describe\.skip/.test(test)) reasons.push("skipped-upstream");
+  // An empty `it('should skip …', () => {})` is what next.js writes for the modes
+  // a mode-gated file does not cover. Deploy mode is one of them unless the stub
+  // is the *dev*-only one, in which case the file runs here.
+  if (MODE_GATED_STUB_RE.test(test)) reasons.push("mode-gated");
   if (/isNextDeploy/.test(test)) reasons.push("isNextDeploy-gate");
   // `nextTestSetup({ skipDeployment: true })` returns `skipped`, the file
   // early-returns, and jest reports it as passing in ~4s having deployed

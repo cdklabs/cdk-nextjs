@@ -187,7 +187,7 @@ Mind the "or its parent": for a `test/e2e/<name>/test/index.test.ts` the fixture
 lives a directory *above* the test file, and screening only the test file's own
 directory quietly misses its `middleware.js`.
 
-Four more screens are worth running before spending a deploy on a candidate, all
+Five more screens are worth running before spending a deploy on a candidate, all
 against the test file rather than the fixture:
 
 - `skipDeployment: true` in the `nextTestSetup` call — next.js replaces the whole
@@ -202,15 +202,22 @@ against the test file rather than the fixture:
   harness does not set is caught too. `incremental-cache-path-traversal` is one
   (`__NEXT_CACHE_COMPONENTS`), it runs fine, and it found a real defect. Re-read
   any file this screen alone disqualifies.
+- An empty `it('should skip …', () => {})` — the stub next.js writes for the modes
+  a *mode-gated* file does not cover, its real cases sitting inside
+  `if (isNextStart)` or `if (isNextDev)`. `app-fetch-deduping` reported a pass in
+  5.9s having deployed nothing. A stub whose title names *dev* is the opposite
+  case — the file runs everywhere but dev — so those are left in
+  (`app-prefetch-static`).
 - `isNextDeploy` — usually next.js itself gating out what cannot work behind a
   CDN. Not always disqualifying, but read the gate before adding the file.
 - `output: 'export'` in the fixture — a static export is not what any
   `NextjsType` deploys.
 
-None of these is watertight, because a file can also gate on `isNextStart` /
-`isNextDev` and leave deploy mode nothing but a stub `it` — `app-fetch-deduping`
-does. The measured backstop covers all of them: **a file that passes in under ~10
-seconds deployed nothing.** Check the `--timings` duration before believing a
+None of these is watertight — each is a textual match on a convention next.js is
+under no obligation to keep. The measured backstop covers all of them: **a file
+that passes in under ~10 seconds deployed nothing.** Check the `--timings`
+duration before believing a pass. That is how the mode-gated screen above came to
+be written, after `app-fetch-deduping` spent a deploy slot to report a 5.9s
 pass.
 
 `excluded-notes` in the manifest records every file left out and why, and its
