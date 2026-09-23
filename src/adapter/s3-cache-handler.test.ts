@@ -227,12 +227,115 @@ describe("S3DynamoCacheHandler", () => {
         expect.any(DeleteObjectCommand),
       );
 
-      // A newer marker: miss, and drop the stale object so the re-render's entry
-      // replaces it.
+      // A newer marker: the entry comes back marked expired, and stays in S3.
       dynamoResponses({
         get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
       });
-      expect(await handler.get("index", getCtx)).toBeNull();
+      expect(await handler.get("index", getCtx)).toMatchObject({
+        lastModified: -1,
+        value: seeded.value,
+      });
+      expect(mockS3Send).not.toHaveBeenCalledWith(
+        expect.any(DeleteObjectCommand),
+      );
+    });
+
+    it("reports a revalidated response entry as expired rather than as a miss", async () => {
+      // `lastModified: -1` is how a cache handler says "expired, re-render
+      // before answering": `IncrementalCache.get` turns it into `isStale: -1`,
+      // which `app-page-runtime` reads as an on-demand revalidation and answers
+      // with a blocking render of this route, then stores it. Returning `null`
+      // is not equivalent. A miss on a PPR route whose `prerender-manifest.json`
+      // entry has a `fallback` (`compute: "resuming"`) is answered from the
+      // route's fallback shell - `cache-control: private, no-store`, no
+      // `x-nextjs-cache` - and without `partialPrefetching` nothing ever
+      // upgrades that back into a concrete entry. So the first `revalidateTag`
+      // to reach a page left it uncacheable and dynamically resumed per request
+      // for the rest of the deployment's life, which is what the isr e2e's
+      // missing `x-nextjs-cache` header was.
+      const lastModified = Date.now();
+      const stored = {
+        lastModified,
+        tags: ["collection"],
+        value: {
+          kind: CachedRouteKind.APP_PAGE,
+          html: "<html>isr</html>",
+          headers: { "x-next-cache-tags": "collection" },
+        },
+      };
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: jest
+                    .fn()
+                    .mockResolvedValue(JSON.stringify(stored)),
+                },
+                ContentType: "application/json",
+              }
+            : {},
+        ),
+      );
+      dynamoResponses({
+        get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
+      });
+
+      const result = await handler.get("isr/1", {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      });
+
+      expect(result).toEqual({ lastModified: -1, value: stored.value });
+      // The body is still there for the render that fails, and `set` overwrites
+      // it with a `lastModified` past the marker.
+      expect(mockS3Send).not.toHaveBeenCalledWith(
+        expect.any(DeleteObjectCommand),
+      );
+    });
+
+    it("reports a revalidated fetch entry as a miss so the request refetches", async () => {
+      // The opposite of a response entry: reusing a revalidated `fetch` body is
+      // serving stale data, so this reads as a miss, like Next.js's own
+      // `FileSystemCache` does for its `revalidatedTags`.
+      const lastModified = Date.now();
+      const stored = {
+        lastModified,
+        tags: ["collection"],
+        value: {
+          kind: CachedRouteKind.FETCH,
+          data: { headers: {}, body: "stale", status: 200, url: "/api" },
+          revalidate: 10,
+        },
+      };
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: jest
+                    .fn()
+                    .mockResolvedValue(JSON.stringify(stored)),
+                },
+                ContentType: "application/json",
+              }
+            : {},
+        ),
+      );
+      dynamoResponses({
+        get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
+      });
+
+      const result = await handler.get("fetch-key", {
+        kind: IncrementalCacheKind.FETCH,
+        revalidate: 10,
+        fetchUrl: "https://example.test/api",
+        fetchIdx: 1,
+        tags: ["collection"],
+        softTags: [],
+      });
+
+      expect(result).toBeNull();
       expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
     });
 
@@ -317,7 +420,7 @@ describe("S3DynamoCacheHandler", () => {
   });
 
   describe("revalidateTag", () => {
-    it("should query DynamoDB and delete S3 entries", async () => {
+    it("should record the revalidation without deleting the tag's S3 entries", async () => {
       const mockQueryResponse = {
         Items: [
           { sk: { S: "test-tag#cache-key-1" } },
@@ -326,7 +429,7 @@ describe("S3DynamoCacheHandler", () => {
       };
 
       dynamoResponses({ query: mockQueryResponse });
-      mockS3Send.mockResolvedValue({}); // For delete commands
+      mockS3Send.mockResolvedValue({});
 
       await handler.revalidateTag("test-tag");
 
@@ -334,7 +437,13 @@ describe("S3DynamoCacheHandler", () => {
       expect(mockDynamoSend).toHaveBeenCalledWith(
         expect.any(UpdateItemCommand),
       );
-      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+      // The marker row is the invalidation; `get` reads it and hands the entry
+      // back expired so Next.js re-renders the route and replaces the object.
+      // Deleting the objects here made the next request a hard miss, which on a
+      // PPR route is answered from the uncacheable fallback shell for good.
+      expect(mockS3Send).not.toHaveBeenCalledWith(
+        expect.any(DeleteObjectCommand),
+      );
 
       // The tag marker `checkIfRevalidated` reads: keyed by the bare tag, so
       // entries with no mapping row of their own still see the revalidation.

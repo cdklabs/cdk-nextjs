@@ -3768,3 +3768,63 @@ previous entry listed, plus 41 unseen candidates, mostly the `next-config-ts`
 matrix and `navigation-*`. Batch 13's first nine files are the verdict on defects
 18 through 22 against a real deployment; until they come back green those five
 defects stay listed as "queued" in `docs/harness-coverage.md`'s status table.
+
+### Defect 23: one `revalidateTag` left a prerendered page uncacheable for good
+
+The first defect this branch found from *our own* suite rather than from the harness.
+`examples/e2e-tests/src/isr.test.ts` went red on every shard of PR #271's e2e run,
+always on the same assertion: after `GET /api/revalidate?collection=collection` and a
+reload, `x-nextjs-cache` has to be `STALE` or `HIT`, and it was `undefined`.
+
+Reading the Playwright trace's `0-trace.network` gave the shape immediately. The
+reload came back `cache-control: private, no-store` with `x-nextjs-postponed: 1` and
+no `x-nextjs-cache` at all — not a stale hit, not a miss, but a *fallback shell*.
+`/isr/1`'s `prerender-manifest.json` entry carries `fallback: "/isr/[id]"`, so its
+build output is `compute: "resuming"`, and every subsequent request was answered by
+resuming that shell dynamically. Re-running the file locally against a fresh deploy
+reproduced it exactly once: green until the revalidate, permanently shell-served
+after.
+
+Two things had to be true at once for that, and defect 9's sibling change (`47354d2`,
+`seedTagMappings`) supplied the second. `revalidateTag` wrote its bare-tag marker row
+*and* deleted every S3 object the tag's mapping rows pointed at, and since that
+commit those mapping rows include build-time prerenders. So the tag revalidation
+destroyed `/isr/1`'s seeded entry outright. `get` then returned `null`, and a hard
+miss on a route with a fallback is not a blocking render — Next.js answers from the
+shell, and with `partialPrefetching` off nothing ever rewrites the concrete entry. One
+`revalidateTag` therefore took the page out of the cache for the rest of the
+deployment's life.
+
+Next.js has a channel for exactly this and we were not using it. `lastModified: -1`
+makes `IncrementalCache.get` report `isStale: -1`, which `app-page-runtime` reads as
+an on-demand revalidation and answers with a blocking render of *this* route, storing
+the result. Three changes, all in the cache layer:
+
+- `S3CacheHandler.get`: a tag-expired **response** entry now returns
+  `{ lastModified: -1, value }` and leaves the object in place. The re-render it
+  provokes overwrites it through `set` with a `lastModified` past the marker, so
+  nothing needs to delete it — and a render that throws is answered from the last
+  good copy rather than from a shell. A **fetch** entry still deletes and returns
+  `null`, because there a miss is the point: the request must refetch rather than
+  reuse the body, which is what Next.js's own `FileSystemCache` does with
+  `revalidatedTags`.
+- `S3CacheHandler.revalidateTag`: no longer deletes the tag's S3 objects. The marker
+  row is the invalidation; `get` compares it against each entry's own `lastModified`.
+  The mapping rows are still read, because the CloudFront invalidation paths come
+  from them.
+- `CdkNextjsCacheHandler.get`: does not copy an expired (`lastModified: -1`) S3 entry
+  into the memory layer. `MemoryCacheHandler.set` stamps `lastModified: Date.now()`,
+  which would present the expired body as fresh and hide the revalidation from
+  Next.js until the memory entry's TTL ran out — a second, subtler version of the
+  same bug.
+
+Covered by five new cases: `s3-cache-handler.test.ts` gains a response-entry
+expiry, a fetch-entry miss, and a `revalidateTag` that asserts no
+`DeleteObjectCommand`, and the existing seeded-prerender case now expects
+`{ lastModified: -1, value }`; `cache-handler.test.ts` gains the two halves of the
+memory-layer guard. 22 suites / 417 tests green, `pnpm eslint` and `tsc --noEmit`
+clean.
+
+This also sharpens the `resume-data-cache` note in `docs/harness-coverage.md`, which
+said `null` and `lastModified: -1` both force a blocking render. They do for a route
+with no fallback; for one with a fallback shell only `lastModified: -1` does.

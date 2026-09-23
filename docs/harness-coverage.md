@@ -57,7 +57,7 @@ Of the 212 screened (25 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 169 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache` and 3 of 7 `dynamic-route-interpolation` cases |
-| fixed            | 22 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename), 19 (the error page), 20 (the i18n home page), 21 (a static page's data route) and 22 (an absolute `assetPrefix`) queued for the next batch |
+| fixed            | 22 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename), 19 (the error page), 20 (the i18n home page), 21 (a static page's data route) and 22 (an absolute `assetPrefix`) queued for the next batch. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md` |
 | bug              | 1 (`incremental-cache-path-traversal`) |
 | awaiting verdict | 0 |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
@@ -1375,10 +1375,16 @@ refreshed one. Next.js tracks tag staleness in
 `tagsManifest`, a plain in-process `Map` in
 `packages/next/src/server/lib/incremental-cache/tags-manifest.external.ts`;
 `areTagsStale` reads only that Map. A cache handler has no channel for "this tag
-went stale, serve it anyway": returning `null` is a miss and forces a blocking
-render, and so does `lastModified: -1`. So a revalidated tag is immediately
-fresh across our fleet rather than stale-then-fresh. Fixing it would mean Next.js
-exposing tag staleness to the handler interface.
+went stale, serve it anyway": `lastModified: -1` forces a blocking render, and so
+does returning `null` — for a route with no fallback. So a revalidated tag is
+immediately fresh across our fleet rather than stale-then-fresh. Fixing it would
+mean Next.js exposing tag staleness to the handler interface.
+
+(The two are *not* interchangeable for a route that has one. Defect 23 in
+`docs/plans/adapter-runtime-progress.md`: a hard miss on a PPR route whose
+prerender-manifest entry carries a `fallback` is answered from the fallback shell,
+uncacheable and never upgraded, where `lastModified: -1` renders and stores. Our
+handler now uses the latter for every response entry.)
 
 The "fetch cache" case would fail a second way even without that: it prefetches
 the same URL the "use cache" case prefetched, with an identical `_rsc`

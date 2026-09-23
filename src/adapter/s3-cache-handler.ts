@@ -70,6 +70,35 @@ function entryTags(stored: {
   return header.split(",").filter(Boolean);
 }
 
+/**
+ * The `lastModified` that tells Next.js "this entry is expired, re-render it
+ * before answering".
+ *
+ * `IncrementalCache.get` turns it into `isStale: -1`, which `app-page-runtime`
+ * reads as an on-demand revalidation and answers with a blocking render of
+ * *this* route, then stores it. Returning `null` instead is not the same thing:
+ * a miss on a PPR route whose `prerender-manifest.json` entry carries a
+ * `fallback` (`compute: "resuming"`) is answered from the route's fallback
+ * shell, which is served `cache-control: private, no-store` with no
+ * `x-nextjs-cache` header, and - unless `partialPrefetching` is on - is never
+ * upgraded into a concrete entry. So the first `revalidateTag` to reach a
+ * seeded prerender left that page uncacheable, and dynamically resumed per
+ * request, for the rest of the deployment's life. The isr e2e sees it as an
+ * absent `x-nextjs-cache`.
+ */
+const EXPIRED_LAST_MODIFIED = -1;
+
+/**
+ * Whether a `get` is for the `fetch` cache rather than for a route's response.
+ *
+ * `IncrementalCacheKind.FETCH`, compared as its own string value so this file
+ * keeps importing no Next.js internals (the enum is `const`, so it has no
+ * runtime representation to import anyway).
+ */
+function isFetchCacheKind(kind: string | undefined): boolean {
+  return kind === "FETCH";
+}
+
 /** `NEXT_CACHE_IMPLICIT_TAG_ID`, inlined like {@link NEXT_CACHE_TAGS_HEADER}. */
 const NEXT_CACHE_IMPLICIT_TAG_ID = "_N_T_";
 
@@ -407,9 +436,23 @@ export class S3CacheHandler implements CacheHandler {
           );
           if (isInvalidated) {
             this.debug(`S3 CACHE INVALIDATED BY TAG: ${cacheKey}`);
-            // Delete the stale S3 entry
-            await this.deleteS3Entry(s3Key);
-            return null;
+            // A revalidated `fetch` entry has to read as a miss so the request
+            // refetches instead of reusing the body - the same thing Next.js's
+            // own `FileSystemCache` does with `revalidatedTags`. Only a
+            // *response* entry gets handed back expired, because for those a
+            // miss is worse than stale: see `EXPIRED_LAST_MODIFIED`.
+            if (isFetchCacheKind(ctx.kind)) {
+              await this.deleteS3Entry(s3Key);
+              return null;
+            }
+            // The blocking re-render this provokes overwrites the object through
+            // `set`, with a `lastModified` past the tag's marker, so nothing has
+            // to delete it here. Keeping it also means a render that fails is
+            // answered from the last good copy rather than from a shell.
+            return {
+              lastModified: EXPIRED_LAST_MODIFIED,
+              value: cacheValue.value,
+            };
           }
         }
       } else {
@@ -597,26 +640,15 @@ export class S3CacheHandler implements CacheHandler {
 
       await Promise.all(updatePromises.filter(Boolean));
 
-      // Delete the corresponding S3 cache entries to invalidate them
-      if (this.s3Config.bucketName) {
-        const deletePromises = cacheKeys.map(async (s3Key) => {
-          if (s3Key) {
-            const deleteCommand = new DeleteObjectCommand({
-              Bucket: this.s3Config.bucketName,
-              Key: s3Key,
-            });
-
-            try {
-              await this.s3Client.send(deleteCommand);
-            } catch (error) {
-              // Log but don't fail - the entry might not exist in S3
-              console.warn(`Failed to delete S3 cache entry ${s3Key}:`, error);
-            }
-          }
-        });
-
-        await Promise.all(deletePromises.filter(Boolean));
-      }
+      // Deliberately not deleting the tag's S3 objects. The marker row above is
+      // what invalidates them: `get` compares it against each entry's own
+      // `lastModified` and hands the entry back expired, which is the signal
+      // that makes Next.js re-render *this* route and store the result (see
+      // `EXPIRED_LAST_MODIFIED`). Deleting the object instead turned the next
+      // request into a hard miss, and a hard miss on a PPR route is answered
+      // from the route's fallback shell — uncacheable, and never upgraded back
+      // into a concrete entry, so one `revalidateTag` left the page resuming
+      // dynamically for good. The rows are still needed for the CDN paths below.
 
       // Invalidate the CDN edge cache so CloudFront-fronted deployments don't
       // keep serving stale responses until the cache policy's TTL naturally expires.

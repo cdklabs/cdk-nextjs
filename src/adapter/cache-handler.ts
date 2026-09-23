@@ -115,8 +115,12 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       const s3Result = await this.s3DynamoHandler.get(cacheKey, ctx);
       if (s3Result) {
         this.debug(`S3 cache HIT: ${cacheKey}`);
-        // Populate memory cache for next time
-        if (this.memoryHandler) {
+        // An entry a tag revalidation expired (`lastModified: -1`) must not be
+        // copied into memory: `MemoryCacheHandler.set` stamps `lastModified:
+        // Date.now()`, which would present the expired body as fresh and hide
+        // the revalidation from Next.js until the memory entry's TTL ran out.
+        // The re-render it asks for writes the fresh entry to both layers.
+        if (this.memoryHandler && s3Result.lastModified !== -1) {
           await this.memoryHandler.set(cacheKey, s3Result.value, ctx as any);
         }
         return s3Result;

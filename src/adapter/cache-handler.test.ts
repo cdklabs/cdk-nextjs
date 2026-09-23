@@ -89,6 +89,67 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       expect(result).toBeNull();
     });
 
+    it("does not copy a tag-expired S3 entry into memory", async () => {
+      // `lastModified: -1` is the S3 layer saying "a tag revalidation expired
+      // this, re-render before answering". `MemoryCacheHandler.set` stamps
+      // `lastModified: Date.now()`, so copying it into memory would present the
+      // expired body as fresh and hide the revalidation from Next.js until the
+      // memory entry's TTL ran out.
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>expired</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue({ lastModified: -1, value }),
+      };
+      expect(await cacheHandler.get("isr/1", getCtx)).toEqual({
+        lastModified: -1,
+        value,
+      });
+
+      // With the S3 layer now silent, a memory copy would answer this as a hit.
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue(null),
+      };
+      expect(await cacheHandler.get("isr/1", getCtx)).toBeNull();
+    });
+
+    it("copies a live S3 entry into memory", async () => {
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>live</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue({ lastModified: Date.now(), value }),
+      };
+      await cacheHandler.get("isr/2", getCtx);
+
+      const s3 = { get: jest.fn().mockResolvedValue(null) };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      expect(await cacheHandler.get("isr/2", getCtx)).toMatchObject({ value });
+      expect(s3.get).not.toHaveBeenCalled();
+    });
+
     it("should propagate resetRequestCache to memory layer", async () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
