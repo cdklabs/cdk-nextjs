@@ -483,16 +483,18 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsBuild.property.buildId">buildId</a></code> | <code>string</code> | Unique id for Next.js build. Used to partition cache storage and as metadata for static assets in S3 bucket. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.buildId">buildId</a></code> | <code>string</code> | Unique id for this deployment. Used to partition cache storage and as metadata for static assets in S3 bucket. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.deploymentRootPath">deploymentRootPath</a></code> | <code>string</code> | Absolute path to the deployment root: the staged union of every shipped output's traced assets, written by the adapter's `onBuildComplete`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.deploymentRoots">deploymentRoots</a></code> | <code><a href="#cdk-nextjs.NextjsDeploymentRoot">NextjsDeploymentRoot</a>[]</code> | Every staged deployment root, one per function group. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.dotNextPath">dotNextPath</a></code> | <code>string</code> | Absolute path to the .next directory containing Next.js build artifacts. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has any Pages Router route, and therefore a second URL space (`/_next/data/<buildId>/<route>.json`) that carries the same routes. Only `functionGroups` cares: a group's routes have to be reachable in both. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefix">nextConfigAssetPrefix</a></code> | <code>string</code> | The Next.js app's own `assetPrefix`, as a path with a leading slash and no trailing one, empty when the app sets none or sets an absolute URL (which names an origin cdk-nextjs does not serve). Read from the same `required-server-files.json`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigBasePath">nextConfigBasePath</a></code> | <code>string</code> | The Next.js app's own `basePath` — the URL prefix it generates its links and asset hrefs under — read out of the build's `required-server-files.json`. Normalized to a bare path segment, empty when the app sets none. Exposed so root constructs can reconcile it with the CDK `basePath` prop, which is a distinct thing; see `resolveBasePath`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The JavaScript file Node.js runs to serve requests, relative to the deployment root. cdk-nextjs's own container shell, not `next build` output, so it is the same path for every app. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From {@link deploymentRootPath} to the Next.js project dir, POSIX, `""` when the app is at the repo root. The runtime `chdir`s here; Containers pass it to their Dockerfile so `.next/static` and `public` land in the same place. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. Only `functionGroups` cares: it decides which URL a route's own pattern has to match, since a `trailingSlash` app links to `/pricing/` and not `/pricing`. |
 
 ---
 
@@ -516,7 +518,10 @@ public readonly buildId: string;
 
 - *Type:* string
 
-Unique id for Next.js build. Used to partition cache storage and as metadata for static assets in S3 bucket.
+Unique id for this deployment. Used to partition cache storage and as metadata for static assets in S3 bucket.
+
+`.next/BUILD_ID`, suffixed with the app's `deploymentId` when it sets one —
+see {@link getBuildId} for why that suffix is what makes this unique.
 
 ---
 
@@ -604,6 +609,22 @@ Absolute path to the init cache directory.
 ```
 
 
+##### `nextConfigAssetPrefix`<sup>Required</sup> <a name="nextConfigAssetPrefix" id="cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefix"></a>
+
+```typescript
+public readonly nextConfigAssetPrefix: string;
+```
+
+- *Type:* string
+
+The Next.js app's own `assetPrefix`, as a path with a leading slash and no trailing one, empty when the app sets none or sets an absolute URL (which names an origin cdk-nextjs does not serve). Read from the same `required-server-files.json`.
+
+Exposed because it is a URL prefix the distribution has to answer on:
+Next.js emits `<assetPrefix>/_next/static/...` for every bundle, and those
+objects live in S3 under `<basePath>/_next/static/...`.
+
+---
+
 ##### `nextConfigBasePath`<sup>Required</sup> <a name="nextConfigBasePath" id="cdk-nextjs.NextjsBuild.property.nextConfigBasePath"></a>
 
 ```typescript
@@ -667,6 +688,20 @@ public readonly relativeProjectDir: string;
 From {@link deploymentRootPath} to the Next.js project dir, POSIX, `""` when the app is at the repo root. The runtime `chdir`s here; Containers pass it to their Dockerfile so `.next/static` and `public` land in the same place.
 
 > [AdapterManifest.relativeProjectDir](AdapterManifest.relativeProjectDir)
+
+---
+
+##### `trailingSlash`<sup>Required</sup> <a name="trailingSlash" id="cdk-nextjs.NextjsBuild.property.trailingSlash"></a>
+
+```typescript
+public readonly trailingSlash: boolean;
+```
+
+- *Type:* boolean
+
+The app's `next.config` `trailingSlash`. Only `functionGroups` cares: it decides which URL a route's own pattern has to match, since a `trailingSlash` app links to `/pricing/` and not `/pricing`.
+
+> [AdapterManifest.config](AdapterManifest.config)
 
 ---
 
@@ -2728,6 +2763,7 @@ const nextjsApiProps: NextjsApiProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. Only used to warn, because an API Gateway resource path cannot express the canonical URL it produces. Ignored without {@link functionGroups}. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `NextjsRegionalContainers`. |
 
 ---
@@ -2840,6 +2876,21 @@ applied.
 
 ---
 
+##### `trailingSlash`<sup>Optional</sup> <a name="trailingSlash" id="cdk-nextjs.NextjsApiProps.property.trailingSlash"></a>
+
+```typescript
+public readonly trailingSlash: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+The app's `next.config` `trailingSlash`. Only used to warn, because an API Gateway resource path cannot express the canonical URL it produces. Ignored without {@link functionGroups}.
+
+> [NextjsApi.warnOnTrailingSlashGroups](NextjsApi.warnOnTrailingSlashGroups)
+
+---
+
 ##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsApiProps.property.vpc"></a>
 
 ```typescript
@@ -2923,7 +2974,6 @@ const nextjsBaseConstructProps: NextjsBaseConstructProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run. |
-| <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseConstructProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
@@ -2951,34 +3001,6 @@ Directory where the Next.js application is located for local builds. This should
 
 ```typescript
 join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
-```
-
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsBaseConstructProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
-
-Path to API Route Handler that returns HTTP 200 to ensure compute health.
-
-Only the Containers `NextjsType`s use this, for the ALB target group and the
-ECS container health check. Lambda has nothing to health-check, so the
-Functions types accept it and ignore it.
-
----
-
-*Example*
-
-```typescript
-// api/health/route.ts
-import { NextResponse } from "next/server";
-
-export function GET() {
-  return NextResponse.json("");
-}
 ```
 
 
@@ -3186,7 +3208,6 @@ const nextjsBaseProps: NextjsBaseProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run. |
-| <code><a href="#cdk-nextjs.NextjsBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
@@ -3213,34 +3234,6 @@ Directory where the Next.js application is located for local builds. This should
 
 ```typescript
 join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
-```
-
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsBaseProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
-
-Path to API Route Handler that returns HTTP 200 to ensure compute health.
-
-Only the Containers `NextjsType`s use this, for the ALB target group and the
-ECS container health check. Lambda has nothing to health-check, so the
-Functions types accept it and ignore it.
-
----
-
-*Example*
-
-```typescript
-// api/health/route.ts
-import { NextResponse } from "next/server";
-
-export function GET() {
-  return NextResponse.json("");
-}
 ```
 
 
@@ -3627,7 +3620,6 @@ const nextjsComputeBaseProps: NextjsComputeBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.deploymentRootPath">deploymentRootPath</a></code> | <code>string</code> | Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers. |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
@@ -3683,16 +3675,6 @@ public readonly deploymentRootPath: string;
 Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers.
 
 > [NextjsBuild.deploymentRootPath](NextjsBuild.deploymentRootPath)
-
----
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsComputeBaseProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
 
 ---
 
@@ -3837,12 +3819,12 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.deploymentRootPath">deploymentRootPath</a></code> | <code>string</code> | Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers. |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys. |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
@@ -3897,16 +3879,6 @@ public readonly deploymentRootPath: string;
 Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers.
 
 > [NextjsBuild.deploymentRootPath](NextjsBuild.deploymentRootPath)
-
----
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsContainersProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
 
 ---
 
@@ -3971,6 +3943,29 @@ Key prefix the assets were uploaded under, so the image optimizer can rebuild th
 > [NextjsStaticAssets.keyPrefix](NextjsStaticAssets.keyPrefix)
 
 ---
+
+##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsContainersProps.property.healthCheckPath"></a>
+
+```typescript
+public readonly healthCheckPath: string;
+```
+
+- *Type:* string
+
+Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check.
+
+Both hit the app directly, so this
+is the path including the app's `basePath` — the root constructs prefix their
+own `healthCheckPath` prop with it.
+
+---
+
+*Example*
+
+```typescript
+"/api/health"
+```
+
 
 ##### `relativeEntrypointPath`<sup>Required</sup> <a name="relativeEntrypointPath" id="cdk-nextjs.NextjsContainersProps.property.relativeEntrypointPath"></a>
 
@@ -4310,6 +4305,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.assetsBucket">assetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket containing static assets. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.assetPrefix">assetPrefix</a></code> | <code>string</code> | The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
@@ -4318,6 +4314,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}. |
 
 ---
 
@@ -4354,6 +4351,27 @@ public readonly publicDirEntries: PublicDirEntry[];
 - *Type:* <a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]
 
 Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
+
+---
+
+##### `assetPrefix`<sup>Optional</sup> <a name="assetPrefix" id="cdk-nextjs.NextjsDistributionProps.property.assetPrefix"></a>
+
+```typescript
+public readonly assetPrefix: string;
+```
+
+- *Type:* string
+- *Default:* read from the build's `required-server-files.json`
+
+The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one.
+
+Next.js emits `<assetPrefix>/_next/static/...` for
+every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
+so this gets a cache behavior of its own that rewrites the prefix away.
+
+Applied on top of `basePath`, not under it, because that is how Next.js
+builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
+serve and should not be passed here.
 
 ---
 
@@ -4455,6 +4473,19 @@ public readonly overrides: NextjsDistributionOverrides;
 - *Type:* <a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a>
 
 Override props for every construct.
+
+---
+
+##### `trailingSlash`<sup>Optional</sup> <a name="trailingSlash" id="cdk-nextjs.NextjsDistributionProps.property.trailingSlash"></a>
+
+```typescript
+public readonly trailingSlash: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}.
 
 ---
 
@@ -4796,7 +4827,6 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.deploymentRootPath">deploymentRootPath</a></code> | <code>string</code> | Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers. |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
@@ -4855,16 +4885,6 @@ public readonly deploymentRootPath: string;
 Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers.
 
 > [NextjsBuild.deploymentRootPath](NextjsBuild.deploymentRootPath)
-
----
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsFunctionsProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
 
 ---
 
@@ -5157,7 +5177,6 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run. |
-| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
@@ -5165,6 +5184,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
@@ -5188,34 +5208,6 @@ Directory where the Next.js application is located for local builds. This should
 
 ```typescript
 join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
-```
-
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
-
-Path to API Route Handler that returns HTTP 200 to ensure compute health.
-
-Only the Containers `NextjsType`s use this, for the ALB target group and the
-ECS container health check. Lambda has nothing to health-check, so the
-Functions types accept it and ignore it.
-
----
-
-*Example*
-
-```typescript
-// api/health/route.ts
-import { NextResponse } from "next/server";
-
-export function GET() {
-  return NextResponse.json("");
-}
 ```
 
 
@@ -5356,6 +5348,36 @@ If not provided, ECS Cluster will create a VPC automatically for containers,
 and Lambda functions will run outside a VPC.
 
 ---
+
+##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath"></a>
+
+```typescript
+public readonly healthCheckPath: string;
+```
+
+- *Type:* string
+
+Path to API Route Handler that returns HTTP 200 to ensure compute health.
+
+Used by the ALB target group and the ECS container health check, both of
+which have to be able to tell a running task from a wedged one.
+
+Give the path as your app routes it, without your app's `basePath` —
+cdk-nextjs adds that prefix, since both checks hit the app directly.
+
+---
+
+*Example*
+
+```typescript
+// api/health/route.ts
+import { NextResponse } from "next/server";
+
+export function GET() {
+  return NextResponse.json("");
+}
+```
+
 
 ##### `alb`<sup>Optional</sup> <a name="alb" id="cdk-nextjs.NextjsGlobalContainersProps.property.alb"></a>
 
@@ -5603,7 +5625,6 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run. |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
@@ -5633,34 +5654,6 @@ Directory where the Next.js application is located for local builds. This should
 
 ```typescript
 join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
-```
-
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
-
-Path to API Route Handler that returns HTTP 200 to ensure compute health.
-
-Only the Containers `NextjsType`s use this, for the ALB target group and the
-ECS container health check. Lambda has nothing to health-check, so the
-Functions types accept it and ignore it.
-
----
-
-*Example*
-
-```typescript
-// api/health/route.ts
-import { NextResponse } from "next/server";
-
-export function GET() {
-  return NextResponse.json("");
-}
 ```
 
 
@@ -6188,7 +6181,6 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run. |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
@@ -6196,6 +6188,7 @@ const nextjsRegionalContainersProps: NextjsRegionalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsRegionalContainersOverrides">NextjsRegionalContainersOverrides</a></code> | Override props of any construct. |
@@ -6218,34 +6211,6 @@ Directory where the Next.js application is located for local builds. This should
 
 ```typescript
 join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
-```
-
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
-
-Path to API Route Handler that returns HTTP 200 to ensure compute health.
-
-Only the Containers `NextjsType`s use this, for the ALB target group and the
-ECS container health check. Lambda has nothing to health-check, so the
-Functions types accept it and ignore it.
-
----
-
-*Example*
-
-```typescript
-// api/health/route.ts
-import { NextResponse } from "next/server";
-
-export function GET() {
-  return NextResponse.json("");
-}
 ```
 
 
@@ -6386,6 +6351,36 @@ If not provided, ECS Cluster will create a VPC automatically for containers,
 and Lambda functions will run outside a VPC.
 
 ---
+
+##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsRegionalContainersProps.property.healthCheckPath"></a>
+
+```typescript
+public readonly healthCheckPath: string;
+```
+
+- *Type:* string
+
+Path to API Route Handler that returns HTTP 200 to ensure compute health.
+
+Used by the ALB target group and the ECS container health check, both of
+which have to be able to tell a running task from a wedged one.
+
+Give the path as your app routes it, without your app's `basePath` —
+cdk-nextjs adds that prefix, since both checks hit the app directly.
+
+---
+
+*Example*
+
+```typescript
+// api/health/route.ts
+import { NextResponse } from "next/server";
+
+export function GET() {
+  return NextResponse.json("");
+}
+```
+
 
 ##### `alb`<sup>Optional</sup> <a name="alb" id="cdk-nextjs.NextjsRegionalContainersProps.property.alb"></a>
 
@@ -6618,7 +6613,6 @@ const nextjsRegionalFunctionsProps: NextjsRegionalFunctionsProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run. |
-| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
@@ -6647,34 +6641,6 @@ Directory where the Next.js application is located for local builds. This should
 
 ```typescript
 join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
-```
-
-
-##### `healthCheckPath`<sup>Required</sup> <a name="healthCheckPath" id="cdk-nextjs.NextjsRegionalFunctionsProps.property.healthCheckPath"></a>
-
-```typescript
-public readonly healthCheckPath: string;
-```
-
-- *Type:* string
-
-Path to API Route Handler that returns HTTP 200 to ensure compute health.
-
-Only the Containers `NextjsType`s use this, for the ALB target group and the
-ECS container health check. Lambda has nothing to health-check, so the
-Functions types accept it and ignore it.
-
----
-
-*Example*
-
-```typescript
-// api/health/route.ts
-import { NextResponse } from "next/server";
-
-export function GET() {
-  return NextResponse.json("");
-}
 ```
 
 
@@ -10444,7 +10410,7 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.deploymentRootPath">deploymentRootPath</a></code> | <code>string</code> | Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
@@ -10543,6 +10509,12 @@ public readonly healthCheckPath: string;
 
 - *Type:* string
 
+Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check.
+
+Both hit the app directly, so this
+is the path including the app's `basePath` — the root constructs prefix their
+own `healthCheckPath` prop with it.
+
 ---
 
 ##### `nextjsType`<sup>Optional</sup> <a name="nextjsType" id="cdk-nextjs.OptionalNextjsContainersProps.property.nextjsType"></a>
@@ -10629,6 +10601,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.assetPrefix">assetPrefix</a></code> | <code>string</code> | The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.assetsBucket">assetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket containing static assets. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
@@ -10639,6 +10612,28 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}. |
+
+---
+
+##### `assetPrefix`<sup>Optional</sup> <a name="assetPrefix" id="cdk-nextjs.OptionalNextjsDistributionProps.property.assetPrefix"></a>
+
+```typescript
+public readonly assetPrefix: string;
+```
+
+- *Type:* string
+- *Default:* read from the build's `required-server-files.json`
+
+The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one.
+
+Next.js emits `<assetPrefix>/_next/static/...` for
+every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
+so this gets a cache behavior of its own that rewrites the prefix away.
+
+Applied on top of `basePath`, not under it, because that is how Next.js
+builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
+serve and should not be passed here.
 
 ---
 
@@ -10764,6 +10759,19 @@ public readonly publicDirEntries: PublicDirEntry[];
 - *Type:* <a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]
 
 Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
+
+---
+
+##### `trailingSlash`<sup>Optional</sup> <a name="trailingSlash" id="cdk-nextjs.OptionalNextjsDistributionProps.property.trailingSlash"></a>
+
+```typescript
+public readonly trailingSlash: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}.
 
 ---
 
