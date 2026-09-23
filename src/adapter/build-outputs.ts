@@ -250,6 +250,7 @@ export function buildAdapterManifest(
   options: BuildOutputsOptions = {},
 ): BuildAdapterManifestResult {
   const { outputs, repoRoot } = ctx;
+  const basePath = ctx.config.basePath || "";
   assertBuildCwd(ctx, options.buildCwd ?? process.cwd());
   const invocable: InvocableOutput[] = [
     ...outputs.pages,
@@ -274,7 +275,7 @@ export function buildAdapterManifest(
     { outputs: outputs.appRoutes, type: "app-route" as const },
   ]) {
     for (const output of group) {
-      addEntrypoint(entrypoints, repoRoot, output, type);
+      addEntrypoint(entrypoints, repoRoot, output, type, basePath);
     }
   }
 
@@ -282,7 +283,7 @@ export function buildAdapterManifest(
     entrypoints,
     outputs.prerenders,
     ctx.routing.dynamicRoutes,
-    ctx.config.basePath || "",
+    basePath,
   );
 
   const pathnames = sortedUnique([
@@ -586,22 +587,69 @@ function collectStagingPlan(
  */
 function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
   const { repoRoot } = ctx;
-  const staticFiles: Record<string, string> = {};
+  const basePath = ctx.config.basePath || "";
+  const staticFiles = new Map<string, string>();
 
-  for (const output of sortedByPathname(ctx.outputs.staticFiles)) {
+  for (const output of ctx.outputs.staticFiles) {
     const key = toPosix(relative(repoRoot, output.filePath));
-    const existing = staticFiles[output.pathname];
-    if (existing !== undefined && existing !== key) {
-      throw new Error(
-        `${LOG_PREFIX} Two static files claim the pathname ` +
-          `"${output.pathname}" ("${existing}" and "${key}"). Dispatch cannot ` +
-          `choose between them.`,
-      );
+    for (const pathname of routablePathnames(output.pathname, basePath)) {
+      const existing = staticFiles.get(pathname);
+      if (existing !== undefined && existing !== key) {
+        throw new Error(
+          `${LOG_PREFIX} Two static files claim the pathname ` +
+            `"${pathname}" ("${existing}" and "${key}"). Dispatch cannot ` +
+            `choose between them.`,
+        );
+      }
+      staticFiles.set(pathname, key);
     }
-    staticFiles[output.pathname] = key;
   }
 
-  return staticFiles;
+  // Sorted for the reason on `sortedByPathname`: object keys keep insertion
+  // order, and a byte-stable `manifest.json` is what keeps the CDK asset hash
+  // from churning.
+  return Object.fromEntries(
+    [...staticFiles].sort(([a], [b]) => (a < b ? -1 : 1)),
+  );
+}
+
+/**
+ * The pathnames an output answers, which for one shape is not the pathname
+ * `next build` reported.
+ *
+ * **A Pages Router home page arrives as `/index`.** The adapter hook derives every
+ * Pages pathname with `normalizePagePath(page)`, and `normalizePagePath("/")` is
+ * `"/index"` (`next/dist/shared/lib/page-path/normalize-page-path.js`) — for the
+ * `PAGES` output of an SSG or SSR home page and for the `STATIC_FILE` of a
+ * fully-static one alike. `/index` is not a URL anyone requests, and nothing else
+ * in the outputs carries `/` for that page, so without this the home page is in
+ * neither `manifest.pathnames` nor `manifest.entrypoints`/`staticFiles`, and every
+ * request to `/` 404s while every other page of the same app serves. Measured
+ * against next.js's `test/e2e/new-link-behavior` (`/` returned the built-in 404,
+ * the six other pages were fine) and `test/e2e/prerender-preview` (the one case
+ * that fetches `/` got the 404 page's HTML, the eight that hit API routes passed).
+ *
+ * App Router is unaffected: it reports its home page as `/` and only the RSC
+ * sibling as `/index.rsc`.
+ *
+ * Both pathnames are registered. `/` because it is the real one; `/index` because
+ * next's own minimal mode — the mode our runtime runs in — accepts it, rewriting
+ * `req.url` and `x-matched-path` from `/index` to `/` before matching
+ * (`base-server.ts`, "in minimal mode"), so dropping it would be a divergence in
+ * the other direction.
+ *
+ * Unambiguous despite the collision it looks like: `normalizePagePath("/index")`
+ * is `"/index/index"`, so a reported `/index` can only have come from the page `/`.
+ * The data route of the same page, `/_next/data/<buildId>/index.json`, and an App
+ * Router `/index.rsc` are both real URLs and are left alone by the exact match.
+ */
+function routablePathnames(pathname: string, basePath: string): string[] {
+  if (pathname !== `${basePath}/index`) {
+    return [pathname];
+  }
+  // `basePath || "/"`, not `${basePath}/`: with `basePath: "/prod"` the home page
+  // is `/prod`, which is how the App Router fixtures report theirs.
+  return [basePath || "/", pathname];
 }
 
 /**
@@ -676,17 +724,20 @@ function addEntrypoint(
   repoRoot: string,
   output: { id: string; pathname: string; filePath: string },
   type: AdapterEntrypointType,
+  basePath: string,
 ): void {
-  const existing = entrypoints[output.pathname];
   const filePath = toPosix(relative(repoRoot, output.filePath));
-  if (existing && existing.filePath !== filePath) {
-    throw new Error(
-      `${LOG_PREFIX} Two build outputs claim the pathname "${output.pathname}" ` +
-        `("${existing.filePath}" and "${filePath}"). Dispatch cannot choose ` +
-        `between them.`,
-    );
+  for (const pathname of routablePathnames(output.pathname, basePath)) {
+    const existing = entrypoints[pathname];
+    if (existing && existing.filePath !== filePath) {
+      throw new Error(
+        `${LOG_PREFIX} Two build outputs claim the pathname "${pathname}" ` +
+          `("${existing.filePath}" and "${filePath}"). Dispatch cannot choose ` +
+          `between them.`,
+      );
+    }
+    entrypoints[pathname] = { id: output.id, filePath, type };
   }
-  entrypoints[output.pathname] = { id: output.id, filePath, type };
 }
 
 /**

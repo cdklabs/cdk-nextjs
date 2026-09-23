@@ -3408,3 +3408,59 @@ Also reworded the manifest's `app-dir/asset-prefix` note: it said "Excluded as a
 OPEN BUG", but defect 16 fixed it. It now says the file stays out of
 `rules.include` only until a deployment says it is green, which batch 10 is
 currently establishing.
+
+### Six unrelated-looking failures were one bug: every Pages Router `/` 404'd
+
+Batch 9 left seven files failing for reasons nobody had established. Six of them
+turned out to share a cause, and none of the six symptoms pointed at it:
+`new-link-behavior` saw `$('a').text()` come back `""`, `prerender-preview` and
+`preview-fallback` threw `SyntaxError: Unexpected end of JSON input`,
+`app-document/rendering` read a `#css-in-cjs-count` of `0` where `2` was expected,
+`next-image-legacy/default` got `naturalWidth: null`, `legacy-link-behavior-pages`
+matched `new-link-behavior`. What they share is the URL: each failing case is the
+only one in its file that requests `/`, and every other case in the same file
+passed. `/` was serving the built-in 404 page, which is itself a Next.js document —
+so it hydrates, and the only clue in the browser log is one "Failed to load
+resource: 404".
+
+`/` was not a pathname we knew about. `next build`'s adapter hook derives every
+Pages Router pathname with `normalizePagePath(page)`, and `normalizePagePath("/")`
+is `"/index"`. The home page therefore arrives as `pathname: "/index"` — as a
+`PAGES` output when it has `getStaticProps`/`getServerSideProps`, and as a
+`STATIC_FILE` when automatic static optimization prerendered it, in which case
+there is no `PAGES` output at all. `manifest.pathnames` is the union of the
+entrypoint and static-file keys and `resolveRoutes` can only resolve a pathname in
+it, so `/` resolved to nothing and dispatch fell through to the 404 ladder.
+
+`routablePathnames` (`src/adapter/build-outputs.ts`) maps a reported
+`${basePath}/index` to `basePath || "/"`, and both `collectStaticFiles` and
+`addEntrypoint` now register the real pathname alongside the reported one. Three
+things made this safe to do by exact match:
+
+- `normalizePagePath("/index")` is `"/index/index"`, so a reported `/index` can
+  only have come from the page `/`. There is no collision to resolve.
+- The same page's data route (`/_next/data/<buildId>/index.json`) and an App Router
+  `/index.rsc` are real URLs, and an exact match leaves them alone.
+- App Router reports its home page as `/` already, which is why 72 files passed
+  with this bug in place.
+
+`/index` is kept as well as `/` because next's minimal mode — the mode the runtime
+runs in — rewrites `req.url` and `x-matched-path` from `/index` to `/` before
+matching (`base-server.ts`), so dropping it would be a divergence in the other
+direction. `collectStaticFiles` now sorts its keys on the way out instead of
+sorting the outputs on the way in, since one output can produce two keys and the
+manifest has to stay byte-stable.
+
+Three new cases in `build-outputs.test.ts`: the static home page, the invocable
+one, and the `basePath` form (`/prod`, not `/prod/`). `pnpm jest` is 396 tests
+green, `pnpm compile` and `pnpm eslint` clean.
+
+Recorded as defect 17 in `docs/harness-coverage.md`, which leaves exactly one file
+awaiting a verdict: `i18n-support-catchall`, whose `/` answers 308 where the test
+expects 200. That one resolves `/` and redirects it, so it is a different cause —
+though worth re-measuring after this, since this changes what `/` resolves to.
+
+The six files are queued for a deployed re-run and stay out of `rules.include`
+until they come back green. Not bundled yet: batch 10 is mid-run and swapping
+`lib/adapter/adapter.mjs` underneath it would leave half the run built against a
+different adapter.

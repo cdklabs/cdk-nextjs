@@ -133,6 +133,9 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
       for (const file of ctx.outputs.staticFiles) {
         expect(manifest.pathnames).toContain(file.pathname);
       }
+      // One reported pathname can produce two keys - a `/index` static file is
+      // also served at `/`, see the static-home-page tests below. None of these
+      // fixtures has one, so here the two sets coincide.
       expect(Object.keys(manifest.staticFiles)).toEqual(
         [...new Set(ctx.outputs.staticFiles.map((f) => f.pathname))].sort(),
       );
@@ -224,6 +227,67 @@ describe("buildAdapterManifest edge cases", () => {
     expect(manifest.entrypoints["/prod/api/health"]).toBeDefined();
     expect(manifest.entrypoints["/prod/api/health"].id).toBe("/api/health");
     expect(manifest.entrypoints["/api/health"]).toBeUndefined();
+  });
+
+  /**
+   * A Pages Router home page reaches us as `/index`, whichever population it lands
+   * in: `normalizePagePath("/")` is `"/index"`, and the adapter hook uses it for a
+   * fully-static page's `STATIC_FILE` and for an SSG/SSR page's `PAGES` output
+   * alike. Nothing else in the outputs carries `/`, so the mapping under test is
+   * the only thing that makes the home page routable.
+   */
+  function withHomePage(
+    basePath: string,
+    kind: "static" | "invocable",
+  ): ReturnType<typeof build> {
+    const ctx = asContext(pagesI18n);
+    ctx.config.i18n = null;
+    ctx.config.basePath = basePath;
+    ctx.outputs.staticFiles = [];
+    ctx.outputs.prerenders = [];
+    const page = ctx.outputs.pages.find((o) => o.pathname === "/ssr")!;
+    ctx.outputs.pages =
+      kind === "invocable"
+        ? [{ ...page, id: "/index", pathname: `${basePath}/index` }]
+        : [];
+    if (kind === "static") {
+      ctx.outputs.staticFiles = [
+        {
+          id: "/",
+          pathname: `${basePath}/index`,
+          type: "STATIC_FILE",
+          filePath: "/repo/pages-i18n/.next/server/pages/index.html",
+        },
+      ] as typeof ctx.outputs.staticFiles;
+    }
+    return build(ctx);
+  }
+
+  it("routes a fully-static Pages Router home page at `/`, not `/index`", () => {
+    const { manifest } = withHomePage("", "static");
+    const html = "pages-i18n/.next/server/pages/index.html";
+
+    expect(manifest.staticFiles["/"]).toBe(html);
+    expect(manifest.pathnames).toContain("/");
+    // Kept as well as `/`: next's minimal mode rewrites `/index` to `/` before
+    // matching, so it answers there too.
+    expect(manifest.staticFiles["/index"]).toBe(html);
+  });
+
+  it("routes an SSG or SSR home page's entrypoint at `/` as well", () => {
+    const { manifest } = withHomePage("", "invocable");
+    expect(manifest.entrypoints["/"]).toEqual(manifest.entrypoints["/index"]);
+    expect(manifest.pathnames).toContain("/");
+    // The output's own `id` is what next reported, and only names the entrypoint
+    // in diagnostics and group ownership - it is not a key into anything.
+    expect(manifest.entrypoints["/"].id).toBe("/index");
+  });
+
+  it("routes that home page under basePath at the basePath itself", () => {
+    // `/prod`, not `/prod/` — which is how the App Router fixture reports its own
+    // home page.
+    const { manifest } = withHomePage("/prod", "static");
+    expect(Object.keys(manifest.staticFiles)).toEqual(["/prod", "/prod/index"]);
   });
 
   it("records middleware without duplicating its matchers", () => {

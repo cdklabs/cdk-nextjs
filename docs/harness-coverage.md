@@ -55,17 +55,17 @@ Of the 110 screened (12 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 72 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache` and 3 of 7 `dynamic-route-interpolation` cases |
-| fixed            | 16 defects, every one of which came from a file listed above; 15 verified green against a deployment, defect 16 (`assetPrefix`) queued for the next batch |
+| fixed            | 17 defects, every one of which came from a file listed above; 15 verified green against a deployment, defects 16 (`assetPrefix`) and 17 (the Pages Router home page) queued for the next batch |
 | bug              | 1 (`incremental-cache-path-traversal`) |
-| awaiting verdict | 7 files failing from batch 9, root cause not yet established — see below |
+| awaiting verdict | 1 (`i18n-support-catchall`, `/` answers 308 where 200 is expected) — see below |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files, plus the 2 remaining `trailingslash` and 4 remaining `dynamic-route-interpolation` cases |
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 15 (2 gated by next.js, 13 `skipDeployment` or stubbed in deploy mode) |
 
-The sixteen fixed defects are the harness's whole return on investment so far. All
-sixteen were real, all sixteen shipped, and none of them could have been caught
-by the construct tests or by `examples/e2e-tests`.
+The seventeen fixed defects are the harness's whole return on investment so far.
+All seventeen were real, all seventeen shipped, and none of them could have been
+caught by the construct tests or by `examples/e2e-tests`.
 
 ## Passing — in `rules.include`
 
@@ -789,6 +789,54 @@ deploying something that 404s. Documented in `README.md` under
 Both fixture files go into the next deployed batch; neither is in `rules.include`
 until it passes there.
 
+### 17. Every Pages Router app's home page 404'd
+
+`new-link-behavior` (2 of 7), `legacy-link-behavior-pages` (2 of 8),
+`prerender-preview` (1 of 9), `preview-fallback` (1 of 6),
+`app-document/rendering` (1 of 10) and `next-image-legacy/default` (1 of 28) — six
+files, six different-looking assertions, one cause.
+
+The six read as unrelated: an empty `<a>` text, `JSON.parse` on an empty string, a
+`#css-in-cjs-count` of `0` where `2` was expected, a `naturalWidth` of `null`. What
+they have in common is the URL. Each of those cases is the only one in its file
+that requests `/`, and every other case in the same file passed. `/` was returning
+the built-in 404 page — which is still a Next.js document, so it hydrates and the
+browser logs nothing but a single "Failed to load resource: 404".
+
+`/` was not a route we knew about. The adapter hook derives every Pages Router
+pathname with `normalizePagePath(page)`, and `normalizePagePath("/")` is `"/index"`
+(`next/dist/shared/lib/page-path/normalize-page-path.js`). So the home page arrives
+from `next build` as `pathname: "/index"` — as a `PAGES` output for an SSG or SSR
+home page (`build-complete.ts`, `pathname: route`), and as a `STATIC_FILE` for a
+fully-static one (same file, the `staticPages.has(page)` branch). Nothing else in
+the outputs carries `/`: automatic static optimization means a static home page has
+no `PAGES` output at all. `manifest.pathnames` is the union of the entrypoint and
+static-file keys, `resolveRoutes` can only resolve a pathname that is in it, so `/`
+resolved to nothing and dispatch fell through to the 404 ladder.
+
+**Verdict: fixed.** `routableStaticPathnames` → `routablePathnames`
+(`src/adapter/build-outputs.ts`) maps a reported `${basePath}/index` to
+`basePath || "/"`, and both `collectStaticFiles` and `addEntrypoint` register the
+real pathname alongside the reported one. `/index` is kept because next's own
+minimal mode — the mode the runtime runs in — rewrites `req.url` and
+`x-matched-path` from `/index` to `/` before matching (`base-server.ts`, "in
+minimal mode"), so dropping it would be a divergence in the other direction.
+
+The exact match is what makes this safe. `normalizePagePath("/index")` is
+`"/index/index"`, so a reported `/index` can only have come from the page `/`; the
+same page's data route `/_next/data/<buildId>/index.json` and an App Router
+`/index.rsc` are real URLs and are untouched. App Router was never affected — it
+reports its home page as `/` already, which is why 72 files passed with this bug in
+place. Three cases in `build-outputs.test.ts` cover the static home page, the
+invocable one, and the `basePath` form (`/prod`, not `/prod/`).
+
+Why it took nine batches to find: every fixture whose home page is App Router, or
+whose tests never fetch `/`, is unaffected, and the six that do fetch it each
+reported a different symptom several layers from the cause.
+
+All six files go into the next deployed batch; none is in `rules.include` until it
+passes there.
+
 ## Bug — not yet fixed
 
 ### A path-traversal `_next/data` request 500s instead of rendering
@@ -828,22 +876,23 @@ Four of the eleven are accounted for and requeued rather than diagnosed:
   against the `?dpl=` the *build* inlined. Fixed in `scripts/e2e-deploy.sh`;
   requeued to confirm.
 
-The remaining seven are real and unexplained. Recorded here so the next session
-starts from the case names rather than from the log:
+Six of the remaining seven turned out to be one defect — every Pages Router app's
+home page 404'd, see defect 17 above. They are queued for a deployed re-run and are
+not in `rules.include` until they come back green.
 
-| File                                | Cases  | The failing assertion                                                             |
-| ----------------------------------- | ------ | --------------------------------------------------------------------------------- |
-| `new-link-behavior`                 | 2 / 7  | `$('a').text()` is `""` where `"About"` is expected; the follow-on nav then times out waiting for `a` to be visible |
-| `legacy-link-behavior-pages`        | 2 / 8  | `<Link legacyBehavior>` over an `<a>` child — "forwards the href attribute" and "navigates correctly". Same shape as the row above, so suspect one cause |
-| `prerender-preview`                 | 1 / 9  | "should not return fallback page on preview request"                              |
-| `preview-fallback`                  | 1 / 6  | "should not write preview index SSG page to cache". Preview/draft mode again — these two are the likeliest pair to share a root cause |
-| `app-document/rendering`            | 1 / 10 | `Document.getInitialProps` returning an `html` prop representing the app shell     |
-| `i18n-support-catchall`             | 1 / 4  | "should load the index route correctly SSR", under a root catch-all with i18n      |
-| `next-image-legacy/default`         | 1 / 28 | "should load the images" — 27 of 28 pass, so not the image optimizer wholesale     |
+That leaves one:
 
-None of these is in `rules.include`, and none is in `excluded-notes` either: an
-`excluded-notes` entry is a decision, and no decision has been made. Each needs a
-root cause and then either a fix or a verdict.
+| File                    | Cases | The failing assertion                                                     |
+| ----------------------- | ----- | ------------------------------------------------------------------------- |
+| `i18n-support-catchall` | 1 / 4 | "should load the index route correctly SSR" expects `200` from `/` and gets `308` |
+
+Not the same cause: this one resolves `/`, and redirects it. With i18n, `/` serves
+the default locale's content rather than redirecting to `/en-US`, and this fixture
+adds a root catch-all on top. Worth re-measuring after defect 17's fix anyway,
+since it also changes what is in `manifest.pathnames` for `/`.
+
+It is not in `rules.include`, and not in `excluded-notes` either: an
+`excluded-notes` entry is a decision, and no decision has been made.
 
 ## Unsupported — a product limitation
 
