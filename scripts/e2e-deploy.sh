@@ -85,13 +85,18 @@ echo "harness: building with NEXT_ADAPTER_PATH=$NEXT_ADAPTER_PATH"
 
 # The markers the harness parses out of the logs script's output
 # (`test/lib/next-modes/next-deploy.ts`'s `parseIdsFromCliOutput`). The fixture's
-# chained `post-build` prints its own copy into the build log, but its
-# DEPLOYMENT_ID is whatever Vercel would have set; ours is written first and
-# `.match()` takes the first hit, so these win.
+# chained `post-build` prints its own copy into the build log; ours is written
+# first and `.match()` takes the first hit, so these win.
+#
+# DEPLOYMENT_ID has to be the value the *build* inlined, not the stack name: next
+# inlines `NEXT_DEPLOYMENT_ID` into every asset URL as `?dpl=`, and the harness
+# compares those URLs against this marker (`base.ts`'s `getDeploymentIdQuery`).
+# Reporting the stack name made `mdx`'s "should work with next/image" fail on a
+# `?dpl=hrns-shared` that the app never emits.
 BUILD_ID="$(cat .next/BUILD_ID)"
 {
   echo "BUILD_ID: $BUILD_ID"
-  echo "DEPLOYMENT_ID: $STACK_NAME"
+  echo "DEPLOYMENT_ID: $NEXT_DEPLOYMENT_ID"
   # Flip to 1 with `docs/plans/immutable-static-assets.md`; until then static
   # assets are re-uploaded per deploy under the same keys.
   echo "NEXT_SUPPORTS_IMMUTABLE_ASSETS: ${HARNESS_SUPPORTS_IMMUTABLE_ASSETS:-0}"

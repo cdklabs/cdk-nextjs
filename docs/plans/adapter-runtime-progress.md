@@ -3293,3 +3293,20 @@ What landed:
 Verified with `pnpm compile`, the full `pnpm jest` (370 tests), and `pnpm eslint`.
 The two fixture files are not in `rules.include` yet — they go into the next
 deployed batch, which is where the fix gets its real evidence.
+
+### The harness reported the wrong `DEPLOYMENT_ID`
+
+`app-dir/mdx` failed 2 of 25 cases in batch 9 on both attempts, expecting
+`/_next/image?url=%2Ftest.jpg&w=384&q=75&dpl=hrns-shared` and getting
+`…&dpl=next-test-1790129321350-532-29a15df9`. Not a runtime defect: `next build`
+inlines `NEXT_DEPLOYMENT_ID` into every asset URL, and `scripts/e2e-deploy.sh`
+sets that per *app directory* (deliberately — with one shared stack the stack name
+is a constant, and two builds sharing a deployment ID is the skew the variable
+exists to detect) while the marker line it writes for
+`parseIdsFromCliOutput` reported `$STACK_NAME`. The harness then compared the
+app's URLs against a value the app never emitted.
+
+The marker now reports `$NEXT_DEPLOYMENT_ID`, which is what next.js's own fixture
+`post-build` prints (`test/lib/next-modes/base.ts`). Nothing in cdk-nextjs reads
+`?dpl=`, so the stack name was never needed here. `mdx` goes into a later batch to
+confirm.
