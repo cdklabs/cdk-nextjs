@@ -3310,3 +3310,60 @@ The marker now reports `$NEXT_DEPLOYMENT_ID`, which is what next.js's own fixtur
 `post-build` prints (`test/lib/next-modes/base.ts`). Nothing in cdk-nextjs reads
 `?dpl=`, so the stack name was never needed here. `mdx` goes into a later batch to
 confirm.
+
+### The harness paid a full CloudFormation deploy on every single file
+
+Batch 9's log gave the number: of 22 deploy invocations, **19 fell back with
+`NextjsNextjsCacheBucket... rejected changes: Tags`** and 3 with
+`DistributionConfig`. Zero hotswapped. The hotswap attempt took 0.77s before
+giving up, and the full deploy that followed took ~110s of a ~157s median green
+file — so most of the wall clock of every harness run was avoidable.
+
+The cause is a CDK behavior that is easy to miss: `BucketDeployment`
+unconditionally tags its *destination bucket*
+`aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>`
+(`aws-cdk-lib/aws-s3-deployment/lib/bucket-deployment.js`,
+`CUSTOM_RESOURCE_OWNER_TAG`). `NextjsCache` passed the build ID as that prefix, so
+the cache bucket's `Tags` changed on every fixture — and `AWS::S3::Bucket` `Tags`
+are not hotswappable. The static assets bucket never had the problem: its prefix
+is `basePath`, which is stable.
+
+The fix keeps the S3 keys byte-identical and makes the tag constant: stage the
+init cache into a temp directory under a `<buildId>/` subdirectory and drop
+`destinationKeyPrefix`. A copy rather than the directory itself because the build
+ID is only known *after* `next build` (so the adapter cannot write into a nested
+directory), and because `.next/cdk-nextjs-init-cache` has to stay where
+`CDK_NEXTJS_INIT_CACHE_DIR` and the local cache handler expect it. CDK reads every
+byte of the tree to zip it regardless, so the copy is not a new cost.
+
+Why this is functionally neutral, which was the thing worth checking before
+touching a cache the runtime depends on:
+
+- `prune` was already `false`, so nothing used the prefix to scope a prune —
+  pruning is the post-deploy Lambda's job.
+- The two handler branches that *do* scope work to the prefix — emptying it on
+  Delete via `bucket_owned`, and `aws s3 rm --recursive` of the old prefix when
+  the destination changes on Update — are both gated on `retain_on_delete`
+  (`bucket-deployment-handler/index.py:129,134`), which the handler defaults to
+  `true` and `BucketDeployment` leaves unset. Dead code for us either way.
+- So the only live consumer was the `s3_dest` the sync writes to, and the staged
+  tree reproduces it exactly.
+
+Incidental: the 104-character `destinationKeyPrefix` limit no longer applies, and
+`overrides.bucketDeploymentProps.destinationKeyPrefix` changes from *replacing*
+the build ID to *prepending* to keys that already carry it. Both break the
+runtime; unsupported either way.
+
+`scripts/e2e-harness/README.md` claimed the opposite of all this — "the cache
+bucket's `Tags` never blocked a deploy in practice, 7 of 9 deploys hotswapped",
+from an earlier 13-file measurement. That was wrong, and read literally it argued
+against this fix, so its table is replaced with batch 9's numbers and the note
+that the distribution's cache behaviors are now the only remaining blocker.
+`scripts/e2e-deploy.sh`'s "expect the fallback most of the time" comment goes with
+it.
+
+Two new cases in `src/nextjs-cache.test.ts`: the deployment has no
+`DestinationBucketKeyPrefix` *and* the staged asset still has a `<buildId>/`
+directory (either assertion alone would pass while the keys moved), and the cache
+bucket's `aws-cdk:cr-owned:` tag set is identical across two different build IDs.
+Verified with `pnpm compile`, the full `pnpm jest` (393 tests) and `pnpm eslint`.

@@ -109,9 +109,10 @@ echo "harness: deploying $STACK_NAME"
 # creating and propagating a CloudFront distribution. `--hotswap-fallback` takes
 # the fast path when everything that changed is the function's code, its
 # environment or a bucket deployment, and a full CloudFormation deployment
-# otherwise. Expect the latter most of the time - see the table in
-# scripts/e2e-harness/README.md for which resources actually differ between two
-# fixtures and why two of them are not hotswappable.
+# otherwise. The one remaining reason for the latter is the distribution's cache
+# behaviors, which change when a fixture's `public/` differs from the last one's -
+# see the table in scripts/e2e-harness/README.md for what actually differs between
+# two fixtures.
 #
 # `--output` inside the app directory: a shared cdk.out would have concurrent
 # test files overwrite each other's assembly. (The shared stack requires `-c 1`

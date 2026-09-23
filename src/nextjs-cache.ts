@@ -1,4 +1,6 @@
-import { existsSync } from "fs";
+import { cpSync, existsSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { RemovalPolicy } from "aws-cdk-lib";
 import {
   AttributeType,
@@ -60,6 +62,7 @@ export class NextjsCache extends Construct {
   readonly buildId: string;
   readonly bucketDeployment?: BucketDeployment;
   private props: NextjsCacheProps;
+  private stagingDir?: string;
 
   constructor(scope: Construct, id: string, props: NextjsCacheProps) {
     super(scope, id);
@@ -125,14 +128,63 @@ export class NextjsCache extends Construct {
       `${LOG_PREFIX} Deploying init cache from ${this.props.initCacheDir}`,
     );
 
+    this.stagingDir = this.createStagingDirectory();
+
     // Use standard BucketDeployment for regular S3 buckets
     const bucketDeployment = new BucketDeployment(this, "InitCacheDeployment", {
-      sources: [Source.asset(this.props.initCacheDir)],
+      sources: [Source.asset(this.stagingDir)],
       destinationBucket: this.cacheBucket,
-      destinationKeyPrefix: this.props.buildId, // Add buildId prefix to all uploaded files
       prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
       ...this.props.overrides?.bucketDeploymentProps,
     });
     return bucketDeployment;
+  }
+
+  /**
+   * Stage the init cache under a `buildId` directory, so that the objects land
+   * at `<buildId>/<key>` without a `destinationKeyPrefix`.
+   *
+   * The keys have to carry the build ID — that is how the runtime cache handler
+   * and the post-deploy pruner namespace one deployment's entries from the next
+   * (`src/adapter/s3-cache-handler.ts`). Asking `BucketDeployment` for it, as
+   * this used to, is what costs: it unconditionally tags the *destination
+   * bucket* with `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>`, so a prefix
+   * that changes per build makes the bucket's `Tags` change per build.
+   * `AWS::S3::Bucket` `Tags` are not hotswappable, so `cdk deploy
+   * --hotswap-fallback` rejected the diff and fell back to a full CloudFormation
+   * deployment every single time — measured at 19 of 22 deploys in one harness
+   * run, ~110s each against a ~52s hotswap.
+   *
+   * Putting the build ID in the asset's own paths instead leaves the S3 keys
+   * byte-identical and the tag key constant (`aws-cdk:cr-owned:<hash>`, derived
+   * from the construct path). Nothing else read the prefix: `prune` is already
+   * `false`, and the two handler branches that do scope work to it — emptying
+   * the prefix on delete, and deleting the old prefix when the destination
+   * changes — are both gated on `retainOnDelete`, which `BucketDeployment`
+   * defaults to `true`.
+   *
+   * A copy rather than the directory itself because the build ID is only known
+   * *after* `next build`, so the adapter cannot write into a nested directory in
+   * the first place, and because `.next/cdk-nextjs-init-cache` has to stay where
+   * it is for the local cache handler to read it (`CDK_NEXTJS_INIT_CACHE_DIR`).
+   * CDK is about to read every byte of this to zip it regardless.
+   */
+  private createStagingDirectory(): string {
+    const stagingDir = mkdtempSync(join(tmpdir(), "nextjs-init-cache-"));
+    try {
+      cpSync(this.props.initCacheDir, join(stagingDir, this.props.buildId), {
+        recursive: true,
+      });
+      return stagingDir;
+    } catch (error) {
+      try {
+        rmSync(stagingDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+      throw new Error(
+        `${LOG_PREFIX} Failed to stage the init cache from ${this.props.initCacheDir}: ${error}`,
+      );
+    }
   }
 }

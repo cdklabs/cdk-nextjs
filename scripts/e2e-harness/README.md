@@ -55,33 +55,42 @@ fixtures:
 | Resource                        | Changed properties                  | Hotswappable |
 | ------------------------------- | ----------------------------------- | ------------ |
 | `AWS::Lambda::Function`         | `Code`, `Environment`               | yes          |
-| `Custom::CDKBucketDeployment`   | `SourceObjectKeys`, key prefix      | yes          |
+| `Custom::CDKBucketDeployment`   | `SourceObjectKeys`                  | yes          |
 | `Custom::CDKBucketDeployment`   | `SourceObjectKeys`, `UserMetadata`  | yes          |
 | `AWS::S3::Bucket`               | `Tags`                              | **no**       |
 | `AWS::CloudFront::Distribution` | `DistributionConfig.CacheBehaviors` | **no**       |
 
-That table predicted most files would take the CloudFormation fallback. Measured
-over a real 13-file run, they do not — **7 of 9 deploys hotswapped**, and only one
-of the two predicted blockers ever fires:
+Both of the un-hotswappable rows fire in practice, and the bucket's `Tags` fired
+far more often than the distribution. Measured over batch 9, a 23-file run with
+22 deploy invocations:
 
-| Deploy path                                      | Count | Cost  |
-| ------------------------------------------------ | ----- | ----- |
-| hotswap (function code + both buckets' contents) | 7     | ~52s  |
-| fallback, `DistributionConfig` rejected          | 2     | ~107s |
+| Deploy path                             | Count | Cost  |
+| --------------------------------------- | ----- | ----- |
+| fallback, cache bucket `Tags` rejected  | 19    | ~110s |
+| fallback, `DistributionConfig` rejected | 3     | ~110s |
+| hotswap                                 | 0     | ~52s  |
 
-- The **distribution** is the only real blocker. Its cache behaviors change when a
+- The **cache bucket's `Tags`** were the dominant cost, at ~110s of a ~157s median
+  green file. `BucketDeployment` unconditionally tags its destination bucket
+  `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>`, and the init cache deployment
+  passed the build ID as its `destinationKeyPrefix` — so the tag key, and
+  therefore the bucket's `Tags`, changed on every fixture. The hotswap attempt
+  itself took 0.77s before falling back.
+
+  Fixed: the build ID is now part of the staged asset's own paths and the
+  deployment has no `destinationKeyPrefix` (`src/nextjs-cache.ts`). The S3 keys
+  are unchanged; the tag key is constant. An earlier 13-file measurement recorded
+  in this file claimed the tag never blocked a deploy — it was wrong, and batch 9
+  is the run that showed it.
+
+- The **distribution** blocks the remainder. Its cache behaviors change when a
   fixture's `public/` directory differs from the previous one's, since `public/`
   entries become behaviors (`src/nextjs-distribution.ts`). CloudFront then has to
-  propagate, which is the expensive case.
-- The **cache bucket's `Tags`** never blocked a deploy in practice, despite the
-  `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>` tag CDK stamps on a
-  `BucketDeployment`'s destination bucket. `cdk deploy --hotswap-fallback`
-  hotswaps bucket _contents_ and does not reject the tag diff.
+  propagate, which is the irreducibly expensive case.
 
-So `--hotswap-fallback` is the fast path most of the time, not a fallback in name
-only. Either way the shared stack wins: even a full CloudFormation update that
-leaves the distribution alone costs ~107s, against ~4 minutes for a stack of its
-own plus a slow delete.
+Either way the shared stack wins: even a full CloudFormation update that leaves
+the distribution alone costs ~110s, against ~4 minutes for a stack of its own plus
+a slow delete.
 
 What that means for the timeout, because it is the single most common way to
 misread a run: a ~52s hotswap is **not** the whole `beforeAll`. Isolating the
