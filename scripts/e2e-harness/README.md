@@ -12,17 +12,18 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 
 ## Pieces
 
-| Path                                | Role                                                                                                               |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
-| `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.        |
-| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`. |
-| `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.              |
-| `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                        |
-| `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
-| `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
-| `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
-| `.github/workflows/e2e-harness.yml` | Weekly + `workflow_dispatch`. A matrix of `shard_total` jobs, one stack each.                                      |
+| Path                                | Role                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.         |
+| `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.         |
+| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`.  |
+| `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.               |
+| `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                         |
+| `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                              |
+| `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                           |
+| `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.       |
+| `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                       |
+| `.github/workflows/e2e-harness.yml` | Sunday + `workflow_dispatch`. A matrix of `shard_total` jobs, one stack each. Wednesday keeps the build cache warm. |
 
 ## One shared stack, not one per test file
 
@@ -150,21 +151,69 @@ Each shard is self-contained, which is what makes this safe:
 - `-c 1` stays mandatory _within_ a shard. Sharding adds stacks; it does not make
   one stack safe to deploy into twice at once.
 
-Two things this does **not** make cheaper, and the second is now the larger of
-them:
-
-- **The next.js build.** Every shard checks out and builds vercel/next.js
-  (`pnpm install && pnpm build && pnpm install`, plus a Playwright download)
-  before it can run anything. That is a fixed per-shard cost that sharding
-  multiplies rather than divides, and past a couple of dozen shards it is the
-  whole run. Caching it across runs is the next thing worth doing; `shard_total`
-  is bounded at 20 in the meantime.
-- **Total AWS spend.** The same number of deploys happen, plus N-1 extra
-  distribution creates and deletes. It is wall clock that improves, not cost.
+What sharding does **not** make cheaper is **total AWS spend**: the same number of
+deploys happen, plus N-1 extra distribution creates and deletes. It is wall clock
+that improves, not cost. Nor does it divide the next.js build — see below.
 
 Two runs must never overlap, because they would reuse the same shard names; the
 workflow's `concurrency` group is what guarantees that, and it queues rather than
 cancels.
+
+## Caching the next.js build
+
+Every shard needs a _built_ vercel/next.js checkout — `run-tests.js` and
+`test/lib` are repo files, and the tests run against `packages/next/dist`. That is
+a fixed per-shard cost which sharding **multiplies rather than divides**, and once
+the test time is divided by ten it is the largest thing left in a run.
+
+The shape of the fix is forced by two facts:
+
+- **The shards start simultaneously.** Matrix jobs are concurrent, so within one
+  run no shard can benefit from another's cache save — all ten would miss
+  together, all ten would build, and nine saves would lose the race harmlessly.
+  A cache on the shard alone therefore does nothing for the run that writes it.
+- **GitHub evicts a cache entry not _accessed_ in 7 days,** and this workflow runs
+  weekly. That is exactly the boundary, and past it as soon as a scheduled run is
+  delayed under load — which they routinely are. So a cache written one Sunday
+  cannot be relied on the next.
+
+Hence two pieces rather than one:
+
+1. **A `nextjs` job that runs before the matrix** and builds it once. On a hit it
+   is a `lookup-only` restore and nothing else (~15s — it does not download, since
+   the shards are about to). On a miss it builds and saves, which costs the run
+   what it used to cost _every_ shard. This is also what makes eviction a speed
+   problem rather than a correctness one: if the entry is gone, one job rebuilds
+   it, and the shards still find it.
+2. **A second, Wednesday schedule** (`0 14 * * 3`) that runs only the `keepalive`
+   job: a real restore, whose sole purpose is to be an _access_ and reset the
+   7-day clock. `nextjs` cannot do this itself, because its lookup deliberately
+   does not download. It `fail-on-cache-miss`es, because the `nextjs` job it
+   depends on just guaranteed the entry exists — learning that saving is broken on
+   Wednesday beats learning it on Sunday.
+
+`.github/actions/build-nextjs` holds the build itself, so the `nextjs` job and a
+shard's miss-path fallback cannot drift. A shard that misses logs a `::warning`
+and rebuilds rather than failing: a slow run still produces the signal the run is
+for.
+
+What is cached is the whole `nextjs` directory plus `~/.cache/ms-playwright`,
+keyed on the next.js ref and the runner image and node major its `node_modules`
+were installed against (`plan` computes the key, so every job agrees on it; bump
+the `v1` in it to discard every entry). Two things to know:
+
+- **A repository gets 10 GB of cache in total, evicted least-recently-used.** An
+  entry this size can displace every other workflow's. The `nextjs` job prints
+  `du -sh` of what it is about to save for exactly that reason — the number worth
+  comparing against is whatever the other workflows are using at the time.
+- **The Playwright _browser_ is cached; its system libraries are not.** Those are
+  apt packages outside any cacheable path, so
+  `playwright install --with-deps chromium` still runs in each shard. It is a
+  no-op for the download on a hit.
+
+A `workflow_dispatch` from a branch writes to that branch's own cache scope, so
+the first dispatched run on a new branch pays the build once. It can still _read_
+the default branch's entry, so this only bites when the ref differs too.
 
 ## Running two of them at once locally
 

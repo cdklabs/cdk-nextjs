@@ -9,6 +9,11 @@
 # The test files are split across `shard_total` parallel jobs, each with a shared
 # stack of its own (`hrns-shard-<n>`). A stack can only hold one app at a time, so
 # parallelism has to come from more stacks - see "Sharding" in the README.
+#
+# Every shard needs a built vercel/next.js checkout, which sharding multiplies
+# rather than divides. So the `nextjs` job below builds it once, into a cache the
+# shards restore - and a second, Wednesday schedule exists only to keep that cache
+# from being evicted between two weekly runs. See "Caching the next.js build".
 name: e2e-harness
 on:
   workflow_dispatch:
@@ -33,6 +38,15 @@ on:
     # and `e2e-tests.yml` is still the per-commit gate. The sweep job below runs
     # on the same schedule, catching stacks a cancelled run left behind.
     - cron: "0 14 * * 0"
+    # Wednesday: the `keepalive` job only, no deployments. GitHub evicts a cache
+    # entry that has not been *accessed* in 7 days, and a weekly run sits exactly
+    # on that boundary - past it as soon as a scheduled run is delayed under load,
+    # which they routinely are. Without this the next.js build cache would expire
+    # most weeks and the Sunday run would rebuild it, which is the whole saving.
+    # `plan`, `nextjs` and `sweep` run on both schedules; `harness` is gated to
+    # Sunday. The extra `sweep` is a bonus: an orphaned stack from a cancelled run
+    # now waits days rather than a week.
+    - cron: "0 14 * * 3"
 
 concurrency:
   # Never two runs at once. Shards within a run get a stack each, but two runs
@@ -47,33 +61,129 @@ permissions:
 jobs:
   plan:
     # A matrix cannot be built from an input directly, so the shard list is
-    # computed here. Cheap enough to be worth keeping the count in one place.
+    # computed here - as is the cache key, so that every job below agrees on it
+    # and the next.js ref's default is written once rather than per job.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      shards: ${{ steps.shards.outputs.shards }}
-      total: ${{ steps.shards.outputs.total }}
+      shards: ${{ steps.plan.outputs.shards }}
+      total: ${{ steps.plan.outputs.total }}
+      nextjs-ref: ${{ steps.plan.outputs.nextjs-ref }}
+      cache-key: ${{ steps.plan.outputs.cache-key }}
     steps:
-      - id: shards
+      - name: Plan the shards and the cache key
+        id: plan
         env:
           SHARD_TOTAL: ${{ inputs.shard_total || '10' }}
-        # Bounded above because every shard is a CloudFront distribution and a
-        # full next.js build of its own: past a couple of dozen the setup cost
-        # dominates and the account starts to notice.
+          NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
+        # `shard_total` is bounded above because every shard is a CloudFront
+        # distribution and a runner of its own: past a couple of dozen the setup
+        # cost dominates and the account starts to notice.
+        #
+        # The cache key pins everything the cached tree was built by and for: the
+        # next.js ref, and the runner image and node major that its node_modules
+        # (native addons included) were installed against. Bump `v1` to discard
+        # every entry at once.
         run: |
           node -e '
             const total = Number(process.env.SHARD_TOTAL);
             if (!Number.isInteger(total) || total < 1 || total > 20) {
               throw new Error(`shard_total must be an integer in 1..20, got ${process.env.SHARD_TOTAL}`);
             }
+            const ref = process.env.NEXTJS_REF;
+            if (!/^[\w.\-\/]+$/.test(ref)) {
+              throw new Error(`nextjs_ref is not a plausible git ref: ${ref}`);
+            }
             const shards = Array.from({ length: total }, (_, i) => i + 1);
             console.log(`shards=${JSON.stringify(shards)}`);
             console.log(`total=${total}`);
+            console.log(`nextjs-ref=${ref}`);
+            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref.replace(/\//g, "_")}`);
           ' >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
-  harness:
+  nextjs:
+    # Builds vercel/next.js once for the whole run, into a cache every shard
+    # restores. Sharding multiplies this cost rather than dividing it - ten shards
+    # start at the same instant, so none can benefit from another's save - and it
+    # is the largest fixed cost left in a run, so it has to happen exactly once.
+    #
+    # On a hit this job is a lookup and nothing else: `lookup-only` skips the
+    # download, which the shards are about to do anyway. On a miss it builds and
+    # saves, which costs the run what it used to cost every shard. That is also
+    # what makes eviction a speed problem rather than a correctness one.
     needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Look for a cached next.js build
+        id: lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            nextjs
+            ~/.cache/ms-playwright
+          key: ${{ needs.plan.outputs.cache-key }}
+          lookup-only: true
+
+      - name: Checkout cdk-nextjs
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: actions/checkout@v4
+
+      - if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: pnpm/action-setup@v4
+      - if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build next.js
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/build-nextjs
+        with:
+          ref: ${{ needs.plan.outputs.nextjs-ref }}
+
+      - name: Report what is about to be cached
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        # A repository gets 10 GB of cache in total, evicted least-recently-used,
+        # so an entry this size is capable of displacing every other workflow's.
+        # Printed rather than asserted, because the number to compare against is
+        # whatever the other workflows are using at the time.
+        run: du -sh nextjs ~/.cache/ms-playwright
+
+      - name: Save the next.js build
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            nextjs
+            ~/.cache/ms-playwright
+          key: ${{ needs.plan.outputs.cache-key }}
+
+  keepalive:
+    # The Wednesday schedule, and nothing else. A `restore` is an access, which is
+    # what resets the 7-day eviction clock; `nextjs` above cannot do it, because
+    # its lookup deliberately does not download. Fails loudly on a miss: `nextjs`
+    # just guaranteed the entry exists, so a miss here means saving is broken, and
+    # finding that out midweek beats finding it out on Sunday.
+    if: ${{ github.event.schedule == '0 14 * * 3' }}
+    needs: [plan, nextjs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            nextjs
+            ~/.cache/ms-playwright
+          key: ${{ needs.plan.outputs.cache-key }}
+          fail-on-cache-miss: true
+
+  harness:
+    # Not on the Wednesday schedule: that one exists to touch the cache, and this
+    # is the job that deploys.
+    if: ${{ github.event.schedule != '0 14 * * 3' }}
+    needs: [plan, nextjs]
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
@@ -84,7 +194,6 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
-      NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
       TEST_FILTERS: ${{ inputs.test_filters || '../test/deploy-tests-manifest.json' }}
       # The stack this shard owns, read by `harness_stack_name` in
       # scripts/e2e-harness/common.sh. Every step below that touches AWS - warm,
@@ -95,13 +204,14 @@ jobs:
       - name: Checkout cdk-nextjs
         uses: actions/checkout@v4
 
-      - name: Checkout vercel/next.js
-        uses: actions/checkout@v4
+      - name: Restore the next.js build
+        id: nextjs-cache
+        uses: actions/cache/restore@v4
         with:
-          repository: vercel/next.js
-          ref: ${{ env.NEXTJS_REF }}
-          path: nextjs
-          fetch-depth: 1
+          path: |
+            nextjs
+            ~/.cache/ms-playwright
+          key: ${{ needs.plan.outputs.cache-key }}
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -112,23 +222,31 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
 
+      - name: Warn about the cache miss
+        if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
+        # The `nextjs` job populated this entry before any shard started, so a miss
+        # here means the save failed or the entry was evicted mid-run. Rebuild
+        # rather than fail - a slow run still produces the signal the run is for -
+        # but say so in the summary, because every shard rebuilding next.js is the
+        # difference between a fast run and the two-hour one this replaced.
+        run: echo "::warning::next.js build cache miss (${{ needs.plan.outputs.cache-key }}); shard ${{ matrix.shard }} is rebuilding it"
+
+      - name: Build next.js
+        if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/build-nextjs
+        with:
+          ref: ${{ needs.plan.outputs.nextjs-ref }}
+
       - name: Build cdk-nextjs
         run: |
           pnpm i
           pnpm bundle && pnpm compile
 
-      - name: Install and build next.js
+      - name: Install the Playwright system dependencies
         working-directory: nextjs
-        # The harness runs out of a next.js checkout: `run-tests.js` and the
-        # `test/lib` helpers are repo files, not published ones.
-        run: |
-          corepack enable
-          pnpm install
-          pnpm build
-          pnpm install
-
-      - name: Install Playwright browser
-        working-directory: nextjs
+        # The browser itself came out of the cache; these are apt packages, which
+        # no cache can hold, so this runs on the hit path too. It is a no-op for
+        # the download in that case.
         run: pnpm playwright install --with-deps chromium
 
       - name: Warm this shard's stack
