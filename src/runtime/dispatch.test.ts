@@ -273,14 +273,52 @@ describe("Dispatcher non-entrypoint outcomes", () => {
     });
   });
 
-  it("redirects to the default locale", async () => {
-    // Arrives as a bare `status` plus a `location` in `resolvedHeaders`, never
-    // as `ResolveRoutesResult.redirect`; `toRedirect` normalizes both.
+  it("serves the app's root in the default locale, with no redirect at all", async () => {
+    // `resolveRoutes` prefixes the locale as `${basePath}/${locale}${pathname}`,
+    // which turns the root into `/en-US/`, and the slash-stripping 308 every
+    // build compiles then answered `GET /` with a redirect no `next start`
+    // sends. Measured against `test/e2e/i18n-support-catchall`, whose `/` is a
+    // 200. See `Dispatcher.withRootLocale`.
     const result = await dispatcherFor("pages-i18n").dispatch(request("/"));
+    expect(result).toMatchObject({ kind: "static-file", pathname: "/en-US" });
+  });
+
+  it("redirects the root to the locale the request asked for", async () => {
+    const result = await dispatcherFor("pages-i18n").dispatch(
+      request("/", { "accept-language": "nl-NL" }),
+    );
+    // 307 and not 308, because the next request may detect a different locale.
+    // Relative and without the trailing slash `resolveRoutes` puts in the
+    // location it builds (`https://example.test/nl-NL/`), which is what
+    // `next start` sends and what a test asserting `headers.location` reads.
+    expect(result).toMatchObject({
+      kind: "redirect",
+      status: 307,
+      location: "/nl-NL",
+    });
+  });
+
+  it("keeps a redirect to another locale's domain absolute", async () => {
+    // The fixture maps `fr` onto example.fr, and an absolute location is the
+    // only way to leave the origin.
+    const result = await dispatcherFor("pages-i18n").dispatch(
+      request("/", { cookie: "NEXT_LOCALE=fr" }),
+    );
+    expect(result).toMatchObject({
+      kind: "redirect",
+      status: 307,
+      location: "https://example.fr/",
+    });
+  });
+
+  it("still strips a trailing slash the request itself carried", async () => {
+    const result = await dispatcherFor("pages-i18n").dispatch(
+      request("/nl-NL/"),
+    );
     expect(result).toMatchObject({
       kind: "redirect",
       status: 308,
-      location: "/en-US",
+      location: "/nl-NL",
     });
   });
 
@@ -462,14 +500,18 @@ describe("Dispatcher middleware handling", () => {
     expect(result.kind).toBe("middleware-responded");
   });
 
-  it("normalizes a middleware redirect", async () => {
+  it("normalizes a middleware redirect to a same-origin path", async () => {
     const result = await dispatcherFor("app-playground", async () => ({
       redirect: { url: new URL("/login", ORIGIN), status: 307 },
     })).dispatch(request("/isr/1"));
     expect(result).toMatchObject({
       kind: "redirect",
       status: 307,
-      location: `${ORIGIN}/login`,
+      // `NextResponse.redirect(new URL("/login", request.url))` is how every
+      // middleware spells this, and Next.js sends the path: `@next/routing`'s
+      // own `getRelativeURL` does it for the header it sets, and only the
+      // `redirect.url` field this path reads keeps the absolute form.
+      location: "/login",
     });
   });
 

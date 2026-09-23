@@ -21,6 +21,8 @@ import {
   ResolveRoutesQueryValue,
   ResolveRoutesResult,
   RouteInvocationTarget,
+  detectDomainLocale,
+  detectLocale,
   resolveRoutes,
 } from "@next/routing";
 import { AdapterEntrypoint, AdapterManifest } from "./manifest";
@@ -237,6 +239,86 @@ export class Dispatcher {
       : pathname;
   }
 
+  /** The request path with `basePath` removed, which is what i18n applies to. */
+  private withoutBasePath(pathname: string): string {
+    const { basePath } = this.manifest.config;
+    return basePath && pathname.startsWith(basePath)
+      ? pathname.slice(basePath.length) || "/"
+      : pathname;
+  }
+
+  /**
+   * Put the locale in front of a request for the app's root *here*, when the
+   * locale is the one the request is already in.
+   *
+   * `resolveRoutes` prefixes the locale itself, as `${basePath}/${locale}${pathname}`
+   * — which for the root turns `/` into `/en-US/`. The slash-stripping 308 that
+   * `next build` always compiles into `routing.beforeMiddleware` then matches it,
+   * so `GET /` came back as a redirect no `next start` sends: measured against
+   * `test/e2e/i18n-support-catchall`, where `/` answers 200. Next.js's own router
+   * special-cases exactly this (`resolve-routes.ts`: `pathname === '/' ?
+   * `/${defaultLocale}` : …`).
+   *
+   * Only the root, and only when no redirect is owed: a request whose detected
+   * locale is *not* the default has to reach `resolveRoutes`, which answers it
+   * with the 307 Next.js sends — after middleware has had the request, which is
+   * the ordering that matters and the reason this does not redirect itself.
+   */
+  private withRootLocale(url: URL, headers: Headers): URL {
+    const i18n = this.i18n;
+    if (!i18n) return url;
+    const pathname = this.withoutBasePath(url.pathname);
+    if (pathname !== "/") return url;
+
+    const defaultLocale =
+      detectDomainLocale(i18n.domains, url.hostname)?.defaultLocale ??
+      i18n.defaultLocale;
+    const detected = detectLocale({
+      pathname,
+      hostname: url.hostname,
+      cookieHeader: headers.get("cookie") ?? undefined,
+      acceptLanguageHeader: headers.get("accept-language") ?? undefined,
+      i18n,
+    });
+    if (detected.locale !== defaultLocale) return url;
+
+    const prefixed = new URL(url.toString());
+    prefixed.pathname = `${this.manifest.config.basePath}/${defaultLocale}`;
+    return prefixed;
+  }
+
+  /**
+   * Repair the two things `resolveRoutes` gets wrong about a redirect it built
+   * from the locale-prefixed root — the same `${basePath}/${locale}${pathname}`
+   * concatenation as in {@link withRootLocale}, this time reported as a location:
+   *
+   * - the stray trailing slash (`/nl/`, where Next.js sends `/nl`), which
+   *   otherwise costs a second round trip to the 308 that strips it, and
+   * - the absolute URL, where Next.js sends a path. Both are legal, but a test
+   *   asserting `headers.location` sees the difference, and so does any client
+   *   comparing it to a link.
+   */
+  private normalizeRedirectLocation(location: string, request: URL): string {
+    let resolved: URL;
+    try {
+      resolved = new URL(location, request);
+    } catch {
+      return location;
+    }
+    if (resolved.origin !== request.origin) return location;
+
+    const target = this.withoutBasePath(resolved.pathname);
+    const isLocaleRoot =
+      this.i18n !== undefined &&
+      !this.trailingSlash &&
+      this.withoutBasePath(request.pathname) === "/" &&
+      this.i18n.locales.some((locale) => target === `/${locale}/`);
+    if (isLocaleRoot) {
+      resolved.pathname = resolved.pathname.slice(0, -1);
+    }
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+  }
+
   public async dispatch(request: DispatchRequest): Promise<DispatchResult> {
     // Copied because `resolveRoutes` is free to mutate what it is handed, and
     // the caller's headers object outlives this call.
@@ -245,7 +327,7 @@ export class Dispatcher {
     let middlewareRewrite: URL | undefined;
 
     const result = await resolveRoutes({
-      url: request.url,
+      url: this.withRootLocale(request.url, requestHeaders),
       buildId: this.manifest.buildId,
       basePath: this.manifest.config.basePath,
       headers: requestHeaders,
@@ -301,7 +383,15 @@ export class Dispatcher {
 
     const redirect = toRedirect(result, responseHeaders);
     if (redirect) {
-      return { kind: "redirect", ...redirect, responseHeaders };
+      return {
+        kind: "redirect",
+        ...redirect,
+        location: this.normalizeRedirectLocation(
+          redirect.location,
+          request.url,
+        ),
+        responseHeaders,
+      };
     }
 
     // Both are keys into `entrypoints`/`staticFiles`, which never carry a
@@ -386,13 +476,13 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
 /**
  * Normalize the two shapes `resolveRoutes` reports a redirect in.
  *
- * `ResolveRoutesResult.redirect` is documented, but every redirect actually
- * observed — the i18n default-locale 308, the `trailingSlash` 308, and a
- * middleware `NextResponse.redirect()` — arrives instead as a bare `status` with
- * `location` in `resolvedHeaders`. `next.config` `redirects()` too: they compile
- * to routes carrying `headers: { Location }` plus `status`. Both shapes are
- * handled because the documented field is the one a future `next` may start
- * using; exported so the unreachable-today one is still tested.
+ * `ResolveRoutesResult.redirect` is documented, and an i18n locale-detection 307
+ * arrives that way, but the rest — the slash-stripping 308, a middleware
+ * `NextResponse.redirect()` — arrive instead as a bare `status` with `location`
+ * in `resolvedHeaders`. `next.config` `redirects()` too: they compile to routes
+ * carrying `headers: { Location }` plus `status`. Both shapes are handled, and
+ * {@link Dispatcher.normalizeRedirectLocation} then puts the location itself in
+ * the form Next.js sends.
  */
 export function toRedirect(
   result: ResolveRoutesResult,

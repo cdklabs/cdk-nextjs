@@ -3594,3 +3594,50 @@ bundled — `pnpm bundle` has to wait for batch 12 to finish — so `async-modul
 requeued alongside `next-image-legacy/unicode` behind the next bundle. Three files
 still await a verdict: `i18n-support-catchall`, `no-page-props` and
 `asset-prefix-absolute`.
+
+### Defect 20: every i18n app answered `/` with a redirect
+
+The second of the three awaiting-verdict files root-caused without a deployment.
+`i18n-support-catchall`'s failing case is `next.fetch('/', { redirect: 'manual' })`
+expecting a 200; we answered a 308 to `/en-US`. The fixture's root catch-all turned
+out to be irrelevant — this was every app with an `i18n` config, at `/`.
+
+`@next/routing` prefixes the locale by concatenation, `${basePath}/${locale}${pathname}`,
+so the root becomes `/en-US/`; the `priority` slash-stripping 308 that `next build`
+always compiles into `routing.beforeMiddleware` then matched that invented path and
+redirected before anything looked for a page. next's own router special-cases the
+same shape (`resolve-routes.ts`: ``pathname === '/' ? `/${defaultLocale}` : …``).
+
+Two measurements pinned it. A unit dispatch against the committed `pages-i18n`
+fixture reproduced the 308 with no AWS at all, and `scripts/e2e-offline.sh` gave the
+oracle: `next start` on a plain build of the fixture answers `/`, `/en-US`, `/fr`,
+`/nl-NL` and `/another` with 200, and answers `/` with `accept-language: nl` with a
+307 to `/nl`. (Note for next time: `next start` on an *adapter* build of that fixture
+404s everywhere, so the offline script's second URL is only an oracle when the build
+it serves was made without `NEXT_ADAPTER_PATH`.)
+
+The same concatenation builds the location of the locale-detection 307, so that
+redirect was wrong twice: `https://example.test/nl-NL/` where next sends `/nl-NL`.
+
+Two narrow pieces in `src/runtime/dispatch.ts`. `Dispatcher.withRootLocale` does the
+prefixing itself for a root request, and only when the locale asked for is already
+the domain-aware default — no redirect owed, so `resolveRoutes` sees a locale in the
+path and leaves it alone. A root request detecting a *different* locale is passed
+through untouched, so its 307 still comes out of `resolveRoutes` after middleware has
+had the request, which is next's ordering. `Dispatcher.normalizeRedirectLocation`
+then puts every same-origin location in the form next sends — a path, without the
+stray slash — while leaving a cross-origin `i18n.domains` location absolute.
+
+Four new cases in `dispatch.test.ts` (root with no redirect, the detection 307, the
+cross-domain 307, and a trailing slash the request really carried). One existing
+expectation changed with it: a middleware `NextResponse.redirect()` to a same-origin
+URL now reports `/login` rather than the absolute URL, which is what next puts on the
+wire (`@next/routing` already relativizes the header it sets; only the `redirect.url`
+field kept the absolute form). 22 suites / 410 tests green, `pnpm eslint` and
+`tsc --noEmit` clean.
+
+Still not bundled — batch 12 is mid-flight — so `i18n-support-catchall` joins
+`async-modules` and `next-image-legacy/unicode` in the requeue behind the next
+bundle, and `app-dir/not-found-with-pages-i18n` (the one i18n file already in
+`rules.include`) goes with them to confirm no regression. Two files await a verdict:
+`no-page-props` and `asset-prefix-absolute`.

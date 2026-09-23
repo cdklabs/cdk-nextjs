@@ -57,16 +57,16 @@ Of the 162 screened (25 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 119 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache` and 3 of 7 `dynamic-route-interpolation` cases |
-| fixed            | 19 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename) and 19 (the error page) queued for the next batch |
+| fixed            | 20 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename), 19 (the error page) and 20 (the i18n home page) queued for the next batch |
 | bug              | 1 (`incremental-cache-path-traversal`) |
-| awaiting verdict | 3 — see below |
+| awaiting verdict | 2 — see below |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files, plus the 2 remaining `trailingslash` and 4 remaining `dynamic-route-interpolation` cases |
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 28 (2 gated by next.js, 26 `skipDeployment` or stubbed in deploy mode) |
 
-The nineteen fixed defects are the harness's whole return on investment so far.
-All nineteen were real, all nineteen shipped, and none of them could have been
+The twenty fixed defects are the harness's whole return on investment so far.
+All twenty were real, all twenty shipped, and none of them could have been
 caught by the construct tests or by `examples/e2e-tests`.
 
 ## Passing — in `rules.include`
@@ -975,6 +975,53 @@ Covered by four `resolveErrorTarget` cases in `dispatch.test.ts` and four in
 `core.test.ts` (the prerendered `/500`, the `/_error` invocation, an error page that
 throws, and an app with neither).
 
+### 20. Every i18n app answered its own home page with a redirect
+
+`i18n-support-catchall` (1 of 4, "should load the index route correctly SSR").
+`next.fetch('/', { redirect: 'manual' })` expects a **200** and got a **308** to
+`/en-US`. Not specific to the fixture's root catch-all: it was every app with an
+`i18n` config, at `/`.
+
+`@next/routing` builds the locale-prefixed pathname by concatenation —
+`` `${basePath}/${locale}${pathname}` `` — which for the root produces `/en-US/`.
+`next build` always compiles a `priority` 308 that strips a trailing slash into
+`routing.beforeMiddleware`, that route then matched the path the prefixing had just
+invented, and the redirect went out before anything looked for a page. Next.js's own
+router special-cases exactly this shape (`resolve-routes.ts`:
+`` pathname === '/' ? `/${defaultLocale}` : … ``).
+
+Measured with `scripts/e2e-offline.sh`: `next start` on a plain build of the fixture
+answers `/`, `/en-US`, `/fr`, `/nl-NL` and `/another` with 200, and `/` with
+`accept-language: nl` with a 307 to `/nl`. Our deployment redirected `/`, which is
+also why only 1 of the 4 cases failed — the three that navigate follow the redirect
+and land on the right page.
+
+The same concatenation is how `resolveRoutes` builds the *location* of the
+locale-detection 307, so that redirect was wrong twice over: it sent
+`https://example.test/nl-NL/` where `next start` sends `/nl-NL` — a needless second
+round trip through the slash-stripping 308, and a value no test asserting
+`headers.location` can match.
+
+**Verdict: fixed.** Two narrow pieces in `src/runtime/dispatch.ts`:
+
+- `Dispatcher.withRootLocale` prefixes the locale itself for a request to the app's
+  root, and only when the locale the request already asks for is the (domain-aware)
+  default — i.e. when no redirect is owed. `resolveRoutes` then sees a locale in the
+  path and leaves it alone. A root request whose detected locale is *not* the default
+  is passed through untouched, because `resolveRoutes` answers it with the 307 after
+  middleware has had the request, and that ordering is Next.js's.
+- `Dispatcher.normalizeRedirectLocation` puts every same-origin location in the form
+  Next.js sends: a path rather than an absolute URL, minus the stray trailing slash a
+  locale-root redirect carried. Cross-origin locations — the `i18n.domains` redirect
+  to another locale's domain — are left absolute, since that is the only way to
+  leave the origin.
+
+Covered by four cases against the `pages-i18n` fixture in `dispatch.test.ts` (the
+root with no redirect, the detection 307, the cross-domain 307, and the trailing
+slash a request really did carry). One existing expectation changed with it: a
+middleware `NextResponse.redirect()` to a same-origin URL now reports the path,
+which is what Next.js puts on the wire.
+
 ## Bug — not yet fixed
 
 ### A path-traversal `_next/data` request 500s instead of rendering
@@ -1033,18 +1080,16 @@ was root-caused while batch 12 ran (defect 19):
 
 | File                    | Cases | The failing assertion                                                     |
 | ----------------------- | ----- | ------------------------------------------------------------------------- |
-| `i18n-support-catchall` | 1 / 4 | "should load the index route correctly SSR" expects `200` from `/` and gets `308` |
 | `no-page-props`         | 1 / 5 | "should navigate between pages correctly" expects `"hi"` and reads `undefined` off the page |
 | `asset-prefix-absolute` | 1 / 1 | "bundles should return 200 on served assetPrefix" expects `200` and gets `404` |
 
-`async-modules`'s remaining case left this list straight away: batch 11 had already
-cleared its other two failures (defect 17), which isolated it enough to root-cause,
-and it is defect 19 above. Requeued behind a bundle.
-
-`i18n-support-catchall` is not defect 17: it resolves `/`, and redirects it. With
-i18n, `/` serves the default locale's content rather than redirecting to `/en-US`,
-and this fixture adds a root catch-all on top. It failed identically before and
-after defect 17's fix, so that fix is not the explanation.
+Two of the four left this list without a deployment. `async-modules` went first:
+batch 11 had already cleared its other two failures (defect 17), which isolated its
+remaining case enough to root-cause, and it is defect 19 above.
+`i18n-support-catchall` followed — it was never about the fixture's root catch-all
+but about `/` under any `i18n` config, reproduced in a unit test against the
+`pages-i18n` fixture and confirmed against `next start` with
+`scripts/e2e-offline.sh`, and it is defect 20. Both are requeued behind a bundle.
 
 `no-page-props` and `asset-prefix-absolute` are new in batch 11.
 `asset-prefix-absolute` is the sibling of `asset-prefix`, which defect 12 fixed:
@@ -1054,7 +1099,7 @@ serves itself, which `NextjsDistribution` deliberately adds no behavior for (see
 a fixture assuming a deployment shape cdk-nextjs does not provide is exactly the
 open question.
 
-None of the three is in `rules.include`, and none is in `excluded-notes` either: an
+Neither of the two is in `rules.include`, and neither is in `excluded-notes` either: an
 `excluded-notes` entry is a decision, and no decision has been made.
 
 ## Unsupported — a product limitation
