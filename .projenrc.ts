@@ -226,9 +226,14 @@ function bundle() {
   // runtime (cdklabs/cdk-nextjs#270). A static import also keeps the bundles
   // free of top-level await, so Node can still `require()` them instead of
   // throwing ERR_REQUIRE_ASYNC_MODULE.
+  // Prefixed for the reason {@link cjsGlobalsBanner} documents: `build-outputs.ts`
+  // imports `createRequire` by name and is in the adapter bundle's tree, so a
+  // banner declaring the bare name makes the output fail to parse
+  // ("Identifier 'createRequire' has already been declared"). `require` itself
+  // keeps its name — that is the whole point of the banner.
   const createRequireBanner = [
-    "import { createRequire } from 'node:module';",
-    "const require = createRequire(import.meta.url);",
+    "import { createRequire as __cdkNextjsCreateRequire } from 'node:module';",
+    "const require = __cdkNextjsCreateRequire(import.meta.url);",
   ].join(" ");
   project.bundler.addBundle("src/adapter/cache-handler.ts", {
     platform: "node",
