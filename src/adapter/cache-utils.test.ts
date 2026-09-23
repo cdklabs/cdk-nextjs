@@ -1,7 +1,9 @@
 import {
   appPageCacheHeaders,
   groupPrerenders,
+  parseCacheValue,
   prerenderPathToCacheKey,
+  serializeCacheValue,
 } from "./cache-utils";
 
 describe("prerenderPathToCacheKey", () => {
@@ -146,5 +148,62 @@ describe("appPageCacheHeaders", () => {
     expect(
       appPageCacheHeaders({ "x-custom": "1", "set-cookie": "a=b" }),
     ).toEqual({ "x-custom": "1", "set-cookie": "a=b" });
+  });
+});
+
+describe("serializeCacheValue / parseCacheValue", () => {
+  it("round-trips a Buffer", () => {
+    const value = { rscData: Buffer.from("hello, cache") };
+
+    const restored = parseCacheValue(serializeCacheValue(value));
+
+    expect(Buffer.isBuffer(restored.rscData)).toBe(true);
+    expect(restored.rscData.toString()).toBe("hello, cache");
+  });
+
+  it("round-trips bytes that are not valid UTF-8", () => {
+    const value = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x7f]);
+
+    const restored = parseCacheValue(serializeCacheValue({ value })).value;
+
+    expect(restored.equals(value)).toBe(true);
+  });
+
+  it("round-trips a Map, including Buffers inside it", () => {
+    const value = new Map([["/_index", Buffer.from("segment")]]);
+
+    const restored = parseCacheValue(serializeCacheValue({ value })).value;
+
+    expect(restored).toBeInstanceOf(Map);
+    expect(restored.get("/_index").toString()).toBe("segment");
+  });
+
+  /**
+   * base64, not the array of per-byte integers `Buffer.toJSON()` produces: that
+   * array is ~3 bytes of JSON per byte of payload *and* makes `JSON.parse`'s
+   * reviver run once per element, which cost 4.8s of Lambda time to answer a
+   * single 1 MiB segment prefetch on a real deployment.
+   */
+  it("writes a Buffer as base64 rather than an array of bytes", () => {
+    const json = serializeCacheValue({ rscData: Buffer.from("hello") });
+
+    expect(JSON.parse(json).rscData).toEqual({
+      __type: "Buffer",
+      base64: "aGVsbG8=",
+    });
+    // Comfortably under the ~5 bytes per payload byte an integer array costs.
+    expect(json.length).toBeLessThan(60);
+  });
+
+  it("still reads the integer-array format an older build wrote", () => {
+    const legacy = JSON.stringify({
+      ours: { __type: "Buffer", data: [104, 105] },
+      nodes: { type: "Buffer", data: [104, 105] },
+    });
+
+    const restored = parseCacheValue(legacy);
+
+    expect(restored.ours.toString()).toBe("hi");
+    expect(restored.nodes.toString()).toBe("hi");
   });
 });
