@@ -473,9 +473,19 @@ describe("Dispatcher middleware handling", () => {
 
 describe("repairRouteParamQuery", () => {
   it("drops an optional catchall's param when the request filled none", () => {
-    // What `resolveRoutes` returns for `/optional-catchall` against
-    // `app/optional-catchall/[[...params]]`: the destination expansion
-    // substitutes the unset group with "", and `routeMatches` names nothing.
+    // Measured from `resolveRoutes` for `/optional-catchall` against
+    // `app/optional-catchall/[[...params]]`: *both* sides carry the key with no
+    // value, which the `@next/routing` types do not admit. The key alone is what
+    // makes `prepare()` invent a param, so the key has to go.
+    expect(
+      repairRouteParamQuery(
+        { nxtPparams: undefined! },
+        {
+          nxtPparams: undefined,
+        },
+      ),
+    ).toEqual({});
+    // The same shape with "" for the value, which the expansion can also produce.
     expect(repairRouteParamQuery({ nxtPparams: "" }, {})).toEqual({});
     // A filled one is left alone, whichever source it came from.
     expect(

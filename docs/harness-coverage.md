@@ -501,26 +501,36 @@ collided.
 `#lvl2-layout > div` was asserted empty and had one child: a layout rendered a
 route segment the request never contained.
 
-`@next/routing` reports an unmatched optional catchall as an *empty* param rather
-than an absent one. Measured directly — `resolveRoutes` for `/optional-catchall`
-against `^[/]?/optional\-catchall(?:/(?<nxtPparams>.+?))?(?:/)?$`:
+`@next/routing` reports an unmatched optional catchall as an *unfilled* param
+rather than an absent one. Measured directly out of a running shell —
+`resolveRoutes` for `/optional-catchall` against
+`^[/]?/optional\-catchall(?:/(?<nxtPparams>.+?))?(?:/)?$`:
 
 ```
 resolvedPathname: /optional-catchall/[[...params]]
-resolvedQuery:    {"nxtPparams":""}
-routeMatches:     {}
+resolvedQuery:    { nxtPparams: undefined }   // the key is present, with no value
+routeMatches:     { nxtPparams: undefined }   // so is this one
 ```
 
-Next.js reconstructs `params.params = [""]` from that, so the layout maps over a
-one-element array. `next start` has no `params` key at all there.
+Both maps are typed `Record<string, string>` / `ResolveRoutesQuery`, neither of
+which admits `undefined`, and `JSON.stringify` hides the key entirely — which is
+why the first attempt at this fix looked for `""` and missed. `RouteModule.prepare`
+invents a param for every `nxtP*` key it finds, so the layout maps over a
+one-element array; `next start` has no `params` key at all there. The value the
+segment rendered was the string `"undefined"`, because `formatTarget` builds the
+invocation URL through `URLSearchParams.append`, which stringifies.
 
 `repairRouteParamQuery` already existed to correct the opposite shape (defect 5: a
 param whose name prefixes another's, where the query and `routeMatches` disagree),
-so the fix is a second pass over the same map that deletes an `nxtP*` key whose
-value is empty. An empty value goes whether or not `routeMatches` echoes it: no
-route param can legitimately be empty — a required segment captures `[^/]+?`, a
-required catchall `.+?`, and an optional catchall that matched nothing has no
-group for `routeMatches` to report.
+so the fix is a second pass over the same map that deletes any `nxtP*` key neither
+side filled. It goes whether or not `routeMatches` echoes the key: no route param
+can legitimately be unfilled — a required segment captures `[^/]+?` and a required
+catchall `.+?`.
+
+Verified offline rather than by a deploy: the fixture was built into
+`next.js/lp-app` and served by both `next start` and our container shell on the
+same build, which is what made the `"undefined"` visible. All six of the file's
+assertions match `next start` after the fix.
 
 ### 12. `robots.txt` and `sitemap.xml` went out as `application/octet-stream`
 
@@ -604,8 +614,21 @@ consistent with the client bundle for that layout never loading, so the checkbox
 is either absent or not hydrated.
 
 The four passing cases are the ones that assert on server-rendered text only.
-Needs a live probe of `/en` with the network log to say which resource 404s and
-why; until then it is a bug with an unknown cause, not an acceptable failure.
+
+A live probe against the deployed fixture moved this on: **`/en` itself is a 404**,
+and every asset it references is fine.
+
+```
+GET /en   → HTTP/2 404, x-nextjs-prerender: 1, x-nextjs-cache: MISS
+            (all 7 script srcs and the preload href return 200)
+```
+
+So the page is not failing to hydrate — it is being served the prerendered 404 in
+the first place, and the `#reveal` timeout is just the downstream symptom. That
+points at route resolution for a root-param route (`/[locale]` with no
+`app/layout.tsx`) rather than at the client bundle. Still a bug, now with a much
+narrower place to look: how the adapter keys, and dispatch matches, a root-param
+entrypoint.
 
 ### A path-traversal `_next/data` request 500s instead of rendering
 

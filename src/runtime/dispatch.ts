@@ -18,6 +18,7 @@ import {
   MiddlewareResult,
   ResolveRoutesParams,
   ResolveRoutesQuery,
+  ResolveRoutesQueryValue,
   ResolveRoutesResult,
   RouteInvocationTarget,
   resolveRoutes,
@@ -76,8 +77,12 @@ export interface DispatchEntrypointResult extends DispatchResultBase {
   /** The *concrete* pathname + query to invoke the route with. */
   readonly invocationTarget: RouteInvocationTarget;
   readonly query: ResolveRoutesQuery;
-  /** Dynamic segment captures, both positional and `nxtP`-named. */
-  readonly routeMatches: Record<string, string>;
+  /**
+   * Dynamic segment captures, both positional and `nxtP`-named. A group the
+   * match left unset is still a key here, with no value — see
+   * {@link repairRouteParamQuery}.
+   */
+  readonly routeMatches: Record<string, string | undefined>;
   /** Request headers as middleware left them. */
   readonly requestHeaders: Headers;
 }
@@ -473,34 +478,40 @@ function withTrailingSlashVariants(pathnames: string[]): string[] {
  * The second correction is the opposite shape: a param the route *has* but the
  * request did not fill. An optional catchall's group is the only one a match can
  * leave unset — `^/optional\-catchall(?:/(?<nxtPparams>.+?))?(?:/)?$` against
- * `/optional-catchall` — and the expansion substitutes the unset group with the
- * empty string, so the query says `nxtPparams=""` where `routeMatches` correctly
- * says nothing at all. Next.js turns that into `params.params = [""]`, one
- * segment long, and a layout reading `params` renders a segment that was never
- * requested; `next start` gives it no `params` key at all. Measured against
- * `test/e2e/app-dir/layout-params`, whose fixture is
+ * `/optional-catchall` — and both `routeMatches` and the expanded query keep the
+ * key with no value: `{ nxtPparams: undefined }`, which the `@next/routing` types
+ * do not admit. The key is what matters, not the value. `RouteModule.prepare`
+ * recovers a param for every `nxtP` key it finds, so a layout reading `params`
+ * renders a segment that was never requested — as `["undefined"]`, because
+ * `URLSearchParams.append` stringifies — where `next start` gives it no `params`
+ * key at all. Measured against `test/e2e/app-dir/layout-params`, whose fixture is
  * `app/optional-catchall/[[...params]]`. No other param shape can be legitimately
- * empty — a required segment captures `[^/]+?` and a required catchall `.+?` —
- * so an empty value `routeMatches` does not vouch for is always this.
+ * unfilled — a required segment captures `[^/]+?` and a required catchall `.+?` —
+ * so an unfilled value `routeMatches` does not vouch for is always this.
  */
 export function repairRouteParamQuery(
   query: ResolveRoutesQuery,
-  routeMatches: Record<string, string>,
+  routeMatches: Record<string, string | undefined>,
 ): ResolveRoutesQuery {
   let repaired: ResolveRoutesQuery | undefined;
   for (const [key, value] of Object.entries(routeMatches)) {
-    if (!key.startsWith("nxtP")) continue;
+    if (!key.startsWith("nxtP") || value === undefined) continue;
     if (!(key in query) || query[key] === value) continue;
     repaired ??= { ...query };
     repaired[key] = value;
   }
   for (const [key, value] of Object.entries(repaired ?? query)) {
-    if (!key.startsWith("nxtP") || value !== "") continue;
-    if (routeMatches[key]) continue;
+    if (!key.startsWith("nxtP") || isFilledParam(value)) continue;
+    if (isFilledParam(routeMatches[key])) continue;
     repaired ??= { ...query };
     delete repaired[key];
   }
   return repaired ?? query;
+}
+
+/** Whether a route param carries a segment, as opposed to `""` or nothing. */
+function isFilledParam(value: ResolveRoutesQueryValue | undefined): boolean {
+  return Array.isArray(value) ? value.length > 0 : Boolean(value);
 }
 
 /**

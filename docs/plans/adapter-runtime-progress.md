@@ -3071,3 +3071,40 @@ Coverage record: 72 files screened, 43 whole files in `rules.include`, 3 more in
 part, 12 fixed defects, 3 open bugs (`assetPrefix`,
 `parallel-routes-root-param-dynamic-child`, `incremental-cache-path-traversal`),
 454 candidates left.
+
+### The optional-catchall fix, finished offline
+
+`app-dir/layout-params` failed *identically* after the `repairRouteParamQuery` fix
+of the previous entry — same case, same message, on both retries — with the fix
+verifiably present in the deployed bundle. Rather than iterate through 3-minute
+deploys, the fixture was built and served locally: copied into the next.js checkout
+as `lp-app` (module resolution has to walk up to the repo's `node_modules/next`,
+so `/tmp` will not do), with `node_modules/cdk-nextjs/{package.json,lib/adapter/*}`
+placed inside the app exactly as `e2e-deploy.sh` does, then served twice off the
+same build — once by `next start`, once by our container shell pointed at
+`.next/cdk-nextjs-adapter/app`. Side by side:
+
+```
+next start:      <div id="lvl2-layout"></div>
+container shell: <div id="lvl2-layout"><div id="lvl2-params">["undefined"]</div></div>
+```
+
+`["undefined"]` — the literal string — not the `[""]` the earlier fix was written
+against. Instrumenting the shell where it hands `req.url` to the entrypoint gave
+the actual shape: `resolveRoutes` returns `{ nxtPparams: undefined }` in *both*
+`routeMatches` and `resolvedQuery`. The key is present with no value, which neither
+`Record<string, string>` nor `ResolveRoutesQuery` admits and which
+`JSON.stringify` erases — so the first attempt looked for `""`, found nothing, and
+the `undefined` survived into `URLSearchParams.append`, which stringified it.
+
+The fix is the same pass, with the predicate corrected to "neither side filled
+this param" and the `routeMatches` type widened to admit the value it actually
+carries. All six of the file's assertions now match `next start` offline. The
+offline harness is worth remembering: one deploy's worth of wall clock bought an
+instrumentable server, and the defect was legible in minutes.
+
+Also banked from a live probe: `parallel-routes-root-param-dynamic-child` is not a
+hydration failure. `/en` returns a prerendered **404** while all seven of its
+script `src`s return 200, so the `#reveal` timeout is downstream of a routing miss
+on a root-param route with no `app/layout.tsx`. Recorded in
+`docs/harness-coverage.md`; still open.
