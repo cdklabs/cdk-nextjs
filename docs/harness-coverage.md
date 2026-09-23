@@ -60,7 +60,7 @@ Of the 326 screened (25 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 294 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache`, 3 of 7 `dynamic-route-interpolation` and 1 of 2 `revalidate-path-with-rewrites` cases |
-| fixed            | 23 harness defects, every one of which came from a file listed above, and every one now verified green against a deployment. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md` |
+| fixed            | 24 harness defects, every one of which came from a file listed above, and every one now verified green against a deployment. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md` |
 | bug              | 1 (`incremental-cache-path-traversal`) |
 | awaiting verdict | 0 |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
@@ -68,7 +68,7 @@ Of the 326 screened (25 of which turned out to deploy nothing — see
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 46 (2 gated by next.js, 26 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files whose fixture cannot be built here) |
 
-The twenty-three fixed harness defects are its whole return on investment so far.
+The twenty-four fixed harness defects are its whole return on investment so far.
 All of them were real, all of them shipped, and none of them could have been
 caught by the construct tests or by `examples/e2e-tests`.
 
@@ -1281,6 +1281,46 @@ and the literal `%`.
 
 Batch 14 confirmed it against a deployment: all 5 cases green on attempt 0 in 163s,
 and the file is now in `rules.include`.
+
+### 25. A web worker never started, because its bootstrap chunk got a patch that reads `window`
+
+`worker-module-url` and `worker-relay-compiler` (1 of 1 each), from batch 16. Both
+apps do the same thing — `new Worker(new URL('./worker.ts', import.meta.url))` —
+and in both the page rendered but the message the worker is supposed to post back
+never arrived, so the assertion timed out on placeholder text.
+
+The cause is on our side of the build, in `patchFetchInClientJs`
+(`src/nextjs-build/nextjs-build.ts`), which prepends `patch-fetch.js` to the client
+entrypoint chunks. Its selector takes `main-app-*` for webpack and, for turbopack,
+anything matching `turbopack-*.js`:
+
+```ts
+file.startsWith("main-app-") ||
+  (file.startsWith("turbopack-") && file.endsWith(".js"))
+```
+
+Turbopack emits its **web-worker** bootstrap as
+`static/chunks/turbopack-worker-<hash>.js`, which that second clause matches. So
+`patch-fetch.js` was prepended to a script that runs off the main thread — and it
+opened with `const originalFetch = window.fetch;`. A worker scope has no `window`,
+so the very first statement threw `ReferenceError: window is not defined` inside the
+worker, before the worker's own module ran. The worker died silently at startup and
+the page waited forever. Nothing about this is visible in the page's own console;
+the error lands on the worker's error event, which these fixtures do not listen for.
+
+**Verdict: fixed.** `patch-fetch.js` is now written against `globalThis` and the
+bare `location` global rather than `window`, so the same file is correct in both
+scopes — and a worker's own same-origin POSTs get signed as a bonus, which the old
+code never did even where it loaded. `XMLHttpRequest` is patched only behind a
+`typeof … !== "undefined"` guard, because it does not exist in every worker scope
+and `class extends undefined` is a `TypeError`. The selector was deliberately left
+alone: making the worker chunk *work* is better than excluding it from the patch,
+since a same-origin POST from a worker needs the header just as much.
+
+`patch-fetch.test.ts` installs its stubs on `globalThis` via an `installScope()`
+helper and adds a `patch-fetch in a worker scope` block that requires the module
+with neither `window` nor `XMLHttpRequest` present. Both e2e files then went green
+against a real deployment on attempt 0 (103.0s and 97.0s).
 
 ## Bug — not yet fixed
 

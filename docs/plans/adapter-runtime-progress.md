@@ -4001,3 +4001,36 @@ genuinely different test files in a directory whose main file is already include
 `rules.include` 246 → 294, `suites` 3 → 4, candidates 195 → 145 (~4.5 hours left).
 Batch 16 launched with the next 50 — the `segment-cache/*` remainder, then the
 `app-dir` tail and the start of the non-`app-dir` e2e directories.
+
+### Batch 16, part 1: defect 25 — a worker that never started
+
+Batch 16 (50 files) came back 47 green, 3 red. Two of the reds were the same defect
+and it is ours: `worker-module-url` and `worker-relay-compiler`, both of which do
+`new Worker(new URL('./worker.ts', import.meta.url))`, rendered their page but never
+received the worker's message.
+
+`patchFetchInClientJs` (`src/nextjs-build/nextjs-build.ts`) prepends
+`src/nextjs-build/patch-fetch.js` to every client entrypoint chunk, and its turbopack
+selector is `file.startsWith("turbopack-") && file.endsWith(".js")`. Turbopack emits
+its **web-worker** bootstrap as `static/chunks/turbopack-worker-<hash>.js`, which that
+matches — so the patch was landing in a worker, where its first statement
+`const originalFetch = window.fetch;` threw `ReferenceError: window is not defined`
+before the worker's own module ever ran. Silent: the error goes to the worker's error
+event, which the fixtures do not listen for, so the only symptom was a timeout on
+placeholder text.
+
+Fix: `patch-fetch.js` is now written against `globalThis` and the bare `location`
+global, so one file is correct on the main thread and in a worker — and a worker's own
+same-origin POSTs now get signed, which they never were. `XMLHttpRequest` is patched
+behind a `typeof` guard, since some worker scopes have none and `class extends
+undefined` is a `TypeError`. The chunk selector was left alone on purpose: making the
+worker chunk work beats excluding it, because a POST from a worker needs the
+`x-amz-content-sha256` header just as much as one from the page.
+
+`patch-fetch.test.ts` was restructured — an `installScope()` helper puts the stubs on
+`globalThis` (setting `window = global` for the main-thread tests, which is true in a
+browser), plus a new `patch-fetch in a worker scope` block that requires the module
+with neither `window` nor `XMLHttpRequest` present. 16 tests pass. Both e2e files then
+went green against a real deployment on attempt 0 (103.0s, 97.0s).
+
+Coverage doc gets `### 25`; the fixed-defect count goes 23 → 24.

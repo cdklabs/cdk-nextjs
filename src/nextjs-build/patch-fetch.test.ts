@@ -9,9 +9,32 @@ function sha256(input: string | ArrayBuffer | Uint8Array) {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+class FakeXMLHttpRequest {
+  open(_method: string, _url: string) {}
+  send(_body?: unknown) {}
+  setRequestHeader(_name: string, _value: string) {}
+}
+
+/**
+ * The patch runs in a browser *and* in a web worker, where `window` does not
+ * exist — so the stub goes on `globalThis`, which is what both scopes are. Tests
+ * that want the main-thread scope also set `globalThis.window`, since real
+ * browser code reaches the patched `fetch` through it and `window === globalThis`
+ * there.
+ */
+function installScope({ withWindow = true, withXhr = true } = {}) {
+  (global as any).location = {
+    href: "https://example.com/",
+    hostname: "example.com",
+  };
+  if (withXhr) (global as any).XMLHttpRequest = FakeXMLHttpRequest;
+  if (withWindow) (global as any).window = global;
+}
+
 describe("patch-fetch", () => {
   let originalFetch: jest.Mock;
   let capturedInit: RequestInit | undefined;
+  const realFetch = global.fetch;
 
   beforeEach(() => {
     jest.resetModules();
@@ -21,23 +44,19 @@ describe("patch-fetch", () => {
       capturedInit = init;
       return Promise.resolve(new Response("ok"));
     });
+    (global as any).fetch = originalFetch;
 
-    (global as any).window = {
-      location: { href: "https://example.com/", hostname: "example.com" },
-      fetch: originalFetch,
-      XMLHttpRequest: class {
-        open(_method: string, _url: string) {}
-        send(_body?: unknown) {}
-        setRequestHeader(_name: string, _value: string) {}
-      },
-    };
+    installScope();
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- must re-execute against the fresh `window` stub each test
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- must re-execute against the fresh global stub each test
     require("./patch-fetch.js");
   });
 
   afterEach(() => {
     delete (global as any).window;
+    delete (global as any).location;
+    delete (global as any).XMLHttpRequest;
+    global.fetch = realFetch;
   });
 
   describe("fetch", () => {
@@ -230,5 +249,59 @@ describe("patch-fetch", () => {
 
       expect(setRequestHeader).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * Turbopack's web-worker bootstrap is `static/chunks/turbopack-worker-*.js`,
+ * which `patchFetchInClientJs`'s `turbopack-` selector matches — so this file is
+ * prepended to a script that runs off the main thread. Reading `window` there
+ * threw before the worker's own module could run, which took out every
+ * `new Worker(new URL(…))` app (`worker-module-url`, `worker-relay-compiler`).
+ */
+describe("patch-fetch in a worker scope", () => {
+  let originalFetch: jest.Mock;
+  let capturedInit: RequestInit | undefined;
+  const realFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.resetModules();
+    capturedInit = undefined;
+    originalFetch = jest.fn((_input: unknown, init?: RequestInit) => {
+      capturedInit = init;
+      return Promise.resolve(new Response("ok"));
+    });
+    (global as any).fetch = originalFetch;
+    // No `window`, and no `XMLHttpRequest`: the narrowest scope the patch can
+    // land in.
+    installScope({ withWindow: false, withXhr: false });
+  });
+
+  afterEach(() => {
+    delete (global as any).window;
+    delete (global as any).location;
+    global.fetch = realFetch;
+  });
+
+  test("loads without a window and still signs a same-origin POST", async () => {
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the point of the test is that requiring it does not throw
+      require("./patch-fetch.js");
+    }).not.toThrow();
+
+    await global.fetch("https://example.com/api", {
+      method: "POST",
+      body: "worker body",
+    });
+
+    const headers = capturedInit!.headers as Headers;
+    expect(headers.get("x-amz-content-sha256")).toBe(sha256("worker body"));
+  });
+
+  test("leaves XMLHttpRequest alone when the scope has none", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- re-executed against this scope
+    require("./patch-fetch.js");
+
+    expect((global as any).XMLHttpRequest).toBeUndefined();
   });
 });
