@@ -201,6 +201,98 @@ describe("NextjsDistribution function group behaviors", () => {
     );
   });
 
+  it("serves bundles under a path-style assetPrefix, rewriting the prefix away", () => {
+    // Next.js emits `<assetPrefix>/_next/static/...` for every bundle while the
+    // objects keep their unprefixed S3 keys, so without a behavior of its own the
+    // request falls through to the compute origin and 404s — the deployment
+    // package carries no `.next/static`. Measured against
+    // `test/e2e/app-dir/asset-prefix`, where 2 of 7 cases failed on exactly that.
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      assetPrefix: "/custom-asset-prefix",
+    });
+    // Ahead of the bare `_next/static*` in nothing but list position; the two
+    // patterns cannot both match one request, so order does not matter here.
+    expect(pathPatterns(stack)).toEqual([
+      "_next/static*",
+      "/custom-asset-prefix/_next/static*",
+      "_next/image*",
+    ]);
+    const fns = Template.fromStack(stack).findResources(
+      "AWS::CloudFront::Function",
+    );
+    const code = Object.values(fns)
+      .map((fn) => fn.Properties.FunctionCode as string)
+      .find((it) => it.includes("request.uri.slice"));
+    // `"/custom-asset-prefix".length`, so `/custom-asset-prefix/_next/static/x`
+    // reaches S3 as `_next/static/x`.
+    expect(code).toContain('"" + request.uri.slice(20)');
+  });
+
+  it("rewrites an assetPrefix back onto the basePath S3 keys", () => {
+    const { stack, distributionProps } = setup([], { basePath: "/base" });
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      assetPrefix: "/cdn",
+    });
+    expect(pathPatterns(stack)).toContain("/cdn/_next/static*");
+    const fns = Template.fromStack(stack).findResources(
+      "AWS::CloudFront::Function",
+    );
+    const code = Object.values(fns)
+      .map((fn) => fn.Properties.FunctionCode as string)
+      .find((it) => it.includes("request.uri.slice"));
+    // The objects are at `base/_next/static/...`: `assetPrefix` replaces the
+    // `basePath` prefix in the URL, so the rewrite has to put it back.
+    expect(code).toContain('"/base" + request.uri.slice(4)');
+  });
+
+  it("adds no behavior for an assetPrefix that needs none", () => {
+    // An absolute prefix names an origin this distribution does not serve, and a
+    // prefix equal to the basePath one is what Next.js defaults to when `basePath`
+    // is set — `_next/static*` already resolves under it, and a duplicate pattern
+    // would make CloudFront reject the distribution.
+    for (const [assetPrefix, basePath] of [
+      ["https://cdn.example.com", undefined],
+      ["//cdn.example.com", undefined],
+      ["/base", "/base"],
+      ["", undefined],
+    ] as const) {
+      const { stack, distributionProps } = setup([], { basePath });
+      new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        assetPrefix,
+      });
+      const patterns = pathPatterns(stack);
+      expect(patterns.filter((p) => p.includes("_next/static"))).toHaveLength(
+        1,
+      );
+      // The x-forwarded-host function is always there on function compute; the
+      // rewrite one should not be.
+      const codes = Object.values(
+        Template.fromStack(stack).findResources("AWS::CloudFront::Function"),
+      ).map((fn) => fn.Properties.FunctionCode as string);
+      expect(codes.some((it) => it.includes("request.uri.slice"))).toBe(false);
+    }
+  });
+
+  it("counts the assetPrefix behavior against the budget", () => {
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: Array.from({ length: 22 }, (_, i) => `file${i}.txt`),
+    });
+    // 3 fixed + 22 public = 25, exactly the limit; the assetPrefix one is the
+    // 26th, and a limit error that did not count it would come as a deploy
+    // failure instead.
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          assetPrefix: "/cdn",
+        }),
+    ).toThrow(/26 CloudFront cache behaviors.*4 used by cdk-nextjs itself/s);
+  });
+
   it("rejects splitting on a deployment type that cannot route it", () => {
     const { stack, functionGroups, distributionProps } = setup(["api"]);
     expect(

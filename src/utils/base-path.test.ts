@@ -6,6 +6,7 @@ import {
   joinPath,
   normalizeBasePath,
   prefixWithBasePath,
+  readNextConfigAssetPrefix,
   readNextConfigBasePath,
   resolveBasePath,
 } from "./base-path";
@@ -188,6 +189,81 @@ describe("readNextConfigBasePath", () => {
     writeRequiredServerFiles(JSON.stringify({ files: [] }));
 
     expect(readNextConfigBasePath(dotNextPath)).toBe("");
+  });
+});
+
+describe("readNextConfigAssetPrefix", () => {
+  let dotNextPath: string;
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    dotNextPath = mkdtempSync(join(tmpdir(), "asset-prefix-"));
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    rmSync(dotNextPath, { recursive: true, force: true });
+  });
+
+  function write(config: unknown) {
+    writeFileSync(
+      join(dotNextPath, "required-server-files.json"),
+      JSON.stringify({ config }),
+    );
+  }
+
+  it("reads a path-style assetPrefix with one leading slash", () => {
+    write({ assetPrefix: "/custom-asset-prefix" });
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("/custom-asset-prefix");
+    write({ assetPrefix: "custom-asset-prefix/" });
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("/custom-asset-prefix");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("ignores an absolute assetPrefix", () => {
+    // It names an origin cdk-nextjs does not serve, so there is no behavior to
+    // add and nothing the distribution could get wrong.
+    for (const assetPrefix of [
+      "https://cdn.example.com",
+      "http://cdn.example.com/x",
+      "//cdn.example.com",
+    ]) {
+      write({ assetPrefix });
+      expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty string for every way of setting none", () => {
+    for (const config of [
+      { assetPrefix: "" },
+      { assetPrefix: "/" },
+      { assetPrefix: undefined },
+      {},
+      // `next build` has never written a non-string here, but the file is JSON
+      // from another program's version of the schema.
+      { assetPrefix: 3 },
+    ]) {
+      write(config);
+      expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet when the file is missing, and warns when it is unreadable", () => {
+    // `readNextConfigBasePath` reads the same file and already warns about it
+    // being absent; a second warning on every synth of an app with no
+    // `assetPrefix` would be noise. Unparseable is different — it means the file
+    // is there and says something we could not understand.
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    expect(warn).not.toHaveBeenCalled();
+
+    writeFileSync(join(dotNextPath, "required-server-files.json"), "not json");
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Could not read assetPrefix"),
+    );
   });
 });
 

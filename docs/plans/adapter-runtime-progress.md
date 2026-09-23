@@ -3250,3 +3250,46 @@ result inside Sunday — ready to read Monday morning, which is the point. The
 sweep job shares the trigger, so leftover stacks are still collected on the same
 cadence. Wording updated in `scripts/e2e-harness/README.md` (two places) and
 `docs/harness-coverage.md`.
+
+### Defect 16: a path-style `assetPrefix` 404'd every bundle
+
+The top open bug in `docs/harness-coverage.md`, blocking `app-dir/asset-prefix`
+(7 cases) and `app-dir/asset-prefix-with-basepath` (7 cases). Next.js emits every
+bundle URL as `<assetPrefix>/_next/static/...` while the objects keep their
+`<basePath>/_next/static/...` S3 keys, so CloudFront's `_next/static*` behavior
+missed, the request fell through to the compute origin, and 404'd — the deployment
+package deliberately carries no `.next/static`.
+
+The one non-obvious thing: `assetPrefix` is applied *on top of* `basePath`, not
+under it. An app with both emits `/custom-asset-prefix/_next/static/x` for an
+object keyed `custom-base-path/_next/static/x`. The prefix therefore cannot be
+joined with `basePath`, and an S3 origin keys on the request URI — `originPath`
+only prepends — so a viewer-request CloudFront Function is the only place that can
+map one onto the other.
+
+What landed:
+
+- `readNextConfigAssetPrefix` in `src/utils/base-path.ts`, reading the same
+  `required-server-files.json` that `basePath` comes from. An absolute or
+  protocol-relative prefix reduces to `""`: it names an origin cdk-nextjs does not
+  serve. No warning when the file is missing — `readNextConfigBasePath` already
+  warns about that, and no `assetPrefix` is the common case.
+- `NextjsBuild.nextConfigAssetPrefix`, passed by both Global root constructs to
+  `NextjsDistribution` as a new `assetPrefix` prop.
+- `NextjsDistribution.addAssetPrefixBehavior`: a `<assetPrefix>/_next/static*`
+  behavior on the static origin plus the rewrite function. `resolveAssetPrefix`
+  drops the prefix when it equals `basePath` (Next.js's own default when `basePath`
+  is set), which would otherwise be a duplicate pattern CloudFront rejects. The
+  behavior budget counts it, so the error message stays accurate.
+- `NextjsBaseConstruct.warnUnservedAssetPrefix`: the regional `NextjsType`s cannot
+  serve a path-style prefix — API Gateway's `_next/static` resource and a
+  container's own files both sit at the unprefixed path — so synth warns rather
+  than deploying something that 404s. Fixing them properly would mean a second
+  API Gateway resource tree and a runtime URI strip; not worth it until someone
+  asks.
+- `README.md` gained a "`next.config.js` options cdk-nextjs reads" section
+  covering both `basePath` and `assetPrefix`. `assetPrefix` was undocumented.
+
+Verified with `pnpm compile`, the full `pnpm jest` (370 tests), and `pnpm eslint`.
+The two fixture files are not in `rules.include` yet — they go into the next
+deployed batch, which is where the fix gets its real evidence.

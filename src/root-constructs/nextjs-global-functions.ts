@@ -182,6 +182,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
+      assetPrefix: this.nextjsBuild.nextConfigAssetPrefix,
       basePath: this.resolvedBasePath,
       functionUrl: this.nextjsFunctions.functionUrl,
       nextjsType: this.nextjsType,

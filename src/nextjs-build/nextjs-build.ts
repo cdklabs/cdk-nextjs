@@ -34,7 +34,10 @@ import {
   RUNTIME_DIR_NAME,
   groupStagingDirName,
 } from "../runtime/manifest";
-import { readNextConfigBasePath } from "../utils/base-path";
+import {
+  readNextConfigAssetPrefix,
+  readNextConfigBasePath,
+} from "../utils/base-path";
 import { getNodeArchitecture } from "../utils/get-architecture";
 
 /**
@@ -149,6 +152,17 @@ export class NextjsBuild extends Construct {
    */
   nextConfigBasePath: string;
   /**
+   * The Next.js app's own `assetPrefix`, as a path with a leading slash and no
+   * trailing one, empty when the app sets none or sets an absolute URL (which
+   * names an origin cdk-nextjs does not serve). Read from the same
+   * `required-server-files.json`.
+   *
+   * Exposed because it is a URL prefix the distribution has to answer on:
+   * Next.js emits `<assetPrefix>/_next/static/...` for every bundle, and those
+   * objects live in S3 under `<basePath>/_next/static/...`.
+   */
+  nextConfigAssetPrefix: string;
+  /**
    * Absolute path to the deployment root: the staged union of every shipped
    * output's traced assets, written by the adapter's `onBuildComplete`. This is
    * the Lambda zip asset and the Docker `COPY` source.
@@ -215,6 +229,7 @@ export class NextjsBuild extends Construct {
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
     this.nextConfigBasePath = readNextConfigBasePath(this.dotNextPath);
+    this.nextConfigAssetPrefix = readNextConfigAssetPrefix(this.dotNextPath);
 
     const isFunctions =
       props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||

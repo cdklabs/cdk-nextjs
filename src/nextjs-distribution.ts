@@ -68,6 +68,19 @@ export interface NextjsDistributionProps {
    */
   readonly assetsBucket: IBucket;
   /**
+   * The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it
+   * sets a path-style one. Next.js emits `<assetPrefix>/_next/static/...` for
+   * every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
+   * so this gets a cache behavior of its own that rewrites the prefix away.
+   *
+   * Applied on top of `basePath`, not under it, because that is how Next.js
+   * builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
+   * serve and should not be passed here.
+   *
+   * @default - read from the build's `required-server-files.json`
+   */
+  readonly assetPrefix?: string;
+  /**
    * URI path prefix the app is served at. Surrounding slashes are normalized
    * away, so "/base", "base" and "/base/" all produce the same cache behaviors.
    */
@@ -131,6 +144,13 @@ export class NextjsDistribution extends Construct {
    */
   private basePath: string;
   /**
+   * `props.assetPrefix` normalized to a leading-slash path, `""` when the app
+   * sets none or sets one that already equals the `basePath` prefix — in which
+   * case the ordinary `_next/static*` behavior already covers it and a second one
+   * would be a duplicate pattern CloudFront rejects.
+   */
+  private assetPrefix: string;
+  /**
    * Common security headers applied by default to all origins
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html#managed-response-headers-policies-security
    */
@@ -166,6 +186,7 @@ export class NextjsDistribution extends Construct {
     super(scope, id);
     this.props = props;
     this.basePath = normalizeBasePath(props.basePath);
+    this.assetPrefix = this.resolveAssetPrefix();
     this.staticOrigin = this.createStaticOrigin();
     this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
     this.dynamicOrigin = this.createDynamicOrigin();
@@ -489,12 +510,75 @@ export class NextjsDistribution extends Construct {
       );
     }
   }
+  /**
+   * The `assetPrefix` that needs a behavior of its own, or `""` for none.
+   *
+   * An absolute prefix ("https://cdn.example.com") is dropped: it names an origin
+   * this distribution does not serve. A prefix equal to the `basePath` prefix is
+   * dropped too — that is the Next.js default when `basePath` is set, and
+   * `_next/static*` already resolves under it, so adding a second identical
+   * pattern would make CloudFront reject the distribution.
+   */
+  private resolveAssetPrefix(): string {
+    const prefix = this.props.assetPrefix;
+    if (!prefix || /^([a-z][a-z0-9+.-]*:)?\/\//i.test(prefix)) return "";
+    const normalized = normalizeBasePath(prefix);
+    if (!normalized || normalized === this.basePath) return "";
+    return `/${normalized}`;
+  }
+  /**
+   * Serves `<assetPrefix>/_next/static/*` from the same S3 objects as
+   * `_next/static/*`.
+   *
+   * Needed because Next.js puts `assetPrefix` in front of every bundle URL it
+   * emits while the objects keep their `<basePath>/_next/static/...` keys, and
+   * `assetPrefix` sits on top of `basePath` rather than under it, so
+   * `getPathPattern` is deliberately not used here. Without this behavior the
+   * request falls through to the default one, reaches the compute origin, and
+   * 404s: the deployment package carries no `.next/static` directory at all.
+   *
+   * A viewer-request function does the rewrite because an S3 origin keys on the
+   * request URI and `originPath` can only prepend. The prefix is a synth-time
+   * literal, so the function is a fixed-length string operation rather than a
+   * parse.
+   */
+  private addAssetPrefixBehavior() {
+    const rewrite = new CloudFrontFunction(this, "AssetPrefixFn", {
+      comment: this.getComment(
+        "NextJS assetPrefix rewrite",
+        Stack.of(this).stackName,
+      ),
+      code: FunctionCode.fromInline(`
+        function handler(event) {
+          var request = event.request;
+          request.uri = ${JSON.stringify(
+            this.basePath ? `/${this.basePath}` : "",
+          )} + request.uri.slice(${this.assetPrefix.length});
+          return request;
+        }
+        `),
+    });
+    this.distribution.addBehavior(
+      `${this.assetPrefix}/_next/static*`,
+      this.staticOrigin,
+      {
+        ...this.staticBehaviorOptions,
+        functionAssociations: [
+          ...(this.staticBehaviorOptions.functionAssociations ?? []),
+          { eventType: FunctionEventType.VIEWER_REQUEST, function: rewrite },
+        ],
+      },
+    );
+  }
   private addStaticBehaviors() {
     this.distribution.addBehavior(
       this.getPathPattern("_next/static*"),
       this.staticOrigin,
       this.staticBehaviorOptions,
     );
+    if (this.assetPrefix) {
+      this.addAssetPrefixBehavior();
+    }
     this.assertBehaviorBudget();
     for (const publicFile of this.props.publicDirEntries) {
       const pathPattern = publicFile.isDirectory
@@ -535,9 +619,11 @@ export class NextjsDistribution extends Construct {
         ),
       0,
     );
-    // The default behavior, `_next/image*`, `_next/static*`, and — with a
-    // basePath — the two that stand in for the default behavior's coverage.
-    const fixed = 3 + (this.props.basePath ? 2 : 0);
+    // The default behavior, `_next/image*`, `_next/static*`, plus — with a
+    // basePath — the two that stand in for the default behavior's coverage, and
+    // — with a path-style assetPrefix — the one that serves bundles under it.
+    const fixed =
+      3 + (this.props.basePath ? 2 : 0) + (this.assetPrefix ? 1 : 0);
     const total = fixed + this.props.publicDirEntries.length + groupPatterns;
     if (total <= MAX_CACHE_BEHAVIORS) {
       return;

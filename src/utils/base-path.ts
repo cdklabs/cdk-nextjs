@@ -84,6 +84,46 @@ export function readNextConfigBasePath(dotNextPath: string): string {
   }
 }
 
+/**
+ * Read the app's own `assetPrefix` out of the same fully resolved config, as a
+ * path with a leading and no trailing slash ("/cdn"), or `""` when the app sets
+ * none.
+ *
+ * Returns `""` for an absolute `assetPrefix` ("https://cdn.example.com", or the
+ * protocol-relative "//cdn.example.com") too: that names an origin cdk-nextjs
+ * does not control, so there is nothing for the distribution to serve and
+ * nothing it could get wrong. Only a path-style prefix needs a cache behavior of
+ * its own — see `NextjsDistribution`.
+ *
+ * Next.js applies `assetPrefix` on top of, not under, `basePath`, so the result
+ * is the whole prefix of a `_next/static` URL and must not be joined with
+ * `basePath`.
+ */
+export function readNextConfigAssetPrefix(dotNextPath: string): string {
+  const requiredServerFiles = join(dotNextPath, "required-server-files.json");
+  if (!existsSync(requiredServerFiles)) {
+    // `readNextConfigBasePath` already warned about this file; an app with no
+    // `assetPrefix` is also the overwhelmingly common case, so a second warning
+    // would be noise on every synth.
+    return "";
+  }
+  try {
+    const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
+    const assetPrefix: unknown = config?.assetPrefix;
+    if (typeof assetPrefix !== "string" || assetPrefix === "") return "";
+    if (/^([a-z][a-z0-9+.-]*:)?\/\//i.test(assetPrefix)) return "";
+    const normalized = normalizeBasePath(assetPrefix);
+    return normalized ? `/${normalized}` : "";
+  } catch (error) {
+    console.warn(
+      `${LOG_PREFIX} Could not read assetPrefix from ${requiredServerFiles}: ${error}. ` +
+        "Assuming your Next.js app sets no `assetPrefix`: if it does set a " +
+        "path-style one, its bundles will 404.",
+    );
+    return "";
+  }
+}
+
 function quote(basePath: string): string {
   return basePath ? `"/${basePath}"` : "unset";
 }

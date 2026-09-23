@@ -174,6 +174,33 @@ adds it back to reach the URI CloudFront actually cached.
 
 Set to `cdk-nextjs:*` to set debug logs. This is especially useful to see cache handler activity.
 
+### `next.config.js` options cdk-nextjs reads
+
+Both are read out of your build, so you set them in one place — your app — and the
+infrastructure follows.
+
+#### `basePath`
+
+Becomes the S3 key prefix for static assets and the prefix on every CloudFront
+cache behavior. See [Resource Isolation](#resource-isolation); the `basePath`
+prop only exists to be explicit about it.
+
+#### `assetPrefix`
+
+- **A path** (`assetPrefix: "/cdn"`) — Next.js emits bundle URLs as
+  `/cdn/_next/static/...`, on top of `basePath` rather than under it, while the
+  objects stay in S3 under `<basePath>/_next/static/...`. `NextjsGlobalFunctions`
+  and `NextjsGlobalContainers` add a cache behavior for
+  `<assetPrefix>/_next/static*` pointing at the assets bucket, with a CloudFront
+  Function that rewrites the prefix back to the S3 keys. It costs one of the 25
+  cache behaviors cdk-nextjs budgets for you. **Not supported on
+  `NextjsRegionalFunctions` or `NextjsRegionalContainers`** — nothing there maps
+  the prefix back, so bundles would 404; synth warns if your app sets one.
+- **An absolute URL** (`assetPrefix: "https://cdn.example.com"`) — names an origin
+  cdk-nextjs doesn't serve, so nothing is added, on any construct. Point that host
+  at the assets bucket yourself, including the `basePath` prefix the objects are
+  stored under.
+
 ## Splitting a Large App Across Functions
 
 Only for `NextjsGlobalFunctions` and `NextjsRegionalFunctions`, and only if you
