@@ -3884,3 +3884,51 @@ name doesn't, with the reason for collapsing stated in the doc.
 
 Then `pnpm bundle` and batch 14: `next-image-legacy/unicode` requeued for defect 24,
 plus 49 new candidates.
+
+### Batch 14, part 1: an 18-file family excluded, and a screen so it stays excluded
+
+Batch 14's first nineteen files produced one pass and eighteen failures, and all
+eighteen were the same family: `test/e2e/app-dir/next-config-ts-native-ts/**`.
+Every one failed during `next build`, not at request time, with
+`ERR_REQUIRE_ASYNC_MODULE` or `ReferenceError: await is not defined`.
+
+That shape is ambiguous on its face — the harness builds through the adapter, so a
+build failure could be ours. It isn't. Next.js loads a TypeScript `next.config.ts`
+by swc-transpiling it to CJS and `require()`ing the result, which cannot express
+top-level `await`; the alternative is Node's native TypeScript loader, gated on
+`process.env.__NEXT_NODE_NATIVE_TS_LOADER_ENABLED === 'true'`, which only
+`next build --experimental-next-config-strip-types` sets. Every fixture in this
+family deliberately uses top-level `await`, because the native loader is the thing
+under test.
+
+Proved by building a copy of one fixture in `/tmp/ntscheck` with no adapter
+involved: plain `next build` fails identically, and the same build with
+`--experimental-next-config-strip-types` succeeds. (First attempt at the flagged
+build died on "Failed to install required TypeScript dependencies"; it needs
+`pnpm add -D typescript @types/react @types/node` first.)
+
+Judgment call, recorded per working rule 6: **excluded as "no signal", not fixed.**
+The flag could be added to `scripts/e2e-deploy.sh`, but it applies to the whole run
+and would switch the 21 already-green `app-dir/next-config-ts/*` files off the
+swc-transpile path they exist to cover. Trading measured coverage of the default
+config loader for coverage of the opt-in one is a worse deal than leaving eighteen
+files out with a written reason. `next-config-ts-native-mts/**` needs no flag — a
+`.mts` config is ESM either way — and its 17 files stay green and included.
+
+The real lesson was upstream of that. A file with a verdict in `excluded-notes` was
+still being counted a candidate by `screen.mjs`, so these eighteen would have been
+picked for a *second* batch and burned the slots again; I had been keeping decided
+files out with a `/tmp/unseen.txt` that no compacted session would inherit.
+`screen.mjs` now has a **verdict** screen that reads the manifest's own
+`excluded-notes`, treating the keys that start with `test/e2e/` as predicates (`**`
+honored as a directory-tree suffix, which is every shape the keys actually use) and
+ignoring the prose keys like `"edge runtime, generally"`. The manifest is now the
+record, which is where it belonged.
+
+Effect: `verdict: 26` in `disqualified-by`, and candidates 246 → 227. Screened
+258 → 276, `no signal` 28 → 46. Also documented in the harness README as a sixth
+screen and in `docs/harness-coverage.md` under a new "No signal — the fixture
+cannot be built here".
+
+Batch 14 keeps running; `next-image-legacy/unicode` sorts late and is still the
+outstanding deployed verdict on defect 24.

@@ -42,7 +42,13 @@
  * - **output-export** — a static export is not what any `NextjsType` deploys.
  * - **scaffold** — `test-template/{{ toFileName name }}`, a `pnpm new-test`
  *   template rather than a test.
+ * - **verdict** — the file already has a written verdict in the manifest's
+ *   `excluded-notes`, so it has been deployed (or read) and deliberately left out.
+ *   Without this screen a decided file stays a candidate forever and gets picked
+ *   for another batch, which is how the `next-config-ts-native-ts` family would
+ *   have burned 18 deploy slots twice.
  *
+
  * "Clean" means only that none of those apply. It is a candidate list, not a
  * prediction: a clean file still has to be deployed and watched before it goes
  * into `rules.include`.
@@ -145,9 +151,26 @@ function fixtureRoot(testFile) {
   return basename(dir) === "test" ? dirname(dir) : dir;
 }
 
+/**
+ * The `excluded-notes` keys that name files rather than a topic ("edge runtime,
+ * generally" is prose), as predicates. Only `**` is honored, and only as a
+ * directory-tree suffix — that is every shape the keys use, and a real minimatch
+ * would be a dependency for nothing.
+ */
+function decidedMatchers(manifest) {
+  return Object.keys(manifest["excluded-notes"] ?? {})
+    .filter((key) => key.startsWith(`${TEST_ROOT}/`))
+    .map((key) =>
+      key.endsWith("/**")
+        ? (file) => file.startsWith(key.slice(0, -2))
+        : (file) => file === key,
+    );
+}
+
 /** Which of the screens disqualify this file, if any. */
-function screen(testFile) {
+function screen(testFile, decided = []) {
   const reasons = [];
+  if (decided.some((matches) => matches(testFile))) reasons.push("verdict");
   const test = read(testFile);
   const fixture = walk(fixtureRoot(testFile));
   const sources = fixture.filter((p) => SOURCE_RE.test(p));
@@ -197,10 +220,12 @@ const included = new Set(manifest.rules.include);
  */
 const inPart = new Set(Object.keys(manifest.suites ?? {}));
 
+const decided = decidedMatchers(manifest);
+
 const rows = testFiles.map((file) => ({
   file,
   included: included.has(file) || inPart.has(file),
-  reasons: screen(file),
+  reasons: screen(file, decided),
   cases: (read(file).match(/^\s*it(\.each)?\(/gm) ?? []).length,
 }));
 

@@ -375,6 +375,21 @@
       "dynamic-optional-routing, gssp-redirect, index-index, route-indexes.",
       "",
       "A file that 'finishes' in under ~10s deployed nothing. Read the duration, not the exit code."
+    ],
+    "test/e2e/app-dir/next-config-ts-native-ts/**": [
+      "Excluded (18 files, all of them): `next build` cannot even load these fixtures' `next.config.ts`",
+      "without `--experimental-next-config-strip-types`, which is what sets",
+      "`__NEXT_NODE_NATIVE_TS_LOADER_ENABLED` and makes Next.js `import()` the config through Node's",
+      "native TypeScript loader. Without it Next.js falls back to transpiling the config with swc and",
+      "`require()`-ing the result, which cannot express the top-level `await` every fixture in this family",
+      "deliberately uses: `ERR_REQUIRE_ASYNC_MODULE`, or `ReferenceError: await is not defined`.",
+      "",
+      "Nothing to do with cdk-nextjs - a plain `next build` on a copy of the fixture with no adapter fails",
+      "identically, and the same build with the flag succeeds. The harness writes the app's `build` script",
+      "itself, so adding the flag there is a one-line change, but it would apply to the whole run and would",
+      "switch the 21 green `next-config-ts/*` files off the swc-transpile path they exist to cover. Left out",
+      "rather than traded. `next-config-ts-native-mts/**` needs no flag and is in `rules.include`.",
+      "See docs/harness-coverage.md."
     ]
   },
   "screening": {
@@ -401,7 +416,7 @@
     "included": 214,
     "included-in-part": 3,
     "edge-free": 931,
-    "candidates": 246,
+    "candidates": 227,
     "disqualified-by": {
       "skipDeployment": 416,
       "middleware": 127,
@@ -409,6 +424,7 @@
       "skipped-upstream": 121,
       "isNextDeploy-gate": 120,
       "output-export": 29,
+      "verdict": 26,
       "mode-gated": 25,
       "scaffold": 2
     }
