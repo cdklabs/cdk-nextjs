@@ -56,9 +56,16 @@ harness_app_id() {
 #     file and hotswaps with the function, and `e2e-deploy.sh` invalidates the
 #     distribution's edge cache before it reports the URL.
 #
+# HARNESS_SHARED_STACK_SUFFIX is how a run gets parallel anyway: N processes,
+# each with a shared stack of its own and its own disjoint slice of the file
+# list (`run-tests.js -g <n>/<N>`), still serial *within* a slice. That is what
+# .github/workflows/e2e-harness.yml's matrix does, one stack per shard. Two
+# concurrent runs must not reuse a suffix, for the same reason two files in one
+# shard cannot overlap.
+#
 # Set HARNESS_ISOLATED_STACK=1 for a stack per app directory instead. Worth it
-# when debugging one file, or to run two things at once - at the cost of a
-# distribution create and delete per file.
+# when debugging one file - at the cost of a distribution create and delete per
+# file.
 harness_stack_name() {
   local dir="$1"
   if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ]; then

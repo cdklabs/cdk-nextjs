@@ -1,10 +1,14 @@
 # Runs vercel/next.js's own e2e suite against a real cdk-nextjs deployment, via
 # the Next.js adapter compatibility harness.
 #
-# Not a per-commit gate - a run builds and ships a deployment per test file, even
-# though they all share one stack. `e2e-tests.yml` stays the per-commit gate on
-# all four NextjsTypes; this is the correctness signal that no fixture app of ours
-# could give. See scripts/e2e-harness/README.md.
+# Not a per-commit gate - a run builds and ships a deployment per test file.
+# `e2e-tests.yml` stays the per-commit gate on all four NextjsTypes; this is the
+# correctness signal that no fixture app of ours could give. See
+# scripts/e2e-harness/README.md.
+#
+# The test files are split across `shard_total` parallel jobs, each with a shared
+# stack of its own (`hrns-shard-<n>`). A stack can only hold one app at a time, so
+# parallelism has to come from more stacks - see "Sharding" in the README.
 name: e2e-harness
 on:
   workflow_dispatch:
@@ -17,6 +21,10 @@ on:
         description: "NEXT_EXTERNAL_TESTS_FILTERS, relative to the next.js checkout"
         default: "../test/deploy-tests-manifest.json"
         type: string
+      shard_total:
+        description: "How many parallel shards to split the test files across (one stack each). 1 reproduces the old serial run."
+        default: "10"
+        type: string
   schedule:
     # Sunday 14:00 UTC — morning on both US coasts, and the run's 180-minute
     # ceiling puts the result well inside Sunday, ready to read Monday. Weekly
@@ -27,8 +35,8 @@ on:
     - cron: "0 14 * * 0"
 
 concurrency:
-  # Never two runs at once: they would deploy different apps into the same shared
-  # stack and each would see the other's.
+  # Never two runs at once. Shards within a run get a stack each, but two runs
+  # would reuse the same shard names and each would deploy over the other's app.
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
@@ -37,12 +45,52 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    # A matrix cannot be built from an input directly, so the shard list is
+    # computed here. Cheap enough to be worth keeping the count in one place.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.shards.outputs.shards }}
+      total: ${{ steps.shards.outputs.total }}
+    steps:
+      - id: shards
+        env:
+          SHARD_TOTAL: ${{ inputs.shard_total || '10' }}
+        # Bounded above because every shard is a CloudFront distribution and a
+        # full next.js build of its own: past a couple of dozen the setup cost
+        # dominates and the account starts to notice.
+        run: |
+          node -e '
+            const total = Number(process.env.SHARD_TOTAL);
+            if (!Number.isInteger(total) || total < 1 || total > 20) {
+              throw new Error(`shard_total must be an integer in 1..20, got ${process.env.SHARD_TOTAL}`);
+            }
+            const shards = Array.from({ length: total }, (_, i) => i + 1);
+            console.log(`shards=${JSON.stringify(shards)}`);
+            console.log(`total=${total}`);
+          ' >>"$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
   harness:
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    strategy:
+      # One shard's failure says nothing about another's, and each holds a stack
+      # that its own `always()` step is what deletes. Cancelling the others would
+      # leave those to the age-floored sweep a week later.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
       NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
       TEST_FILTERS: ${{ inputs.test_filters || '../test/deploy-tests-manifest.json' }}
+      # The stack this shard owns, read by `harness_stack_name` in
+      # scripts/e2e-harness/common.sh. Every step below that touches AWS - warm,
+      # deploy, sweep - resolves the same name from it, which is the whole of what
+      # keeps two shards from deploying into each other.
+      HARNESS_SHARED_STACK_SUFFIX: shard-${{ matrix.shard }}
     steps:
       - name: Checkout cdk-nextjs
         uses: actions/checkout@v4
@@ -83,12 +131,13 @@ jobs:
         working-directory: nextjs
         run: pnpm playwright install --with-deps chromium
 
-      - name: Warm the shared stack
+      - name: Warm this shard's stack
         # Creating the CloudFront distribution takes ~240s, and the harness
         # runs `createNext` inside jest's `beforeAll` - so without this the first
         # test file is charged that wait against NEXT_E2E_TEST_TIMEOUT below,
         # fails wholesale, and only passes on retry. Pay it once, here, where
-        # nothing is timing us.
+        # nothing is timing us. Once per shard, but all in parallel, so the wall
+        # clock is the same ~4 minutes however many shards there are.
         run: ./scripts/e2e-warm.sh
         env:
           ADAPTER_DIR: ${{ github.workspace }}
@@ -113,17 +162,24 @@ jobs:
           NEXT_TEST_DEPLOY_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-deploy.sh
           NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-logs.sh
           NEXT_TEST_CLEANUP_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-cleanup.sh
-        # `-c 1` is mandatory, not a tuning choice: every test file deploys into
-        # the same stack, so two at once would race. See
-        # `harness_stack_name` in scripts/e2e-harness/common.sh.
-        run: node run-tests.js --timings -c 1 --type e2e
+        # `-c 1` is mandatory, not a tuning choice: every test file in this shard
+        # deploys into this shard's one stack, so two at once would race.
+        # Parallelism comes from `-g`, which splits the file list across shards
+        # *after* NEXT_EXTERNAL_TESTS_FILTERS has been applied (`run-tests.js`
+        # filters, then groups) - so the shards partition the manifest, not the
+        # whole of `test/e2e/**`. With no KV timing data configured the split is
+        # round-robin over that list, which is deterministic and near enough:
+        # per-file cost here is dominated by build-and-deploy, not by the tests.
+        # See `harness_stack_name` in scripts/e2e-harness/common.sh.
+        run: node run-tests.js --timings -c 1 --type e2e -g ${{ matrix.shard }}/${{ needs.plan.outputs.total }}
 
-      - name: Delete the shared stack
+      - name: Delete this shard's stack
         if: ${{ always() }}
         # `e2e-cleanup.sh` keeps the stack alive between test files on purpose, so
         # this is the step that actually deletes it - not a backstop. `--shared`
-        # names the one stack this run created, which is what lets the age floor
-        # go: dropping the floor account-wide instead would also delete an
+        # resolves HARNESS_SHARED_STACK_SUFFIX, so each shard deletes only its
+        # own, which is what lets the age floor go: dropping the floor
+        # account-wide instead would also delete the other shards' stacks, and an
         # isolated stack a developer had running at the time.
         run: ./scripts/e2e-sweep.sh --apply --shared
 

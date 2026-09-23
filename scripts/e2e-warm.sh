@@ -118,7 +118,9 @@ printf 'harness warm-up\n' >"$WARM_DIR/public/warm.txt"
 # point is to exercise the same path the test files take, so a warm-up that
 # succeeds means their deploys will too. It installs, builds through the adapter
 # and deploys, and prints the URL on stdout.
-echo "warm: deploying the shared stack"
+# Named in the log because a sharded run has one of these per shard, and which
+# stack a warm-up was for is otherwise only inferable from the job name.
+echo "warm: deploying $(harness_stack_name "")"
 cd "$WARM_DIR"
 URL="$("$ADAPTER_DIR/scripts/e2e-deploy.sh")"
 echo "warm: shared stack ready at $URL"

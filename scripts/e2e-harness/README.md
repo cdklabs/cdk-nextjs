@@ -17,23 +17,24 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
 | `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.        |
 | `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`. |
-| `scripts/e2e-warm.sh`               | Creates the shared stack before the suite starts, so no test file pays for it. Run it first.                       |
-| `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and the shared one after a run. Dry run unless `--apply`.                         |
+| `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.              |
+| `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                        |
 | `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
 | `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
-| `.github/workflows/e2e-harness.yml` | Nightly + `workflow_dispatch`.                                                                                     |
+| `.github/workflows/e2e-harness.yml` | Weekly + `workflow_dispatch`. A matrix of `shard_total` jobs, one stack each.                                      |
 
-## One shared stack for the whole run
+## One shared stack, not one per test file
 
 The harness creates an isolated app per test file and runs the deploy script with
 `cwd` set to it, so there is no way to deploy once and point the whole suite at
 one deployment — every file genuinely has different code to ship. What there is a
 way to do is ship it into infrastructure that already exists.
 
-Every test file deploys into the same stack (`hrns-shared`) with
+Every test file in a run deploys into the same stack (`hrns-shared` by default,
+`hrns-shard-<n>` under the workflow's matrix — see "Sharding" below) with
 `cdk deploy --hotswap-fallback`. Creating and propagating the CloudFront
-distribution costs ~4 minutes once per run; every test file reuses it. That is
+distribution costs ~4 minutes once per stack; every test file reuses it. That is
 the whole saving, and it is most of the cost of a run.
 
 `scripts/e2e-warm.sh` pays that cost **before `run-tests.js` starts**, and
@@ -61,10 +62,10 @@ That table predicted most files would take the CloudFormation fallback. Measured
 over a real 13-file run, they do not — **7 of 9 deploys hotswapped**, and only one
 of the two predicted blockers ever fires:
 
-| Deploy path                                   | Count | Cost  |
-| --------------------------------------------- | ----- | ----- |
-| hotswap (function code + both buckets' contents) | 7  | ~52s  |
-| fallback, `DistributionConfig` rejected       | 2     | ~107s |
+| Deploy path                                      | Count | Cost  |
+| ------------------------------------------------ | ----- | ----- |
+| hotswap (function code + both buckets' contents) | 7     | ~52s  |
+| fallback, `DistributionConfig` rejected          | 2     | ~107s |
 
 - The **distribution** is the only real blocker. Its cache behaviors change when a
   fixture's `public/` directory differs from the previous one's, since `public/`
@@ -73,7 +74,7 @@ of the two predicted blockers ever fires:
 - The **cache bucket's `Tags`** never blocked a deploy in practice, despite the
   `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>` tag CDK stamps on a
   `BucketDeployment`'s destination bucket. `cdk deploy --hotswap-fallback`
-  hotswaps bucket *contents* and does not reject the tag diff.
+  hotswaps bucket _contents_ and does not reject the tag diff.
 
 So `--hotswap-fallback` is the fast path most of the time, not a fallback in name
 only. Either way the shared stack wins: even a full CloudFormation update that
@@ -88,8 +89,9 @@ files even on the fast path. See "Running it locally".
 
 What the shared stack is paid for in:
 
-- **Test files must be serialized** (`run-tests.js -c 1`). Two concurrent deploys
-  into one stack would race.
+- **Test files must be serialized within a stack** (`run-tests.js -c 1`). Two
+  concurrent deploys into one stack would race. Parallelism comes from more
+  stacks — see "Sharding" below.
 - **`e2e-cleanup.sh` must not delete the stack**, or the next file pays the
   create again. It doesn't; `e2e-sweep.sh --apply --shared` deletes it once,
   after the run. The workflow does this in an `always()` step; a local run has to
@@ -111,8 +113,86 @@ than per-commit. Widen either deliberately - and only with files you have watche
 pass, since a file can be unbuildable rather than merely failing (see below).
 
 `HARNESS_ISOLATED_STACK=1` gives a stack per app directory instead — worth it to
-debug a single file, or to run two things at once, at the cost of a distribution
-create and delete per file.
+debug a single file, at the cost of a distribution create and delete per file. To
+run two _suites_ at once, give each its own shared stack with
+`HARNESS_SHARED_STACK_SUFFIX` rather than paying that per file.
+
+## Sharding: one stack per shard
+
+A stack holds one app at a time, so the only way to run two test files at once is
+to give them two stacks. `HARNESS_SHARED_STACK_SUFFIX` is that knob, and
+`.github/workflows/e2e-harness.yml` turns it into a matrix: `shard_total` jobs
+(10 by default), each with a shared stack named `hrns-shard-<n>` and each running
+its own slice of the file list.
+
+The slice comes from next.js's own `run-tests.js -g <n>/<N>`, which splits
+**after** `NEXT_EXTERNAL_TESTS_FILTERS` has been applied — `run-tests.js` filters
+the glob, dedupes, _then_ groups — so the shards partition
+`test/deploy-tests-manifest.json`, not the whole of `test/e2e/**`. With no
+`KV_REST_API_URL`/`KV_REST_API_TOKEN` configured (we have none) it warns and falls
+back to round-robin over that list, which is deterministic and near enough: cost
+per file here is dominated by build-and-deploy, which barely varies, not by how
+long the tests take. If it ever stops being near enough, `run-tests.js` reads a
+`test-timings.json` from its own cwd before it tries KV, and a `--timings` run
+prints per-file durations to build one from.
+
+Each shard is self-contained, which is what makes this safe:
+
+- `e2e-warm.sh` warms _its_ stack, so the ~4-minute distribution create is paid
+  once per shard but in parallel — the same ~4 minutes of wall clock however many
+  shards there are.
+- `e2e-sweep.sh --apply --shared` in an `always()` step deletes _its_ stack, since
+  `--shared` resolves the same suffix. Nothing lowers the age floor account-wide,
+  so one shard finishing early cannot delete another's stack out from under it.
+- `fail-fast: false`, because one shard's failure says nothing about another's and
+  cancelling the others would leave their stacks to the weekly sweep instead of to
+  their own cleanup step.
+- `-c 1` stays mandatory _within_ a shard. Sharding adds stacks; it does not make
+  one stack safe to deploy into twice at once.
+
+Two things this does **not** make cheaper, and the second is now the larger of
+them:
+
+- **The next.js build.** Every shard checks out and builds vercel/next.js
+  (`pnpm install && pnpm build && pnpm install`, plus a Playwright download)
+  before it can run anything. That is a fixed per-shard cost that sharding
+  multiplies rather than divides, and past a couple of dozen shards it is the
+  whole run. Caching it across runs is the next thing worth doing; `shard_total`
+  is bounded at 20 in the meantime.
+- **Total AWS spend.** The same number of deploys happen, plus N-1 extra
+  distribution creates and deletes. It is wall clock that improves, not cost.
+
+Two runs must never overlap, because they would reuse the same shard names; the
+workflow's `concurrency` group is what guarantees that, and it queues rather than
+cancels.
+
+## Running two of them at once locally
+
+Set a suffix per session and the same rules apply:
+
+```bash
+HARNESS_SHARED_STACK_SUFFIX=fix-a ADAPTER_DIR=$PWD ./scripts/e2e-warm.sh
+# ... and export it for run-tests.js too, then afterwards:
+HARNESS_SHARED_STACK_SUFFIX=fix-a ./scripts/e2e-sweep.sh --apply --shared
+```
+
+What does _not_ parallelize as easily is the next.js checkout. `run-tests.js`
+writes its results and timings into its own cwd, and `e2e-offline.sh` stages the
+app inside the checkout, so two concurrent sessions want two checkouts (`NEXTJS_DIR`
+points `e2e-offline.sh` at one; `run-tests.js` has to be run from one). Two
+sessions on _different_ fixtures can share a checkout through `e2e-offline.sh` —
+its app directory is named after the fixture and it takes a port argument — but
+two on the same fixture will `rm -rf` each other's.
+
+Nor does the _fixing_ parallelize the way the running does. A fix lands in the
+adapter and the runtime (`src/adapter/`, `src/runtime/`), which is where every
+harness failure leads, so two sessions each on their own branch will conflict far
+more often than two on separate features would. Parallelize the _diagnosis_ —
+`e2e-offline.sh` is read-only against this repo, and several sessions can bisect
+several failures at once — and land the fixes one at a time, each rebased on the
+last. A session that must have its own working tree wants a `git worktree` _and_
+its own next.js checkout _and_ its own stack suffix; three of those is usually the
+point at which running one at a time is the cheaper answer.
 
 ## Why `NextjsGlobalFunctions`
 
@@ -184,7 +264,7 @@ router's `export const config = { runtime: 'experimental-edge' }`. Matching only
 the first undercounts by ~17 files.
 
 Mind the "or its parent": for a `test/e2e/<name>/test/index.test.ts` the fixture
-lives a directory *above* the test file, and screening only the test file's own
+lives a directory _above_ the test file, and screening only the test file's own
 directory quietly misses its `middleware.js`.
 
 Five more screens are worth running before spending a deploy on a candidate, all
@@ -203,9 +283,9 @@ against the test file rather than the fixture:
   (`__NEXT_CACHE_COMPONENTS`), it runs fine, and it found a real defect. Re-read
   any file this screen alone disqualifies.
 - An empty `it('should skip …', () => {})` — the stub next.js writes for the modes
-  a *mode-gated* file does not cover, its real cases sitting inside
+  a _mode-gated_ file does not cover, its real cases sitting inside
   `if (isNextStart)` or `if (isNextDev)`. `app-fetch-deduping` reported a pass in
-  5.9s having deployed nothing. A stub whose title names *dev* is the opposite
+  5.9s having deployed nothing. A stub whose title names _dev_ is the opposite
   case — the file runs everywhere but dev — so those are left in
   (`app-prefetch-static`).
 - `isNextDeploy` — usually next.js itself gating out what cannot work behind a
@@ -226,7 +306,7 @@ each screen, and how many are already included. Regenerate it with `--write`
 whenever `next` is upgraded; `--check` exits nonzero if it has drifted, which is
 the only thing that keeps those numbers worth quoting.
 
-Passing every screen makes a file a *candidate*, not a pass. It still has to
+Passing every screen makes a file a _candidate_, not a pass. It still has to
 be deployed and watched, and anything that fails gets root-caused and given a
 verdict in `docs/harness-coverage.md` before it is either fixed or written off.
 
@@ -236,7 +316,7 @@ Written off does not have to mean the whole file. A file listed in the manifest'
 `suites` is **included**, with the cases named in its `failed` array skipped —
 next.js's `test/get-test-filter.js` turns them into `excludedCases` and
 `run-tests.js` passes them as a negative `--testNamePattern`. That is the right
-home for a file whose residual failures already have an *acceptable* verdict, and
+home for a file whose residual failures already have an _acceptable_ verdict, and
 it is how `trailingslash` contributes 6 of its 8 cases:
 
 ```json
@@ -323,7 +403,7 @@ in `docs/harness-coverage.md` were all found this way; 11 in particular had
 survived one wrong fix because the value in question only shows up under a
 debugger (`JSON.stringify` erases it).
 
-Two limits. The fixture is staged *inside* the next.js checkout, because module
+Two limits. The fixture is staged _inside_ the next.js checkout, because module
 resolution has to walk up to its `node_modules/next` — the script handles that, but
 it means the app directory is not in this repo and you should delete it when done.
 And the runtime cache reads S3 only, so a route served entirely from a build-time
@@ -358,7 +438,7 @@ the age floor for every stack in the account.
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
 | `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` with `docs/plans/immutable-static-assets.md`. |
 | `HARNESS_ISOLATED_STACK`            | `0`                                  | One stack per test file instead of one shared one. Re-enables `e2e-cleanup.sh`.                        |
-| `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. Change it to run two suites at once.                      |
+| `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per concurrent local suite.            |
 | `HARNESS_CLEANUP_WAIT`              | `0`                                  | Block until the stack delete completes. Isolated mode only.                                            |
 | `HARNESS_LOG_LINES`                 | `400`                                | Tail length per log section.                                                                           |
 | `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
