@@ -3828,3 +3828,59 @@ clean.
 This also sharpens the `resume-data-cache` note in `docs/harness-coverage.md`, which
 said `null` and `lastModified: -1` both force a blocking render. They do for a route
 with no fallback; for one with a fallback shell only `lastModified: -1` does.
+
+### Batch 13: defects 19–22 verified, and defect 24 found inside defect 18's file
+
+Batch 13 (50 files: the nine requeued/regression files behind defects 18–22, plus
+41 new candidates) came back 49 green, 1 failing.
+
+Four defects are now verified against a real deployment, not just offline:
+`async-modules` (19), `i18n-support-catchall` (20), `no-page-props` (21) and
+`asset-prefix-absolute` (22) all passed on attempt 0, and so did the three
+regression checks (`app-dir/app-basepath`, `app-dir/asset-prefix`,
+`app-dir/not-found-with-pages-i18n`) plus `asset-prefix-absolute-no-path`, which the
+defect-22 fix was expected to make green for free and did. The remaining 41 were the
+`next-config-ts` / `next-config-ts-native-mts` matrix (38 files), `next-config`,
+`navigation-layout-suspense` and `navigation-with-queued-actions` — all green,
+96–99s each.
+
+`next-image-legacy/unicode` was the one failure, and it is defect 18 half-landing
+rather than a regression. That fix made the app deployable (it had never built:
+`public/hello world.jpg` cannot be spelled as a CloudFront path pattern), and 4 of
+its 5 cases went green with it, both unicode ones included. The fifth kept 400ing:
+
+```
+/_next/image?url=%2Fhello%2520world.jpg&w=640&q=75  →  400
+```
+
+**Defect 24.** The `url` query value is double-encoded, so decoding the query string
+leaves one layer and `validateParams` hands `fetchFromS3` the href
+`/hello%20world.jpg` — while the object's key is `hello world.jpg`. `fetchFromS3`
+used the href as the key verbatim, missed, and `resolveErrorResponse` mapped
+`NoSuchKey` to the 400 that a genuinely missing local image is *supposed* to get,
+which is why the symptom looked like an absent file rather than a key mismatch. The
+unicode sibling passed all along because `äöüščří` is not percent-encoded inside the
+`url` value: the query decode leaves the raw characters, which are already the
+object's name. Next.js's own `fetchInternalImage` never hits this — it makes an HTTP
+subrequest and lets its static file server resolve the path, which decodes on the
+way.
+
+Fix: `fetchFromS3` percent-decodes the asset path before joining the key prefix,
+tolerantly — a path that isn't valid percent-encoding is used as given, because
+that's what a literal `%` in a filename looks like (`public/100%.png` is requested
+as `/100%.png`; browsers don't escape it and `decodeURIComponent` throws `URIError`
+on it). The `basePath` strip still runs *before* the decode, since both sides of
+that comparison are URL-space values, and `getFileNameWithExtension` deliberately
+stays undecoded because Next.js's own `Content-Disposition` filename is undecoded
+too. Four `image-utils.test.ts` cases: the space, both unicode spellings, the
+literal `%`. `image-utils.ts` is at 100% coverage.
+
+Manifest: 45 files added (four of the nine requeued were already in), `included`
+169 → 214, `candidates` 291 → 246, ~190 never deployed, ~6 hours left. The
+`next-config-ts` matrix is the first thing in `rules.include` that
+`docs/harness-coverage.md` records as two collapsed rows rather than one row per
+file — 38 near-identical fixtures whose individual names say nothing the family
+name doesn't, with the reason for collapsing stated in the doc.
+
+Then `pnpm bundle` and batch 14: `next-image-legacy/unicode` requeued for defect 24,
+plus 49 new candidates.
