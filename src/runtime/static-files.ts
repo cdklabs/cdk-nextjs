@@ -73,8 +73,9 @@ export async function serveStaticFile(
  * with a 412 and an unsatisfiable `Range` with a 416 — both attached to the error
  * as `statusCode`. `next start` maps them back onto the response
  * (`next/dist/server/lib/router-server.js` special-cases 400/412/416); letting
- * them fall through to the caller's `failWith` instead turned
- * `If-Match: "stale"` into a 500 and `Range: bytes=99999-` into a 500.
+ * them fall through to the caller's error path (`NextjsRuntime.sendError`, which
+ * answers 500 with the app's error page) instead turned `If-Match: "stale"` into
+ * a 500 and `Range: bytes=99999-` into a 500.
  *
  * Only 4xx is honored: a 5xx from `send` is a real failure and belongs in the
  * error path, with the stack.
