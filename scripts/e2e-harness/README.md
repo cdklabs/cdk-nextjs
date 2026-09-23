@@ -333,7 +333,7 @@ Mind the "or its parent": for a `test/e2e/<name>/test/index.test.ts` the fixture
 lives a directory _above_ the test file, and screening only the test file's own
 directory quietly misses its `middleware.js`.
 
-Five more screens are worth running before spending a deploy on a candidate, all
+Six more screens are worth running before spending a deploy on a candidate, all
 against the test file rather than the fixture:
 
 - `skipDeployment: true` in the `nextTestSetup` call — next.js replaces the whole
@@ -358,6 +358,13 @@ against the test file rather than the fixture:
   CDN. Not always disqualifying, but read the gate before adding the file.
 - `output: 'export'` in the fixture — a static export is not what any
   `NextjsType` deploys.
+- An entry in the manifest's `excluded-notes` — the file already has a written
+  verdict, so it has been decided and should not reappear as a candidate. Keys that
+  start with `test/e2e/` are matched (`…/**` matches the tree); the prose keys like
+  `"edge runtime, generally"` are not. Without this screen a decided file stays a
+  candidate forever: the `next-config-ts-native-ts` family would have been picked
+  for a second batch and burned 18 more deploy slots on a build that cannot
+  succeed.
 
 None of these is watertight — each is a textual match on a convention next.js is
 under no obligation to keep. The measured backstop covers all of them: **a file
