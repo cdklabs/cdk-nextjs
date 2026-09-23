@@ -5,25 +5,26 @@ deployment. It is a better correctness signal than any fixture app we would
 write, because the tests were written by the people who define the behavior.
 
 `examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
-is the weekly one — Sunday 14:00 UTC — on `NextjsGlobalFunctions` only.
+is the scheduled one — every sixth day of the month at 14:00 UTC, so the day of
+the week drifts — on `NextjsGlobalFunctions` only.
 
 What has actually been run, what failed, and whether each failure is a bug or
 acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 
 ## Pieces
 
-| Path                                | Role                                                                                                                |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.         |
-| `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.         |
-| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`.  |
-| `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.               |
-| `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                         |
-| `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                              |
-| `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                           |
-| `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.       |
-| `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                       |
-| `.github/workflows/e2e-harness.yml` | Sunday + `workflow_dispatch`. A matrix of `shard_total` jobs, one stack each. Wednesday keeps the build cache warm. |
+| Path                                | Role                                                                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
+| `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.        |
+| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`. |
+| `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.              |
+| `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                        |
+| `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
+| `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
+| `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
+| `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
+| `.github/workflows/e2e-harness.yml` | Every six days + `workflow_dispatch`. A matrix of `shard_total` jobs, one stack each.                              |
 
 ## One shared stack, not one per test file
 
@@ -109,8 +110,8 @@ What the shared stack is paid for in:
   CloudFormation.
 
 `test/deploy-tests-manifest.json` still lists test files explicitly rather than
-taking next.js's `test/e2e/**` include rule, and this still runs weekly rather
-than per-commit. Widen either deliberately - and only with files you have watched
+taking next.js's `test/e2e/**` include rule, and this still runs on a schedule
+rather than per-commit. Widen either deliberately - and only with files you have watched
 pass, since a file can be unbuildable rather than merely failing (see below).
 
 `HARNESS_ISOLATED_STACK=1` gives a stack per app directory instead — worth it to
@@ -146,8 +147,8 @@ Each shard is self-contained, which is what makes this safe:
   `--shared` resolves the same suffix. Nothing lowers the age floor account-wide,
   so one shard finishing early cannot delete another's stack out from under it.
 - `fail-fast: false`, because one shard's failure says nothing about another's and
-  cancelling the others would leave their stacks to the weekly sweep instead of to
-  their own cleanup step.
+  cancelling the others would leave their stacks to the next scheduled sweep - up
+  to six days later - instead of to their own cleanup step.
 - `-c 1` stays mandatory _within_ a shard. Sharding adds stacks; it does not make
   one stack safe to deploy into twice at once.
 
@@ -172,25 +173,32 @@ The shape of the fix is forced by two facts:
   run no shard can benefit from another's cache save — all ten would miss
   together, all ten would build, and nine saves would lose the race harmlessly.
   A cache on the shard alone therefore does nothing for the run that writes it.
-- **GitHub evicts a cache entry not _accessed_ in 7 days,** and this workflow runs
-  weekly. That is exactly the boundary, and past it as soon as a scheduled run is
-  delayed under load — which they routinely are. So a cache written one Sunday
-  cannot be relied on the next.
+  So the build belongs in a **`nextjs` job ahead of the matrix**, which every
+  shard then restores from. On a hit that job is a `lookup-only` restore and
+  nothing else (~15s — it does not download, since the shards are about to). On a
+  miss it builds and saves, costing the run what it used to cost _every_ shard.
+- **GitHub evicts a cache entry not _accessed_ in 7 days.** A weekly schedule sits
+  exactly on that boundary, and past it as soon as a scheduled run is delayed
+  under load, which they routinely are. So the schedule is **every six days**
+  instead: `0 14 */6 * *`, by day-of-month rather than day-of-week. Every run's
+  shards restore the entry, so a cadence strictly under 7 days keeps it warm with
+  no extra machinery.
 
-Hence two pieces rather than one:
+That second point is why the cron looks the way it does, and it is load-bearing.
+`*/6` expands to days 1, 7, 13, 19, 25 and **31** — standard cron steps from the
+range's start, so the 31st is included, which is what makes the month boundary a
+1-day gap rather than a long one. Enumerated over 2026–2029 the gaps are 6 days
+within a month and 1, 4 or 5 across a boundary; never 7. Dropping the 31st, or
+reaching for `*/7`, puts the boundary straight back.
 
-1. **A `nextjs` job that runs before the matrix** and builds it once. On a hit it
-   is a `lookup-only` restore and nothing else (~15s — it does not download, since
-   the shards are about to). On a miss it builds and saves, which costs the run
-   what it used to cost _every_ shard. This is also what makes eviction a speed
-   problem rather than a correctness one: if the entry is gone, one job rebuilds
-   it, and the shards still find it.
-2. **A second, Wednesday schedule** (`0 14 * * 3`) that runs only the `keepalive`
-   job: a real restore, whose sole purpose is to be an _access_ and reset the
-   7-day clock. `nextjs` cannot do this itself, because its lookup deliberately
-   does not download. It `fail-on-cache-miss`es, because the `nextjs` job it
-   depends on just guaranteed the entry exists — learning that saving is broken on
-   Wednesday beats learning it on Sunday.
+Two costs, both accepted deliberately: ~67 runs a year instead of 52, and a run
+day that **drifts through the week** — so read a run's results whenever it lands
+rather than on a fixed morning. In exchange there is no keep-alive job and no
+schedule-gated `if:` on anything.
+
+Eviction is in any case a speed problem and not a correctness one: if the entry is
+gone, the `nextjs` job rebuilds it once and the shards still find it. The cadence
+buys the fast path, not the working one.
 
 `.github/actions/build-nextjs` holds the build itself, so the `nextjs` job and a
 shard's miss-path fallback cannot drift. A shard that misses logs a `::warning`
