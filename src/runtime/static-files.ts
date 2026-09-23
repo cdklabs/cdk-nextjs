@@ -53,8 +53,38 @@ export async function serveStaticFile(
     if (isMissingFile(error)) {
       return false;
     }
+    const status = httpErrorStatus(error);
+    // `send` emits its error before the first byte, so the head is still ours to
+    // set; the guard is only for a shell that already committed one.
+    if (status !== undefined && !res.headersSent) {
+      res.statusCode = status;
+      res.end();
+      return true;
+    }
     throw error;
   }
+}
+
+/**
+ * The status a `send` error carries, for the errors that are the *client's*, not
+ * ours.
+ *
+ * `serveStatic` is `send` underneath, and `send` rejects a failed precondition
+ * with a 412 and an unsatisfiable `Range` with a 416 — both attached to the error
+ * as `statusCode`. `next start` maps them back onto the response
+ * (`next/dist/server/lib/router-server.js` special-cases 400/412/416); letting
+ * them fall through to the caller's `failWith` instead turned
+ * `If-Match: "stale"` into a 500 and `Range: bytes=99999-` into a 500.
+ *
+ * Only 4xx is honored: a 5xx from `send` is a real failure and belongs in the
+ * error path, with the stack.
+ */
+function httpErrorStatus(error: unknown): number | undefined {
+  const status = (error as { statusCode?: unknown } | null)?.statusCode;
+  if (typeof status === "number" && status >= 400 && status < 500) {
+    return status;
+  }
+  return undefined;
 }
 
 /**
