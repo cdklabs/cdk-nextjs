@@ -117,9 +117,10 @@ const adapter: NextAdapter = {
           html: htmlPrerender,
           rsc: rscPrerender,
           segments: segmentPrerenders,
+          data: dataPrerender,
         } = variants;
 
-        if (!htmlPrerender && !rscPrerender) {
+        if (!htmlPrerender && !rscPrerender && !dataPrerender) {
           debug(`SKIP: No prerender files found for ${basePath}`);
           continue; // Skip if we don't have the main files
         }
@@ -182,6 +183,38 @@ const adapter: NextAdapter = {
               body,
               headers,
               status: htmlPrerender?.fallback?.initialStatus || 200,
+            },
+          };
+        } else if (kind === CachedRouteKind.PAGES) {
+          const html = await readPrerenderAsText(htmlPrerender);
+
+          if (!html) {
+            debug(`SKIP: No HTML content for PAGES ${basePath}`);
+            continue;
+          }
+
+          // `getStaticProps`' result, which the entrypoint answers
+          // `/_next/data/<buildId>/<page>.json` with and the client router reads
+          // on a navigation. A route's *fallback* template has no data file -
+          // there are no params to run `getStaticProps` with yet - and
+          // `FileSystemCache` skips the read for one too (`if (!ctx.isFallback)`),
+          // leaving `pageData` an empty object.
+          const pageDataJson = await readPrerenderAsText(dataPrerender);
+
+          cacheEntry = {
+            lastModified: Date.now(),
+            value: {
+              kind: CachedRouteKind.PAGES,
+              html,
+              pageData: pageDataJson ? JSON.parse(pageDataJson) : {},
+              // Both `undefined`, which is what `FileSystemCache` hands back for
+              // a `PAGES` entry: it reads a `.meta` sidecar for the App Router
+              // kinds only, and `sendRenderResult` supplies the content type.
+              // Seeding `fallback.initialHeaders` instead would put
+              // `content-type: text/html` on the JSON data responses served from
+              // this same entry.
+              headers: undefined,
+              status: undefined,
             },
           };
         } else {
@@ -321,6 +354,7 @@ async function getSegmentData<
  */
 function getRouteToCacheKindMap(
   outputs: {
+    pages: Array<{ pathname: string }>;
     appPages: Array<{ pathname: string }>;
     appRoutes: Array<{ pathname: string }>;
   },
@@ -351,6 +385,28 @@ function getRouteToCacheKindMap(
       return patternPart === pathParts[i];
     });
   };
+
+  // Pages Router pages - map both templates and their prerendered instances.
+  //
+  // The template's own entry is the `fallback: true`/`'blocking'` shell.
+  // `pages-handler.js` looks it up under `srcPage` - the literal `/blog/[slug]` -
+  // with `isFallback: true`, and in production its fill function only returns
+  // what the cache already holds (`toResponseCacheEntry(previousFallbackCacheEntry)`).
+  // With nothing seeded there is no shell to serve, so the first request to an
+  // ungenerated path blocks on a full render and answers with the real page:
+  // `router.isFallback` is never true and `__NEXT_DATA__.query` arrives populated,
+  // which `test/e2e/fallback-route-params` measures directly.
+  for (const page of outputs.pages) {
+    routeToCacheKind.set(page.pathname, CachedRouteKind.PAGES);
+
+    if (page.pathname.includes("[")) {
+      for (const prerenderPath of prerenderPaths) {
+        if (matchesDynamicRoute(prerenderPath, page.pathname)) {
+          routeToCacheKind.set(prerenderPath, CachedRouteKind.PAGES);
+        }
+      }
+    }
+  }
 
   // App Pages - map both templates and their prerendered instances
   for (const appPage of outputs.appPages) {

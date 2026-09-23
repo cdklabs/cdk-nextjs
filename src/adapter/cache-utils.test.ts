@@ -100,6 +100,44 @@ describe("groupPrerenders", () => {
     expect(groups.get("/ppr")?.segments).toHaveLength(1);
     expect(groups.get("/ppr")?.html).toBeUndefined();
   });
+
+  /**
+   * A Pages Router route's `pageData` lives at a pathname of its own rather than
+   * at a suffix of the page's, so an unmatched one would become a group named
+   * `/_next/data/...` - which gets no cache kind, and so silently drops the data
+   * every seeded entry needs.
+   */
+  it("attaches a Pages Router route's /_next/data output", () => {
+    const groups = groupPrerenders(
+      at("/blog/hello", "/_next/data/build-abc123/blog/hello.json"),
+    );
+    expect(Array.from(groups.keys())).toEqual(["/blog/hello"]);
+    expect(groups.get("/blog/hello")?.data?.pathname).toBe(
+      "/_next/data/build-abc123/blog/hello.json",
+    );
+  });
+
+  /** The `fallback: true` template, whose data route has no file behind it. */
+  it("attaches the data output of a dynamic route's fallback template", () => {
+    const groups = groupPrerenders(
+      at("/[slug]", "/_next/data/build-abc123/[slug].json"),
+    );
+    expect(Array.from(groups.keys())).toEqual(["/[slug]"]);
+    expect(groups.get("/[slug]")?.data?.pathname).toBe(
+      "/_next/data/build-abc123/[slug].json",
+    );
+  });
+
+  /** `/index.json` is the root page's data route, the same remap as `/index.rsc`. */
+  it("gives the root route its /index.json data output", () => {
+    const groups = groupPrerenders(
+      at("/prod", "/prod/_next/data/build-abc123/index.json"),
+    );
+    expect(Array.from(groups.keys())).toEqual(["/prod"]);
+    expect(groups.get("/prod")?.data?.pathname).toBe(
+      "/prod/_next/data/build-abc123/index.json",
+    );
+  });
 });
 
 describe("appPageCacheHeaders", () => {
