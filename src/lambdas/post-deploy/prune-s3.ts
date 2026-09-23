@@ -64,12 +64,16 @@ export async function pruneS3(props: PruneS3Props) {
       new ListObjectsV2Command(listObjectsV2Input),
     );
 
-    if (!listResponse.Contents || listResponse.Contents.length === 0) {
-      break;
-    }
+    // No `break` on an empty page: `ListObjectsV2` with a `Prefix` can answer with
+    // no `Contents` and `IsTruncated: true`, having scanned a window of the bucket
+    // that held no matching key. That is exactly the shared-bucket case `keyPrefix`
+    // exists for, and breaking here stopped pruning at the first such window, so
+    // every older asset past it was never deleted. The loop's own token and page
+    // guard below terminate it.
+    const contents = listResponse.Contents ?? [];
 
     // Filter out objects without keys
-    const oldObjects = listResponse.Contents.filter((obj) => {
+    const oldObjects = contents.filter((obj) => {
       const lastModified = obj.LastModified || new Date();
       return obj.Key && lastModified < cutoffDate;
     });

@@ -215,5 +215,19 @@ describe("pruneS3", () => {
       expect(sentCommands(ListObjectsV2Command)).toHaveLength(2);
       expect(deletedKeys()).toEqual(["a/one.js", "a/two.js"]);
     });
+
+    // S3 scans a window of the bucket per request and filters by `Prefix`
+    // afterwards, so a page can come back with no `Contents` and still have a
+    // continuation token — exactly the shared-bucket case `keyPrefix` exists for.
+    // Stopping there left every older asset past that window undeleted, and the
+    // bucket grew without bound with nothing in the logs to say so.
+    it("keeps listing past a page whose window held no matching key", async () => {
+      stubPagedBucketContents([["a/one.js"], [], ["a/three.js"]]);
+
+      await prune("a");
+
+      expect(sentCommands(ListObjectsV2Command)).toHaveLength(3);
+      expect(deletedKeys().sort()).toEqual(["a/one.js", "a/three.js"]);
+    });
   });
 });
