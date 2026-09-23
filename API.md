@@ -490,6 +490,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsBuild.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has any Pages Router route, and therefore a second URL space (`/_next/data/<buildId>/<route>.json`) that carries the same routes. Only `functionGroups` cares: a group's routes have to be reachable in both. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefix">nextConfigAssetPrefix</a></code> | <code>string</code> | The Next.js app's own `assetPrefix`, as a path with a leading slash and no trailing one, empty when the app sets none or sets an absolute URL (which names an origin cdk-nextjs does not serve). Read from the same `required-server-files.json`. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefixPath">nextConfigAssetPrefixPath</a></code> | <code>string</code> | The path portion of the app's `assetPrefix`, whichever form it takes: "/cdn" for both `assetPrefix: "/cdn"` and `assetPrefix: "https://cdn.example.com/cdn"`, empty when there is no path to answer on. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigBasePath">nextConfigBasePath</a></code> | <code>string</code> | The Next.js app's own `basePath` — the URL prefix it generates its links and asset hrefs under — read out of the build's `required-server-files.json`. Normalized to a bare path segment, empty when the app sets none. Exposed so root constructs can reconcile it with the CDK `basePath` prop, which is a distinct thing; see `resolveBasePath`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The JavaScript file Node.js runs to serve requests, relative to the deployment root. cdk-nextjs's own container shell, not `next build` output, so it is the same path for every app. |
@@ -619,9 +620,27 @@ public readonly nextConfigAssetPrefix: string;
 
 The Next.js app's own `assetPrefix`, as a path with a leading slash and no trailing one, empty when the app sets none or sets an absolute URL (which names an origin cdk-nextjs does not serve). Read from the same `required-server-files.json`.
 
-Exposed because it is a URL prefix the distribution has to answer on:
-Next.js emits `<assetPrefix>/_next/static/...` for every bundle, and those
-objects live in S3 under `<basePath>/_next/static/...`.
+Exposed because it is the shape of `assetPrefix` the regional
+`NextjsType`s cannot serve — see `warnUnservedAssetPrefix`. What the
+distribution has to answer on is {@link nextConfigAssetPrefixPath}, which
+also covers the path an absolute prefix carries.
+
+---
+
+##### `nextConfigAssetPrefixPath`<sup>Required</sup> <a name="nextConfigAssetPrefixPath" id="cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefixPath"></a>
+
+```typescript
+public readonly nextConfigAssetPrefixPath: string;
+```
+
+- *Type:* string
+
+The path portion of the app's `assetPrefix`, whichever form it takes: "/cdn" for both `assetPrefix: "/cdn"` and `assetPrefix: "https://cdn.example.com/cdn"`, empty when there is no path to answer on.
+
+Exposed because it is a URL prefix the distribution has to answer on: Next.js
+emits `<assetPrefix>/_next/static/...` for every bundle and compiles a rewrite
+that serves those URLs' paths itself, while the objects live in S3 under
+`<basePath>/_next/static/...`.
 
 ---
 
@@ -4305,7 +4324,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.assetsBucket">assetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket containing static assets. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
-| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.assetPrefix">assetPrefix</a></code> | <code>string</code> | The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.assetPrefix">assetPrefix</a></code> | <code>string</code> | The app's own `assetPrefix`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
@@ -4363,15 +4382,22 @@ public readonly assetPrefix: string;
 - *Type:* string
 - *Default:* read from the build's `required-server-files.json`
 
-The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one.
+The app's own `assetPrefix`.
 
-Next.js emits `<assetPrefix>/_next/static/...` for
-every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
-so this gets a cache behavior of its own that rewrites the prefix away.
+Next.js emits `<assetPrefix>/_next/static/...`
+for every bundle while the objects stay at `<basePath>/_next/static/...` in
+S3, so the prefix's path gets a cache behavior of its own that rewrites it
+away.
+
+Either form is accepted: a path ("/cdn"), or an absolute URL, in which case
+only its path counts ("https://cdn.example.com/cdn" behaves as "/cdn", and
+"https://cdn.example.com" needs no behavior at all). An absolute prefix's path
+matters because `next build` compiles a `/cdn/_next/:path+` rewrite of its
+own, so `next start` serves every bundle under it — a CDN fronting this
+distribution there has to be answered too.
 
 Applied on top of `basePath`, not under it, because that is how Next.js
-builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
-serve and should not be passed here.
+builds the URL.
 
 ---
 
@@ -10601,7 +10627,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.assetPrefix">assetPrefix</a></code> | <code>string</code> | The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.assetPrefix">assetPrefix</a></code> | <code>string</code> | The app's own `assetPrefix`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.assetsBucket">assetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket containing static assets. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
@@ -10625,15 +10651,22 @@ public readonly assetPrefix: string;
 - *Type:* string
 - *Default:* read from the build's `required-server-files.json`
 
-The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one.
+The app's own `assetPrefix`.
 
-Next.js emits `<assetPrefix>/_next/static/...` for
-every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
-so this gets a cache behavior of its own that rewrites the prefix away.
+Next.js emits `<assetPrefix>/_next/static/...`
+for every bundle while the objects stay at `<basePath>/_next/static/...` in
+S3, so the prefix's path gets a cache behavior of its own that rewrites it
+away.
+
+Either form is accepted: a path ("/cdn"), or an absolute URL, in which case
+only its path counts ("https://cdn.example.com/cdn" behaves as "/cdn", and
+"https://cdn.example.com" needs no behavior at all). An absolute prefix's path
+matters because `next build` compiles a `/cdn/_next/:path+` rewrite of its
+own, so `next start` serves every bundle under it — a CDN fronting this
+distribution there has to be answered too.
 
 Applied on top of `basePath`, not under it, because that is how Next.js
-builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
-serve and should not be passed here.
+builds the URL.
 
 ---
 
