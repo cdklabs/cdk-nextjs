@@ -118,7 +118,14 @@ export async function seedTagMappings(props: SeedTagMappingsProps) {
     .map(async () => {
       while (next < batches.length) {
         const batch = batches[next++];
-        unseeded += await writeBatch(tableName, batch);
+        // Read-modify-write on a shared counter has to happen after the await,
+        // not across it: `unseeded += await …` reads `unseeded` first, so all
+        // four workers read the same value and the last assignment won.
+        // 100 mappings against an unavailable table reported "25 of 100
+        // unseeded" instead of tripping the total-failure branch below — the one
+        // signal that no prerender is reachable by `revalidateTag` at all.
+        const failed = await writeBatch(tableName, batch);
+        unseeded += failed;
       }
     });
   await Promise.all(workers);

@@ -32,9 +32,27 @@ interface PruneS3Props {
 }
 
 /**
+ * The object metadata key holding the build id, as it comes back from
+ * `HeadObject`.
+ *
+ * `NextjsStaticAssets` hands `BucketDeployment` `metadata: { BUILD_ID }`, and CDK
+ * lowercases every user metadata key before putting it on the object
+ * (`mapUserMetadata` in `aws-s3-deployment`, and the deployment Lambda lowercases
+ * again in `create_metadata_args`). The name this file used to read,
+ * "next-build-id", is written by nothing: `objectBuildId` was always `undefined`,
+ * so the keep-guard never kept anything and pruning was purely age-based.
+ */
+const BUILD_ID_METADATA_KEY = "build_id";
+
+/**
  * Given `bucketName`, `currentBuildId`, and `msTtl`, list the objects under
- * `keyPrefix` and delete any that 1/ do not have a metadata key of "next-build-id"
- * and value of `currentBuildId` and 2/ were created more than `msTtl` ago
+ * `keyPrefix` and delete any that 1/ carry a build id that is not
+ * `currentBuildId` and 2/ were created more than `msTtl` ago.
+ *
+ * An object with no build id at all is kept. It was not uploaded by this
+ * construct's `BucketDeployment` — which stamps every object it writes — so
+ * nothing here knows whether some other stack is serving it, and deleting a live
+ * asset 404s a page while keeping a stale one only costs storage.
  */
 export async function pruneS3(props: PruneS3Props) {
   const { bucketName, currentBuildId, msTtl, keyPrefix } = props;
@@ -96,10 +114,11 @@ export async function pruneS3(props: PruneS3Props) {
             }),
           );
 
-          const objectBuildId = headResponse.Metadata?.["next-build-id"];
+          const objectBuildId = headResponse.Metadata?.[BUILD_ID_METADATA_KEY];
 
-          // Return the key if it should be deleted
-          if (objectBuildId !== currentBuildId) {
+          // Return the key if it should be deleted. An object with no build id
+          // is left alone — see this function's doc comment.
+          if (objectBuildId && objectBuildId !== currentBuildId) {
             return { Key: object.Key };
           }
         } catch (error) {

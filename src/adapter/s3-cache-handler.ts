@@ -58,12 +58,21 @@ import {
  */
 function entryTags(stored: {
   tags?: string[];
-  value?: { headers?: Record<string, unknown> };
+  /**
+   * The cache value, in whatever shape it arrives: a stored entry read back from
+   * S3 on the way in, and the `IncrementalCacheValue` union on the way out. Only
+   * the `headers` some of its members carry is read, so `unknown` and one narrow
+   * is less noise than spelling that union out twice.
+   */
+  value?: unknown;
 }): string[] {
   if (stored.tags?.length) {
     return stored.tags;
   }
-  const header = stored.value?.headers?.[NEXT_CACHE_TAGS_HEADER];
+  const headers = (stored.value as { headers?: unknown } | undefined)?.headers;
+  const header = (headers as Record<string, unknown> | undefined)?.[
+    NEXT_CACHE_TAGS_HEADER
+  ];
   if (typeof header !== "string" || header === "") {
     return [];
   }
@@ -510,9 +519,20 @@ export class S3CacheHandler implements CacheHandler {
         return;
       }
 
-      // Debug logging to understand what data is being cached
-      const tags = getTags(ctx);
-      this.debug(`S3 CACHE SET: Key: ${cacheKey}, tags: ${tags || "none"}`);
+      // `entryTags`, not `getTags(ctx)` alone: for a page or route response
+      // `ctx` carries only `{ cacheControl, isRoutePPREnabled, isFallback }` —
+      // `ResponseCache.set` builds it that way and `IncrementalCache.set`
+      // forwards it unchanged — so the tags live in the render's
+      // `x-next-cache-tags` header and nowhere else. Reading only `ctx` meant no
+      // runtime-rendered page ever got a mapping row, and a page that is not in
+      // the build manifest has none from `seedTagMappings` either: a later
+      // `revalidateTag` found nothing to invalidate and CloudFront kept serving
+      // the stale HTML and RSC payload for the whole `s-maxage`. Same source the
+      // read path above already falls back to.
+      const tags = entryTags({ tags: getTags(ctx), value: data });
+      this.debug(
+        `S3 CACHE SET: Key: ${cacheKey}, tags: ${tags.length ? tags : "none"}`,
+      );
 
       // Note: ctx.tags are available but revalidation is handled separately in revalidateTag method
       // Log tags for debugging if present (only in SetIncrementalFetchCacheContext)
@@ -601,15 +621,19 @@ export class S3CacheHandler implements CacheHandler {
 
     {
       const items = await this.queryTagMappings(tag);
-      // Extract S3 keys from sort keys (format: "tag#s3Key")
+      // Extract S3 keys from sort keys (format: "tag#s3Key"). Split at the tag's
+      // own length rather than at the first "#": a tag is app-defined and may
+      // contain one, and `revalidateTag("user#42")` then yielded
+      // "42#<buildId>/account.json" — whose invalidation path
+      // ("/42#<buildId>/account") names nothing CloudFront cached, so the page
+      // stayed stale while the row was stamped revalidated and never retried.
+      // Every row here came back from a `begins_with(sk, "<tag>#")` query, so the
+      // prefix length is known exactly.
+      const prefixLength = tag.length + 1;
       const cacheKeys = items
         .map((item) => {
           const sk = item.sk?.S;
-          if (sk) {
-            const hashIndex = sk.indexOf("#");
-            return hashIndex !== -1 ? sk.substring(hashIndex + 1) : null;
-          }
-          return null;
+          return sk ? sk.slice(prefixLength) || null : null;
         })
         .filter(Boolean);
 

@@ -212,6 +212,53 @@ describe("pipeToSink empty-body padding", () => {
   });
 });
 
+describe("pipeToSink lifecycle", () => {
+  /**
+   * `handle()` awaits this promise before it flushes `waitUntil` work — ISR
+   * revalidation, cache writes — and before the request's closures can be
+   * collected. A client that disconnects before the first byte destroys the
+   * response without an error, which emits only `"close"`: the pipeline never
+   * started, so nothing else can settle the promise and the await never returned.
+   */
+  it("settles when the response is destroyed before the head goes out", async () => {
+    const req = requestWith({});
+    const res = new ShimServerResponse();
+    const done = pipeToSink(req, res, new CollectingSink(), {
+      compress: true,
+    });
+
+    res.destroy();
+
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  // The normal path has to keep settling on the pipeline, not on `"close"`: the
+  // body must be fully flushed into the sink by the time this resolves.
+  it("still settles on the pipeline once the head has gone out", async () => {
+    const sink = await run(
+      (res) => {
+        res.setHeader("content-type", "text/plain");
+        res.end("body");
+      },
+      { compress: false },
+    );
+
+    expect(sink.body.toString()).toBe("body");
+  });
+
+  it("rejects when the response errors", async () => {
+    const req = requestWith({});
+    const res = new ShimServerResponse();
+    const done = pipeToSink(req, res, new CollectingSink(), {
+      compress: true,
+    });
+
+    res.destroy(new Error("boom"));
+
+    await expect(done).rejects.toThrow("boom");
+  });
+});
+
 describe("acceptsGzip", () => {
   it.each([
     ["gzip", true],

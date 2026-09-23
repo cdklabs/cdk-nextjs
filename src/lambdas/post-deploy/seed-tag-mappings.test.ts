@@ -170,4 +170,33 @@ describe("seedTagMappings", () => {
     );
     warn.mockRestore();
   });
+
+  it("counts failures across concurrent workers", async () => {
+    // The counter is shared by four workers, so the read-modify-write has to
+    // happen after the await: `unseeded += await …` read `unseeded` before
+    // yielding, both workers read 0, and the last assignment won. Two failed
+    // batches then reported "25 of 50 unseeded" instead of tripping the
+    // total-failure branch — the one signal that no prerender is reachable by
+    // `revalidateTag` at all.
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    mockS3Send.mockResolvedValue({
+      Body: {
+        transformToString: jest.fn().mockResolvedValue(
+          JSON.stringify({
+            posts: Array.from({ length: 50 }, (_, i) => `page/${i}`),
+          }),
+        ),
+      },
+    });
+    mockDynamoSend.mockRejectedValue(new Error("AccessDeniedException"));
+
+    await seedTagMappings(props);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("None of the 50 tag mappings could be seeded"),
+    );
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("unseeded"));
+    warn.mockRestore();
+    // Two batches, each burning its five attempts with backoff.
+  }, 15_000);
 });

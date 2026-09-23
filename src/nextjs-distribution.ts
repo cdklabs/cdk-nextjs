@@ -40,15 +40,11 @@ import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { pathPatternsFor } from "./adapter/function-groups";
-import { NextjsType } from "./constants";
+import { LOG_PREFIX, NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
-import {
-  assetPrefixPath,
-  joinPath,
-  normalizeBasePath,
-} from "./utils/base-path";
+import { assetPrefixPath, normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
@@ -569,6 +565,29 @@ export class NextjsDistribution extends Construct {
    * parse.
    */
   private addAssetPrefixBehavior() {
+    // CloudFront allows one function per event type per behavior, so an override
+    // that already claims VIEWER_REQUEST on the static behavior cannot coexist
+    // with the rewrite below — the distribution would synth and then be rejected
+    // at deploy, naming neither. Thrown here instead, where both halves are
+    // known.
+    const claimed = (
+      this.staticBehaviorOptions.functionAssociations ?? []
+    ).some(
+      (association) =>
+        association.eventType === FunctionEventType.VIEWER_REQUEST,
+    );
+    if (claimed) {
+      throw new Error(
+        `${LOG_PREFIX} \`overrides.staticBehaviorOptions.functionAssociations\` ` +
+          `already associates a CloudFront function with ` +
+          `${FunctionEventType.VIEWER_REQUEST}, but serving \`assetPrefix\` ` +
+          `("${this.assetPrefix}") needs that event type to rewrite the request ` +
+          `URI to the object's key, and CloudFront permits only one function per ` +
+          `event type per behavior. Either drop the override, or fold its logic ` +
+          `into a single function and set \`assetPrefix\` to "" so this ` +
+          `construct adds no behavior of its own.`,
+      );
+    }
     const rewrite = new CloudFrontFunction(this, "AssetPrefixFn", {
       comment: this.getComment(
         "NextJS assetPrefix rewrite",
@@ -669,11 +688,21 @@ export class NextjsDistribution extends Construct {
   }
   /**
    * Optionally prepends base path to given path pattern.
+   *
+   * A trailing slash on `pathPattern` is load-bearing and survives, which is why
+   * this concatenates rather than going through `joinPath`. `pathPatternsFor`
+   * emits both "pricing" and "pricing/" for a `trailingSlash` app, and
+   * normalizing the second one collapsed it onto the first: `addBehavior` was
+   * then called twice with `/base/pricing`, which CloudFront rejects at deploy
+   * ("more than one cache behavior has the same path pattern"), and the
+   * canonical `/base/pricing/` was left to the `/base/*` catch-all — the misroute
+   * the second pattern exists to prevent.
    */
   private getPathPattern(pathPattern: string) {
-    return this.basePath
-      ? `/${joinPath(this.basePath, pathPattern)}`
-      : pathPattern;
+    if (!this.basePath) {
+      return pathPattern;
+    }
+    return `/${this.basePath}/${pathPattern.replace(/^\/+/, "")}`;
   }
 }
 

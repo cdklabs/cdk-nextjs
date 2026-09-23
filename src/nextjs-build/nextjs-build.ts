@@ -13,7 +13,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -746,7 +746,9 @@ export class NextjsBuild extends Construct {
    *
    * `root` is walked whole rather than just its `node_modules`: the staged tree
    * is keyed by repo-root-relative path, so in a monorepo the `node_modules`
-   * holding `sharp` is several directories down.
+   * holding `sharp` is several directories down. {@link isInstalledPackage} is
+   * what keeps that from reaching the app's own output — the staged root holds
+   * the compiled `.next` as well as the dependencies.
    */
   private removeExistingSharpBinaries(root: string): void {
     if (!existsSync(root)) {
@@ -774,6 +776,7 @@ export class NextjsBuild extends Construct {
         // `sharp-libvips-<platform>` is covered by `sharp-`; the store keys
         // (`@img+sharp-darwin-arm64@0.35.4`) match on the same substring.
         if (!entry.name.includes("sharp-")) continue;
+        if (!isInstalledPackage(entry.parentPath)) continue;
         // For recursive readdirSync, parentPath contains the full absolute path
         const fullPath = join(entry.parentPath, entry.name);
         if (entry.isSymbolicLink()) {
@@ -1016,4 +1019,32 @@ export class NextjsBuild extends Construct {
       return false;
     }
   }
+}
+
+/**
+ * Whether `parentPath` is a directory installed packages sit directly in, so a
+ * `sharp-…` entry inside it is a package rather than something the app named.
+ *
+ * The matched name alone is not enough to delete a directory by. A route segment
+ * called `sharp-edges` stages `.next/server/app/sharp-edges/`, and removing it
+ * left the manifest listing an entrypoint that is no longer on disk — every
+ * request to that route 500ing with "Could not load the entrypoint", from a synth
+ * whose only trace was a warning. So the parent has to be one of the three places
+ * a package installer puts a package:
+ *
+ * - `node_modules/sharp-…`, for a top-level package
+ * - `node_modules/@img/sharp-…`, where every platform binary actually lives
+ * - `node_modules/.pnpm/@img+sharp-…@0.35.4`, pnpm's store, whose entries are
+ *   also what the `@img` links point at
+ *
+ * The `node_modules` segment is required as well, so an app directory that
+ * happens to be called `@img` or `.pnpm` is still left alone.
+ */
+function isInstalledPackage(parentPath: string): boolean {
+  const segments = parentPath.split(sep);
+  const parent = segments[segments.length - 1];
+  if (parent !== "node_modules" && parent !== "@img" && parent !== ".pnpm") {
+    return false;
+  }
+  return segments.includes("node_modules");
 }

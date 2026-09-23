@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Writable } from "node:stream";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { loadRuntime, NextjsRuntime, RuntimeRequest } from "./core";
 import {
   BuildCompleteContext,
@@ -264,6 +264,55 @@ describe("NextjsRuntime.handle", () => {
     expect(stubBody(sink).initURL).toBe("https://www.example.test/");
   });
 
+  // Only the CloudFront function in front of *function* compute overwrites this
+  // header, so on Containers and the Regional types it arrives from the client.
+  // A value that cannot be a URL authority made `new URL` throw, and on the
+  // Lambda shells — whose handlers wrap nothing — that is an invocation error and
+  // a 502 rather than a response.
+  it.each([
+    ["a space", "exa mple.test"],
+    ["a scheme", "https://www.example.test"],
+    ["a path", "www.example.test/evil"],
+    ["credentials", "user@www.example.test"],
+    ["nothing", ""],
+  ])(
+    "ignores an x-forwarded-host containing %s and falls back to host",
+    async (_label, forwarded) => {
+      const sink = await send({
+        url: "/",
+        headers: {
+          host: "shop.example.test",
+          "x-forwarded-host": forwarded,
+        },
+      });
+      expect(sink.head?.statusCode).toBe(200);
+      expect(stubBody(sink).initURL).toBe("https://shop.example.test/");
+    },
+  );
+
+  // Multiple proxies each append, and only the first value is this hop's.
+  it("takes the first value of a comma-joined x-forwarded-host", async () => {
+    const sink = await send({
+      url: "/",
+      headers: {
+        host: "origin.cloudfront.internal",
+        "x-forwarded-host": "www.example.test, inner.example.test",
+      },
+    });
+    expect(stubBody(sink).initURL).toBe("https://www.example.test/");
+  });
+
+  it("ignores an x-forwarded-proto that is not http or https", async () => {
+    const sink = await send({
+      url: "/",
+      headers: {
+        host: "shop.example.test",
+        "x-forwarded-proto": "javascript",
+      },
+    });
+    expect(stubBody(sink).initURL).toBe("https://shop.example.test/");
+  });
+
   it("hands a dynamic route its params as nxtP query values", async () => {
     const sink = await send({ url: "/isr/42" });
     const body = stubBody(sink);
@@ -509,5 +558,102 @@ describe("the error page ladder", () => {
     expect(sink.head?.statusCode).toBe(500);
     expect(sink.body.toString("utf-8")).toBe("Internal Server Error");
     error.mockRestore();
+  });
+});
+
+describe("an external rewrite", () => {
+  /**
+   * `NextResponse.rewrite("https://…")`: an absolute destination makes
+   * `resolveRoutes` report an `externalRewrite`, which the runtime proxies with
+   * `fetch` instead of routing to an entrypoint.
+   */
+  const EXTERNAL_REWRITE_MIDDLEWARE = `
+exports.handler = async () =>
+  new Response(null, {
+    headers: { "x-middleware-rewrite": "https://upstream.test/from-origin" },
+  });
+`;
+
+  const ORIGIN_BODY = "<html>from the origin</html>";
+
+  /**
+   * What undici hands back for a gzip origin, which is the whole point of these
+   * tests: `fetch` decodes the body and leaves both `content-encoding` and the
+   * *encoded* `content-length` behind, describing bytes it already discarded.
+   */
+  function gzipLabelledPlaintext(): Response {
+    return new Response(ORIGIN_BODY, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-encoding": "gzip",
+        "content-length": String(gzipSync(ORIGIN_BODY).byteLength),
+      },
+    });
+  }
+
+  let proxying: NextjsRuntime;
+  let fetchMock: jest.SpyInstance;
+
+  beforeAll(async () => {
+    proxying = await loadRuntime(stageDeployment(EXTERNAL_REWRITE_MIDDLEWARE));
+  });
+
+  beforeEach(() => {
+    fetchMock = jest
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(gzipLabelledPlaintext());
+  });
+
+  afterEach(() => {
+    fetchMock.mockRestore();
+  });
+
+  async function proxy(
+    headers: Record<string, string> = {},
+  ): Promise<CollectingSink> {
+    const sink = new CollectingSink();
+    await proxying.handle(
+      {
+        method: "GET",
+        url: "/anything",
+        headers: { host: "shop.example.test", ...headers },
+      },
+      sink,
+    );
+    return sink;
+  }
+
+  it("proxies the request to the rewritten origin", async () => {
+    const sink = await proxy();
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://upstream.test/from-origin",
+    );
+    expect(sink.head?.statusCode).toBe(200);
+    expect(sink.head?.headers["content-type"]).toBe("text/html; charset=utf-8");
+  });
+
+  // Forwarding the origin's `content-encoding` over a body `fetch` already
+  // decoded fails the whole response in the browser with
+  // ERR_CONTENT_DECODING_FAILED, under a `Content-Length` that describes the
+  // compressed bytes. Nothing downstream repairs it either: `shouldGzip`
+  // declines as soon as `content-encoding` is set.
+  it("drops the content-encoding and length fetch already consumed", async () => {
+    const sink = await proxy();
+
+    expect(sink.head?.headers["content-encoding"]).toBeUndefined();
+    expect(sink.head?.headers["content-length"]).toBeUndefined();
+    expect(sink.body.toString("utf-8")).toBe(ORIGIN_BODY);
+  });
+
+  // The other half of it: with the stale label gone, the sink is free to
+  // compress the plaintext itself — and now the encoding it advertises is the
+  // one the bytes actually carry.
+  it("re-compresses the decoded body when the client accepts gzip", async () => {
+    const sink = await proxy({ "accept-encoding": "gzip" });
+
+    expect(sink.head?.headers["content-encoding"]).toBe("gzip");
+    expect(gunzipSync(sink.body).toString("utf-8")).toBe(ORIGIN_BODY);
   });
 });

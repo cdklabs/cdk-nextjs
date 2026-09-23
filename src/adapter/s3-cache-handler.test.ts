@@ -399,6 +399,56 @@ describe("S3DynamoCacheHandler", () => {
       expect(mockS3Send).not.toHaveBeenCalled();
     });
 
+    it("maps the tags a page carries only in its x-next-cache-tags header", async () => {
+      // `ResponseCache.set` builds a page's `ctx` without tags, so the render's
+      // header is the only place they exist. No mapping row meant `revalidateTag`
+      // found nothing to invalidate and CloudFront kept the stale HTML.
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>tagged</html>",
+        rscData: undefined,
+        headers: { "x-next-cache-tags": "header-tag,other-tag" },
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set("/isr/1", testData, createSetContext([]));
+
+      const mappingKeys = (UpdateItemCommand as unknown as jest.Mock).mock.calls
+        .map(([input]) => input.Key.sk.S)
+        .sort();
+      expect(mappingKeys).toEqual([
+        "header-tag#test-build-id/isr/1.json",
+        "other-tag#test-build-id/isr/1.json",
+      ]);
+    });
+
+    it("prefers the context's tags over the header when both are present", async () => {
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>tagged</html>",
+        rscData: undefined,
+        headers: { "x-next-cache-tags": "header-tag" },
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set("/isr/1", testData, createSetContext(["ctx-tag"]));
+
+      const mappingKeys = (UpdateItemCommand as unknown as jest.Mock).mock.calls
+        .map(([input]) => input.Key.sk.S)
+        .sort();
+      expect(mappingKeys).toEqual(["ctx-tag#test-build-id/isr/1.json"]);
+    });
+
     it("should handle S3 errors gracefully", async () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
@@ -509,6 +559,37 @@ describe("S3DynamoCacheHandler", () => {
         // spells out, and a page's RSC payload is cached under `?_rsc=<hash>`.
         expect.arrayContaining(["/isr/1", "/isr/1?*", "/isr/2", "/isr/2?*"]),
       );
+    });
+
+    it("splits a mapping row at the tag's length, so a tag containing # still resolves", async () => {
+      // A tag is app-defined: `revalidateTag("user#42")` is legal. Splitting at
+      // the first "#" left "42#test-build-id/account.json" as the S3 key, whose
+      // invalidation path names nothing CloudFront cached, so the page stayed
+      // stale while the row was stamped revalidated and never retried.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({
+        query: { Items: [{ sk: { S: "user#42#test-build-id/account.json" } }] },
+      });
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("user#42");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items.sort()).toEqual([
+        "/account",
+        "/account/",
+        "/account/?*",
+        "/account?*",
+      ]);
     });
 
     it("invalidates the path a revalidatePath tag names even with no mapping rows", async () => {

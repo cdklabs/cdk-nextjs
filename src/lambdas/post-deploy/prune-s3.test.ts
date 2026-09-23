@@ -36,7 +36,7 @@ function stubBucketContents(keys: string[], buildId = "build-1"): void {
       return Promise.resolve({});
     }
     // HeadObject
-    return Promise.resolve({ Metadata: { "next-build-id": buildId } });
+    return Promise.resolve({ Metadata: { build_id: buildId } });
   });
 }
 
@@ -64,7 +64,7 @@ function stubPagedBucketContents(pages: string[][]): void {
       return Promise.resolve({});
     }
     // HeadObject
-    return Promise.resolve({ Metadata: { "next-build-id": "build-1" } });
+    return Promise.resolve({ Metadata: { build_id: "build-1" } });
   });
 }
 
@@ -160,6 +160,57 @@ describe("pruneS3", () => {
 
   it("keeps objects carrying the current build id", async () => {
     stubBucketContents(["branch-a/current.js"], CURRENT_BUILD_ID);
+
+    await prune("branch-a");
+
+    expect(deletedKeys()).toEqual([]);
+  });
+
+  // Asserted on the literal key rather than through a shared constant: the name
+  // is a contract with CDK, which lowercases the `metadata: { BUILD_ID }` that
+  // `NextjsStaticAssets` passes `BucketDeployment`. Reading any other name — this
+  // file read "next-build-id" for a long time — makes `objectBuildId` always
+  // `undefined`, and a guard that never fires cannot be told from one that has
+  // nothing to keep.
+  it("reads the build id from the metadata key BucketDeployment writes", async () => {
+    const longAgo = new Date(Date.now() - MS_TTL * 2);
+    holder.send.mockImplementation((command: unknown) => {
+      if (command instanceof ListObjectsV2Command) {
+        return Promise.resolve({
+          Contents: [{ Key: "branch-a/current.js", LastModified: longAgo }],
+        });
+      }
+      if (command instanceof DeleteObjectsCommand) {
+        return Promise.resolve({});
+      }
+      return Promise.resolve({
+        Metadata: { build_id: CURRENT_BUILD_ID },
+      });
+    });
+
+    await prune("branch-a");
+
+    expect(deletedKeys()).toEqual([]);
+  });
+
+  // Not this construct's object: `BucketDeployment` stamps every file it uploads,
+  // so an unstamped one belongs to something else sharing the bucket. Deleting it
+  // 404s whatever serves it, while keeping it only costs storage.
+  it("keeps an object that carries no build id at all", async () => {
+    const longAgo = new Date(Date.now() - MS_TTL * 2);
+    holder.send.mockImplementation((command: unknown) => {
+      if (command instanceof ListObjectsV2Command) {
+        return Promise.resolve({
+          Contents: [
+            { Key: "branch-a/someone-elses.js", LastModified: longAgo },
+          ],
+        });
+      }
+      if (command instanceof DeleteObjectsCommand) {
+        return Promise.resolve({});
+      }
+      return Promise.resolve({ Metadata: {} });
+    });
 
     await prune("branch-a");
 

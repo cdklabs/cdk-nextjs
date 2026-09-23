@@ -1,6 +1,11 @@
 import { App, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import {
+  Function as CloudFrontFunction,
+  FunctionCode,
+  FunctionEventType,
+} from "aws-cdk-lib/aws-cloudfront";
+import {
   Code,
   Function as LambdaFunction,
   FunctionUrl,
@@ -181,6 +186,25 @@ describe("NextjsDistribution function group behaviors", () => {
     ]);
   });
 
+  it("keeps the two slash variants distinct under a basePath", () => {
+    // `getPathPattern` used to join through a helper that strips trailing
+    // slashes, so `pricing` and `pricing/` both became `/base/pricing`: two
+    // behaviors with the same path pattern, which CloudFront rejects at deploy
+    // with no hint that `trailingSlash` is what produced the duplicate.
+    const { stack, functionGroups, distributionProps } = setup(["mkt"], {
+      routesFor: () => ["/pricing"],
+      basePath: "/base",
+    });
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+      trailingSlash: true,
+    });
+    const patterns = pathPatterns(stack);
+    expect(patterns).toContain("/base/pricing");
+    expect(patterns).toContain("/base/pricing/");
+  });
+
   it("counts the basePath behaviors against the budget", () => {
     const { stack, distributionProps } = setup([], {
       basePath: "/base",
@@ -309,6 +333,34 @@ describe("NextjsDistribution function group behaviors", () => {
     // `"/custom-asset-prefix".length`, so `/custom-asset-prefix/_next/static/x`
     // reaches S3 as `_next/static/x`.
     expect(code).toContain('"" + request.uri.slice(20)');
+  });
+
+  it("refuses an assetPrefix when an override already claims VIEWER_REQUEST", () => {
+    // CloudFront permits one function per event type per behavior, so the
+    // rewrite and the override cannot coexist: the stack synthed cleanly and was
+    // rejected at deploy, naming neither the override nor `assetPrefix`.
+    const { stack, distributionProps } = setup([]);
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          assetPrefix: "/cdn",
+          overrides: {
+            staticBehaviorOptions: {
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_REQUEST,
+                  function: new CloudFrontFunction(stack, "UserFn", {
+                    code: FunctionCode.fromInline(
+                      "function handler(event) { return event.request; }",
+                    ),
+                  }),
+                },
+              ],
+            },
+          },
+        }),
+    ).toThrow(/already associates a CloudFront function with viewer-request/);
   });
 
   it("rewrites an assetPrefix back onto the basePath S3 keys", () => {

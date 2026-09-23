@@ -97,8 +97,22 @@ export function pipeToSink(
   options: PipeOptions,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    let piping = false;
     res.once("error", reject);
+    // Destroyed before the head went out, and without an error: a client that
+    // disconnected before the first byte, which `handle()` answers with
+    // `res.destroy()`. `Transform.destroy()` with no argument emits only
+    // `"close"`, and the pipeline below never started, so nothing else can ever
+    // settle this promise — leaving `handle()` awaiting it forever, its
+    // `waitUntil` work (ISR revalidation, cache writes) never flushed and the
+    // in-flight render's closure retained for the life of the process.
+    res.once("close", () => {
+      if (!piping) {
+        resolve();
+      }
+    });
     res.once("head", (head: ResponseHead) => {
+      piping = true;
       const stages: Array<Transform | Writable> = [];
 
       const gzip = shouldGzip(req, res, head, options);

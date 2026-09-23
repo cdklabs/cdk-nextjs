@@ -114,7 +114,6 @@ export class NextjsRuntime {
     sink: ResponseSink,
   ): Promise<void> {
     const { manifest } = this.options;
-    const url = absoluteUrl(request);
     const pending: Array<Promise<unknown>> = [];
     const waitUntil = (promise: Promise<unknown>) => {
       pending.push(promise);
@@ -136,25 +135,36 @@ export class NextjsRuntime {
       once: true,
     });
 
+    // The rejection handler is attached here rather than at the `await` below.
+    // `route()` awaits real I/O, so a stream that breaks while it runs would
+    // leave this promise rejected with no handler attached for a full event-loop
+    // turn — and Node 24 defaults to `--unhandled-rejections=throw`, which on
+    // the container shell takes the whole task down and aborts every other
+    // in-flight request on it. A mid-stream EPIPE from one client disconnect is
+    // not grounds for that.
+    //
+    // The error is logged, not rethrown: the stream broke after (or while) the
+    // head went out — a client disconnect, or `sendError` destroying a
+    // half-written response — and neither is an invocation failure. Rethrowing
+    // would make Lambda retry a request the client already abandoned.
     const finished = pipeToSink(req, res, sink, {
       compress: manifest.config.compress,
+    }).catch((error: unknown) => {
+      console.error("The response stream did not complete:", error);
     });
 
     try {
+      // Inside the try: `absoluteUrl` builds a `URL` out of the request line and
+      // the forwarded headers, and a throw here has to reach the error ladder
+      // like any other. Outside it, on the Lambda shells — whose handlers wrap
+      // nothing — the same throw is an invocation error and a 502.
+      const url = absoluteUrl(request);
       await this.route(req, res, url, body.forDispatch, waitUntil, request);
     } catch (error) {
       await this.sendError(req, res, waitUntil, error);
     }
 
-    try {
-      await finished;
-    } catch (error) {
-      // The stream broke after (or while) the head went out: a client
-      // disconnect, or `sendError` destroying a half-written response. Neither is
-      // an invocation failure — rethrowing would make Lambda retry a request the
-      // client already abandoned — so it is logged and the response ends here.
-      console.error("The response stream did not complete:", error);
-    }
+    await finished;
 
     // Lambda freezes the execution environment the moment the handler resolves —
     // there is no post-response keepalive — so background work registered with
@@ -500,17 +510,57 @@ export async function loadRuntime(
 }
 
 /**
+ * A syntactically valid `host[:port]`: a registered name or a bracketed IPv6
+ * literal, optionally with a port. Anything else cannot be the authority of a
+ * URL.
+ */
+const HOST_AUTHORITY = /^(?:\[[0-9A-Fa-f:.]+\]|[0-9A-Za-z._-]+)(?::\d{1,5})?$/;
+
+/**
+ * The first forwarded value that is actually usable as an authority, or
+ * `undefined`.
+ *
+ * Both headers can arrive as a list when more than one proxy appends to them,
+ * and the value reaches us straight from the client on the deployments whose
+ * edge does not overwrite it: the CloudFront function that pins
+ * `x-forwarded-host` is only attached for function compute
+ * (`NextjsDistribution`), so Containers (`ALL_VIEWER`) and the Regional types
+ * forward whatever the viewer sent. Validating is what keeps a header like
+ * `X-Forwarded-Host: exa mple.com` from making the `URL` constructor throw —
+ * which on the Lambda shells is an invocation error and a 502, not a response.
+ */
+function forwardedAuthority(
+  value: string | string[] | undefined,
+): string | undefined {
+  const candidate = first(value)?.split(",")[0].trim();
+  return candidate && HOST_AUTHORITY.test(candidate) ? candidate : undefined;
+}
+
+/**
  * `resolveRoutes` needs an absolute URL. The forwarded headers are trusted
  * because every supported deployment puts CloudFront, an ALB, or API Gateway in
  * front, and all three set them; `x-forwarded-host` wins over `host` because
- * CloudFront rewrites `host` to the origin domain.
+ * CloudFront rewrites `host` to the origin domain. Only their *syntax* is
+ * checked, not their value — an app that must not accept an arbitrary
+ * `x-forwarded-host` needs the edge to overwrite it.
  */
 function absoluteUrl(request: RuntimeRequest): URL {
-  const forwardedHost = first(request.headers["x-forwarded-host"]);
-  const host = forwardedHost ?? first(request.headers.host) ?? "localhost";
+  const host =
+    forwardedAuthority(request.headers["x-forwarded-host"]) ??
+    forwardedAuthority(request.headers.host) ??
+    "localhost";
+  const forwardedProto = first(request.headers["x-forwarded-proto"])
+    ?.split(",")[0]
+    .trim()
+    .toLowerCase();
+  // Same reasoning as the authority: client-supplied on the deployments whose
+  // edge does not overwrite it, and anything but these two would not parse.
   const proto =
-    first(request.headers["x-forwarded-proto"])?.split(",")[0].trim() ??
-    (request.encrypted === false ? "http" : "https");
+    forwardedProto === "http" || forwardedProto === "https"
+      ? forwardedProto
+      : request.encrypted === false
+        ? "http"
+        : "https";
   return new URL(request.url, `${proto}://${host}`);
 }
 
@@ -651,13 +701,32 @@ async function proxyExternal(
     redirect: "manual",
     ...(hasBody ? { duplex: "half" } : {}),
   } as RequestInit);
-  await sendWebResponse(res, upstream);
+  await sendWebResponse(res, upstream, { bodyWasDecoded: true });
+}
+
+interface SendWebResponseOptions {
+  /**
+   * The body no longer matches the `content-encoding` and `content-length` the
+   * upstream sent, so both are dropped.
+   *
+   * True for anything that came back from `fetch`: undici decodes the body —
+   * gzip, deflate, br, zstd — and leaves those two headers in place describing
+   * the encoded bytes it already threw away. Forwarding them emits plaintext
+   * labelled `gzip` (the browser fails the whole response with
+   * `ERR_CONTENT_DECODING_FAILED`) under a `Content-Length` that is too short,
+   * and `shouldGzip` then declines to compress it because `content-encoding` is
+   * already set, so nothing downstream repairs it. Not true for middleware's own
+   * `Response`, whose body is whatever the app produced: middleware that encodes
+   * its own body and labels it means it.
+   */
+  readonly bodyWasDecoded?: boolean;
 }
 
 /** Stream a `Response` — middleware's own, or a proxied origin's — into `res`. */
 async function sendWebResponse(
   res: ShimServerResponse,
   response: Response | undefined,
+  options: SendWebResponseOptions = {},
 ): Promise<void> {
   if (!response) {
     // `resolveRoutes` said middleware responded but the runner never saw a
@@ -677,6 +746,13 @@ async function sendWebResponse(
       for (const cookie of splitSetCookie(value)) {
         res.appendHeader("set-cookie", cookie);
       }
+      return;
+    }
+    if (
+      options.bodyWasDecoded &&
+      (name === "content-encoding" || name === "content-length")
+    ) {
+      // See `SendWebResponseOptions.bodyWasDecoded`.
       return;
     }
     res.setHeader(name, value);
