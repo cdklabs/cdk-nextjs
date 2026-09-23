@@ -515,13 +515,21 @@ function isFilledParam(value: ResolveRoutesQueryValue | undefined): boolean {
 }
 
 /**
- * App Router builds an invocable `/_not-found`; Pages Router builds `/_error`.
- * Apps with neither (or with only a statically exported 404) fall back to the
- * prerendered `/404` HTML, then to nothing.
+ * The order next itself uses, in `base-server.ts`'s `renderErrorToResponse`:
+ * App Router's `/_not-found`, then Pages Router's `/404`, then `/_error`. `/404`
+ * has to come before `/_error` — it is the app's *custom* 404, and `/_error` is
+ * the built-in "404: This page could not be found". A `pages/404.js` is usually
+ * prerendered to HTML, so it reaches us as a static file rather than an
+ * entrypoint; it stays invocable when something forces a per-request render,
+ * which `pages/_app.js` having `getInitialProps` does. Measured against
+ * `test/e2e/404-page-app`, where every URL got the built-in page.
+ *
+ * Apps with none of the three fall back to the prerendered `/404` HTML, then to
+ * nothing.
  */
 function resolveNotFoundTarget(manifest: AdapterManifest): NotFoundTarget {
   const { basePath } = manifest.config;
-  for (const suffix of ["/_not-found", "/_error"]) {
+  for (const suffix of ["/_not-found", "/404", "/_error"]) {
     const pathname = `${basePath}${suffix}`;
     const entrypoint = manifest.entrypoints[pathname];
     if (entrypoint) {

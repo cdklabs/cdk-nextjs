@@ -331,6 +331,40 @@ describe("Dispatcher non-entrypoint outcomes", () => {
     });
   });
 
+  it("prefers an invocable custom /404 over /_error", () => {
+    // What `pages/404.js` plus a `pages/_app.js` with `getInitialProps` builds:
+    // the 404 cannot be prerendered, so it arrives as an entrypoint beside
+    // `/_error`. Serving `/_error` there means the built-in "404: This page
+    // could not be found" replaces the app's own — `test/e2e/404-page-app`.
+    const base = manifests["pages-i18n"];
+    const withCustom404: AdapterManifest = {
+      ...base,
+      entrypoints: {
+        ...base.entrypoints,
+        "/404": { ...base.entrypoints["/_error"], id: "/404" },
+      },
+    };
+    expect(
+      createDispatcher({ manifest: withCustom404 }).notFound,
+    ).toMatchObject({ kind: "entrypoint", pathname: "/404" });
+    // App Router still wins over both: `/_not-found` is what next looks for
+    // first, and an app with both routers has all three.
+    expect(
+      createDispatcher({
+        manifest: {
+          ...withCustom404,
+          entrypoints: {
+            ...withCustom404.entrypoints,
+            "/_not-found": {
+              ...base.entrypoints["/_error"],
+              id: "/_not-found",
+            },
+          },
+        },
+      }).notFound,
+    ).toMatchObject({ kind: "entrypoint", pathname: "/_not-found" });
+  });
+
   it("falls back to a prerendered 404, then to nothing", () => {
     const base = manifests["app-playground"];
     const withoutEntrypoints: AdapterManifest = {

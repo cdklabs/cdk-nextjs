@@ -3188,3 +3188,49 @@ build env var. The var fixed the *shape* of the failure (dynamic elements landin
 the static half); the six cases then failed again on the shell's own sentinel, which
 was defect 14. A missing env var and a real defect can share a file — the tell is
 that the shape changes.
+
+### Batch 8: 15 more files green, one defect, and a broken bundle
+
+Sixteen candidate files deployed against `hrns-shared`. Fifteen green, one failure.
+`rules.include` is now 61 whole files and `screening` is regenerated: candidates
+452 → 438. The green fifteen, with what each buys:
+
+`actions-revalidate-remount`, `app-catch-all-optional`, `app-routes-client-component`,
+`conflicting-search-and-route-params`, `dynamic-requests`, `external-redirect`,
+`forbidden/basic`, `global-not-found/basic`, `hello-world`,
+`interception-routes-root-catchall`, `metadata-image-files`,
+`metadata-static-file-root-route`, `metadata-svg-icon`,
+`partial-fallback-root-blocking`, `partial-fallback-shell-upgrade`.
+
+The last two are the deployed confirmation of defect 14 — they are PPR
+fallback-shell fixtures, and they were the two files whose sentinel fix had been
+recorded as "pending a re-run".
+
+The failure was `404-page-app`, 2 of 2 on both attempts, and it is defect 15:
+`resolveNotFoundTarget` checked `/_not-found`, then `/_error`, then a *static*
+`/404`, so a Pages Router app whose `pages/404.js` is invocable rather than
+prerendered got the framework's built-in "404: This page could not be found"
+instead of its own page. next's own order is `/_not-found`, `/404`, `/_error`
+(`base-server.ts`, `renderErrorToResponse`). Fixed by adding `/404` to the
+entrypoint loop; covered by a new `dispatch.test.ts` case that also pins
+`/_not-found` still winning when an app has all three. Offline, `/abc` now
+renders `Hi There` with a 404 status, matching `next start`. The file is queued
+for batch 9 rather than added to `rules.include`.
+
+Incidental, found while re-bundling for that verification: **`pnpm bundle` was
+broken at HEAD.** `src/adapter/build-outputs.ts` imports `createRequire` by name
+and is in the adapter bundle's module tree, so the adapter/cache-handler banner
+declaring the bare `createRequire` produced output that fails to parse —
+`node --check lib/adapter/adapter.mjs` reports "Identifier 'createRequire' has
+already been declared". `.projenrc.ts`'s `cjsGlobalsBanner` already documents this
+exact hazard and prefixes its imports for it; `createRequireBanner` was the one that
+did not. Now prefixed too. It only escaped notice because the offline script copies
+the previously built `lib/` rather than rebuilding it.
+
+### Where the harness stands
+
+438 candidates left, ~425 of which have never been deployed; at the observed
+~2.7 min/file that is ~19 hours of wall clock to sweep once. The pool is long and
+thin — 1010 `it()` cases over 438 files — so the remaining yield is mostly in the
+dense files (`next-image-legacy/default` alone is 44 cases). Defect rate is
+falling: batches 5-7 found 4 defects across 23 files, batch 8 found 1 across 16.
