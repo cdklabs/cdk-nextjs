@@ -3165,3 +3165,18 @@ tractable, and both entries above were measured with it.
 
 Both files stay out of `rules.include` until a deployed re-run is green; the same is
 true of `layout-params`, whose fix is committed and offline-verified.
+
+### The three fixed files, verified deployed
+
+Ran `layout-params`, `parallel-routes-root-param-dynamic-child` and
+`sub-shell-generation` against `hrns-shared` — all three green on attempt 0, 160s /
+180s / 164s, `exiting with code 0`. So defects 11, 13 and 14 are confirmed against a
+real deployment, not just offline, and all three files are now in `rules.include`
+(46 whole files; `screening` regenerated, candidates 454 → 452).
+
+Correction recorded in `docs/harness-coverage.md`: the `NEXT_PRIVATE_TEST_MODE`
+section previously attributed all six `sub-shell-generation` failures to the missing
+build env var. The var fixed the *shape* of the failure (dynamic elements landing in
+the static half); the six cases then failed again on the shell's own sentinel, which
+was defect 14. A missing env var and a real defect can share a file — the tell is
+that the shape changes.
