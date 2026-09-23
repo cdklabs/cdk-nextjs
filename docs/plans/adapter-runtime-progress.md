@@ -3955,3 +3955,49 @@ features, not one fixture crossed with build variants.
 `rules.include` 214 → 246, candidates 227 → 195. `pnpm bundle`, then batch 15
 launched with the next 50 candidates — mostly the 29-file `app-dir/scss/*` matrix
 and the `segment-cache/*` family.
+
+### Batch 15: 48 of 50 green, and a verdict that was not durable
+
+48 green on attempt 0, 0 flakes, 2 red — and both red files already had a written
+verdict. The 48: the whole 27-file `app-dir/scss/*` matrix (global vs. module Sass,
+`composes`, `node_modules` `@import` in three spellings, `url()`, `additionalData`/
+`prependData`/`includePaths`, multi-page and dynamic-route entries), five `proxy-*`
+files, `next/script`'s `beforeInteractive` in both the ordinary and the XSS-probe
+shape, `removeConsole`, `require.context`, `resolveExtensions`, root-layout
+`redirect()`, and a handful of router/prefetch regression fixtures.
+
+The `scss` rows are collapsed in `docs/harness-coverage.md` into one line, which
+makes three collapsed rows in that table. Judgment call: on our side those 27 files
+test one thing 27 ways — an emitted stylesheet reaching the browser from S3 through
+the distribution — so spelling them out would add 27 lines and no information. They
+stay in `rules.include` because they are the project's only Sass coverage and they
+cost ~95s each.
+
+The two red files, `revalidate-dynamic` (2 of 2) and `revalidate-path-with-rewrites`
+(1 of 2, the `static page` case), are the documented CDN-inherent invalidation-timing
+case: the test calls a route handler that runs `revalidatePath`, then re-reads
+through CloudFront inside `retry()`'s 3s default, and a `CreateInvalidation` does not
+land that fast. `revalidate-dynamic` returned the *same* random value across both
+cases and both attempts, which is what an edge hit looks like; the
+`revalidate-path-with-rewrites` `dynamic page` case passed in 1.2s because there is
+no prerender to invalidate.
+
+Neither should have been deployed at all. The verdict existed — written months of
+batches ago — but under an `excluded-notes` key spelled as prose,
+`"revalidation behind the CDN, two files"`, and the **verdict** screen added earlier
+today only matches keys that start with `test/e2e/`. So the screen worked and the key
+did not, and two deploy slots (~200s) went to re-proving a known result. Fixed by
+re-keying: `revalidate-dynamic` now has its own file-path `excluded-notes` entry, and
+`revalidate-path-with-rewrites` moved into `suites` with the `static page` case named
+in `failed`, which is strictly better than excluding it — its dynamic-page case now
+runs every time. The general rule, now recorded in the coverage doc: **a verdict is
+only as durable as the manifest key it is written under.**
+
+Audited the rest of the pool for the same gap: no other candidate has a verdict
+written anywhere in `docs/harness-coverage.md`. `segment-cache/cached-navigations-*`
+and `vary-params/root-params-segment-prefetch` look like doc mentions but are
+genuinely different test files in a directory whose main file is already included.
+
+`rules.include` 246 → 294, `suites` 3 → 4, candidates 195 → 145 (~4.5 hours left).
+Batch 16 launched with the next 50 — the `segment-cache/*` remainder, then the
+`app-dir` tail and the start of the non-`app-dir` e2e directories.
