@@ -118,9 +118,21 @@ export class MiddlewareRunner {
   }
 
   private load(): Promise<MiddlewareHandler> {
-    this.handler ??= this.options.loadHandler
-      ? this.options.loadHandler()
-      : loadMiddlewareHandler(this.options.root, this.options.middleware);
+    if (!this.handler) {
+      const handler = this.options.loadHandler
+        ? this.options.loadHandler()
+        : loadMiddlewareHandler(this.options.root, this.options.middleware);
+      this.handler = handler;
+      // Forgotten on failure: middleware runs on every request, so a cached
+      // rejection is the whole app answering 500 for the life of the sandbox over
+      // a load failure that may have nothing to do with the module (EMFILE under
+      // a cold-start burst, an allocation near the memory limit).
+      handler.catch(() => {
+        if (this.handler === handler) {
+          this.handler = undefined;
+        }
+      });
+    }
     return this.handler;
   }
 }

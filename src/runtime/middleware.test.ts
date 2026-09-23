@@ -154,6 +154,34 @@ describe("MiddlewareRunner request construction", () => {
     expect(loads).toBe(1);
   });
 
+  it("retries a load that failed instead of caching the rejection", async () => {
+    // Middleware runs on every request, so a cached rejection is the whole app
+    // answering 500 for the life of the sandbox — over a load failure that may
+    // have nothing to do with the module (EMFILE under a cold-start burst, an
+    // allocation near the memory limit).
+    let loads = 0;
+    const runner = createMiddlewareRunner({
+      middleware: manifest.middleware!,
+      root: "/unused",
+      loadHandler: async () => {
+        loads += 1;
+        if (loads === 1) {
+          throw new Error("EMFILE");
+        }
+        return async () => next();
+      },
+    });
+    const dispatch = () =>
+      createDispatcher({
+        manifest,
+        invokeMiddleware: runner.invokerFor(),
+      }).dispatch(request("/isr/1"));
+
+    await expect(dispatch()).rejects.toThrow(/EMFILE/);
+    await expect(dispatch()).resolves.toBeDefined();
+    expect(loads).toBe(2);
+  });
+
   it("attributes a middleware throw to middleware", async () => {
     await expect(
       dispatchThrough(async () => {

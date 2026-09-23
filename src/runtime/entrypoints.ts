@@ -54,6 +54,16 @@ export class EntrypointRegistry {
       // Cached as the promise so two concurrent first requests for one route
       // share a single (expensive) module load.
       this.handlers.set(entrypoint.filePath, handler);
+      // Evicted on failure, because the cache is keyed on the file and not on
+      // the attempt: a load can fail for a reason that has nothing to do with the
+      // file (EMFILE under a cold-start burst, an allocation near the memory
+      // limit), and a cached rejection makes that transient failure permanent —
+      // the same 500 for every later request until the sandbox is recycled.
+      handler.catch(() => {
+        if (this.handlers.get(entrypoint.filePath) === handler) {
+          this.handlers.delete(entrypoint.filePath);
+        }
+      });
     }
     return handler;
   }
