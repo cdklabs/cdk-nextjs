@@ -20,7 +20,11 @@
  *   and no per-case `failed` entry can rescue it.
  * - **skipped-upstream** — `describe.skip`, so the file reports "passing" in
  *   seconds without deploying anything. Adding it claims coverage that does not
- *   exist.
+ *   exist. This one over-reports, because the match is textual and some skips are
+ *   conditional: `incremental-cache-path-traversal` writes
+ *   `(process.env.__NEXT_CACHE_COMPONENTS ? describe.skip : describe)`, which the
+ *   harness does not set, so the file does run and did find a real defect. A file
+ *   disqualified only by this screen is worth re-reading before it is dismissed.
  * - **skipDeployment** — the same trap, spelled in the `nextTestSetup` call:
  *   next.js replaces the whole file with `it.only('should skip next deploy')`.
  *   The costliest screen to have been missing — it covers 236 of what were

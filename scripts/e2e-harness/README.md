@@ -197,7 +197,11 @@ against the test file rather than the fixture:
   pool, and two files reached `rules.include` on the strength of a 4s "pass".
 - `describe.skip` / `(isNextDev ? describe : describe.skip)` — a file skipped
   upstream reports as passing in a few seconds without deploying anything, and
-  adding it to `rules.include` claims coverage that does not exist.
+  adding it to `rules.include` claims coverage that does not exist. This screen
+  over-reports: the match is textual, so a skip conditional on something the
+  harness does not set is caught too. `incremental-cache-path-traversal` is one
+  (`__NEXT_CACHE_COMPONENTS`), it runs fine, and it found a real defect. Re-read
+  any file this screen alone disqualifies.
 - `isNextDeploy` — usually next.js itself gating out what cannot work behind a
   CDN. Not always disqualifying, but read the gate before adding the file.
 - `output: 'export'` in the fixture — a static export is not what any
@@ -295,6 +299,30 @@ ADAPTER_DIR=/path/to/cdk-nextjs /path/to/cdk-nextjs/scripts/e2e-deploy.sh
 ADAPTER_DIR=/path/to/cdk-nextjs /path/to/cdk-nextjs/scripts/e2e-logs.sh
 ADAPTER_DIR=/path/to/cdk-nextjs /path/to/cdk-nextjs/scripts/e2e-cleanup.sh
 ```
+
+## Debugging one failing file without deploying
+
+A deployed iteration costs 2–3 minutes and gives you a log. `e2e-offline.sh` costs
+~90 seconds and gives you a server you can instrument:
+
+```bash
+scripts/e2e-offline.sh app-dir/layout-params   # then curl :3112 and :3113
+```
+
+It builds the fixture through the adapter and serves the same build twice — once
+by our container shell, once by `next start` — so "why does the deployment
+disagree with next.js" becomes one `diff` of two responses. Defects 11, 13 and 14
+in `docs/harness-coverage.md` were all found this way; 11 in particular had
+survived one wrong fix because the value in question only shows up under a
+debugger (`JSON.stringify` erases it).
+
+Two limits. The fixture is staged *inside* the next.js checkout, because module
+resolution has to walk up to its `node_modules/next` — the script handles that, but
+it means the app directory is not in this repo and you should delete it when done.
+And the runtime cache reads S3 only, so a route served entirely from a build-time
+prerender answers `invariant: cache entry required but not generated` offline; for
+those, read the seed directory (`.next/cdk-nextjs-init-cache`) instead of the
+response, or deploy.
 
 ## Cleanup and safety
 
