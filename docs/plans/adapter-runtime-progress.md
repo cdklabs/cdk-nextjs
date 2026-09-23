@@ -3367,3 +3367,44 @@ Two new cases in `src/nextjs-cache.test.ts`: the deployment has no
 directory (either assertion alone would pass while the keys moved), and the cache
 bucket's `aws-cdk:cr-owned:` tag set is identical across two different build IDs.
 Verified with `pnpm compile`, the full `pnpm jest` (393 tests) and `pnpm eslint`.
+
+### Batch 9's verdicts: 11 more files in, and three "failures" that were only slow
+
+Batch 9 ran 23 harness files against `hrns-shared`. Eleven came back green and are
+now in `test/deploy-tests-manifest.json`'s `rules.include` (61 → 72), with a row
+each in `docs/harness-coverage.md`'s Passing table: `404-page-app`,
+`app-dir/default-error-page-ui`, `app-dir/javascript-urls`,
+`app-dir/parallel-route-not-found`, `app-dir/static-generation-status`,
+`app-dir/use-cache-metadata-route-handler`, `app-dir/use-router-bfcache-id`,
+`auto-export`, `invalid-href`, `link-ref-app`, `router-is-ready`.
+`node scripts/e2e-harness/screen.mjs --next ../next.js --write` regenerated the
+`screening` block: 72 included, 424 candidates.
+
+Of the eleven failures, four are not defects:
+
+- `script-loader`, `src-dir-support` and `trailing-slashes-href-resolving` threw
+  `Exceeded timeout of 240000 ms for a hook` out of `beforeAll` — 39 occurrences
+  between them — and were the three slowest files in the run (1153s, 985s, 635s).
+  Nothing under test ran. Read the duration, not the case names: `src-dir-support`
+  reports 8 of 8 "routing" cases failing and not one of them executed. These are
+  the files the cache bucket's churning `Tags` timed out, so they are requeued
+  rather than diagnosed.
+- `app-dir/mdx` (2 of 27) was the harness reporting `$STACK_NAME` as
+  `DEPLOYMENT_ID` where next.js compares against the `?dpl=` the build inlined.
+  Fixed in `scripts/e2e-deploy.sh` and requeued.
+
+The other seven are real and unexplained, so they get a new
+`## Failing — awaiting a verdict` section rather than an `excluded-notes` entry —
+an `excluded-notes` entry is a decision, and no decision has been made. Recorded
+with case counts and the failing assertion so the next session starts from the
+symptom: `new-link-behavior` (2/7) and `legacy-link-behavior-pages` (2/8) both see
+an empty `<a>` text where a label is expected, which is one suspected cause;
+`prerender-preview` (1/9) and `preview-fallback` (1/6) are both preview/draft
+mode, which is a second; then `app-document/rendering` (1/10),
+`i18n-support-catchall` (1/4) and `next-image-legacy/default` (1/28, so not the
+image optimizer wholesale).
+
+Also reworded the manifest's `app-dir/asset-prefix` note: it said "Excluded as an
+OPEN BUG", but defect 16 fixed it. It now says the file stays out of
+`rules.include` only until a deployment says it is green, which batch 10 is
+currently establishing.

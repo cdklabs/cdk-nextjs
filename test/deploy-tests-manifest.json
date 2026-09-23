@@ -28,6 +28,7 @@
   ],
   "rules": {
     "include": [
+      "test/e2e/404-page-app/404-page-app.test.ts",
       "test/e2e/app-dir/actions-revalidate-remount/actions-revalidate-remount.test.ts",
       "test/e2e/app-dir/actions-streaming/actions-streaming.test.ts",
       "test/e2e/app-dir/app-basepath/index.test.ts",
@@ -38,6 +39,7 @@
       "test/e2e/app-dir/catch-error/catch-error.test.ts",
       "test/e2e/app-dir/catchall-specificity/catchall-specificity.test.ts",
       "test/e2e/app-dir/conflicting-search-and-route-params/conflicting-search-and-route-params.test.ts",
+      "test/e2e/app-dir/default-error-page-ui/default-error-page-ui.test.ts",
       "test/e2e/app-dir/dynamic-interception-route-revalidate/dynamic-interception-route-revalidate.test.ts",
       "test/e2e/app-dir/dynamic-requests/dynamic-requests.test.ts",
       "test/e2e/app-dir/error-boundary-navigation/index.test.ts",
@@ -50,6 +52,7 @@
       "test/e2e/app-dir/interception-dynamic-segment/interception-dynamic-segment.test.ts",
       "test/e2e/app-dir/interception-dynamic-single-segment/interception-dynamic-single-segment.test.ts",
       "test/e2e/app-dir/interception-routes-root-catchall/interception-routes-root-catchall.test.ts",
+      "test/e2e/app-dir/javascript-urls/javascript-urls.test.ts",
       "test/e2e/app-dir/layout-params/layout-params.test.ts",
       "test/e2e/app-dir/metadata-icons/metadata-icons.test.ts",
       "test/e2e/app-dir/metadata-image-files/metadata-image-files.test.ts",
@@ -60,6 +63,7 @@
       "test/e2e/app-dir/not-found-with-pages-i18n/not-found-with-pages.test.ts",
       "test/e2e/app-dir/optimistic-routing/optimistic-routing.test.ts",
       "test/e2e/app-dir/pages-router-app-not-found/pages-router-app-not-found.test.ts",
+      "test/e2e/app-dir/parallel-route-not-found/parallel-route-not-found.test.ts",
       "test/e2e/app-dir/parallel-routes-root-param-dynamic-child/parallel-routes-root-param-dynamic-child.test.ts",
       "test/e2e/app-dir/partial-fallback-root-blocking/partial-fallback-root-blocking.test.ts",
       "test/e2e/app-dir/partial-fallback-shell-upgrade/partial-fallback-shell-upgrade.test.ts",
@@ -83,12 +87,19 @@
       "test/e2e/app-dir/segment-cache/vary-params/vary-params.test.ts",
       "test/e2e/app-dir/server-actions-relative-redirect/server-actions-relative-redirect.test.ts",
       "test/e2e/app-dir/shallow-routing/shallow-routing.test.ts",
+      "test/e2e/app-dir/static-generation-status/index.test.ts",
       "test/e2e/app-dir/static-rsc-cache-components/static-rsc-cache-components.test.ts",
       "test/e2e/app-dir/static-siblings/static-siblings.test.ts",
       "test/e2e/app-dir/sub-shell-generation/sub-shell-generation.test.ts",
+      "test/e2e/app-dir/use-cache-metadata-route-handler/use-cache-metadata-route-handler.test.ts",
       "test/e2e/app-dir/use-cache-private/use-cache-private.test.ts",
       "test/e2e/app-dir/use-params/use-params.test.ts",
-      "test/e2e/app-dir/use-selected-layout-segment-s/use-selected-layout-segment-s.test.ts"
+      "test/e2e/app-dir/use-router-bfcache-id/use-router-bfcache-id.test.ts",
+      "test/e2e/app-dir/use-selected-layout-segment-s/use-selected-layout-segment-s.test.ts",
+      "test/e2e/auto-export/auto-export.test.ts",
+      "test/e2e/invalid-href/invalid-href.test.ts",
+      "test/e2e/link-ref-app/link-ref-app.test.ts",
+      "test/e2e/router-is-ready/router-is-ready.test.ts"
     ],
     "exclude": []
   },
@@ -201,15 +212,17 @@
       "does not simply register them."
     ],
     "test/e2e/app-dir/asset-prefix/asset-prefix.test.ts": [
-      "Excluded as an OPEN BUG, not as acceptable: 2 of 7 cases fail reproducibly because cdk-nextjs does",
-      "not serve `${assetPrefix}/_next/static/…`. Routing is fine - the failing assertions live in an",
+      "Excluded pending deployed evidence, not as acceptable: the bug is fixed (defect 16 in",
+      "docs/harness-coverage.md) but the file has not yet come back green from a deployment, so it stays",
+      "out of `rules.include` until it does. What used to fail: 2 of 7 cases, because cdk-nextjs did not",
+      "serve `${assetPrefix}/_next/static/…`. Routing was fine - the failing assertions live in an",
       "un-awaited `bundles.forEach(async …)`, which is why jest reports them against the rewrite cases.",
       "",
       "With `assetPrefix: '/custom-asset-prefix'` Next.js emits script srcs under that prefix, while the",
-      "build's `staticFiles` keys stay unprefixed and the Lambda package has no `.next/static` at all (the",
-      "assets live in S3 behind CloudFront's `_next/static*` behavior). The prefixed URL misses that",
-      "behavior, falls through to the compute's default behavior, is rewritten to `/_next/static/…` and",
-      "404s. See docs/harness-coverage.md for the measurement and the two candidate fixes."
+      "build's `staticFiles` keys stayed unprefixed and the Lambda package has no `.next/static` at all",
+      "(the assets live in S3 behind CloudFront's `_next/static*` behavior). The prefixed URL missed that",
+      "behavior, fell through to the compute's default behavior, was rewritten to `/_next/static/…` and",
+      "404'd. See docs/harness-coverage.md for the measurement and the fix that landed."
     ],
     "test/e2e/app-dir/segment-cache/refresh/segment-cache-refresh.test.ts": [
       "Not excluded by us, and there is nothing to run: the file is `describe.skip` upstream, commented",
@@ -256,10 +269,10 @@
     ],
     "next-version": "16.3.5",
     "e2e-files": 1134,
-    "included": 61,
+    "included": 72,
     "included-in-part": 3,
     "edge-free": 931,
-    "candidates": 435,
+    "candidates": 424,
     "disqualified-by": {
       "skipDeployment": 375,
       "middleware": 127,
