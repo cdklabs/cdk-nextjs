@@ -209,6 +209,15 @@ export class NextjsBuild extends Construct {
       "cdk-nextjs-init-cache",
     );
 
+    // Before the build, not after it: the build is minutes long, and the env var
+    // it passes groups through is only set for a non-empty array — so an invalid
+    // `functionGroups` (an empty array, a reserved name, a group owning no
+    // routes) would otherwise be reported as "the build staged the wrong
+    // groups", after paying for the build, instead of as the prop error it is.
+    if (props.functionGroups) {
+      validateFunctionGroups(props.functionGroups as FunctionGroupSpec[]);
+    }
+
     // Execute local build process
     if (props.skipBuild !== true) {
       this.runNextBuild();
@@ -285,9 +294,8 @@ export class NextjsBuild extends Construct {
     const requested = this.props.functionGroups;
     const staged = manifest.groups;
 
-    if (requested && requested.length > 0) {
-      validateFunctionGroups(requested as FunctionGroupSpec[]);
-    }
+    // Already validated in the constructor, so `requested` here is either absent
+    // or a non-empty, well-formed list.
     const wanted = requested?.length
       ? [DEFAULT_FUNCTION_GROUP, ...requested.map((group) => group.name)].sort()
       : undefined;
