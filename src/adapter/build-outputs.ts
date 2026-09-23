@@ -293,6 +293,13 @@ export function buildAdapterManifest(
   const functionGroups =
     options.functionGroups ??
     parseFunctionGroupsEnv(process.env[FUNCTION_GROUPS_ENV_VAR]);
+  // i18n is checked first: it rejects the combination outright, and running it
+  // after the assignment meant an i18n app got the assignment's "pattern matches
+  // no route" error instead — true, but about the wrong thing, since a localized
+  // template never matches an unlocalized pattern.
+  if (functionGroups) {
+    assertNoI18nSplitting(ctx.config.i18n ?? null);
+  }
   const assignment = functionGroups
     ? assignRoutesToGroups(
         functionGroups,
@@ -303,9 +310,6 @@ export function buildAdapterManifest(
         { basePath: ctx.config.basePath || "" },
       )
     : undefined;
-  if (assignment) {
-    assertNoI18nSplitting(ctx.config.i18n ?? null);
-  }
 
   const manifest: AdapterManifest = {
     version: ADAPTER_MANIFEST_VERSION as 1,
