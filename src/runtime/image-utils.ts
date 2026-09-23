@@ -34,6 +34,16 @@ export interface S3AssetLocation {
  * leaving a path relative to the asset root, and the bucket's own key prefix is
  * applied to that. Deriving the key from `basePath` instead is wrong whenever the
  * two differ, which they do for every API Gateway deployment.
+ *
+ * The key is percent-decoded, because an S3 key is the file's real name while
+ * `url` is a URL path. `public/hello world.jpg` arrives here as
+ * `/hello%20world.jpg` — the `url` query value is double-encoded, so decoding the
+ * query string leaves one layer — and its object key is `hello world.jpg`.
+ * Next.js's own `fetchInternalImage` gets the decode for free, since it makes an
+ * HTTP subrequest and its static file server resolves the path against the
+ * filesystem; skipping it here 400'd that file
+ * (`next-image-legacy/unicode`). Unicode needs nothing: `äöüščří.png` survives
+ * the query decode as itself and is already the object's name.
  */
 export async function fetchFromS3(
   s3: S3Client,
@@ -54,7 +64,8 @@ export async function fetchFromS3(
     "",
   );
   const prefix = keyPrefix.replace(/^\/+|\/+$/g, "");
-  const key = prefix ? `${prefix}/${assetPath}` : assetPath;
+  const decoded = decodePath(assetPath);
+  const key = prefix ? `${prefix}/${decoded}` : decoded;
 
   const response = await s3.send(
     new GetObjectCommand({
@@ -78,6 +89,23 @@ export async function fetchFromS3(
     contentType: response.ContentType || null,
     etag: response.ETag || "",
   };
+}
+
+/**
+ * Percent-decodes a URL path into the name the file actually has on disk, or in
+ * S3. Falls back to the path as given when it isn't valid percent-encoding, which
+ * is what a literal `%` in a filename looks like: `public/100%.png` is requested
+ * as `/100%.png` (a `%` in a path is legal and browsers don't escape it), and
+ * `decodeURIComponent` throws `URIError` on it. The undecoded name is the right
+ * answer there, and a genuinely malformed request just misses the key and gets
+ * the same 400 an absent file gets.
+ */
+function decodePath(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }
 
 /** `getExtension` from `next/dist/server/serve-static.js`. */

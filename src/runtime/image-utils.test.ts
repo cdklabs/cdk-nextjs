@@ -134,6 +134,28 @@ describe("fetchFromS3", () => {
     expect(keyOf()).toBe("base/static/foo.jpg");
   });
 
+  // `next-image-legacy/unicode`, whose `public/` holds both of these names. The
+  // space is what broke: the key is the file's real name, the url is a URL path.
+  it.each([
+    ["/hello%20world.jpg", "hello world.jpg"],
+    ["/äöüščří.png", "äöüščří.png"],
+    ["/%C3%A4%C3%B6.png", "äö.png"],
+  ])("decodes %s into the object's real name", async (url, key) => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", url, ROOT);
+
+    expect(keyOf()).toBe(key);
+  });
+
+  it("leaves a name that isn't valid percent-encoding alone", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/100%.png", ROOT);
+
+    expect(keyOf()).toBe("100%.png");
+  });
+
   it("returns the concatenated buffer, content type, and etag", async () => {
     mockSend.mockResolvedValue({
       Body: asyncIterableFrom([Buffer.from("hel"), Buffer.from("lo")]),
