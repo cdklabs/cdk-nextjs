@@ -112,6 +112,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
         };
       }),
       hasDataRoutes: this.nextjsBuild.hasDataRoutes,
+      trailingSlash: this.nextjsBuild.trailingSlash,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
     });
   }

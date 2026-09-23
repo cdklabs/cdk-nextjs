@@ -343,15 +343,26 @@ export function assignRoutesToGroups(
  * Two patterns come back when the group owns a Pages Router route: its RSC-era
  * equivalent is a second URL space, `/_next/data/<buildId>/<route>.json`, which
  * the default behavior would otherwise send to the default group.
+ *
+ * A third comes back for an exact route in a `trailingSlash` app, where the
+ * canonical URL is `/pricing/` rather than `/pricing`: the bare pattern does not
+ * match it, so without this every request for the route the user actually links to
+ * falls through to the default group's function — which, for a Pages Router API
+ * route, has no entrypoint for it at all. Subtree patterns need no variant
+ * (`pricing/*` already matches `/pricing/`), and neither do the data URLs, which
+ * never carry the slash.
  */
 export function pathPatternsFor(
   route: string,
-  options: { hasDataRoutes: boolean },
+  options: { hasDataRoutes: boolean; trailingSlash?: boolean },
 ): string[] {
   const isSubtree = route.endsWith(SUBTREE_SUFFIX);
   const base = isSubtree ? route.slice(0, -SUBTREE_SUFFIX.length) : route;
   const bare = base.replace(/^\//, "");
   const patterns = [isSubtree ? `${bare}/*` : bare];
+  if (!isSubtree && options.trailingSlash && bare) {
+    patterns.push(`${bare}/`);
+  }
   if (options.hasDataRoutes) {
     // The build ID sits between `_next/data` and the route, and changes every
     // build, so it is the one place a `*` is load-bearing rather than a fallback.

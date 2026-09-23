@@ -163,6 +163,24 @@ describe("NextjsDistribution function group behaviors", () => {
     );
   });
 
+  it("adds the trailing-slash form of an exact pattern for a trailingSlash app", () => {
+    // With `trailingSlash: true` the app links to `/pricing/`, which `pricing`
+    // does not match: the canonical URL fell through to the default function,
+    // which does not have the route packaged.
+    const { stack, functionGroups, distributionProps } = setup(["mkt"], {
+      routesFor: () => ["/pricing"],
+    });
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+      trailingSlash: true,
+    });
+    expect(pathPatterns(stack).slice(2).sort()).toEqual([
+      "pricing",
+      "pricing/",
+    ]);
+  });
+
   it("counts the basePath behaviors against the budget", () => {
     const { stack, distributionProps } = setup([], {
       basePath: "/base",

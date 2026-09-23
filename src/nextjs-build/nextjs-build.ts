@@ -191,6 +191,13 @@ export class NextjsBuild extends Construct {
    * `functionGroups` cares: a group's routes have to be reachable in both.
    */
   hasDataRoutes: boolean;
+  /**
+   * The app's `next.config` `trailingSlash`. Only `functionGroups` cares: it
+   * decides which URL a route's own pattern has to match, since a
+   * `trailingSlash` app links to `/pricing/` and not `/pricing`.
+   * @see AdapterManifest.config
+   */
+  trailingSlash: boolean;
 
   private props: NextjsBuildProps;
   private buildCommand: string;
@@ -250,6 +257,7 @@ export class NextjsBuild extends Construct {
     this.hasDataRoutes = Object.values(manifest.entrypoints).some(
       (entrypoint) => entrypoint.type === "page",
     );
+    this.trailingSlash = manifest.config.trailingSlash;
     this.deploymentRoots = this.resolveDeploymentRoots(manifest);
     this.deploymentRootPath = this.deploymentRoots[0].path;
 

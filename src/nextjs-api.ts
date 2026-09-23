@@ -1,4 +1,4 @@
-import { Size, Stack } from "aws-cdk-lib";
+import { Annotations, Size, Stack } from "aws-cdk-lib";
 import {
   RestApi,
   LambdaIntegration,
@@ -22,6 +22,7 @@ import {
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
+import { LOG_PREFIX } from "./constants";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
 import { joinPath, normalizeBasePath } from "./utils/base-path";
 
@@ -82,6 +83,14 @@ export interface NextjsApiProps {
    * @default false
    */
   readonly hasDataRoutes?: boolean;
+  /**
+   * The app's `next.config` `trailingSlash`. Only used to warn, because an API
+   * Gateway resource path cannot express the canonical URL it produces.
+   * Ignored without {@link functionGroups}.
+   * @default false
+   * @see NextjsApi.warnOnTrailingSlashGroups
+   */
+  readonly trailingSlash?: boolean;
 }
 
 /** A non-default function group and the Lambda its routes must reach. */
@@ -372,6 +381,7 @@ export class NextjsApi extends Construct {
     if (!groups?.length) {
       return;
     }
+    this.warnOnTrailingSlashGroups(groups);
     for (const group of groups) {
       const integration = new LambdaIntegration(group.function, {
         responseTransferMode: ResponseTransferMode.STREAM,
@@ -383,6 +393,44 @@ export class NextjsApi extends Construct {
         }
       }
     }
+  }
+
+  /**
+   * An exact group route in a `trailingSlash` app cannot be routed here, so say so
+   * at synth rather than at the first request.
+   *
+   * `trailingSlash: true` makes `/pricing/` the canonical URL, and API Gateway
+   * matches a request path literally: `/pricing/` does not reach the `/pricing`
+   * resource, it reaches the root `{proxy+}` and so the default function. There is
+   * no resource that would catch it either — a path part cannot be empty, and a
+   * `{proxy+}` child would claim every route *under* `/pricing` as well, packaging
+   * routes into a group the edge never sends there. `NextjsDistribution` adds a
+   * `pricing/` behavior instead, which is why only this construct warns.
+   *
+   * Subtree patterns are unaffected: `/reports/**` becomes
+   * `/reports/{proxy+}`, which matches the slash-suffixed URLs beneath it.
+   */
+  private warnOnTrailingSlashGroups(groups: NextjsApiFunctionGroup[]) {
+    if (!this.props.trailingSlash) {
+      return;
+    }
+    const exact = groups.flatMap((group) =>
+      group.routes
+        .filter((route) => !route.endsWith("/**"))
+        .map((route) => `"${route}" (group "${group.name}")`),
+    );
+    if (exact.length === 0) {
+      return;
+    }
+    Annotations.of(this).addWarning(
+      `${LOG_PREFIX} Your app sets \`trailingSlash: true\`, so it links to ` +
+        `"/pricing/" rather than "/pricing", and an API Gateway resource path ` +
+        `cannot match a trailing slash. These \`functionGroups\` patterns will ` +
+        `only take effect for the slash-less URL, with the canonical one falling ` +
+        `through to the default function: ${exact.join(", ")}. Write them as ` +
+        `subtree patterns (e.g. "/reports/**") where that suits the app, or use ` +
+        `NextjsGlobalFunctions, whose CloudFront behaviors cover both spellings.`,
+    );
   }
 
   /**

@@ -7,6 +7,12 @@ import type { NextjsDistributionFunctionGroup, NextjsType, PublicDirEntry } from
  */
 export interface OptionalNextjsDistributionProps {
   /**
+   * The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}.
+   * @default false
+   * @stability stable
+   */
+  readonly trailingSlash?: boolean;
+  /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
    * @stability stable
    */
@@ -45,6 +51,19 @@ export interface OptionalNextjsDistributionProps {
    * @stability stable
    */
   readonly basePath?: string;
+  /**
+   * The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one.
+   * Next.js emits `<assetPrefix>/_next/static/...` for
+   * every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
+   * so this gets a cache behavior of its own that rewrites the prefix away.
+   *
+   * Applied on top of `basePath`, not under it, because that is how Next.js
+   * builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
+   * serve and should not be passed here.
+   * @default - read from the build's `required-server-files.json`
+   * @stability stable
+   */
+  readonly assetPrefix?: string;
   /**
    * Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
    * @stability stable

@@ -121,6 +121,13 @@ export interface NextjsDistributionProps {
    * @default false
    */
   readonly hasDataRoutes?: boolean;
+  /**
+   * The app's `next.config` `trailingSlash`. A `trailingSlash` app links to
+   * `/pricing/`, which an exact group pattern of `pricing` does not match, so
+   * each one needs a slash variant. Ignored without {@link functionGroups}.
+   * @default false
+   */
+  readonly trailingSlash?: boolean;
 }
 
 /** A non-default function group and the origin its routes must reach. */
@@ -456,6 +463,13 @@ export class NextjsDistribution extends Construct {
       // if no base path, then default behavior will handle all other paths
     }
   }
+  /** Shared by the behaviors themselves and by the budget that counts them. */
+  private get pathPatternOptions() {
+    return {
+      hasDataRoutes: this.props.hasDataRoutes ?? false,
+      trailingSlash: this.props.trailingSlash ?? false,
+    };
+  }
   /**
    * One behavior per group pattern, most specific first.
    *
@@ -479,9 +493,11 @@ export class NextjsDistribution extends Construct {
     const behaviors = groups
       .flatMap((group) =>
         group.routes.flatMap((route) =>
-          pathPatternsFor(route, {
-            hasDataRoutes: this.props.hasDataRoutes ?? false,
-          }).map((pattern) => ({ group, route, pattern })),
+          pathPatternsFor(route, this.pathPatternOptions).map((pattern) => ({
+            group,
+            route,
+            pattern,
+          })),
         ),
       )
       .sort(
@@ -611,10 +627,7 @@ export class NextjsDistribution extends Construct {
         total +
         group.routes.reduce(
           (count, route) =>
-            count +
-            pathPatternsFor(route, {
-              hasDataRoutes: this.props.hasDataRoutes ?? false,
-            }).length,
+            count + pathPatternsFor(route, this.pathPatternOptions).length,
           0,
         ),
       0,

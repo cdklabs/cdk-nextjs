@@ -268,4 +268,29 @@ describe("pathPatternsFor", () => {
       "_next/data/*/pricing.json",
     ]);
   });
+
+  it("adds the trailing-slash form for a trailingSlash app", async () => {
+    // With `trailingSlash: true` the canonical URL is `/pricing/`, and that is
+    // what every link in the app points at. A behavior on `pricing` alone does
+    // not match it, so the request fell through to the default function - which
+    // does not have the route packaged.
+    expect(pathPatternsFor("/pricing", { hasDataRoutes: false })).toEqual([
+      "pricing",
+    ]);
+    expect(
+      pathPatternsFor("/pricing", {
+        hasDataRoutes: false,
+        trailingSlash: true,
+      }),
+    ).toEqual(["pricing", "pricing/"]);
+  });
+
+  it("leaves a subtree pattern alone, which already matches both forms", () => {
+    expect(
+      pathPatternsFor("/api/reports/**", {
+        hasDataRoutes: false,
+        trailingSlash: true,
+      }),
+    ).toEqual(["api/reports/*"]);
+  });
 });

@@ -1,6 +1,6 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { App, Stack } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   Code,
@@ -252,6 +252,61 @@ describe("NextjsApi", () => {
           }),
         ),
       ).toBe("https://{NextjsApiRestApiCustomDomain}/team-a");
+    });
+  });
+
+  describe("functionGroups under trailingSlash", () => {
+    function fn(id: string): LambdaFunction {
+      return new LambdaFunction(stack, id, {
+        runtime: Runtime.NODEJS_22_X,
+        handler: "index.handler",
+        code: Code.fromInline("exports.handler = async () => {};"),
+      });
+    }
+
+    function createApiWithGroups(
+      routes: string[],
+      trailingSlash?: boolean,
+    ): NextjsApi {
+      return new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: fn("ServerFn"),
+        publicDirEntries: [],
+        trailingSlash,
+        functionGroups: [{ name: "reports", routes, function: fn("GroupFn") }],
+      });
+    }
+
+    function warnings(api: NextjsApi): string[] {
+      return Annotations.fromStack(stack)
+        .findWarning(`/${api.node.path}`, Match.anyValue())
+        .map((warning) => warning.entry.data as string);
+    }
+
+    it("warns that an exact route's canonical URL cannot be routed", () => {
+      // `trailingSlash: true` links to "/pricing/", and no API Gateway resource
+      // matches a trailing slash: the request reaches the root `{proxy+}` and so
+      // the default function, which does not have the route packaged. The warning
+      // is the fix here, because the resource tree cannot express it.
+      const api = createApiWithGroups(["/pricing", "/reports/**"], true);
+
+      const message = warnings(api).join("\n");
+      expect(message).toContain('"/pricing" (group "reports")');
+      // The subtree pattern is named only as the suggested fix, never as an
+      // affected route.
+      expect(message).not.toContain('"/reports/**" (group');
+    });
+
+    it("does not warn about subtree patterns, which `{proxy+}` already covers", () => {
+      const api = createApiWithGroups(["/reports/**"], true);
+
+      expect(warnings(api)).toEqual([]);
+    });
+
+    it("says nothing without trailingSlash", () => {
+      const api = createApiWithGroups(["/pricing"]);
+
+      expect(warnings(api)).toEqual([]);
     });
   });
 });
