@@ -3932,3 +3932,26 @@ cannot be built here".
 
 Batch 14 keeps running; `next-image-legacy/unicode` sorts late and is still the
 outstanding deployed verdict on defect 24.
+
+### Batch 14, part 2: 32 green, and defect 24 verified
+
+Batch 14 finished 32 green / 18 failed, and the 18 are exactly the excluded
+`next-config-ts-native-ts` family above — no other file failed. Its non-zero exit
+means nothing beyond that.
+
+`next-image-legacy/unicode` passed all 5 cases on attempt 0 in 163s, which is the
+deployed verdict on **defect 24** (percent-decoding a `public/` filename before
+building the S3 key). Every one of the 23 harness defects is now verified green
+against a real deployment, not just unit-tested.
+
+The other 31 are a broad slice of parallel routes — 17 files covering catch-all
+slots, slot specificity, route groups, per-slot CSS and layouts, `default.tsx`,
+scroll ownership, `useSelectedLayoutSegment`, `generateStaticParams` inside a slot
+— plus four PPR/partial-prefetching files, `next/script`, `next/dynamic` CSS,
+`<Image>` events, and `next.config` header de-duplication. Listed individually
+rather than collapsed: unlike the `next-config-ts` matrix these are different
+features, not one fixture crossed with build variants.
+
+`rules.include` 214 → 246, candidates 227 → 195. `pnpm bundle`, then batch 15
+launched with the next 50 candidates — mostly the 29-file `app-dir/scss/*` matrix
+and the `segment-cache/*` family.
