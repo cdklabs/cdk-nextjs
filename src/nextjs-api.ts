@@ -176,11 +176,24 @@ export class NextjsApi extends Construct {
 
   /**
    * Create base resource path if needed. Important if `basePath` is set.
+   *
+   * A nested `basePath` ("/team/app") has to become one resource per segment:
+   * API Gateway path parts can't contain "/", so passing the whole thing to a
+   * single `addResource` fails validation at synth. `resolveBasePath` accepts
+   * nested values, so this is reachable.
    */
   private createBaseResource(basePath?: string): IResource {
     // Create base resource path if needed
     const normalized = normalizeBasePath(basePath);
-    return normalized ? this.api.root.addResource(normalized) : this.api.root;
+    if (!normalized) {
+      return this.api.root;
+    }
+    return normalized
+      .split("/")
+      .reduce<IResource>(
+        (parent, segment) => parent.addResource(segment),
+        this.api.root,
+      );
   }
 
   private createStaticIntegrationRole() {

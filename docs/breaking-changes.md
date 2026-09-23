@@ -21,9 +21,10 @@ at synth, and derived from the app where there's only one value that can work.
   `basePath` must end with it — either equal to it, or prefixed by the stage or
   base path mapping API Gateway strips (`basePath: "/prod/base"` with the prop
   set to `"/base"`). Anything else throws.
-- `NextjsRegionalContainers`: unchanged. The ALB forwards every path to the
-  container, which serves its own static assets, so the prop only namespaces the
-  S3 bucket and is unconstrained.
+- `NextjsRegionalContainers`: the prop is unconstrained. The ALB forwards every
+  path to the container, which serves its own static assets, so the prop only
+  namespaces the S3 bucket and can't disagree with the app. Its `url` does
+  change, though — see below.
 - Surrounding slashes on the prop are now normalized away, so `"/base"`,
   `"base"` and `"/base/"` all behave identically. Previously the prop was passed
   through to `NextjsDistribution` as written, so a trailing slash produced cache
@@ -41,6 +42,25 @@ at synth, and derived from the app where there's only one value that can work.
   `basePath`, and `NextjsRegionalFunctions.url` reports the custom domain and
   base path mapping when one is configured. All three previously returned a URL
   the app answers with a 404 under these setups.
+- `NextjsRegionalContainers.url` now includes your app's own `basePath` too, for
+  the same reason: the ALB forwards the path to the container unchanged, and the
+  container only answers under its `basePath`. **If you were appending `basePath`
+  to `url` yourself** — in a `CfnOutput`, say — remove that, or the value doubles
+  to `http://<alb>/base/base`.
+- `healthCheckPath` is now prefixed with your app's `basePath` before it reaches
+  the ALB target group health check, the Lambda Web Adapter readiness check, and
+  the container's `wget` probe. Unprefixed, every check 404'd, so the target never
+  turned healthy and the deployment rolled back. **If you prefixed
+  `healthCheckPath` by hand** to work around that — `"/base/api/health"` on an app
+  based at `"/base"` — drop the prefix: the prop is now the path as your app
+  routes it, and a prefixed value becomes `/base/base/api/health`, which 404s.
+  Left as the default `"/api/health"`, nothing changes for you.
+- Static asset pruning is now scoped to the app's S3 key prefix, so apps or
+  branches sharing one bucket under different `basePath`s no longer delete each
+  other's assets once they age past `msTtl`. One-time cleanup: **if you are
+  adding a `basePath` to an existing deployment**, objects already uploaded under
+  the old prefix (the bucket root, usually) are outside the new listing and will
+  never be pruned. Delete them yourself once after the first deploy.
 
 - **Migration:** If your app sets `basePath` and you deploy a Global construct,
   either drop the `basePath` prop or set it to the same value your app uses. The

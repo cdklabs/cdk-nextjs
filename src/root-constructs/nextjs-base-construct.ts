@@ -19,7 +19,7 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
-import { resolveBasePath } from "../utils/base-path";
+import { prefixWithBasePath, resolveBasePath } from "../utils/base-path";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
@@ -260,11 +260,31 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
+   * The health check path as the running app actually serves it.
+   *
+   * Both consumers of this hit the app directly — the ALB target group forwards
+   * the path to the container unchanged, and the container's `wget` probe targets
+   * the local server — so the prefix that matters is the app's own `basePath`,
+   * not `resolvedBasePath` (which for `REGIONAL_CONTAINERS` is only an S3
+   * namespace). Left unprefixed, an app with a `basePath` 404s every health
+   * check, so the target never turns healthy and the deployment rolls back.
+   * `healthCheckPath` is therefore the path as the app routes it, without
+   * `basePath`; one that carries the prefix already gets it twice, which is the
+   * 0.6.2 breaking change for anyone who prefixed by hand to work around this.
+   */
+  private resolvedHealthCheckPath(): string {
+    return prefixWithBasePath(
+      this.nextjsBuild.nextConfigBasePath,
+      this.baseProps.healthCheckPath,
+    );
+  }
+
+  /**
    * Get compute base props for both Lambda functions and containers
    */
   protected computeBaseProps(): NextjsComputeBaseProps {
     return {
-      healthCheckPath: this.baseProps.healthCheckPath,
+      healthCheckPath: this.resolvedHealthCheckPath(),
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       buildId: this.nextjsBuild.buildId,

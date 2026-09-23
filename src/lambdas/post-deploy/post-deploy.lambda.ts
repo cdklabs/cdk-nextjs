@@ -39,6 +39,7 @@ export const handler: CloudFormationCustomResourceHandler = async (
         msTtl,
         revalidationTableName,
         staticAssetsBucketName,
+        staticAssetsKeyPrefix,
       } = props;
       const promises: Promise<unknown>[] = [];
       if (createInvalidationCommandInput) {
@@ -76,6 +77,7 @@ export const handler: CloudFormationCustomResourceHandler = async (
             bucketName: staticAssetsBucketName,
             currentBuildId: buildId,
             msTtl: parseInt(msTtl),
+            keyPrefix: staticAssetsKeyPrefix,
           }),
         );
       }

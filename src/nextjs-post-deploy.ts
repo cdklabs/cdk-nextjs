@@ -54,6 +54,13 @@ export interface NextjsPostDeployProps {
    * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`
    */
   readonly staticAssetsBucket?: IBucket;
+  /**
+   * S3 key prefix the static assets were uploaded under
+   * (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so
+   * that apps or branches sharing one bucket under different `basePath`s don't
+   * prune each other's assets.
+   */
+  readonly staticAssetsKeyPrefix?: string;
 }
 
 export interface PostDeployCustomResourceProperties {
@@ -94,6 +101,11 @@ export interface PostDeployCustomResourceProperties {
    */
   readonly msTtl: string;
   readonly staticAssetsBucketName?: string;
+  /**
+   * S3 key prefix to scope static asset pruning to. Empty or absent prunes the
+   * whole bucket.
+   */
+  readonly staticAssetsKeyPrefix?: string;
 }
 
 /**
@@ -148,6 +160,7 @@ export class NextjsPostDeploy extends Construct {
       revalidationTableName: this.props.revalidationTable?.tableName,
       msTtl: (1000 * 60 * 60 * 24 * 30).toString(), // 1 month
       staticAssetsBucketName: this.props.staticAssetsBucket?.bucketName,
+      staticAssetsKeyPrefix: this.props.staticAssetsKeyPrefix || undefined,
       createInvalidationCommandInput: this.props.distribution
         ? {
             distributionId: this.props.distribution.distributionId,

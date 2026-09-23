@@ -2106,7 +2106,7 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
-| <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.url">url</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.url">url</a></code> | <code>string</code> | The ALB forwards every path to the container unchanged, so the app only answers under its own `basePath`. |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsCache">nextjsCache</a></code> | <code><a href="#cdk-nextjs.NextjsCache">NextjsCache</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalContainers.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
@@ -2134,6 +2134,13 @@ public readonly url: string;
 ```
 
 - *Type:* string
+
+The ALB forwards every path to the container unchanged, so the app only answers under its own `basePath`.
+
+`resolvedBasePath` is deliberately not
+used here: for this `NextjsType` it only namespaces the S3 bucket and has no
+routing meaning, whereas the app's own `basePath` is what the container
+serves from.
 
 ---
 
@@ -5917,6 +5924,7 @@ const nextjsPostDeployProps: NextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
+| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so that apps or branches sharing one bucket under different `basePath`s don't prune each other's assets. |
 
 ---
 
@@ -6000,6 +6008,18 @@ public readonly staticAssetsBucket: IBucket;
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
 Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
+
+---
+
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.NextjsPostDeployProps.property.staticAssetsKeyPrefix"></a>
+
+```typescript
+public readonly staticAssetsKeyPrefix: string;
+```
+
+- *Type:* string
+
+S3 key prefix the static assets were uploaded under (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so that apps or branches sharing one bucket under different `basePath`s don't prune each other's assets.
 
 ---
 
@@ -10769,6 +10789,7 @@ const optionalNextjsPostDeployProps: OptionalNextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so that apps or branches sharing one bucket under different `basePath`s don't prune each other's assets. |
 
 ---
 
@@ -10843,6 +10864,18 @@ Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
 
 ---
 
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsKeyPrefix"></a>
+
+```typescript
+public readonly staticAssetsKeyPrefix: string;
+```
+
+- *Type:* string
+
+S3 key prefix the static assets were uploaded under (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so that apps or branches sharing one bucket under different `basePath`s don't prune each other's assets.
+
+---
+
 ### OptionalPostDeployCustomResourceProperties <a name="OptionalPostDeployCustomResourceProperties" id="cdk-nextjs.OptionalPostDeployCustomResourceProperties"></a>
 
 OptionalPostDeployCustomResourceProperties.
@@ -10865,6 +10898,7 @@ const optionalPostDeployCustomResourceProperties: OptionalPostDeployCustomResour
 | <code><a href="#cdk-nextjs.OptionalPostDeployCustomResourceProperties.property.msTtl">msTtl</a></code> | <code>string</code> | Time to live in milliseconds. |
 | <code><a href="#cdk-nextjs.OptionalPostDeployCustomResourceProperties.property.revalidationTableName">revalidationTableName</a></code> | <code>string</code> | DynamoDB revalidation table name for cleaning up old BUILD_ID prefixed entries. |
 | <code><a href="#cdk-nextjs.OptionalPostDeployCustomResourceProperties.property.staticAssetsBucketName">staticAssetsBucketName</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalPostDeployCustomResourceProperties.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix to scope static asset pruning to. |
 
 ---
 
@@ -10941,6 +10975,21 @@ public readonly staticAssetsBucketName: string;
 ```
 
 - *Type:* string
+
+---
+
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.OptionalPostDeployCustomResourceProperties.property.staticAssetsKeyPrefix"></a>
+
+```typescript
+public readonly staticAssetsKeyPrefix: string;
+```
+
+- *Type:* string
+
+S3 key prefix to scope static asset pruning to.
+
+Empty or absent prunes the
+whole bucket.
 
 ---
 
@@ -11573,6 +11622,7 @@ const postDeployCustomResourceProperties: PostDeployCustomResourceProperties = {
 | <code><a href="#cdk-nextjs.PostDeployCustomResourceProperties.property.createInvalidationCommandInput">createInvalidationCommandInput</a></code> | <code>{[ key: string ]: any}</code> | *No description.* |
 | <code><a href="#cdk-nextjs.PostDeployCustomResourceProperties.property.revalidationTableName">revalidationTableName</a></code> | <code>string</code> | DynamoDB revalidation table name for cleaning up old BUILD_ID prefixed entries. |
 | <code><a href="#cdk-nextjs.PostDeployCustomResourceProperties.property.staticAssetsBucketName">staticAssetsBucketName</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.PostDeployCustomResourceProperties.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix to scope static asset pruning to. |
 
 ---
 
@@ -11651,6 +11701,21 @@ public readonly staticAssetsBucketName: string;
 ```
 
 - *Type:* string
+
+---
+
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.PostDeployCustomResourceProperties.property.staticAssetsKeyPrefix"></a>
+
+```typescript
+public readonly staticAssetsKeyPrefix: string;
+```
+
+- *Type:* string
+
+S3 key prefix to scope static asset pruning to.
+
+Empty or absent prunes the
+whole bucket.
 
 ---
 

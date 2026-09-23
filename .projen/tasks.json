@@ -119,7 +119,7 @@
       "description": "Create a JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\""
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
         }
       ]
     },
@@ -128,7 +128,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\" --watch"
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --watch"
         }
       ]
     },
@@ -137,7 +137,7 @@
       "description": "Create a JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\""
+          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
         }
       ]
     },
@@ -146,7 +146,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"const require = (await import('node:module')).createRequire(import.meta.url);\" --watch"
+          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --watch"
         }
       ]
     },

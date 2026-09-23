@@ -91,11 +91,17 @@ export class NextjsStaticAssets extends Construct {
    * but it's normalized here and `createDeployment` sets the normalized value
    * after the override spread, so `keyPrefix` can't drift from where the assets
    * land.
+   *
+   * Compared against `undefined` rather than tested with `in`, because a JSII
+   * language binding (or a programmatically built props object) can materialize
+   * an unset optional field as an explicit `undefined`. Treating that as an
+   * intentional "move the assets to the bucket root" override would silently
+   * drop `basePath` from the prefix.
    */
   private resolveKeyPrefix(): string {
     const deploymentOverrides = this.props.overrides?.bucketDeploymentProps;
     const prefix =
-      deploymentOverrides && "destinationKeyPrefix" in deploymentOverrides
+      deploymentOverrides?.destinationKeyPrefix !== undefined
         ? deploymentOverrides.destinationKeyPrefix
         : this.props.basePath;
     return normalizeBasePath(prefix);

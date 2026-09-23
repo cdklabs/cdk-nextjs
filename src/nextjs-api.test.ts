@@ -101,6 +101,69 @@ describe("NextjsApi", () => {
     );
   });
 
+  // API Gateway path parts can't contain "/", so a nested basePath passed whole
+  // to `addResource` fails CDK's `validateResourcePathPart` at synth. It's
+  // reachable: `resolveBasePath` accepts a nested prop for REGIONAL_FUNCTIONS as
+  // long as the app's basePath ends with it.
+  describe("nested basePath", () => {
+    function pathParts(): string[] {
+      const resources = Template.fromStack(stack).findResources(
+        "AWS::ApiGateway::Resource",
+      );
+      return Object.values(resources).map(
+        (resource) => resource.Properties.PathPart,
+      );
+    }
+
+    function createApiWithBasePath(basePath: string) {
+      return new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        basePath,
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+      });
+    }
+
+    it("creates one resource per segment", () => {
+      expect(() => createApiWithBasePath("/team/app")).not.toThrow();
+
+      expect(pathParts()).toEqual(
+        expect.arrayContaining(["team", "app", "_next", "{proxy+}"]),
+      );
+      // Not the unsplit value, which API Gateway would reject.
+      expect(pathParts()).not.toContain("team/app");
+    });
+
+    it("nests the segments so the app is reachable under the full path", () => {
+      createApiWithBasePath("/team/app");
+
+      const resources = Template.fromStack(stack).findResources(
+        "AWS::ApiGateway::Resource",
+      );
+      const byPathPart = Object.fromEntries(
+        Object.entries(resources).map(([logicalId, resource]) => [
+          resource.Properties.PathPart,
+          { logicalId, parentId: resource.Properties.ParentId },
+        ]),
+      );
+      // "app" hangs off "team", not off the API root.
+      expect(byPathPart.app.parentId).toEqual({
+        Ref: byPathPart.team.logicalId,
+      });
+      expect(byPathPart.team.parentId).toHaveProperty("Fn::GetAtt");
+    });
+
+    it("still creates a single resource for a flat basePath", () => {
+      createApiWithBasePath("/base");
+
+      expect(pathParts()).toContain("base");
+    });
+  });
+
   describe("url", () => {
     function createApiWithOverrides(
       props: Partial<NextjsApiProps> = {},
