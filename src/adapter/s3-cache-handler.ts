@@ -9,6 +9,7 @@ import {
   CreateInvalidationCommand,
 } from "@aws-sdk/client-cloudfront";
 import {
+  AttributeValue,
   DynamoDBClient,
   GetItemCommand,
   QueryCommand,
@@ -73,21 +74,45 @@ function entryTags(stored: {
 const NEXT_CACHE_IMPLICIT_TAG_ID = "_N_T_";
 
 /**
- * The request path a `revalidatePath` tag names, or undefined for an app tag.
+ * The `type` argument of `revalidatePath`, which Next.js appends to the implicit
+ * tag as a path segment. @see implicitTagPaths
+ */
+const REVALIDATE_PATH_TYPES = ["layout", "page"];
+
+/**
+ * The request paths a `revalidatePath` tag could name, or empty for an app tag.
  *
  * `revalidatePath("/blog")` reaches the cache handler as the implicit tag
  * `_N_T_/blog` - the path is right there in the tag, which is what makes the CDN
  * copy of a build-time prerender reachable at all. A `revalidateTag("posts")`
  * carries no path and depends on the mapping rows instead.
+ *
+ * Two paths come back when the tag ends in a `revalidatePath` *type*, because
+ * `revalidatePath(path, type)` appends it to the tag
+ * (`next/dist/server/web/spec-extension/revalidate.js`):
+ * `revalidatePath("/blog", "layout")` is `_N_T_/blog/layout`, and
+ * `revalidatePath("/", "layout")` is `_N_T_/layout`. Reading either of those as a
+ * request path invalidates a URI that does not exist and never touches the one
+ * that does. The suffix cannot be told apart from a route that genuinely ends in
+ * `/layout`, so both readings are emitted: an invalidation path matching nothing
+ * costs a path, while missing the real one leaves the edge stale for the whole
+ * `s-maxage`.
  */
-function implicitTagPath(tag: string): string | undefined {
+function implicitTagPaths(tag: string): string[] {
   if (!tag.startsWith(`${NEXT_CACHE_IMPLICIT_TAG_ID}/`)) {
-    return undefined;
+    return [];
   }
   const path = tag.slice(NEXT_CACHE_IMPLICIT_TAG_ID.length);
+  const candidates = [path];
+  for (const type of REVALIDATE_PATH_TYPES) {
+    if (path.endsWith(`/${type}`)) {
+      // `_N_T_/layout` is the root, not the empty path.
+      candidates.push(path.slice(0, -(type.length + 1)) || "/");
+    }
+  }
   // A dynamic route template ("/blog/[slug]") matches no cached URI. Harmless to
   // send, but it costs an invalidation path, and those are metered.
-  return path.includes("[") ? undefined : path;
+  return Array.from(new Set(candidates)).filter((p) => !p.includes("["));
 }
 
 /**
@@ -118,6 +143,81 @@ function invalidationVariants(path: string): string[] {
     variants.push(other, `${other}?*`);
   }
   return variants;
+}
+
+/**
+ * Whether a cache key is a fetch-cache entry rather than a page route.
+ *
+ * Those keys are the hash Next.js derives from the request — a single segment of
+ * lowercase hex, long enough that no route pathname takes the same shape. They
+ * are mapped to tags exactly like pages are, but name no URI CloudFront could be
+ * holding, so an invalidation path built from one is always wasted.
+ */
+function isFetchCacheKey(key: string): boolean {
+  return /^[0-9a-f]{32,}$/.test(key);
+}
+
+/** Whether CloudFront counts this path against the per-request wildcard quota. */
+function isWildcardPath(path: string): boolean {
+  return path.includes("*");
+}
+
+/**
+ * CloudFront's per-request invalidation quotas. Both are hard: a request over
+ * either is rejected outright, taking every path in it down with it — including
+ * the exact ones that were under quota.
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-invalidations
+ */
+const MAX_WILDCARD_PATHS_PER_INVALIDATION = 15;
+const MAX_PATHS_PER_INVALIDATION = 3000;
+
+/**
+ * How many invalidation requests one `revalidateTag` may send before it collapses
+ * to a single app-wide wildcard instead.
+ *
+ * CloudFront also caps *concurrent* invalidation requests (15 in progress), which
+ * a tag with a few hundred entries would blow through one 15-wildcard batch at a
+ * time — and a rejected batch is silent here by design. One `/*` is a worse cache
+ * hit rate and a strictly correct answer, so past this threshold that trade is
+ * taken rather than gambling on the quota.
+ */
+const MAX_INVALIDATION_REQUESTS = 3;
+
+/**
+ * How many 1 MB Query pages of one tag's mapping rows to walk. A ceiling rather
+ * than a real limit: it bounds a runaway tag (and the invalidation that would
+ * follow) instead of paginating a whole table on a request path.
+ */
+const MAX_TAG_QUERY_PAGES = 20;
+
+/**
+ * Pack paths into requests that are under both quotas, keeping exact and wildcard
+ * paths for the same page together where they fit so a page is never left
+ * half-invalidated by a partial failure.
+ */
+function invalidationBatches(paths: string[]): string[][] {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let wildcards = 0;
+  for (const path of paths) {
+    const wildcard = isWildcardPath(path);
+    if (
+      batch.length === MAX_PATHS_PER_INVALIDATION ||
+      (wildcard && wildcards === MAX_WILDCARD_PATHS_PER_INVALIDATION)
+    ) {
+      batches.push(batch);
+      batch = [];
+      wildcards = 0;
+    }
+    batch.push(path);
+    if (wildcard) {
+      wildcards++;
+    }
+  }
+  if (batch.length > 0) {
+    batches.push(batch);
+  }
+  return batches;
 }
 
 interface S3CacheConfig {
@@ -456,20 +556,8 @@ export class S3CacheHandler implements CacheHandler {
       }),
     );
 
-    // Query all paths associated with this tag
-    const queryCommand = new QueryCommand({
-      TableName: this.dynamoConfig.tableName,
-      KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
-      ExpressionAttributeValues: {
-        ":pk": { S: this.dynamoConfig.buildId },
-        ":skPrefix": { S: `${tag}#` },
-      },
-    });
-
-    const queryResponse = await this.dynamoClient.send(queryCommand);
-
     {
-      const items = queryResponse.Items ?? [];
+      const items = await this.queryTagMappings(tag);
       // Extract S3 keys from sort keys (format: "tag#s3Key")
       const cacheKeys = items
         .map((item) => {
@@ -535,15 +623,13 @@ export class S3CacheHandler implements CacheHandler {
       if (this.cloudFrontConfig.distributionIdParameterName) {
         const paths = cacheKeys
           .filter((s3Key): s3Key is string => Boolean(s3Key))
-          .map((s3Key) => this.s3KeyToInvalidationPath(s3Key));
+          .map((s3Key) => this.s3KeyToInvalidationPath(s3Key))
+          .filter((path): path is string => path !== undefined);
 
         // A `revalidatePath` names its path in the tag itself, which is the only
         // way to reach a build-time prerender's CDN copy: those entries have no
         // mapping rows, because no runtime `set` ever wrote them.
-        const implicitPath = implicitTagPath(tag);
-        if (implicitPath) {
-          paths.push(implicitPath);
-        }
+        paths.push(...implicitTagPaths(tag));
 
         await this.invalidateCloudFrontPaths(
           paths
@@ -552,6 +638,49 @@ export class S3CacheHandler implements CacheHandler {
         );
       }
     }
+  }
+
+  /**
+   * Every mapping row for `tag`, following `LastEvaluatedKey`.
+   *
+   * DynamoDB caps a Query at 1 MB of items regardless of how many match, and
+   * there is one row per tagged entry — a build-time seed writes one for every
+   * tagged prerender, so a large site passes 1 MB on a common tag. Stopping at the
+   * first page deletes and invalidates only that page while still reporting
+   * success, which is indistinguishable from revalidation having worked.
+   */
+  private async queryTagMappings(
+    tag: string,
+  ): Promise<Record<string, AttributeValue>[]> {
+    const items: Record<string, AttributeValue>[] = [];
+    let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+    let pages = 0;
+
+    do {
+      const response = await this.dynamoClient.send(
+        new QueryCommand({
+          TableName: this.dynamoConfig.tableName,
+          KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
+          ExpressionAttributeValues: {
+            ":pk": { S: this.dynamoConfig.buildId },
+            ":skPrefix": { S: `${tag}#` },
+          },
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      items.push(...(response.Items ?? []));
+      exclusiveStartKey = response.LastEvaluatedKey;
+      pages++;
+    } while (exclusiveStartKey && pages < MAX_TAG_QUERY_PAGES);
+
+    if (exclusiveStartKey) {
+      console.warn(
+        `Stopped paginating tag "${tag}" after ${pages} pages ` +
+          `(${items.length} entries); some entries may stay cached until their ` +
+          `TTL expires.`,
+      );
+    }
+    return items;
   }
 
   /**
@@ -577,11 +706,16 @@ export class S3CacheHandler implements CacheHandler {
 
   /**
    * Reverses `buildS3Key` to recover the route the response was cached for, for
-   * {@link toCdnPath} to turn into the URI CloudFront holds it under.
-   * Fetch-cache entries (opaque hash keys, not page routes) translate to a path
-   * that won't match anything cached, which is harmless.
+   * {@link toCdnPath} to turn into the URI CloudFront holds it under, or
+   * `undefined` for a key that names no cached URI.
+   *
+   * Two kinds of mapping row do not: a dynamic route template (`blog/[slug].json`,
+   * which the adapter's seeded entries include), and a fetch-cache entry, whose
+   * key is an opaque hash rather than a route. Both would invalidate a URI that
+   * cannot exist, and each one costs two of the fifteen wildcard paths a request
+   * may carry — so they are dropped here rather than crowding out the real ones.
    */
-  private s3KeyToInvalidationPath(s3Key: string): string {
+  private s3KeyToInvalidationPath(s3Key: string): string | undefined {
     const prefix = `${this.s3Config.buildId}/`;
     const withoutPrefix = s3Key.startsWith(prefix)
       ? s3Key.slice(prefix.length)
@@ -590,41 +724,73 @@ export class S3CacheHandler implements CacheHandler {
       ? withoutPrefix.slice(0, -".json".length)
       : withoutPrefix;
 
+    if (withoutSuffix.includes("[") || isFetchCacheKey(withoutSuffix)) {
+      return undefined;
+    }
     return withoutSuffix === "index" ? "/" : `/${withoutSuffix}`;
   }
 
+  /**
+   * Invalidate `paths`, split into requests that are each under CloudFront's
+   * per-request quotas.
+   *
+   * One request for everything is what the quotas make unsafe: 15 wildcard paths
+   * is easy to pass (two per page), and a request over the cap is rejected whole —
+   * so the failure below used to mean *nothing* was invalidated, not even the
+   * exact paths, and the edge served the pre-revalidation response for the full
+   * `s-maxage`. Past {@link MAX_INVALIDATION_REQUESTS} batches the whole app is
+   * invalidated with one wildcard instead; see that constant.
+   */
   private async invalidateCloudFrontPaths(paths: string[]): Promise<void> {
     const uniquePaths = Array.from(new Set(paths));
     if (uniquePaths.length === 0) {
       return;
     }
 
-    try {
-      const distributionId = await this.getDistributionId();
-      if (!distributionId) {
-        return;
-      }
+    const distributionId = await this.getDistributionId().catch((error) => {
+      console.warn("Could not resolve the distribution to invalidate:", error);
+      return null;
+    });
+    if (!distributionId) {
+      return;
+    }
 
+    let batches = invalidationBatches(uniquePaths);
+    if (batches.length > MAX_INVALIDATION_REQUESTS) {
+      const wholeApp = `${this.cloudFrontConfig.basePath}/*`;
       this.debug(
-        `CLOUDFRONT INVALIDATION: [${uniquePaths.join(", ")}] on distribution ${distributionId}`,
+        `CLOUDFRONT INVALIDATION: ${uniquePaths.length} paths needs ` +
+          `${batches.length} requests, collapsing to ${wholeApp}`,
       );
+      batches = [[wholeApp]];
+    }
 
-      await this.cloudFrontClient.send(
-        new CreateInvalidationCommand({
-          DistributionId: distributionId,
-          InvalidationBatch: {
-            CallerReference: randomUUID(),
-            Paths: {
-              Quantity: uniquePaths.length,
-              Items: uniquePaths,
-            },
-          },
-        }),
+    for (const batch of batches) {
+      this.debug(
+        `CLOUDFRONT INVALIDATION: [${batch.join(", ")}] on distribution ${distributionId}`,
       );
-    } catch (error) {
-      // Log but don't fail - the S3/DynamoDB invalidation already succeeded,
-      // and the CloudFront cache policy TTL provides an eventual fallback.
-      console.warn("Failed to create CloudFront invalidation:", error);
+      try {
+        await this.cloudFrontClient.send(
+          new CreateInvalidationCommand({
+            DistributionId: distributionId,
+            InvalidationBatch: {
+              CallerReference: randomUUID(),
+              Paths: {
+                Quantity: batch.length,
+                Items: batch,
+              },
+            },
+          }),
+        );
+      } catch (error) {
+        // Log but don't fail - the S3/DynamoDB invalidation already succeeded,
+        // and the CloudFront cache policy TTL provides an eventual fallback.
+        // Kept per batch so one rejected request doesn't drop the others.
+        console.warn(
+          `Failed to create CloudFront invalidation for [${batch.join(", ")}]:`,
+          error,
+        );
+      }
     }
   }
 

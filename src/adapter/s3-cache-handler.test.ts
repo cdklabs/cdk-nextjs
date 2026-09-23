@@ -554,6 +554,147 @@ describe("S3DynamoCacheHandler", () => {
         handlerWithDistribution.revalidateTag("test-tag"),
       ).resolves.not.toThrow();
     });
+
+    it("invalidates the page itself for a revalidatePath(path, 'page') tag", async () => {
+      // `revalidatePath(path, type)` appends the type to the implicit tag, so the
+      // tag reads `_N_T_/pricing/page` - a path no URL has. Taking it literally
+      // invalidated nothing that existed, which is the whole of the bug: the
+      // second argument silently turned CDN invalidation off.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({ query: { Items: [] } });
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("_N_T_/pricing/page");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
+        expect.arrayContaining(["/pricing", "/pricing?*"]),
+      );
+    });
+
+    it("skips mapping rows that name no cached URI", async () => {
+      // A dynamic template and a fetch-cache entry are both rows a real tag
+      // carries, and neither is a URL: `/blog/[slug]` matches nothing at the edge
+      // (CloudFront has no such URI), and a fetch key is a hash of the request.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({
+        query: {
+          Items: [
+            { sk: { S: "test-tag#test-build-id/blog/[slug].json" } },
+            {
+              sk: {
+                S: "test-tag#test-build-id/0123456789abcdef0123456789abcdef.json",
+              },
+            },
+            { sk: { S: "test-tag#test-build-id/blog/hello.json" } },
+          ],
+        },
+      });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      const items: string[] = invalidationInput.InvalidationBatch.Paths.Items;
+      expect(items).toEqual(expect.arrayContaining(["/blog/hello"]));
+      expect(items.some((path) => path.includes("["))).toBe(false);
+      expect(items.some((path) => path.includes("0123456789abcdef"))).toBe(
+        false,
+      );
+    });
+
+    it("walks every Query page of a tag's mapping rows", async () => {
+      // One `Query` answers with at most 1 MB. A tag on a large app runs past
+      // that, and taking only the first page deleted some of the tag's entries
+      // and invalidated only some of its paths - a partial revalidation that
+      // looks like a cache bug.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      let queries = 0;
+      mockDynamoSend.mockImplementation((command: unknown) => {
+        if (command instanceof QueryCommand) {
+          queries++;
+          return Promise.resolve(
+            queries === 1
+              ? {
+                  Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }],
+                  LastEvaluatedKey: { pk: { S: "test-build-id" } },
+                }
+              : { Items: [{ sk: { S: "test-tag#test-build-id/isr/2.json" } }] },
+          );
+        }
+        return Promise.resolve({});
+      });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      expect(queries).toBe(2);
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
+        expect.arrayContaining(["/isr/1", "/isr/2"]),
+      );
+    });
+
+    it("collapses to one app-wide wildcard rather than sending many invalidations", async () => {
+      // CloudFront caps a request at 15 wildcard paths and allows 15
+      // invalidations in progress. A tag covering hundreds of pages therefore
+      // cannot be spelled out: sending a request per 15 paths throttles, and a
+      // throttled request is a page that stays stale.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({
+        query: {
+          Items: Array.from({ length: 200 }, (_, i) => ({
+            sk: { S: `test-tag#test-build-id/isr/${i}.json` },
+          })),
+        },
+      });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      expect(mockCloudFrontSend).toHaveBeenCalledTimes(1);
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(["/*"]);
+    });
   });
 
   describe("resetRequestCache", () => {
