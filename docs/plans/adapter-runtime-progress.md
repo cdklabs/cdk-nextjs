@@ -3745,3 +3745,26 @@ Nothing is awaiting a verdict now. The requeue behind the next bundle is
 `app-dir/not-found-with-pages-i18n`, `app-dir/app-basepath` and `app-dir/asset-prefix`
 as regression checks, and `asset-prefix-absolute-no-path` as a new candidate the same
 fix should have made green.
+
+### Batch 12: 50 of 50 green, and batch 13 launched
+
+Batch 12 (`/tmp/run-batch12.sh`, 50 new candidates, serial, `--retries 1`) finished
+with `exiting with code 0` and no failing file — the first batch to come back
+entirely green. It was deployed from the bundle that already carried defects 1–17
+but *not* 18–22, so every one of its 50 files was a file those five defects never
+touched: CSS Modules and Lightning CSS, cssnano, all six `global-not-found`
+variants, the five `metadata-static-file` route shapes, MDX with and without
+`mdx-components.tsx`, `modularizeImports`, Monaco, `next/dynamic`,
+`metadata-thrown`, `.mjs` sources. All 50 are now in `rules.include`.
+
+Manifest and screening regenerated (`node scripts/e2e-harness/screen.mjs --next
+../next.js --write`): `included` 119 → 169, `candidates` 341 → 291. 212 files
+screened, ~235 candidates never deployed, ~7 hours of wall clock left at the
+95–140s per file the runs have settled at.
+
+Then `pnpm bundle` (safe only now — batch 12 had exited; a batch in flight deploys
+from `lib/**/*.mjs`) and batch 13 launched: the nine requeued/regression files the
+previous entry listed, plus 41 unseen candidates, mostly the `next-config-ts`
+matrix and `navigation-*`. Batch 13's first nine files are the verdict on defects
+18 through 22 against a real deployment; until they come back green those five
+defects stay listed as "queued" in `docs/harness-coverage.md`'s status table.
