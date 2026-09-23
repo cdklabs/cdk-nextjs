@@ -47,7 +47,13 @@
  * prediction: a clean file still has to be deployed and watched before it goes
  * into `rules.include`.
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -100,6 +106,36 @@ const read = (path) => {
 };
 
 /**
+ * The test file's text, plus the text of every sibling module it pulls in with a
+ * relative `import`/`require`, two levels deep. `nextTestSetup` is not always
+ * called in the test file: `app-dir/cache-components-errors` has thirteen files
+ * that call it through a `shared.util.ts`, or that are a two-line
+ * `require('./client.test')` wrapper, and every one of them reported a 4s "pass"
+ * having deployed nothing. Two levels is what those two shapes need.
+ */
+function testSourceText(testFile, depth = 2, seen = new Set()) {
+  if (seen.has(testFile)) return "";
+  seen.add(testFile);
+  const text = read(testFile);
+  if (depth === 0) return text;
+  const dir = dirname(testFile);
+  const specifiers = [...text.matchAll(/(?:from\s*|require\(\s*)['"](\.[^'"]*)['"]/g)];
+  const extensions = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+  return [
+    text,
+    ...specifiers.flatMap(([, specifier]) => {
+      for (const extension of extensions) {
+        const candidate = join(dir, specifier + extension);
+        if (existsSync(candidate) && !statSync(candidate).isDirectory()) {
+          return testSourceText(candidate, depth - 1, seen);
+        }
+      }
+      return [];
+    }),
+  ].join("\n");
+}
+
+/**
  * The fixture for a test file. For `test/e2e/<name>/test/index.test.ts` it lives
  * a directory *above* the test file, and screening only the test file's own
  * directory quietly misses its `middleware.js`.
@@ -130,7 +166,13 @@ function screen(testFile) {
   // early-returns, and jest reports it as passing in ~4s having deployed
   // nothing. next.js declaring a file out of scope for deploy mode is the same
   // signal as `isNextDeploy`, just spelled in the setup call.
-  if (/skipDeployment:\s*true/.test(test)) reasons.push("skipDeployment");
+  // Read through relative imports for this one screen only. `skipDeployment: true`
+  // in a shared helper replaces every file that calls it, so following the import
+  // cannot over-report; the mode gates above can, since a helper's `isNextDev`
+  // branch may cover only some of a file's cases.
+  if (/skipDeployment:\s*true/.test(testSourceText(testFile))) {
+    reasons.push("skipDeployment");
+  }
   // `test/e2e/**/test-template/{{ toFileName name }}/…` is a scaffold for
   // `pnpm new-test`, not a test.
   if (testFile.includes("{{")) reasons.push("scaffold");

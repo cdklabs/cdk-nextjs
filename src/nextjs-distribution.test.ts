@@ -374,6 +374,44 @@ describe("NextjsDistribution function group behaviors", () => {
     ).toThrow(/26 CloudFront cache behaviors.*4 used by cdk-nextjs itself/s);
   });
 
+  it("wildcards a public/ name CloudFront cannot spell", () => {
+    // `public/hello world.jpg` is a valid Next.js asset, but a space cannot appear
+    // in a path pattern and neither can the `%` of the `/hello%20world.jpg` the
+    // request actually arrives as, so cdk-nextjs threw at synth and the app could
+    // not be deployed at all. One `?` per character of the encoded form is the
+    // narrowest pattern CloudFront can express.
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: ["hello world.jpg", "äöüščří.png", "favicon.ico"],
+    });
+    new NextjsDistribution(stack, "Distribution", distributionProps);
+    expect(pathPatterns(stack)).toEqual(
+      expect.arrayContaining([
+        "hello???world.jpg",
+        // 7 characters, 6 encoded characters each.
+        `${"?".repeat(42)}.png`,
+        "favicon.ico",
+      ]),
+    );
+  });
+
+  it("wildcards a public/ directory name the same way", () => {
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      publicDirEntries: [{ name: "my images", isDirectory: true }],
+    });
+    expect(pathPatterns(stack)).toContain("my???images/*");
+  });
+
+  it("rejects a public/ name too long to express as a path pattern", () => {
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: [`${"ä".repeat(50)}.png`],
+    });
+    expect(
+      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+    ).toThrow(/needs a 304-character CloudFront path pattern/);
+  });
+
   it("rejects splitting on a deployment type that cannot route it", () => {
     const { stack, functionGroups, distributionProps } = setup(["api"]);
     expect(

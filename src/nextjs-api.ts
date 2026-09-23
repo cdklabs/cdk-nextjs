@@ -26,6 +26,12 @@ import { LOG_PREFIX } from "./constants";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
 import { joinPath, normalizeBasePath } from "./utils/base-path";
 
+/**
+ * What API Gateway accepts as a resource path part, per CDK's own check in
+ * `Resource`: `[a-zA-Z0-9:._-$]`, plus an optional trailing `+`.
+ */
+const API_PATH_PART = /^[a-zA-Z0-9:._\-$]+$/;
+
 export interface NextjsApiOverrides {
   readonly restApiProps?: RestApiProps;
   readonly staticIntegrationProps?: AwsIntegrationProps;
@@ -233,7 +239,17 @@ export class NextjsApi extends Construct {
         this.getStaticMethodOptions({ proxy: true }),
       );
     // add public directory files/directories that exist at top level but need to go to S3.
+    const unroutable: string[] = [];
     for (const publicDirEntry of this.props.publicDirEntries) {
+      // A space or a non-ASCII character is legal in `public/` and illegal in an
+      // API Gateway resource path part, and `addResource` throws — which took the
+      // whole synth down for an app that deploys fine on the Global types
+      // (`next-image-legacy/unicode`, whose `public/` holds "hello world.jpg").
+      // Warn and skip the one entry instead: that asset 404s, the app deploys.
+      if (!API_PATH_PART.test(publicDirEntry.name)) {
+        unroutable.push(`"${publicDirEntry.name}"`);
+        continue;
+      }
       if (publicDirEntry.isDirectory) {
         this.baseResource
           .addResource(publicDirEntry.name)
@@ -254,6 +270,16 @@ export class NextjsApi extends Construct {
             this.getStaticMethodOptions(),
           );
       }
+    }
+    if (unroutable.length > 0) {
+      Annotations.of(this).addWarning(
+        `${LOG_PREFIX} An API Gateway resource path part only allows ` +
+          "[a-zA-Z0-9:._-$], so these top-level public/ entries cannot be served " +
+          `and will 404: ${unroutable.join(", ")}. Rename them, move them into a ` +
+          "public/ subdirectory whose own name is expressible, or use " +
+          "NextjsGlobalFunctions or NextjsGlobalContainers, whose CloudFront " +
+          "behaviors can match them.",
+      );
     }
   }
 

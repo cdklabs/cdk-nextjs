@@ -3508,3 +3508,54 @@ passing). ~395 undeployed candidates at ~120s is ~12 hours of wall clock.
 
 Batch 9's three `createNext`-timeout files did not make it into this batch; they are
 still requeued, now alongside the eleven defect-17 files.
+
+### Batch 11's verdicts: defect 17 confirmed, defect 18 found, and a screening hole closed
+
+Batch 11 ran 50 files (2026-09-23), the first batch deployed with defect 17's fix
+bundled into the adapter. 32 came back green and went into `rules.include`, taking
+it from 87 to 119.
+
+**Defect 17 is confirmed.** Eight of its eleven files are now green:
+`new-link-behavior`, `legacy-link-behavior-pages`, `prerender-preview`,
+`preview-fallback`, `app-document/rendering`, `next-image-legacy/default`,
+`next-head` and `rewrites-client-resolving`. Of the other three,
+`next-image-legacy/unicode` never deployed at all (defect 18, below), and
+`async-modules` and `no-page-props` each kept exactly one failing case with a
+different cause — both now awaiting a verdict in `docs/harness-coverage.md`.
+
+**Defect 18: a space in a `public/` filename failed the whole synth.**
+`next-image-legacy/unicode` ships `public/hello world.jpg`, and
+`NextjsDistribution` threw rather than produce a CloudFront path pattern for it, so
+the app could not be deployed at all — not one of its cases ran. CloudFront's path
+pattern alphabet is `A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and `&`, plus the `*` and
+`?` wildcards: no space, and no `%` either, so the percent-encoded form the request
+actually arrives as (`/hello%20world.jpg`) is equally unspellable. The fix in
+`src/nextjs-distribution.ts` substitutes one `?` per character of the encoded form
+(`hello???world.jpg`), which is the narrowest pattern CloudFront can express, and
+throws only when the result exceeds the 255-character limit — with a message that
+says to rename the file or nest it.
+
+`NextjsRegionalFunctions` had the same exposure one layer down: an API Gateway
+resource path part allows only `[a-zA-Z0-9:._-$]`, so `addResource` threw on the
+same file. There the resource tree genuinely cannot express it, so `src/nextjs-api.ts`
+warns and skips that one entry — the asset 404s, the app deploys — following the
+`warnOnTrailingSlashGroups` precedent in the same construct. Four new tests cover
+both paths; 22 suites / 400 tests green, `pnpm compile` and `pnpm eslint` clean.
+`next-image-legacy/unicode` is requeued behind a `pnpm bundle`.
+
+**Thirteen files "passed" in under 4 seconds having deployed nothing.** Every
+`app-dir/cache-components-errors/*` file calls `nextTestSetup({ skipDeployment: true })`
+through a sibling `shared.util.ts`, or is a two-line `require('./client.test')`
+wrapper around one that does, so the existing test-file-only regex never saw it.
+`scripts/e2e-harness/screen.mjs` now follows relative `import`/`require` specifiers
+two levels deep for that one screen — the two shapes above are exactly what two
+levels buys. Candidates fell 373 → 341, saving ~72 minutes of deploys that would
+have proved nothing. Deliberately scoped to this screen: `skipDeployment: true` in a
+shared helper replaces every caller, so following the import cannot over-report,
+whereas a helper's `isNextDev` branch may cover only some of a caller's cases.
+
+Four files now await a verdict: `i18n-support-catchall` (1/4, `/` answers 308),
+`async-modules` (1/7, the plain-text 500 above), `no-page-props` (1/5, a navigation
+reads `undefined` where it expects `"hi"`) and `asset-prefix-absolute` (1/1, bundles
+404 under an absolute `assetPrefix` pointing at a second origin the fixture serves
+itself).

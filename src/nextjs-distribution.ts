@@ -598,13 +598,8 @@ export class NextjsDistribution extends Construct {
     this.assertBehaviorBudget();
     for (const publicFile of this.props.publicDirEntries) {
       const pathPattern = publicFile.isDirectory
-        ? `${publicFile.name}/*`
-        : publicFile.name;
-      if (!/^[a-zA-Z0-9_\-.*$/~"'@:+?&]+$/.test(pathPattern)) {
-        throw new Error(
-          `Invalid CloudFront Distribution Cache Behavior Path Pattern: ${pathPattern}. Please see documentation here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/distribution-web-values-specify.html#DownloadDistValuesPathPattern`,
-        );
-      }
+        ? `${toPathPattern(publicFile.name)}/*`
+        : toPathPattern(publicFile.name);
       const finalPathPattern = this.getPathPattern(pathPattern);
       this.distribution.addBehavior(
         finalPathPattern,
@@ -701,4 +696,50 @@ function behaviorSpecificity(pattern: string): number {
   const firstWildcard = segments.findIndex((segment) => segment.includes("*"));
   const literalDepth = firstWildcard === -1 ? segments.length : firstWildcard;
   return literalDepth * 1000000 + segments.length * 10000 + pattern.length;
+}
+
+/**
+ * CloudFront's path pattern alphabet: `A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and
+ * `&`, plus the `?` wildcard. No space, no `%`, nothing non-ASCII.
+ *
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern
+ */
+const PATH_PATTERN_CHAR = /^[a-zA-Z0-9_\-.*$/~"'@:+?&]$/;
+/** CloudFront's path pattern length limit. */
+const MAX_PATH_PATTERN_LENGTH = 255;
+
+/**
+ * A `public/` entry's name as a CloudFront path pattern.
+ *
+ * `public/hello world.jpg` is a valid Next.js asset — `next start` serves it, and
+ * `next/image` points at it — but a space cannot appear in a path pattern, so
+ * cdk-nextjs used to throw at synth and the app could not be deployed at all
+ * (`next-image-legacy/unicode`, whose `public/` also holds `äöüščří.png`).
+ *
+ * The request arrives percent-encoded (`/hello%20world.jpg`), and `%` is not in
+ * the alphabet either, so the encoding cannot be written out literally. Each
+ * character outside the alphabet is replaced instead by one `?` per character of
+ * its encoded form — `?` matches exactly one character, so `hello???world.jpg` is
+ * the narrowest pattern CloudFront can express for that file. A `*` would be
+ * shorter and much wider: `äöüščří.png` would become `*.png`, which would pull
+ * every `.png` request in the app onto the static origin.
+ */
+function toPathPattern(name: string): string {
+  const pattern = [...name]
+    .map((char) =>
+      PATH_PATTERN_CHAR.test(char)
+        ? char
+        : "?".repeat(encodeURIComponent(char).length),
+    )
+    .join("");
+  if (pattern.length > MAX_PATH_PATTERN_LENGTH) {
+    throw new Error(
+      `The public/ entry "${name}" needs a ${pattern.length}-character ` +
+        `CloudFront path pattern, over the ${MAX_PATH_PATTERN_LENGTH}-character ` +
+        "limit. Rename it, or move it into a subdirectory of public/ whose own " +
+        "name is short enough. See " +
+        "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern",
+    );
+  }
+  return pattern;
 }

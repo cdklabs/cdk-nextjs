@@ -309,4 +309,36 @@ describe("NextjsApi", () => {
       expect(warnings(api)).toEqual([]);
     });
   });
+
+  describe("a public/ entry API Gateway cannot address", () => {
+    it("warns and skips it instead of failing the synth", () => {
+      // `public/hello world.jpg` is a valid Next.js asset that `addResource`
+      // rejects outright, taking the whole app's synth with it. The Global types
+      // serve it with a wildcard path pattern; here the honest outcome is one
+      // 404ing asset and a warning that names it.
+      const api = new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [
+          { name: "hello world.jpg", isDirectory: false },
+          { name: "äöüščří.png", isDirectory: false },
+          { name: "favicon.ico", isDirectory: false },
+        ],
+      });
+
+      const message = Annotations.fromStack(stack)
+        .findWarning(`/${api.node.path}`, Match.anyValue())
+        .map((warning) => warning.entry.data as string)
+        .join("\n");
+      expect(message).toContain('"hello world.jpg"');
+      expect(message).toContain('"äöüščří.png"');
+      expect(message).not.toContain('"favicon.ico"');
+      // The expressible one is still served.
+      expect(s3IntegrationKeys()).toContain("favicon.ico");
+    });
+  });
 });
