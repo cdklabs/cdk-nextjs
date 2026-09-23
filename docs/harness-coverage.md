@@ -57,16 +57,16 @@ Of the 162 screened (25 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 119 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache` and 3 of 7 `dynamic-route-interpolation` cases |
-| fixed            | 20 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename), 19 (the error page) and 20 (the i18n home page) queued for the next batch |
+| fixed            | 21 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename), 19 (the error page), 20 (the i18n home page) and 21 (a static page's data route) queued for the next batch |
 | bug              | 1 (`incremental-cache-path-traversal`) |
-| awaiting verdict | 2 — see below |
+| awaiting verdict | 1 — see below |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files, plus the 2 remaining `trailingslash` and 4 remaining `dynamic-route-interpolation` cases |
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 28 (2 gated by next.js, 26 `skipDeployment` or stubbed in deploy mode) |
 
-The twenty fixed defects are the harness's whole return on investment so far.
-All twenty were real, all twenty shipped, and none of them could have been
+The twenty-one fixed defects are the harness's whole return on investment so far.
+All of them were real, all of them shipped, and none of them could have been
 caught by the construct tests or by `examples/e2e-tests`.
 
 ## Passing — in `rules.include`
@@ -1022,6 +1022,44 @@ slash a request really did carry). One existing expectation changed with it: a
 middleware `NextResponse.redirect()` to a same-origin URL now reports the path,
 which is what Next.js puts on the wire.
 
+### 21. A static `getStaticProps` page's data route 404'd, so client-side navigation into it reloaded the page
+
+`no-page-props` (1 of 5, "should navigate between pages correctly"). The case clicks
+a link to `/gsp`, then reads text off the page and got `undefined` where `"hi"` was
+expected.
+
+Measured with `scripts/e2e-offline.sh` against `next start` on a plain build of the
+same fixture:
+
+```
+ours   /_next/data/<buildId>/gsp.json   404 text/html   (the 404 page)
+oracle /_next/data/<buildId>/gsp.json   200 application/json  {"__N_SSG":true,"pageProps":{"hello":"world"}}
+both   /_next/data/<buildId>/gssp.json  200 {"__N_SSP":true,…}
+```
+
+So `/gssp` (a `getServerSideProps` page, which is an output in its own right) worked
+and `/gsp` did not. The Pages Router fetches that `.json` on every client-side
+navigation; a 404 makes it fall back to a full page load, which loses the
+client-side state the assertion reads.
+
+`next build` emits a `dynamicRoutes` rule for a data route only when the page is
+dynamic **or** the app has middleware (`build-complete.ts`,
+`needsMiddlewareResolveRoutes` — the same flag it reports to us as
+`routing.shouldNormalizeNextData`). Without middleware, a *static* `getStaticProps`
+page's data route arrives only as a concrete `prerenders` pathname: no template to
+match, no rule of its own, and Next.js expects the platform to serve it as an output
+keyed by pathname. `addPrerenderPathnames` was skipping exactly that shape.
+
+**Verdict: fixed.** `addPrerenderPathnames` (`src/adapter/build-outputs.ts`) now
+registers a concrete `/_next/data/<buildId>/…json` prerender against its owning
+route's entrypoint whenever no *ungated* rule matches it. The "ungated" narrowing is
+load-bearing: a dynamic page's `/_next/data/<buildId>/en-US/blog/hello.json` is
+reached by the `…/blog/[slug].json` rule, and that rule is where the `nxtPslug` param
+comes from — registering the concrete pathname too would resolve the request to
+itself and drop the param. Verified offline (`gsp.json` and `gssp.json` both 200,
+matching the oracle) and covered by a `build-outputs.test.ts` case that asserts both
+halves.
+
 ## Bug — not yet fixed
 
 ### A path-traversal `_next/data` request 500s instead of rendering
@@ -1080,18 +1118,19 @@ was root-caused while batch 12 ran (defect 19):
 
 | File                    | Cases | The failing assertion                                                     |
 | ----------------------- | ----- | ------------------------------------------------------------------------- |
-| `no-page-props`         | 1 / 5 | "should navigate between pages correctly" expects `"hi"` and reads `undefined` off the page |
 | `asset-prefix-absolute` | 1 / 1 | "bundles should return 200 on served assetPrefix" expects `200` and gets `404` |
 
-Two of the four left this list without a deployment. `async-modules` went first:
+Three of the four left this list without a deployment. `async-modules` went first:
 batch 11 had already cleared its other two failures (defect 17), which isolated its
 remaining case enough to root-cause, and it is defect 19 above.
 `i18n-support-catchall` followed — it was never about the fixture's root catch-all
 but about `/` under any `i18n` config, reproduced in a unit test against the
 `pages-i18n` fixture and confirmed against `next start` with
-`scripts/e2e-offline.sh`, and it is defect 20. Both are requeued behind a bundle.
+`scripts/e2e-offline.sh`, and it is defect 20. `no-page-props` went the same way —
+one `.json` request compared against a plain `next start` build was the whole
+diagnosis, and it is defect 21. All three are requeued behind a bundle.
 
-`no-page-props` and `asset-prefix-absolute` are new in batch 11.
+`no-page-props` and `asset-prefix-absolute` were both new in batch 11.
 `asset-prefix-absolute` is the sibling of `asset-prefix`, which defect 12 fixed:
 this one sets an *absolute* `assetPrefix` pointing at a second origin the fixture
 serves itself, which `NextjsDistribution` deliberately adds no behavior for (see
@@ -1099,7 +1138,7 @@ serves itself, which `NextjsDistribution` deliberately adds no behavior for (see
 a fixture assuming a deployment shape cdk-nextjs does not provide is exactly the
 open question.
 
-Neither of the two is in `rules.include`, and neither is in `excluded-notes` either: an
+`asset-prefix-absolute` is in neither `rules.include` nor `excluded-notes`: an
 `excluded-notes` entry is a decision, and no decision has been made.
 
 ## Unsupported — a product limitation

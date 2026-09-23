@@ -3641,3 +3641,52 @@ Still not bundled — batch 12 is mid-flight — so `i18n-support-catchall` join
 bundle, and `app-dir/not-found-with-pages-i18n` (the one i18n file already in
 `rules.include`) goes with them to confirm no regression. Two files await a verdict:
 `no-page-props` and `asset-prefix-absolute`.
+
+### Defect 21: a static `getStaticProps` page's data route 404'd
+
+`no-page-props` (1 of 5) was the last batch-11 failure with an unexplained
+assertion: click a link to `/gsp`, read text off the page, get `undefined` instead
+of `"hi"`. Diagnosed entirely offline, no deployment. Recipe, since it is now the
+standard one: `scripts/e2e-offline.sh no-page-props 3112` for our runtime, plus a
+second copy of the same fixture built *without* `NEXT_ADAPTER_PATH` and served with
+`next start` as the oracle (an adapter build is not an oracle — see defect 20).
+
+```
+ours   /_next/data/<buildId>/gsp.json   404 text/html
+oracle /_next/data/<buildId>/gsp.json   200 {"__N_SSG":true,"pageProps":{"hello":"world"}}
+both   /_next/data/<buildId>/gssp.json  200 {"__N_SSP":true,…}
+```
+
+`/gssp` worked because a `getServerSideProps` page's data route is an output in its
+own right. `/gsp`'s is not: `next build` emits a `dynamicRoutes` rule for a data
+route only when the page is dynamic or the app has middleware
+(`build-complete.ts`, `needsMiddlewareResolveRoutes`, which is the same flag it
+hands us as `routing.shouldNormalizeNextData`). Without middleware, a static
+`getStaticProps` page's data route reaches us only as a concrete `prerenders`
+pathname with no template and no rule, and Next.js expects the platform to serve it
+as an output keyed by pathname. `addPrerenderPathnames` skipped it, and the Pages
+Router's `.json` fetch on every client-side navigation 404'd, degrading the
+navigation to a full page load — which is what lost the state the assertion read.
+
+Fix in `src/adapter/build-outputs.ts`: `addPrerenderPathnames` takes the data-route
+prefix (`${basePath}/_next/data/${buildId}/`) and registers a concrete `…json`
+prerender against its owning route's entrypoint when **no ungated rule matches it**.
+The narrowing matters and was the second version of the fix: registering every
+concrete data pathname also caught a dynamic page's
+`/_next/data/<id>/en-US/blog/hello.json`, which the ungated `…/blog/[slug].json`
+rule already reaches — and that rule is where `nxtPslug` comes from, so resolving
+the request to itself would silently drop the param. Same failure mode the doc
+comment already records for `/isr/1`.
+
+Verified by rebuilding the fixture against an esbuild bundle of the changed adapter
+written to `/tmp` (not `lib/`, because batch 12 is still deploying from `lib/`):
+`gsp.json` and `gssp.json` both 200 and byte-identical in shape to the oracle. One
+new `build-outputs.test.ts` case asserts both halves — the static data route in, the
+dynamic concrete one out. 22 suites / 411 tests green, `pnpm eslint` and
+`tsc --noEmit` clean.
+
+Requeue behind the next bundle now stands at `next-image-legacy/unicode` (18),
+`async-modules` (19), `i18n-support-catchall` (20), `no-page-props` (21), plus
+`app-dir/not-found-with-pages-i18n` and `app-dir/app-basepath` as regression checks
+(i18n, and a basePath app whose data-route prefix the fix now depends on). One file
+still awaits a verdict: `asset-prefix-absolute`.

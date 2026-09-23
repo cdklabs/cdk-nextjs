@@ -314,6 +314,39 @@ describe("buildAdapterManifest edge cases", () => {
     expect(manifest.pathnames).toContain(dataTemplate);
   });
 
+  it("registers a static getStaticProps page's data route, which no rule reaches", () => {
+    // `test/e2e/no-page-props`: `/_next/data/<buildId>/gsp.json` 404'd while
+    // `next start` serves it 200, so every client-side navigation into the page
+    // fell back to a full page load. `next build` emits a `dynamicRoutes` rule for
+    // a data route only when the page is dynamic or the app has middleware, so
+    // without middleware a *static* page's data route arrives as a concrete
+    // prerender pathname with nothing to match it. Reproduced on `pages-i18n`,
+    // whose captured prerenders are all dynamic, by renaming one.
+    const ctx = asContext(pagesI18n);
+    const dataRoute = `/_next/data/${ctx.buildId}/en-US/gsp.json`;
+    const concrete = ctx.outputs.prerenders.find((it) =>
+      it.pathname.endsWith("hello.json"),
+    )!;
+    concrete.pathname = dataRoute;
+    concrete.id = dataRoute;
+    const { manifest } = build(ctx);
+    expect(manifest.entrypoints[dataRoute]).toEqual({
+      id: dataRoute,
+      filePath: manifest.entrypoints["/en-US/blog/[slug]"].filePath,
+      type: "page",
+    });
+
+    // And the dynamic page's own concrete data pathname stays out: the ungated
+    // `…/blog/[slug].json` rule already reaches it, and that rule is where the
+    // `nxtPslug` param comes from — resolving the request to itself would drop it.
+    const { manifest: captured } = build(asContext(pagesI18n));
+    expect(
+      captured.entrypoints[
+        `/_next/data/${captured.buildId}/en-US/blog/hello.json`
+      ],
+    ).toBeUndefined();
+  });
+
   it("leaves an App Router fallback template on its own entrypoint", () => {
     // `/isr/[id]` is a prerender *and* an appPages output. The output wins, so
     // `id` stays the route's own rather than being rewritten.

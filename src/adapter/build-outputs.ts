@@ -284,6 +284,7 @@ export function buildAdapterManifest(
     outputs.prerenders,
     ctx.routing.dynamicRoutes,
     basePath,
+    `${basePath}/_next/data/${ctx.buildId}/`,
   );
 
   const pathnames = sortedUnique([
@@ -751,6 +752,18 @@ function addEntrypoint(
  * 1. **Templates.** A request for `/_next/data/<buildId>/fr/blog/hello.json` only
  *    resolves if `/_next/data/<buildId>/fr/blog/[slug].json` is listed, and that
  *    pathname exists solely as a `prerenders` entry.
+ * 1b. **A static `getStaticProps` page's data route.** `/_next/data/<buildId>/gsp.json`
+ *    has no template to match and no rule of its own: `next build` only emits a
+ *    `dynamicRoutes` rule for a data route when the page is dynamic *or* the app has
+ *    middleware (`build-complete.ts`, `needsMiddlewareResolveRoutes`, which is also
+ *    what `routing.shouldNormalizeNextData` reports). Without middleware Next.js
+ *    expects the platform to serve the data route as an output, by pathname — so a
+ *    concrete data-route prerender is registered whatever the rules say. Missing it
+ *    turned every client-side navigation into such a page into a full page load,
+ *    because the router's `.json` fetch 404'd: measured against
+ *    `test/e2e/no-page-props`. Only when no *ungated* rule matches, for the reason
+ *    below — a dynamic page's `/…/blog/hello.json` must keep resolving to its
+ *    `[slug].json` template, which is where `nxtPslug` comes from.
  * 2. **Concrete pathnames whose dynamic route rule is gated.** A route whose params
  *    can never be filled at request time — root params are the case that produced
  *    this, `app/[locale]/page.tsx` with `generateStaticParams()` and no
@@ -787,15 +800,26 @@ function addPrerenderPathnames(
     missing?: unknown[];
   }[],
   basePath: string,
+  dataRoutePrefix: string,
 ): void {
   const matchers = dynamicRoutes.map((route) => ({
     regex: new RegExp(route.sourceRegex, "i"),
     gated: Boolean(route.has?.length || route.missing?.length),
   }));
+  const matchingRules = (pathname: string) =>
+    matchers.filter(({ regex }) => regex.test(pathname));
   const onlyGatedRulesMatch = (pathname: string): boolean => {
-    const matched = matchers.filter(({ regex }) => regex.test(pathname));
+    const matched = matchingRules(pathname);
     return matched.length > 0 && matched.every(({ gated }) => gated);
   };
+  /**
+   * Nothing reaches this pathname at request time: either no rule matches it or
+   * every rule that does is gated. The gated half is {@link onlyGatedRulesMatch};
+   * the "no rule at all" half only ever holds for a data route, because a page's
+   * own pathname is an output.
+   */
+  const nothingUngatedMatches = (pathname: string): boolean =>
+    matchingRules(pathname).every(({ gated }) => gated);
 
   const orphans: string[] = [];
   for (const prerender of prerenders) {
@@ -804,7 +828,12 @@ function addPrerenderPathnames(
       continue;
     }
     const isTemplate = pathname.includes("[");
-    if (!isTemplate && !onlyGatedRulesMatch(pathname)) {
+    const isDataRoute =
+      pathname.startsWith(dataRoutePrefix) && pathname.endsWith(".json");
+    const reachable = isDataRoute
+      ? nothingUngatedMatches(pathname)
+      : onlyGatedRulesMatch(pathname);
+    if (!isTemplate && !reachable) {
       continue;
     }
     const suffixes = pathname.endsWith(".rsc") ? [".rsc", ""] : [""];
