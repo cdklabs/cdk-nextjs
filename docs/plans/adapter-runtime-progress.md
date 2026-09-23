@@ -3108,3 +3108,60 @@ hydration failure. `/en` returns a prerendered **404** while all seven of its
 script `src`s return 200, so the `#reveal` timeout is downstream of a routing miss
 on a root-param route with no `app/layout.tsx`. Recorded in
 `docs/harness-coverage.md`; still open.
+
+### Two more harness defects: draft-gated prerenders, and unseeded fallback shells
+
+Both of the failures banked in the previous entry are now fixed, and neither was
+what its symptom suggested.
+
+**`parallel-routes-root-param-dynamic-child` (defect 13).** The `/en` 404 is a
+deliberate contract, not an accident. A *root params* app — `app/[locale]/page.tsx`
+with `generateStaticParams()` and no `app/layout.tsx` — has params that can never be
+filled from a request, so next.js emits its `dynamicRoutes` rule gated on draft
+mode (`has: [{cookie __prerender_bypass}, {cookie __next_preview_data}]`): invoke
+the function only for a draft request, otherwise serve the prerender. Vercel's CDN
+serves it; our manifest never listed `/en`, so dispatch matched nothing.
+
+`addPrerenderTemplates` in `src/adapter/build-outputs.ts` is now
+`addPrerenderPathnames` and takes `ctx.routing.dynamicRoutes`. It registers a
+*concrete* prerender pathname when a gated rule matches it and no ungated one does
+— `onlyGatedRulesMatch` — owned by the entrypoint of `prerender.route`, preferring
+that route's `.rsc` entrypoint for an `.rsc` pathname. The narrowing is load-bearing:
+registering every concrete prerender adds four inert
+`/index.segments/*.segment.rsc` keys for app-playground (a dispatch probe with
+`Next-Router-Segment-Prefetch` confirms `/` never resolves to them), and a route
+with an ungated rule already reaches its template, where `RouteModule.prepare`
+re-derives params from the pathname. Unit-tested by gating app-playground's
+`/isr/[id]` rules; the three committed fixtures still produce byte-identical
+manifests. Verified at the dispatch level against the real fixture's captured build
+context — `/en`, `/fr`, `/en.rsc`, `/en/gsp/stories/static-123` resolve, `/xx` still
+404s like `next start`. End-to-end needs a deploy: offline the runtime cache is
+S3-only, so a fully prerendered route answers `invariant: cache entry required but
+not generated`.
+
+**`sub-shell-generation` (defect 14).** Six of seven cases disagreed with
+`next start` on one sentinel — `Root Layout: (runtime)` where the fixture's
+`'use cache'` layout should report `(buildtime)`. The seeding loop in
+`src/adapter/adapter.mts` skipped every prerender group whose pathname contained
+`[`, on the comment that templates "don't have actual content". With PPR a template
+*is* the route's fallback shell, and the server looks it up under that literal key:
+`app-page-runtime` reads `prerenderManifest.dynamicRoutes[route].fallback` (the
+template string verbatim) and calls
+`routeModule.handleResponse({ cacheKey, isFallback: true })`; the Pages Router does
+the same with `srcPage` for an ISR fallback. Every such lookup missed, so the shell
+was re-rendered per request instead of resumed.
+
+Dropping the skip seeds them. Non-PPR templates stay out for free — a route with no
+shell emits no prerender output, and a Pages Router template gets no kind from
+`getRouteToCacheKindMap` and is skipped one line later. Measured with
+`scripts/e2e-offline.sh app-dir/sub-shell-generation`: the seed directory gains
+`[lang]/[slug].json`, `en/[slug].json` and `fr/[slug].json`, each with its
+`postponed` state and the exact shell the per-URL expectation table asks for (the
+`[lang]` shell defers the lang layout; the locale shells bake it in). `adapter.mts`
+has no jest coverage, so that fixture build is the evidence.
+
+`scripts/e2e-offline.sh` is committed with this step — it is what made both of these
+tractable, and both entries above were measured with it.
+
+Both files stay out of `rules.include` until a deployed re-run is green; the same is
+true of `layout-params`, whose fix is committed and offline-verified.

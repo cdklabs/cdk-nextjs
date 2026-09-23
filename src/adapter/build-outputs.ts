@@ -278,9 +278,10 @@ export function buildAdapterManifest(
     }
   }
 
-  addPrerenderTemplates(
+  addPrerenderPathnames(
     entrypoints,
     outputs.prerenders,
+    ctx.routing.dynamicRoutes,
     ctx.config.basePath || "",
   );
 
@@ -673,44 +674,85 @@ function addEntrypoint(
 }
 
 /**
- * Add the dynamic *prerender* templates that no invocable output claims.
+ * Add the *prerender* pathnames that no invocable output claims and that routing
+ * cannot otherwise reach.
  *
  * `resolveRoutes` can only match a pathname present in `manifest.pathnames`, and
  * for a dynamic match it returns the **template** it matched. Routes and static
- * files cover most of that, but Pages Router ISR data URLs do not: a request for
- * `/_next/data/<buildId>/fr/blog/hello.json` only resolves if
- * `/_next/data/<buildId>/fr/blog/[slug].json` is listed, and that pathname exists
- * solely as a `prerenders` entry. `next start` serves those URLs, so omitting them
- * is a behavior difference.
+ * files cover most of that; two shapes they miss:
  *
- * Only templates (`[` in the pathname) are added. Adding *concrete* prerender
- * pathnames instead was measured to be actively wrong: `/isr/1` then resolves to
- * itself rather than to `/isr/[id]`, losing the `nxtPid` query param the route
- * needs.
+ * 1. **Templates.** A request for `/_next/data/<buildId>/fr/blog/hello.json` only
+ *    resolves if `/_next/data/<buildId>/fr/blog/[slug].json` is listed, and that
+ *    pathname exists solely as a `prerenders` entry.
+ * 2. **Concrete pathnames whose dynamic route rule is gated.** A route whose params
+ *    can never be filled at request time — root params are the case that produced
+ *    this, `app/[locale]/page.tsx` with `generateStaticParams()` and no
+ *    `app/layout.tsx` — gets its `dynamicRoutes` rule emitted with a draft-mode
+ *    `has` on `__prerender_bypass`. Next.js is saying: invoke the function only in
+ *    draft mode, and otherwise serve the prerender you were handed. Vercel's CDN
+ *    does that from the output itself; we route the request to the owning
+ *    entrypoint, which answers it out of the seeded cache. Without this, `/en` is a
+ *    404 while `next start` renders it — and so is every `.rsc`/`.segments`
+ *    variant, which is why a client-side navigation into such an app never
+ *    completes.
+ *
+ * A concrete pathname is added only when a gated rule matches it and no ungated
+ * one does — the set that would 404 today *and* that routing can still produce.
+ * Adding them unconditionally was measured to be actively wrong twice over:
+ * `/isr/1` resolves to itself rather than to `/isr/[id]`, losing the `nxtPid`
+ * query param the route needs, and pathnames no rule matches at all (a static
+ * route's `.segments/…` outputs, which `resolveRoutes` never asks for) are dead
+ * manifest weight. Matching mirrors `resolveRoutes`, which is case-insensitive by
+ * default.
  *
  * The owning entrypoint comes from `prerender.route`, which is the unprefixed and
  * unlocalized source route (`/blog/[slug]`), hence the basePath-then-bare ladder.
  * Locale variants of one page share a `filePath`, so any locale's entrypoint is
- * the right target.
+ * the right target. An RSC or segment-prefetch pathname prefers the route's `.rsc`
+ * entrypoint, because that is the key `resolveRoutes` resolves such a request to.
  */
-function addPrerenderTemplates(
+function addPrerenderPathnames(
   entrypoints: Record<string, AdapterEntrypoint>,
   prerenders: AdapterOutputs["prerenders"],
+  dynamicRoutes: {
+    sourceRegex: string;
+    has?: unknown[];
+    missing?: unknown[];
+  }[],
   basePath: string,
 ): void {
+  const matchers = dynamicRoutes.map((route) => ({
+    regex: new RegExp(route.sourceRegex, "i"),
+    gated: Boolean(route.has?.length || route.missing?.length),
+  }));
+  const onlyGatedRulesMatch = (pathname: string): boolean => {
+    const matched = matchers.filter(({ regex }) => regex.test(pathname));
+    return matched.length > 0 && matched.every(({ gated }) => gated);
+  };
+
   const orphans: string[] = [];
   for (const prerender of prerenders) {
-    if (!prerender.pathname.includes("[") || entrypoints[prerender.pathname]) {
+    const { pathname } = prerender;
+    if (entrypoints[pathname]) {
       continue;
     }
-    const owner =
-      entrypoints[`${basePath}${prerender.route}`] ??
-      entrypoints[prerender.route];
+    const isTemplate = pathname.includes("[");
+    if (!isTemplate && !onlyGatedRulesMatch(pathname)) {
+      continue;
+    }
+    const suffixes = pathname.endsWith(".rsc") ? [".rsc", ""] : [""];
+    const owner = suffixes
+      .flatMap((suffix) => [
+        `${basePath}${prerender.route}${suffix}`,
+        `${prerender.route}${suffix}`,
+      ])
+      .map((key) => entrypoints[key])
+      .find(Boolean);
     if (!owner) {
-      orphans.push(`${prerender.pathname} (route: "${prerender.route}")`);
+      orphans.push(`${pathname} (route: "${prerender.route}")`);
       continue;
     }
-    entrypoints[prerender.pathname] = {
+    entrypoints[pathname] = {
       id: prerender.id,
       filePath: owner.filePath,
       type: owner.type,
@@ -718,12 +760,12 @@ function addPrerenderTemplates(
   }
 
   if (orphans.length > 0) {
-    // Warn rather than throw: an unmapped template degrades one URL shape to a
+    // Warn rather than throw: an unmapped pathname degrades one URL shape to a
     // 404, which is what would happen without this function at all. A throw
     // would break the build outright on an output shape a future `next` minor
     // might introduce.
     console.warn(
-      `${LOG_PREFIX} ${orphans.length} dynamic prerender template(s) have no ` +
+      `${LOG_PREFIX} ${orphans.length} prerender pathname(s) have no ` +
         `matching route entrypoint and will 404: ` +
         `${orphans.slice(0, 5).join(", ")}` +
         `${orphans.length > 5 ? `, and ${orphans.length - 5} more` : ""}.`,

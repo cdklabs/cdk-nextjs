@@ -49,16 +49,16 @@ Of the 72 screened (12 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 43 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache` and 3 of 7 `dynamic-route-interpolation` cases |
-| fixed            | 12 defects, every one of which came from a file listed above (10 verified green; 11 and 12 are fixed and unit-tested, re-run pending) |
-| bug              | 3 (`asset-prefix`, `parallel-routes-root-param-dynamic-child`, `incremental-cache-path-traversal`) |
+| fixed            | 14 defects, every one of which came from a file listed above (10 verified green; 11 to 14 are fixed and verified offline or unit-tested, deployed re-run pending) |
+| bug              | 2 (`asset-prefix`, `incremental-cache-path-traversal`) |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files, plus the 2 remaining `trailingslash` and 4 remaining `dynamic-route-interpolation` cases |
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 15 (2 gated by next.js, 13 `skipDeployment` or stubbed in deploy mode) |
 
-The twelve fixed defects are the harness's whole return on investment so far. All
-twelve were real, all twelve shipped, and none of them could have been caught by
-the construct tests or by `examples/e2e-tests`.
+The fourteen fixed defects are the harness's whole return on investment so far. All
+fourteen were real, all fourteen shipped, and none of them could have been caught
+by the construct tests or by `examples/e2e-tests`.
 
 ## Passing — in `rules.include`
 
@@ -571,6 +571,100 @@ its extension. `send` skips its own detection when `Content-Type` is already set
 so nothing has to be threaded through its options. `favicon.ico` had the same bug
 and nobody noticed, because browsers sniff icons.
 
+### 13. A root-params app 404'd at every URL, because its prerenders were draft-gated
+
+**File:** `app-dir/parallel-routes-root-param-dynamic-child` (10 of 14).
+**Verdict: fixed** (`addPrerenderPathnames` in `src/adapter/build-outputs.ts`).
+
+Ten cases died on `page.waitForSelector('#reveal')` timing out, which reads like a
+hydration failure — `#reveal` is a checkbox in a client component. It was not. A
+live probe found the page itself missing:
+
+```
+GET /en   → HTTP/2 404, x-nextjs-prerender: 1, x-nextjs-cache: MISS
+            (all 7 script srcs and the preload href return 200)
+```
+
+The fixture is a **root params** app: `app/[locale]/page.tsx` with
+`generateStaticParams()` and deliberately no `app/layout.tsx`. Its params can
+never be filled from a request, because there is no static ancestor to route
+through — so next.js emits the `dynamicRoutes` rule for it *gated on draft mode*:
+
+```json
+{ "sourceRegex": "^/(?<nxtPlocale>[^/]+?)(?:/)?$",
+  "has": [{ "type": "cookie", "key": "__prerender_bypass" },
+          { "type": "cookie", "key": "__next_preview_data" }] }
+```
+
+That is next.js saying: invoke the function only for a draft-mode request, and
+otherwise serve the prerender you were handed. Vercel's CDN does exactly that.
+Our manifest listed no `/en`, so dispatch matched nothing and answered the
+prerendered 404 — for `/en`, `/en.rsc` and every `.segments/…` prefetch alike,
+which is why the client never got the layout's bundle.
+
+Fixed by registering a *concrete* prerender pathname as an entrypoint when a gated
+dynamic rule matches it and no ungated one does, owned by the entrypoint of
+`prerender.route` (preferring the route's `.rsc` entrypoint for an `.rsc`
+pathname). The narrowing matters: registering every concrete prerender adds inert
+keys — `/index.segments/*.segment.rsc` for an app whose `/` is static, which
+`resolveRoutes` never resolves to — and a route with an ungated rule already
+reaches its template, where `RouteModule.prepare` re-derives the params from the
+pathname. Unknown params keep 404ing, as `next start` does for `/xx`.
+
+Verified at the dispatch level against the real fixture's captured build context
+(`/en`, `/fr`, `/en.rsc`, `/en/gsp/stories/static-123` all resolve; `/xx` still
+404s; `/en/no-gsp/stories/1` still resolves to the template). End-to-end
+verification needs a deployment: offline the runtime cache reads S3 only, so a
+fully-prerendered route answers `invariant: cache entry required but not
+generated`.
+
+### 14. Every PPR fallback shell was re-rendered per request instead of resumed
+
+**File:** `app-dir/sub-shell-generation` (6 of 7).
+**Verdict: fixed** (the prerender-group loop in `src/adapter/adapter.mts`).
+
+Six cases, one diff — the shell was right, the sentinel was wrong:
+
+```
+- "rootLayout": "Root Layout: (buildtime)"     ← next start
++ "rootLayout": "Root Layout: (runtime)"       ← ours
+```
+
+The fixture's root layout is `'use cache'`, so `(buildtime)` is the assertion that
+the response *resumed* a shell built at build time. The seventh case, `/fr/1`, is
+fully prerendered and passed: only the three fallback shells (`/[lang]/[slug]`,
+`/en/[slug]`, `/fr/[slug]`) failed.
+
+A dynamic route template is not a dead cache entry. With PPR it *is* the route's
+fallback shell, and the server looks it up under that literal key:
+`app-page-runtime` reads `prerenderManifest.dynamicRoutes[route].fallback` — the
+template string, verbatim — and calls
+`routeModule.handleResponse({ cacheKey, isFallback: true })`. The Pages Router does
+the same with `srcPage` for an ISR fallback. Our seeding loop skipped every group
+whose pathname contained `[`, commented "they don't have actual content", so every
+one of those lookups missed and the shell was rendered per request.
+
+They do have content. The fixture's `.next/server/app/[lang]/[slug].meta` carries a
+2,630-byte `postponed` state, and after the fix the seed directory gains the three
+entries with the shells the test asks for:
+
+```
+[lang]/[slug].json   html 1004B  postponed 2630B  segs 2  root-layout: buildtime, lang-layout deferred
+en/[slug].json       html 1178B  postponed 3388B  segs 2  root-layout: buildtime, lang-layout: buildtime
+fr/[slug].json       html 1178B  postponed 3363B  segs 2  root-layout: buildtime, lang-layout: buildtime
+```
+
+Which is exactly the per-URL expectation table in the fixture: `/es/1` gets the
+`[lang]` shell (lang layout deferred to the resume → `(runtime)`), `/en/1` and
+`/fr/2` get their locale's shell (`(buildtime)`).
+
+Nothing extra was needed to keep non-PPR templates out: a route with no shell emits
+no prerender output at all, and a Pages Router template gets no kind from
+`getRouteToCacheKindMap` and is skipped one line later. Measured with
+`scripts/e2e-offline.sh app-dir/sub-shell-generation`, which is also how the seed
+directory above was read; `adapter.mts` has no jest coverage, so the fixture build
+is the evidence.
+
 ## Bug — not yet fixed
 
 ### `assetPrefix` bundles are not served
@@ -599,36 +693,6 @@ Fixing it means either an extra CloudFront behavior for
 strip the prefix, or deploying the static assets under the prefixed key as well.
 `assetPrefix` is currently undocumented in `README.md` and `docs/`, so this is
 also a documentation gap.
-
-### A root-params app with no `app/layout.tsx` never becomes interactive
-
-`app-dir/parallel-routes-root-param-dynamic-child` (10 of 14 cases, identically
-on both attempts). **Verdict: bug**, not yet root-caused.
-
-Every failing case dies the same way: `page.waitForSelector('#reveal')` times
-out. `#reveal` is an `<input type="checkbox">` in
-`app/[locale]/layout.client.tsx` — a client component — and the fixture is a root
-params app with a `app/[locale]/layout.tsx` and deliberately *no*
-`app/layout.tsx`. The browser logs show repeated resource 404s, which is
-consistent with the client bundle for that layout never loading, so the checkbox
-is either absent or not hydrated.
-
-The four passing cases are the ones that assert on server-rendered text only.
-
-A live probe against the deployed fixture moved this on: **`/en` itself is a 404**,
-and every asset it references is fine.
-
-```
-GET /en   → HTTP/2 404, x-nextjs-prerender: 1, x-nextjs-cache: MISS
-            (all 7 script srcs and the preload href return 200)
-```
-
-So the page is not failing to hydrate — it is being served the prerendered 404 in
-the first place, and the `#reveal` timeout is just the downstream symptom. That
-points at route resolution for a root-param route (`/[locale]` with no
-`app/layout.tsx`) rather than at the client bundle. Still a bug, now with a much
-narrower place to look: how the adapter keys, and dispatch matches, a root-param
-entrypoint.
 
 ### A path-traversal `_next/data` request 500s instead of rendering
 

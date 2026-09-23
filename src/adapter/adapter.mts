@@ -89,11 +89,20 @@ const adapter: NextAdapter = {
     // Process each group and create cache entries
     for (const [basePath, variants] of prerenderGroups) {
       try {
-        // Skip dynamic route templates (they don't have actual content)
-        if (basePath.includes("[")) {
-          debug(`SKIP: Dynamic route template ${basePath}`);
-          continue;
-        }
+        // A dynamic route template — `/[lang]/[slug]` — is not a dead entry: with
+        // PPR it is the route's *fallback shell*, and the server looks it up in
+        // the cache under exactly that key. `app-page-runtime` reads
+        // `prerenderManifest.dynamicRoutes[route].fallback` (the literal template
+        // string) and calls `handleResponse({ cacheKey, isFallback: true })`; the
+        // Pages Router does the same with `srcPage` for an ISR fallback. Skipping
+        // these groups made every such lookup a MISS, so the shell was rendered
+        // per request instead of resumed from the build - visible in
+        // `test/e2e/app-dir/sub-shell-generation`, where a `'use cache'` root
+        // layout reported `(runtime)` where next start reports `(buildtime)`.
+        //
+        // Nothing extra is needed to keep non-PPR templates out: a route with no
+        // shell emits no prerender output, and a Pages Router template gets no
+        // kind from `getRouteToCacheKindMap` and is skipped just below.
 
         // Determine the correct cache kind from our route mapping
         const kind = routeToCacheKind.get(basePath);

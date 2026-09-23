@@ -102,8 +102,10 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
         ...ctx.outputs.appPages,
         ...ctx.outputs.appRoutes,
       ].map((o) => o.pathname);
-      // Plus dynamic prerender templates, which `addPrerenderTemplates` maps to
-      // the entrypoint of the route that owns them.
+      // Plus dynamic prerender templates, which `addPrerenderPathnames` maps to
+      // the entrypoint of the route that owns them. None of these fixtures has a
+      // gated dynamic route, so no *concrete* prerender pathname is added - see
+      // the root-params test below.
       const templates = ctx.outputs.prerenders
         .filter((o) => o.pathname.includes("["))
         .map((o) => o.pathname);
@@ -254,6 +256,46 @@ describe("buildAdapterManifest edge cases", () => {
     const { manifest } = build(asContext(appPlayground));
     expect(manifest.entrypoints["/isr/[id]"].id).toBe("/isr/[id]");
     expect(manifest.entrypoints["/isr/[id].rsc"]).toBeDefined();
+  });
+
+  it("adds a concrete prerender pathname when only a gated rule matches it", () => {
+    // What a root-params app produces: `app/[locale]/page.tsx` with
+    // `generateStaticParams()` and no `app/layout.tsx`. The params can never be
+    // filled at request time, so `next build` emits the `dynamicRoutes` rule with a
+    // draft-mode `has` and expects the platform to serve `/en` from the prerender.
+    // Measured against `test/e2e/app-dir/parallel-routes-root-param-dynamic-child`,
+    // where every URL of the app 404'd. Reproduced here by gating
+    // `app-playground`'s `/isr/[id]` rules, which no committed capture does.
+    const ctx = asContext(appPlayground);
+    for (const route of ctx.routing.dynamicRoutes) {
+      if (route.sourceRegex.includes("isr")) {
+        route.has = [
+          { type: "cookie", key: "__prerender_bypass", value: "secret" },
+        ];
+      }
+    }
+    const { manifest } = build(ctx);
+    expect(manifest.entrypoints["/isr/1"]).toEqual({
+      id: "/isr/1",
+      filePath: manifest.entrypoints["/isr/[id]"].filePath,
+      type: "app-page",
+    });
+    // The RSC and segment-prefetch variants too: they are the URLs a client-side
+    // navigation asks for, so without them the app renders and never hydrates.
+    expect(manifest.entrypoints["/isr/1.rsc"]).toBeDefined();
+    expect(
+      manifest.entrypoints["/isr/1.segments/isr/$d$id/__PAGE__.segment.rsc"],
+    ).toBeDefined();
+    // Unmutated, the same pathnames stay out: the ungated rule already reaches
+    // `/isr/[id]`, which is where the `nxtPid` param comes from.
+    const { manifest: ungated } = build(asContext(appPlayground));
+    expect(ungated.entrypoints["/isr/1"]).toBeUndefined();
+    expect(ungated.entrypoints["/isr/1.rsc"]).toBeUndefined();
+    // And a pathname no rule matches at all stays out either way: `resolveRoutes`
+    // never resolves a static route's segment outputs, so listing them is weight.
+    expect(
+      manifest.entrypoints["/index.segments/_tree.segment.rsc"],
+    ).toBeUndefined();
   });
 
   it("warns instead of throwing when a template has no owning route", () => {
