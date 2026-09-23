@@ -17,7 +17,7 @@ import {
 } from "../adapter/build-outputs";
 import { ResponseHead } from "./http/response";
 import { ResponseSink } from "./http/sink";
-import { deployedManifestPath } from "./manifest";
+import { AdapterManifest, deployedManifestPath } from "./manifest";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
 
 /**
@@ -30,7 +30,12 @@ const ENTRYPOINT_STUB = `
 const { writeFileSync } = require("node:fs");
 exports.handler = async (req, res, ctx) => {
   const url = new URL(req.url, "https://stub.test");
-  if (url.searchParams.has("boom")) {
+  if (url.searchParams.has("boomEverywhere")) {
+    throw new Error("the error page exploded too");
+  }
+  // Same recursion guard as \`render404\` below: the error page is rendered for
+  // the URL that was asked for, so an unguarded throw would repeat forever.
+  if (url.searchParams.has("boom") && !__filename.includes("_error")) {
     throw new Error("route exploded");
   }
   // What both routers do for \`notFound()\` they cannot render themselves. Only
@@ -115,6 +120,7 @@ function write(path: string, contents: string | Buffer): void {
 
 const FAVICON = Buffer.from("00000100-fake-icon", "utf-8");
 const NOT_FOUND_HTML = "<html><body>prerendered 404</body></html>";
+const ERROR_HTML = "<html><body>prerendered 500</body></html>";
 
 /**
  * Materializes the tree a deployment stages: the manifest under
@@ -122,11 +128,17 @@ const NOT_FOUND_HTML = "<html><body>prerendered 404</body></html>";
  * the manifest points at, and the `required-server-files.json` `loadRuntime`
  * probes for.
  */
-function stageDeployment(middlewareSource = MIDDLEWARE_STUB): string {
+function stageDeployment(
+  middlewareSource = MIDDLEWARE_STUB,
+  transformManifest: (manifest: AdapterManifest) => AdapterManifest = (it) =>
+    it,
+): string {
   // The fixture is a real captured context, as JSON: the structural cast is the
   // point of the cast (see `build-outputs.test.ts`).
   const ctx = structuredClone(appPlayground) as unknown as BuildCompleteContext;
-  const { manifest } = buildAdapterManifest(ctx, { buildCwd: ctx.projectDir });
+  const manifest = transformManifest(
+    buildAdapterManifest(ctx, { buildCwd: ctx.projectDir }).manifest,
+  );
   // Realpath because `loadRuntime` chdirs, and macOS's /var is a symlink to
   // /private/var: the cwd the entrypoints report would not match otherwise.
   const root = realpathSync(mkdtempSync(join(tmpdir(), "cdk-nextjs-core-")));
@@ -153,6 +165,10 @@ function stageDeployment(middlewareSource = MIDDLEWARE_STUB): string {
 
   write(join(root, manifest.staticFiles["/favicon.ico"]), FAVICON);
   write(join(root, manifest.staticFiles["/404"]), NOT_FOUND_HTML);
+  // Absent in the deployment the error-page ladder tests stage.
+  if (manifest.staticFiles["/500"]) {
+    write(join(root, manifest.staticFiles["/500"]), ERROR_HTML);
+  }
   return root;
 }
 
@@ -322,11 +338,16 @@ describe("NextjsRuntime.handle", () => {
     }
   });
 
-  it("answers 500 when an entrypoint throws before sending a head", async () => {
+  it("serves the prerendered 500 when an entrypoint throws before sending a head", async () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     const sink = await send({ url: "/?boom=1" });
     expect(sink.head?.statusCode).toBe(500);
-    expect(sink.body.toString("utf-8")).toBe("Internal Server Error");
+    expect(sink.body.toString("utf-8")).toBe(ERROR_HTML);
+    // A `Cache-Control` the render that threw had already set would otherwise
+    // stay on the response and get the 500 cached at the edge.
+    expect(sink.head?.headers["cache-control"]).toBe(
+      "private, no-cache, no-store, max-age=0, must-revalidate",
+    );
     expect(error).toHaveBeenCalledWith(
       "Unhandled error while handling the request:",
       expect.objectContaining({ message: expect.stringContaining("exploded") }),
@@ -397,5 +418,96 @@ exports.handler = async () =>
       sink,
     );
     expect(sink.head?.cookies).toEqual(["a=1; Path=/", "b=2; Path=/"]);
+  });
+});
+
+/**
+ * Next.js's page handlers report an error and then rethrow, leaving the error page
+ * to whatever hosts them, so this ladder is the only thing that makes a
+ * `pages/_error` reachable. `test/e2e/async-modules` is the measurement:
+ * `/make-error` throws in `getServerSideProps` and expects "hello error".
+ */
+describe("the error page ladder", () => {
+  /**
+   * An app with a custom `pages/_error` that cannot be prerendered — one with
+   * `getInitialProps`, or a `pages/_app` that has it. The fixture is App Router,
+   * so both halves have to be arranged: drop the prerendered `/500` next emits by
+   * default, and add the entrypoint.
+   */
+  const withErrorPage = (manifest: AdapterManifest): AdapterManifest => {
+    const { "/500": _prerendered, ...staticFiles } = manifest.staticFiles;
+    return {
+      ...manifest,
+      staticFiles,
+      entrypoints: {
+        ...manifest.entrypoints,
+        "/_error": {
+          ...manifest.entrypoints["/_not-found"],
+          id: "/_error",
+          filePath: join(
+            manifest.relativeProjectDir,
+            ".next/server/pages/_error.js",
+          ),
+        },
+      },
+    };
+  };
+
+  async function sendTo(
+    withLadder: NextjsRuntime,
+    url: string,
+  ): Promise<CollectingSink> {
+    const sink = new CollectingSink();
+    await withLadder.handle(
+      { method: "GET", url, headers: { host: "shop.example.test" } },
+      sink,
+    );
+    return sink;
+  }
+
+  it("invokes /_error when the build has no prerendered /500", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const rendering = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, withErrorPage),
+    );
+    const sink = await sendTo(rendering, "/?boom=1");
+    expect(sink.head?.statusCode).toBe(500);
+    // Rendered for the URL that was asked for, and with the status already set:
+    // `_error`'s `getInitialProps` reads `res.statusCode` to get its own prop.
+    expect(stubBody(sink).file).toContain("pages/_error.js");
+    expect(stubBody(sink).url).toBe("/?boom=1");
+    error.mockRestore();
+  });
+
+  it("falls back to plain text when the error page throws too", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const rendering = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, withErrorPage),
+    );
+    const sink = await sendTo(rendering, "/?boomEverywhere=1");
+    expect(sink.head?.statusCode).toBe(500);
+    expect(sink.body.toString("utf-8")).toBe("Internal Server Error");
+    expect(sink.head?.headers["cache-control"]).toBe(
+      "private, no-cache, no-store, max-age=0, must-revalidate",
+    );
+    expect(error).toHaveBeenCalledWith(
+      "The error page itself failed to render:",
+      expect.objectContaining({ message: expect.stringContaining("too") }),
+    );
+    error.mockRestore();
+  });
+
+  it("answers plain text for an app with no error page at all", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const bare = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, (manifest) => {
+        const { "/500": _prerendered, ...staticFiles } = manifest.staticFiles;
+        return { ...manifest, staticFiles };
+      }),
+    );
+    const sink = await sendTo(bare, "/?boom=1");
+    expect(sink.head?.statusCode).toBe(500);
+    expect(sink.body.toString("utf-8")).toBe("Internal Server Error");
+    error.mockRestore();
   });
 });

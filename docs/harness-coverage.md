@@ -57,16 +57,16 @@ Of the 162 screened (25 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 119 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache` and 3 of 7 `dynamic-route-interpolation` cases |
-| fixed            | 18 defects, every one of which came from a file listed above; 17 verified green against a deployment, defect 18 (a space in a `public/` filename) queued for the next batch |
+| fixed            | 19 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename) and 19 (the error page) queued for the next batch |
 | bug              | 1 (`incremental-cache-path-traversal`) |
-| awaiting verdict | 4 — see below |
+| awaiting verdict | 3 — see below |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files, plus the 2 remaining `trailingslash` and 4 remaining `dynamic-route-interpolation` cases |
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 28 (2 gated by next.js, 26 `skipDeployment` or stubbed in deploy mode) |
 
-The eighteen fixed defects are the harness's whole return on investment so far.
-All eighteen were real, all eighteen shipped, and none of them could have been
+The nineteen fixed defects are the harness's whole return on investment so far.
+All nineteen were real, all nineteen shipped, and none of them could have been
 caught by the construct tests or by `examples/e2e-tests`.
 
 ## Passing — in `rules.include`
@@ -939,6 +939,42 @@ resource tree cannot express it, and failing the synth is worse than saying so.
 Covered by three `nextjs-distribution.test.ts` cases (a file, a directory, and the
 length limit) and one in `nextjs-api.test.ts`.
 
+### 19. A throw out of a route answered plain text, never the app's error page
+
+`async-modules` (1 of 7, "can render async error page"). `/make-error` throws in
+`getServerSideProps`; the fixture ships a `pages/_error` rendering
+`<p id="content-error">hello error</p>`, and the browser got
+`500 Internal Server Error` as `text/plain` instead.
+
+Next.js's page handlers catch, report and then deliberately rethrow — "rethrow so
+that we can handle serving error page", `pages-handler.ts` — which makes rendering
+the error page the host's job, exactly as `render404` makes the 404 the host's job.
+cdk-nextjs had no counterpart: every throw reached one `failWith` that wrote a bare
+plain-text 500, so a `pages/_error`, a `pages/500`, and the prerendered `500.html`
+next emits by default were all dead code. Not specific to this fixture — it was
+every unhandled error in every app.
+
+**Verdict: fixed.** `resolveErrorTarget` (`src/runtime/dispatch.ts`) resolves the
+ladder once from the manifest, in the order `base-server.ts`'s
+`renderErrorToResponse` uses: an invocable `/500`, then the prerendered `/500`
+(`pages/500.js` is a `STATIC_STATUS_PAGES` entry, so it usually arrives as HTML),
+then `/_error`, then nothing. `NextjsRuntime.sendError` walks it, sets the 500
+*before* invoking so `_error`'s `getInitialProps` reads the right status, and
+renders for the URL that was asked for rather than for `/_error`. It is resolved on
+the runtime rather than on the Dispatcher, which is per request: the throw this
+answers can happen before one exists.
+
+Three things the fallback path now also does: it survives an error page that throws
+in turn, without recursing; it strips a `Content-Length` and `ETag` the render that
+threw may have left describing a body that never arrived; and it sends
+`Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate`, so a
+long-lived `Cache-Control` from the failed render cannot get a 500 cached at the
+edge.
+
+Covered by four `resolveErrorTarget` cases in `dispatch.test.ts` and four in
+`core.test.ts` (the prerendered `/500`, the `/_error` invocation, an error page that
+throws, and an app with neither).
+
 ## Bug — not yet fixed
 
 ### A path-traversal `_next/data` request 500s instead of rendering
@@ -992,21 +1028,18 @@ Batch 11 (50 files, 2026-09-23, the first run with defect 17's fix bundled)
 produced 32 green files, 13 no-signal ones (the helper-hidden `skipDeployment`
 files, below) and 5 failures. One of the five is defect 18 — `next-image-legacy/unicode`
 never deployed at all — and it is requeued. That leaves four files awaiting a
-verdict, two of them carried over from batch 10:
+verdict, two of them carried over from batch 10 — and one of the four, `async-modules`,
+was root-caused while batch 12 ran (defect 19):
 
 | File                    | Cases | The failing assertion                                                     |
 | ----------------------- | ----- | ------------------------------------------------------------------------- |
 | `i18n-support-catchall` | 1 / 4 | "should load the index route correctly SSR" expects `200` from `/` and gets `308` |
-| `async-modules`         | 1 / 7 | "can render async error page" — `/make-error` throws in `getServerSideProps` and we answer a bare `text/plain` 500 instead of rendering the app's `pages/_error` |
 | `no-page-props`         | 1 / 5 | "should navigate between pages correctly" expects `"hi"` and reads `undefined` off the page |
 | `asset-prefix-absolute` | 1 / 1 | "bundles should return 200 on served assetPrefix" expects `200` and gets `404` |
 
-`async-modules` is the clearest candidate defect. `src/runtime/core.ts` has no
-error ladder analogous to `sendNotFound`: a throw out of an entrypoint handler
-reaches `failWith`, which sends `500 Internal Server Error` as plain text, so a
-custom `pages/_error` (or the built-in one) is never rendered. Batch 11 narrowed it
-usefully — the file's other two failures *were* defect 17 and are now green, so
-this one case is all that is left and its cause is no longer entangled.
+`async-modules`'s remaining case left this list straight away: batch 11 had already
+cleared its other two failures (defect 17), which isolated it enough to root-cause,
+and it is defect 19 above. Requeued behind a bundle.
 
 `i18n-support-catchall` is not defect 17: it resolves `/`, and redirects it. With
 i18n, `/` serves the default locale's content rather than redirecting to `/en-US`,
@@ -1021,7 +1054,7 @@ serves itself, which `NextjsDistribution` deliberately adds no behavior for (see
 a fixture assuming a deployment shape cdk-nextjs does not provide is exactly the
 open question.
 
-None of the four is in `rules.include`, and none is in `excluded-notes` either: an
+None of the three is in `rules.include`, and none is in `excluded-notes` either: an
 `excluded-notes` entry is a decision, and no decision has been made.
 
 ## Unsupported — a product limitation

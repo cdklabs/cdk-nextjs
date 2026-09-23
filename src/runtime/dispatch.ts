@@ -543,3 +543,50 @@ function resolveNotFoundTarget(manifest: AdapterManifest): NotFoundTarget {
   }
   return { kind: "none" };
 }
+
+/**
+ * How to produce a 500 body. Same shapes as {@link NotFoundTarget}, and resolved
+ * the same way — once, from the manifest.
+ */
+export type ErrorTarget = NotFoundTarget;
+
+/**
+ * The order next itself uses, in `base-server.ts`'s `renderErrorToResponse`:
+ * `/500` — App Router's first, then Pages Router's — and then `/_error`, which is
+ * the built-in error page unless the app wrote its own. `pages/500.js` is a
+ * `STATIC_STATUS_PAGES` entry and so is normally prerendered to HTML, which is why
+ * the static file is checked before `/_error` rather than after it: next would
+ * serve that prerender in preference to `/_error` too.
+ *
+ * Only reached when an entrypoint *throws*. Next.js's page handlers deliberately
+ * rethrow ("rethrow so that we can handle serving error page",
+ * `pages-handler.ts`), leaving the error page to whatever is hosting them —
+ * measured against `test/e2e/async-modules`, whose `/make-error` throws in
+ * `getServerSideProps` and expects the app's `pages/_error`.
+ */
+export function resolveErrorTarget(manifest: AdapterManifest): ErrorTarget {
+  const { basePath } = manifest.config;
+  const error500 = `${basePath}/500`;
+  const entrypoint500 = manifest.entrypoints[error500];
+  if (entrypoint500) {
+    return {
+      kind: "entrypoint",
+      pathname: error500,
+      entrypoint: entrypoint500,
+    };
+  }
+  const filePath = manifest.staticFiles[error500];
+  if (filePath !== undefined) {
+    return { kind: "static-file", pathname: error500, filePath };
+  }
+  const errorPathname = `${basePath}/_error`;
+  const errorEntrypoint = manifest.entrypoints[errorPathname];
+  if (errorEntrypoint) {
+    return {
+      kind: "entrypoint",
+      pathname: errorPathname,
+      entrypoint: errorEntrypoint,
+    };
+  }
+  return { kind: "none" };
+}

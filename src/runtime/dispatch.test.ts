@@ -5,6 +5,7 @@ import {
   DispatchRequest,
   Dispatcher,
   repairRouteParamQuery,
+  resolveErrorTarget,
   toRedirect,
 } from "./dispatch";
 import { AdapterManifest } from "./manifest";
@@ -384,6 +385,49 @@ describe("Dispatcher non-entrypoint outcomes", () => {
         manifest: { ...withoutEntrypoints, staticFiles: {} },
       }).notFound,
     ).toEqual({ kind: "none" });
+  });
+});
+
+describe("resolveErrorTarget", () => {
+  it("prefers the prerendered /500 next emits by default", () => {
+    const base = manifests["app-playground"];
+    expect(resolveErrorTarget(base)).toEqual({
+      kind: "static-file",
+      pathname: "/500",
+      filePath: base.staticFiles["/500"],
+    });
+  });
+
+  it("prefers an invocable /500 over the prerendered one", () => {
+    // What a `pages/500.js` that cannot be static-optimized builds.
+    const base = manifests["pages-i18n"];
+    expect(
+      resolveErrorTarget({
+        ...base,
+        entrypoints: {
+          ...base.entrypoints,
+          "/500": { ...base.entrypoints["/_error"], id: "/500" },
+        },
+      }),
+    ).toMatchObject({ kind: "entrypoint", pathname: "/500" });
+  });
+
+  it("falls back to /_error, then to nothing", () => {
+    // `/_error` is where a custom error page lands when it has
+    // `getInitialProps` — the case `test/e2e/async-modules` measures.
+    const base = manifests["pages-i18n"];
+    expect(resolveErrorTarget({ ...base, staticFiles: {} })).toMatchObject({
+      kind: "entrypoint",
+      pathname: "/_error",
+    });
+    expect(
+      resolveErrorTarget({ ...base, staticFiles: {}, entrypoints: {} }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("looks for the error page under the app's basePath", () => {
+    const base = manifests["app-playground-base-path"];
+    expect(resolveErrorTarget(base)).toMatchObject({ pathname: "/prod/500" });
   });
 });
 

@@ -3559,3 +3559,38 @@ Four files now await a verdict: `i18n-support-catchall` (1/4, `/` answers 308),
 reads `undefined` where it expects `"hi"`) and `asset-prefix-absolute` (1/1, bundles
 404 under an absolute `assetPrefix` pointing at a second origin the fixture serves
 itself).
+
+### Defect 19: a throw out of a route never reached the app's error page
+
+Root-caused while batch 12 deployed. `async-modules`'s last failing case
+("can render async error page") requests `/make-error`, whose `getServerSideProps`
+throws, and the fixture's `pages/_error` renders "hello error" — we answered
+`500 Internal Server Error` as `text/plain`.
+
+Next.js's page handlers catch, report and then deliberately rethrow ("rethrow so
+that we can handle serving error page", `pages-handler.ts`), which puts the error
+page on the host, exactly as `render404` puts the 404 on the host. cdk-nextjs had no
+counterpart: every throw hit one `failWith` that wrote a plain-text 500, so
+`pages/_error`, `pages/500` and the `500.html` next prerenders by default were all
+unreachable — in every app, not just this fixture.
+
+`resolveErrorTarget` (`src/runtime/dispatch.ts`) now resolves the ladder once from
+the manifest in `base-server.ts`'s own order — invocable `/500`, prerendered `/500`,
+`/_error`, nothing — and `NextjsRuntime.sendError` walks it. It sets the 500 before
+invoking, because `_error`'s `getInitialProps` reads `res.statusCode` for its own
+prop, and renders for the URL that was asked for rather than for `/_error`. The
+target lives on the runtime rather than the Dispatcher, which is per request: the
+throw it answers can happen before one exists.
+
+Three things the fallback also does now: survive an error page that throws in turn
+without recursing; strip a `Content-Length`/`ETag` the failed render left describing
+a body that never arrived; and send `Cache-Control: private, no-cache, no-store,
+max-age=0, must-revalidate`, so a long-lived `Cache-Control` from the render that
+threw cannot get a 500 cached at the edge.
+
+Four `resolveErrorTarget` cases in `dispatch.test.ts` and four in `core.test.ts`;
+22 suites / 407 tests green, `pnpm eslint` clean, `tsc --noEmit` clean. Not yet
+bundled — `pnpm bundle` has to wait for batch 12 to finish — so `async-modules` is
+requeued alongside `next-image-legacy/unicode` behind the next bundle. Three files
+still await a verdict: `i18n-support-catchall`, `no-page-props` and
+`asset-prefix-absolute`.

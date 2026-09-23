@@ -16,7 +16,12 @@ import type { IncomingHttpHeaders } from "node:http";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import type { ResolveRoutesQuery } from "@next/routing";
-import { createDispatcher, NotFoundTarget } from "./dispatch";
+import {
+  createDispatcher,
+  ErrorTarget,
+  NotFoundTarget,
+  resolveErrorTarget,
+} from "./dispatch";
 import { EntrypointRegistry } from "./entrypoints";
 import {
   createIncomingMessage,
@@ -74,10 +79,16 @@ export class NextjsRuntime {
   private readonly entrypoints: EntrypointRegistry;
   private readonly middleware?: MiddlewareRunner;
   private readonly images: RuntimeImageOptimizer;
+  /**
+   * Resolved here rather than on the Dispatcher, which is per request: the throw
+   * this answers can happen before one exists.
+   */
+  private readonly errorTarget: ErrorTarget;
 
   public constructor(private readonly options: NextjsRuntimeOptions) {
     const { manifest, deploymentRoot } = options;
     this.entrypoints = new EntrypointRegistry(deploymentRoot, manifest);
+    this.errorTarget = resolveErrorTarget(manifest);
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
       manifest,
@@ -132,14 +143,14 @@ export class NextjsRuntime {
     try {
       await this.route(req, res, url, body.forDispatch, waitUntil, request);
     } catch (error) {
-      failWith(res, error);
+      await this.sendError(req, res, waitUntil, error);
     }
 
     try {
       await finished;
     } catch (error) {
       // The stream broke after (or while) the head went out: a client
-      // disconnect, or `failWith` destroying a half-written response. Neither is
+      // disconnect, or `sendError` destroying a half-written response. Neither is
       // an invocation failure — rethrowing would make Lambda retry a request the
       // client already abandoned — so it is logged and the response ends here.
       console.error("The response stream did not complete:", error);
@@ -340,6 +351,90 @@ export class NextjsRuntime {
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.end("This page could not be found.");
   }
+
+  /**
+   * Turn a thrown error into a response, rendering the app's error page when it
+   * has one.
+   *
+   * Next.js's own page handlers catch, report and then *rethrow* ("rethrow so
+   * that we can handle serving error page", `pages-handler.ts`), which makes the
+   * error page the host's job — the same division of labor as `render404`. Without
+   * this ladder every throw answered a bare `text/plain` 500 and a custom
+   * `pages/_error` was dead code (`test/e2e/async-modules`, whose `/make-error`
+   * throws in `getServerSideProps`).
+   *
+   * Once the head is out there is nothing to say — destroying the stream is what
+   * tells the client the response is truncated rather than complete.
+   */
+  private async sendError(
+    req: ShimIncomingMessage,
+    res: ShimServerResponse,
+    waitUntil: (promise: Promise<unknown>) => void,
+    error: unknown,
+  ): Promise<void> {
+    console.error("Unhandled error while handling the request:", error);
+    if (res.headersSent) {
+      res.destroy(asError(error));
+      return;
+    }
+    res.statusCode = 500;
+    const target = this.errorTarget;
+
+    if (target.kind === "entrypoint") {
+      try {
+        const handler = await this.entrypoints.load(target.entrypoint);
+        // `req.url` is left alone: the error page renders for the URL that was
+        // asked for, and `_error`'s `getInitialProps` reads the status off `res`,
+        // which is why the 500 above is set first.
+        await handler(req, asServerResponse(res), { waitUntil });
+        if (!res.writableEnded) {
+          res.end();
+        }
+        return;
+      } catch (errorPageError) {
+        console.error(
+          "The error page itself failed to render:",
+          errorPageError,
+        );
+        if (res.headersSent) {
+          res.destroy(asError(errorPageError));
+          return;
+        }
+      }
+    }
+
+    if (target.kind === "static-file") {
+      try {
+        const html = await readFile(
+          join(this.options.deploymentRoot, target.filePath),
+        );
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", NO_STORE);
+        res.end(html);
+        return;
+      } catch {
+        // Fall through to the plain-text 500.
+      }
+    }
+
+    // A failed render may have set headers describing a body that never arrived.
+    res.removeHeader("Content-Length");
+    res.removeHeader("ETag");
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", NO_STORE);
+    res.end("Internal Server Error");
+  }
+}
+
+/**
+ * What next sends with an error it rendered itself. Without it a `Cache-Control`
+ * left behind by the render that threw can get a 500 cached at the edge.
+ */
+const NO_STORE = "private, no-cache, no-store, max-age=0, must-revalidate";
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 /**
@@ -594,20 +689,4 @@ async function sendWebResponse(
     res.write(chunk);
   }
   res.end();
-}
-
-/**
- * Turn a thrown error into a response. Once the head is out there is nothing to
- * say — destroying the stream is what tells the client the response is truncated
- * rather than complete.
- */
-function failWith(res: ShimServerResponse, error: unknown): void {
-  console.error("Unhandled error while handling the request:", error);
-  if (res.headersSent) {
-    res.destroy(error instanceof Error ? error : new Error(String(error)));
-    return;
-  }
-  res.statusCode = 500;
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.end("Internal Server Error");
 }
