@@ -133,6 +133,13 @@ function functionUrlHeaders(event: LambdaFunctionURLEvent): IncomingHttpHeaders 
 /**
  * `multiValueHeaders` is preferred where present: the single-valued map keeps only
  * the last value, which loses repeated headers.
+ *
+ * `cookie` is rejoined with `"; "` rather than the `", "` every other header uses,
+ * because that is the separator the field's own grammar uses (RFC 6265) and what
+ * every cookie parser splits on. Joining two `Cookie` fields with a comma produced
+ * `cookie: "a=1, b=2"`, which parses as the single cookie `a = "1, b=2"` — every
+ * cookie after the first is lost, including `__prerender_bypass` and
+ * `__next_preview_data`, so draft mode silently stopped working.
  */
 function restHeaders(event: APIGatewayProxyEvent): IncomingHttpHeaders {
   const headers: IncomingHttpHeaders = {};
@@ -141,7 +148,10 @@ function restHeaders(event: APIGatewayProxyEvent): IncomingHttpHeaders {
   )) {
     if (values?.length) {
       const key = name.toLowerCase();
-      headers[key] = values.length === 1 ? values[0] : values.join(", ");
+      headers[key] =
+        values.length === 1
+          ? values[0]
+          : values.join(key === "cookie" ? "; " : ", ");
     }
   }
   for (const [name, value] of Object.entries(event.headers ?? {})) {
