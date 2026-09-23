@@ -4034,3 +4034,48 @@ with neither `window` nor `XMLHttpRequest` present. 16 tests pass. Both e2e file
 went green against a real deployment on attempt 0 (103.0s, 97.0s).
 
 Coverage doc gets `### 25`; the fixed-defect count goes 23 → 24.
+
+### Batch 16, part 2: two defects behind one fixture, and 50 of 50 green
+
+`segment-cache/memory-pressure` was batch 16's third red, and it turned out to be
+hiding the two worst bugs the harness has found so far. The fixture is deliberately
+extreme — 60 static params, each page rendering `{'a'.repeat(1024 * 1024)}` — and
+being extreme is exactly why it caught them.
+
+**Defect 26: a large init cache was only partly seeded, silently.** The segment
+prefetch for `/memory-pressure/0` answered 572 bytes of postponed shell where the
+build had written a complete 1,049,321-byte segment, with `x-nextjs-cache: MISS`.
+The cache bucket held 14 objects against the seed directory's 64, and the
+`BucketDeployment` Lambda's log said `[Errno 28] No space left on device` in
+`zip.extractall` — CDK gives that Lambda 512 MiB of `/tmp` and this app's seed
+directory is 664 MiB. It *did* report `Status: FAILED`, to
+`required-to-be-present-by-cfn`, because `cdk deploy --hotswap` invokes custom
+resources with placeholder response URLs and never reads the answer; the CLI printed
+"Contents of AWS::S3::Bucket … hotswapped!" and exited 0. `NextjsCache` now sizes
+that Lambda from the seed directory: ephemeral storage of twice the directory plus
+headroom, floored at 512 MiB and capped at Lambda's 10 GiB, `memoryLimit: 1024` past
+256 MiB, a warning above the ceiling pointing at `useEfs: true`, and
+`overrides.bucketDeploymentProps` still winning. Four `nextjs-cache.test.ts` cases
+(the large one uses a sparse file so the test stays fast).
+
+**Defect 27: every cached byte was a JSON integer.** With the cache seeded, the
+LRU case still timed out at 60s — next.js's hard per-case limit for non-dev modes —
+and the reason was that one 1 MiB segment prefetch took **4.8s of Lambda time**,
+against 45ms for a small segment from the same cache and the same regardless of
+`Accept-Encoding`. The entry on S3 was 11.6 MiB for ~1 MiB of payload, because
+`serializeCacheValue` wrote Buffers as arrays of per-byte integers — and
+`parseCacheValue` reads with a `JSON.parse` reviver, which the engine calls once per
+array element. One page of this fixture carries the payload three times
+(`rscData`, `_full`, `__PAGE__`), so answering one prefetch meant visiting over
+three million JSON numbers. Buffers now serialize as base64; both integer-array
+spellings are still read back, so older entries stay readable. Measured on the same
+deployment: entry 11,592,130 → 6,319,731 bytes, Lambda 4,800ms → 113–146ms,
+response ~5.0s → ~0.2s. **This is a ~40x win on the hot path for any app with a
+large RSC payload**, not just this fixture, and it is the first defect the harness
+has produced that is a performance bug rather than a correctness one.
+
+With both fixed the file passes on attempt 0 in 180.33s, and so do the two worker
+files from defect 25 — so all 50 of batch 16 are green and promoted.
+
+`rules.include` 294 → 344, candidates 145 → 95 (~3 hours of wall clock left), fixed
+harness defects 24 → 26. Batch 17 next, from the remaining 95.
