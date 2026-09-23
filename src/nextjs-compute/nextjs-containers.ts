@@ -50,6 +50,14 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
    * to `ApplicationLoadBalancedFargateService`.
    */
   readonly ecsCluster?: ICluster;
+  /**
+   * Path to an API Route Handler that returns HTTP 200, used by the ALB target
+   * group and the ECS container health check. Both hit the app directly, so this
+   * is the path including the app's `basePath` — the root constructs prefix their
+   * own `healthCheckPath` prop with it.
+   * @example "/api/health"
+   */
+  readonly healthCheckPath: string;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
 }

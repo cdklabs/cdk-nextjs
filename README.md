@@ -91,7 +91,6 @@ class WebStack extends Stack {
     super(scope, id, props);
     new NextjsGlobalFunctions(this, "Nextjs", {
       buildDirectory: join(import.meta.dirname),
-      healthCheckPath: "/api/health",
     });
   }
 }
@@ -163,6 +162,14 @@ S3 bucket name for storing cached data (optimized images, data cache, full route
 
 DynamoDB table name for tracking cache revalidations and tag-to-cache-key mappings.
 
+#### `CDK_NEXTJS_BASE_PATH`
+
+Your app's `basePath`, set only on the CloudFront-fronted constructs
+(`NextjsGlobalFunctions`, `NextjsGlobalContainers`) and only when the app has
+one. `revalidateTag`/`revalidatePath` invalidate the CDN by route — Next.js
+strips `basePath` before routing, so the cache handler never sees it — and this
+adds it back to reach the URI CloudFront actually cached.
+
 #### `DEBUG`
 
 Set to `cdk-nextjs:*` to set debug logs. This is especially useful to see cache handler activity.
@@ -185,7 +192,6 @@ not name stays on the `default` function:
 
 ```ts
 new NextjsGlobalFunctions(this, "Nextjs", {
-  healthCheckPath: "/api/health",
   buildDirectory: join(import.meta.dirname, "..", "web"),
   functionGroups: [
     { name: "reports", routes: ["/dashboard/reports/**"] },

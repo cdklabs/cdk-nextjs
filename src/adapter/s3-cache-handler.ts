@@ -91,6 +91,18 @@ function implicitTagPath(tag: string): string | undefined {
 }
 
 /**
+ * The app's `basePath` as the URI prefix CloudFront caches under (`/base`), or
+ * `""` when it sets none.
+ *
+ * Accepts the bare segment the constructs pass (`base`) as well as `/base/`, so
+ * the runtime doesn't depend on which spelling reached the environment.
+ */
+function normalizeBasePathPrefix(raw?: string): string {
+  const trimmed = (raw || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  return trimmed ? `/${trimmed}` : "";
+}
+
+/**
  * Every URI CloudFront could be holding the response for `path` under.
  *
  * An invalidation path matches only the query string it spells out, and a page's
@@ -134,6 +146,12 @@ interface CloudFrontInvalidationConfig {
    */
   distributionIdParameterName: string;
   region: string;
+  /**
+   * The app's `basePath`, as the URI prefix CloudFront cached the responses
+   * under. Only the Global `NextjsType`s set it, and only when the app has one.
+   * @see S3CacheHandler.toCdnPath
+   */
+  basePath: string;
 }
 
 export interface S3CacheHandlerOptions {
@@ -195,6 +213,9 @@ export class S3CacheHandler implements CacheHandler {
         options.cloudFrontConfig?.region ||
         process.env.AWS_REGION ||
         "us-east-1",
+      basePath: normalizeBasePathPrefix(
+        options.cloudFrontConfig?.basePath || process.env.CDK_NEXTJS_BASE_PATH,
+      ),
     };
 
     // Initialize AWS clients
@@ -525,16 +546,40 @@ export class S3CacheHandler implements CacheHandler {
         }
 
         await this.invalidateCloudFrontPaths(
-          paths.flatMap(invalidationVariants),
+          paths
+            .map((path) => this.toCdnPath(path))
+            .flatMap(invalidationVariants),
         );
       }
     }
   }
 
   /**
-   * Reverses `buildS3Key` to recover the request path CloudFront cached the
-   * response under. Fetch-cache entries (opaque hash keys, not page routes)
-   * translate to a path that won't match anything cached, which is harmless.
+   * Prefix the app's `basePath` onto a route to get the URI CloudFront cached
+   * the response under.
+   *
+   * Neither source of an invalidation path carries it. Cache keys are routes —
+   * Next.js strips `basePath` before routing, so the cache handler never sees one
+   * (see `prerenderPathToCacheKey`) — and `revalidatePath("/blog")` names the
+   * route as well. CloudFront only ever saw `/base/blog`, so invalidating
+   * `/blog` clears nothing and the edge keeps serving the pre-revalidation page
+   * until `s-maxage` expires.
+   */
+  private toCdnPath(route: string): string {
+    const { basePath } = this.cloudFrontConfig;
+    if (!basePath) {
+      return route;
+    }
+    // The app's root under a `basePath` is `/base`, not `/base/` — the slash
+    // variant comes from `invalidationVariants`.
+    return route === "/" ? basePath : `${basePath}${route}`;
+  }
+
+  /**
+   * Reverses `buildS3Key` to recover the route the response was cached for, for
+   * {@link toCdnPath} to turn into the URI CloudFront holds it under.
+   * Fetch-cache entries (opaque hash keys, not page routes) translate to a path
+   * that won't match anything cached, which is harmless.
    */
   private s3KeyToInvalidationPath(s3Key: string): string {
     const prefix = `${this.s3Config.buildId}/`;

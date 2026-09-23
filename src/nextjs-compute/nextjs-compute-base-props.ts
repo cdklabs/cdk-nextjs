@@ -3,7 +3,6 @@ import { IBucket } from "aws-cdk-lib/aws-s3";
 import { NextjsType } from "../constants";
 
 export interface NextjsComputeBaseProps {
-  readonly healthCheckPath: string;
   /**
    * S3 bucket for cache storage
    */

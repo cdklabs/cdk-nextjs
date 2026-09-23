@@ -93,22 +93,6 @@ export interface NextjsBaseProps {
    */
   readonly cacheBucket?: IBucket;
   /**
-   * Path to API Route Handler that returns HTTP 200 to ensure compute health.
-   *
-   * Only the Containers `NextjsType`s use this, for the ALB target group and the
-   * ECS container health check. Lambda has nothing to health-check, so the
-   * Functions types accept it and ignore it.
-   * @example "/api/health"
-   * @example
-   * // api/health/route.ts
-   * import { NextResponse } from "next/server";
-   *
-   * export function GET() {
-   *   return NextResponse.json("");
-   * }
-   */
-  readonly healthCheckPath: string;
-  /**
    * Bring your own DynamoDB table for revalidation metadata. When provided,
    * cdk-nextjs will use this table instead of creating a new one. The table
    * must have `pk` (String) as partition key and `sk` (String) as sort key.
@@ -271,11 +255,15 @@ export abstract class NextjsBaseConstruct extends Construct {
    * `healthCheckPath` is therefore the path as the app routes it, without
    * `basePath`; one that carries the prefix already gets it twice, which is the
    * 0.6.2 breaking change for anyone who prefixed by hand to work around this.
+   *
+   * Takes the path as an argument rather than reading it off `baseProps`: only
+   * the two Containers root constructs declare `healthCheckPath`, since they're
+   * the only ones with something to health-check.
    */
-  private resolvedHealthCheckPath(): string {
+  protected resolvedHealthCheckPath(healthCheckPath: string): string {
     return prefixWithBasePath(
       this.nextjsBuild.nextConfigBasePath,
-      this.baseProps.healthCheckPath,
+      healthCheckPath,
     );
   }
 
@@ -284,7 +272,6 @@ export abstract class NextjsBaseConstruct extends Construct {
    */
   protected computeBaseProps(): NextjsComputeBaseProps {
     return {
-      healthCheckPath: this.resolvedHealthCheckPath(),
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       buildId: this.nextjsBuild.buildId,

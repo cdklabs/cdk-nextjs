@@ -30,7 +30,6 @@ export class RegionalFunctionsStack extends Stack {
     process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
     process.env["NEXT_PUBLIC_IMAGE_SRC_PREFIX"] = "/prod"; // prefix image paths for API Gateway deployments
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
-      healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       overrides: {
         nextjsApi: {

@@ -28,6 +28,14 @@ export interface OptionalNextjsContainersProps {
    */
   readonly relativeEntrypointPath?: string;
   /**
+   * Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check.
+   * Both hit the app directly, so this
+   * is the path including the app's `basePath` — the root constructs prefix their
+   * own `healthCheckPath` prop with it.
+   * @stability stable
+   */
+  readonly healthCheckPath?: string;
+  /**
    * Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys.
    * @stability stable
    */
@@ -51,10 +59,6 @@ export interface OptionalNextjsContainersProps {
    * @stability stable
    */
   readonly nextjsType?: NextjsType;
-  /**
-   * @stability stable
-   */
-  readonly healthCheckPath?: string;
   /**
    * Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers.
    * @stability stable

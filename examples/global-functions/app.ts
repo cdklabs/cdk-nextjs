@@ -31,7 +31,6 @@ class GlobalFunctionsStack extends Stack {
     super(scope, id, props);
     const logsBucket = this.#getLogsBucket();
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
-      healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       // skipBuild: true,
       functionGroups,

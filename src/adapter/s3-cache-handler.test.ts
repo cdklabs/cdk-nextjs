@@ -108,6 +108,7 @@ describe("S3DynamoCacheHandler", () => {
     delete process.env.CDK_NEXTJS_BUILD_ID;
     delete process.env.AWS_REGION;
     delete process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME;
+    delete process.env.CDK_NEXTJS_BASE_PATH;
 
     // Restore console.warn
     jest.restoreAllMocks();
@@ -430,6 +431,79 @@ describe("S3DynamoCacheHandler", () => {
         "/en/legacy/",
         "/en/legacy/?*",
         "/en/legacy?*",
+      ]);
+    });
+
+    it("invalidates the URI under the app's basePath, not the bare route", async () => {
+      // CloudFront cached `/base/isr/1`; the cache key and the `revalidatePath`
+      // tag both name `/isr/1`, because Next.js strips `basePath` before routing
+      // and never shows it to the cache handler. Invalidating the bare route
+      // matches nothing at the edge, so the stale page survives until
+      // `s-maxage` expires.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      // The bare segment the constructs pass, to pin that the runtime adds the
+      // leading slash rather than requiring one.
+      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      const handlerWithBasePath = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({
+        query: {
+          Items: [
+            { sk: { S: "test-tag#test-build-id/isr/1.json" } },
+            { sk: { S: "test-tag#test-build-id/index.json" } },
+          ],
+        },
+      });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithBasePath.revalidateTag("test-tag");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
+        expect.arrayContaining([
+          "/base/isr/1",
+          "/base/isr/1?*",
+          // The app's root under a `basePath` is `/base`, not `/base/`.
+          "/base",
+          "/base?*",
+        ]),
+      );
+      expect(invalidationInput.InvalidationBatch.Paths.Items).not.toContain(
+        "/isr/1",
+      );
+    });
+
+    it("adds the basePath to a revalidatePath tag's path too", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      const handlerWithBasePath = new S3CacheHandler({
+        context: mockContext,
+      });
+
+      dynamoResponses({ query: { Items: [] } });
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithBasePath.revalidateTag("_N_T_/blog");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items.sort()).toEqual([
+        "/base/blog",
+        "/base/blog/",
+        "/base/blog/?*",
+        "/base/blog?*",
       ]);
     });
 

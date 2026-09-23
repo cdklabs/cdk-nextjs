@@ -166,6 +166,16 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
         "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
         distributionIdParameterName,
       );
+      // Paired with the parameter name because invalidation is the only thing
+      // that needs it: the paths the cache handler derives are routes, and
+      // CloudFront cached them under `basePath`. Set only when there is one, so
+      // apps without a `basePath` see no environment change.
+      if (this.resolvedBasePath) {
+        group.function.addEnvironment(
+          "CDK_NEXTJS_BASE_PATH",
+          this.resolvedBasePath,
+        );
+      }
     }
   }
 

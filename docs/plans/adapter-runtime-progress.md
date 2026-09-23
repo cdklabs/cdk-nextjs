@@ -1891,10 +1891,18 @@ errors, lint clean, **17 suites / 268 tests passed**.
 
 Not exit criteria — items this branch names and leaves for their own change:
 
-1. `healthCheckPath` is required on all four root constructs while only the two
-   Containers types use it. An API question, not a bug.
-2. `s3KeyToInvalidationPath` does not re-add `basePath`, so a Global type with a
-   `basePath` invalidates the wrong path. Not reachable from any current example.
+1. ~~`healthCheckPath` is required on all four root constructs while only the two
+   Containers types use it. An API question, not a bug.~~ **Done:** the prop moved
+   off `NextjsBaseProps`/`NextjsComputeBaseProps` onto
+   `NextjsGlobalContainersProps`, `NextjsRegionalContainersProps` and
+   `NextjsContainersProps`, where it stays required. Breaking for the two
+   Functions types, which now reject it instead of ignoring it.
+2. ~~`s3KeyToInvalidationPath` does not re-add `basePath`, so a Global type with a
+   `basePath` invalidates the wrong path. Not reachable from any current example.~~
+   **Done:** the Global constructs pass `CDK_NEXTJS_BASE_PATH` alongside the
+   distribution parameter name, and `S3CacheHandler.toCdnPath` prefixes it onto
+   every invalidation path — the mapping-row ones and the `revalidatePath` tag's
+   alike, since neither carries `basePath`.
 3. `deployment-skew`'s RSC content-type bug: `RSC: 1` gets
    `text/html; charset=utf-8` instead of `text/x-component`. Characterized, not
    diagnosed to edge vs. adapter. Excluded with a note saying it should return as
