@@ -52,14 +52,21 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly basePath?: string;
   /**
-   * The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it sets a path-style one.
-   * Next.js emits `<assetPrefix>/_next/static/...` for
-   * every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
-   * so this gets a cache behavior of its own that rewrites the prefix away.
+   * The app's own `assetPrefix`.
+   * Next.js emits `<assetPrefix>/_next/static/...`
+   * for every bundle while the objects stay at `<basePath>/_next/static/...` in
+   * S3, so the prefix's path gets a cache behavior of its own that rewrites it
+   * away.
+   *
+   * Either form is accepted: a path ("/cdn"), or an absolute URL, in which case
+   * only its path counts ("https://cdn.example.com/cdn" behaves as "/cdn", and
+   * "https://cdn.example.com" needs no behavior at all). An absolute prefix's path
+   * matters because `next build` compiles a `/cdn/_next/:path+` rewrite of its
+   * own, so `next start` serves every bundle under it — a CDN fronting this
+   * distribution there has to be answered too.
    *
    * Applied on top of `basePath`, not under it, because that is how Next.js
-   * builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
-   * serve and should not be passed here.
+   * builds the URL.
    * @default - read from the build's `required-server-files.json`
    * @stability stable
    */

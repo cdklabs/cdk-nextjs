@@ -84,6 +84,11 @@ export function readNextConfigBasePath(dotNextPath: string): string {
   }
 }
 
+/** Whether an `assetPrefix` names an origin rather than a path on this one. */
+function isAbsoluteAssetPrefix(assetPrefix: string): boolean {
+  return /^([a-z][a-z0-9+.-]*:)?\/\//i.test(assetPrefix);
+}
+
 /**
  * Read the app's own `assetPrefix` out of the same fully resolved config, as a
  * path with a leading and no trailing slash ("/cdn"), or `""` when the app sets
@@ -91,15 +96,66 @@ export function readNextConfigBasePath(dotNextPath: string): string {
  *
  * Returns `""` for an absolute `assetPrefix` ("https://cdn.example.com", or the
  * protocol-relative "//cdn.example.com") too: that names an origin cdk-nextjs
- * does not control, so there is nothing for the distribution to serve and
- * nothing it could get wrong. Only a path-style prefix needs a cache behavior of
- * its own — see `NextjsDistribution`.
+ * does not control, and it is the supported way to serve assets from elsewhere,
+ * so nothing about it is worth warning about. Use
+ * {@link readNextConfigAssetPrefixPath} for what the *distribution* has to
+ * answer on, which includes the path an absolute prefix carries.
  *
  * Next.js applies `assetPrefix` on top of, not under, `basePath`, so the result
  * is the whole prefix of a `_next/static` URL and must not be joined with
  * `basePath`.
  */
 export function readNextConfigAssetPrefix(dotNextPath: string): string {
+  const assetPrefix = readAssetPrefix(dotNextPath, true);
+  if (!assetPrefix || isAbsoluteAssetPrefix(assetPrefix)) return "";
+  const normalized = normalizeBasePath(assetPrefix);
+  return normalized ? `/${normalized}` : "";
+}
+
+/**
+ * The *path* every bundle URL carries, whichever form `assetPrefix` takes: "/cdn"
+ * for `assetPrefix: "/cdn"` and for `assetPrefix:
+ * "https://cdn.example.com/cdn"` alike, `""` when there is none (an absolute
+ * prefix with no path, or no prefix at all).
+ *
+ * An absolute prefix's path counts because `next build` compiles a `beforeFiles`
+ * rewrite of its own for it — `/cdn/_next/:path+ → /_next/:path+` — so `next
+ * start` serves every bundle under that path as well as under `/_next`. A CDN
+ * fronting this deployment at that path therefore has to be answered, and the
+ * distribution's `assetPrefix` behavior is what answers it. Measured against
+ * `test/e2e/app-dir/asset-prefix-absolute`; see `docs/harness-coverage.md`.
+ */
+export function readNextConfigAssetPrefixPath(dotNextPath: string): string {
+  return assetPrefixPath(readAssetPrefix(dotNextPath, false));
+}
+
+/**
+ * The path portion of an `assetPrefix` value, with a leading and no trailing
+ * slash, or `""` when it carries none. Shared with `NextjsDistribution`, whose
+ * `assetPrefix` prop a user can also set by hand.
+ */
+export function assetPrefixPath(assetPrefix: string): string {
+  if (!assetPrefix) return "";
+  let path = assetPrefix;
+  if (isAbsoluteAssetPrefix(assetPrefix)) {
+    try {
+      // `//cdn.example.com/cdn` is protocol-relative, which `URL` only parses
+      // with a base — any base, since only the path is read off it.
+      path = new URL(assetPrefix, "https://asset-prefix.invalid").pathname;
+    } catch {
+      return "";
+    }
+  }
+  const normalized = normalizeBasePath(path);
+  return normalized ? `/${normalized}` : "";
+}
+
+/**
+ * The raw `assetPrefix` string, or `""` when it cannot be read. `warnOnError` is
+ * off for the second reader of the same file, so an unreadable one is reported
+ * once per synth rather than once per reader.
+ */
+function readAssetPrefix(dotNextPath: string, warnOnError: boolean): string {
   const requiredServerFiles = join(dotNextPath, "required-server-files.json");
   if (!existsSync(requiredServerFiles)) {
     // `readNextConfigBasePath` already warned about this file; an app with no
@@ -110,16 +166,15 @@ export function readNextConfigAssetPrefix(dotNextPath: string): string {
   try {
     const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
     const assetPrefix: unknown = config?.assetPrefix;
-    if (typeof assetPrefix !== "string" || assetPrefix === "") return "";
-    if (/^([a-z][a-z0-9+.-]*:)?\/\//i.test(assetPrefix)) return "";
-    const normalized = normalizeBasePath(assetPrefix);
-    return normalized ? `/${normalized}` : "";
+    return typeof assetPrefix === "string" ? assetPrefix : "";
   } catch (error) {
-    console.warn(
-      `${LOG_PREFIX} Could not read assetPrefix from ${requiredServerFiles}: ${error}. ` +
-        "Assuming your Next.js app sets no `assetPrefix`: if it does set a " +
-        "path-style one, its bundles will 404.",
-    );
+    if (warnOnError) {
+      console.warn(
+        `${LOG_PREFIX} Could not read assetPrefix from ${requiredServerFiles}: ${error}. ` +
+          "Assuming your Next.js app sets no `assetPrefix`: if it does set one, " +
+          "its bundles will 404.",
+      );
+    }
     return "";
   }
 }

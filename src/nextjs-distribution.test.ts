@@ -329,15 +329,45 @@ describe("NextjsDistribution function group behaviors", () => {
     expect(code).toContain('"/base" + request.uri.slice(4)');
   });
 
+  it("serves bundles under the path an absolute assetPrefix carries", () => {
+    // `next build` compiles a `/custom-asset-prefix/_next/:path+ → /_next/:path+`
+    // rewrite of its own for an absolute prefix with a path, so `next start` serves
+    // every bundle under that path as well. A CDN fronting this distribution there
+    // gets the same request, and without a behavior it reaches the compute origin
+    // and 404s. Measured against `test/e2e/app-dir/asset-prefix-absolute`, whose
+    // one case failed on exactly that.
+    for (const assetPrefix of [
+      "https://example.vercel.sh/custom-asset-prefix",
+      "//example.vercel.sh/custom-asset-prefix/",
+    ]) {
+      const { stack, distributionProps } = setup([]);
+      new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        assetPrefix,
+      });
+      expect(pathPatterns(stack)).toContain(
+        "/custom-asset-prefix/_next/static*",
+      );
+      const code = Object.values(
+        Template.fromStack(stack).findResources("AWS::CloudFront::Function"),
+      )
+        .map((fn) => fn.Properties.FunctionCode as string)
+        .find((it) => it.includes("request.uri.slice"));
+      expect(code).toContain('"" + request.uri.slice(20)');
+    }
+  });
+
   it("adds no behavior for an assetPrefix that needs none", () => {
-    // An absolute prefix names an origin this distribution does not serve, and a
-    // prefix equal to the basePath one is what Next.js defaults to when `basePath`
-    // is set — `_next/static*` already resolves under it, and a duplicate pattern
-    // would make CloudFront reject the distribution.
+    // An absolute prefix with no path of its own names an origin this distribution
+    // does not serve, and a prefix equal to the basePath one is what Next.js
+    // defaults to when `basePath` is set — `_next/static*` already resolves under
+    // it, and a duplicate pattern would make CloudFront reject the distribution.
     for (const [assetPrefix, basePath] of [
       ["https://cdn.example.com", undefined],
+      ["https://cdn.example.com/", undefined],
       ["//cdn.example.com", undefined],
       ["/base", "/base"],
+      ["https://cdn.example.com/base", "/base"],
       ["", undefined],
     ] as const) {
       const { stack, distributionProps } = setup([], { basePath });

@@ -3690,3 +3690,58 @@ Requeue behind the next bundle now stands at `next-image-legacy/unicode` (18),
 `app-dir/not-found-with-pages-i18n` and `app-dir/app-basepath` as regression checks
 (i18n, and a basePath app whose data-route prefix the fix now depends on). One file
 still awaits a verdict: `asset-prefix-absolute`.
+
+### Defect 22: an absolute `assetPrefix` with a path 404'd every bundle
+
+`asset-prefix-absolute` (1 of 1) was the last file awaiting a verdict, and the only
+one where "defect or fixture assuming a deployment shape we do not provide" was a
+real fork. The fixture sets `assetPrefix:
+'https://example.vercel.sh/custom-asset-prefix'` and re-requests each script's
+*path* against the deployment (next's test helper keeps only `pathname`/`search`
+from an absolute URL, which is what the test's "remove hostname" comment means).
+
+`next start` settled it. `next build` compiles a rewrite of its own into
+`beforeFiles` for any path-carrying `assetPrefix`, absolute included —
+`/custom-asset-prefix/_next/:path+ → /_next/:path+` — and a plain build serves
+`/custom-asset-prefix/_next/static/chunks/<name>.js` with 200
+`application/javascript` while `/custom-asset-prefix/bogus/_next/static/...` is 404.
+So the path is genuinely ours to answer. The rewrite is in our manifest too
+(`routing.beforeFiles`, persisted verbatim), so the runtime would apply it — but
+`_next/static` never reaches the runtime: those objects are in S3, CloudFront had no
+behavior for `/custom-asset-prefix/*`, and the request fell through to the compute
+origin, which carries no `.next/static` at all.
+
+The behavior that fixes it already existed (`NextjsDistribution.addAssetPrefixBehavior`,
+from the path-style case) — it just never saw this prefix, because
+`readNextConfigAssetPrefix` reduced every absolute `assetPrefix` to `""`. Split the
+reader in two rather than changing its meaning:
+
+- `readNextConfigAssetPrefix` unchanged: path-style only, `""` for absolute. It
+  drives `warnUnservedAssetPrefix`, and that warning must *not* fire for an absolute
+  prefix — pointing one at a CDN you front the assets bucket with is the documented
+  supported setup, so warning there would be a wrong warning on the happy path.
+- `readNextConfigAssetPrefixPath` new: the path portion of either form, via a shared
+  `assetPrefixPath` helper that `NextjsDistribution.resolveAssetPrefix` now uses as
+  well (its `assetPrefix` prop is public, so a user can hand it either spelling).
+  The two Global root constructs pass this one to the distribution.
+
+`https://cdn.example.com/cdn` therefore behaves as `/cdn`, `https://cdn.example.com`
+still adds nothing, and a prefix equal to the `basePath` prefix is still dropped (a
+duplicate path pattern makes CloudFront reject the distribution). The sibling
+`asset-prefix-absolute-no-path` fixture should pass for free: its path is `/`, which
+normalizes to none, and its bundles are requested at plain `/_next/static/...`.
+
+Two new test cases (`nextjs-distribution.test.ts` for the behavior and slice length,
+`base-path.test.ts` for the two readers disagreeing on purpose), the existing "adds
+no behavior for an assetPrefix that needs none" case extended with the two spellings
+that still need none, README's `assetPrefix` section extended with the case, and
+`OptionalNextjsDistributionProps` regenerated (`pnpm compile` then `pnpm projen`,
+which left the `.mjs` bundles batch 12 is deploying from untouched). 22 suites / 413
+tests green, `pnpm eslint` and `tsc --noEmit` clean.
+
+Nothing is awaiting a verdict now. The requeue behind the next bundle is
+`next-image-legacy/unicode` (18), `async-modules` (19), `i18n-support-catchall` (20),
+`no-page-props` (21), `asset-prefix-absolute` (22), plus
+`app-dir/not-found-with-pages-i18n`, `app-dir/app-basepath` and `app-dir/asset-prefix`
+as regression checks, and `asset-prefix-absolute-no-path` as a new candidate the same
+fix should have made green.

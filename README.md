@@ -200,6 +200,11 @@ prop only exists to be explicit about it.
   cdk-nextjs doesn't serve, so nothing is added, on any construct. Point that host
   at the assets bucket yourself, including the `basePath` prefix the objects are
   stored under.
+- **An absolute URL with a path** (`assetPrefix: "https://cdn.example.com/cdn"`) —
+  its path is treated exactly like the path case above, because `next build`
+  compiles a `/cdn/_next/:path+` rewrite of its own: `next start` serves bundles
+  under that path too, so the Global constructs answer there as well. Useful when
+  that host is a second domain on the same distribution.
 
 ## Splitting a Large App Across Functions
 

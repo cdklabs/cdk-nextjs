@@ -7,6 +7,7 @@ import {
   normalizeBasePath,
   prefixWithBasePath,
   readNextConfigAssetPrefix,
+  readNextConfigAssetPrefixPath,
   readNextConfigBasePath,
   resolveBasePath,
 } from "./base-path";
@@ -247,6 +248,26 @@ describe("readNextConfigAssetPrefix", () => {
     ]) {
       write(config);
       expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("reports the path an absolute assetPrefix carries, separately", () => {
+    // `readNextConfigAssetPrefix` answers "is this a prefix the regional
+    // NextjsTypes cannot serve"; `…Path` answers "what path do bundle URLs carry",
+    // and an absolute prefix with a path carries one — `next build` compiles a
+    // rewrite for it, so `next start` serves bundles there. See
+    // `test/e2e/app-dir/asset-prefix-absolute`.
+    for (const [assetPrefix, path] of [
+      ["https://example.vercel.sh/custom-asset-prefix", "/custom-asset-prefix"],
+      ["//example.vercel.sh/cdn/", "/cdn"],
+      ["https://example.vercel.sh/", ""],
+      ["https://example.vercel.sh", ""],
+      ["/cdn", "/cdn"],
+      ["", ""],
+    ] as const) {
+      write({ assetPrefix });
+      expect(readNextConfigAssetPrefixPath(dotNextPath)).toBe(path);
     }
     expect(warn).not.toHaveBeenCalled();
   });

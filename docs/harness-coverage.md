@@ -57,15 +57,15 @@ Of the 162 screened (25 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 119 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache` and 3 of 7 `dynamic-route-interpolation` cases |
-| fixed            | 21 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename), 19 (the error page), 20 (the i18n home page) and 21 (a static page's data route) queued for the next batch |
+| fixed            | 22 defects, every one of which came from a file listed above; 17 verified green against a deployment, defects 18 (a space in a `public/` filename), 19 (the error page), 20 (the i18n home page), 21 (a static page's data route) and 22 (an absolute `assetPrefix`) queued for the next batch |
 | bug              | 1 (`incremental-cache-path-traversal`) |
-| awaiting verdict | 1 — see below |
+| awaiting verdict | 0 |
 | unsupported      | 1 (`prerender-encoding`; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files, plus the 2 remaining `trailingslash` and 4 remaining `dynamic-route-interpolation` cases |
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 28 (2 gated by next.js, 26 `skipDeployment` or stubbed in deploy mode) |
 
-The twenty-one fixed defects are the harness's whole return on investment so far.
+The twenty-two fixed defects are the harness's whole return on investment so far.
 All of them were real, all of them shipped, and none of them could have been
 caught by the construct tests or by `examples/e2e-tests`.
 
@@ -1060,6 +1060,55 @@ itself and drop the param. Verified offline (`gsp.json` and `gssp.json` both 200
 matching the oracle) and covered by a `build-outputs.test.ts` case that asserts both
 halves.
 
+### 22. An absolute `assetPrefix` with a path 404'd every bundle
+
+`asset-prefix-absolute` (1 of 1, "bundles should return 200 on served
+assetPrefix"). The fixture sets `assetPrefix:
+'https://example.vercel.sh/custom-asset-prefix'`, collects the `<script src>`s the
+page emits, and re-requests each one's *path* against the deployment — the test
+helper keeps only `pathname`/`search` from an absolute URL. It expected 200 and got
+404.
+
+The premise is real, and `next build` is what makes it so. With a path-carrying
+`assetPrefix`, absolute or not, it compiles a rewrite of its own into
+`beforeFiles`:
+
+```
+/custom-asset-prefix/_next/:path+  →  /_next/:path+
+```
+
+Measured with `scripts/e2e-offline.sh` against `next start` on a plain build:
+`/custom-asset-prefix/_next/static/chunks/<name>.js` is **200
+application/javascript**, `/custom-asset-prefix/bogus/_next/static/...` is 404, so
+the prefix really is stripped rather than ignored. The rewrite is in our manifest
+too (`routing.beforeFiles`, persisted verbatim), so the runtime handles it — but
+`_next/static` never reaches the runtime in a deployment: those objects are in S3,
+and CloudFront had no behavior for `/custom-asset-prefix/*`, so the request fell
+through to the compute origin, which carries no `.next/static` at all.
+
+**Verdict: fixed.** `NextjsDistribution` already adds a `<assetPrefix>/_next/static*`
+behavior with a CloudFront Function that rewrites the prefix back to the S3 keys —
+it just never saw this prefix, because `readNextConfigAssetPrefix` reduced every
+absolute `assetPrefix` to `""`. Split in two:
+
+- `readNextConfigAssetPrefix` keeps its meaning (a path-style prefix, `""` for an
+  absolute one) and keeps driving the regional-`NextjsType` warning, which should
+  *not* fire for an absolute prefix — pointing one at a CDN you front the assets
+  bucket with is the documented way to serve assets from elsewhere.
+- `readNextConfigAssetPrefixPath` is new and reports the path portion of either
+  form, and it is what the Global root constructs hand the distribution.
+
+So `https://cdn.example.com/cdn` now behaves as `/cdn` while
+`https://cdn.example.com` still adds nothing. The sibling `asset-prefix-absolute-no-path`
+fixture (`assetPrefix: 'https://example.vercel.sh/'`) is the second case: its path is
+`/`, which normalizes to none, and its bundles are requested at plain
+`/_next/static/...`, which the existing behavior already serves.
+
+Covered by `nextjs-distribution.test.ts` (a behavior and the right slice length for
+both spellings of the absolute-with-path form; still nothing for the no-path and
+basePath-equal ones) and `base-path.test.ts` (the two readers disagreeing on purpose).
+README's `assetPrefix` section gained the case.
+
 ## Bug — not yet fixed
 
 ### A path-traversal `_next/data` request 500s instead of rendering
@@ -1112,16 +1161,11 @@ before that fix was bundled — except for one case in `async-modules`, below.
 Batch 11 (50 files, 2026-09-23, the first run with defect 17's fix bundled)
 produced 32 green files, 13 no-signal ones (the helper-hidden `skipDeployment`
 files, below) and 5 failures. One of the five is defect 18 — `next-image-legacy/unicode`
-never deployed at all — and it is requeued. That leaves four files awaiting a
-verdict, two of them carried over from batch 10 — and one of the four, `async-modules`,
-was root-caused while batch 12 ran (defect 19):
+never deployed at all — and it is requeued. That left four files awaiting a verdict,
+two of them carried over from batch 10; all four were root-caused while batch 12 ran,
+as defects 19 through 22, and all four left this list without a deployment.
 
-| File                    | Cases | The failing assertion                                                     |
-| ----------------------- | ----- | ------------------------------------------------------------------------- |
-| `asset-prefix-absolute` | 1 / 1 | "bundles should return 200 on served assetPrefix" expects `200` and gets `404` |
-
-Three of the four left this list without a deployment. `async-modules` went first:
-batch 11 had already cleared its other two failures (defect 17), which isolated its
+`async-modules` went first: batch 11 had already cleared its other two failures (defect 17), which isolated its
 remaining case enough to root-cause, and it is defect 19 above.
 `i18n-support-catchall` followed — it was never about the fixture's root catch-all
 but about `/` under any `i18n` config, reproduced in a unit test against the
@@ -1130,16 +1174,15 @@ but about `/` under any `i18n` config, reproduced in a unit test against the
 one `.json` request compared against a plain `next start` build was the whole
 diagnosis, and it is defect 21. All three are requeued behind a bundle.
 
-`no-page-props` and `asset-prefix-absolute` were both new in batch 11.
-`asset-prefix-absolute` is the sibling of `asset-prefix`, which defect 12 fixed:
-this one sets an *absolute* `assetPrefix` pointing at a second origin the fixture
-serves itself, which `NextjsDistribution` deliberately adds no behavior for (see
-"adds no behavior for an assetPrefix that needs none"). Whether that is a defect or
-a fixture assuming a deployment shape cdk-nextjs does not provide is exactly the
-open question.
+`asset-prefix-absolute` went last, and it was the one open question of the four:
+it sets an *absolute* `assetPrefix` pointing at a second origin, which
+`NextjsDistribution` deliberately added no behavior for, so "defect or fixture
+assuming a deployment shape cdk-nextjs does not provide" was a real fork. `next
+start` settled it — the prefix's *path* is served, because `next build` compiles a
+rewrite for it — and it is defect 22.
 
-`asset-prefix-absolute` is in neither `rules.include` nor `excluded-notes`: an
-`excluded-notes` entry is a decision, and no decision has been made.
+No file is awaiting a verdict as of 2026-09-23. All four of batch 11's are fixed and
+requeued behind a bundle; nothing is in `excluded-notes` for want of a decision.
 
 ## Unsupported — a product limitation
 

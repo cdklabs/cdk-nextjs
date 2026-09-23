@@ -44,7 +44,11 @@ import { NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
-import { joinPath, normalizeBasePath } from "./utils/base-path";
+import {
+  assetPrefixPath,
+  joinPath,
+  normalizeBasePath,
+} from "./utils/base-path";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
@@ -68,14 +72,20 @@ export interface NextjsDistributionProps {
    */
   readonly assetsBucket: IBucket;
   /**
-   * The app's own `assetPrefix`, as a path with a leading slash ("/cdn"), when it
-   * sets a path-style one. Next.js emits `<assetPrefix>/_next/static/...` for
-   * every bundle while the objects stay at `<basePath>/_next/static/...` in S3,
-   * so this gets a cache behavior of its own that rewrites the prefix away.
+   * The app's own `assetPrefix`. Next.js emits `<assetPrefix>/_next/static/...`
+   * for every bundle while the objects stay at `<basePath>/_next/static/...` in
+   * S3, so the prefix's path gets a cache behavior of its own that rewrites it
+   * away.
+   *
+   * Either form is accepted: a path ("/cdn"), or an absolute URL, in which case
+   * only its path counts ("https://cdn.example.com/cdn" behaves as "/cdn", and
+   * "https://cdn.example.com" needs no behavior at all). An absolute prefix's path
+   * matters because `next build` compiles a `/cdn/_next/:path+` rewrite of its
+   * own, so `next start` serves every bundle under it — a CDN fronting this
+   * distribution there has to be answered too.
    *
    * Applied on top of `basePath`, not under it, because that is how Next.js
-   * builds the URL. An absolute `assetPrefix` names an origin cdk-nextjs does not
-   * serve and should not be passed here.
+   * builds the URL.
    *
    * @default - read from the build's `required-server-files.json`
    */
@@ -527,20 +537,20 @@ export class NextjsDistribution extends Construct {
     }
   }
   /**
-   * The `assetPrefix` that needs a behavior of its own, or `""` for none.
+   * The `assetPrefix` path that needs a behavior of its own, or `""` for none.
    *
-   * An absolute prefix ("https://cdn.example.com") is dropped: it names an origin
-   * this distribution does not serve. A prefix equal to the `basePath` prefix is
-   * dropped too — that is the Next.js default when `basePath` is set, and
-   * `_next/static*` already resolves under it, so adding a second identical
-   * pattern would make CloudFront reject the distribution.
+   * An absolute prefix contributes its *path*: "https://cdn.example.com" needs no
+   * behavior, but "https://cdn.example.com/cdn" does, because `next build`
+   * compiles a `/cdn/_next/:path+` rewrite of its own and `next start` serves
+   * every bundle under that path — so a CDN fronting this distribution there has
+   * to be answered. A prefix equal to the `basePath` prefix is dropped — that is
+   * the Next.js default when `basePath` is set, and `_next/static*` already
+   * resolves under it, so adding a second identical pattern would make CloudFront
+   * reject the distribution.
    */
   private resolveAssetPrefix(): string {
-    const prefix = this.props.assetPrefix;
-    if (!prefix || /^([a-z][a-z0-9+.-]*:)?\/\//i.test(prefix)) return "";
-    const normalized = normalizeBasePath(prefix);
-    if (!normalized || normalized === this.basePath) return "";
-    return `/${normalized}`;
+    const prefix = assetPrefixPath(this.props.assetPrefix ?? "");
+    return normalizeBasePath(prefix) === this.basePath ? "" : prefix;
   }
   /**
    * Serves `<assetPrefix>/_next/static/*` from the same S3 objects as

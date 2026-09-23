@@ -36,6 +36,7 @@ import {
 } from "../runtime/manifest";
 import {
   readNextConfigAssetPrefix,
+  readNextConfigAssetPrefixPath,
   readNextConfigBasePath,
 } from "../utils/base-path";
 import { getNodeArchitecture } from "../utils/get-architecture";
@@ -157,11 +158,23 @@ export class NextjsBuild extends Construct {
    * names an origin cdk-nextjs does not serve). Read from the same
    * `required-server-files.json`.
    *
-   * Exposed because it is a URL prefix the distribution has to answer on:
-   * Next.js emits `<assetPrefix>/_next/static/...` for every bundle, and those
-   * objects live in S3 under `<basePath>/_next/static/...`.
+   * Exposed because it is the shape of `assetPrefix` the regional
+   * `NextjsType`s cannot serve — see `warnUnservedAssetPrefix`. What the
+   * distribution has to answer on is {@link nextConfigAssetPrefixPath}, which
+   * also covers the path an absolute prefix carries.
    */
   nextConfigAssetPrefix: string;
+  /**
+   * The path portion of the app's `assetPrefix`, whichever form it takes: "/cdn"
+   * for both `assetPrefix: "/cdn"` and `assetPrefix:
+   * "https://cdn.example.com/cdn"`, empty when there is no path to answer on.
+   *
+   * Exposed because it is a URL prefix the distribution has to answer on: Next.js
+   * emits `<assetPrefix>/_next/static/...` for every bundle and compiles a rewrite
+   * that serves those URLs' paths itself, while the objects live in S3 under
+   * `<basePath>/_next/static/...`.
+   */
+  nextConfigAssetPrefixPath: string;
   /**
    * Absolute path to the deployment root: the staged union of every shipped
    * output's traced assets, written by the adapter's `onBuildComplete`. This is
@@ -246,6 +259,9 @@ export class NextjsBuild extends Construct {
     this.publicDirEntries = this.getLocalPublicDirEntries();
     this.nextConfigBasePath = readNextConfigBasePath(this.dotNextPath);
     this.nextConfigAssetPrefix = readNextConfigAssetPrefix(this.dotNextPath);
+    this.nextConfigAssetPrefixPath = readNextConfigAssetPrefixPath(
+      this.dotNextPath,
+    );
 
     const isFunctions =
       props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
