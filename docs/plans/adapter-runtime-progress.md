@@ -3464,3 +3464,47 @@ The six files are queued for a deployed re-run and stay out of `rules.include`
 until they come back green. Not bundled yet: batch 10 is mid-run and swapping
 `lib/adapter/adapter.mjs` underneath it would leave half the run built against a
 different adapter.
+
+### Batch 10's verdicts: 15 more files in, and defect 17 confirmed five more times
+
+Batch 10 was 20 files against the shared `hrns-shared` deployment: 15 green, 5
+failing. `rules.include` goes 72 → 87, `candidates` 424 → 409.
+
+The 15 green files are in `docs/harness-coverage.md`'s passing table with one-line
+descriptions. Two of them are deployed evidence for fixes that only had local
+evidence before:
+
+- **Defect 16 (`assetPrefix`) is confirmed.** `app-dir/asset-prefix` and
+  `app-dir/asset-prefix-with-basepath` both passed 7 of 7 on attempt 0. The
+  `excluded-notes` entry for the first one is deleted — it existed only to say
+  "fixed but not yet proven against a deployment".
+- **The `DEPLOYMENT_ID` marker fix is confirmed.** `app-dir/mdx` passed 27 of 27,
+  where it had failed 2 of 27 because `scripts/e2e-deploy.sh` printed
+  `$STACK_NAME` and next.js compares against the `?dpl=` the build inlined.
+
+All 5 failures are defect 17 — this batch was deployed before that fix was bundled,
+so it is five more independent sightings, not a regression. `next-head` (4 of 5),
+`next-image-legacy/unicode` (5 of 5), `no-page-props` (2 of 5) and
+`rewrites-client-resolving` (5 of 5) all start every failing case at
+`next.browser('/')`; `next-head` asserts on the whole `<head>` and printed the 404
+document's `<title>` straight into the jest diff. That takes defect 17's file list
+from six to eleven.
+
+One case in `async-modules` is not defect 17 and is now the second file awaiting a
+verdict: "can render async error page" requests `/make-error`, whose
+`getServerSideProps` throws, and gets a bare `text/plain` `500 Internal Server
+Error` instead of the app's `pages/_error`. `src/runtime/core.ts` has no error
+ladder analogous to `sendNotFound` — a throw out of an entrypoint handler reaches
+`failWith`, which writes the plain-text 500. Unconfirmed on purpose: the same
+file's other two failures were defect 17, so this case gets re-measured against the
+fix before its cause is settled.
+
+The cost picture from this run, which is what makes "keep going until the pool is
+empty" tractable: the first file took 238s making the one transitional
+CloudFormation change that swapped the cache bucket's tag key, the second 216s, and
+every file after that ran 100–140s except two slow fixtures
+(`instrumentation-client-hook` at 677s and `typescript-paths` at 199s, both
+passing). ~395 undeployed candidates at ~120s is ~12 hours of wall clock.
+
+Batch 9's three `createNext`-timeout files did not make it into this batch; they are
+still requeued, now alongside the eleven defect-17 files.
