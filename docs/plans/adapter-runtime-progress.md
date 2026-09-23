@@ -3234,3 +3234,19 @@ the previously built `lib/` rather than rebuilding it.
 thin — 1010 `it()` cases over 438 files — so the remaining yield is mostly in the
 dense files (`next-image-legacy/default` alone is 44 cases). Defect rate is
 falling: batches 5-7 found 4 defects across 23 files, batch 8 found 1 across 16.
+
+### The scheduled harness run goes weekly, Sunday 14:00 UTC
+
+`docs/plans/adapter-runtime-release.md`'s step 8 says "nightly"; at the user's
+direction the schedule in `.github/workflows/e2e-harness.yml` is now
+`0 14 * * 0` instead of `0 6 * * *`. Daily was overkill: a run ships a
+deployment per test file, and nothing in next.js's suite changes between two
+consecutive days that a run would catch. `e2e-tests.yml` remains the per-commit
+gate on all four `NextjsType`s, so the harness is not the thing standing between
+a commit and a release.
+
+14:00 UTC is morning on both US coasts, and the job's 180-minute ceiling puts the
+result inside Sunday — ready to read Monday morning, which is the point. The
+sweep job shares the trigger, so leftover stacks are still collected on the same
+cadence. Wording updated in `scripts/e2e-harness/README.md` (two places) and
+`docs/harness-coverage.md`.

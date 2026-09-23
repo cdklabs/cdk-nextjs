@@ -137,7 +137,7 @@ All cases in each file pass, on the first attempt, against a shared
 once at 323s with the fixture's own scroll assertions and passed on retry 1, with
 no cdk-nextjs error in either. It is listed because the harness runs with
 `--retries 1` and treats a retry pass as a pass, but it is the file to suspect
-first if a nightly run goes red for no other reason.
+first if a scheduled run goes red for no other reason.
 
 `encoded-slash-params` passing is worth noting next to the `prerender-encoding`
 row below: `%2F` in a param works, which is part of why that file turned out not

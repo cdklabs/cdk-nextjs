@@ -18,9 +18,13 @@ on:
         default: "../test/deploy-tests-manifest.json"
         type: string
   schedule:
-    # 06:00 UTC daily. The sweep job below also runs, catching stacks a
-    # cancelled run left behind.
-    - cron: "0 6 * * *"
+    # Sunday 14:00 UTC — morning on both US coasts, and the run's 180-minute
+    # ceiling puts the result well inside Sunday, ready to read Monday. Weekly
+    # rather than daily because a run ships a deployment per test file: nothing
+    # in the suite changes between two consecutive days that a run would catch,
+    # and `e2e-tests.yml` is still the per-commit gate. The sweep job below runs
+    # on the same schedule, catching stacks a cancelled run left behind.
+    - cron: "0 14 * * 0"
 
 concurrency:
   # Never two runs at once: they would deploy different apps into the same shared

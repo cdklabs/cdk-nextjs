@@ -5,7 +5,7 @@ deployment. It is a better correctness signal than any fixture app we would
 write, because the tests were written by the people who define the behavior.
 
 `examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
-is the nightly one, on `NextjsGlobalFunctions` only.
+is the weekly one — Sunday 14:00 UTC — on `NextjsGlobalFunctions` only.
 
 What has actually been run, what failed, and whether each failure is a bug or
 acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
@@ -106,7 +106,7 @@ What the shared stack is paid for in:
   CloudFormation.
 
 `test/deploy-tests-manifest.json` still lists test files explicitly rather than
-taking next.js's `test/e2e/**` include rule, and this still runs nightly rather
+taking next.js's `test/e2e/**` include rule, and this still runs weekly rather
 than per-commit. Widen either deliberately - and only with files you have watched
 pass, since a file can be unbuildable rather than merely failing (see below).
 
