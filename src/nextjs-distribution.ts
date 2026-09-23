@@ -622,8 +622,10 @@ export class NextjsDistribution extends Construct {
     // The default behavior, `_next/image*`, `_next/static*`, plus — with a
     // basePath — the two that stand in for the default behavior's coverage, and
     // — with a path-style assetPrefix — the one that serves bundles under it.
-    const fixed =
-      3 + (this.props.basePath ? 2 : 0) + (this.assetPrefix ? 1 : 0);
+    // `this.basePath`, not the raw prop: `basePath: "/"` normalizes to `""` and
+    // adds no behaviors, so counting it added 2 to the total and could throw
+    // "over the limit" on an app that is under it.
+    const fixed = 3 + (this.basePath ? 2 : 0) + (this.assetPrefix ? 1 : 0);
     const total = fixed + this.props.publicDirEntries.length + groupPatterns;
     if (total <= MAX_CACHE_BEHAVIORS) {
       return;
@@ -661,11 +663,29 @@ export class NextjsDistribution extends Construct {
 const MAX_CACHE_BEHAVIORS = 25;
 
 /**
- * Rank a CloudFront path pattern so the most specific is added first. Mirrors
- * `assignRoutesToGroups`' ranking, on the already-translated pattern: segments
- * dominate, length breaks ties, and a trailing `/*` is not a segment.
+ * Rank a CloudFront path pattern so the most specific is added first: literal
+ * segments before the first `*` dominate, then total segments, then length.
+ *
+ * Ranking on the leading literal is what a CloudFront wildcard forces, because it
+ * matches across `/` rather than within one segment — so a pattern with an
+ * interior wildcard is far wider than its length suggests. Writing the wildcard as
+ * `<*>` to keep it out of this comment's way: an exact route's Pages Router data
+ * pattern, `_next/data/<*>/pricing.json`, also matches
+ * `/_next/data/<buildId>/docs/pricing.json`, and ranking it by total length put it
+ * ahead of `_next/data/<*>/docs/<*>` — sending a request for the second group's
+ * data URL to the first group's function, which has no entrypoint for it. Counting
+ * the literal prefix first keeps the two data patterns tied there and lets segment
+ * depth decide, while still ranking an exact `a/b` above the subtree `a/<*>` that
+ * would otherwise swallow it.
+ *
+ * Residual, and not fixable with CloudFront's two wildcards: an exact route's data
+ * pattern still over-matches a *default-group* route of the same leaf name
+ * (`/docs/pricing` with `/pricing` in a group). Give that subtree a group of its
+ * own if it comes up.
  */
 function behaviorSpecificity(pattern: string): number {
-  const base = pattern.endsWith("/*") ? pattern.slice(0, -2) : pattern;
-  return base.split("/").filter(Boolean).length * 10000 + base.length;
+  const segments = pattern.split("/").filter(Boolean);
+  const firstWildcard = segments.findIndex((segment) => segment.includes("*"));
+  const literalDepth = firstWildcard === -1 ? segments.length : firstWildcard;
+  return literalDepth * 1000000 + segments.length * 10000 + pattern.length;
 }

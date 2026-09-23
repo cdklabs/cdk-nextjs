@@ -125,6 +125,69 @@ describe("NextjsDistribution function group behaviors", () => {
     ]);
   });
 
+  it("puts an exact pattern ahead of a wildcard of the same depth", () => {
+    // `a/*` and `a/b` are the same length and the same segment count, so ranking
+    // on those alone left the order up to the sort's stability — and `a/*` first
+    // swallows `a/b`, sending group b's only route to group a's function. The
+    // literal prefix is what decides it: `a/b` matches strictly less.
+    const { stack, functionGroups, distributionProps } = setup(["a", "b"], {
+      routesFor: (name) => (name === "a" ? ["/a/**"] : ["/a/b"]),
+    });
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+    });
+    expect(pathPatterns(stack).slice(2)).toEqual(["a/b", "a/*"]);
+  });
+
+  it("orders data-route patterns by their literal prefix too", () => {
+    // Every `_next/data` pattern starts with the same two literal segments and a
+    // wildcard for the build id, so the part that distinguishes them comes after
+    // a `*`. `_next/data/*/docs/*` would otherwise be ordered by length against
+    // `_next/data/*/pricing.json` and could claim `/docs/x.json` for the wrong
+    // group.
+    const { stack, functionGroups, distributionProps } = setup(
+      ["docs", "mkt"],
+      {
+        routesFor: (name) => (name === "docs" ? ["/docs/**"] : ["/pricing"]),
+      },
+    );
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+      hasDataRoutes: true,
+    });
+    const patterns = pathPatterns(stack).slice(2);
+    expect(patterns.indexOf("_next/data/*/docs/*")).toBeLessThan(
+      patterns.indexOf("_next/data/*/pricing.json"),
+    );
+  });
+
+  it("counts the basePath behaviors against the budget", () => {
+    const { stack, distributionProps } = setup([], {
+      basePath: "/base",
+      publicDirEntries: Array.from({ length: 21 }, (_, i) => `file${i}.txt`),
+    });
+    // 3 fixed + the 2 a basePath adds to stand in for the default behavior + 21
+    // public = 26. Counting only the 3 reported 24 and let the synth through, so
+    // the limit arrived as a CloudFront deploy failure.
+    expect(
+      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+    ).toThrow(/26 CloudFront cache behaviors.*5 used by cdk-nextjs itself/s);
+  });
+
+  it("does not count basePath behaviors for a basePath of /", () => {
+    // `basePath: "/"` normalizes to no basePath and adds no behaviors, so
+    // counting 2 for it could reject an app that is under the limit.
+    const { stack, distributionProps } = setup([], {
+      basePath: "/",
+      publicDirEntries: Array.from({ length: 22 }, (_, i) => `file${i}.txt`),
+    });
+    expect(
+      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+    ).not.toThrow();
+  });
+
   it("routes a group's Pages Router data URLs alongside its HTML", () => {
     const { stack, functionGroups, distributionProps } = setup(["blog"], {
       routesFor: () => ["/blog/**", "/pricing"],
