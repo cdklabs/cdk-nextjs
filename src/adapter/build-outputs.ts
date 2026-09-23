@@ -366,6 +366,15 @@ export function buildAdapterManifest(
  * Ownership is matched on `output.id` rather than on pathname because the manifest
  * is what decided the grouping, and its entrypoints are keyed by *template* while
  * an output may back several templates.
+ *
+ * And on `filePath` as well as `id`, because {@link addPrerenderPathnames}
+ * synthesizes entrypoints that carry the *prerender's* id — which no invocable
+ * output has. A group whose pattern matches only such a template (the root-params
+ * app: entrypoint `/en` with `id: "/en"` backed by the output `/[locale]`) passed
+ * `assignRoutesToGroups` validation and then staged no entrypoint at all, so every
+ * request to its behavior answered 500 with "the deployment package is
+ * incomplete". The synthesized entrypoint's `filePath` is the owning output's, so
+ * that is the reliable key.
  */
 function collectGroupStagingPlan(
   ctx: BuildCompleteContext,
@@ -373,12 +382,15 @@ function collectGroupStagingPlan(
   entrypoints: Record<string, AdapterEntrypoint>,
   templates: string[],
 ): Map<string, string> {
-  const ownedIds = new Set(
-    templates.map((template) => entrypoints[template].id),
-  );
+  const ownedEntrypoints = templates.map((template) => entrypoints[template]);
+  const ownedIds = new Set(ownedEntrypoints.map((entry) => entry.id));
+  const ownedFiles = new Set(ownedEntrypoints.map((entry) => entry.filePath));
   const middleware = ctx.outputs.middleware;
   const owned = invocable.filter(
-    (output) => ownedIds.has(output.id) || output === middleware,
+    (output) =>
+      ownedIds.has(output.id) ||
+      ownedFiles.has(toPosix(relative(ctx.repoRoot, output.filePath))) ||
+      output === middleware,
   );
   const staging = collectStagingPlan(ctx, owned);
   stageServedStaticFiles(ctx, staging);
