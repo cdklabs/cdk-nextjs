@@ -488,13 +488,16 @@ function toWebHeaders(headers: IncomingHttpHeaders): Array<[string, string]> {
  */
 function applyHeaders(res: ShimServerResponse, headers: Headers): void {
   for (const [name, value] of headers.entries()) {
+    // `entries()` yields `set-cookie` once per cookie, so appending the whole
+    // `getSetCookie()` array here would emit N² of them — two cookies set by
+    // middleware arrived as ["a=1","b=2","a=1","b=2"]. Handled once, outside.
     if (name === "set-cookie") {
-      for (const cookie of headers.getSetCookie()) {
-        res.appendHeader("set-cookie", cookie);
-      }
       continue;
     }
     res.setHeader(name, value);
+  }
+  for (const cookie of headers.getSetCookie()) {
+    res.appendHeader("set-cookie", cookie);
   }
 }
 

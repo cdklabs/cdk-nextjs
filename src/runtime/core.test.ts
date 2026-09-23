@@ -374,4 +374,28 @@ exports.handler = async () =>
     // asserts the padding does not corrupt a normal body.
     expect(sink.body.length).toBeGreaterThan(1);
   });
+
+  it("emits each cookie middleware set exactly once", async () => {
+    // `Headers.entries()` yields `set-cookie` once per cookie, so appending the
+    // whole `getSetCookie()` array per entry emitted N² of them: two cookies
+    // arrived at the browser as a=1, b=2, a=1, b=2. A duplicated `Set-Cookie` is
+    // not harmless either - a session cookie and its own copy race.
+    const continuing = await loadRuntime(
+      stageDeployment(`
+exports.handler = async () =>
+  new Response(null, {
+    headers: {
+      "x-middleware-next": "1",
+      "set-cookie": "a=1; Path=/, b=2; Path=/",
+    },
+  });
+`),
+    );
+    const sink = new CollectingSink();
+    await continuing.handle(
+      { method: "GET", url: "/", headers: { host: "shop.example.test" } },
+      sink,
+    );
+    expect(sink.head?.cookies).toEqual(["a=1; Path=/", "b=2; Path=/"]);
+  });
 });
