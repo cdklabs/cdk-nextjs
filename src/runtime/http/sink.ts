@@ -66,8 +66,17 @@ export interface ResponseSink {
 const COMPRESSIBLE =
   /^(?:text\/|application\/(?:json|javascript|xml|manifest|rss\+xml|atom\+xml)|image\/svg\+xml)/;
 
-/** No body to compress. */
-const BODYLESS_STATUS = new Set([204, 304]);
+/**
+ * Statuses whose body must not be compressed: 204 and 304 have none, and a 206's
+ * body is a byte range of the *uncompressed* representation.
+ *
+ * 206 is reachable — `serveStaticFile` is `send` underneath, which advertises
+ * `Accept-Ranges: bytes` and honors `Range` on the static HTML the runtime serves
+ * itself. Gzipping one produced a response whose `Content-Range` still described
+ * the uncompressed slice (`withGzipHeaders` drops `content-length` but cannot
+ * restate a range), so the client got bytes that did not match what it asked for.
+ */
+const UNCOMPRESSABLE_STATUS = new Set([204, 206, 304]);
 
 export interface PipeOptions {
   /** `next.config` `compress`. */
@@ -120,7 +129,7 @@ function shouldGzip(
   if (!options.compress) {
     return false;
   }
-  if (req.method === "HEAD" || BODYLESS_STATUS.has(head.statusCode)) {
+  if (req.method === "HEAD" || UNCOMPRESSABLE_STATUS.has(head.statusCode)) {
     return false;
   }
   // Next.js encodes some responses itself; double-encoding is not a thing.

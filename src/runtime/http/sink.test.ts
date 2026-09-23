@@ -107,6 +107,21 @@ describe("pipeToSink compression", () => {
     expect(sink.body.toString("utf-8")).toBe("body");
   });
 
+  it("does not gzip a 206, whose body is a range of the stored bytes", async () => {
+    // The one uncompressable status that carries a body. `content-range` counts
+    // bytes of the representation the client asked for, so gzipping the slice
+    // makes the range meaningless - and a client stitching ranges together
+    // (video, a resumed download) cannot use it.
+    const sink = await run((res) => {
+      res.statusCode = 206;
+      res.setHeader("Content-Type", "text/plain");
+      res.setHeader("Content-Range", "bytes 0-3/1000");
+      res.end("body");
+    });
+    expect(sink.head?.headers["content-encoding"]).toBeUndefined();
+    expect(sink.body.toString("utf-8")).toBe("body");
+  });
+
   it("does not gzip when the client did not offer it", async () => {
     const sink = await run(
       (res) => {
