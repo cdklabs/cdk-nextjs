@@ -91,9 +91,9 @@ What the shared stack is paid for in:
 - **Test files must be serialized** (`run-tests.js -c 1`). Two concurrent deploys
   into one stack would race.
 - **`e2e-cleanup.sh` must not delete the stack**, or the next file pays the
-  create again. It doesn't; `e2e-sweep.sh --apply` with
-  `HARNESS_SWEEP_MAX_AGE_HOURS=0` deletes it once, after the run. The workflow
-  does this in an `always()` step; a local run has to do it by hand.
+  create again. It doesn't; `e2e-sweep.sh --apply --shared` deletes it once,
+  after the run. The workflow does this in an `always()` step; a local run has to
+  do it by hand.
 - **Nothing may leak between files.** Server cache entries are keyed by
   `CDK_NEXTJS_BUILD_ID` (`src/adapter/s3-cache-handler.ts`), which differs per
   file and hotswaps with the function. The edge cache is invalidated by
@@ -294,7 +294,7 @@ node run-tests.js --timings -c 1 --retries 1 --type e2e
 
 # back in cdk-nextjs: the shared stack is still up by design. Look, then delete.
 ./scripts/e2e-sweep.sh --dry-run
-HARNESS_SWEEP_MAX_AGE_HOURS=0 ./scripts/e2e-sweep.sh --apply
+./scripts/e2e-sweep.sh --apply --shared
 ```
 
 To exercise just the deploy/logs/cleanup contract without the next.js suite,
@@ -346,7 +346,9 @@ Both refuse to delete a stack unless it is named `hrns-*` **and** tagged
 `cdk-nextjs:harness=1`, re-checked immediately before the delete. The sweeper is
 additionally a dry run unless given `--apply`, and ignores anything younger than
 `HARNESS_SWEEP_MAX_AGE_HOURS` (default 6) so it can never delete a stack out from
-under a run in progress.
+under a run in progress. To delete a stack you just created, name it — `--shared`
+or `--stack NAME`, which narrows the sweep to that one stack instead of lowering
+the age floor for every stack in the account.
 
 ## Environment knobs
 
@@ -360,7 +362,8 @@ under a run in progress.
 | `HARNESS_CLEANUP_WAIT`              | `0`                                  | Block until the stack delete completes. Isolated mode only.                                            |
 | `HARNESS_LOG_LINES`                 | `400`                                | Tail length per log section.                                                                           |
 | `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
-| `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper.                                                                             |
+| `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |
+| `HARNESS_SWEEP_STACK`               | _unset_                              | Same as passing `--stack NAME`: sweep only that stack, at any age.                                     |
 | `HARNESS_SWEEP_APPLY`               | `0`                                  | Same as passing `--apply`.                                                                             |
 | `WARM_KEEP`                         | `0`                                  | Keep `e2e-warm.sh`'s throwaway app directory, whose deploy log says why warming failed.                |
 | `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. Use `240000`.   |

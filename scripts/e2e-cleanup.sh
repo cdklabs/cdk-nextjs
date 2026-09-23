@@ -31,7 +31,7 @@ fi
 
 if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ]; then
   echo "cleanup: keeping shared stack $STACK_NAME for the next test file"
-  echo "cleanup: delete it after the run with \`scripts/e2e-sweep.sh --apply\` (HARNESS_SWEEP_MAX_AGE_HOURS=0)"
+  echo "cleanup: delete it after the run with \`scripts/e2e-sweep.sh --apply --shared\`"
   exit 0
 fi
 

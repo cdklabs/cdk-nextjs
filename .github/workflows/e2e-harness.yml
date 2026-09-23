@@ -121,12 +121,11 @@ jobs:
       - name: Delete the shared stack
         if: ${{ always() }}
         # `e2e-cleanup.sh` keeps the stack alive between test files on purpose, so
-        # this is the step that actually deletes it - not a backstop. The age
-        # floor is dropped to 0 because the stack was created minutes ago by this
-        # very run.
-        run: ./scripts/e2e-sweep.sh --apply
-        env:
-          HARNESS_SWEEP_MAX_AGE_HOURS: 0
+        # this is the step that actually deletes it - not a backstop. `--shared`
+        # names the one stack this run created, which is what lets the age floor
+        # go: dropping the floor account-wide instead would also delete an
+        # isolated stack a developer had running at the time.
+        run: ./scripts/e2e-sweep.sh --apply --shared
 
   sweep:
     # Independent of the run above so that a cancelled or timed-out run still
