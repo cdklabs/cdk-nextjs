@@ -27,6 +27,13 @@ runs:
       run: cd examples/e2e-tests && pnpm install-browser
     - name: Deploy and Run Tests
       shell: bash
+      # Several behaviours are answered by different infrastructure per deployment
+      # type - a top-level `public/` file with a space in its name is a 404 on API
+      # Gateway by design, a repeated slash is collapsed by a CloudFront function
+      # only when the compute is a Lambda - and the tests assert the divergence
+      # rather than skipping it. The example directory *is* the type.
+      env:
+        E2E_NEXTJS_TYPE: ${{ inputs.example_directory }}
       run: |
         cd examples/${{ inputs.example_directory }}
         pnpm run deploy:ci
