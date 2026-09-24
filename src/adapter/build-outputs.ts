@@ -185,6 +185,7 @@ export async function writeBuildOutputs(
   // for every group: `/_next/image` is served by all of them.
   const runtimeClosure = new Map<string, string>();
   await addRuntimeNextClosure(ctx, runtimeClosure);
+  addRequiredServerFiles(ctx, runtimeClosure);
 
   const staging = merged(planned, runtimeClosure);
 
@@ -1034,6 +1035,41 @@ async function addRuntimeNextClosure(
     assertStagingKey(key, source);
     staging.set(key, source);
   }
+}
+
+/**
+ * Add `<distDir>/required-server-files.json` to a plan every group is merged with.
+ *
+ * It reaches a group otherwise only as a traced `asset` of some invocable output,
+ * which is not a guarantee: a group whose templates are all assigned elsewhere
+ * owns no outputs at all. That is reachable — a Pages-Router-only app whose every
+ * page falls under the configured `functionGroups` leaves the *default* group
+ * template-empty, and the default group is still what serves `/_next/image`, the
+ * static files, and the distribution's catch-all.
+ *
+ * Its absence is not a partial failure: `loadRuntime` probes for exactly this file
+ * before it will serve anything, and `image.ts` reads the image config out of it,
+ * so the whole root answers "the deployment package is incomplete". Cheap to make
+ * unconditional, so make it unconditional.
+ *
+ * Not traced like {@link RUNTIME_NEXT_MODULES}, because it is data rather than a
+ * module: nothing `require`s it, so no file tracer can find it.
+ *
+ * Absence is left to `loadRuntime`, which names the file and the layout contract
+ * it belongs to. `next build` always writes it, so there is no build-time error
+ * worth inventing here for a file this step does not own.
+ */
+function addRequiredServerFiles(
+  ctx: BuildCompleteContext,
+  staging: Map<string, string>,
+): void {
+  const source = join(ctx.distDir, "required-server-files.json");
+  const key = toPosix(relative(ctx.repoRoot, source));
+  if (staging.has(key) || !existsSync(source)) {
+    return;
+  }
+  assertStagingKey(key, source);
+  staging.set(key, source);
 }
 
 /** `node_modules/.pnpm/<pkg>/node_modules/<name>` — pnpm's virtual store. */

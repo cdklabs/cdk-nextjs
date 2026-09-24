@@ -33,8 +33,20 @@ test.describe("ppr", () => {
     expect(shellIndex).toBeGreaterThan(-1);
 
     // The dynamic part: the server-rendered links only exist once `searchParams`
-    // has been read, which cannot happen until there is a request.
-    const dynamicIndex = html.indexOf("Items Per Page");
+    // has been read, which cannot happen until there is a request. `ServerLinks`
+    // builds each link's query string from the request's own params, so this
+    // marker carries the `sort=desc` above - something a shell prerendered
+    // without a request cannot contain, and something `ServerLinksFallback`
+    // could not produce anyway because it renders plain `<div>`s with no hrefs.
+    //
+    // Not an `options` label like "Items Per Page": those are rendered by
+    // `ServerLinks` *and* `ServerLinksFallback`, so `indexOf` resolved against
+    // the fallback copy sitting in the shell and the ordering assertion below
+    // held no matter what - passing even if the resume never ran, which is the
+    // one regression this test exists to catch.
+    //
+    // Written without an `&`, which React escapes to `&amp;` in an attribute.
+    const dynamicIndex = html.indexOf("?sort=desc");
     expect(dynamicIndex).toBeGreaterThan(-1);
 
     // Order in the byte stream is the assertion. Both halves being present only

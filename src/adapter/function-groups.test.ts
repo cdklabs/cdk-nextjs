@@ -112,6 +112,16 @@ describe("validateFunctionGroups", () => {
     ).toThrow(/cannot be routed/);
   });
 
+  it("rejects /index, the other name for the root", () => {
+    // A Pages Router home page arrives as `/index` and is registered under `/`
+    // too, backed by one entrypoint. Claiming `/index` moved that entrypoint into
+    // the group while `/` still went to the default behavior's function, which
+    // then answered 500 on the app's most-requested URL.
+    expect(() =>
+      validateFunctionGroups([{ name: "a", routes: ["/index"] }]),
+    ).toThrow(/cannot be routed/);
+  });
+
   it("rejects an empty path segment", () => {
     expect(() =>
       validateFunctionGroups([{ name: "a", routes: ["/api//x"] }]),
@@ -193,6 +203,49 @@ describe("assignRoutesToGroups", () => {
         routes("/api/x"),
       ),
     ).toThrow(/pattern "\/apy\/\*\*" matches no route/);
+  });
+
+  it("accepts a pattern every match of which a narrower pattern also claims", () => {
+    // `/api/**` never wins a route here, because every API route this build has
+    // is under `/api/reports/`. Recording only the *winning* pattern made it look
+    // like a typo and threw - rejecting the exact layout the duplicate-pattern
+    // error documents as supported. The group is legitimately empty: it is the
+    // consumer's choice to keep it for the routes it will own later.
+    const assigned = assign(
+      [
+        { name: "api", routes: ["/api/**"] },
+        { name: "reports", routes: ["/api/reports/**"] },
+      ],
+      routes("/api/reports/[id]", "/api/reports/summary"),
+    );
+    expect(assigned.api).toEqual([]);
+    expect(assigned.reports).toEqual([
+      "/api/reports/[id]",
+      "/api/reports/summary",
+    ]);
+  });
+
+  it("gives a shared entrypoint to its most specific match, not its last one", () => {
+    // Two templates, one file, two groups whose patterns both match - one
+    // narrowly, one broadly. Ownership used to be last-write-wins over `entries`,
+    // so the same build grouped differently depending on manifest key order.
+    const entries: RouteEntry[] = [
+      // Matched only by the broad pattern.
+      { template: "/api/health", entrypointId: "shared" },
+      // Matched by both; the narrow one wins.
+      { template: "/api/reports/summary", entrypointId: "shared" },
+    ];
+    const groups: FunctionGroupSpec[] = [
+      { name: "api", routes: ["/api/**"] },
+      { name: "reports", routes: ["/api/reports/**"] },
+    ];
+    const forward = assign(groups, entries);
+    const reversed = assign(groups, [...entries].reverse());
+    expect(forward).toEqual(reversed);
+    // `/api/reports/**` is the most specific claim any of the entrypoint's
+    // templates has, so it takes the whole entrypoint.
+    expect(forward.reports).toEqual(["/api/health", "/api/reports/summary"]);
+    expect(forward.api).toEqual([]);
   });
 
   it("prefixes basePath before matching, since manifest templates carry it", () => {

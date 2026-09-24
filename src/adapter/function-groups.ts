@@ -204,12 +204,21 @@ function validateRoutePattern(route: string, groupName: string): void {
         `the browser requests them.`,
     );
   }
-  if (route === "/") {
+  // `/index` is the same page under the name `next build` reports it by: the
+  // adapter derives Pages pathnames with `normalizePagePath`, so a Pages Router
+  // home page arrives as `/index` and `routablePathnames` registers it under `/`
+  // as well, both backed by one entrypoint. Claiming `/index` therefore moved the
+  // home page's entrypoint into the group while `/` kept falling through to the
+  // distribution's default behavior, whose function no longer had it — a 500
+  // reading "the deployment package is incomplete" on the app's most-requested
+  // URL. Rejecting it here is the same limit as `/`, reached by the other name.
+  if (route === "/" || route === "/index") {
     throw new Error(
       `${errorPrefix()}${where} cannot be routed. CloudFront has no path ` +
         `pattern that matches only "/" — the default behavior serves it — so the ` +
-        `home page always belongs to the "${DEFAULT_FUNCTION_GROUP}" group. ` +
-        `Group the routes around it instead.`,
+        `home page always belongs to the "${DEFAULT_FUNCTION_GROUP}" group ` +
+        `(a Pages Router home page is also reachable as "/index", and that is ` +
+        `the same entrypoint). Group the routes around it instead.`,
     );
   }
   if (route === SUBTREE_SUFFIX) {
@@ -295,14 +304,36 @@ export function assignRoutesToGroups(
   // would stage the same file twice and route one of them to a function that
   // has it by accident, so ownership is recorded per entrypoint and reused.
   const groupOfEntrypoint = new Map<string, string>();
+  // Which `patterns` index won the entrypoint. `patterns` is sorted
+  // most-specific-first, so a lower index is the better claim, and keeping it
+  // stops a second template that shares the entrypoint from taking it over with
+  // a *broader* pattern. Without it the owner was whichever of the two templates
+  // `entries` happened to visit last — the same build grouped differently
+  // depending on manifest key order.
+  const winningIndexOfEntrypoint = new Map<string, number>();
 
   for (const entry of entries) {
-    const hit = patterns.find((pattern) =>
-      matchesPattern(pattern.match, entry.template),
-    );
-    if (hit) {
-      matchedPatterns.add(`${hit.group}\u0000${hit.route}`);
-      groupOfEntrypoint.set(entry.entrypointId, hit.group);
+    let winner: number | undefined;
+    for (const [index, pattern] of patterns.entries()) {
+      if (!matchesPattern(pattern.match, entry.template)) {
+        continue;
+      }
+      // Every match is recorded, not only the winning one. A pattern fully
+      // shadowed by a narrower pattern in another group never wins anything —
+      // "/api/**" against an app whose only API routes are under
+      // "/api/reports/**" — so recording just the winner left it looking like a
+      // typo and threw below, rejecting the very layout the duplicate-pattern
+      // error a few lines up documents as supported.
+      matchedPatterns.add(`${pattern.group}\u0000${pattern.route}`);
+      winner ??= index;
+    }
+    if (winner === undefined) {
+      continue;
+    }
+    const incumbent = winningIndexOfEntrypoint.get(entry.entrypointId);
+    if (incumbent === undefined || winner < incumbent) {
+      winningIndexOfEntrypoint.set(entry.entrypointId, winner);
+      groupOfEntrypoint.set(entry.entrypointId, patterns[winner].group);
     }
   }
 

@@ -12,15 +12,18 @@ import 'server-only';
  * functions at the top level, and with `cacheComponents` an uncached `fetch`
  * there makes the whole route unprerenderable.
  *
- * Only the fetch is cached. `notFound()` and the throw to the closest
- * `error.js` stay in the exported wrappers below, because they are decisions
- * about one request: thrown out of a `'use cache'` function they would be what
- * gets stored, so a single blip would keep serving a 404 or an error page for
- * the life of the cache entry.
+ * An upstream failure throws from *inside* the cache rather than being returned
+ * as an `{ ok: false }` sentinel. A rejected promise is not persisted, so the
+ * next request retries the API; a resolved sentinel is persisted like any other
+ * value, which meant one 503 here served `error.js` for every subsequent
+ * request for the life of the entry - the exact failure the sentinel was
+ * introduced to avoid.
+ *
+ * `notFound()` still belongs to the wrappers below, and for the original
+ * reason: an empty response is a valid, cacheable answer, and the 404 is a
+ * decision about one request rather than something to store.
  */
-async function fetchCategories(
-  query: string,
-): Promise<{ ok: boolean; data: Category[] }> {
+async function fetchCategories(query: string): Promise<Category[]> {
   'use cache';
 
   const res = await fetch(
@@ -28,25 +31,20 @@ async function fetchCategories(
   );
 
   if (!res.ok) {
-    return { ok: false, data: [] };
+    throw new Error(`The categories API responded ${res.status}`);
   }
 
   // The API returns an array for `?parent=`/no query and a single object for
   // `?slug=`; normalizing here keeps one cached function for both.
   const json = (await res.json()) as Category[] | Category | null;
 
-  return { ok: true, data: json ? [json].flat() : [] };
+  return json ? [json].flat() : [];
 }
 
 export async function getCategories({ parent }: { parent?: string } = {}) {
-  const { ok, data: categories } = await fetchCategories(
-    parent ? `?parent=${parent}` : '',
-  );
-
-  if (!ok) {
-    // Render the closest `error.js` Error Boundary
-    throw new Error('Something went wrong!');
-  }
+  // An upstream failure throws out of `fetchCategories` and renders the closest
+  // `error.js` Error Boundary, uncached.
+  const categories = await fetchCategories(parent ? `?parent=${parent}` : '');
 
   if (categories.length === 0) {
     // Render the closest `not-found.js` Error Boundary
@@ -57,12 +55,7 @@ export async function getCategories({ parent }: { parent?: string } = {}) {
 }
 
 export async function getCategory({ slug }: { slug: string }) {
-  const { ok, data } = await fetchCategories(slug ? `?slug=${slug}` : '');
-
-  if (!ok) {
-    // Render the closest `error.js` Error Boundary
-    throw new Error('Something went wrong!');
-  }
+  const data = await fetchCategories(slug ? `?slug=${slug}` : '');
 
   const category = data[0];
 

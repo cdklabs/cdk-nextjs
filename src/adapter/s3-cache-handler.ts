@@ -625,8 +625,8 @@ export class S3CacheHandler implements CacheHandler {
       // own length rather than at the first "#": a tag is app-defined and may
       // contain one, and `revalidateTag("user#42")` then yielded
       // "42#<buildId>/account.json" — whose invalidation path
-      // ("/42#<buildId>/account") names nothing CloudFront cached, so the page
-      // stayed stale while the row was stamped revalidated and never retried.
+      // ("/42#<buildId>/account") names nothing CloudFront cached, so the edge
+      // kept serving the stale page.
       // Every row here came back from a `begins_with(sk, "<tag>#")` query, so the
       // prefix length is known exactly.
       const prefixLength = tag.length + 1;
@@ -641,30 +641,18 @@ export class S3CacheHandler implements CacheHandler {
         `TAG ${tag}: Found ${cacheKeys.length} cache entries to invalidate`,
       );
 
-      // Update revalidation timestamp for all cache keys with this tag
-      const updatePromises = items.map(async (item) => {
-        const sk = item.sk?.S;
-        if (sk) {
-          const updateCommand = new UpdateItemCommand({
-            TableName: this.dynamoConfig.tableName,
-            Key: {
-              pk: { S: this.dynamoConfig.buildId },
-              sk: { S: sk },
-            },
-            UpdateExpression: "SET revalidatedAt = :timestamp",
-            ExpressionAttributeValues: {
-              ":timestamp": { N: Date.now().toString() },
-            },
-          });
-
-          return this.dynamoClient.send(updateCommand);
-        }
-        return Promise.resolve();
-      });
-
-      await Promise.all(updatePromises.filter(Boolean));
-
-      // Deliberately not deleting the tag's S3 objects. The marker row above is
+      // The mapping rows themselves are deliberately left alone. Stamping
+      // `revalidatedAt` on each `tag#cacheKey` row is what this used to do, and
+      // nothing has read that attribute since `checkIfRevalidated` became a
+      // `GetItem` against the bare-tag marker row written above — so the writes
+      // were dead, and they were dead *in front of* the invalidation below. One
+      // throttled `UpdateItem` rejected the `Promise.all`, the CloudFront
+      // invalidation never ran, and the only trace was a `console.error` while
+      // the edge kept serving the stale page. `seedTagMappings` made that the
+      // likely case rather than the unlucky one: every prerender contributes a
+      // row per implicit tag, so `_N_T_/layout` alone has one per page.
+      //
+      // Deliberately not deleting the tag's S3 objects either. The marker row above is
       // what invalidates them: `get` compares it against each entry's own
       // `lastModified` and hands the entry back expired, which is the signal
       // that makes Next.js re-render *this* route and store the result (see

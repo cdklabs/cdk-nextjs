@@ -171,6 +171,25 @@ describe("NextjsCache", () => {
       expect(stagedUnderBuildId).toBe(true);
     });
 
+    it("removes its temporary staging copy once the asset is staged", () => {
+      // `Source.asset` stages during `BucketDeployment`'s construction, so the
+      // copy is dead as soon as that returns - and it is a whole init cache,
+      // measured at 664 MiB. Leaving one per synth put ~15 GB in the system temp
+      // directory over a CI loop of ~22 deploys.
+      const existing = new Set(
+        readdirSync(tmpdir()).filter((name) =>
+          name.startsWith("nextjs-init-cache-"),
+        ),
+      );
+
+      synth("build-abc123").app.synth();
+
+      const leaked = readdirSync(tmpdir()).filter(
+        (name) => name.startsWith("nextjs-init-cache-") && !existing.has(name),
+      );
+      expect(leaked).toEqual([]);
+    });
+
     it("tags the cache bucket the same way whatever the build ID", () => {
       const first = ownerTags(synth("build-abc123").template);
       const second = ownerTags(synth("build-def456").template);

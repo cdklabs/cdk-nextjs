@@ -9,6 +9,7 @@ import {
   mkdirSync,
   cpSync,
   renameSync,
+  realpathSync,
   statSync,
   unlinkSync,
 } from "node:fs";
@@ -405,9 +406,29 @@ export class NextjsBuild extends Construct {
     );
   }
 
-  /** Total bytes of a tree with symlinks followed, as zipping it would see it. */
-  private dereferencedSize(path: string): number {
+  /**
+   * Total bytes of a tree with symlinks followed, as zipping it would see it.
+   *
+   * `visited` holds the *resolved* path of every directory already counted, which
+   * is what bounds the recursion. Following a symlinked directory is the point of
+   * this walk, and two workspace packages that link each other
+   * (`packages/a/node_modules/@org/b` → `../../b` and the reverse, which is how
+   * pnpm wires a monorepo) are a cycle: without the set, `assertUnderLambdaLimit`
+   * either hangs or blows the stack at synth. Keying on the real path also means a
+   * directory reached through two different links is counted once rather than
+   * twice, which is what the zip contains.
+   */
+  private dereferencedSize(path: string, visited = new Set<string>()): number {
     let bytes = 0;
+    try {
+      const real = realpathSync(path);
+      if (visited.has(real)) {
+        return 0;
+      }
+      visited.add(real);
+    } catch {
+      return 0;
+    }
     for (const entry of readdirSync(path, {
       recursive: true,
       withFileTypes: true,
@@ -420,7 +441,9 @@ export class NextjsBuild extends Construct {
         // `statSync` follows links, which is the point; a dangling one is
         // skipped rather than thrown on, since it contributes nothing to the zip.
         const stats = statSync(full);
-        bytes += stats.isDirectory() ? this.dereferencedSize(full) : stats.size;
+        bytes += stats.isDirectory()
+          ? this.dereferencedSize(full, visited)
+          : stats.size;
       } catch {
         continue;
       }

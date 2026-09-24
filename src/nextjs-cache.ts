@@ -130,14 +130,44 @@ export class NextjsCache extends Construct {
 
     this.stagingDir = this.createStagingDirectory();
 
-    // Use standard BucketDeployment for regular S3 buckets
-    const bucketDeployment = new BucketDeployment(this, "InitCacheDeployment", {
-      sources: [Source.asset(this.stagingDir)],
-      destinationBucket: this.cacheBucket,
-      prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
-      ...this.props.overrides?.bucketDeploymentProps,
-    });
-    return bucketDeployment;
+    try {
+      // Use standard BucketDeployment for regular S3 buckets
+      const bucketDeployment = new BucketDeployment(
+        this,
+        "InitCacheDeployment",
+        {
+          sources: [Source.asset(this.stagingDir)],
+          destinationBucket: this.cacheBucket,
+          prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
+          ...this.props.overrides?.bucketDeploymentProps,
+        },
+      );
+      return bucketDeployment;
+    } finally {
+      // `Source.asset` stages during `BucketDeployment`'s construction - CDK's
+      // `AssetStaging` zips into `cdk.out` from its own constructor - so the
+      // temporary copy is dead the moment that returns. Leaving it was a slow
+      // leak with a large unit: the init cache has been measured at 664 MiB, and
+      // every `cdk synth` left another full copy in the system temp directory,
+      // so a CI loop of ~22 deploys could put ~15 GB on the runner's disk.
+      this.removeStagingDirectory();
+    }
+  }
+
+  /** Best-effort: a leftover temp directory is not worth failing a synth over. */
+  private removeStagingDirectory(): void {
+    if (!this.stagingDir) {
+      return;
+    }
+    try {
+      rmSync(this.stagingDir, { recursive: true, force: true });
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} Could not remove the init cache staging directory ` +
+          `${this.stagingDir}: ${error}`,
+      );
+    }
+    this.stagingDir = undefined;
   }
 
   /**

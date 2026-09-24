@@ -378,7 +378,12 @@ export abstract class NextjsBaseConstruct extends Construct {
         ...overrides,
         functionProps: {
           ...overrides?.functionProps,
-          vpc: this.baseProps.vpc,
+          // Spread conditionally rather than assigned: an unconditional
+          // `vpc: this.baseProps.vpc` writes `undefined` over an
+          // `overrides.nextjsFunctions.functionProps.vpc` the consumer supplied,
+          // so the Lambdas deploy outside the VPC and cannot reach a private
+          // RDS, ElastiCache, or VPC endpoint - with nothing said at synth.
+          ...(this.baseProps.vpc ? { vpc: this.baseProps.vpc } : {}),
         },
       },
       ...this.constructOverrides?.nextjsFunctionsProps,

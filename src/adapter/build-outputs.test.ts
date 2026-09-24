@@ -574,6 +574,10 @@ describe("writeBuildOutputs", () => {
     );
 
     await mkdir(join(distDir, "server", "app"), { recursive: true });
+    // Every deployment root needs this, and `loadRuntime` refuses to serve
+    // without it, so the staging plan carries it independently of any output's
+    // traced assets.
+    await writeFile(join(distDir, "required-server-files.json"), "{}\n");
     await mkdir(dep, { recursive: true });
     await mkdir(store, { recursive: true });
     await mkdir(hidden, { recursive: true });
@@ -821,6 +825,7 @@ describe("writeBuildOutputs", () => {
       const projectDir = join(repoRoot, "app");
       const distDir = join(projectDir, ".next");
       await mkdir(join(distDir, "server", "app"), { recursive: true });
+      await writeFile(join(distDir, "required-server-files.json"), "{}\n");
 
       const outputFor = async (name: string, pathname: string) => {
         const entry = join(distDir, "server", "app", `${name}.js`);
@@ -935,6 +940,15 @@ describe("writeBuildOutputs", () => {
       );
       for (const name of ["default", "reports"]) {
         await expect(has(name, RUNTIME_DIR_NAME)).resolves.toBe(false);
+      }
+      // `required-server-files.json` is not any output's traced asset, so a
+      // group that reaches it only through the outputs it owns does not get it -
+      // and `loadRuntime` probes for it before serving anything, so the whole
+      // root answers "the deployment package is incomplete" without it.
+      for (const name of ["default", "reports"]) {
+        await expect(
+          has(name, "app", ".next", "required-server-files.json"),
+        ).resolves.toBe(true);
       }
     });
 

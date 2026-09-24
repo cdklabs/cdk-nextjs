@@ -210,6 +210,16 @@ jobs:
         with:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+          # Matched to this job's `timeout-minutes`, because the action exports
+          # static credentials once and nothing here refreshes them. At the
+          # default hour, a shard running ~34 test files at 2-3 min each hit
+          # `ExpiredToken` on every file past the ~55-minute mark - and so did the
+          # `always()` stack deletion below, leaking a stack with a CloudFront
+          # distribution in it until the next scheduled sweep.
+          #
+          # Requires `MaxSessionDuration >= 10800` on GitHubActionRole; STS
+          # rejects a longer request than the role allows.
+          role-duration-seconds: 10800
 
       - name: Warn about the cache miss
         if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
@@ -280,6 +290,16 @@ jobs:
         # See `harness_stack_name` in scripts/e2e-harness/common.sh.
         run: node run-tests.js --timings -c 1 --type e2e -g ${{ matrix.shard }}/${{ needs.plan.outputs.total }}
 
+      # Re-assumed rather than relied on: this is the step that deletes a stack
+      # holding a CloudFront distribution, and it runs under `always()` - after a
+      # timeout, which is exactly when the job's original credentials are most
+      # likely to be the thing that expired.
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        if: ${{ always() }}
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+
       - name: Delete this shard's stack
         if: ${{ always() }}
         # `e2e-cleanup.sh` keeps the stack alive between test files on purpose, so
@@ -291,10 +311,21 @@ jobs:
         run: ./scripts/e2e-sweep.sh --apply --shared
 
   sweep:
-    # Independent of the run above so that a cancelled or timed-out run still gets
-    # swept by the next scheduled one, at most six days later: the age floor means
-    # this can never touch a stack belonging to a run in progress.
-    if: ${{ github.event_name == 'schedule' }}
+    # What a cancelled or timed-out run leaves behind is collected by the *next*
+    # scheduled run, at most six days later. That is why this job exists, and it
+    # still has to wait for `harness`: the age floor does not protect a run in
+    # progress, because shard stacks are reused by name and the floor reads
+    # `CreationTime`. A `hrns-shard-3` left by an earlier cancelled run is hours
+    # old and still the stack this run's shard 3 is about to `cdk deploy` into, so
+    # sweeping concurrently issued `delete-stack` on it ~30s in while the deploy
+    # started ~4 min in - and a CloudFront delete takes 15+ minutes, so the shard
+    # went red. The workflow-level `concurrency` group serializes runs, not the
+    # jobs inside one.
+    #
+    # `always()` so that a failed or cancelled shard still gets its leftovers
+    # swept rather than waiting another six days.
+    needs: harness
+    if: ${{ always() && github.event_name == 'schedule' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
