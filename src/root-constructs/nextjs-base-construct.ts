@@ -19,7 +19,11 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
-import { prefixWithBasePath, resolveBasePath } from "../utils/base-path";
+import {
+  isAssetPrefixUnserved,
+  prefixWithBasePath,
+  resolveBasePath,
+} from "../utils/base-path";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
@@ -181,22 +185,22 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * A path-style `assetPrefix` moves every bundle URL to
-   * `<assetPrefix>/_next/static/...` while the objects keep their
-   * `<basePath>/_next/static/...` S3 keys. The Global `NextjsType`s answer that
-   * with a cache behavior of their own (`NextjsDistribution`); the regional ones
-   * have nothing that maps the prefix back — API Gateway's `_next/static`
-   * resource and the container's own files are both under the unprefixed path —
-   * so every bundle 404s. Warn rather than throw: it is the app's config, the
-   * deployment otherwise works, and an absolute `assetPrefix` (already reduced to
-   * `""` by `readNextConfigAssetPrefix`) is the supported way to serve assets
-   * from elsewhere.
+   * Warns when a path-style `assetPrefix` would 404 every bundle on this
+   * `NextjsType` — see {@link isAssetPrefixUnserved} for which combinations those
+   * are and why a prefix equal to the app's `basePath` is not one of them.
+   *
+   * Warn rather than throw: it is the app's config, the deployment otherwise
+   * works, and an absolute `assetPrefix` (already reduced to `""` by
+   * `readNextConfigAssetPrefix`) is the supported way to serve assets from
+   * elsewhere.
    */
   private warnUnservedAssetPrefix(): void {
     if (
-      !this.nextjsBuild.nextConfigAssetPrefix ||
-      this.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
-      this.nextjsType === NextjsType.GLOBAL_CONTAINERS
+      !isAssetPrefixUnserved(
+        this.nextjsType,
+        this.nextjsBuild.nextConfigAssetPrefix,
+        this.nextjsBuild.nextConfigBasePath,
+      )
     ) {
       return;
     }

@@ -130,6 +130,48 @@ export function readNextConfigAssetPrefixPath(dotNextPath: string): string {
 }
 
 /**
+ * Whether a path-style `assetPrefix` would go unanswered on this `NextjsType`,
+ * i.e. whether every bundle would 404.
+ *
+ * `assetPrefix` moves every bundle URL to `<assetPrefix>/_next/static/...` while
+ * the objects keep their `<basePath>/_next/static/...` S3 keys. The Global
+ * `NextjsType`s answer that with a cache behavior of their own
+ * (`NextjsDistribution`); the regional ones have nothing that maps the prefix
+ * back — API Gateway's `_next/static` resource and the container's own files are
+ * both under the unprefixed path.
+ *
+ * A prefix equal to the app's own `basePath` is **not** unserved, because that is
+ * the value Next.js resolves `assetPrefix` to when `basePath` is set and
+ * `assetPrefix` is not: `.next/required-server-files.json` comes back as
+ * `{"assetPrefix":"/prod","basePath":"/prod"}` for an app that only ever set
+ * `basePath`. Without that exemption the warning fired on every regional
+ * deployment that sets a `basePath` at all — including `examples/regional-functions`
+ * — telling users their bundles would 404 at the one path that does serve them.
+ * `NextjsDistribution.resolveAssetPrefix` drops the prefix for the same reason.
+ *
+ * Both sides go through `normalizeBasePath` because they arrive in different
+ * shapes: `nextConfigAssetPrefix` carries a leading slash (`"/prod"`),
+ * `nextConfigBasePath` does not (`"prod"`).
+ */
+export function isAssetPrefixUnserved(
+  nextjsType: NextjsType,
+  nextConfigAssetPrefix: string,
+  nextConfigBasePath?: string,
+): boolean {
+  if (!nextConfigAssetPrefix) return false;
+  if (
+    nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
+    nextjsType === NextjsType.GLOBAL_CONTAINERS
+  ) {
+    return false;
+  }
+  return (
+    normalizeBasePath(nextConfigAssetPrefix) !==
+    normalizeBasePath(nextConfigBasePath)
+  );
+}
+
+/**
  * The path portion of an `assetPrefix` value, with a leading and no trailing
  * slash, or `""` when it carries none. Shared with `NextjsDistribution`, whose
  * `assetPrefix` prop a user can also set by hand.

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextjsType } from "../constants";
 import {
+  isAssetPrefixUnserved,
   joinPath,
   normalizeBasePath,
   prefixWithBasePath,
@@ -286,6 +287,62 @@ describe("readNextConfigAssetPrefix", () => {
       expect.stringContaining("Could not read assetPrefix"),
     );
   });
+});
+
+describe("isAssetPrefixUnserved", () => {
+  const REGIONAL = [
+    NextjsType.REGIONAL_FUNCTIONS,
+    NextjsType.REGIONAL_CONTAINERS,
+  ];
+
+  it.each(REGIONAL)(
+    "%s: does not flag the assetPrefix Next.js derives from basePath",
+    (nextjsType) => {
+      // The regression this function was extracted for. An app that sets only
+      // `basePath: "/prod"` — `examples/regional-functions`, and every regional
+      // deployment with a basePath — gets
+      // `{"assetPrefix":"/prod","basePath":"/prod"}` in
+      // `required-server-files.json`, because Next.js resolves one from the other.
+      // Flagging that told users their bundles would 404 at the one path that does
+      // serve them, on every synth.
+      expect(isAssetPrefixUnserved(nextjsType, "/prod", "prod")).toBe(false);
+      // Both sides arrive in different shapes — the assetPrefix reader adds a
+      // leading slash, the basePath reader strips one — so the comparison has to
+      // normalize rather than compare strings.
+      expect(isAssetPrefixUnserved(nextjsType, "/prod", "/prod/")).toBe(false);
+      expect(isAssetPrefixUnserved(nextjsType, "/a/b", "a/b")).toBe(false);
+    },
+  );
+
+  it.each(REGIONAL)("%s: flags a prefix nothing serves", (nextjsType) => {
+    // A genuinely different prefix is the case the warning exists for: bundles are
+    // requested at `/cdn/_next/static/...` and neither API Gateway's
+    // `_next/static` resource nor the container's own files answer there.
+    expect(isAssetPrefixUnserved(nextjsType, "/cdn", "prod")).toBe(true);
+    expect(isAssetPrefixUnserved(nextjsType, "/cdn", undefined)).toBe(true);
+    // A prefix *under* the basePath is still a different path, not a match.
+    expect(isAssetPrefixUnserved(nextjsType, "/prod/cdn", "prod")).toBe(true);
+  });
+
+  it.each(GLOBAL)(
+    "%s: flags nothing, having a behavior for it",
+    (nextjsType) => {
+      // `NextjsDistribution` adds a cache behavior for the prefix, so on these types
+      // any prefix is served.
+      expect(isAssetPrefixUnserved(nextjsType, "/cdn", "prod")).toBe(false);
+      expect(isAssetPrefixUnserved(nextjsType, "/cdn", undefined)).toBe(false);
+    },
+  );
+
+  it.each(Object.values(NextjsType))(
+    "%s: flags nothing when there is no prefix",
+    (nextjsType) => {
+      // `readNextConfigAssetPrefix` already reduces an absolute prefix to `""`,
+      // which is the supported way to serve assets from another origin.
+      expect(isAssetPrefixUnserved(nextjsType, "", "prod")).toBe(false);
+      expect(isAssetPrefixUnserved(nextjsType, "", undefined)).toBe(false);
+    },
+  );
 });
 
 describe("resolveBasePath", () => {
