@@ -104,7 +104,27 @@ See [examples/](./examples/) for more usage examples.
 
 ## Configuration
 
-cdk-nextjs supports configuration via environment variables. These are automatically set by the construct during deployment, but you can override them for custom behavior.
+The variables below are read at runtime by the cache handler inside your deployed
+Lambda functions or containers. Set them on the compute through `overrides`:
+
+```ts
+// NextjsGlobalFunctions / NextjsRegionalFunctions
+overrides: {
+  nextjsFunctions: {
+    functionProps: { environment: { CDK_NEXTJS_MEMORY_CACHE_TTL_MS: "0" } },
+  },
+},
+
+// NextjsGlobalContainers / NextjsRegionalContainers
+overrides: {
+  nextjsContainers: {
+    taskImageOptions: { environment: { CDK_NEXTJS_MEMORY_CACHE_TTL_MS: "0" } },
+  },
+},
+```
+
+Values you pass are merged over the ones the construct sets, so the same mechanism
+overrides the [infrastructure variables](#infrastructure-configuration) too.
 
 ### Cache Configuration
 
@@ -148,7 +168,8 @@ Maximum number of cache entries to store in memory. When this limit is reached, 
 
 ### Infrastructure Configuration
 
-The following environment variables are automatically set by the construct and typically don't need to be modified:
+The construct sets these itself (`CDK_NEXTJS_BASE_PATH` only where noted) and they
+typically don't need to be modified:
 
 #### `CDK_NEXTJS_BUILD_ID`
 
@@ -172,7 +193,7 @@ adds it back to reach the URI CloudFront actually cached.
 
 #### `DEBUG`
 
-Set to `cdk-nextjs:*` to set debug logs. This is especially useful to see cache handler activity.
+Not set by default. Set it to `cdk-nextjs:*` to enable debug logs. This is especially useful to see cache handler activity.
 
 ### `next.config.js` options cdk-nextjs reads
 
@@ -227,7 +248,7 @@ new NextjsGlobalFunctions(this, "Nextjs", {
   buildDirectory: join(import.meta.dirname, "..", "web"),
   functionGroups: [
     { name: "reports", routes: ["/dashboard/reports/**"] },
-    { name: "admin", routes: ["/admin/**", "/settings"] },
+    { name: "admin", routes: ["/admin", "/admin/**", "/settings"] },
   ],
 });
 ```
@@ -238,11 +259,12 @@ Gateway resource, for `NextjsRegionalFunctions` — per pattern.
 
 **Route patterns** are either an exact path (`/settings`) or a subtree
 (`/admin/**`). A subtree owns what is _under_ it, not the path itself:
-`/admin/**` does not claim `/admin`. Where two groups could both match, the
-longest pattern wins, so `/api/**` and `/api/reports/**` can coexist in different
-groups. Dynamic segments (`/blog/[slug]`), route group segments
-(`/(marketing)/about`), `/`, and `/**` are rejected at synth — CloudFront matches
-literal path prefixes and cannot express them.
+`/admin/**` does not claim `/admin`. To own a page and everything under it, list
+both, as the example above does: `["/admin", "/admin/**"]`. Where two groups
+could both match, the longest pattern wins, so `/api/**` and `/api/reports/**`
+can coexist in different groups. Dynamic segments (`/blog/[slug]`), route group
+segments (`/(marketing)/about`), `/`, and `/**` are rejected at synth —
+CloudFront matches literal path prefixes and cannot express them.
 
 **What splitting does and does not save.** Every function ships the same `next`
 runtime closure, so splitting only moves route-_local_ code and its dependencies.

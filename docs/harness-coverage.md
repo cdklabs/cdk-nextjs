@@ -64,15 +64,15 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 427 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache`, 3 of 7 `dynamic-route-interpolation`, 1 of 2 `revalidate-path-with-rewrites` and 2 of 3 in each of the 6 `invalid-static-asset-404-*` files |
-| fixed            | 33 harness defects, every one of which came from a file listed above, and every one now verified green against a deployment. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
-| bug              | 1 (`incremental-cache-path-traversal`). Defect 34 is open too, but is not a harness file verdict — the four-type e2e suite found it on `NextjsRegionalFunctions`, which the harness never deploys |
-| upstream         | 1 (`rewrites-destination-query-array` — a `@next/routing` bug, not reachable from here) |
+| fixed            | 35 harness defects, every one of which came from a file listed above, and all but one now verified green against a deployment — the exception is defect 35, whose file cannot pass as written and which is verified offline against `next start` instead. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
+| bug              | none among the harness files. Defect 36 is open, but is not a harness file verdict — the four-type e2e suite found it on `NextjsRegionalFunctions`, which the harness never deploys |
+| upstream         | 2 (`rewrites-destination-query-array` — a `@next/routing` bug; `incremental-cache-path-traversal` — a fixture asserting two things that cannot both hold. Neither reachable from here) |
 | unsupported      | 2 (`prerender-encoding`, and `middleware-fetches-with-any-http-method` whose edge middleware the screen missed; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files (`revalidate-dynamic`, `proxy-readable-toweb`), plus the 2 remaining `trailingslash`, 4 remaining `dynamic-route-interpolation`, 1 remaining `revalidate-path-with-rewrites` and 1 remaining case in each of the 6 `invalid-static-asset-404-*` files |
 | architectural    | the 2 remaining `resume-data-cache` cases |
-| no signal        | 49 (2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files whose fixture cannot be built here) |
+| no signal        | 49 (2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files whose fixture cannot be built here — the one thing they would have told us about cdk-nextjs is asserted by `scripts/zero-config-build.mjs` instead) |
 
-The thirty-three fixed harness defects are its whole return on investment. All of
+The thirty-five fixed harness defects are its whole return on investment. All of
 them were real, all of them shipped, and none of them could have been caught by
 the construct tests or by `examples/e2e-tests`.
 
@@ -119,10 +119,10 @@ re-running it against plain `next start` on the same build rather than by argume
   postponing and flushing a shell first, so the status is committed before the throw.
   The test now asserts that contract, including the `no-store` that was always the
   real point.
-- **Two were one real, previously unknown defect** — **34**, below: on
+- **Two were one real, previously unknown defect** — **36**, below: on
   `NextjsRegionalFunctions` a redirect's `Location` drops the API Gateway stage, so
   following it gets a `403`.
-- **One was a race in the test itself**, and it read as a third instance of defect 34
+- **One was a race in the test itself**, and it read as a third instance of defect 36
   until it was measured five times instead of once. `server-action-redirect` clicked
   the form before hydration, which makes it a native browser POST rather than a
   router action — a different Next.js code path, answered with a prefix-less `303`
@@ -1933,9 +1933,126 @@ came back, which pins both the wiring and the `Invalid response <status>` throw.
 
 Confirmed deployed: green on attempt 0 in 105s, and now in `rules.include`.
 
-## Bugs — not yet fixed
+### 34. An untagged `force-cache` fetch could never be revalidated
 
-### 34. Every redirect on `NextjsRegionalFunctions` drops the API Gateway stage prefix
+**File:** `app-dir/revalidate-path-with-rewrites` (the `dynamic page` case, its
+`suites` half). **Verdict: fixed.**
+
+Found by the 20-file regression pass run after the review-findings merge, which is
+the only reason it was caught: the case had been recorded as passing in 1.2s in
+batch 15, and it failed both attempts here. It was not a regression from that
+merge. The merge's only behavioural change to the cache handler was to give a
+runtime-rendered *response* entry the mapping rows it had been missing, and
+nothing it touched can alter what a `fetch` entry stores. The batch-15 green was
+luck: the case is a race, and it had gone the other way once.
+
+`S3CacheHandler.get` checked every entry — response or `fetch` — against the tags
+that entry had been **stored** with. Next.js's own `FileSystemCache.get` splits
+the two, and the split is load-bearing:
+`incremental-cache/file-system-cache.ts` checks a `PAGES`/`APP_*` entry against
+its own `x-next-cache-tags` header, but checks a `FETCH` entry against
+`[...ctx.tags, ...ctx.softTags]` — the tags of the *request asking for it*. A
+`fetch` entry is only ever stored with its explicit `cache: { tags: [...] }`; the
+implicit `_N_T_/<path>` chain that `revalidatePath` names never reaches `set` at
+all, and arrives on the read side as `ctx.softTags`.
+
+So an untagged `fetch` stored `tags: []`, our `checkTags.length > 0` guard skipped
+the DynamoDB marker lookup entirely, and no `revalidatePath` or `revalidateTag`
+could ever evict it. The blast radius is any page whose data comes from an
+untagged cached `fetch`: it is served from a `fetch` entry that lives until its
+own `revalidate` expires, however many times the page itself is re-rendered or
+invalidated. The fixture makes that maximally visible — its page is
+`dynamic = 'force-dynamic'` with `fetchCache = 'force-cache'`, so there is no page
+cache entry at all and the whole response body comes from the `fetch` cache. It
+re-rendered on every request and returned the same random number forever.
+
+Fixed by following `FileSystemCache`: `get` now derives its check tags from
+`ctx.tags` + `ctx.softTags` for a `FETCH` get and from the stored entry only for a
+response get. A narrowing `isFetchCacheGet` predicate makes the two
+`GetIncremental*CacheContext` members distinguishable without a cast. Covered by a
+unit test that stores `tags: []` and evicts the entry with a `_N_T_/dynamic`
+marker, which is exactly the shape the old code missed.
+
+Confirmed deployed: green on attempt 0 in 107s. The file stays a `suites` partial
+— its `static page` case is still the CDN invalidation-timing failure described
+below, which is a different problem.
+
+### 35. A catch-all capture containing an encoded `/` 500s
+
+From `incremental-cache-path-traversal` (1 of 1), which is upstream's regression
+test for a path-traversal read: it requests
+`/_next/data/<buildId>/pages-cache/..%2F..%2Fserver-reference-manifest.json` and
+asserts a **200** whose `pageProps.rest` is the literal `['..', '..',
+'server-reference-manifest']` — i.e. the traversal is treated as ordinary route
+params and no manifest is leaked. We answer **500**.
+
+The security property the test exists to protect held throughout — nothing leaked
+— so this was a fidelity gap: the runtime threw where `next start` renders. Worth
+noting that the file is *not* screened out despite its `describe.skip`: that skip
+is conditional on `__NEXT_CACHE_COMPONENTS`, which the harness does not set.
+
+Root-caused offline (`scripts/e2e-offline.sh incremental-cache-path-traversal`),
+where both routers log the same throw:
+
+```
+Error: Requested and resolved page mismatch: /pages-cache/../../server-reference-manifest /server-reference-manifest
+    at tx._getPathname (next-server/pages-turbo.runtime.prod.js)
+```
+
+`normalizePagePath` raises that whenever `posix.normalize` changes the string it
+is handed, and `pages-handler` hands it the resolved pathname as the cache key. So
+the question is only what shape `params.rest` arrives in. Three candidates,
+tried directly against next's built `dist`:
+
+| `params.rest` | `_getPathname` |
+| --- | --- |
+| `['..', '..', 'server-reference-manifest']` | **throws** |
+| `['../../server-reference-manifest']` | `/pages-cache/..%2F..%2Fserver-reference-manifest` |
+| `['..%2F..%2Fserver-reference-manifest']` | `/pages-cache/..%252F..%252Fserver-reference-manifest` |
+
+We produce the first; `next start` produces the second. Not because the runtime
+encodes the param wrongly — it emits exactly what the `nxtP` contract asks for,
+`nxtPrest=..%252F..%252Fserver-reference-manifest` — but because that contract
+decodes **twice** on the way in. `normalizeQueryParams` runs
+`decodeQueryPathParameter` (a second `decodeURIComponent`, there because "when
+deployed to Vercel the value may be encoded") over every de-prefixed `nxtP`
+value, turning it back into `../../server-reference-manifest`, and
+`normalizeDynamicRouteParams` then splits a string repeat param on `/` because
+"query values from the proxy aren't already split into arrays". Two decodes and a
+split: an encoded `/` inside a catch-all param cannot survive the round trip, and
+no amount of extra encoding on our side fixes it — triple-encoding only shifts us
+to the third row, which is a 200 but still not what `next start` renders.
+
+`next start` escapes all of it by never using the query contract: its
+`router-server` sets `requestMeta.params` directly, and `RouteModule.prepare`
+(`route-module.ts:804`) uses that as-is without normalizing or splitting.
+
+Fixed by doing the same thing, narrowly. `outOfBandRouteParams` (`dispatch.ts`)
+detects a `nxtP` capture containing `%2F`, decodes the params itself — splitting a
+repeat on real delimiters only — and hands them over as `requestMeta.params`,
+*removing* the `nxtP` values from both the query and `req.url`. The removal is
+load-bearing: `prepare` prefers the query over `params` when both parse and are
+the same size (`route-module.ts:892`), so leaving them in would restore the split.
+Every other request keeps the documented query contract, which is lossless for
+them; a param set that cannot be fully restated (an optional catchall the request
+left unset) stays on the query contract too, since half a param set is worse than
+none.
+
+Verified offline: both the `pages-cache` and `app-cache` routes of the fixture now
+answer 200 with bodies byte-identical to `next start`'s, and an ordinary
+multi-segment catch-all (`/pages-cache/a/b`) is unchanged.
+
+The file still cannot pass, for a reason on the fixture's side: its
+`isNextDeploy && isAdapterTest` branch asserts status 200 *together with*
+`rest: ['..', '..', 'server-reference-manifest']`, and per the table above that
+array is precisely the shape `normalizePagePath` rejects — with `cacheKey` passed
+to `handleResponse` regardless of `isMinimalMode`, so there is no bypass. The two
+assertions cannot both hold on 16.3.5, which is why it is filed as an upstream
+fixture bug below and stays excluded.
+
+## Bug — not yet fixed
+
+### 36. Every redirect on `NextjsRegionalFunctions` drops the API Gateway stage prefix
 
 **Not a harness finding** — found by the cross-type e2e suite this section's
 back-fill created, which is the thing the harness structurally could not do: it only
@@ -2001,28 +2118,24 @@ rather than a one-liner.
 
 Gated, not skipped, so it cannot rot: three tests in
 `examples/e2e-tests/src/url-normalization.test.ts` carry
-`test.fail(isApiGateway(), "defect #34 …")`. They still execute on all four types, so the day
+`test.fail(isApiGateway(), "defect #36 …")`. They still execute on all four types, so the day
 the prefix survives they fail as "passed unexpectedly" and have to be un-gated.
 `url-normalization`'s first test also gained a positive assertion that the
 `Location` still carries the prefix the app is served under, because the assertions
 it shipped with — `toContain("/isr/1")` and `not.toContain("//isr")` — both pass
 against a `Location` that has left the app.
 
-### A path-traversal `_next/data` request 500s instead of rendering
+## Upstream — a fixture that cannot pass as written
 
-`incremental-cache-path-traversal` (1 of 1). **Verdict: bug**, low severity.
+### `incremental-cache-path-traversal` asserts a 200 for a param shape that throws
 
-The file is upstream's regression test for a path-traversal read: it requests
-`/_next/data/<buildId>/pages-cache/..%2F..%2Fserver-reference-manifest.json` and
-asserts a **200** whose `pageProps.rest` is the literal `['..', '..',
-'server-reference-manifest']` — i.e. the traversal is treated as ordinary route
-params and no manifest is leaked. We answer **500**.
-
-So the security property the test exists to protect holds — nothing leaks — and
-the failure is a fidelity gap: the runtime throws where `next start` renders.
-Worth fixing for that reason, and worth noting that the file is *not* screened
-out despite its `describe.skip`: that skip is conditional on
-`__NEXT_CACHE_COMPONENTS`, which the harness does not set.
+`incremental-cache-path-traversal` (1 of 1). **Verdict: upstream bug in the
+fixture**, not reachable from cdk-nextjs. Excluded until it is fixed there. Filed
+as [vercel/next.js#99154](https://github.com/vercel/next.js/issues/99154), which
+covers the contract limitation behind it as well. The
+runtime behaviour it was exposing is fixed — see defect 35, whose closing
+paragraphs are the argument for why the file's two assertions are mutually
+exclusive.
 
 ## Batch log — how each verdict was reached
 
@@ -2158,11 +2271,12 @@ verdict.
 
 `rewrites-destination-query-array` (1 of 1). **Verdict: upstream bug in
 `@next/routing`**, not reachable from cdk-nextjs. Excluded until it is fixed
-there.
+there. Filed as
+[vercel/next.js#99155](https://github.com/vercel/next.js/issues/99155).
 
-The fixture rewrites `/rewrite-to-query-array` to `/query?items=1&items=2` and
-asserts the page renders `props.query.items.join(',')` as `1,2`. `next start`
-does. We answer **500**, with
+The fixture rewrites `/some-page` to `/?items=1&items=2` and asserts the index
+page renders `props.query.items.join(',')` as `1,2`. `next start` does. We answer
+**500**, with
 
 ```
 TypeError: a.query.items.join is not a function
@@ -2398,6 +2512,11 @@ cannot match. It is now keyed by file path for `revalidate-dynamic`, and
 `revalidate-path-with-rewrites` has moved into `suites` so its one good case runs.
 **A verdict is only as durable as the manifest key it is written under.**
 
+That 1.2s green was a race, not a pass. The `dynamic page` case has no prerender to
+invalidate, so it never depended on the CDN — but it did depend on the `fetch`
+cache being evictable, and it was not. It reproduced red on both attempts of a
+later regression pass; see defect 34.
+
 ### Stale-while-revalidate after a tag revalidation
 
 `app-dir/resume-data-cache` (2 of 5; the other 3 are included via `suites`).
@@ -2591,6 +2710,15 @@ to the whole run, not to one fixture, and it would switch the 21 green
 trading measured coverage of the default loader for coverage of the opt-in one.
 Per-fixture build flags are not something the harness can express today; if that
 changes, this family becomes runnable with no cdk-nextjs work.
+
+The family's signal was recovered elsewhere instead, which is why it is not worth
+building that plumbing for. All eighteen files ask cdk-nextjs exactly one
+question — does `modifyConfig` still apply when `next.config` arrives through the
+native loader rather than the swc-to-CJS one? — and
+`scripts/zero-config-build.mjs` asks it directly, with a top-level-`await`
+`next.config.ts` built under the flag, on every PR and without deploying
+anything. The eighteen deploys would add coverage of the *fixtures'* own
+behaviour, which is Next.js's to verify, not ours.
 
 `next-config-ts-native-mts/**` is a different matter and needs no flag: a `.mts`
 config is loaded as ESM either way. Its 17 files are green and in `rules.include`.

@@ -34,7 +34,7 @@ import {
  *   can return a body on a generated response, and no known client reads it.
  *
  * Three cases here are `test.fail`ed on `NextjsRegionalFunctions` against **defect
- * #34**, found by this file (see `docs/harness-coverage.md`). On that type *every*
+ * #36**, found by this file (see `docs/harness-coverage.md`). On that type *every*
  * redirect loses the stage prefix: API Gateway strips `/prod` before the Lambda
  * sees the path and only the app's `proxy.ts` puts it back, via a middleware
  * rewrite, so any `Location` built from the path itself comes out as `/isr/1` and
@@ -72,7 +72,7 @@ test.describe("url normalization", () => {
   }) => {
     test.fail(
       isApiGateway(),
-      "defect #34: the Location drops the stage prefix",
+      "defect #36: the Location drops the stage prefix",
     );
 
     const response = await request.get(rawUrl(baseURL, "/isr//1"), {
@@ -90,7 +90,7 @@ test.describe("url normalization", () => {
     // The collapse actually happened.
     expect(location).not.toContain("//isr");
     // ...and it landed somewhere still inside the app. This is the assertion that
-    // catches defect #34 at the source rather than one request later: the two
+    // catches defect #36 at the source rather than one request later: the two
     // above pass happily against `Location: /isr/1` on a deployment served at
     // `/prod`, which is a redirect out of the app.
     const prefix = servedUnder(baseURL);
@@ -105,7 +105,7 @@ test.describe("url normalization", () => {
   }) => {
     test.fail(
       isApiGateway(),
-      "defect #34: following the Location gets a 403 from API Gateway",
+      "defect #36: following the Location gets a 403 from API Gateway",
     );
 
     // A 308 to a 404 would satisfy the test above. Following it is what proves the
@@ -118,7 +118,7 @@ test.describe("url normalization", () => {
   test("redirects a bare // to the root", async ({ request, baseURL }) => {
     test.fail(
       isApiGateway(),
-      "defect #34: API Gateway resolves `/prod//` to the root and the app answers 200",
+      "defect #36: API Gateway resolves `/prod//` to the root and the app answers 200",
     );
 
     // Worth its own case: `//` at the start of a request target is also the

@@ -10,6 +10,7 @@ import {
   CreateInvalidationCommand,
 } from "@aws-sdk/client-cloudfront";
 import {
+  DeleteItemCommand,
   DynamoDBClient,
   GetItemCommand,
   QueryCommand,
@@ -337,6 +338,59 @@ describe("S3DynamoCacheHandler", () => {
 
       expect(result).toBeNull();
       expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+      // And its mapping rows with it, from the tags it was *stored* with: the
+      // request's `softTags` never had rows written for them.
+      const deletedKeys = (DeleteItemCommand as unknown as jest.Mock).mock.calls
+        .map(([input]) => input.Key.sk.S)
+        .sort();
+      expect(deletedKeys).toEqual(["collection#test-build-id/fetch-key.json"]);
+    });
+
+    it("checks a fetch entry against the request's implicit tags, not its own", async () => {
+      // An untagged `cache: "force-cache"` fetch is stored with no tags at all -
+      // the implicit `_N_T_/<path>` chain reaches the handler only as
+      // `ctx.softTags`, which is the source Next.js's own `FileSystemCache` reads
+      // for a `FETCH` get. Checking the stored tags instead left this entry with
+      // nothing to check and no `revalidatePath` could ever evict it.
+      const lastModified = Date.now();
+      const stored = {
+        lastModified,
+        tags: [],
+        value: {
+          kind: CachedRouteKind.FETCH,
+          data: { headers: {}, body: "stale", status: 200, url: "/api" },
+          revalidate: 10,
+        },
+      };
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: jest
+                    .fn()
+                    .mockResolvedValue(JSON.stringify(stored)),
+                },
+                ContentType: "application/json",
+              }
+            : {},
+        ),
+      );
+      dynamoResponses({
+        get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
+      });
+
+      const result = await handler.get("fetch-key", {
+        kind: IncrementalCacheKind.FETCH,
+        revalidate: 10,
+        fetchUrl: "https://next-data-api-endpoint.test/api/random",
+        fetchIdx: 1,
+        tags: [],
+        softTags: ["_N_T_/layout", "_N_T_/dynamic"],
+      });
+
+      expect(result).toBeNull();
+      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
     });
 
     it("should handle S3 errors and return null", async () => {
@@ -447,6 +501,110 @@ describe("S3DynamoCacheHandler", () => {
         .map(([input]) => input.Key.sk.S)
         .sort();
       expect(mappingKeys).toEqual(["ctx-tag#test-build-id/isr/1.json"]);
+    });
+
+    it("removes a deleted page's mapping rows, reading its tags from S3", async () => {
+      // A response delete - a cached route that starts answering `notFound()` -
+      // arrives as `set(key, null, { cacheControl, ... })` with no tags at all,
+      // so the entry itself is the only place its mapping rows can be named
+      // from. Left behind, they resolve on the next `revalidateTag` to a cache
+      // key whose object is gone and spend a CloudFront wildcard path on it.
+      const stored = {
+        lastModified: Date.now(),
+        tags: ["collection", "_N_T_/isr/1"],
+        value: {
+          kind: CachedRouteKind.APP_PAGE,
+          html: "<html>gone</html>",
+        },
+      };
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: jest
+                    .fn()
+                    .mockResolvedValue(JSON.stringify(stored)),
+                },
+                ContentType: "application/json",
+              }
+            : {},
+        ),
+      );
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set("/isr/1", null, {
+        cacheControl: { revalidate: 60, expire: undefined },
+        isRoutePPREnabled: false,
+        isFallback: false,
+      });
+
+      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+      const deletedKeys = (DeleteItemCommand as unknown as jest.Mock).mock.calls
+        .map(([input]) => input.Key.sk.S)
+        .sort();
+      // Mapping rows only. The bare-tag marker row belongs to the tag, and
+      // `checkIfRevalidated` reads it for every other entry carrying it.
+      expect(deletedKeys).toEqual([
+        "_N_T_/isr/1#test-build-id/isr/1.json",
+        "collection#test-build-id/isr/1.json",
+      ]);
+    });
+
+    it("deletes a fetch entry's mapping rows from the context's tags alone", async () => {
+      // `ctx` carries them here, so the pre-delete read is skipped: only the
+      // DeleteObject reaches S3.
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set("fetch-key", null, createSetContext(["ctx-tag"]));
+
+      expect(mockS3Send).not.toHaveBeenCalledWith(expect.any(GetObjectCommand));
+      const deletedKeys = (
+        DeleteItemCommand as unknown as jest.Mock
+      ).mock.calls.map(([input]) => input.Key.sk.S);
+      expect(deletedKeys).toEqual(["ctx-tag#test-build-id/fetch-key.json"]);
+    });
+
+    it("deletes no mapping rows for an untagged entry", async () => {
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: jest.fn().mockResolvedValue(
+                    JSON.stringify({
+                      lastModified: Date.now(),
+                      value: { kind: CachedRouteKind.APP_PAGE, html: "<p/>" },
+                    }),
+                  ),
+                },
+                ContentType: "application/json",
+              }
+            : {},
+        ),
+      );
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set("/untagged", null, { isFallback: false });
+
+      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+      expect(DeleteItemCommand as unknown as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it("still deletes the object when its tags cannot be read", async () => {
+      mockS3Send.mockImplementation((command: unknown) =>
+        command instanceof GetObjectCommand
+          ? Promise.reject(new Error("S3 Get Error"))
+          : Promise.resolve({}),
+      );
+      mockDynamoSend.mockResolvedValue({});
+
+      await expect(
+        handler.set("/isr/1", null, { isFallback: false }),
+      ).resolves.not.toThrow();
+
+      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
     });
 
     it("should handle S3 errors gracefully", async () => {

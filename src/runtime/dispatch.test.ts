@@ -4,6 +4,7 @@ import {
   createDispatcher,
   DispatchRequest,
   Dispatcher,
+  outOfBandRouteParams,
   repairRouteParamQuery,
   resolveErrorTarget,
   toRedirect,
@@ -629,5 +630,80 @@ describe("repairRouteParamQuery", () => {
         { nxtPid: "a", nxtPid2: "b" },
       ),
     ).toEqual({ nxtPid: "a", nxtPid2: "b" });
+  });
+});
+
+describe("outOfBandRouteParams", () => {
+  it("leaves a query the contract can carry alone", () => {
+    expect(
+      outOfBandRouteParams(
+        { nxtPrest: "a/b", q: "1" },
+        "/pages-cache/[...rest]",
+      ),
+    ).toBeUndefined();
+    expect(outOfBandRouteParams({ nxtPid: "42" }, "/isr/[id]")).toBeUndefined();
+    // An encoded delimiter in something that is not a route param is not ours.
+    expect(
+      outOfBandRouteParams({ q: "a%2Fb" }, "/pages-cache/[...rest]"),
+    ).toBeUndefined();
+  });
+
+  it("restates a capture with an encoded delimiter as params, once decoded", () => {
+    // `test/e2e/incremental-cache-path-traversal`. Through the query contract
+    // this becomes three params and `normalizePagePath` throws on the pathname
+    // rebuilt from them; `next start` renders one param, which is this.
+    expect(
+      outOfBandRouteParams(
+        { nxtPrest: "..%2F..%2Fserver-reference-manifest" },
+        "/_next/data/BUILD_ID/pages-cache/[...rest].json",
+      ),
+    ).toEqual({
+      params: { rest: ["../../server-reference-manifest"] },
+      query: {},
+    });
+  });
+
+  it("splits a repeat on real delimiters only, and keeps a single param whole", () => {
+    expect(
+      outOfBandRouteParams(
+        { nxtPrest: "a/b%2Fc/d" },
+        "/pages-cache/[[...rest]]",
+      ),
+    ).toEqual({ params: { rest: ["a", "b/c", "d"] }, query: {} });
+    expect(outOfBandRouteParams({ nxtPid: "a%2Fb" }, "/isr/[id]")).toEqual({
+      params: { id: "a/b" },
+      query: {},
+    });
+  });
+
+  it("keeps everything that is not a route param in the query", () => {
+    expect(
+      outOfBandRouteParams(
+        { nxtPrest: "a%2Fb", from: "/x", page: "2" },
+        "/pages-cache/[...rest]",
+      ),
+    ).toEqual({
+      params: { rest: ["a/b"] },
+      query: { from: "/x", page: "2" },
+    });
+  });
+
+  it("stays on the query contract when a param cannot be restated", () => {
+    // An optional catchall the request left unset. Half a param set is worse
+    // than none: `prepare` would interpolate a route with a missing segment.
+    expect(
+      outOfBandRouteParams(
+        { nxtPrest: "a%2Fb", nxtPoptional: "" },
+        "/pages-cache/[...rest]/[[...optional]]",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("tolerates a capture that is not valid percent-encoding", () => {
+    // `decodeQueryPathParameter` is a try/catch for the same reason: `%2F` makes
+    // this reachable while `%zz` makes `decodeURIComponent` throw.
+    expect(
+      outOfBandRouteParams({ nxtPrest: "a%2F%zz" }, "/pages-cache/[...rest]"),
+    ).toEqual({ params: { rest: ["a%2F%zz"] }, query: {} });
   });
 });

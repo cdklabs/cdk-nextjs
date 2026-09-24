@@ -599,6 +599,98 @@ export function repairRouteParamQuery(
   return repaired ?? query;
 }
 
+/**
+ * Route params to hand Next.js out-of-band, for the one request shape the `nxtP`
+ * query contract cannot carry: a capture containing an encoded `/`. `undefined`
+ * — the common case — means the contract is lossless and nothing special is
+ * needed.
+ *
+ * The contract normally is lossless, which is why {@link NextjsRuntime} passes
+ * route params as query values everywhere else. But `RouteModule.prepare`
+ * recovers them by running `normalizeQueryParams` — which calls
+ * `decodeQueryPathParameter`, a **second** `decodeURIComponent`, on every
+ * de-prefixed value because "when deployed to Vercel the value may be encoded" —
+ * and then `normalizeDynamicRouteParams`, which splits a string repeat param on
+ * `/` because "query values from the proxy aren't already split into arrays".
+ * Two decodes and a split: `nxtPrest=..%252F..%252Fserver-reference-manifest`
+ * (what the contract asks for, and what we send) arrives as the three params
+ * `['..', '..', 'server-reference-manifest']` rather than the one the client
+ * requested. The resolved pathname built back out of those is
+ * `/pages-cache/../../server-reference-manifest`, and `normalizePagePath` throws
+ * `Requested and resolved page mismatch` on it when the cache asks for a key —
+ * so a `_next/data` request for a catch-all whose segment contains `%2F` 500s.
+ * Measured against `test/e2e/incremental-cache-path-traversal`. No encoding can
+ * fix it from this side: whatever survives two decodes still gets split.
+ *
+ * `next start` never hits it because its `router-server` sets
+ * `requestMeta.params` instead, which `prepare` takes as-is
+ * (`route-module.ts`: `getRequestMeta(req, 'params')`) with no decode and no
+ * split. That is what this reproduces — narrowly, only for the affected
+ * requests, so that the documented query contract stays the path for everything
+ * else.
+ *
+ * The `nxtP` values have to leave the query as well as arrive in `params`.
+ * `prepare` prefers the query over `params` when both parse and are the same
+ * size, so leaving them in would just restore the split. Dropping them also
+ * matches `next start`, which has no `nxtP` query at all.
+ */
+export function outOfBandRouteParams(
+  query: ResolveRoutesQuery,
+  resolvedPathname: string,
+):
+  | { params: Record<string, string | string[]>; query: ResolveRoutesQuery }
+  | undefined {
+  const entries = Object.entries(query);
+  if (
+    !entries.some(
+      ([key, value]) =>
+        key.startsWith("nxtP") &&
+        typeof value === "string" &&
+        ENCODED_PATH_DELIMITER.test(value),
+    )
+  ) {
+    return undefined;
+  }
+  // Which params are repeats — `[...rest]`, `[[...rest]]` — decides array versus
+  // string, the same distinction `normalizeDynamicRouteParams` makes from the
+  // route's own `groups`. `resolvedPathname` is the matched route, brackets and
+  // all.
+  const repeats = new Set<string>();
+  for (const match of resolvedPathname.matchAll(/\[\[?\.\.\.([^\]]+?)\]\]?/g)) {
+    repeats.add(match[1]);
+  }
+  const params: Record<string, string | string[]> = {};
+  const remaining: ResolveRoutesQuery = {};
+  for (const [key, value] of entries) {
+    if (!key.startsWith("nxtP")) {
+      remaining[key] = value;
+      continue;
+    }
+    // Anything but a filled string is a param we cannot restate — an optional
+    // catchall the request left unset, or a repeated key. Rather than hand
+    // `prepare` a param set that is missing one, leave the whole request on the
+    // query contract.
+    if (typeof value !== "string" || value === "") return undefined;
+    const name = key.slice("nxtP".length);
+    params[name] = repeats.has(name)
+      ? value.split("/").map(decodePathParam)
+      : decodePathParam(value);
+  }
+  return { params, query: remaining };
+}
+
+/** An encoded `/`: the delimiter the query contract's split would consume. */
+const ENCODED_PATH_DELIMITER = /%2f/i;
+
+/** `decodeQueryPathParameter`, which tolerates a value that is not encoded. */
+function decodePathParam(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /** Whether a route param carries a segment, as opposed to `""` or nothing. */
 function isFilledParam(value: ResolveRoutesQueryValue | undefined): boolean {
   return Array.isArray(value) ? value.length > 0 : Boolean(value);

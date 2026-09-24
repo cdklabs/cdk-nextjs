@@ -84,6 +84,7 @@ exports.handler = async (req, res, ctx) => {
       initURL: ctx.requestMeta && ctx.requestMeta.initURL,
       hostname: ctx.requestMeta && ctx.requestMeta.hostname,
       query: ctx.requestMeta && ctx.requestMeta.query,
+      params: (ctx.requestMeta && ctx.requestMeta.params) || null,
       hasRender404: Boolean(ctx.requestMeta && ctx.requestMeta.render404),
       waitUntil: typeof ctx.waitUntil,
       cwd: process.cwd(),
@@ -342,9 +343,22 @@ describe("NextjsRuntime.handle", () => {
       join(root, "app-playground/.next/server/app/isr/[id]/page.js"),
     );
     // The documented deployed-proxy contract: `prepare()` recovers `params`
-    // from these, which is why nothing passes `requestMeta.params`.
+    // from these, which is why `requestMeta.params` is left unset.
     expect(body.url).toBe("/isr/42?nxtPid=42");
     expect(body.query).toEqual({ nxtPid: "42" });
+    expect(body.params).toBeNull();
+  });
+
+  it("hands over a capture with an encoded delimiter as requestMeta.params", async () => {
+    // The one exception to the contract above, because two decodes and a split
+    // would turn this into three params and make `normalizePagePath` throw; see
+    // `outOfBandRouteParams`. The `nxtP` value has to *leave* the query — and
+    // therefore the URL — or `prepare` prefers it and the split is back.
+    const sink = await send({ url: "/isr/a%2Fb" });
+    const body = stubBody(sink);
+    expect(body.url).toBe("/isr/a%2Fb");
+    expect(body.query).toEqual({});
+    expect(body.params).toEqual({ id: "a/b" });
   });
 
   it("runs middleware and applies the request headers it overrode", async () => {

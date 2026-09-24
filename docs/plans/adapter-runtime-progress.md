@@ -1903,15 +1903,26 @@ Not exit criteria — items this branch names and leaves for their own change:
    distribution parameter name, and `S3CacheHandler.toCdnPath` prefixes it onto
    every invalidation path — the mapping-row ones and the `revalidatePath` tag's
    alike, since neither carries `basePath`.
-3. `deployment-skew`'s RSC content-type bug: `RSC: 1` gets
+3. ~~`deployment-skew`'s RSC content-type bug: `RSC: 1` gets
    `text/html; charset=utf-8` instead of `text/x-component`. Characterized, not
    diagnosed to edge vs. adapter. Excluded with a note saying it should return as
-   a regression test.
-4. The harness manifest is two files; widening is cheap now.
-5. Stacks of mine still up, to tear down after the PR merges: `dev-glbl-fns`,
+   a regression test.~~ **Done:** diagnosed as neither edge nor dispatch but
+   `onBuildComplete` seeding the HTML prerender's `fallback.initialHeaders`
+   verbatim into the `APP_PAGE` cache entry, so every RSC request to every
+   prerendered page answered the flight payload labeled `text/html`. Fixed by
+   `appPageCacheHeaders` in `src/adapter/cache-utils.ts`; `deployment-skew` passes
+   and is in `rules.include`, along with the two failures that turned out to be
+   the same bug (`static-rsc-cache-components`, `app-basepath`). See
+   `docs/harness-coverage.md`.
+4. ~~The harness manifest is two files; widening is cheap now.~~ **Done:**
+   `test/deploy-tests-manifest.json` now carries 427 files in `rules.include`,
+   plus per-case entries, and 16 written `excluded-notes` verdicts.
+5. ~~Stacks of mine still up, to tear down after the PR merges: `dev-glbl-fns`,
    `dev-rgnl-fns`, `dev-glbl-cntnrs`, `dev-rgnl-cntnrs`, `adptr-rgnl-fns`,
    `split-glbl-fns`. The four `main-*` oracles and four `pr-267-*` stacks are not
-   mine and stay.
+   mine and stay.~~ **Done:** all six deleted, with the `main-*` oracles left up.
+   `pr-272-glbl-fns` is separately stuck in `DELETE_FAILED` and is not one of
+   mine.
 
 ## Post-PR — merge `main` (#267, derived `basePath`)
 
@@ -2164,6 +2175,10 @@ entry (`adapterPath` removed, manifest written, `Applying modifyConfig from
 cdk-nextjs-adapter` in the log). Closing it properly needs an example whose
 cdk-nextjs comes from a real install rather than a workspace link — a packed
 tarball install, most likely. Not done; carried as open.
+
+> **Closed** later on this branch by `.github/workflows/zero-config-build.yml` and
+> `scripts/zero-config-build.mjs`, which do exactly that. See the
+> "zero-config CI coverage" entry at the end of this document.
 
 **Measured**: `pnpm compile` 0 errors, `pnpm eslint` clean, `pnpm test` 20 suites
 / 312 tests passed, and two real `app-playground` builds from the recreated CI
@@ -4444,3 +4459,276 @@ One decision deliberately left to the user rather than made here: whether to gra
 instead of 403. It would *not* make the six `invalid-static-asset-404-*` cases pass
 — the body would still be S3's XML where the test wants exactly `Not Found` — and it
 widens a bucket policy, so it is recorded as CDN-inherent and flagged instead.
+
+### Defect 34: an untagged `force-cache` fetch could never be revalidated
+
+Found by a 20-file regression pass run against a real deployment after the
+`fix/review-findings-2` merge — the point of which was to confirm the merge broke
+nothing. Nineteen of the twenty passed.
+`test/e2e/app-dir/revalidate-path-with-rewrites` failed both attempts on its
+`dynamic page` case, the half that `suites` includes, having been recorded as a
+1.2s pass in batch 15.
+
+It was not a regression from the merge. The merge's only behavioural change to the
+cache handler gives a runtime-rendered *response* entry the DynamoDB mapping rows
+it had been missing (the tags live in the render's `x-next-cache-tags` header, not
+on `ctx`), and nothing in it can change what a `fetch` entry stores. Also checked
+and cleared: `revalidateSingleTag`'s `prefixLength = tag.length + 1`, which is
+exact because every row it slices came back from a `begins_with(sk, "<tag>#")`
+query; and the deleted per-mapping-row `revalidatedAt` stamping, which nothing has
+read since `checkIfRevalidated` became a `GetItem` against the bare-tag marker row.
+
+The real cause is older than either. `S3CacheHandler.get` checked every entry
+against the tags *it* was stored with. Next.js's own `FileSystemCache.get` splits
+that two ways — a `PAGES`/`APP_*` entry against its own `x-next-cache-tags` header,
+a `FETCH` entry against `[...ctx.tags, ...ctx.softTags]`, the tags of the request
+asking for it — and the split matters because a `fetch` entry is only ever stored
+with its explicit `cache: { tags }`. The implicit `_N_T_/<path>` chain that
+`revalidatePath` names never reaches `set`; it arrives on the read side as
+`ctx.softTags`. An untagged `fetch` therefore stored `tags: []`, skipped the marker
+lookup on the `length > 0` guard, and was unreachable by any revalidation until its
+own `revalidate` expired.
+
+Fixed by following `FileSystemCache`: the tags to check now come from the request
+context for a `FETCH` get and from the stored entry for a response get, with a
+narrowing `isFetchCacheGet` predicate so `ctx.softTags` is reachable without a
+cast. A unit test pins the case the old code missed — `tags: []` on the entry,
+`_N_T_/dynamic` on the request. Re-run against the deployment: green on attempt 0
+in 107s.
+
+Two things worth keeping from how this surfaced. A single green measurement of a
+cache-invalidation case is not evidence, because the failure mode is a race and a
+race passes sometimes; and a regression pass earns its cost even when the answer is
+"the merge is fine", because it re-rolls exactly those races. The file stays a
+`suites` partial: its `static page` case is still the CDN invalidation-timing
+failure, a different problem with a different verdict.
+
+### Defect 35: a catch-all capture containing an encoded `/` 500s
+
+`incremental-cache-path-traversal` was the last file carrying a plain **bug**
+verdict. It requests
+`/_next/data/<buildId>/pages-cache/..%2F..%2Fserver-reference-manifest.json`; we
+answered 500 where `next start` renders a 200. Nothing leaked either way — the
+security property the fixture exists to protect was never in question — so this
+was a fidelity gap, and it is fixed.
+
+The chain, established with an offline repro and a script run directly against
+next's built `dist`. `normalizePagePath` throws `Requested and resolved page
+mismatch` whenever `posix.normalize` changes the string it is handed, and the
+pages handler hands it the resolved pathname as a cache key. So everything turns
+on the shape of `params.rest`: `['..', '..', 'server-reference-manifest']` throws,
+while `['../../server-reference-manifest']` (what `next start` produces) and
+`['..%2F..%2Fserver-reference-manifest']` both normalize safely.
+
+We produced the first, and not by encoding the param wrongly — the runtime emits
+exactly what the `nxtP` contract asks for. That contract loses the value on the
+way in, twice over: `normalizeQueryParams` runs `decodeQueryPathParameter`, a
+*second* `decodeURIComponent`, over every de-prefixed value ("when deployed to
+Vercel the value may be encoded"), and `normalizeDynamicRouteParams` then splits a
+string repeat param on `/` ("query values from the proxy aren't already split into
+arrays"). Two decodes and a split: an encoded `/` inside a catch-all cannot
+survive it, and no encoding on our side helps, because whatever survives two
+decodes still gets split. Triple-encoding only reaches the third shape above — a
+200, but not what `next start` renders.
+
+`next start` is immune because it never uses the contract: `router-server` sets
+`requestMeta.params` and `RouteModule.prepare` takes that as-is, no decode, no
+split. The fix reproduces that, narrowly. `outOfBandRouteParams` fires only when a
+`nxtP` capture contains `%2F`; it decodes the params itself, splitting a repeat on
+real delimiters only, and hands them over as `requestMeta.params` while removing
+the `nxtP` values from the query *and* from `req.url`. That removal is the
+non-obvious half: `prepare` prefers the query over `params` when both parse and are
+the same size, so leaving them in would have restored the split and changed
+nothing. A param set that cannot be fully restated — an optional catchall the
+request left unset — stays on the query contract, because handing `prepare` half a
+param set is worse than handing it none.
+
+Verified offline against `next start` on the same build: both the `pages-cache`
+and the `app-cache` route now answer 200 with byte-identical bodies, and
+`/pages-cache/a/b` is unchanged on both. Unit tests cover the helper's six
+branches plus the core-level effect (`params` set, `nxtP` gone from the URL).
+
+The file itself still cannot pass, and this is worth recording because it is not
+our defect to fix: its `isNextDeploy && isAdapterTest` branch asserts status 200
+*together with* `rest: ['..', '..', 'server-reference-manifest']`, which is
+precisely the shape `normalizePagePath` rejects — and `cacheKey` is passed to
+`handleResponse` regardless of `isMinimalMode`, so there is no bypass. The two
+assertions are mutually exclusive on 16.3.5. Its verdict therefore moves from
+**bug** to **upstream**, and the harness excludes it for the fixture's reason
+rather than ours. Which leaves the coverage doc with no open `bug` verdict at all.
+
+Both remaining upstream verdicts are now filed, with canary checked first so
+neither is a report of something already fixed:
+[vercel/next.js#99154](https://github.com/vercel/next.js/issues/99154) for the
+`nxtP` double-decode-and-split (and the `isAdapterTest` expectation it made
+unsatisfiable) and
+[vercel/next.js#99155](https://github.com/vercel/next.js/issues/99155) for
+`@next/routing` collapsing a rewrite destination's repeated query key. Both
+reproduce on `16.4.0-canary.43`.
+
+## Post-PR — zero-config CI coverage: a packed tarball, on every PR
+
+Two open items closed by one build-only workflow. Neither needed AWS.
+
+The first was recorded above as a stated gap: **CI never exercised
+`NEXT_ADAPTER_PATH`**, the zero-config path the README recommends. The reason is
+structural rather than an oversight. Every example takes cdk-nextjs as
+`link:../..`, and a link is precisely the setup zero-config cannot serve — the
+symlink resolves out of the project root, the adapter derives its cache handler
+path from its own location, and Turbopack rejects a `cacheHandler` outside
+`turbopack.root`. So the examples all set `adapterPath` explicitly, and no example
+can be converted without losing the coverage it already provides. Closing the gap
+needed a cdk-nextjs that arrives by *installation*, not by link.
+
+The second was the `next-config-ts-native-ts` family: eighteen harness files whose
+verdict is **no signal** because their fixtures use top-level `await` in
+`next.config.ts` and so only build under
+`next build --experimental-next-config-strip-types`, a flag `scripts/e2e-deploy.sh`
+cannot set per fixture. Adding it run-wide was already considered and rejected
+(`docs/harness-coverage.md`), because it would switch the 21 green
+`app-dir/next-config-ts/*` files off the default loader they exist to cover.
+
+### What was built
+
+`scripts/zero-config-build.mjs`, driven by
+`.github/workflows/zero-config-build.yml` on `pull_request` and on pushes to
+`main`. It `npm pack`s the working tree, `npm install`s the tarball into a fresh
+`mkdtemp` app, and builds that app twice with `NEXT_ADAPTER_PATH` set and no
+`adapterPath` in `next.config`:
+
+1. `next.config.js` — the plain zero-config case.
+2. `next.config.ts` whose `distDir` comes out of a top-level `await`, built with
+   `--experimental-next-config-strip-types`. This is the whole of what the
+   eighteen fixtures would have told us: that `modifyConfig` still applies when
+   the config arrives through Node's native TypeScript resolution. Since the
+   awaited value *is* `distDir`, every path assertion in that case is also
+   evidence the top-level `await` took effect.
+
+A `.tgz` is load-bearing: `npm install` of a tarball extracts a real directory
+into the app's own `node_modules`, where `file:` on a *directory* would symlink
+and reproduce the case being avoided. `NEXT_ADAPTER_PATH` is resolved with
+`createRequire(appDir).resolve("cdk-nextjs/adapter")` — the same resolution
+`NextjsBuild.adapterPathEnv()` performs, from the same starting point.
+
+Per case it asserts:
+
+- `Applying modifyConfig from cdk-nextjs-adapter` in the build log (next's own
+  `Log.info` in `dist/server/config.js`), and for case 2 the *absence* of next's
+  `Falling back to legacy resolution` warning, so a fallback that happened to
+  succeed could not masquerade as native-loader coverage;
+- `required-server-files.json`: `config.adapterPath` equal to the variable,
+  `config.cacheHandler` resolving to the installed package's own
+  `lib/adapter/cache-handler.mjs`, and `config.images.customCacheHandler === true`
+  — the return value of `modifyConfig`, read back from the build rather than from
+  a log line;
+- `<distDir>/cdk-nextjs-adapter/manifest.json` at version 1, with staged
+  entrypoint files on disk for `/` and `/isr/[id]`, and a non-empty
+  `cdk-nextjs-init-cache` — so `onBuildComplete`'s replacement for
+  `output: "standalone"` is checked, not just its config hook.
+
+### Measured
+
+Both cases green locally, `Next.js 16.3.5`, 8 entrypoints and 4 seeded cache
+entries each. Negative control: with `NEXT_ADAPTER_PATH` unset, the same app
+produced no `Applying modifyConfig` line and no `cdk-nextjs-adapter` directory, so
+the gate is not vacuous.
+
+### Two judgment calls
+
+**The fixture is generated, not tracked.** Writing ~6 files from the script keeps a
+Next.js app out of `test/` where jest, `tsc` and eslint would all have opinions
+about it, and out of `examples/` where it would need a workspace entry. The cost is
+heredoc-ish string literals in the script; the benefit is that the fixture cannot
+drift into the repo's own toolchain.
+
+**`next` is pinned to the resolved version, not the range.** The fixture reads
+`node_modules/next/package.json`'s `version` rather than the `^16.3.5` in
+`package.json`. A per-PR gate should fail on our changes, not on a patch release
+that landed between two runs of the same commit; the first local run picked up
+16.3.6 this way. `react` is pinned literally, to match
+`examples/pnpm-workspace.yaml`'s catalog — bump the two together.
+
+### One unrelated fix it forced
+
+`npm pack` reads `.npmignore`, not `.gitignore`, and npm only prunes the
+*top-level* `node_modules`. A local `.claude/worktrees/` checkout was therefore
+being packed — 64,670 files and counting — which is both a publish-hygiene problem
+and, now that a workflow packs on every PR, a speed one. `.claude/**/*` and
+`/nextjs/` are added to `npmIgnoreOptions.ignorePatterns` in `.projenrc.ts`. The
+tarball is now 279 files / 3.3 MB.
+
+### Still open, deliberately
+
+The `NextjsRegionalFunctions` subset run remains blocked on the `/prod` stage
+prefix versus the app's `basePath` — deferred by the user, not resolved here. The
+eighteen `next-config-ts-native-ts` files stay **no signal** in the coverage doc;
+what changed is that their cdk-nextjs-relevant assertion is now made directly, so
+building per-fixture build-arg plumbing for them has no remaining upside.
+
+## Post-PR — a deleted cache entry now takes its tag mapping rows with it
+
+`src/adapter/s3-cache-handler.ts`'s delete branch carried a `// TODO: Also delete
+tag associations from DynamoDB if needed` since before this branch. Filled in.
+
+### What the rows are, and what a stale one costs
+
+A tagged entry gets one DynamoDB row per tag: `pk = <buildId>`,
+`sk = <tag>#<s3Key>`, written by `storeDynamoDBTagMappings`. `revalidateTag` reads
+them to recover the cache keys a tag covers, turns each into a CloudFront path, and
+invalidates it. Deleting an entry removed only the S3 object, so its rows stayed
+and kept resolving to a key whose object is gone. Each one then spends one of
+CloudFront's fifteen wildcard paths per request on a URI that cannot be cached —
+crowding out the paths that do need it, and past `MAX_INVALIDATION_REQUESTS`
+batches collapsing the whole app to a single `/*`. The rows also count against the
+1 MB a tag's Query returns, so enough of them push live entries onto a page
+`MAX_TAG_QUERY_PAGES` may not reach.
+
+Bounded, not unbounded: rows are partitioned by build ID and
+`prune-revalidation-table` deletes the previous build's at every deploy, so the
+leak is one build generation deep. That is why this was a TODO rather than a bug.
+
+### Which tags, and where they come from
+
+A mapping row's sort key starts with the tag, so the rows belonging to one cache
+key cannot be queried for — only a scan of the build's partition would find them.
+The deleter therefore has to be told the tags, and neither delete path has them
+lying around:
+
+- **Response delete** (`set(key, null, ctx)` — a cached route that starts
+  answering `notFound()`; `ResponseCache.revalidate` passes a null `value` through
+  `IncrementalCache.set`). `ctx` is
+  `{ cacheControl, isRoutePPREnabled, isFallback }` and carries no tags at all.
+  New `storedEntryTags` reads the object *before* deleting it and takes
+  `entryTags` of what it finds — one extra GET on a rare path, and the case worth
+  paying for, since a page carries the whole implicit `_N_T_/…` chain and so has
+  the most rows.
+- **Fetch delete** — both `set(key, null, fetchCtx)` and the `deleteS3Entry` in
+  `get()` that turns a tag-revalidated fetch entry into a miss. Here the tags are
+  free: from `ctx.tags`, or from the entry just parsed. Deliberately *not*
+  `checkTags`, which is `[...ctx.tags, ...ctx.softTags]` — the implicit chain
+  arrives only as `softTags` and never had rows written for it, so deleting by it
+  would issue deletes for rows that never existed.
+
+### Two things it deliberately does not do
+
+**It does not touch the bare-`tag` marker row.** That row (`sk = <tag>`, written by
+`revalidateSingleTag`) belongs to the tag, not to any entry, and
+`checkIfRevalidated` reads it for every *other* entry carrying that tag. Only
+`<tag>#<s3Key>` rows are deleted.
+
+**It does not invalidate CloudFront for the deleted path.** The edge copy does
+outlive the object, and today a later `revalidateTag` clears it by accident through
+exactly the stale row this change removes. That accident is not worth preserving:
+the delete path runs on every tag-revalidated fetch entry too, where the key names
+no URI, and an invalidation request per deleted entry is a cost the cache policy's
+TTL already bounds. Invalidating at delete time is the coherent fix if the stale
+edge copy ever shows up as a real symptom — filed here rather than built.
+
+### Verification
+
+Five new cases in `src/adapter/s3-cache-handler.test.ts`: a page delete whose tags
+are read back from S3 (asserting both mapping rows go and the marker row does not),
+a fetch delete that uses `ctx.tags` and issues no pre-delete GET, an untagged entry
+that deletes no rows, a tags-unreadable entry whose object is still deleted, and an
+extension of the existing revalidated-fetch-entry test asserting its row goes with
+it. `pnpm jest src/adapter` — 169 passed. `pnpm compile` and `pnpm eslint` clean.
