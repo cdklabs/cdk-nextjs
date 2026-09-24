@@ -4444,3 +4444,46 @@ One decision deliberately left to the user rather than made here: whether to gra
 instead of 403. It would *not* make the six `invalid-static-asset-404-*` cases pass
 — the body would still be S3's XML where the test wants exactly `Not Found` — and it
 widens a bucket policy, so it is recorded as CDN-inherent and flagged instead.
+
+### Defect 34: an untagged `force-cache` fetch could never be revalidated
+
+Found by a 20-file regression pass run against a real deployment after the
+`fix/review-findings-2` merge — the point of which was to confirm the merge broke
+nothing. Nineteen of the twenty passed.
+`test/e2e/app-dir/revalidate-path-with-rewrites` failed both attempts on its
+`dynamic page` case, the half that `suites` includes, having been recorded as a
+1.2s pass in batch 15.
+
+It was not a regression from the merge. The merge's only behavioural change to the
+cache handler gives a runtime-rendered *response* entry the DynamoDB mapping rows
+it had been missing (the tags live in the render's `x-next-cache-tags` header, not
+on `ctx`), and nothing in it can change what a `fetch` entry stores. Also checked
+and cleared: `revalidateSingleTag`'s `prefixLength = tag.length + 1`, which is
+exact because every row it slices came back from a `begins_with(sk, "<tag>#")`
+query; and the deleted per-mapping-row `revalidatedAt` stamping, which nothing has
+read since `checkIfRevalidated` became a `GetItem` against the bare-tag marker row.
+
+The real cause is older than either. `S3CacheHandler.get` checked every entry
+against the tags *it* was stored with. Next.js's own `FileSystemCache.get` splits
+that two ways — a `PAGES`/`APP_*` entry against its own `x-next-cache-tags` header,
+a `FETCH` entry against `[...ctx.tags, ...ctx.softTags]`, the tags of the request
+asking for it — and the split matters because a `fetch` entry is only ever stored
+with its explicit `cache: { tags }`. The implicit `_N_T_/<path>` chain that
+`revalidatePath` names never reaches `set`; it arrives on the read side as
+`ctx.softTags`. An untagged `fetch` therefore stored `tags: []`, skipped the marker
+lookup on the `length > 0` guard, and was unreachable by any revalidation until its
+own `revalidate` expired.
+
+Fixed by following `FileSystemCache`: the tags to check now come from the request
+context for a `FETCH` get and from the stored entry for a response get, with a
+narrowing `isFetchCacheGet` predicate so `ctx.softTags` is reachable without a
+cast. A unit test pins the case the old code missed — `tags: []` on the entry,
+`_N_T_/dynamic` on the request. Re-run against the deployment: green on attempt 0
+in 107s.
+
+Two things worth keeping from how this surfaced. A single green measurement of a
+cache-invalidation case is not evidence, because the failure mode is a race and a
+race passes sometimes; and a regression pass earns its cost even when the answer is
+"the merge is fine", because it re-rolls exactly those races. The file stays a
+`suites` partial: its `static page` case is still the CDN invalidation-timing
+failure, a different problem with a different verdict.

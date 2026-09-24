@@ -64,7 +64,7 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 427 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache`, 3 of 7 `dynamic-route-interpolation`, 1 of 2 `revalidate-path-with-rewrites` and 2 of 3 in each of the 6 `invalid-static-asset-404-*` files |
-| fixed            | 33 harness defects, every one of which came from a file listed above, and every one now verified green against a deployment. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
+| fixed            | 34 harness defects, every one of which came from a file listed above, and every one now verified green against a deployment. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
 | bug              | 1 (`incremental-cache-path-traversal`) |
 | upstream         | 1 (`rewrites-destination-query-array` — a `@next/routing` bug, not reachable from here) |
 | unsupported      | 2 (`prerender-encoding`, and `middleware-fetches-with-any-http-method` whose edge middleware the screen missed; separately, 203 files are disqualified by the edge screen and never deployed) |
@@ -72,7 +72,7 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 49 (2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files whose fixture cannot be built here) |
 
-The thirty-three fixed harness defects are its whole return on investment. All of
+The thirty-four fixed harness defects are its whole return on investment. All of
 them were real, all of them shipped, and none of them could have been caught by
 the construct tests or by `examples/e2e-tests`.
 
@@ -1736,6 +1736,50 @@ came back, which pins both the wiring and the `Invalid response <status>` throw.
 
 Confirmed deployed: green on attempt 0 in 105s, and now in `rules.include`.
 
+### 34. An untagged `force-cache` fetch could never be revalidated
+
+**File:** `app-dir/revalidate-path-with-rewrites` (the `dynamic page` case, its
+`suites` half). **Verdict: fixed.**
+
+Found by the 20-file regression pass run after the review-findings merge, which is
+the only reason it was caught: the case had been recorded as passing in 1.2s in
+batch 15, and it failed both attempts here. It was not a regression from that
+merge. The merge's only behavioural change to the cache handler was to give a
+runtime-rendered *response* entry the mapping rows it had been missing, and
+nothing it touched can alter what a `fetch` entry stores. The batch-15 green was
+luck: the case is a race, and it had gone the other way once.
+
+`S3CacheHandler.get` checked every entry — response or `fetch` — against the tags
+that entry had been **stored** with. Next.js's own `FileSystemCache.get` splits
+the two, and the split is load-bearing:
+`incremental-cache/file-system-cache.ts` checks a `PAGES`/`APP_*` entry against
+its own `x-next-cache-tags` header, but checks a `FETCH` entry against
+`[...ctx.tags, ...ctx.softTags]` — the tags of the *request asking for it*. A
+`fetch` entry is only ever stored with its explicit `cache: { tags: [...] }`; the
+implicit `_N_T_/<path>` chain that `revalidatePath` names never reaches `set` at
+all, and arrives on the read side as `ctx.softTags`.
+
+So an untagged `fetch` stored `tags: []`, our `checkTags.length > 0` guard skipped
+the DynamoDB marker lookup entirely, and no `revalidatePath` or `revalidateTag`
+could ever evict it. The blast radius is any page whose data comes from an
+untagged cached `fetch`: it is served from a `fetch` entry that lives until its
+own `revalidate` expires, however many times the page itself is re-rendered or
+invalidated. The fixture makes that maximally visible — its page is
+`dynamic = 'force-dynamic'` with `fetchCache = 'force-cache'`, so there is no page
+cache entry at all and the whole response body comes from the `fetch` cache. It
+re-rendered on every request and returned the same random number forever.
+
+Fixed by following `FileSystemCache`: `get` now derives its check tags from
+`ctx.tags` + `ctx.softTags` for a `FETCH` get and from the stored entry only for a
+response get. A narrowing `isFetchCacheGet` predicate makes the two
+`GetIncremental*CacheContext` members distinguishable without a cast. Covered by a
+unit test that stores `tags: []` and evicts the entry with a `_N_T_/dynamic`
+marker, which is exactly the shape the old code missed.
+
+Confirmed deployed: green on attempt 0 in 107s. The file stays a `suites` partial
+— its `static page` case is still the CDN invalidation-timing failure described
+below, which is a different problem.
+
 ## Bug — not yet fixed
 
 ### A path-traversal `_next/data` request 500s instead of rendering
@@ -2127,6 +2171,11 @@ the verdict was already written, but under an `excluded-notes` key spelled as pr
 cannot match. It is now keyed by file path for `revalidate-dynamic`, and
 `revalidate-path-with-rewrites` has moved into `suites` so its one good case runs.
 **A verdict is only as durable as the manifest key it is written under.**
+
+That 1.2s green was a race, not a pass. The `dynamic page` case has no prerender to
+invalidate, so it never depended on the CDN — but it did depend on the `fetch`
+cache being evictable, and it was not. It reproduced red on both attempts of a
+later regression pass; see defect 34.
 
 ### Stale-while-revalidate after a tag revalidation
 

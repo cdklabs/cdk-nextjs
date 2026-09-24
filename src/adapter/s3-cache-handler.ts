@@ -108,6 +108,17 @@ function isFetchCacheKind(kind: string | undefined): boolean {
   return kind === "FETCH";
 }
 
+/**
+ * {@link isFetchCacheKind} as a narrowing predicate, so that `ctx.tags` and
+ * `ctx.softTags` — which only {@link GetIncrementalFetchCacheContext} has — are
+ * reachable without a cast.
+ */
+function isFetchCacheGet(
+  ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+): ctx is GetIncrementalFetchCacheContext {
+  return isFetchCacheKind(ctx.kind);
+}
+
 /** `NEXT_CACHE_IMPLICIT_TAG_ID`, inlined like {@link NEXT_CACHE_TAGS_HEADER}. */
 const NEXT_CACHE_IMPLICIT_TAG_ID = "_N_T_";
 
@@ -436,12 +447,28 @@ export class S3CacheHandler implements CacheHandler {
           value: parsedValue.value,
         };
 
-        // Check if cache has been invalidated by tag revalidation
-        const storedTags = entryTags(parsedValue);
-        if (storedTags.length > 0 && this.dynamoConfig.tableName) {
+        // Check if cache has been invalidated by tag revalidation.
+        //
+        // Which tags to check depends on the kind, and Next.js's own
+        // `FileSystemCache.get` splits the same two ways: a response entry is
+        // checked against the tags *it* was stored with, but a `fetch` entry is
+        // checked against `[...ctx.tags, ...ctx.softTags]` — the tags of the
+        // request asking for it. That distinction is load-bearing, because a
+        // `fetch` entry is only ever stored with its *explicit* `cache: { tags }`
+        // and never with the implicit `_N_T_/<path>` chain, which arrives only as
+        // `ctx.softTags`. Reading the stored tags for a `fetch` too meant an
+        // untagged `force-cache` fetch had `[]`, skipped the check entirely, and
+        // no `revalidatePath` could ever evict it: a `force-dynamic` page whose
+        // data comes from such a fetch re-rendered on every request and still
+        // served the same body forever. Measured against next.js's
+        // `test/e2e/app-dir/revalidate-path-with-rewrites`.
+        const checkTags = isFetchCacheGet(ctx)
+          ? [...(ctx.tags ?? []), ...(ctx.softTags ?? [])]
+          : entryTags(parsedValue);
+        if (checkTags.length > 0 && this.dynamoConfig.tableName) {
           const isInvalidated = await this.checkIfRevalidated(
             cacheValue.lastModified,
-            storedTags,
+            checkTags,
           );
           if (isInvalidated) {
             this.debug(`S3 CACHE INVALIDATED BY TAG: ${cacheKey}`);

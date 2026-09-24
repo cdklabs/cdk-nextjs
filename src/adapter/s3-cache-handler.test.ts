@@ -339,6 +339,53 @@ describe("S3DynamoCacheHandler", () => {
       expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
     });
 
+    it("checks a fetch entry against the request's implicit tags, not its own", async () => {
+      // An untagged `cache: "force-cache"` fetch is stored with no tags at all -
+      // the implicit `_N_T_/<path>` chain reaches the handler only as
+      // `ctx.softTags`, which is the source Next.js's own `FileSystemCache` reads
+      // for a `FETCH` get. Checking the stored tags instead left this entry with
+      // nothing to check and no `revalidatePath` could ever evict it.
+      const lastModified = Date.now();
+      const stored = {
+        lastModified,
+        tags: [],
+        value: {
+          kind: CachedRouteKind.FETCH,
+          data: { headers: {}, body: "stale", status: 200, url: "/api" },
+          revalidate: 10,
+        },
+      };
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: jest
+                    .fn()
+                    .mockResolvedValue(JSON.stringify(stored)),
+                },
+                ContentType: "application/json",
+              }
+            : {},
+        ),
+      );
+      dynamoResponses({
+        get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
+      });
+
+      const result = await handler.get("fetch-key", {
+        kind: IncrementalCacheKind.FETCH,
+        revalidate: 10,
+        fetchUrl: "https://next-data-api-endpoint.test/api/random",
+        fetchIdx: 1,
+        tags: [],
+        softTags: ["_N_T_/layout", "_N_T_/dynamic"],
+      });
+
+      expect(result).toBeNull();
+      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+    });
+
     it("should handle S3 errors and return null", async () => {
       mockS3Send.mockRejectedValueOnce(new Error("S3 Error"));
 
