@@ -473,6 +473,102 @@
         "revalidatePath with rewrites static page should revalidate a static page that was rewritten"
       ],
       "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-app should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app-asset-prefix.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-app-asset-prefix should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app-base-path.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-app-base-path should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-pages should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages-asset-prefix.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-pages-asset-prefix should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages-base-path.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-pages-base-path should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
     }
   },
   "excluded-notes": {
@@ -614,6 +710,24 @@
       "Caveat even when green: the fixture's point is a node_modules layout where `@swc/helpers` is not",
       "hoisted, which it arranges with an `installCommand`. Deploy mode sets `skipInstall`, so that command",
       "never runs and scripts/e2e-deploy.sh installs normally - a green here does not exercise the layout."
+    ],
+    "test/e2e/rewrites-destination-query-array/rewrites-destination-query-array.test.ts": [
+      "Excluded: an upstream bug in `@next/routing@16.3.5`, the routing library `next` hands an adapter",
+      "deployment. A rewrite destination's repeated query key is collapsed to its last value, because",
+      "`applyDestination` and `mergeDestinationQueryIntoUrl` both iterate the destination's params with",
+      "`URLSearchParams#set` instead of `append`:",
+      "",
+      "  packages/next-routing/src/destination.ts:63      newUrl.searchParams.set(key, value)",
+      "  packages/next-routing/src/resolve-routes.ts:312  mergedUrl.searchParams.set(key, value)",
+      "",
+      "So `/query?items=1&items=2` arrives as `items: \"2\"` and the fixture's `props.query.items.join(',')`",
+      "throws `TypeError: a.query.items.join is not a function` - a 500 where `next start` renders `1,2`.",
+      "`next start` is unaffected: it resolves routes with its own in-tree `router-server`.",
+      "",
+      "Not reachable from here. By the time `resolveRoutes` returns, one value is already gone; our own",
+      "`formatTarget` round-trips a repeated key without loss. Reproduced offline with",
+      "`scripts/e2e-offline.sh rewrites-destination-query-array` (500 vs 200 off the same build). Worth",
+      "reporting upstream - the fix is two `set` -> `append` calls. Requeue once it ships."
     ]
   },
   "screening": {
@@ -638,16 +752,16 @@
     "next-version": "16.3.5",
     "e2e-files": 1134,
     "included": 383,
-    "included-in-part": 4,
+    "included-in-part": 10,
     "edge-free": 931,
-    "candidates": 51,
+    "candidates": 44,
     "disqualified-by": {
       "skipDeployment": 416,
       "middleware": 127,
       "edge": 126,
       "skipped-upstream": 121,
       "isNextDeploy-gate": 120,
-      "verdict": 32,
+      "verdict": 33,
       "output-export": 29,
       "mode-gated": 25,
       "scaffold": 2

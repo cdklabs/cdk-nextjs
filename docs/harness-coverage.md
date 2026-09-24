@@ -447,6 +447,8 @@ when the residual failures have a verdict below.
 | `app-dir/resume-data-cache`  | 3 / 5 | The 2 `should have consistent data between static and dynamic renders` cases — architectural, see below |
 | `dynamic-route-interpolation` | 3 / 7 | The 4 cases requesting unencoded `[`/`]` in the path — CDN-inherent, see below |
 | `app-dir/revalidate-path-with-rewrites` | 1 / 2 | The `static page` case — the same invalidation-timing problem as `trailingslash`'s two, CDN-inherent, see below |
+| `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | The `should return 404 with plain text when fetching invalid asset path` case — S3 behind OAC answers 403, CDN-inherent, see below |
+| `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason |
 
 ## Fixed — real bugs, found by the harness
 
@@ -1600,6 +1602,88 @@ the function is a string inside a TypeScript template literal, so every backslas
 it is escaped twice and a snapshot would record an escaping mistake rather than catch
 it.
 
+### 32. A build-time `notFound: true` was seeded as a 200
+
+**File:** `not-found-revalidate`. **Verdict: fixed.**
+
+`/always-not-found/first` returns `notFound: true` from `getStaticProps` with
+`revalidate: 1`. Deployed it answered `200` carrying the 404 page's HTML;
+`next start` answers `404`. Both cases in the file failed on the status alone —
+the body was already right, which is the tell.
+
+The adapter API hands us a prerender for that route, and it is not the route's
+own output:
+
+```
+id: /always-not-found/first
+fallback.initialStatus: 404
+fallback.filePath: .next/server/pages/404.html
+```
+
+`next build` writes no output for it at all — no `first.html`, `.json` or
+`.meta`, only a `prerender-manifest.json` entry with
+`initialRevalidateSeconds: 1`. That is deliberate: a Pages Router `notFound` is
+represented in the cache as an entry whose `value` is `null`
+(`pages-handler.ts`, the `'isNotFound' in metadata` branch), and
+`FileSystemCache.set` keeps a null value in its in-memory LRU only, never on
+disk. So a cold `next start` misses, re-runs `getStaticProps`, and answers 404
+through `render404()`.
+
+The init cache took it at face value and seeded a normal `PAGES` entry holding
+404.html. Every subsequent request was then a HIT — and the pages handler never
+reads `value.status` on the HIT path (`sendRenderResult` is called without a
+status), so the response was a `200` whose body said "404 page". Fix: skip a
+`PAGES` prerender whose `initialStatus` is anything but 200. That restores the
+miss, and with it `next start`'s status, at the cost of one render per
+revalidate window — which is what `next start` pays too.
+
+Two things worth keeping:
+
+- the offline comparison (`scripts/e2e-offline.sh not-found-revalidate`) showed
+  both servers answering `404`, which looked like "deployment-specific" and
+  sent the first pass looking at CloudFront. It was not: the offline app has no
+  seeded cache, because seeding happens in the `BucketDeployment`, not in the
+  build. An offline agreement only rules out the request path, not the deploy.
+- `status: undefined` in that branch is still correct for the entries that *are*
+  seeded, for the reason the comment there gives.
+
+### 33. `res.revalidate()` threw, so on-demand revalidation was silently a stale one
+
+**File:** `revalidate-reason`. **Verdict: fixed.**
+
+One case of three: `/api/revalidate` calls `res.revalidate('/')`, and `/` should
+then report `revalidateReason: 'on-demand'`. It reported `'stale'`. Reproduced
+offline in one command — our runtime answers `{"revalidated":false}` where
+`next start` answers `{"revalidated":true}` — with the reason in the log:
+
+```
+Failed to revalidate /: Invariant: missing internal router-server-methods
+```
+
+Next.js offers a Pages API route two ways to revalidate. The in-process one is
+`routerServerContext.revalidate`, which `next start` supplies from its router
+server; the serverless one is a `fetch('https://' + req.headers.host + urlPath)`
+with the `x-prerender-revalidate` header, and it is only taken when
+`experimental.trustHostHeader` is set. cdk-nextjs supplied neither, so
+`res.revalidate()` threw — and because the fixture's API route catches and
+returns `{revalidated: false}` with a 200, the test's status assertion passed and
+only the reason gave it away. The page still re-rendered, as an ordinary stale
+regeneration.
+
+Fixed in process rather than by setting `trustHostHeader`: `requestMeta` already
+carries `render404` and `hostname` into every entrypoint invocation
+(`src/runtime/core.ts`), and `revalidate` goes in beside them, re-entering the
+runtime's own `handle()` with a synthesized request. The fetch path would leave
+the function, cross CloudFront and come back — a second billed invocation, a
+dependency on `x-prerender-revalidate` surviving the edge, and a reason to trust
+a client-supplied `Host`. The accept/throw rule is `NextServer#revalidate`'s
+verbatim, so a `notFound: true` target still counts as a success for an
+`unstable_onlyGenerated` caller.
+
+Covered by two unit tests in `src/runtime/core.test.ts` rather than only by the
+fixture: the entrypoint stub calls `requestMeta.revalidate()` and reports what
+came back, which pins both the wiring and the `Invalid response <status>` throw.
+
 ## Bug — not yet fixed
 
 ### A path-traversal `_next/data` request 500s instead of rendering
@@ -1720,6 +1804,60 @@ Deploy mode sets `skipInstall`, so that command never runs and `e2e-deploy.sh`
 installs normally — a green will mean the app builds and serves, not that the
 non-hoisted layout was exercised.
 
+## Upstream — a bug in the adapter routing library
+
+### A rewrite destination's repeated query key is collapsed to its last value
+
+`rewrites-destination-query-array` (1 of 1). **Verdict: upstream bug in
+`@next/routing`**, not reachable from cdk-nextjs. Excluded until it is fixed
+there.
+
+The fixture rewrites `/rewrite-to-query-array` to `/query?items=1&items=2` and
+asserts the page renders `props.query.items.join(',')` as `1,2`. `next start`
+does. We answer **500**, with
+
+```
+TypeError: a.query.items.join is not a function
+```
+
+— because `items` arrived as the string `"2"` rather than `["1","2"]`.
+
+Reproduced offline in one command, which is what settles it as a request-path
+rather than a deployment issue:
+
+```
+scripts/e2e-offline.sh rewrites-destination-query-array
+--- :3414          # cdk-nextjs runtime
+  status=500
+--- :3415          # next start, same build
+id="items">1,2
+  status=200
+```
+
+The loss is two `searchParams.set` calls in `@next/routing@16.3.5`, the routing
+library `next` hands an adapter deployment (`next start` is unaffected because it
+resolves routes with its own in-tree `router-server` instead):
+
+```
+packages/next-routing/src/destination.ts:63      newUrl.searchParams.set(key, value)
+packages/next-routing/src/resolve-routes.ts:312  mergedUrl.searchParams.set(key, value)
+```
+
+`URLSearchParams#set` overwrites every existing entry for the key, so iterating a
+destination's `?items=1&items=2` sets `items=1` and then replaces it with
+`items=2`. `append` is what preserves a repeated key. Both sites are on the
+rewrite-destination path only.
+
+Nothing in our code is upstream of that: by the time `resolveRoutes` returns,
+one of the two values is already gone. `toResolvedQuery` in the same package
+builds arrays correctly, and our own `formatTarget` round-trips a repeated key
+without loss — verified by reading the resolved target, which already holds the
+single collapsed value. There is no patch point: the library is a published
+dependency of the `next` version under test, not vendored here.
+
+Worth reporting to `vercel/next.js`; the fix is a two-line `set` → `append` and
+the fixture upstream already covers it.
+
 ## Unsupported — a product limitation
 
 ### `dynamicParams = false`
@@ -1801,6 +1939,58 @@ catches are therefore a floor, not a ceiling — an inline-`files` fixture costs
 short deploy attempt to discover.
 
 ## CDN-inherent — excluded, acceptable
+
+### A missing `/_next/static/*` is a 403 from S3, not a 404 from Next.js
+
+`invalid-static-asset-404-app` and `invalid-static-asset-404-pages`, with their
+`-asset-prefix` and `-base-path` variants — 6 files, 2 of 3 cases each, via
+`suites`.
+
+The excluded case asks a static-asset path that does not exist for a `404` whose
+body is exactly `Not Found`. S3 behind Origin Access Control answers `403`: the
+OAC principal is granted `s3:GetObject` and not `s3:ListBucket`, and without
+`ListBucket` S3 cannot reveal whether a key is absent, so it reports a
+permissions failure instead. Granting `ListBucket` would turn the status into a
+404 but not the body — it would be S3's XML error document — and it widens the
+bucket policy to make one test case's assertion pass. Not done.
+
+What this costs a real app is small and worth stating plainly: a request for a
+static asset that was never built returns 403 rather than 404. Next.js's own
+route handling is unaffected, which the two passing cases in each file
+demonstrate — a valid `/_next/static/*` path serves the build manifest with a
+200, and an invalid path that is *not* under `/_next/static` renders the app's
+own 404 page.
+
+### A `POST` body from a non-browser client needs a payload hash
+
+`proxy-readable-toweb` (2 of 2, excluded outright).
+
+Both cases `POST` a JSON body to a Pages API route and expect a 200; both get
+`403 InvalidSignatureException`. This is defect 1's root cause, reached from the
+other side. CloudFront signs the origin request to a Lambda Function URL with
+SigV4 but does not hash the body, so the viewer has to supply
+`x-amz-content-sha256` itself. Measured against the harness deployment:
+
+```
+POST /api/echo, body, no header                 → 403 InvalidSignatureException
+POST /api/echo, body, correct x-amz-content-sha256 → reaches the origin
+```
+
+cdk-nextjs solves this for the browser by injecting a `fetch`/`XMLHttpRequest`
+wrapper into the client bundle (`src/nextjs-build/patch-fetch.js`), which is why
+every server-action and route-handler fixture passes. It cannot solve it for a
+client that is not that bundle, and the harness's `next.fetch` is exactly that: a
+plain `fetch` from the jest process. Patching it is not an option either — the
+next.js checkout is an unmodified `v16.3.5` tag, and the fix would have to live
+in `test/lib/next-modes/base.ts`.
+
+So the file is excluded rather than marked a bug, and the constraint is now
+stated in the README's Limitations: on `NextjsGlobalFunctions`, a non-browser
+caller (`curl`, a mobile app, a webhook provider, another service) must add
+`x-amz-content-sha256` to a `POST` or `PUT` with a body. The fixture's actual
+subject — a Node-runtime `proxy.ts` passing a request body through to a Pages API
+route — is not what fails, and the Node-runtime proxy itself is covered by four
+`proxy-*` files in `rules.include`, `app-dir/proxy-runtime-nodejs` among them.
 
 ### CloudFront rejects unencoded `[` and `]` in a path
 
