@@ -4124,3 +4124,38 @@ Verified on the local pair: both of the fixture's cases now agree with `next sta
 `beforeFiles` rule matches its own output and asserts the resolved query reaches the
 entrypoint intact, plus a `query` assertion on the existing dynamic-route case; 21
 pass. Still to do: the deployment re-run, batched with the other batch-17 fixes.
+
+### Defect 30: repeated slashes and backslashes were a 500 or a 404, not a 308
+
+Two batch-17 reds - `test/e2e/hydration`, which navigates to exactly `//`, and
+`test/e2e/i18n-ignore-redirect-source-locale/redirects-with-basepath`, whose locale
+list includes `''` and so asks for `/basepath//to-sv` - were first read as a
+CloudFront problem, because behind CloudFront + a Lambda Function URL those paths
+answer 400 and 403 respectively. They are a runtime problem as well, and the runtime
+one is the real defect.
+
+Measured against the same local pair used for defect 29:
+
+| target | `next start` | this runtime (before) |
+| --- | --- | --- |
+| `//` | `308 -> /` | `500` |
+| `/api//json` | `308 -> /api/json` | `404` |
+| `//some/route/for?json=true` | `308 -> /some/route/for?json=true` | `500` |
+
+Next.js collapses these before routing: `base-server.ts` does
+`if (urlNoQuery?.match(/(\\|\/\/)/)) res.redirect(normalizeRepeatedSlashes(req.url), 308).body(cleanUrl).send()`,
+where `normalizeRepeatedSlashes` (`shared/lib/utils.ts`) replaces `\` with `/`, then
+`//+` with `/`, and reattaches the query untouched. `@next/routing`'s `resolveRoutes`
+does **not** do it, so nothing in this runtime did.
+
+`NextjsRuntime.handle` now does, in `collapseRepeatedSlashes`, and it runs before
+`absoluteUrl`: `new URL("//", base)` reads a leading `//` as protocol-relative and
+takes the first path segment for the host, which is where the 500 came from. Encoded
+backslashes are left alone, as Next.js leaves them - `%5C` is a character in a
+segment, not a separator. Seven `core.test.ts` cases; the local shell now answers all
+three rows above exactly as `next start` does.
+
+This fixes all four deployment patterns at the origin. It is not the whole story for
+`NextjsGlobalFunctions`, where OAC signs the raw path and the Function URL
+canonicalizes it, so such a request never reaches the origin at all - see the next
+entry.

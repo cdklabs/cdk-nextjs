@@ -114,7 +114,6 @@ export class NextjsRuntime {
     sink: ResponseSink,
   ): Promise<void> {
     const { manifest } = this.options;
-    const url = absoluteUrl(request);
     const pending: Array<Promise<unknown>> = [];
     const waitUntil = (promise: Promise<unknown>) => {
       pending.push(promise);
@@ -141,7 +140,22 @@ export class NextjsRuntime {
     });
 
     try {
-      await this.route(req, res, url, body.forDispatch, waitUntil, request);
+      // Before anything parses the target, including `absoluteUrl` - `new URL`
+      // reads a leading `//` as protocol-relative and would take the first path
+      // segment for the host.
+      const collapsed = collapseRepeatedSlashes(request.url);
+      if (collapsed !== undefined) {
+        sendRedirect(res, collapsed, 308);
+      } else {
+        await this.route(
+          req,
+          res,
+          absoluteUrl(request),
+          body.forDispatch,
+          waitUntil,
+          request,
+        );
+      }
     } catch (error) {
       await this.sendError(req, res, waitUntil, error);
     }
@@ -537,6 +551,30 @@ function absoluteUrl(request: RuntimeRequest): URL {
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * `normalizeRepeatedSlashes` (`next/dist/shared/lib/utils.js`), applied where
+ * Next.js applies it: before routing, as a 308 to the collapsed path.
+ * `base-server.ts` does `if (urlNoQuery?.match(/(\\|\/\/)/))
+ * res.redirect(normalizeRepeatedSlashes(req.url), 308)`, so `/a//b` and `/a\b`
+ * both answer a redirect to `/a/b` rather than a 404 - and `@next/routing`'s
+ * `resolveRoutes` does not do it for us, which is how `//` reached this runtime as
+ * a 500 and `/api//json` as a 404.
+ *
+ * Encoded backslashes are left alone, as Next.js leaves them: `%5C` is a literal
+ * character in a path segment, not a separator.
+ *
+ * Returns `undefined` when there is nothing to collapse, which is the common case.
+ */
+function collapseRepeatedSlashes(target: string): string | undefined {
+  const parts = target.split("?");
+  const pathname = parts[0];
+  if (!/\\|\/\//.test(pathname)) {
+    return undefined;
+  }
+  const query = parts.length > 1 ? `?${parts.slice(1).join("?")}` : "";
+  return pathname.replace(/\\/g, "/").replace(/\/\/+/g, "/") + query;
 }
 
 /**

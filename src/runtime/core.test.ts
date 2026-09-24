@@ -571,3 +571,36 @@ describe("the resolved query a rewrite produced", () => {
     expect(body.query).toEqual({ json: "true", from: "/some/route/for" });
   });
 });
+
+/**
+ * `next start` answers `//` with `308 -> /` and `/api//json` with
+ * `308 -> /api/json`; this runtime used to answer 500 and 404. The 500 is the
+ * reason the check runs before anything parses the target: `new URL("//", base)`
+ * reads a leading `//` as protocol-relative and takes the first path segment for
+ * the host. Found by `test/e2e/hydration`, which requests exactly `//`, and by
+ * `test/e2e/i18n-ignore-redirect-source-locale/redirects-with-basepath`, whose
+ * locale list includes `''` and so asks for `/basepath//to-sv`.
+ */
+describe("a path with repeated slashes or a backslash", () => {
+  it.each([
+    ["//", "/"],
+    ["///", "/"],
+    ["/api//json", "/api/json"],
+    ["/basepath//to-sv", "/basepath/to-sv"],
+    ["/a\\b", "/a/b"],
+    // The query is carried across untouched, repeated slashes and all.
+    ["//some/route?json=true&next=//x", "/some/route?json=true&next=//x"],
+  ])("redirects %s to %s with a 308", async (from, to) => {
+    const sink = await send({ url: from });
+    expect(sink.head?.statusCode).toBe(308);
+    expect(sink.head?.headers.location).toBe(to);
+    // Next.js sends the destination as the body too.
+    expect(sink.body.toString("utf-8")).toBe(to);
+  });
+
+  /** `%5C` is a character in a segment, not a separator - as in Next.js. */
+  it("leaves an encoded backslash alone", async () => {
+    const sink = await send({ url: "/a%5Cb" });
+    expect(sink.head?.statusCode).not.toBe(308);
+  });
+});
