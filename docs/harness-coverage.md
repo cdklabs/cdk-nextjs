@@ -394,6 +394,47 @@ All cases in each file pass, on the first attempt, against a shared
 | `new-link-behavior/stitches`                                    | A Stitches-styled `a` under `<Link>`              |
 | `next-dynamic`                                                  | `next/dynamic`, server value and client mount     |
 | `next-dynamic-css`                                              | `next/dynamic` with CSS, App and Pages Router     |
+| `next-form/basepath`                                            | `next/form` adding a `basePath` to its action, and not to a submitter's |
+| `next-form/default/app-dir`                                     | The shared `next/form` suite, App Router          |
+| `next-form/default/pages-dir`                                   | The same suite, Pages Router                      |
+| `next-image-forward-ref`                                        | `next/image`'s forwarded ref, via framer-motion animating opacity |
+| `next-image-legacy/asset-prefix`                                | `next/legacy/image` with an `assetPrefix` — the base64 `placeholder=blur` data URL |
+| `next-image-legacy/image-from-node-modules`                     | An image imported from `node_modules`, legacy component |
+| `next-image-legacy/trailing-slash`                              | `/_next/image` URLs under `trailingSlash: true`   |
+| `next-image-legacy/unoptimized`                                 | `unoptimized` — the original `src` is served, never `/_next/image` |
+| `next-image-new/app-dir-image-from-node-modules`                | The same `node_modules` import from the App Router |
+| `next-image-new/asset-prefix`                                   | `next/image` with an `assetPrefix`                |
+| `next-image-new/image-from-node-modules`                        | An image imported from `node_modules`, and the `images.domains` deprecation warning |
+| `next-image-new/loader-config`                                  | A custom `images.loaderFile`, as a component and through `getImageProps` |
+| `next-image-new/loader-config-default-loader-with-file`         | The same with default optimization left enabled alongside it |
+| `next-image-new/trailing-slash`                                 | `/_next/image` URLs under `trailingSlash: true`, new component |
+| `nonce-head-manager`                                            | A CSP nonce on injected scripts, with and without the header — a script must not re-execute on re-render |
+| `optimized-loading`                                             | Script `defer` in `<head>`, and no JS preload links, across four pages |
+| `optional-chaining-nullish-coalescing`                          | `?.` and `??` surviving the build                 |
+| `pages-app-router-filenames`                                    | Pages named `sitemap`, `robots` and `page` — the App Router's reserved names used as ordinary pages |
+| `port-env-var`                                                  | `PORT` honoured by the server the runtime starts  |
+| `postcss-config-cjs`                                            | `postcss.config.cjs`                              |
+| `postcss-config-package`                                        | PostCSS configured in `package.json`              |
+| `react-dnd-compile`                                             | `react-dnd` transpiled out of `node_modules`      |
+| `reload-scroll-backforward-restoration`                         | Scroll position restored through back *and* forward after a reload |
+| `repeated-forward-slashes-error`                                | The dev-time error a `<Link href>` with `//` logs — see defects 30 and 31 |
+| `rewrites-has-condition`                                        | A rewrite gated on a `has` condition, plain and matched |
+| `rewrites-manual-href-as`                                       | A hand-written `href`/`as` pair over a rewrite, index and dynamic |
+| `route-load-cancel`                                             | A slow page load cancelled by re-navigating      |
+| `router-is-ready-app-gip`                                       | `router.isReady` with an app-level `getInitialProps`, four query shapes |
+| `router-prefetch`                                               | `router.prefetch()` resolving                     |
+| `scroll-forward-restoration`                                    | Scroll position restored on a forward navigation  |
+| `server-asset-modules`                                          | An API route reading a file the build traced in beside it |
+| `src-dir-support-double-dir`                                    | `pages/` beside `src/pages/` — the outer one wins |
+| `ssr-react-context`                                             | A React context provider through SSR, consumer and update |
+| `static-page-name`                                              | A page literally named `static`, SSR and client navigation |
+| `test-utils-tests/basic`                                        | `nextTestSetup` itself — the harness contract, not the adapter |
+| `third-parties`                                                 | `@next/third-parties`: YouTube, Google Maps, GTM and GA embeds |
+| `trailing-slashes/with-trailing-slash`                          | `trailingSlash: true` — redirects, resolution, and `<Link>` rewriting |
+| `trailing-slashes/without-trailing-slash`                       | The same matrix with `trailingSlash: false`       |
+| `twoslash`                                                      | A `twoslash` type annotation rendered server-side, snapshot-exact |
+| `undici-fetch`                                                  | The global `fetch`/`Headers`/`Request`/`Response` are undici's |
+| `useselectedlayoutsegment-s-in-pages-router`                    | `useSelectedLayoutSegment(s)` imported into the Pages Router |
 
 The three `chrome-devtools-workspace` rows are thin on purpose rather than by
 accident: each case branches on `isNextDev`, and in deploy mode the whole assertion
