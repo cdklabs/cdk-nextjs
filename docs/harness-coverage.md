@@ -409,6 +409,7 @@ All cases in each file pass, on the first attempt, against a shared
 | `next-image-new/loader-config-default-loader-with-file`         | The same with default optimization left enabled alongside it |
 | `next-image-new/trailing-slash`                                 | `/_next/image` URLs under `trailingSlash: true`, new component |
 | `nonce-head-manager`                                            | A CSP nonce on injected scripts, with and without the header — a script must not re-execute on re-render |
+| `not-found-revalidate`                                          | A build-time and an on-demand `notFound: true`, through a revalidate window — see defect 32 |
 | `optimized-loading`                                             | Script `defer` in `<head>`, and no JS preload links, across four pages |
 | `optional-chaining-nullish-coalescing`                          | `?.` and `??` surviving the build                 |
 | `pages-app-router-filenames`                                    | Pages named `sitemap`, `robots` and `page` — the App Router's reserved names used as ordinary pages |
@@ -418,6 +419,7 @@ All cases in each file pass, on the first attempt, against a shared
 | `react-dnd-compile`                                             | `react-dnd` transpiled out of `node_modules`      |
 | `reload-scroll-backforward-restoration`                         | Scroll position restored through back *and* forward after a reload |
 | `repeated-forward-slashes-error`                                | The dev-time error a `<Link href>` with `//` logs — see defects 30 and 31 |
+| `revalidate-reason`                                             | What `getRevalidateReason()` reports for a build, a stale hit and `res.revalidate()` — see defect 33 |
 | `rewrites-has-condition`                                        | A rewrite gated on a `has` condition, plain and matched |
 | `rewrites-manual-href-as`                                       | A hand-written `href`/`as` pair over a rewrite, index and dynamic |
 | `route-load-cancel`                                             | A slow page load cancelled by re-navigating      |
@@ -1688,6 +1690,8 @@ Two things worth keeping:
 - `status: undefined` in that branch is still correct for the entries that *are*
   seeded, for the reason the comment there gives.
 
+Confirmed deployed: green on attempt 0 in 206s, and now in `rules.include`.
+
 ### 33. `res.revalidate()` threw, so on-demand revalidation was silently a stale one
 
 **File:** `revalidate-reason`. **Verdict: fixed.**
@@ -1724,6 +1728,8 @@ verbatim, so a `notFound: true` target still counts as a success for an
 Covered by two unit tests in `src/runtime/core.test.ts` rather than only by the
 fixture: the entrypoint stub calls `requestMeta.revalidate()` and reports what
 came back, which pins both the wiring and the `Invalid response <status>` throw.
+
+Confirmed deployed: green on attempt 0 in 105s, and now in `rules.include`.
 
 ## Bug — not yet fixed
 
