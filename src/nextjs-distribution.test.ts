@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import { App, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import {
@@ -453,5 +454,93 @@ describe("NextjsDistribution function group behaviors", () => {
           functionGroups,
         }),
     ).toThrow(/NextjsDistributionProps.loadBalancer/);
+  });
+});
+
+/**
+ * The viewer-request function, run as CloudFront would run it.
+ *
+ * It is authored as a string inside a TypeScript template literal, so every
+ * backslash in it is escaped twice - and a regex that collapses slashes is nothing
+ * but backslashes. Asserting on behavior rather than on the text is what catches an
+ * escaping mistake, which a snapshot would happily record.
+ */
+describe("the viewer-request CloudFront Function", () => {
+  interface QueryValue {
+    value: string;
+    multiValue?: Array<{ value: string }>;
+  }
+  interface FunctionRequest {
+    uri: string;
+    querystring: Record<string, QueryValue>;
+    headers: Record<string, { value: string }>;
+  }
+  type FunctionResult =
+    | FunctionRequest
+    | { statusCode: number; headers: Record<string, { value: string }> };
+
+  const handler = (() => {
+    const stack = new Stack(new App(), "FnStack");
+    const fn = new LambdaFunction(stack, "Fn", {
+      code: Code.fromInline("exports.handler = () => {};"),
+      handler: "index.handler",
+      runtime: Runtime.NODEJS_22_X,
+    });
+    new NextjsDistribution(stack, "Distribution", {
+      assetsBucket: new Bucket(stack, "Assets"),
+      functionUrl: new FunctionUrl(stack, "Url", {
+        function: fn,
+        authType: FunctionUrlAuthType.AWS_IAM,
+      }),
+      nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+      publicDirEntries: [],
+    });
+    const functions = Template.fromStack(stack).findResources(
+      "AWS::CloudFront::Function",
+    );
+    const code = Object.values(functions)[0].Properties.FunctionCode as string;
+    return runInNewContext(`${code}\nhandler`) as (event: {
+      request: FunctionRequest;
+    }) => FunctionResult;
+  })();
+
+  const send = (
+    uri: string,
+    querystring: Record<string, QueryValue> = {},
+  ): FunctionResult =>
+    handler({
+      request: { uri, querystring, headers: { host: { value: "a.test" } } },
+    });
+
+  const redirect = (result: FunctionResult) => ({
+    statusCode: (result as { statusCode: number }).statusCode,
+    location: result.headers.location?.value,
+  });
+
+  it.each([
+    ["//", "/"],
+    ["///", "/"],
+    ["/foo//bar", "/foo/bar"],
+    ["/basepath//to-sv", "/basepath/to-sv"],
+    ["/a\\b", "/a/b"],
+  ])("redirects %s to %s with a 308", (uri, location) => {
+    expect(redirect(send(uri))).toEqual({ statusCode: 308, location });
+  });
+
+  it("keeps the query on the redirect, including repeated keys", () => {
+    const result = send("/x//y", {
+      json: { value: "true" },
+      a: { value: "1", multiValue: [{ value: "2" }] },
+      flag: { value: "" },
+    });
+    expect(redirect(result).location).toBe("/x/y?json=true&a=1&a=2&flag");
+  });
+
+  it("passes an ordinary path through with x-forwarded-host set", () => {
+    const result = send("/a/b") as FunctionRequest;
+    expect(result.uri).toBe("/a/b");
+    // CloudFront rewrites `host` to the origin domain, so the app would otherwise
+    // build every absolute URL against the Function URL's hostname.
+    expect(result.headers["x-forwarded-host"].value).toBe("a.test");
   });
 });

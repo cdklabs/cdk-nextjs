@@ -4159,3 +4159,38 @@ This fixes all four deployment patterns at the origin. It is not the whole story
 `NextjsGlobalFunctions`, where OAC signs the raw path and the Function URL
 canonicalizes it, so such a request never reaches the origin at all - see the next
 entry.
+
+### Defect 31: behind a Function URL the 308 has to happen at the edge
+
+With defect 30 fixed the origin does the right thing, and on
+`NextjsGlobalFunctions` it still never gets asked. Measured against the standing
+byte-diff deployment `https://d2eio5nn7ciizs.cloudfront.net`:
+
+| target | response | who answered |
+| --- | --- | --- |
+| `/` | `200` | origin |
+| `/foo//bar` | `403 InvalidSignatureException` | origin (Lambda URL) |
+| `///` | `403 InvalidSignatureException` | origin (Lambda URL) |
+| `//` | `400`, `content-length: 0`, no `x-amzn-*` | CloudFront itself |
+
+The 403s are Origin Access Control: CloudFront signs the raw path, the Function URL
+canonicalizes it before verifying the signature, and the two no longer agree. No
+origin-side fix can reach them, so `createDynamicCloudFrontFunctionAssociations`'s
+existing viewer-request function - the one that already sets `x-forwarded-host` -
+now does the collapse itself and returns the same `308` Next.js would, query
+preserved including repeated keys. It stays on cloudfront-js-1.0, which means the
+redirect carries no body where Next.js sends the destination as text; no known client
+reads it.
+
+The bare `//` is out of reach: `//` at the start of a request target is the authority
+form, CloudFront rejects it before any function runs, and that 400 is CloudFront's
+own. So `test/e2e/hydration`, which navigates to exactly `//`, cannot pass on the two
+CloudFront-fronted patterns and is excluded with that reason recorded. It should pass
+on `NextjsRegionalContainers`; the regional patterns are not what the harness runs.
+
+Tested by pulling `FunctionCode` out of the synthesized template and running it in a
+`node:vm` context as CloudFront would - eight cases, covering `//`, `///`,
+`/foo//bar`, `/basepath//to-sv`, `/a\b`, the query, and ordinary pass-through.
+Behavior rather than a snapshot on purpose: the function is a string inside a
+TypeScript template literal, so every backslash in it is escaped twice and a snapshot
+would record an escaping mistake rather than catch it.

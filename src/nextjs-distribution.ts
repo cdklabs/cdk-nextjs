@@ -277,9 +277,53 @@ export class NextjsDistribution extends Construct {
     const associations: FunctionAssociation[] = [];
     if (this.isFunctionCompute) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
+        // cloudfront-js-1.0, so ES5.1: `var`, no arrow functions, no template
+        // literals, no `Object.keys`.
         code: FunctionCode.fromInline(`
           function handler(event) {
             var request = event.request;
+            var uri = request.uri;
+
+            // Next.js answers any path containing a backslash or a repeated
+            // slash with a 308 to the collapsed path
+            // (\`normalizeRepeatedSlashes\`, called from \`base-server.ts\`), and so
+            // does this runtime. Behind a Lambda Function URL the origin never
+            // gets the chance: Origin Access Control signs the raw path while the
+            // Function URL canonicalizes it before verifying, so the origin
+            // answers 403 SignatureDoesNotMatch. Doing the redirect here is what
+            // makes \`/basepath//to-sv\` behave as it does under \`next start\`.
+            //
+            // A bare \`//\` is beyond reach: CloudFront rejects it with an empty
+            // 400 before any function runs, because \`//\` at the start of a
+            // request target is the authority form. \`test/e2e/hydration\` is the
+            // one known test that asks for it.
+            //
+            // The body Next.js sends with its own redirect (the destination, as
+            // text) is omitted: a generated response can only carry one on
+            // cloudfront-js-2.0, and no known client reads it.
+            if (/\\\\|\\/\\//.test(uri)) {
+              var location = uri.replace(/\\\\/g, "/").replace(/\\/\\/+/g, "/");
+              var qs = [];
+              for (var name in request.querystring) {
+                var q = request.querystring[name];
+                qs.push(q.value === "" ? name : name + "=" + q.value);
+                if (q.multiValue) {
+                  for (var i = 0; i < q.multiValue.length; i++) {
+                    var v = q.multiValue[i].value;
+                    qs.push(v === "" ? name : name + "=" + v);
+                  }
+                }
+              }
+              if (qs.length) {
+                location = location + "?" + qs.join("&");
+              }
+              return {
+                statusCode: 308,
+                statusDescription: "Permanent Redirect",
+                headers: { location: { value: location } },
+              };
+            }
+
             request.headers["x-forwarded-host"] = request.headers.host;
             return request;
           }
