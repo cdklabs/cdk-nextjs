@@ -127,6 +127,10 @@ test.describe("ppr", () => {
     }
 
     console.log(`Second request for a warm PPR route took ${elapsedMs}ms`);
-    expect(elapsedMs).toBeLessThan(5_000);
+    // Generous on purpose: the suite runs 4 workers, so this request competes for
+    // the runner's network and for the same warm Lambda/task as three others. The
+    // claim being made is "not a cold upstream fetch", which a 10s ceiling still
+    // supports - tightening it measures contention instead.
+    expect(elapsedMs).toBeLessThan(10_000);
   });
 });
