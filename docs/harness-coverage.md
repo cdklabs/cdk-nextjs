@@ -1798,6 +1798,50 @@ Worth fixing for that reason, and worth noting that the file is *not* screened
 out despite its `describe.skip`: that skip is conditional on
 `__NEXT_CACHE_COMPONENTS`, which the harness does not set.
 
+Root-caused offline (`scripts/e2e-offline.sh incremental-cache-path-traversal`),
+where both routers log the same throw:
+
+```
+Error: Requested and resolved page mismatch: /pages-cache/../../server-reference-manifest /server-reference-manifest
+    at tx._getPathname (next-server/pages-turbo.runtime.prod.js)
+```
+
+`normalizePagePath` raises that whenever `posix.normalize` changes the string it
+is handed, and `pages-handler` hands it the resolved pathname as the cache key. So
+the question is only what shape `params.rest` arrives in. Three candidates,
+tried directly against next's built `dist`:
+
+| `params.rest` | `_getPathname` |
+| --- | --- |
+| `['..', '..', 'server-reference-manifest']` | **throws** |
+| `['../../server-reference-manifest']` | `/pages-cache/..%2F..%2Fserver-reference-manifest` |
+| `['..%2F..%2Fserver-reference-manifest']` | `/pages-cache/..%252F..%252Fserver-reference-manifest` |
+
+We produce the first; `next start` produces the second. Not because the runtime
+encodes the param wrongly — it emits exactly what the `nxtP` contract asks for,
+`nxtPrest=..%252F..%252Fserver-reference-manifest` — but because that contract
+decodes **twice** on the way in. `normalizeQueryParams` runs
+`decodeQueryPathParameter` (a second `decodeURIComponent`, there because "when
+deployed to Vercel the value may be encoded") over every de-prefixed `nxtP`
+value, turning it back into `../../server-reference-manifest`, and
+`normalizeDynamicRouteParams` then splits a string repeat param on `/` because
+"query values from the proxy aren't already split into arrays". Two decodes and a
+split: an encoded `/` inside a catch-all param cannot survive the round trip, and
+no amount of extra encoding on our side fixes it — triple-encoding only shifts us
+to the third row, which is a 200 but still not what `next start` renders.
+
+`next start` escapes all of it by never using the query contract: its
+`router-server` sets `requestMeta.params` directly, and `RouteModule.prepare`
+(`route-module.ts:804`) uses that as-is without normalizing or splitting.
+
+One consequence worth stating before anyone tries to make this file green: the
+fixture's `isNextDeploy && isAdapterTest` branch asserts status 200 *together
+with* `rest: ['..', '..', 'server-reference-manifest']`, and per the table above
+that array is precisely the shape `normalizePagePath` rejects — with `cacheKey`
+passed to `handleResponse` regardless of `isMinimalMode`, so there is no bypass.
+The two assertions cannot both hold on 16.3.5. Fixing our 500 is still worth
+doing, but it cannot make this test pass without an upstream fixture change.
+
 ## Batch log — how each verdict was reached
 
 Nothing is awaiting a verdict as of 2026-09-23; this section is the record of how
@@ -1934,9 +1978,9 @@ verdict.
 `@next/routing`**, not reachable from cdk-nextjs. Excluded until it is fixed
 there.
 
-The fixture rewrites `/rewrite-to-query-array` to `/query?items=1&items=2` and
-asserts the page renders `props.query.items.join(',')` as `1,2`. `next start`
-does. We answer **500**, with
+The fixture rewrites `/some-page` to `/?items=1&items=2` and asserts the index
+page renders `props.query.items.join(',')` as `1,2`. `next start` does. We answer
+**500**, with
 
 ```
 TypeError: a.query.items.join is not a function
