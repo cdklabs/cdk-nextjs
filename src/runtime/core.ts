@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import type { IncomingHttpHeaders } from "node:http";
 import { join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import type { ResolveRoutesQuery } from "@next/routing";
 import {
   createDispatcher,
@@ -30,6 +30,7 @@ import {
 } from "./http/request";
 import {
   asServerResponse,
+  ResponseHead,
   ShimServerResponse,
   splitSetCookie,
 } from "./http/response";
@@ -59,6 +60,16 @@ export interface RuntimeRequest {
    * makes `request.signal.onabort` fire inside route handlers.
    */
   readonly signal?: AbortSignal;
+}
+
+/**
+ * `RevalidateFn`'s argument (`next/dist/server/lib/router-utils/router-server-context`),
+ * restated because that module is not part of `next`'s published type surface.
+ */
+interface RevalidateConfig {
+  readonly urlPath: string;
+  readonly headers: { [key: string]: string | string[] };
+  readonly opts: { unstable_onlyGenerated?: boolean };
 }
 
 export interface NextjsRuntimeOptions {
@@ -279,6 +290,29 @@ export class NextjsRuntime {
             render404: async () => {
               await this.sendNotFound(req, res, waitUntil, dispatcher.notFound);
             },
+            // `res.revalidate()` from a Pages API route. Without it, Next.js
+            // falls back to `fetch('https://' + req.headers.host + urlPath)` —
+            // and only when `experimental.trustHostHeader` is set, which it is
+            // not, so `res.revalidate()` threw
+            //
+            //   Failed to revalidate /: Invariant: missing internal
+            //   router-server-methods this is an internal bug
+            //
+            // and `test/e2e/revalidate-reason` saw `stale` where `next start`
+            // reports `on-demand`: the route still re-rendered, just as an
+            // ordinary stale regeneration rather than the on-demand one it
+            // asked for.
+            //
+            // Answering it in process rather than by setting
+            // `trustHostHeader`: the fetch path would leave the function, cross
+            // CloudFront and come back — a second billed invocation, a
+            // dependency on `x-prerender-revalidate` surviving the edge, and a
+            // reason to trust a client-supplied `Host`. Next.js's own
+            // non-serverless answer is the same shape as this one
+            // (`NextServer#revalidate` runs its request handler against a
+            // mocked `req`/`res`).
+            revalidate: (config: RevalidateConfig) =>
+              this.revalidate(config, request),
           },
         });
         if (!res.writableEnded) {
@@ -336,6 +370,60 @@ export class NextjsRuntime {
           `${result.pathname}${url.search}`,
         );
         return;
+    }
+  }
+
+  /**
+   * One on-demand revalidation, run against this runtime rather than over the
+   * network. Wired in as `requestMeta.revalidate`; see the comment there.
+   *
+   * The response is thrown away — only its status matters — but it goes through
+   * the full {@link handle}, so the entrypoint sees a request with
+   * `x-prerender-revalidate` on it and writes the fresh entry through the cache
+   * handler exactly as a request from outside would. `handle` awaits its own
+   * `waitUntil` work, so the new entry is committed before `res.revalidate()`
+   * resolves, which is what callers that revalidate and then redirect depend on.
+   *
+   * The accept/throw rule is `NextServer#revalidate`'s, verbatim: a revalidation
+   * is successful if it was cached or answered 200, and `notFound: true`
+   * legitimately answers 404 for an `unstable_onlyGenerated` caller. Anything
+   * else throws, and `res.revalidate()` turns it into `Failed to revalidate
+   * <path>: <message>`.
+   */
+  private async revalidate(
+    config: RevalidateConfig,
+    origin: RuntimeRequest,
+  ): Promise<void> {
+    let head: ResponseHead | undefined;
+    await this.handle(
+      {
+        method: "GET",
+        url: config.urlPath,
+        // `host` is the caller's, not the revalidated path's: it is what
+        // `absoluteUrl` builds the request URL from, and a revalidation is for
+        // the host being served.
+        headers: { ...config.headers, host: origin.headers.host },
+        encrypted: origin.encrypted,
+      },
+      {
+        begin(responseHead) {
+          head = responseHead;
+          return new Writable({
+            write(_chunk, _encoding, callback) {
+              callback();
+            },
+          });
+        },
+      },
+    );
+
+    const status = head?.statusCode ?? 500;
+    if (
+      head?.headers["x-nextjs-cache"] !== "REVALIDATED" &&
+      status !== 200 &&
+      !(status === 404 && config.opts.unstable_onlyGenerated)
+    ) {
+      throw new Error(`Invalid response ${status}`);
     }
   }
 

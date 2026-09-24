@@ -45,6 +45,27 @@ exports.handler = async (req, res, ctx) => {
     await ctx.requestMeta.render404();
     return;
   }
+  // \`res.revalidate(target)\` from a Pages API route, spelled out: the runtime
+  // supplies \`requestMeta.revalidate\`, and what comes back is either nothing or
+  // the \`Invalid response <status>\` this reports.
+  if (url.searchParams.has("revalidate")) {
+    let error = null;
+    try {
+      await ctx.requestMeta.revalidate({
+        urlPath: url.searchParams.get("revalidate"),
+        headers: { "x-prerender-revalidate": "preview-id" },
+        opts: {},
+      });
+    } catch (err) {
+      error = err.message;
+    }
+    res.end(JSON.stringify({ revalidated: error === null, error }));
+    return;
+  }
+  // Lets a revalidation target answer something other than 200.
+  if (url.searchParams.has("status")) {
+    res.statusCode = Number(url.searchParams.get("status"));
+  }
   if (url.searchParams.has("waitUntil")) {
     ctx.waitUntil(
       new Promise((resolve) =>
@@ -309,6 +330,20 @@ describe("NextjsRuntime.handle", () => {
     expect(sink.head?.statusCode).toBe(404);
     // Whatever the route that gave up was rendering, for the same reason.
     expect(stubBody(sink).url).toBe("/?render404=1");
+  });
+
+  it("runs requestMeta.revalidate() against itself, not over the network", async () => {
+    const sink = await send({ url: "/?revalidate=%2F" });
+    expect(sink.head?.statusCode).toBe(200);
+    expect(stubBody(sink)).toEqual({ revalidated: true, error: null });
+  });
+
+  it("fails a revalidation whose target did not answer 200", async () => {
+    const sink = await send({ url: "/?revalidate=%2F%3Fstatus%3D500" });
+    expect(stubBody(sink)).toEqual({
+      revalidated: false,
+      error: "Invalid response 500",
+    });
   });
 
   it("redirects a trailing slash, with the Refresh fallback for a 308", async () => {
