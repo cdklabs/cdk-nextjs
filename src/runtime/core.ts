@@ -224,6 +224,27 @@ export class NextjsRuntime {
         await handler(req, asServerResponse(res), {
           waitUntil,
           requestMeta: {
+            // The resolved query, stated rather than left to be re-derived.
+            //
+            // `RouteModule.prepare` runs `handleRewrites` against `req.url`
+            // unconditionally, and `req.url` is the *already rewritten* target.
+            // A `beforeFiles` rewrite whose condition still holds after it has
+            // been applied therefore gets applied twice: in
+            // `test/e2e/link-with-api-rewrite` the rule
+            // `/:path(.*)` + `has: query json=true` -> `/api/json?from=/:path`
+            // matched `/api/json?json=true&from=/some/route/for` a second time
+            // and overwrote `from` with `/api/json`. `next start` escapes it
+            // because its router leaves `req.url` as the URL the client sent, so
+            // the one pass `prepare` makes is the only one.
+            //
+            // `prepare` prefers this meta over its own `parsedUrl.query`
+            // ("when deployed proxies will add query values from resolving the
+            // routes to pass to function"), which is the documented division of
+            // labour for a proxy in front of a function - and it is the same
+            // division the `req.url` above relies on. Setting it does not stop
+            // the second rewrite pass, it just stops that pass from being what
+            // the route sees.
+            query: { ...result.invocationTarget.query },
             // Without this, `RouteModule.prepare` falls back to
             // `http://localhost${req.url}` and every absolute URL a route
             // handler builds is wrong. `relativeProjectDir` is deliberately

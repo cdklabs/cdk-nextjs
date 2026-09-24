@@ -62,6 +62,7 @@ exports.handler = async (req, res, ctx) => {
       url: req.url,
       initURL: ctx.requestMeta && ctx.requestMeta.initURL,
       hostname: ctx.requestMeta && ctx.requestMeta.hostname,
+      query: ctx.requestMeta && ctx.requestMeta.query,
       hasRender404: Boolean(ctx.requestMeta && ctx.requestMeta.render404),
       waitUntil: typeof ctx.waitUntil,
       cwd: process.cwd(),
@@ -273,6 +274,7 @@ describe("NextjsRuntime.handle", () => {
     // The documented deployed-proxy contract: `prepare()` recovers `params`
     // from these, which is why nothing passes `requestMeta.params`.
     expect(body.url).toBe("/isr/42?nxtPid=42");
+    expect(body.query).toEqual({ nxtPid: "42" });
   });
 
   it("runs middleware and applies the request headers it overrode", async () => {
@@ -509,5 +511,63 @@ describe("the error page ladder", () => {
     expect(sink.head?.statusCode).toBe(500);
     expect(sink.body.toString("utf-8")).toBe("Internal Server Error");
     error.mockRestore();
+  });
+});
+
+/**
+ * Last in the file, because `loadRuntime` chdirs: the tests above assert on the
+ * cwd the shared deployment set.
+ */
+describe("the resolved query a rewrite produced", () => {
+  /**
+   * `test/e2e/link-with-api-rewrite`'s rule, as it lands in the manifest: a
+   * `beforeFiles` rewrite whose condition is a query param the destination keeps.
+   */
+  const withSelfMatchingRewrite = (
+    manifest: AdapterManifest,
+  ): AdapterManifest =>
+    ({
+      ...manifest,
+      routing: {
+        ...(manifest.routing as Record<string, unknown>),
+        beforeFiles: [
+          {
+            source: "/:path(.*)",
+            sourceRegex: "^(?:\\/(.*))(?:\\/)?$",
+            destination: "/?from=%2F$1",
+            has: [{ type: "query", key: "json", value: "true" }],
+          },
+        ],
+      },
+    }) as AdapterManifest;
+
+  /**
+   * `RouteModule.prepare` re-runs the config's rewrites against `req.url`
+   * unconditionally, and `req.url` is the target the rewrite already produced -
+   * so a rule that still matches its own output gets applied twice. Here that
+   * turned `from=/some/route/for` into `from=/`, which is what made
+   * `test/e2e/link-with-api-rewrite` answer `{"from":"/api/json"}` where
+   * `next start` answers `{"from":"/some/route/for"}`. Stating the resolved query
+   * as `requestMeta.query` is what `prepare` prefers over anything it re-derives,
+   * so the route sees the first pass rather than the second.
+   */
+  it("is handed over as requestMeta.query, not left to be re-derived", async () => {
+    const rewriting = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, withSelfMatchingRewrite),
+    );
+    const sink = new CollectingSink();
+    await rewriting.handle(
+      {
+        method: "GET",
+        url: "/some/route/for?json=true",
+        headers: { host: "shop.example.test" },
+      },
+      sink,
+    );
+
+    const body = stubBody(sink);
+    // Its own staged tree, so not `root`: the rewrite is the point.
+    expect(body.file).toContain(".next/server/app/page.js");
+    expect(body.query).toEqual({ json: "true", from: "/some/route/for" });
   });
 });

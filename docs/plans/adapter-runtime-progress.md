@@ -4079,3 +4079,48 @@ files from defect 25 — so all 50 of batch 16 are green and promoted.
 
 `rules.include` 294 → 344, candidates 145 → 95 (~3 hours of wall clock left), fixed
 harness defects 24 → 26. Batch 17 next, from the remaining 95.
+
+### Defect 29: a `beforeFiles` rewrite that matched its own output ran twice
+
+`test/e2e/link-with-api-rewrite` was batch 17's most interesting red. Its rule is
+`source: /:path(.*)`, `has: query json=true`, `destination: /api/json?from=/:path`,
+and the test asks for `/some/route/for?json=true` expecting `{"from":"/some/route/for"}`.
+The deployment answered `{"from":"/api/json"}`. Reproduced locally by building the
+fixture through the adapter and serving it two ways — our container shell on :3212
+against `next start` on :3213 — which is a much faster loop than a deploy and is
+what pinned it down.
+
+The Dispatcher is not the problem: `resolveRoutes` returns exactly one application
+of the rule, with `invocationTarget.query` = `{json, from: "/some/route/for", path}`.
+The second application happens inside the entrypoint. `RouteModule.prepare`
+(`route-module.ts`) calls `serverUtils.handleRewrites(req, parsedUrl)`
+**unconditionally** and `handleRewrites` (`server-utils.ts`) loops `beforeFiles`
+against `req.url` — and `req.url` is the target the rewrite already produced. The
+`has: query json=true` condition survived into that target, so the rule matched a
+second time, `:path` resolved to `api/json`, and `from` was overwritten.
+`next start` never hits this because `router-server.ts`'s `invokeRender` leaves
+`req.url` as the URL the client sent and passes the resolved target as
+`invokePath`/`invokeQuery` request meta instead, so the one pass `prepare` makes is
+the only one.
+
+The fix is the channel Next.js documents for precisely this situation. `prepare`
+reads `const query = getRequestMeta(req, 'query') || { ...parsedUrl.query }`, above
+the comment "when deployed proxies will add query values from resolving the routes
+to pass to function", and `RequestMeta.query` is typed "The query after resolving
+routes". The templates funnel `ctx.requestMeta` into `setRequestMeta`, so an adapter
+can state it: `src/runtime/core.ts` now passes
+`query: { ...result.invocationTarget.query }` along`initURL`/`hostname`/`render404`.
+That does not stop the second rewrite pass — only patching Next.js could — it stops
+that pass from being what the route sees.
+
+`req.url` deliberately stays the invocation target. It is what `asPath`,
+`searchParams` and the `nxtP` param recovery are built on (see the dynamic-route
+case in `core.test.ts`), and it is the same deployed-proxy contract; the two are
+consistent, not in tension.
+
+Verified on the local pair: both of the fixture's cases now agree with `next start`
+(`{"from":"/some/route/for"}` for the rewrite, `{"from":""}` for the direct link).
+`core.test.ts` grew a regression case that stages a deployment whose only
+`beforeFiles` rule matches its own output and asserts the resolved query reaches the
+entrypoint intact, plus a `query` assertion on the existing dynamic-route case; 21
+pass. Still to do: the deployment re-run, batched with the other batch-17 fixes.
