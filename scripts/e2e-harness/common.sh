@@ -66,13 +66,59 @@ harness_app_id() {
 # Set HARNESS_ISOLATED_STACK=1 for a stack per app directory instead. Worth it
 # when debugging one file - at the cost of a distribution create and delete per
 # file.
+#
+# A `regional-functions` run (HARNESS_NEXTJS_TYPE) gets `rf-` after the prefix,
+# so it can never deploy into a Global run's shared stack - a different root
+# construct in the same stack would be a replacement of nearly everything in it.
+# The prefix is unchanged, so `e2e-sweep.sh` finds both.
 harness_stack_name() {
   local dir="$1"
+  local prefix="$HARNESS_STACK_PREFIX"
+  if [ "$(harness_nextjs_type)" = "regional-functions" ]; then
+    prefix="${prefix}rf-"
+  fi
   if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ]; then
-    printf '%s%s' "$HARNESS_STACK_PREFIX" "${HARNESS_SHARED_STACK_SUFFIX:-shared}"
+    printf '%s%s' "$prefix" "${HARNESS_SHARED_STACK_SUFFIX:-shared}"
     return 0
   fi
-  printf '%s%s' "$HARNESS_STACK_PREFIX" "$(harness_app_id "$dir")"
+  printf '%s%s' "$prefix" "$(harness_app_id "$dir")"
+}
+
+# Which root construct `app.js` deploys: `global-functions` (the default) or
+# `regional-functions`. Exits on anything else, rather than quietly deploying the
+# default under a name that says otherwise.
+harness_nextjs_type() {
+  local type="${HARNESS_NEXTJS_TYPE:-global-functions}"
+  case "$type" in
+    global-functions | regional-functions) printf '%s' "$type" ;;
+    *)
+      echo "harness: HARNESS_NEXTJS_TYPE=$type is not global-functions or regional-functions" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# The localhost port `stage-proxy.mjs` listens on for a stack. Derived from the
+# stack name, so every script - and every shard - computes the same port for the
+# same stack with no handoff file, and two shards' proxies do not collide.
+# HARNESS_PROXY_PORT overrides it.
+harness_proxy_port() {
+  local stack="$1"
+  if [ -n "${HARNESS_PROXY_PORT:-}" ]; then
+    printf '%s' "$HARNESS_PROXY_PORT"
+    return 0
+  fi
+  node -e '
+    const hash = require("node:crypto").createHash("sha1").update(process.argv[1]).digest();
+    process.stdout.write(String(40000 + (hash.readUInt16BE(0) % 10000)));
+  ' "$stack"
+}
+
+# Where a stack's proxy records its pid and target, so the next test file can
+# reuse it. In TMPDIR rather than the app directory: the proxy outlives the app.
+harness_proxy_state() {
+  local stack="$1"
+  printf '%s/%s-stage-proxy' "${TMPDIR:-/tmp}" "$stack"
 }
 
 # Read one CloudFormation output out of `cdk deploy --outputs-file`'s JSON.
@@ -131,4 +177,16 @@ harness_stack_is_ours() {
     --query "Stacks[0].Tags[?Key=='${HARNESS_TAG_KEY}'].Value" \
     --output text 2>/dev/null)" || return 1
   [ "$tags" = "$HARNESS_TAG_VALUE" ]
+}
+
+# Stop a stack's `stage-proxy.mjs`, if one is running here. Called next to every
+# stack delete, so a proxy never outlives the API it forwards to. A no-op for a
+# Global stack, which never has one.
+harness_stop_proxy() {
+  local state
+  state="$(harness_proxy_state "$1")"
+  if [ -f "$state.pid" ]; then
+    kill "$(cat "$state.pid")" 2>/dev/null || true
+    rm -f "$state.pid" "$state.target"
+  fi
 }

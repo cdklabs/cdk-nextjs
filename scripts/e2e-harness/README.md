@@ -21,6 +21,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.              |
 | `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                        |
 | `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
+| `scripts/e2e-harness/stage-proxy.mjs` | Localhost front door for a `NextjsRegionalFunctions` stack: puts the stage back. Regional only. |
 | `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
 | `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
@@ -268,7 +269,10 @@ prefix in the deployment URL is dropped. That rules out both Regional types:
 their API Gateway REST URL is always
 `https://<id>.execute-api.<region>.amazonaws.com/<stage>`, and every absolute
 path the suite requests would miss the stage and 404. A CloudFront distribution
-is served at the origin root.
+is served at the origin root. (`NextjsRegionalFunctions` can still be run, behind
+a local proxy that puts the stage back — see "Running on
+`NextjsRegionalFunctions`" — but that is a second front door, not the one users
+deploy, so it stays the exception.)
 
 It is also the front door the suite was written for. `NEXT_TEST_MODE=deploy` is
 the mode Vercel validates edge-fronted deployments with, so its tests tolerate a
@@ -292,8 +296,61 @@ Two caveats worth knowing before reading a failure as a regression:
   limitation documented at `src/nextjs-distribution.ts`. A test that varies on a
   header outside that list can be served a wrong cached response. That is a real
   product limitation, not a harness artifact — and not a regression either.
-- `NextjsGlobalContainers` and both Regional types are not covered here at all.
-  `examples/e2e-tests` is the gate on those.
+- `NextjsGlobalContainers` and `NextjsRegionalContainers` are not covered here
+  at all, and `NextjsRegionalFunctions` only by hand (see "Running on
+  `NextjsRegionalFunctions`"). `examples/e2e-tests` is the gate on all three.
+
+## Running on `NextjsRegionalFunctions`
+
+`HARNESS_NEXTJS_TYPE=regional-functions` deploys `NextjsRegionalFunctions`
+instead, into `hrns-rf-<suffix>` stacks so it can never land in a Global run's.
+Local and manual for now; the scheduled workflow is Global only.
+
+The stage is the whole problem, and `stage-proxy.mjs` is the whole answer. The
+suite discards any path in the deployment URL (above), and a REST API's is always
+`.../<stage>`. So `e2e-deploy.sh` starts a localhost proxy per stack that adds the
+stage to every request path and reports `http://127.0.0.1:<port>` as the
+deployment URL. The fixture is deployed as built. API Gateway strips the stage
+again, so the app sees what it would at a custom domain mapped at the root. The
+proxy outlives each test file; `e2e-cleanup.sh` and `e2e-sweep.sh` stop it
+alongside the stack delete.
+
+Three things the regional deploy does that the Global one does not:
+
+- **The fixture's `basePath` becomes the construct's `basePath` prop.** On this
+  type the prop is never derived from the app, because an app's `basePath` is
+  usually the stage. A fixture's never is, so without the prop its
+  `_next/static` falls through to the Lambda catch-all and 404s.
+- **The proxy sends `x-forwarded-host: 127.0.0.1:<port>`**, because it has to
+  send the execute-api `Host` for API Gateway to route. Without it every server
+  action fails Next.js's CSRF check (`host` … does not match `origin`).
+- **It waits for the stage to settle** before reporting the URL. A fixture whose
+  `basePath` differs from the previous one's changes the resource tree, and API
+  Gateway kept answering the replaced tree (403 `MissingAuthenticationToken`,
+  then 500s) for ~90s after CloudFormation reported `UPDATE_COMPLETE`, unevenly
+  across requests. So it waits until the base path, `_next/static` and the
+  catch-all have all stayed healthy for five rounds in a row.
+
+What it cannot do: a fetch the **server** makes to its own origin. The origin is
+`127.0.0.1` on the machine running the suite, and the Lambda cannot reach that.
+Next.js does this to stream a server action's `redirect()` target in one round
+trip, and some fixtures do it themselves. Such a case fails here with
+`ECONNREFUSED 127.0.0.1` in the function's log. That's the harness, not
+cdk-nextjs: a real deployment's origin is its own public URL.
+
+First run, 22 files (the 12 picked plus the manifest's `suites` for them), on
+2026-09-24: **17 green**. Of the other 5, 3 are the self-fetch limitation above
+(`actions-streaming`; 3 of `app-basepath`'s 13 cases; 1 of
+`redirect-rewrite-dynamic-basepath`'s 2), and 2 are the `assetPrefix` variants of
+`invalid-static-asset-404-*`, which the regional types do not serve (cdk-nextjs
+warns at synth). Full record in `docs/harness-coverage.md`.
+
+```bash
+ADAPTER_DIR=$PWD HARNESS_NEXTJS_TYPE=regional-functions ./scripts/e2e-warm.sh
+# ...then the usual run from the next.js checkout, with the same
+# HARNESS_NEXTJS_TYPE exported, and afterwards:
+HARNESS_NEXTJS_TYPE=regional-functions ./scripts/e2e-sweep.sh --apply --shared
+```
 
 ## Which test files can run at all
 
@@ -537,6 +594,8 @@ the age floor for every stack in the account.
 | `ADAPTER_DIR`                       | _required_                           | This checkout. All three scripts resolve everything from it.                                           |
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
 | `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` with `docs/plans/immutable-static-assets.md`. |
+| `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions`: deploy `NextjsRegionalFunctions` behind `stage-proxy.mjs`, into `hrns-rf-*` stacks. See "Running on `NextjsRegionalFunctions`". |
+| `HARNESS_PROXY_PORT`                | _derived from the stack name_        | Port `stage-proxy.mjs` listens on. Regional only.                                                      |
 | `HARNESS_ISOLATED_STACK`            | `0`                                  | One stack per test file instead of one shared one. Re-enables `e2e-cleanup.sh`.                        |
 | `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per concurrent local suite.            |
 | `HARNESS_CLEANUP_WAIT`              | `0`                                  | Block until the stack delete completes. Isolated mode only.                                            |

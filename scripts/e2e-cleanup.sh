@@ -51,6 +51,7 @@ echo "cleanup: deleting $STACK_NAME"
 # than `cdk destroy` avoids re-synthesizing - which would re-run the adapter
 # staging and the `sharp` install - and still works once the app directory has
 # been cleaned up under us.
+harness_stop_proxy "$STACK_NAME"
 aws cloudformation delete-stack --stack-name "$STACK_NAME"
 
 if [ "${HARNESS_CLEANUP_WAIT:-0}" = "1" ]; then

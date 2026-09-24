@@ -176,29 +176,109 @@ if [ -z "$URL" ]; then
   exit 1
 fi
 
-# Then evict the previous test file's app from the edge.
-#
-# Two things make this mandatory rather than hygienic: the stack is shared, so
-# the distribution has the last fixture's responses cached under the very paths
-# this one is about to request; and a hotswap never runs CloudFormation, so the
-# post-deploy custom resource that would normally invalidate never fires (its
-# properties are pinned in app.js for exactly that reason). Blocking until it
-# completes, because the first request the harness makes is the one that would
-# read a stale response.
-DISTRIBUTION_ID="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" DistributionId)"
-if [ -z "$DISTRIBUTION_ID" ]; then
-  echo "harness: $STACK_NAME has no DistributionId output; cannot invalidate" >&2
-  exit 1
+if [ "$(harness_nextjs_type)" = "regional-functions" ]; then
+  # No distribution to invalidate - API Gateway caches nothing unless told to.
+  # What there is instead is the stage in `$URL`, which the harness would strip
+  # from every request (see stage-proxy.mjs), so the suite is pointed at a
+  # localhost proxy that puts it back.
+  #
+  # One proxy per stack, reused by every test file: the API ID survives hotswaps
+  # and full updates alike, so the target does not change. It is restarted only
+  # when it is gone or its target differs (a stack that was deleted and
+  # recreated).
+  PROXY_PORT="$(harness_proxy_port "$STACK_NAME")"
+  PROXY_STATE="$(harness_proxy_state "$STACK_NAME")"
+  if [ -f "$PROXY_STATE.pid" ] && kill -0 "$(cat "$PROXY_STATE.pid")" 2>/dev/null \
+    && [ "$(cat "$PROXY_STATE.target" 2>/dev/null)" = "$URL" ]; then
+    echo "harness: reusing stage proxy $(cat "$PROXY_STATE.pid") on :$PROXY_PORT"
+  else
+    if [ -f "$PROXY_STATE.pid" ]; then
+      kill "$(cat "$PROXY_STATE.pid")" 2>/dev/null || true
+    fi
+    # Detached, and with none of this script's descriptors: the harness reads
+    # the URL from our stdout until EOF, so a child still holding fd 3 (or the
+    # stderr pipe) would hang it.
+    nohup node "$HARNESS_DIR/stage-proxy.mjs" "$PROXY_PORT" "$URL" \
+      </dev/null >"$PROXY_STATE.log" 2>&1 3>&- &
+    printf '%s' "$!" >"$PROXY_STATE.pid"
+    printf '%s' "$URL" >"$PROXY_STATE.target"
+    for _ in $(seq 1 50); do
+      if curl -s -o /dev/null "http://127.0.0.1:$PROXY_PORT/"; then break; fi
+      sleep 0.1
+    done
+    echo "harness: started stage proxy $(cat "$PROXY_STATE.pid") on :$PROXY_PORT -> $URL"
+  fi
+  URL="http://127.0.0.1:$PROXY_PORT"
+
+  # Then wait out the stage switch. A fixture whose `basePath` differs from the
+  # last one's changes the API's resource tree, so the deploy is a full
+  # CloudFormation update with a new stage deployment - and CloudFormation reports
+  # it complete before the stage serves it. Measured: the first requests after
+  # such a deploy answered 500, or a 403 `MissingAuthenticationTokenException`
+  # for the resource tree that was just replaced, with nothing in the Lambda's
+  # log. So wait until API Gateway stops answering with its own errors
+  # (`x-amzn-errortype`) or a 5xx. Bounded: a fixture can answer 500 on purpose,
+  # and that is the test's to report.
+  #
+  # One probe per kind of resource the tree has, because they did not become
+  # ready together: the base resource answered while `_next/static` (the S3
+  # integration) and the `{proxy+}` catch-all under it still 500'd. The build
+  # manifest is a real object; the catch-all probe is a path the app 404s.
+  BASE_PATH="$(node -e 'try{process.stdout.write(require(process.argv[1]).config.basePath||"")}catch{}' "$APP_DIR/.next/required-server-files.json")"
+  PROBES=("$BASE_PATH/" "$BASE_PATH/_next/static/$BUILD_ID/_buildManifest.js" "$BASE_PATH/__cdk-nextjs-harness-probe")
+  api_gateway_ready() {
+    local path head status
+    for path in "${PROBES[@]}"; do
+      head="$(curl -s -o /dev/null -D - "$URL$path" || true)"
+      status="$(printf '%s' "$head" | awk 'NR==1{print $2}')"
+      if [ -z "$status" ] || [ "${status:0:1}" = "5" ] \
+        || printf '%s' "$head" | grep -qi '^x-amzn-errortype:'; then
+        STATUS="$path -> ${status:-no answer}"
+        return 1
+      fi
+    done
+    STATUS="all ${#PROBES[@]} probes"
+  }
+  # Five rounds in a row, not one: the new deployment reaches API Gateway's fleet
+  # unevenly, and a test got the replaced tree's 403 right after all three
+  # probes had passed once. 40 x 3s overall: the replaced tree was measured
+  # still answering ~90s after CloudFormation reported UPDATE_COMPLETE.
+  READY_ROUNDS=0
+  for _ in $(seq 1 40); do
+    if api_gateway_ready; then
+      READY_ROUNDS=$((READY_ROUNDS + 1))
+      [ "$READY_ROUNDS" -ge 5 ] && break
+    else
+      READY_ROUNDS=0
+    fi
+    sleep 3
+  done
+  echo "harness: $URL ready: $STATUS"
+else
+  # Then evict the previous test file's app from the edge.
+  #
+  # Two things make this mandatory rather than hygienic: the stack is shared, so
+  # the distribution has the last fixture's responses cached under the very paths
+  # this one is about to request; and a hotswap never runs CloudFormation, so the
+  # post-deploy custom resource that would normally invalidate never fires (its
+  # properties are pinned in app.js for exactly that reason). Blocking until it
+  # completes, because the first request the harness makes is the one that would
+  # read a stale response.
+  DISTRIBUTION_ID="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" DistributionId)"
+  if [ -z "$DISTRIBUTION_ID" ]; then
+    echo "harness: $STACK_NAME has no DistributionId output; cannot invalidate" >&2
+    exit 1
+  fi
+  echo "harness: invalidating $DISTRIBUTION_ID"
+  INVALIDATION_ID="$(aws cloudfront create-invalidation \
+    --distribution-id "$DISTRIBUTION_ID" \
+    --paths '/*' \
+    --query 'Invalidation.Id' --output text)"
+  aws cloudfront wait invalidation-completed \
+    --distribution-id "$DISTRIBUTION_ID" \
+    --id "$INVALIDATION_ID"
+  echo "harness: invalidation $INVALIDATION_ID complete"
 fi
-echo "harness: invalidating $DISTRIBUTION_ID"
-INVALIDATION_ID="$(aws cloudfront create-invalidation \
-  --distribution-id "$DISTRIBUTION_ID" \
-  --paths '/*' \
-  --query 'Invalidation.Id' --output text)"
-aws cloudfront wait invalidation-completed \
-  --distribution-id "$DISTRIBUTION_ID" \
-  --id "$INVALIDATION_ID"
-echo "harness: invalidation $INVALIDATION_ID complete"
 
 echo "harness: deployed $STACK_NAME at $URL"
 printf '%s\n' "$URL" >&3

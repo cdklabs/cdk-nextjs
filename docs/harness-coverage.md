@@ -143,6 +143,44 @@ Router fixture in one `next.config.ts`; defect 29's `beforeFiles` rewrite needs
 config-level routing this app does not declare; and defect 25's web worker has no
 per-type divergence to check.
 
+### First run on `NextjsRegionalFunctions`
+
+Everything above is `NextjsGlobalFunctions`. On 2026-09-24 the harness ran on
+`NextjsRegionalFunctions` for the first time, behind the local stage proxy
+(`scripts/e2e-harness/README.md`, "Running on `NextjsRegionalFunctions`"),
+over 12 files picked for what differs on this type (`basePath`, redirects, server
+actions, static assets, i18n, `use cache`), plus the 10 `suites` files the manifest
+names for them: 22 files, one shared stack `hrns-rf-shared`, deleted afterwards.
+
+**17 green, no cdk-nextjs defect.** Every failure is either the local proxy or an
+already-documented regional limitation:
+
+| File | Result | Why |
+| --- | --- | --- |
+| `app-dir/actions-streaming` | fails | The fixture's action `fetch`es `location.origin` from the server: `127.0.0.1` from inside the Lambda. Local proxy only. |
+| `app-dir/app-basepath` | 10 of 13 | The 3 misses are Next.js streaming an action `redirect()` target by fetching it server-side (`failed to get redirect response`, `ECONNREFUSED 127.0.0.1`). Same limitation. |
+| `app-dir/redirect-rewrite-dynamic-basepath` | 1 of 2 | Same: a server-side fetch of the app's own origin, surfacing as a 500 from the runtime's error path. |
+| `invalid-static-asset-404-{app,pages}-asset-prefix` | fail | `assetPrefix` is served by nothing on the regional types; cdk-nextjs warns at synth (`isAssetPrefixUnserved`). |
+| the other 17 | pass | `app-prefetch-static`, `global-not-found/basic`, `headers-static-bailout`, `revalidate-path-with-rewrites`, `trailingslash`, `use-cache-private`, `dynamic-route-interpolation`, `i18n-default-locale-redirect`, `next-image-new/trailing-slash`, `invalid-static-asset-404-{app,pages}` and their `-base-path` variants, `basepath/trailing-slash`, `external-redirect`, `resume-data-cache`, `server-actions-relative-redirect` |
+
+Three harness fixes were needed before those numbers meant anything: the fixture's
+`basePath` passed as the construct's `basePath` prop, `x-forwarded-host` from the
+proxy (without it every server action failed Next.js's CSRF check), and a wait for
+the API Gateway stage to settle after a resource-tree change — the replaced tree
+was measured still answering, unevenly, ~90s after `UPDATE_COMPLETE`. Before that
+wait, `basepath/trailing-slash` and both `-base-path` variants passed only on retry.
+With it, a `--retries 0` run of `basepath/trailing-slash`,
+`invalid-static-asset-404-app-base-path` and `invalid-static-asset-404-app` —
+ordered so each deploy changes the tree — passed all three. The `pages` `-base-path`
+variant was not re-run.
+
+One product gap it exposed, not a defect in what is documented: on this type
+the `basePath` prop is never derived from the app (see `resolveBasePath`), so an app
+whose `basePath` is *not* the stage — a custom domain mapped at the root serving
+`basePath: "/docs"` — silently 404s its static assets unless the user also sets the
+prop. Synth knows both the stage name and whether a custom domain is configured, so
+this could be derived or at least warned about. Not built; noted for a follow-up.
+
 ## Passing — in `rules.include`
 
 All cases in each file pass, on the first attempt, against a shared

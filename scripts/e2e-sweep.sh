@@ -113,5 +113,6 @@ printf '%s\n' "$CANDIDATES" | while IFS=$'\t' read -r name _status _age; do
     continue
   fi
   echo "sweep: deleting $name"
+  harness_stop_proxy "$name"
   aws cloudformation delete-stack --stack-name "$name"
 done

@@ -4790,3 +4790,52 @@ redirects now keep `/prod` and match `next start`; the full e2e suite with
 `E2E_NEXTJS_TYPE=regional-functions` went 64 passed / 6 failed → **70 passed / 5
 skipped / 0 failed** after un-gating defect 36's three `test.fail`s and the two
 test fixes above. The other three types are left to CI.
+
+## Post-PR — the Next.js harness runs on `NextjsRegionalFunctions`
+
+The second half of the stage-prefix item: harness-only, no library change.
+`HARNESS_NEXTJS_TYPE=regional-functions` makes `scripts/e2e-harness/app.js`
+deploy `NextjsRegionalFunctions` into `hrns-rf-*` stacks, and `e2e-deploy.sh`
+fronts it with `scripts/e2e-harness/stage-proxy.mjs`, a localhost proxy that adds
+the stage the suite's `getFullUrl` would otherwise discard. Fixtures deploy
+unmodified. The user confirmed an unauthenticated REST API does not trip Palisade
+in this account (unlike a `NONE` Function URL), so the proxy does no signing.
+
+### Result
+
+22 files, 17 green, no cdk-nextjs defect. Per-file table and reasons in
+`docs/harness-coverage.md`, "First run on `NextjsRegionalFunctions`": 3 files fail
+because the server fetches its own origin, which is `127.0.0.1` behind a local
+proxy (inherent to the setup, `ECONNREFUSED` in the function log); 2 are the
+regional types' known `assetPrefix` gap.
+
+### Harness fixes it took, each measured before it was made
+
+1. **Fixture `basePath` → construct `basePath` prop.** Without it `/docs/_next/static`
+   fell through to the Lambda catch-all and 404'd, so nothing hydrated.
+2. **`x-forwarded-host` from the proxy.** CloudWatch showed 18× "`host` header … does
+   not match `origin` header … Aborting the action" before it, none after.
+3. **Wait for the stage to settle.** A `basePath` change between fixtures replaces
+   the resource tree; API Gateway answered the old tree (403
+   `MissingAuthenticationTokenException`, then 500s with nothing in the Lambda log)
+   ~90s past `UPDATE_COMPLETE`, unevenly. Probing only the root was not enough, and
+   neither was one passing round; the final wait probes the base path,
+   `_next/static` and the catch-all until all three pass five rounds running.
+   Verified with a `--retries 0` run ordered to change the tree on each deploy:
+   3 of 3.
+
+And one bug of my own, caught by the first rerun: `HarnessUrl` was `nextjs.url`,
+which appends the `basePath` prop from fix 1, doubling the prefix. It is
+`nextjsApi.api.url` now.
+
+### Left open
+
+- **Product gap, not built:** on RegionalFunctions the `basePath` prop is never
+  derived from the app, so an app whose `basePath` is not the stage (custom
+  domain at the root + `basePath: "/docs"`) silently 404s its static assets
+  unless the prop is also set. Synth knows the stage name and whether a custom
+  domain is configured, so it could derive or warn. Flagged to the user.
+- The scheduled workflow is still Global-only; running RF there would mean a
+  per-shard proxy on the runner, which the port derivation already allows.
+- `invalid-static-asset-404-pages-base-path` passed only on retry before the
+  settle wait and was not re-run after it.
