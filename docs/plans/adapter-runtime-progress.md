@@ -4664,3 +4664,71 @@ prefix versus the app's `basePath` — deferred by the user, not resolved here. 
 eighteen `next-config-ts-native-ts` files stay **no signal** in the coverage doc;
 what changed is that their cdk-nextjs-relevant assertion is now made directly, so
 building per-fixture build-arg plumbing for them has no remaining upside.
+
+## Post-PR — a deleted cache entry now takes its tag mapping rows with it
+
+`src/adapter/s3-cache-handler.ts`'s delete branch carried a `// TODO: Also delete
+tag associations from DynamoDB if needed` since before this branch. Filled in.
+
+### What the rows are, and what a stale one costs
+
+A tagged entry gets one DynamoDB row per tag: `pk = <buildId>`,
+`sk = <tag>#<s3Key>`, written by `storeDynamoDBTagMappings`. `revalidateTag` reads
+them to recover the cache keys a tag covers, turns each into a CloudFront path, and
+invalidates it. Deleting an entry removed only the S3 object, so its rows stayed
+and kept resolving to a key whose object is gone. Each one then spends one of
+CloudFront's fifteen wildcard paths per request on a URI that cannot be cached —
+crowding out the paths that do need it, and past `MAX_INVALIDATION_REQUESTS`
+batches collapsing the whole app to a single `/*`. The rows also count against the
+1 MB a tag's Query returns, so enough of them push live entries onto a page
+`MAX_TAG_QUERY_PAGES` may not reach.
+
+Bounded, not unbounded: rows are partitioned by build ID and
+`prune-revalidation-table` deletes the previous build's at every deploy, so the
+leak is one build generation deep. That is why this was a TODO rather than a bug.
+
+### Which tags, and where they come from
+
+A mapping row's sort key starts with the tag, so the rows belonging to one cache
+key cannot be queried for — only a scan of the build's partition would find them.
+The deleter therefore has to be told the tags, and neither delete path has them
+lying around:
+
+- **Response delete** (`set(key, null, ctx)` — a cached route that starts
+  answering `notFound()`; `ResponseCache.revalidate` passes a null `value` through
+  `IncrementalCache.set`). `ctx` is
+  `{ cacheControl, isRoutePPREnabled, isFallback }` and carries no tags at all.
+  New `storedEntryTags` reads the object *before* deleting it and takes
+  `entryTags` of what it finds — one extra GET on a rare path, and the case worth
+  paying for, since a page carries the whole implicit `_N_T_/…` chain and so has
+  the most rows.
+- **Fetch delete** — both `set(key, null, fetchCtx)` and the `deleteS3Entry` in
+  `get()` that turns a tag-revalidated fetch entry into a miss. Here the tags are
+  free: from `ctx.tags`, or from the entry just parsed. Deliberately *not*
+  `checkTags`, which is `[...ctx.tags, ...ctx.softTags]` — the implicit chain
+  arrives only as `softTags` and never had rows written for it, so deleting by it
+  would issue deletes for rows that never existed.
+
+### Two things it deliberately does not do
+
+**It does not touch the bare-`tag` marker row.** That row (`sk = <tag>`, written by
+`revalidateSingleTag`) belongs to the tag, not to any entry, and
+`checkIfRevalidated` reads it for every *other* entry carrying that tag. Only
+`<tag>#<s3Key>` rows are deleted.
+
+**It does not invalidate CloudFront for the deleted path.** The edge copy does
+outlive the object, and today a later `revalidateTag` clears it by accident through
+exactly the stale row this change removes. That accident is not worth preserving:
+the delete path runs on every tag-revalidated fetch entry too, where the key names
+no URI, and an invalidation request per deleted entry is a cost the cache policy's
+TTL already bounds. Invalidating at delete time is the coherent fix if the stale
+edge copy ever shows up as a real symptom — filed here rather than built.
+
+### Verification
+
+Five new cases in `src/adapter/s3-cache-handler.test.ts`: a page delete whose tags
+are read back from S3 (asserting both mapping rows go and the marker row does not),
+a fetch delete that uses `ctx.tags` and issues no pre-delete GET, an untagged entry
+that deletes no rows, a tags-unreadable entry whose object is still deleted, and an
+extension of the existing revalidated-fetch-entry test asserting its row goes with
+it. `pnpm jest src/adapter` — 169 passed. `pnpm compile` and `pnpm eslint` clean.

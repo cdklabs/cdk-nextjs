@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/client-cloudfront";
 import {
   AttributeValue,
+  DeleteItemCommand,
   DynamoDBClient,
   GetItemCommand,
   QueryCommand,
@@ -479,6 +480,13 @@ export class S3CacheHandler implements CacheHandler {
             // miss is worse than stale: see `EXPIRED_LAST_MODIFIED`.
             if (isFetchCacheKind(ctx.kind)) {
               await this.deleteS3Entry(s3Key);
+              // The stored tags, not `checkTags`: a `fetch` entry is checked
+              // against the *request's* tags, which include the implicit
+              // `_N_T_/…` chain that no mapping row was ever written for.
+              await this.deleteDynamoDBTagMappings(
+                s3Key,
+                entryTags(parsedValue),
+              );
               return null;
             }
             // The blocking re-render this provokes overwrites the object through
@@ -529,6 +537,11 @@ export class S3CacheHandler implements CacheHandler {
         // Build S3 key without needing to know the kind
         const s3Key = this.buildS3Key(cacheKey);
 
+        // Read the entry's tags before the object is gone: they are the only
+        // way to name its mapping rows, whose sort key is `tag#s3Key` and so
+        // cannot be queried from the key side. See `storedEntryTags`.
+        const tags = await this.storedEntryTags(s3Key, ctx);
+
         try {
           const deleteCommand = new DeleteObjectCommand({
             Bucket: this.s3Config.bucketName,
@@ -542,7 +555,7 @@ export class S3CacheHandler implements CacheHandler {
           }
         }
 
-        // TODO: Also delete tag associations from DynamoDB if needed
+        await this.deleteDynamoDBTagMappings(s3Key, tags);
         return;
       }
 
@@ -943,6 +956,107 @@ export class S3CacheHandler implements CacheHandler {
     } catch (error) {
       console.error("Error storing DynamoDB tag mappings:", error);
       // Don't throw - cache storage should continue even if tag mapping fails
+    }
+  }
+
+  /**
+   * Drop the `tag#s3Key` mapping rows for an entry that no longer exists.
+   *
+   * The counterpart of {@link storeDynamoDBTagMappings}, and the reason its
+   * caller has to know the entry's tags: a mapping row's sort key starts with
+   * the tag, so the rows belonging to one cache key cannot be queried for - only
+   * a full scan of the build's partition would find them.
+   *
+   * Left behind, a row still resolves to a cache key on the next
+   * `revalidateTag`, which spends one of CloudFront's fifteen per-request
+   * wildcard paths invalidating a URI whose entry was deleted - crowding out the
+   * paths that do need it, and past
+   * {@link MAX_INVALIDATION_REQUESTS} batches collapsing the whole app into one
+   * wildcard. The rows also count against the 1 MB a tag's Query returns, so
+   * enough of them push live entries onto a page
+   * {@link MAX_TAG_QUERY_PAGES} may not reach.
+   *
+   * Only the mapping rows: the bare-`tag` marker row `revalidateSingleTag`
+   * writes belongs to the tag rather than to any entry, and `checkIfRevalidated`
+   * reads it for every *other* entry carrying that tag.
+   *
+   * Deliberately no CloudFront invalidation for the deleted path. The edge copy
+   * does outlive the object, but this runs on every revalidated `fetch` entry as
+   * well, where the key names no URI, and an invalidation request per deleted
+   * entry is a cost the TTL already bounds.
+   */
+  private async deleteDynamoDBTagMappings(
+    s3Key: string,
+    tags: string[],
+  ): Promise<void> {
+    if (!this.dynamoConfig.tableName || tags.length === 0) {
+      return;
+    }
+    try {
+      await Promise.all(
+        // A page's tags can repeat - `ctx.tags` and the render's header are both
+        // read - and one delete per tag is enough.
+        Array.from(new Set(tags)).map(async (tag) => {
+          await this.dynamoClient.send(
+            new DeleteItemCommand({
+              TableName: this.dynamoConfig.tableName,
+              Key: {
+                pk: { S: this.dynamoConfig.buildId },
+                sk: { S: `${tag}#${s3Key}` },
+              },
+            }),
+          );
+        }),
+      );
+      this.debug(`DELETED TAG MAPPINGS: ${s3Key} -> [${tags.join(", ")}]`);
+    } catch (error) {
+      // Log but don't fail: the entry itself is already gone, and a stale
+      // mapping row costs an invalidation path rather than a wrong response.
+      console.error("Error deleting DynamoDB tag mappings:", error);
+    }
+  }
+
+  /**
+   * The tags an entry about to be deleted was stored with.
+   *
+   * `ctx` carries them for a `fetch` delete, but a response delete arrives as
+   * `{ cacheControl, isRoutePPREnabled, isFallback }` - `ResponseCache.set`
+   * builds it that way - so the entry itself is the only source, and it has to
+   * be read before it is removed. That is one extra GET on a path that runs when
+   * a cached route starts answering `notFound()`: `IncrementalCache.set`
+   * forwards `ResponseCache`'s null value through to here.
+   *
+   * A page is also the case worth paying it for, since it carries the whole
+   * implicit `_N_T_/…` chain and therefore the most rows.
+   */
+  private async storedEntryTags(
+    s3Key: string,
+    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+  ): Promise<string[]> {
+    const ctxTags = getTags(ctx);
+    if (ctxTags?.length) {
+      return ctxTags;
+    }
+    if (!this.s3Config.bucketName || !this.dynamoConfig.tableName) {
+      return [];
+    }
+    try {
+      const response = await this.s3Client.send(
+        new GetObjectCommand({
+          Bucket: this.s3Config.bucketName,
+          Key: s3Key,
+        }),
+      );
+      if (!response.Body) {
+        return [];
+      }
+      const bodyString = await response.Body.transformToString("utf-8");
+      return entryTags(parseCacheValue(bodyString));
+    } catch (error) {
+      if (!(error instanceof NoSuchKey)) {
+        console.warn(`Failed to read tags of ${s3Key} before deleting:`, error);
+      }
+      return [];
     }
   }
 
