@@ -65,7 +65,7 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 | ---------------- | ------ |
 | pass             | 427 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache`, 3 of 7 `dynamic-route-interpolation`, 1 of 2 `revalidate-path-with-rewrites` and 2 of 3 in each of the 6 `invalid-static-asset-404-*` files |
 | fixed            | 33 harness defects, every one of which came from a file listed above, and every one now verified green against a deployment. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
-| bug              | 1 (`incremental-cache-path-traversal`) |
+| bug              | 1 (`incremental-cache-path-traversal`). Defect 34 is open too, but is not a harness file verdict — the four-type e2e suite found it on `NextjsRegionalFunctions`, which the harness never deploys |
 | upstream         | 1 (`rewrites-destination-query-array` — a `@next/routing` bug, not reachable from here) |
 | unsupported      | 2 (`prerender-encoding`, and `middleware-fetches-with-any-http-method` whose edge middleware the screen missed; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files (`revalidate-dynamic`, `proxy-readable-toweb`), plus the 2 remaining `trailingslash`, 4 remaining `dynamic-route-interpolation`, 1 remaining `revalidate-path-with-rewrites` and 1 remaining case in each of the 6 `invalid-static-asset-404-*` files |
@@ -75,6 +75,73 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 The thirty-three fixed harness defects are its whole return on investment. All of
 them were real, all of them shipped, and none of them could have been caught by
 the construct tests or by `examples/e2e-tests`.
+
+### Fourteen of them are now guarded on all four deployment types
+
+The harness only ever ran on `NextjsGlobalFunctions`, and almost every fix landed
+as a jest unit regression. That left the other three types unproven for a set of
+behaviours whose plumbing genuinely differs per type — a signed Function URL, an
+API Gateway REST streaming integration, an ALB, a CloudFront-fronted container.
+Defect 3 is the clearest case: one bug with two unrelated symptoms, a lost prelude
+on a Function URL and a `502` on API Gateway.
+
+So the highest-value findings were back-filled into `examples/app-playground` and
+`examples/e2e-tests`, which runs on all four types on every commit. The entries
+below name the spec next to the existing jest reference; defects 1, 2, 3, 4, 5,
+11, 12, 13, 18, 19, 24, 30, 31 and 32 all have one — 13 only partly, since the
+cookie round trip is reachable from this app and the gated-prerender registration
+behind it is not. That is a per-commit,
+four-type gate over what the harness could only prove once, on one type, every six
+days — which matters more now the candidate pool is empty and the harness can only
+re-run files it has already seen.
+
+The eleven new specs are `response-bodies`, `request-methods`, `cookies`,
+`status-codes`, `url-normalization`, `metadata-routes`, `routing-params`,
+`rsc-navigation`, `draft-mode`, `server-action-redirect` and `static-assets`, and
+the suite went from 35 tests to 75 without getting slower: `playwright.config.ts`
+now runs a 4-worker `parallel` project alongside a `workers: 1` `serial` one
+holding just `isr` and `revalidation`, the only two specs that mutate shared cache
+state.
+
+It has already paid for itself. Run against a real `NextjsRegionalFunctions`
+deployment — the type the harness has never touched — the new suite came back **64
+passed, 6 failed, 5 skipped in 1.2 minutes**, and every failure was settled by
+re-running it against plain `next start` on the same build rather than by argument:
+
+- **Two were the suite's own bug.** `rsc-navigation` asserted `/^\d+:/` for a flight
+  row; ids are hex and a prerendered payload's first row is `#`-prefixed —
+  `.next/server/app/index.rsc` literally begins `#1:"$Sreact.fragment"`. It failed
+  identically on `next start`.
+- **One was a wrong expectation.** `status-codes` wanted a `500` from a server render
+  throw. The deployment answers `200` + `x-nextjs-postponed: 1` +
+  `id="__next_error__"`, and `next start` answers the **same 14504 bytes**:
+  `instant = false` on the page cannot stop the cached layout above it from
+  postponing and flushing a shell first, so the status is committed before the throw.
+  The test now asserts that contract, including the `no-store` that was always the
+  real point.
+- **Two were one real, previously unknown defect** — **34**, below: on
+  `NextjsRegionalFunctions` a redirect's `Location` drops the API Gateway stage, so
+  following it gets a `403`.
+- **One was a race in the test itself**, and it read as a third instance of defect 34
+  until it was measured five times instead of once. `server-action-redirect` clicked
+  the form before hydration, which makes it a native browser POST rather than a
+  router action — a different Next.js code path, answered with a prefix-less `303`
+  that plain `next start` produces too. Fixed by waiting for the client router.
+
+And the one red the plan predicted did **not** happen: `cookies.test.ts` was expected
+to be where API Gateway ignored the response stream prelude's `cookies` array as
+Function-URL-only semantics. It passes. API Gateway's streaming metadata format
+documents exactly four keys — `headers`, `multiValueHeaders`, `cookies`,
+`statusCode` — so one prelude is correct for both integrations, and
+`responseTransferMode: STREAM` is what makes it apply. Reasoning from the field name
+would have cost a fix that was never needed.
+
+Three of the harness's findings are deliberately **not** back-filled, and stay
+harness-only: `trailingSlash`, `assetPrefix`, `i18n` and the Pages Router (defects
+6, 15, 16, 17, 20, 21, 22, 32's Pages half and 33) cannot coexist with the App
+Router fixture in one `next.config.ts`; defect 29's `beforeFiles` rewrite needs
+config-level routing this app does not declare; and defect 25's web worker has no
+per-type divergence to check.
 
 ## Passing — in `rules.include`
 
@@ -565,6 +632,15 @@ Two things this says about the test setup, beyond the fix:
   manifest, `BUILD_ID`, client chunks) — and the harness exercises exactly the
   `skipBuild: true` path that broke.
 
+Cross-type e2e: `examples/e2e-tests/src/request-methods.test.ts`. Two tests,
+deliberately a pair — a POST driven from *inside the page* (so the patched
+`fetch` is the one that runs) has to succeed, and a `request.post` from an
+`APIRequestContext` (which never loads the app's bundles) has to 403 on
+`NextjsGlobalFunctions`. Either one alone is uninformative: the first passes for
+the wrong reason if the edge stops signing, and the second is the canary for the
+patch being dropped. It still does not cover `skipBuild: true`, which remains
+harness-only.
+
 ### 2. Seeded prerender headers mislabeled every RSC response as HTML
 
 **Files:** `app-dir/app-basepath` (the 3 action-`redirect()` cases),
@@ -609,7 +685,11 @@ would genuinely have stored (`x-nextjs-stale-time`, `x-next-cache-tags`, and
 whatever the app set through `headers()`/`cookies()`). `APP_ROUTE` entries are
 deliberately *not* filtered — a route handler's `content-type` is part of its
 cached response, and `app-route.js` replays those headers verbatim. Regression
-test: `src/adapter/cache-utils.test.ts`.
+test: `src/adapter/cache-utils.test.ts`. Cross-type e2e:
+`examples/e2e-tests/src/rsc-navigation.test.ts`, which asserts
+`text/x-component` and a *single* `vary` on an RSC request — read off
+`headersArray()`, because `headers()` folds two `vary`s into one string and the
+assertion would pass against the bug.
 
 ### 3. A zero-byte streamed response lost its entire head on a Function URL
 
@@ -633,6 +713,14 @@ than by deduction — three plausible guesses (a head event racing `pipeToSink`,
 `useDefineForClassFields` breaking `res.flush`, the sub-fetch's
 `content-encoding`) were all wrong, and the `[probe]` logs settled it in one
 run. Regression tests: `src/runtime/http/sink.test.ts`.
+
+Cross-type e2e, and the defect that most needed it, since the two symptoms are on
+two different types: a 204 out of a route handler (`response-bodies.test.ts`), a
+`HEAD` on both a dynamic route and a page, plus `DELETE` and `OPTIONS`
+(`request-methods.test.ts`), and a redirect-only server action
+(`server-action-redirect.test.ts`) — the shape that produced this in the first
+place. Each asserts `body().length <= 1` rather than `=== 0`, because the pad byte
+is the fix.
 
 ### 4. The home page's cache entry had no flight payload — every navigation to `/` 404'd
 
@@ -669,7 +757,11 @@ Fix: group by parsing the emitted names rather than reconstructing them, and
 remap a trailing `/index` onto its parent when — and only when — the parent is
 itself a prerendered HTML route. The condition matters: an app with a real
 `app/index/page.tsx` has a genuine `/index` route that must keep its own group.
-Regression test: `src/adapter/cache-utils.test.ts`.
+Regression test: `src/adapter/cache-utils.test.ts`. Cross-type e2e:
+`examples/e2e-tests/src/rsc-navigation.test.ts` asks `/` for its payload directly,
+and then does a client-side navigation *to* `/` guarded by a `window` sentinel — a
+full page load destroys the sentinel, which is the only way to tell the router
+consuming the payload from the router giving up and hard-navigating.
 
 ### 5. A param whose name prefixes another param's got the wrong value
 
@@ -688,6 +780,13 @@ Fix: after resolution, rebuild the param query from `routeMatches`, which
 `@next/routing` reports unmangled. Regression test in `src/runtime/dispatch.test.ts`
 renames a param pair in the committed `app-playground` capture, because no
 committed fixture has a naturally prefixing pair.
+
+Cross-type e2e: `examples/e2e-tests/src/routing-params.test.ts`, against a real
+`app/params/prefix/[id]/[id2]` route — so the rename hack in `dispatch.test.ts` is
+no longer the only thing exercising this. (The captured fixture still has no
+prefixing pair; regenerating it would let that hack go, and is noted as a
+follow-up rather than done here.) The values asserted are not prefixes of each
+other, so the test fails on a swap as well as on a drop.
 
 ### 6. A `trailingSlash` app's canonical URLs all 404'd
 
@@ -894,6 +993,13 @@ Verified offline rather than by a deploy: the fixture was built into
 same build, which is what made the `"undefined"` visible. All six of the file's
 assertions match `next start` after the fix.
 
+Cross-type e2e: `examples/e2e-tests/src/routing-params.test.ts`, against
+`app/params/optional/[[...rest]]`. Both sides of the route are asserted — zero
+segments for the bare URL and two for `/alpha/beta` — so a fix that reports zero
+for everything cannot pass. The zero case also asserts the rendered params never
+contain the literal string `undefined`, which is the exact symptom rather than a
+proxy for it, and it is now checked on a deployment rather than offline.
+
 ### 12. `robots.txt` and `sitemap.xml` went out as `application/octet-stream`
 
 **File:** `app-dir/use-cache-metadata-route-handler` (3 of 10).
@@ -932,6 +1038,14 @@ this population is the same answer: the set is closed (`favicon.ico`, `icon.*`,
 its extension. `send` skips its own detection when `Content-Type` is already set,
 so nothing has to be threaded through its options. `favicon.ico` had the same bug
 and nobody noticed, because browsers sniff icons.
+
+Cross-type e2e: `examples/e2e-tests/src/metadata-routes.test.ts`, over the same
+three files, now committed as `app/robots.ts`, `app/sitemap.ts` and
+`app/manifest.ts` in `app-playground`. Each test asserts the content type *and* a
+distinctive byte of the body, because the failure mode where a wrong file is served
+with the right type is otherwise indistinguishable from success. This is a case
+worth having on all four types specifically because it depends on where the staged
+`.body` file is read from — a Lambda's own bundle or a container image.
 
 ### 13. A root-params app 404'd at every URL, because its prerenders were draft-gated
 
@@ -979,6 +1093,19 @@ Verified at the dispatch level against the real fixture's captured build context
 verification needs a deployment: offline the runtime cache reads S3 only, so a
 fully-prerendered route answers `invariant: cache entry required but not
 generated`.
+
+Cross-type e2e, **partial**: `examples/e2e-tests/src/draft-mode.test.ts` covers the
+`__prerender_bypass` half — that the cookie the server sets comes back intact and is
+still readable server-side — not the gated-prerender registration, which needs a
+root-params fixture this app does not have. The cookie half is worth its own
+coverage anyway: the value cannot be faked (it has to match the build's
+`previewModeId`), so a page reporting draft mode as *on* proves the exact bytes
+survived CloudFront, API Gateway or the ALB. That is the end-to-end proof of the
+`"; "` cookie join in the API Gateway shell, whose own comment records that a `","`
+join "lost every cookie after the first, including `__prerender_bypass` and
+`__next_preview_data`, so draft mode silently stopped working" — unit-tested until
+now. `cookies.test.ts` covers the same join directly, with three inbound cookies
+read back by name through `next/headers`.
 
 ### 14. Every PPR fallback shell was re-rendered per request instead of resumed
 
@@ -1220,6 +1347,16 @@ Batch 13 confirmed this half: the fixture built and deployed, and 4 of its 5 cas
 passed, both unicode ones included. The fifth was a second defect in the same file —
 `/_next/image` for the space-bearing name, defect 24 below.
 
+Cross-type e2e: `examples/e2e-tests/src/static-assets.test.ts`, over a committed
+`public/hello e2e.txt`. This is the one test in the suite that asserts a *404* on
+one deployment type: `NextjsRegionalFunctions` cannot express the name as an API
+Gateway resource path, so skipping that type would also pass if the asset silently
+stopped being served everywhere else — and if the limitation is ever lifted, the
+test failing is how anyone finds out. The file is deliberately at the top level,
+because that is the placement that reaches `toPathPattern` and the API Gateway skip;
+a nested `public/static/*` asset rides an existing wildcard behaviour and reaches
+neither. It costs one CloudFront cache behaviour, which is why it landed on its own.
+
 ### 19. A throw out of a route answered plain text, never the app's error page
 
 `async-modules` (1 of 7, "can render async error page"). `/make-error` throws in
@@ -1255,6 +1392,16 @@ edge.
 Covered by four `resolveErrorTarget` cases in `dispatch.test.ts` and four in
 `core.test.ts` (the prerendered `/500`, the `/_error` invocation, an error page that
 throws, and an app with neither).
+
+Cross-type e2e: `examples/e2e-tests/src/status-codes.test.ts` covers the App Router
+side, which is a different ladder from the Pages one the defect was found on — a
+page throw has to reach the app's `error.tsx` boundary with a 500 and a `no-store`,
+and a route handler throw has to answer 500 without the message or an absolute
+bundle path in the body. Both skip against `pnpm dev`, which deliberately serves the
+real error and its own overlay. The page that throws carries `instant = false`: under
+`cacheComponents` a throw behind a Suspense boundary lands after the shell has
+flushed, and the runtime can then only destroy the stream — a truncated 200, not a
+500.
 
 ### 20. Every i18n app answered its own home page with a redirect
 
@@ -1423,6 +1570,17 @@ and the literal `%`.
 
 Batch 14 confirmed it against a deployment: all 5 cases green on attempt 0 in 163s,
 and the file is now in `rules.include`.
+
+Cross-type e2e: `examples/e2e-tests/src/static-assets.test.ts`, over
+`public/static/hello e2e.png` — a *nested* asset, so unlike defect 18's test this
+one costs no new CloudFront behaviour and no API Gateway resource, and runs on all
+four types. It asserts `image/webp`, which is the only assertion that distinguishes
+the two ways this can pass for the wrong reason: the optimizer reports a failed
+upstream fetch as a 400, and reports a fetch it could not *process* by returning
+the original bytes with a 200. The `url` param is written with an explicit `%20`
+rather than through `searchParams.set`, which encodes a space as `+` and would make
+the test about API Gateway's query handling as well. The same file is fetched
+directly in the test above, so both readers of the decoded key are covered.
 
 ### 25. A web worker never started, because its bootstrap chunk got a patch that reads `window`
 
@@ -1608,6 +1766,20 @@ Encoded backslashes are left alone, as Next.js leaves them: `%5C` is a literal
 character in a path segment, not a separator. This is the origin-side fix and it
 covers all four deployment patterns.
 
+Cross-type e2e: `examples/e2e-tests/src/url-normalization.test.ts`, which is the
+best value in the back-fill — four tests, no new routes, and the only behaviour in
+the suite answered by four genuinely different pieces of infrastructure (see defect
+31). It targets a *dynamic* path (`/isr//1`, `//`), because the CloudFront function
+sits on dynamic behaviours only; builds the URL by concatenating onto `baseURL`,
+since passing `.//` as a relative path would collapse it before it reached the
+wire; uses `maxRedirects: 0` to observe the 308 and then follows it once, because a
+308 to a 404 would satisfy a status assertion on its own.
+
+The backslash half is **not** testable from Playwright at all: WHATWG URL parsing
+rewrites `\` to `/` in a special-scheme path, so neither a browser nor an
+`APIRequestContext` can put one on the wire. It stays covered by
+`src/runtime/core.test.ts`.
+
 ### 31. Behind a Function URL that 308 has to happen at the edge
 
 **Verdict: fixed**, and the same two files cover it.
@@ -1649,6 +1821,17 @@ Tested by pulling `FunctionCode` out of the synthesized template and running it 
 the function is a string inside a TypeScript template literal, so every backslash in
 it is escaped twice and a snapshot would record an escaping mistake rather than catch
 it.
+
+Cross-type e2e: `examples/e2e-tests/src/url-normalization.test.ts` is the first
+thing to run this function against **real CloudFront** rather than in a `node:vm`.
+One of its four tests is gated to `NextjsGlobalFunctions` and asserts `x-cache:
+FunctionGeneratedResponse` — the header is CloudFront saying the response never
+reached an origin, which is what separates "the redirect works" from "the redirect
+is produced where it has to be". On this type the origin *cannot* produce it, so if
+that header ever reads as a hit or a miss, the request is reaching a Function URL
+that will reject its own signature. The query-order divergence recorded above is
+asserted the same way: every pair has to survive on all four types, and the exact
+order is additionally asserted on the three that do not rebuild the string.
 
 ### 32. A build-time `notFound: true` was seeded as a 200
 
@@ -1697,6 +1880,20 @@ Two things worth keeping:
 
 Confirmed deployed: green on attempt 0 in 206s, and now in `rules.include`.
 
+Cross-type e2e covers the **App Router half**, which the fix above does not touch
+and nothing else tests: `examples/e2e-tests/src/status-codes.test.ts` requests
+`app/not-found-prerendered`, a page that calls `notFound()` with nothing
+request-dependent so `next build` prerenders it with `initialStatus: 404`. The code
+path is genuinely different — `adapter.mts` *skips* a `PAGES` prerender whose status
+is not 200, but seeds an `APP_PAGE` with `status: initialStatus` and relies on the
+app handler reading `value.status` on the HIT path, which is exactly the read the
+pages handler was missing. The test asks twice for that reason: the first response
+can be correct while every cached one after it is a 200, which is the failure mode
+this defect *was*. It asserts the 404 status and the 404 body together, since the
+body was always right.
+
+The Pages Router half stays harness-only, along with the rest of the Pages fixtures.
+
 ### 33. `res.revalidate()` threw, so on-demand revalidation was silently a stale one
 
 **File:** `revalidate-reason`. **Verdict: fixed.**
@@ -1736,7 +1933,80 @@ came back, which pins both the wiring and the `Invalid response <status>` throw.
 
 Confirmed deployed: green on attempt 0 in 105s, and now in `rules.include`.
 
-## Bug — not yet fixed
+## Bugs — not yet fixed
+
+### 34. Every redirect on `NextjsRegionalFunctions` drops the API Gateway stage prefix
+
+**Not a harness finding** — found by the cross-type e2e suite this section's
+back-fill created, which is the thing the harness structurally could not do: it only
+ever ran `NextjsGlobalFunctions`, and that type sets no `basePath`, so nothing had
+ever asked a redirect to survive a path prefix.
+
+Measured against a real `dev-rgnl-fns` deployment
+(`https://<api-id>.execute-api.us-east-1.amazonaws.com/prod/`) with plain `next
+start` on the **same build** and the same `basePath` as the oracle:
+
+| request | deployed | `next start -p 3102`, `NEXTJS_BASE_PATH=/prod` |
+| --- | --- | --- |
+| `/prod/isr//1` (slash collapse) | `308` → `/isr/1` | `308` → `/prod/isr/1` |
+| `/prod/isr/1/` (trailing slash) | `308` → `/isr/1` | `308` → `/prod/isr/1` |
+| `/prod/ssg/1/` (trailing slash) | `308` → `/ssg/1` | `308` → `/prod/ssg/1` |
+| `/prod//` (bare `//`) | `200`, `x-nextjs-cache: HIT` | `308` → `/prod/` |
+
+Following any of those `Location`s gets a **403 from API Gateway**, which has no
+resource outside the stage. So a redirect is not a normalization on this type, it is
+a way to lose a request — and the browser is the one that follows it, which is why
+the deployment looks healthy until a form submits or a link ends in a slash.
+
+Root cause is the stage, not any one redirect site. API Gateway strips `/prod`
+before invoking the Lambda, so `request.url` is stage-relative everywhere in the
+runtime, and the only thing that puts the prefix back is the *app's* `proxy.ts`
+doing a `NextResponse.rewrite` — inside Next.js, after routing has started. A
+`Location` built before or outside that rewrite therefore comes out stage-relative:
+`src/runtime/core.ts`'s pre-routing `collapseRepeatedSlashes` branch (which has to
+run there, because `new URL` reads a leading `//` as protocol-relative) and
+Next.js's own `trailingSlash` normalization, which upstream runs *before* middleware
+— the comment in `examples/app-playground/proxy.ts` already says so.
+
+`/prod//` is the one case that is probably not ours: it never reaches the collapse
+at all, the app serves the home page from cache, so API Gateway appears to resolve
+it to the stage root itself. Recorded here because it is the same assertion failing,
+and because the divergence from `next start` is real either way.
+
+A server action's `redirect()` **looked** like a fourth symptom and is not, which is
+worth writing down because the first read of the evidence was wrong. The test for it
+was intermittent on this type — 2 of 3 runs green — and the two paths are:
+
+| how the action was submitted | response | where the browser ends up |
+| --- | --- | --- |
+| through the router (hydrated) | `200` + `x-action-redirect: /server-actions/redirect/done;push` | `/prod/server-actions/redirect/done` — correct, the router adds `basePath` client-side |
+| native `<form>` POST (pre-hydration, or JS off) | `303 location: /server-actions/redirect/done` | `/server-actions/redirect/done` → `403` |
+
+`next start` with the same `basePath` answers that same pre-hydration POST with the
+same prefix-less `303`, and its follow-up is a `404` — so the no-JS path is upstream
+Next.js behaviour on every deployment type, not something the stage broke. The
+flakiness was a hydration race in the test, fixed by waiting for the client router
+before clicking (the same guard `rsc-navigation.test.ts` already carries). Nothing is
+gated in `server-action-redirect.test.ts` as a result.
+
+Candidate fix, not yet written: prefix path-absolute `Location` headers with the
+stage on the way out, in the API Gateway Lambda shell (`src/runtime/lambda.mts`),
+which is the one place that already knows the stage — `event.requestContext.stage`,
+and symmetric with the inbound rewrite. It cannot be unconditional: `nextjs-api.ts`'s
+README documents a custom domain mapped at the root, where there is no stage in the
+external path, so it has to key off the same signal the app uses
+(`PREPEND_APIGW_STAGE` / `API_GATEWAY_STAGE`) — and those are set by the user's
+`app.ts`, not by the construct, which is the part that makes this a design decision
+rather than a one-liner.
+
+Gated, not skipped, so it cannot rot: three tests in
+`examples/e2e-tests/src/url-normalization.test.ts` carry
+`test.fail(isApiGateway(), "defect #34 …")`. They still execute on all four types, so the day
+the prefix survives they fail as "passed unexpectedly" and have to be un-gated.
+`url-normalization`'s first test also gained a positive assertion that the
+`Location` still carries the prefix the app is served under, because the assertions
+it shipped with — `toContain("/isr/1")` and `not.toContain("//isr")` — both pass
+against a `Location` that has left the app.
 
 ### A path-traversal `_next/data` request 500s instead of rendering
 
