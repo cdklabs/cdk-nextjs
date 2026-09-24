@@ -4182,11 +4182,31 @@ preserved including repeated keys. It stays on cloudfront-js-1.0, which means th
 redirect carries no body where Next.js sends the destination as text; no known client
 reads it.
 
-The bare `//` is out of reach: `//` at the start of a request target is the authority
-form, CloudFront rejects it before any function runs, and that 400 is CloudFront's
-own. So `test/e2e/hydration`, which navigates to exactly `//`, cannot pass on the two
-CloudFront-fronted patterns and is excluded with that reason recorded. It should pass
-on `NextjsRegionalContainers`; the regional patterns are not what the harness runs.
+The bare `//` in that table looked out of reach, and is not. `//` at the start of a
+request target is the authority form, so it was reasonable to read that `400` as
+CloudFront refusing the request outright - but with the function deployed, `//` is
+routed to it like any other path:
+
+```
+$ curl -sSI --http1.1 'https://d2eio5nn7ciizs.cloudfront.net//'
+HTTP/1.1 308 Permanent Redirect
+Location: /
+X-Cache: FunctionGeneratedResponse from cloudfront
+```
+
+Same over HTTP/2. So `test/e2e/hydration`, which navigates to exactly `//`, needs no
+exclusion - it passes (95.5s, retry 0). Whatever produced that empty 400 in the
+earlier probe, the behavior to rely on is the measured one above. The lesson worth
+keeping: a `400` with no `x-amzn-*` headers narrows *who* answered to CloudFront, but
+says nothing about *why*, and is not evidence that a viewer-request function cannot
+run.
+
+One divergence from Next.js does remain, and it is in the query rather than the path.
+A viewer-request event exposes `querystring` as an object, never as the raw string, so
+the function has to rebuild it and `/x//y?a=1&b=2` redirects to `/x/y?b=2&a=1`. Every
+pair survives, including repeated keys; only the order is CloudFront's rather than the
+client's. `normalizeRepeatedSlashes` reattaches the query untouched, so this is
+strictly ours, and a redirect target is not order-sensitive.
 
 Tested by pulling `FunctionCode` out of the synthesized template and running it in a
 `node:vm` context as CloudFront would - eight cases, covering `//`, `///`,

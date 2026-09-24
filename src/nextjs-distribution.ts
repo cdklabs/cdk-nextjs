@@ -293,14 +293,23 @@ export class NextjsDistribution extends Construct {
             // answers 403 SignatureDoesNotMatch. Doing the redirect here is what
             // makes \`/basepath//to-sv\` behave as it does under \`next start\`.
             //
-            // A bare \`//\` is beyond reach: CloudFront rejects it with an empty
-            // 400 before any function runs, because \`//\` at the start of a
-            // request target is the authority form. \`test/e2e/hydration\` is the
-            // one known test that asks for it.
+            // A bare \`//\` reaches here too, and is answered the same way -
+            // measured, because \`//\` at the start of a request target is also the
+            // authority form and it was not obvious CloudFront would route it to a
+            // function at all. It does: \`GET //\` answers 308 to \`/\` with
+            // \`x-cache: FunctionGeneratedResponse\`, over both HTTP/1.1 and HTTP/2,
+            // which is what \`test/e2e/hydration\` asks for.
             //
-            // The body Next.js sends with its own redirect (the destination, as
-            // text) is omitted: a generated response can only carry one on
-            // cloudfront-js-2.0, and no known client reads it.
+            // Two things Next.js does that this cannot:
+            //
+            // - the body it sends with its own redirect (the destination, as
+            //   text), because a generated response can only carry one on
+            //   cloudfront-js-2.0. No known client reads it.
+            // - the original order of the query string. The event exposes
+            //   \`querystring\` as an object, never as the raw string, so
+            //   \`/x//y?a=1&b=2\` redirects to \`/x/y?b=2&a=1\`. The pairs all
+            //   survive; only their order is CloudFront's rather than the
+            //   client's, and a redirect target is not order-sensitive.
             if (/\\\\|\\/\\//.test(uri)) {
               var location = uri.replace(/\\\\/g, "/").replace(/\\/\\/+/g, "/");
               var qs = [];
