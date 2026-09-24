@@ -1903,15 +1903,26 @@ Not exit criteria — items this branch names and leaves for their own change:
    distribution parameter name, and `S3CacheHandler.toCdnPath` prefixes it onto
    every invalidation path — the mapping-row ones and the `revalidatePath` tag's
    alike, since neither carries `basePath`.
-3. `deployment-skew`'s RSC content-type bug: `RSC: 1` gets
+3. ~~`deployment-skew`'s RSC content-type bug: `RSC: 1` gets
    `text/html; charset=utf-8` instead of `text/x-component`. Characterized, not
    diagnosed to edge vs. adapter. Excluded with a note saying it should return as
-   a regression test.
-4. The harness manifest is two files; widening is cheap now.
-5. Stacks of mine still up, to tear down after the PR merges: `dev-glbl-fns`,
+   a regression test.~~ **Done:** diagnosed as neither edge nor dispatch but
+   `onBuildComplete` seeding the HTML prerender's `fallback.initialHeaders`
+   verbatim into the `APP_PAGE` cache entry, so every RSC request to every
+   prerendered page answered the flight payload labeled `text/html`. Fixed by
+   `appPageCacheHeaders` in `src/adapter/cache-utils.ts`; `deployment-skew` passes
+   and is in `rules.include`, along with the two failures that turned out to be
+   the same bug (`static-rsc-cache-components`, `app-basepath`). See
+   `docs/harness-coverage.md`.
+4. ~~The harness manifest is two files; widening is cheap now.~~ **Done:**
+   `test/deploy-tests-manifest.json` now carries 427 files in `rules.include`,
+   plus per-case entries, and 16 written `excluded-notes` verdicts.
+5. ~~Stacks of mine still up, to tear down after the PR merges: `dev-glbl-fns`,
    `dev-rgnl-fns`, `dev-glbl-cntnrs`, `dev-rgnl-cntnrs`, `adptr-rgnl-fns`,
    `split-glbl-fns`. The four `main-*` oracles and four `pr-267-*` stacks are not
-   mine and stay.
+   mine and stay.~~ **Done:** all six deleted, with the `main-*` oracles left up.
+   `pr-272-glbl-fns` is separately stuck in `DELETE_FAILED` and is not one of
+   mine.
 
 ## Post-PR — merge `main` (#267, derived `basePath`)
 
