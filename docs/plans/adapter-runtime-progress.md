@@ -4214,3 +4214,79 @@ Tested by pulling `FunctionCode` out of the synthesized template and running it 
 Behavior rather than a snapshot on purpose: the function is a string inside a
 TypeScript template literal, so every backslash in it is escaped twice and a snapshot
 would record an escaping mistake rather than catch it.
+
+### Batch 17: 39 promoted, two defects verified, and two kinds of false green
+
+The 7-file rerun that closed out batch 17 came back 5 green, 2 red, and both reds
+had a verdict rather than a mystery:
+
+| file | result |
+| --- | --- |
+| `link-with-api-rewrite` | green, 189.7s - defect 29 verified |
+| `fallback-route-params` | green, 97.9s - also defect 29; a fallback shell's params come from the resolved query |
+| `i18n-ignore-redirect-source-locale/redirects-with-basepath` | green, 191.9s - defects 30 and 31 verified |
+| `hydration` | green, 95.5s - defect 31, including the bare `//` (see the correction in that entry) |
+| `deprecation-warnings` | green, 219.7s - confirms the `scripts/e2e-logs.sh` fix, not a cdk-nextjs change |
+| `middleware-fetches-with-any-http-method` | red, excluded: legacy edge middleware |
+| `handle-non-hoisted-swc-helpers` | red, and the cause was ours - see below |
+
+**The edge-middleware screen has a blind spot.** `middleware-fetches-with-any-http-method`
+failed at build with `assertNodeRuntimes`' edge error, which is the expected answer -
+but it should never have been offered as a candidate. It writes its middleware inline
+through `nextTestSetup({ files: { 'middleware.js': ... } })`, and `screen.mjs` greps the
+fixture directory, where there is nothing to find. The 127 files the `middleware`
+screen catches are a floor. Left as-is rather than taught to parse `files` objects:
+the cost of the blind spot is one ~7s deploy attempt, and a `files` literal can hold
+anything.
+
+**`--prefer-offline` is not the same flag in npm as in pnpm.**
+`handle-non-hoisted-swc-helpers` is the only fixture that pins
+`packageManager: npm@10.9.2`, and `scripts/e2e-deploy.sh` gave npm `--prefer-offline`
+to match the pnpm branch. npm then resolved against a stale packument and refused a
+version the registry has:
+
+```
+npm error code ETARGET
+npm error notarget No matching version found for next@16.3.5.
+```
+
+Reproduced outside the harness in a two-line scratch app - `next@16.3.5` on the first
+run, its transitive `postcss@8.5.23` on the second once the cache had warmed, and
+clean with the flag removed. pnpm treats the flag as a hint and refetches on a miss;
+npm treats the cached answer as final. Dropped for npm (with `--no-audit --no-fund`
+in its place, which is just log noise), and the file is queued behind the fix rather
+than promoted.
+
+**Two shapes of false green, one of which the timing heuristic does not catch.** The
+rule so far has been that a green under ~10-15s deployed nothing, and it correctly
+flagged `invalid-server-options` (3.5s, calls `next()` in-process) and
+`next-dynamic-lazy-compilation` (5.1s, `shouldUseTurbopack()` returns a stub). It
+said nothing at all about `cpu-profiling/cpu-profiling-dev`, which ran **187
+seconds** and asserted nothing:
+
+```ts
+const { next, isNextDev } = nextTestSetup({ ... })
+if (!isNextDev) {
+  it('skip for production mode', () => {})
+  return
+}
+```
+
+`nextTestSetup` has already built, deployed and invalidated by the time the gate is
+reached. A mode gate placed *after* setup costs full wall clock and yields zero
+coverage, and it is invisible to both the timing rule and the `mode-gated` screen
+(which looks for gates that prevent setup). The promotion rule is now: check for an
+early `return` alongside the timing, not instead of it. That is how the list went
+from 42 apparent greens to 39 promoted.
+
+Nearly-promoted but genuinely thin: the three `chrome-devtools-workspace` files
+branch on `isNextDev` too, but their production branch is
+`expect({ status }).toEqual({ status: 404 })` - a real assertion that a dev-only
+endpoint is not reachable on a real deployment. Kept, and labelled as the weakest
+rows in the table.
+
+`rules.include` 344 -> 383, candidates 95 -> 51 (~1.5 hours of wall clock left),
+fixed harness defects 26 -> 29. There is no defect 28: the number was skipped when
+`fallback-route-params` turned out to be defect 29 rather than a defect of its own,
+and it is left unassigned rather than renumbered, because 29 through 31 are already
+in commit messages.
