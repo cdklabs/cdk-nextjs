@@ -20,6 +20,7 @@ import {
   createDispatcher,
   ErrorTarget,
   NotFoundTarget,
+  outOfBandRouteParams,
   resolveErrorTarget,
 } from "./dispatch";
 import { EntrypointRegistry } from "./entrypoints";
@@ -245,9 +246,19 @@ export class NextjsRuntime {
         // applied rewrites, stripped i18n prefixes, and appended the `nxtP`
         // route params as query values. That is exactly the contract Next.js
         // documents for a proxy in front of a function — `RouteModule.prepare`
-        // recovers `params` from these query values — and it is why nothing here
-        // passes `requestMeta.params`.
-        req.url = formatTarget(result.invocationTarget);
+        // recovers `params` from these query values — so that contract, not
+        // `requestMeta.params`, is how params get passed. The one exception is
+        // a capture the contract would corrupt; see `outOfBandRouteParams`.
+        const outOfBand = outOfBandRouteParams(
+          result.invocationTarget.query,
+          result.resolvedPathname,
+        );
+        const invocationQuery =
+          outOfBand?.query ?? result.invocationTarget.query;
+        req.url = formatTarget({
+          pathname: result.invocationTarget.pathname,
+          query: invocationQuery,
+        });
         // Middleware may have rewritten request headers via
         // `NextResponse.next({ request: { headers } })`.
         req.headers = toIncomingHttpHeaders(result.requestHeaders);
@@ -274,7 +285,10 @@ export class NextjsRuntime {
             // division the `req.url` above relies on. Setting it does not stop
             // the second rewrite pass, it just stops that pass from being what
             // the route sees.
-            query: { ...result.invocationTarget.query },
+            query: { ...invocationQuery },
+            // Set only for a capture the query contract cannot carry, and then
+            // in place of it rather than alongside.
+            ...(outOfBand ? { params: outOfBand.params } : {}),
             // Without this, `RouteModule.prepare` falls back to
             // `http://localhost${req.url}` and every absolute URL a route
             // handler builds is wrong. `relativeProjectDir` is deliberately

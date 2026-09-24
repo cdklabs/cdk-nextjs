@@ -64,15 +64,14 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 | Verdict          | Files  |
 | ---------------- | ------ |
 | pass             | 427 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache`, 3 of 7 `dynamic-route-interpolation`, 1 of 2 `revalidate-path-with-rewrites` and 2 of 3 in each of the 6 `invalid-static-asset-404-*` files |
-| fixed            | 34 harness defects, every one of which came from a file listed above, and every one now verified green against a deployment. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
-| bug              | 1 (`incremental-cache-path-traversal`) |
-| upstream         | 1 (`rewrites-destination-query-array` — a `@next/routing` bug, not reachable from here) |
+| fixed            | 35 harness defects, every one of which came from a file listed above, and all but one now verified green against a deployment — the exception is defect 35, whose file cannot pass as written and which is verified offline against `next start` instead. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
+| upstream         | 2 (`rewrites-destination-query-array` — a `@next/routing` bug; `incremental-cache-path-traversal` — a fixture asserting two things that cannot both hold. Neither reachable from here) |
 | unsupported      | 2 (`prerender-encoding`, and `middleware-fetches-with-any-http-method` whose edge middleware the screen missed; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files (`revalidate-dynamic`, `proxy-readable-toweb`), plus the 2 remaining `trailingslash`, 4 remaining `dynamic-route-interpolation`, 1 remaining `revalidate-path-with-rewrites` and 1 remaining case in each of the 6 `invalid-static-asset-404-*` files |
 | architectural    | the 2 remaining `resume-data-cache` cases |
 | no signal        | 49 (2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files whose fixture cannot be built here) |
 
-The thirty-four fixed harness defects are its whole return on investment. All of
+The thirty-five fixed harness defects are its whole return on investment. All of
 them were real, all of them shipped, and none of them could have been caught by
 the construct tests or by `examples/e2e-tests`.
 
@@ -1780,23 +1779,19 @@ Confirmed deployed: green on attempt 0 in 107s. The file stays a `suites` partia
 — its `static page` case is still the CDN invalidation-timing failure described
 below, which is a different problem.
 
-## Bug — not yet fixed
+### 35. A catch-all capture containing an encoded `/` 500s
 
-### A path-traversal `_next/data` request 500s instead of rendering
-
-`incremental-cache-path-traversal` (1 of 1). **Verdict: bug**, low severity.
-
-The file is upstream's regression test for a path-traversal read: it requests
+From `incremental-cache-path-traversal` (1 of 1), which is upstream's regression
+test for a path-traversal read: it requests
 `/_next/data/<buildId>/pages-cache/..%2F..%2Fserver-reference-manifest.json` and
 asserts a **200** whose `pageProps.rest` is the literal `['..', '..',
 'server-reference-manifest']` — i.e. the traversal is treated as ordinary route
 params and no manifest is leaked. We answer **500**.
 
-So the security property the test exists to protect holds — nothing leaks — and
-the failure is a fidelity gap: the runtime throws where `next start` renders.
-Worth fixing for that reason, and worth noting that the file is *not* screened
-out despite its `describe.skip`: that skip is conditional on
-`__NEXT_CACHE_COMPONENTS`, which the harness does not set.
+The security property the test exists to protect held throughout — nothing leaked
+— so this was a fidelity gap: the runtime threw where `next start` renders. Worth
+noting that the file is *not* screened out despite its `describe.skip`: that skip
+is conditional on `__NEXT_CACHE_COMPONENTS`, which the harness does not set.
 
 Root-caused offline (`scripts/e2e-offline.sh incremental-cache-path-traversal`),
 where both routers log the same throw:
@@ -1834,13 +1829,38 @@ to the third row, which is a 200 but still not what `next start` renders.
 `router-server` sets `requestMeta.params` directly, and `RouteModule.prepare`
 (`route-module.ts:804`) uses that as-is without normalizing or splitting.
 
-One consequence worth stating before anyone tries to make this file green: the
-fixture's `isNextDeploy && isAdapterTest` branch asserts status 200 *together
-with* `rest: ['..', '..', 'server-reference-manifest']`, and per the table above
-that array is precisely the shape `normalizePagePath` rejects — with `cacheKey`
-passed to `handleResponse` regardless of `isMinimalMode`, so there is no bypass.
-The two assertions cannot both hold on 16.3.5. Fixing our 500 is still worth
-doing, but it cannot make this test pass without an upstream fixture change.
+Fixed by doing the same thing, narrowly. `outOfBandRouteParams` (`dispatch.ts`)
+detects a `nxtP` capture containing `%2F`, decodes the params itself — splitting a
+repeat on real delimiters only — and hands them over as `requestMeta.params`,
+*removing* the `nxtP` values from both the query and `req.url`. The removal is
+load-bearing: `prepare` prefers the query over `params` when both parse and are
+the same size (`route-module.ts:892`), so leaving them in would restore the split.
+Every other request keeps the documented query contract, which is lossless for
+them; a param set that cannot be fully restated (an optional catchall the request
+left unset) stays on the query contract too, since half a param set is worse than
+none.
+
+Verified offline: both the `pages-cache` and `app-cache` routes of the fixture now
+answer 200 with bodies byte-identical to `next start`'s, and an ordinary
+multi-segment catch-all (`/pages-cache/a/b`) is unchanged.
+
+The file still cannot pass, for a reason on the fixture's side: its
+`isNextDeploy && isAdapterTest` branch asserts status 200 *together with*
+`rest: ['..', '..', 'server-reference-manifest']`, and per the table above that
+array is precisely the shape `normalizePagePath` rejects — with `cacheKey` passed
+to `handleResponse` regardless of `isMinimalMode`, so there is no bypass. The two
+assertions cannot both hold on 16.3.5, which is why it is filed as an upstream
+fixture bug below and stays excluded.
+
+## Upstream — a fixture that cannot pass as written
+
+### `incremental-cache-path-traversal` asserts a 200 for a param shape that throws
+
+`incremental-cache-path-traversal` (1 of 1). **Verdict: upstream bug in the
+fixture**, not reachable from cdk-nextjs. Excluded until it is fixed there. The
+runtime behaviour it was exposing is fixed — see defect 35, whose closing
+paragraphs are the argument for why the file's two assertions are mutually
+exclusive.
 
 ## Batch log — how each verdict was reached
 

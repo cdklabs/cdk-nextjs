@@ -4487,3 +4487,57 @@ race passes sometimes; and a regression pass earns its cost even when the answer
 "the merge is fine", because it re-rolls exactly those races. The file stays a
 `suites` partial: its `static page` case is still the CDN invalidation-timing
 failure, a different problem with a different verdict.
+
+### Defect 35: a catch-all capture containing an encoded `/` 500s
+
+`incremental-cache-path-traversal` was the last file carrying a plain **bug**
+verdict. It requests
+`/_next/data/<buildId>/pages-cache/..%2F..%2Fserver-reference-manifest.json`; we
+answered 500 where `next start` renders a 200. Nothing leaked either way — the
+security property the fixture exists to protect was never in question — so this
+was a fidelity gap, and it is fixed.
+
+The chain, established with an offline repro and a script run directly against
+next's built `dist`. `normalizePagePath` throws `Requested and resolved page
+mismatch` whenever `posix.normalize` changes the string it is handed, and the
+pages handler hands it the resolved pathname as a cache key. So everything turns
+on the shape of `params.rest`: `['..', '..', 'server-reference-manifest']` throws,
+while `['../../server-reference-manifest']` (what `next start` produces) and
+`['..%2F..%2Fserver-reference-manifest']` both normalize safely.
+
+We produced the first, and not by encoding the param wrongly — the runtime emits
+exactly what the `nxtP` contract asks for. That contract loses the value on the
+way in, twice over: `normalizeQueryParams` runs `decodeQueryPathParameter`, a
+*second* `decodeURIComponent`, over every de-prefixed value ("when deployed to
+Vercel the value may be encoded"), and `normalizeDynamicRouteParams` then splits a
+string repeat param on `/` ("query values from the proxy aren't already split into
+arrays"). Two decodes and a split: an encoded `/` inside a catch-all cannot
+survive it, and no encoding on our side helps, because whatever survives two
+decodes still gets split. Triple-encoding only reaches the third shape above — a
+200, but not what `next start` renders.
+
+`next start` is immune because it never uses the contract: `router-server` sets
+`requestMeta.params` and `RouteModule.prepare` takes that as-is, no decode, no
+split. The fix reproduces that, narrowly. `outOfBandRouteParams` fires only when a
+`nxtP` capture contains `%2F`; it decodes the params itself, splitting a repeat on
+real delimiters only, and hands them over as `requestMeta.params` while removing
+the `nxtP` values from the query *and* from `req.url`. That removal is the
+non-obvious half: `prepare` prefers the query over `params` when both parse and are
+the same size, so leaving them in would have restored the split and changed
+nothing. A param set that cannot be fully restated — an optional catchall the
+request left unset — stays on the query contract, because handing `prepare` half a
+param set is worse than handing it none.
+
+Verified offline against `next start` on the same build: both the `pages-cache`
+and the `app-cache` route now answer 200 with byte-identical bodies, and
+`/pages-cache/a/b` is unchanged on both. Unit tests cover the helper's six
+branches plus the core-level effect (`params` set, `nxtP` gone from the URL).
+
+The file itself still cannot pass, and this is worth recording because it is not
+our defect to fix: its `isNextDeploy && isAdapterTest` branch asserts status 200
+*together with* `rest: ['..', '..', 'server-reference-manifest']`, which is
+precisely the shape `normalizePagePath` rejects — and `cacheKey` is passed to
+`handleResponse` regardless of `isMinimalMode`, so there is no bypass. The two
+assertions are mutually exclusive on 16.3.5. Its verdict therefore moves from
+**bug** to **upstream**, and the harness excludes it for the fixture's reason
+rather than ours. Which leaves the coverage doc with no open `bug` verdict at all.
