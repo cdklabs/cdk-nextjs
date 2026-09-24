@@ -60,7 +60,20 @@ case "$PM" in
     ;;
   *)
     PM_CMD=("$PM")
-    INSTALL_ARGS=(--prefer-offline)
+    # No `--prefer-offline` here, deliberately. pnpm treats it as a hint and falls
+    # back to the network when a cached packument has no matching version; npm
+    # treats the stale packument as the answer and fails outright with
+    #
+    #   npm error code ETARGET
+    #   npm error notarget No matching version found for next@16.3.5.
+    #
+    # even though the registry does have it. Any recently published version in the
+    # tree hits this - reproduced with `next` itself and, on a warmer cache, with
+    # its transitive `postcss@8.5.23` - so it fails whenever this machine's npm
+    # cache predates the `next` release the fixtures pin. It is what made
+    # test/e2e/handle-non-hoisted-swc-helpers, the one fixture that pins
+    # `npm@10.9.2`, look like a deploy failure.
+    INSTALL_ARGS=(--no-audit --no-fund)
     ;;
 esac
 echo "harness: package manager $PM (${PM_CMD[*]})"
