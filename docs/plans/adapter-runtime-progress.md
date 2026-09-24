@@ -4390,3 +4390,57 @@ deciding unilaterally.
 
 `rules.include` 344 -> 383, `suites` 4 -> 10, candidates 51 -> 44, fixed harness defects
 29 -> 33.
+
+### The candidate pool is empty
+
+`node scripts/e2e-harness/screen.mjs` now reports **0 candidates**. Every one of
+next.js 16.3.5's 1134 e2e test files is either in `rules.include` (427), included
+per-case through `suites` (10), or disqualified by a screen — and every
+disqualification that is a cdk-nextjs decision rather than an upstream skip has a
+written verdict in `docs/harness-coverage.md`. That was the goal set when the
+harness work started ("as many as we can", then "until all are included or excluded
+for valid reason with cdk-nextjs"), and it is reached.
+
+Three files closed it out after batch 18's greens were promoted.
+
+**`not-found-revalidate` and `revalidate-reason`** were held back from the manifest
+until a *deployed* run confirmed defects 32 and 33, rather than promoted on the
+strength of the offline comparison. Both came back green on attempt 0 — 206s and
+105s against the shared stack. That mattered specifically for defect 32, whose
+whole diagnosis turned on the init cache existing, which offline has no equivalent
+of.
+
+**`handle-non-hoisted-swc-helpers`** was the last holdout, and it was ours twice
+over. The `--prefer-offline` half was already fixed. What surfaced behind it: the
+harness hardcodes `"build": "next build && pnpm post-build"` in
+`test/lib/next-modes/base.ts`, and pnpm honours `packageJson.packageManager` by
+refusing to run *any* script for a project pinned to a different manager —
+
+```
+ ERROR  This project is configured to use npm
+```
+
+— which this fixture is, uniquely (`npm@10.9.2`). Since the `pnpm post-build` is
+hardcoded, there is nothing to route around; the check has to be switched off.
+`npm_config_package_manager_strict=false`, exported in `scripts/e2e-deploy.sh`, is
+the documented opt-out and touches only the `packageManager` assertion, not
+resolution or the lockfile. Verified in isolation before committing: bare `pnpm`
+(which is what a fixture's `build` script invokes — `which pnpm` is a standalone
+install here, not a corepack shim) runs the script with the knob and refuses
+without it. `COREPACK_ENABLE_PROJECT_SPEC=0` also bypasses the spec but sends
+corepack looking for a pnpm it has not downloaded, so it is the wrong lever.
+Green on attempt 0 in 102s.
+
+What is left is maintenance rather than expansion: the weekly scheduled run
+(Sunday morning, so a result is waiting Monday) now covers 437 files, and
+`screening` will report new candidates whenever next.js adds e2e files. The two
+things carried forward as known and accepted are `incremental-cache-path-traversal`
+(a real low-severity bug — a 500 where `next start` renders; the security property
+the test exists for does hold) and `rewrites-destination-query-array` (an upstream
+`@next/routing` bug, worth a two-line PR to vercel/next.js).
+
+One decision deliberately left to the user rather than made here: whether to grant
+`s3:ListBucket` to the OAC principal so a missing `/_next/static/*` answers 404
+instead of 403. It would *not* make the six `invalid-static-asset-404-*` cases pass
+— the body would still be S3's XML where the test wants exactly `Not Found` — and it
+widens a bucket policy, so it is recorded as CDN-inherent and flagged instead.
