@@ -366,6 +366,7 @@
       "test/e2e/esm-externals/esm-externals.test.ts",
       "test/e2e/fallback-route-params/fallback-route-params.test.ts",
       "test/e2e/favicon-short-circuit/favicon-short-circuit.test.ts",
+      "test/e2e/handle-non-hoisted-swc-helpers/index.test.ts",
       "test/e2e/hashbang/hashbang.test.ts",
       "test/e2e/hello-world/hello-world.test.ts",
       "test/e2e/hydration/hydration.test.ts",
@@ -396,21 +397,64 @@
       "test/e2e/new-link-behavior/stitches.test.ts",
       "test/e2e/next-dynamic-css/next-dynamic-css.test.ts",
       "test/e2e/next-dynamic/next-dynamic.test.ts",
+      "test/e2e/next-form/basepath/next-form-basepath.test.ts",
+      "test/e2e/next-form/default/app-dir.test.ts",
+      "test/e2e/next-form/default/pages-dir.test.ts",
       "test/e2e/next-head/index.test.ts",
+      "test/e2e/next-image-forward-ref/index.test.ts",
+      "test/e2e/next-image-legacy/asset-prefix/asset-prefix.test.ts",
       "test/e2e/next-image-legacy/default/default.test.ts",
+      "test/e2e/next-image-legacy/image-from-node-modules/image-from-node-modules.test.ts",
+      "test/e2e/next-image-legacy/trailing-slash/trailing-slash.test.ts",
       "test/e2e/next-image-legacy/unicode/unicode.test.ts",
+      "test/e2e/next-image-legacy/unoptimized/unoptimized.test.ts",
+      "test/e2e/next-image-new/app-dir-image-from-node-modules/app-dir-image-from-node-modules.test.ts",
+      "test/e2e/next-image-new/asset-prefix/asset-prefix.test.ts",
+      "test/e2e/next-image-new/image-from-node-modules/image-from-node-modules.test.ts",
+      "test/e2e/next-image-new/loader-config-default-loader-with-file/loader-config-default-loader-with-file.test.ts",
+      "test/e2e/next-image-new/loader-config/loader-config.test.ts",
+      "test/e2e/next-image-new/trailing-slash/trailing-slash.test.ts",
       "test/e2e/no-page-props/no-page-props.test.ts",
+      "test/e2e/nonce-head-manager/index.test.ts",
+      "test/e2e/not-found-revalidate/not-found-revalidate.test.ts",
       "test/e2e/opentelemetry/client-trace-metadata/client-trace-metadata.test.ts",
+      "test/e2e/optimized-loading/test/index.test.ts",
+      "test/e2e/optional-chaining-nullish-coalescing/optional-chaining-nullish-coalescing.test.ts",
+      "test/e2e/pages-app-router-filenames/pages-app-router-filenames.test.ts",
+      "test/e2e/port-env-var/port-env-var.test.ts",
+      "test/e2e/postcss-config-cjs/index.test.ts",
+      "test/e2e/postcss-config-package/index.test.ts",
       "test/e2e/prerender-preview/prerender-preview.test.ts",
       "test/e2e/preview-fallback/preview-fallback.test.ts",
+      "test/e2e/react-dnd-compile/react-dnd-compile.test.ts",
+      "test/e2e/reload-scroll-backforward-restoration/index.test.ts",
+      "test/e2e/repeated-forward-slashes-error/repeated-forward-slashes-error.test.ts",
+      "test/e2e/revalidate-reason/revalidate-reason.test.ts",
       "test/e2e/rewrites-client-resolving/rewrites-client-resolving.test.ts",
+      "test/e2e/rewrites-has-condition/rewrites-has-condition.test.ts",
+      "test/e2e/rewrites-manual-href-as/rewrites-manual-href-as.test.ts",
+      "test/e2e/route-load-cancel/route-load-cancel.test.ts",
+      "test/e2e/router-is-ready-app-gip/router-is-ready-app-gip.test.ts",
       "test/e2e/router-is-ready/router-is-ready.test.ts",
+      "test/e2e/router-prefetch/router-prefetch.test.ts",
       "test/e2e/script-loader/script-loader.test.ts",
+      "test/e2e/scroll-forward-restoration/scroll-forward-restoration.test.ts",
+      "test/e2e/server-asset-modules/server-asset-modules.test.ts",
+      "test/e2e/src-dir-support-double-dir/src-dir-support-double-dir.test.ts",
       "test/e2e/src-dir-support/src-dir-support.test.ts",
+      "test/e2e/ssr-react-context/index.test.ts",
+      "test/e2e/static-page-name/static-page-name.test.ts",
+      "test/e2e/test-utils-tests/basic/basic.test.ts",
+      "test/e2e/third-parties/index.test.ts",
       "test/e2e/trailing-slashes-href-resolving/trailing-slashes-href-resolving.test.ts",
+      "test/e2e/trailing-slashes/with-trailing-slash.test.ts",
+      "test/e2e/trailing-slashes/without-trailing-slash.test.ts",
+      "test/e2e/twoslash/index.test.ts",
       "test/e2e/typescript-paths/test/index.test.ts",
+      "test/e2e/undici-fetch/index.test.ts",
       "test/e2e/use-link-status/index.test.ts",
-      "test/e2e/use-router-with-rewrites/use-router-with-rewrites.test.ts"
+      "test/e2e/use-router-with-rewrites/use-router-with-rewrites.test.ts",
+      "test/e2e/useselectedlayoutsegment-s-in-pages-router/useselectedlayoutsegment-s-in-pages-router.test.ts"
     ],
     "exclude": []
   },
@@ -471,6 +515,102 @@
       ],
       "failed": [
         "revalidatePath with rewrites static page should revalidate a static page that was rewritten"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-app should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app-asset-prefix.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-app-asset-prefix should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app-base-path.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-app-base-path should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-pages should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages-asset-prefix.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-pages-asset-prefix should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages-base-path.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`403` because the OAC principal has no `s3:ListBucket`, and granting it would",
+        "fix the status but not the body. CDN-inherent; see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-pages-base-path should return 404 with plain text when fetching invalid asset path"
       ],
       "flakey": []
     }
@@ -604,16 +744,40 @@
       "screen catches are a floor, not a ceiling - an inline-`files` fixture only shows up as a ~7s deploy",
       "failure."
     ],
-    "test/e2e/handle-non-hoisted-swc-helpers/index.test.ts": [
-      "Promotable only once its npm install works. It is the single fixture that pins `packageManager:",
-      "npm@10.9.2`, and scripts/e2e-deploy.sh passed npm `--prefer-offline`, which makes npm resolve",
-      "against a stale packument and fail with `ETARGET No matching version found for next@16.3.5` for",
-      "versions the registry does have. pnpm treats the same flag as a hint and refetches. Fixed by",
-      "dropping the flag for npm; awaiting a green run.",
+    "test/e2e/rewrites-destination-query-array/rewrites-destination-query-array.test.ts": [
+      "Excluded: an upstream bug in `@next/routing@16.3.5`, the routing library `next` hands an adapter",
+      "deployment. A rewrite destination's repeated query key is collapsed to its last value, because",
+      "`applyDestination` and `mergeDestinationQueryIntoUrl` both iterate the destination's params with",
+      "`URLSearchParams#set` instead of `append`:",
       "",
-      "Caveat even when green: the fixture's point is a node_modules layout where `@swc/helpers` is not",
-      "hoisted, which it arranges with an `installCommand`. Deploy mode sets `skipInstall`, so that command",
-      "never runs and scripts/e2e-deploy.sh installs normally - a green here does not exercise the layout."
+      "  packages/next-routing/src/destination.ts:63      newUrl.searchParams.set(key, value)",
+      "  packages/next-routing/src/resolve-routes.ts:312  mergedUrl.searchParams.set(key, value)",
+      "",
+      "So `/query?items=1&items=2` arrives as `items: \"2\"` and the fixture's `props.query.items.join(',')`",
+      "throws `TypeError: a.query.items.join is not a function` - a 500 where `next start` renders `1,2`.",
+      "`next start` is unaffected: it resolves routes with its own in-tree `router-server`.",
+      "",
+      "Not reachable from here. By the time `resolveRoutes` returns, one value is already gone; our own",
+      "`formatTarget` round-trips a repeated key without loss. Reproduced offline with",
+      "`scripts/e2e-offline.sh rewrites-destination-query-array` (500 vs 200 off the same build). Worth",
+      "reporting upstream - the fix is two `set` -> `append` calls. Requeue once it ships."
+    ],
+    "test/e2e/proxy-readable-toweb/proxy-readable-toweb.test.ts": [
+      "Excluded as CDN-inherent. Both cases `POST` a JSON body from the jest process and get",
+      "`403 InvalidSignatureException` with `x-cache: Error from cloudfront`. CloudFront's origin access",
+      "control signs the request to a Lambda Function URL with SigV4 but supplies only the empty-body",
+      "hash, so a request with a body must carry `x-amz-content-sha256` holding that body's hex SHA-256",
+      "or Lambda rejects the payload. Measured against the live distribution: with the header the request",
+      "reaches the origin, without it a 403, and nothing else is a factor.",
+      "",
+      "cdk-nextjs already covers the browser - `src/nextjs-build/patch-fetch.js` is prepended to the",
+      "client entry chunks - so nothing in an app's own pages is affected. `next.fetch` is a plain Node",
+      "fetch, and the next.js checkout is an unmodified `v16.3.5` tag, so `test/lib/next-modes/base.ts`",
+      "is not ours to patch. The README now states the constraint under Limitations.",
+      "",
+      "The Node-runtime proxy this file is about is still covered: four `proxy-*` files are in",
+      "`rules.include`, `app-dir/proxy-runtime-nodejs` among them. What is lost here is specifically a",
+      "`POST` body from a non-browser client."
     ]
   },
   "screening": {
@@ -637,17 +801,17 @@
     ],
     "next-version": "16.3.5",
     "e2e-files": 1134,
-    "included": 383,
-    "included-in-part": 4,
+    "included": 427,
+    "included-in-part": 10,
     "edge-free": 931,
-    "candidates": 51,
+    "candidates": 0,
     "disqualified-by": {
       "skipDeployment": 416,
       "middleware": 127,
       "edge": 126,
       "skipped-upstream": 121,
       "isNextDeploy-gate": 120,
-      "verdict": 32,
+      "verdict": 33,
       "output-export": 29,
       "mode-gated": 25,
       "scaffold": 2

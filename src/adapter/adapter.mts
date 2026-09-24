@@ -186,6 +186,30 @@ const adapter: NextAdapter = {
             },
           };
         } else if (kind === CachedRouteKind.PAGES) {
+          // A build-time `notFound: true`. Next.js reports the route as
+          // prerendered and hands us a prerender whose `filePath` is
+          // `pages/404.html` and whose `initialStatus` is 404 - but it writes
+          // *no* output for it (no `first.html`, `.json` or `.meta`), because a
+          // Pages Router `notFound` is represented in the cache as an entry
+          // whose `value` is `null` (`pages-handler.ts`, "isNotFound in
+          // metadata"), and `FileSystemCache.set` keeps a null value in its LRU
+          // only, never on disk. So `next start` misses, re-runs
+          // `getStaticProps`, and answers 404 from `render404()`.
+          //
+          // Seeding it as an ordinary `PAGES` entry made that a 200: the entry
+          // is a HIT carrying the 404 page's HTML, and the pages handler never
+          // reads `value.status` on the HIT path, so the status stayed 200 while
+          // the body said "404 page". Skipping it restores the miss, and with it
+          // `next start`'s status. Costs one render per revalidate window, which
+          // is what `next start` pays too.
+          const initialStatus = htmlPrerender?.fallback?.initialStatus;
+          if (initialStatus !== undefined && initialStatus !== 200) {
+            debug(
+              `SKIP: PAGES ${basePath} prerendered with status ${initialStatus} (build-time notFound)`,
+            );
+            continue;
+          }
+
           const html = await readPrerenderAsText(htmlPrerender);
 
           if (!html) {
