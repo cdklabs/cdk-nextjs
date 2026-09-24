@@ -366,6 +366,7 @@
       "test/e2e/esm-externals/esm-externals.test.ts",
       "test/e2e/fallback-route-params/fallback-route-params.test.ts",
       "test/e2e/favicon-short-circuit/favicon-short-circuit.test.ts",
+      "test/e2e/handle-non-hoisted-swc-helpers/index.test.ts",
       "test/e2e/hashbang/hashbang.test.ts",
       "test/e2e/hello-world/hello-world.test.ts",
       "test/e2e/hydration/hydration.test.ts",
@@ -743,17 +744,6 @@
       "screen catches are a floor, not a ceiling - an inline-`files` fixture only shows up as a ~7s deploy",
       "failure."
     ],
-    "test/e2e/handle-non-hoisted-swc-helpers/index.test.ts": [
-      "Promotable only once its npm install works. It is the single fixture that pins `packageManager:",
-      "npm@10.9.2`, and scripts/e2e-deploy.sh passed npm `--prefer-offline`, which makes npm resolve",
-      "against a stale packument and fail with `ETARGET No matching version found for next@16.3.5` for",
-      "versions the registry does have. pnpm treats the same flag as a hint and refetches. Fixed by",
-      "dropping the flag for npm; awaiting a green run.",
-      "",
-      "Caveat even when green: the fixture's point is a node_modules layout where `@swc/helpers` is not",
-      "hoisted, which it arranges with an `installCommand`. Deploy mode sets `skipInstall`, so that command",
-      "never runs and scripts/e2e-deploy.sh installs normally - a green here does not exercise the layout."
-    ],
     "test/e2e/rewrites-destination-query-array/rewrites-destination-query-array.test.ts": [
       "Excluded: an upstream bug in `@next/routing@16.3.5`, the routing library `next` hands an adapter",
       "deployment. A rewrite destination's repeated query key is collapsed to its last value, because",
@@ -811,7 +801,7 @@
     ],
     "next-version": "16.3.5",
     "e2e-files": 1134,
-    "included": 426,
+    "included": 427,
     "included-in-part": 10,
     "edge-free": 931,
     "candidates": 0,
@@ -821,7 +811,7 @@
       "edge": 126,
       "skipped-upstream": 121,
       "isNextDeploy-gate": 120,
-      "verdict": 34,
+      "verdict": 33,
       "output-export": 29,
       "mode-gated": 25,
       "scaffold": 2

@@ -78,7 +78,18 @@ case "$PM" in
 esac
 echo "harness: package manager $PM (${PM_CMD[*]})"
 # The `build` script the harness writes always chains `pnpm post-build`
-# (hardcoded in base.ts), so pnpm has to be on PATH whatever $PM is.
+# (hardcoded in base.ts), so pnpm has to be on PATH whatever $PM is - and for a
+# fixture that pins a *different* package manager, pnpm refuses to run any script
+# at all:
+#
+#   ERROR  This project is configured to use npm
+#
+# which is pnpm honoring `packageJson.packageManager`. There is no way to reach
+# next.js's hardcoded `pnpm post-build`, so the check has to be turned off rather
+# than routed around. This is the documented opt-out and it only affects the
+# packageManager assertion, not resolution or the lockfile. Exported for the
+# `next build` below, which is what runs the chained script.
+export npm_config_package_manager_strict=false
 "${PM_CMD[@]}" install "${INSTALL_ARGS[@]}"
 
 # Make the adapter resolvable as a package rather than a loose file: the adapter
