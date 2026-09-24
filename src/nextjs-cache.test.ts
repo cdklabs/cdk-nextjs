@@ -1,10 +1,19 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { App, Stack } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { App, Size, Stack } from "aws-cdk-lib";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
+import { Bucket } from "aws-cdk-lib/aws-s3";
+import { Source } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsCache } from "./nextjs-cache";
 
 describe("NextjsCache", () => {
@@ -197,6 +206,75 @@ describe("NextjsCache", () => {
       expect(first).toHaveLength(1);
       expect(first[0]).toMatch(/^aws-cdk:cr-owned:[0-9a-f]{8}$/);
       expect(second).toEqual(first);
+    });
+
+    /**
+     * The unzip Lambda holds the asset zip and its extracted contents in `/tmp`
+     * at once, so a seed directory bigger than the 512 MiB CDK asks for by
+     * default kills it with `[Errno 28] No space left on device` — and under
+     * `cdk deploy --hotswap` that failure is invisible, because the CLI hands the
+     * custom resource a placeholder response URL and never reads its status.
+     */
+    function deploymentLambda(template: Template) {
+      const functions = template.findResources("AWS::Lambda::Function", {
+        Properties: {
+          Handler: "index.handler",
+          Runtime: Match.stringLikeRegexp("^python"),
+        },
+      });
+      expect(Object.keys(functions)).toHaveLength(1);
+      return Object.values(functions)[0].Properties;
+    }
+
+    it("leaves a small init cache on the default Lambda sizing", () => {
+      const properties = deploymentLambda(synth("build-abc123").template);
+
+      // The floor, not a computed value: a handful of bytes still wants 512 MiB
+      // because that is the least Lambda will give.
+      expect(properties.EphemeralStorage).toEqual({ Size: 512 });
+      // Absent, not 128: leaving `memoryLimit` alone keeps the property out of
+      // the template, which is Lambda's own 128 MB default.
+      expect(properties.MemorySize).toBeUndefined();
+    });
+
+    it("scales /tmp and memory to a large init cache", () => {
+      // A sparse file: `statSync` reports 300 MiB, the filesystem stores almost
+      // nothing, and the zip of a 300 MiB hole costs no real work.
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      writeFileSync(big, "");
+      truncateSync(big, 300 * 1024 * 1024);
+
+      const properties = deploymentLambda(synth("build-abc123").template);
+
+      // 301 MiB of cache — the 300 MiB hole plus the fixture's own file, rounded
+      // up — doubled for the zip that sits beside it, plus headroom.
+      expect(properties.EphemeralStorage).toEqual({ Size: 730 });
+      expect(properties.MemorySize).toBe(1024);
+    });
+
+    it("lets overrides win over the computed sizing", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            destinationBucket: Bucket.fromBucketName(
+              ownStack,
+              "Existing",
+              "someone-elses-bucket",
+            ),
+            sources: [Source.data("marker", "x")],
+            ephemeralStorageSize: Size.gibibytes(2),
+            memoryLimit: 2048,
+          },
+        },
+      });
+
+      const properties = deploymentLambda(Template.fromStack(ownStack));
+      expect(properties.EphemeralStorage).toEqual({ Size: 2048 });
+      expect(properties.MemorySize).toBe(2048);
     });
   });
 });

@@ -62,6 +62,7 @@ exports.handler = async (req, res, ctx) => {
       url: req.url,
       initURL: ctx.requestMeta && ctx.requestMeta.initURL,
       hostname: ctx.requestMeta && ctx.requestMeta.hostname,
+      query: ctx.requestMeta && ctx.requestMeta.query,
       hasRender404: Boolean(ctx.requestMeta && ctx.requestMeta.render404),
       waitUntil: typeof ctx.waitUntil,
       cwd: process.cwd(),
@@ -322,6 +323,7 @@ describe("NextjsRuntime.handle", () => {
     // The documented deployed-proxy contract: `prepare()` recovers `params`
     // from these, which is why nothing passes `requestMeta.params`.
     expect(body.url).toBe("/isr/42?nxtPid=42");
+    expect(body.query).toEqual({ nxtPid: "42" });
   });
 
   it("runs middleware and applies the request headers it overrode", async () => {
@@ -655,5 +657,96 @@ exports.handler = async () =>
 
     expect(sink.head?.headers["content-encoding"]).toBe("gzip");
     expect(gunzipSync(sink.body).toString("utf-8")).toBe(ORIGIN_BODY);
+  });
+});
+
+/**
+ * Last in the file, because `loadRuntime` chdirs: the tests above assert on the
+ * cwd the shared deployment set.
+ */
+describe("the resolved query a rewrite produced", () => {
+  /**
+   * `test/e2e/link-with-api-rewrite`'s rule, as it lands in the manifest: a
+   * `beforeFiles` rewrite whose condition is a query param the destination keeps.
+   */
+  const withSelfMatchingRewrite = (
+    manifest: AdapterManifest,
+  ): AdapterManifest =>
+    ({
+      ...manifest,
+      routing: {
+        ...(manifest.routing as Record<string, unknown>),
+        beforeFiles: [
+          {
+            source: "/:path(.*)",
+            sourceRegex: "^(?:\\/(.*))(?:\\/)?$",
+            destination: "/?from=%2F$1",
+            has: [{ type: "query", key: "json", value: "true" }],
+          },
+        ],
+      },
+    }) as AdapterManifest;
+
+  /**
+   * `RouteModule.prepare` re-runs the config's rewrites against `req.url`
+   * unconditionally, and `req.url` is the target the rewrite already produced -
+   * so a rule that still matches its own output gets applied twice. Here that
+   * turned `from=/some/route/for` into `from=/`, which is what made
+   * `test/e2e/link-with-api-rewrite` answer `{"from":"/api/json"}` where
+   * `next start` answers `{"from":"/some/route/for"}`. Stating the resolved query
+   * as `requestMeta.query` is what `prepare` prefers over anything it re-derives,
+   * so the route sees the first pass rather than the second.
+   */
+  it("is handed over as requestMeta.query, not left to be re-derived", async () => {
+    const rewriting = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, withSelfMatchingRewrite),
+    );
+    const sink = new CollectingSink();
+    await rewriting.handle(
+      {
+        method: "GET",
+        url: "/some/route/for?json=true",
+        headers: { host: "shop.example.test" },
+      },
+      sink,
+    );
+
+    const body = stubBody(sink);
+    // Its own staged tree, so not `root`: the rewrite is the point.
+    expect(body.file).toContain(".next/server/app/page.js");
+    expect(body.query).toEqual({ json: "true", from: "/some/route/for" });
+  });
+});
+
+/**
+ * `next start` answers `//` with `308 -> /` and `/api//json` with
+ * `308 -> /api/json`; this runtime used to answer 500 and 404. The 500 is the
+ * reason the check runs before anything parses the target: `new URL("//", base)`
+ * reads a leading `//` as protocol-relative and takes the first path segment for
+ * the host. Found by `test/e2e/hydration`, which requests exactly `//`, and by
+ * `test/e2e/i18n-ignore-redirect-source-locale/redirects-with-basepath`, whose
+ * locale list includes `''` and so asks for `/basepath//to-sv`.
+ */
+describe("a path with repeated slashes or a backslash", () => {
+  it.each([
+    ["//", "/"],
+    ["///", "/"],
+    ["/api//json", "/api/json"],
+    ["/basepath//to-sv", "/basepath/to-sv"],
+    ["/a\\b", "/a/b"],
+    // The query is carried across untouched, repeated slashes and all.
+    ["//some/route?json=true&next=//x", "/some/route?json=true&next=//x"],
+  ])("redirects %s to %s with a 308", async (from, to) => {
+    const sink = await send({ url: from });
+    expect(sink.head?.statusCode).toBe(308);
+    expect(sink.head?.headers.location).toBe(to);
+    // Next.js sends the destination as the body too.
+    expect(sink.body.toString("utf-8")).toBe(to);
+  });
+
+  /** `%5C` is a character in a segment, not a separator - as in Next.js. */
+  it("leaves an encoded backslash alone", async () => {
+    const sink = await send({ url: "/a%5Cb" });
+    expect(sink.head?.statusCode).not.toBe(308);
   });
 });

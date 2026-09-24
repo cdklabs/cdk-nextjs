@@ -154,12 +154,21 @@ export class NextjsRuntime {
     });
 
     try {
-      // Inside the try: `absoluteUrl` builds a `URL` out of the request line and
-      // the forwarded headers, and a throw here has to reach the error ladder
-      // like any other. Outside it, on the Lambda shells — whose handlers wrap
-      // nothing — the same throw is an invocation error and a 502.
-      const url = absoluteUrl(request);
-      await this.route(req, res, url, body.forDispatch, waitUntil, request);
+      // Before anything parses the target, including `absoluteUrl` - `new URL`
+      // reads a leading `//` as protocol-relative and would take the first path
+      // segment for the host.
+      const collapsed = collapseRepeatedSlashes(request.url);
+      if (collapsed !== undefined) {
+        sendRedirect(res, collapsed, 308);
+      } else {
+        // Inside the try: `absoluteUrl` builds a `URL` out of the request line
+        // and the forwarded headers, and a throw here has to reach the error
+        // ladder like any other. Outside it, on the Lambda shells — whose
+        // handlers wrap nothing — the same throw is an invocation error and a
+        // 502.
+        const url = absoluteUrl(request);
+        await this.route(req, res, url, body.forDispatch, waitUntil, request);
+      }
     } catch (error) {
       await this.sendError(req, res, waitUntil, error);
     }
@@ -234,6 +243,27 @@ export class NextjsRuntime {
         await handler(req, asServerResponse(res), {
           waitUntil,
           requestMeta: {
+            // The resolved query, stated rather than left to be re-derived.
+            //
+            // `RouteModule.prepare` runs `handleRewrites` against `req.url`
+            // unconditionally, and `req.url` is the *already rewritten* target.
+            // A `beforeFiles` rewrite whose condition still holds after it has
+            // been applied therefore gets applied twice: in
+            // `test/e2e/link-with-api-rewrite` the rule
+            // `/:path(.*)` + `has: query json=true` -> `/api/json?from=/:path`
+            // matched `/api/json?json=true&from=/some/route/for` a second time
+            // and overwrote `from` with `/api/json`. `next start` escapes it
+            // because its router leaves `req.url` as the URL the client sent, so
+            // the one pass `prepare` makes is the only one.
+            //
+            // `prepare` prefers this meta over its own `parsedUrl.query`
+            // ("when deployed proxies will add query values from resolving the
+            // routes to pass to function"), which is the documented division of
+            // labour for a proxy in front of a function - and it is the same
+            // division the `req.url` above relies on. Setting it does not stop
+            // the second rewrite pass, it just stops that pass from being what
+            // the route sees.
+            query: { ...result.invocationTarget.query },
             // Without this, `RouteModule.prepare` falls back to
             // `http://localhost${req.url}` and every absolute URL a route
             // handler builds is wrong. `relativeProjectDir` is deliberately
@@ -566,6 +596,30 @@ function absoluteUrl(request: RuntimeRequest): URL {
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * `normalizeRepeatedSlashes` (`next/dist/shared/lib/utils.js`), applied where
+ * Next.js applies it: before routing, as a 308 to the collapsed path.
+ * `base-server.ts` does `if (urlNoQuery?.match(/(\\|\/\/)/))
+ * res.redirect(normalizeRepeatedSlashes(req.url), 308)`, so `/a//b` and `/a\b`
+ * both answer a redirect to `/a/b` rather than a 404 - and `@next/routing`'s
+ * `resolveRoutes` does not do it for us, which is how `//` reached this runtime as
+ * a 500 and `/api//json` as a 404.
+ *
+ * Encoded backslashes are left alone, as Next.js leaves them: `%5C` is a literal
+ * character in a path segment, not a separator.
+ *
+ * Returns `undefined` when there is nothing to collapse, which is the common case.
+ */
+function collapseRepeatedSlashes(target: string): string | undefined {
+  const parts = target.split("?");
+  const pathname = parts[0];
+  if (!/\\|\/\//.test(pathname)) {
+    return undefined;
+  }
+  const query = parts.length > 1 ? `?${parts.slice(1).join("?")}` : "";
+  return pathname.replace(/\\/g, "/").replace(/\/\/+/g, "/") + query;
 }
 
 /**

@@ -16,7 +16,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | Path                                | Role                                                                                                               |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
-| `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and logs, plus the Lambda's CloudWatch tail.        |
+| `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and the build log — and, under `HARNESS_VERBOSE_LOGS=1`, the deploy log and the Lambda's CloudWatch tail. |
 | `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`. |
 | `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.              |
 | `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                        |
@@ -484,6 +484,33 @@ prerender answers `invariant: cache entry required but not generated` offline; f
 those, read the seed directory (`.next/cdk-nextjs-init-cache`) instead of the
 response, or deploy.
 
+## The logs script's output _is_ `next.cliOutput`
+
+Worth knowing before adding anything to `e2e-logs.sh`. In deploy mode next.js sets
+
+```ts
+this._cliOutput = await this.fetchBuildLogsUsingCustomScript();
+```
+
+(`test/lib/next-modes/next-deploy.ts`), so the script's stdout is not just what
+gets printed when a deployment fails — it is the string every test that reads
+`next.cliOutput` asserts against. Vercel's own deploy mode puts the **build** logs
+there and nothing else.
+
+That is why the deploy log and the CloudWatch tail are behind
+`HARNESS_VERBOSE_LOGS=1`. `test/e2e/deprecation-warnings` asserts
+`expect(next.cliOutput).not.toContain('deprecated')`, and it failed on
+
+```
+[WARNING] aws-cdk-lib.aws_dynamodb.TableGrantsProps#encryptedResource is deprecated.
+```
+
+which the CDK CLI printed during synth — aws-cdk-lib 2.261.0 emits it from inside
+its own `TableV2` constructor, so no consumer can avoid it. Nothing about the app
+under test was wrong; our diagnostics were being read as the app's output.
+
+When a deployment does fail, set the flag and re-run the one file.
+
 ## Cleanup and safety
 
 A CloudFront distribution that outlives its run is the thing to avoid, so there
@@ -515,6 +542,7 @@ the age floor for every stack in the account.
 | `HARNESS_CLEANUP_WAIT`              | `0`                                  | Block until the stack delete completes. Isolated mode only.                                            |
 | `HARNESS_LOG_LINES`                 | `400`                                | Tail length per log section.                                                                           |
 | `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
+| `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |
 | `HARNESS_SWEEP_STACK`               | _unset_                              | Same as passing `--stack NAME`: sweep only that stack, at any age.                                     |
 | `HARNESS_SWEEP_APPLY`               | `0`                                  | Same as passing `--apply`.                                                                             |

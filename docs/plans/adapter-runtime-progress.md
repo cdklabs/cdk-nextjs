@@ -3932,3 +3932,361 @@ cannot be built here".
 
 Batch 14 keeps running; `next-image-legacy/unicode` sorts late and is still the
 outstanding deployed verdict on defect 24.
+
+### Batch 14, part 2: 32 green, and defect 24 verified
+
+Batch 14 finished 32 green / 18 failed, and the 18 are exactly the excluded
+`next-config-ts-native-ts` family above — no other file failed. Its non-zero exit
+means nothing beyond that.
+
+`next-image-legacy/unicode` passed all 5 cases on attempt 0 in 163s, which is the
+deployed verdict on **defect 24** (percent-decoding a `public/` filename before
+building the S3 key). Every one of the 23 harness defects is now verified green
+against a real deployment, not just unit-tested.
+
+The other 31 are a broad slice of parallel routes — 17 files covering catch-all
+slots, slot specificity, route groups, per-slot CSS and layouts, `default.tsx`,
+scroll ownership, `useSelectedLayoutSegment`, `generateStaticParams` inside a slot
+— plus four PPR/partial-prefetching files, `next/script`, `next/dynamic` CSS,
+`<Image>` events, and `next.config` header de-duplication. Listed individually
+rather than collapsed: unlike the `next-config-ts` matrix these are different
+features, not one fixture crossed with build variants.
+
+`rules.include` 214 → 246, candidates 227 → 195. `pnpm bundle`, then batch 15
+launched with the next 50 candidates — mostly the 29-file `app-dir/scss/*` matrix
+and the `segment-cache/*` family.
+
+### Batch 15: 48 of 50 green, and a verdict that was not durable
+
+48 green on attempt 0, 0 flakes, 2 red — and both red files already had a written
+verdict. The 48: the whole 27-file `app-dir/scss/*` matrix (global vs. module Sass,
+`composes`, `node_modules` `@import` in three spellings, `url()`, `additionalData`/
+`prependData`/`includePaths`, multi-page and dynamic-route entries), five `proxy-*`
+files, `next/script`'s `beforeInteractive` in both the ordinary and the XSS-probe
+shape, `removeConsole`, `require.context`, `resolveExtensions`, root-layout
+`redirect()`, and a handful of router/prefetch regression fixtures.
+
+The `scss` rows are collapsed in `docs/harness-coverage.md` into one line, which
+makes three collapsed rows in that table. Judgment call: on our side those 27 files
+test one thing 27 ways — an emitted stylesheet reaching the browser from S3 through
+the distribution — so spelling them out would add 27 lines and no information. They
+stay in `rules.include` because they are the project's only Sass coverage and they
+cost ~95s each.
+
+The two red files, `revalidate-dynamic` (2 of 2) and `revalidate-path-with-rewrites`
+(1 of 2, the `static page` case), are the documented CDN-inherent invalidation-timing
+case: the test calls a route handler that runs `revalidatePath`, then re-reads
+through CloudFront inside `retry()`'s 3s default, and a `CreateInvalidation` does not
+land that fast. `revalidate-dynamic` returned the *same* random value across both
+cases and both attempts, which is what an edge hit looks like; the
+`revalidate-path-with-rewrites` `dynamic page` case passed in 1.2s because there is
+no prerender to invalidate.
+
+Neither should have been deployed at all. The verdict existed — written months of
+batches ago — but under an `excluded-notes` key spelled as prose,
+`"revalidation behind the CDN, two files"`, and the **verdict** screen added earlier
+today only matches keys that start with `test/e2e/`. So the screen worked and the key
+did not, and two deploy slots (~200s) went to re-proving a known result. Fixed by
+re-keying: `revalidate-dynamic` now has its own file-path `excluded-notes` entry, and
+`revalidate-path-with-rewrites` moved into `suites` with the `static page` case named
+in `failed`, which is strictly better than excluding it — its dynamic-page case now
+runs every time. The general rule, now recorded in the coverage doc: **a verdict is
+only as durable as the manifest key it is written under.**
+
+Audited the rest of the pool for the same gap: no other candidate has a verdict
+written anywhere in `docs/harness-coverage.md`. `segment-cache/cached-navigations-*`
+and `vary-params/root-params-segment-prefetch` look like doc mentions but are
+genuinely different test files in a directory whose main file is already included.
+
+`rules.include` 246 → 294, `suites` 3 → 4, candidates 195 → 145 (~4.5 hours left).
+Batch 16 launched with the next 50 — the `segment-cache/*` remainder, then the
+`app-dir` tail and the start of the non-`app-dir` e2e directories.
+
+### Batch 16, part 1: defect 25 — a worker that never started
+
+Batch 16 (50 files) came back 47 green, 3 red. Two of the reds were the same defect
+and it is ours: `worker-module-url` and `worker-relay-compiler`, both of which do
+`new Worker(new URL('./worker.ts', import.meta.url))`, rendered their page but never
+received the worker's message.
+
+`patchFetchInClientJs` (`src/nextjs-build/nextjs-build.ts`) prepends
+`src/nextjs-build/patch-fetch.js` to every client entrypoint chunk, and its turbopack
+selector is `file.startsWith("turbopack-") && file.endsWith(".js")`. Turbopack emits
+its **web-worker** bootstrap as `static/chunks/turbopack-worker-<hash>.js`, which that
+matches — so the patch was landing in a worker, where its first statement
+`const originalFetch = window.fetch;` threw `ReferenceError: window is not defined`
+before the worker's own module ever ran. Silent: the error goes to the worker's error
+event, which the fixtures do not listen for, so the only symptom was a timeout on
+placeholder text.
+
+Fix: `patch-fetch.js` is now written against `globalThis` and the bare `location`
+global, so one file is correct on the main thread and in a worker — and a worker's own
+same-origin POSTs now get signed, which they never were. `XMLHttpRequest` is patched
+behind a `typeof` guard, since some worker scopes have none and `class extends
+undefined` is a `TypeError`. The chunk selector was left alone on purpose: making the
+worker chunk work beats excluding it, because a POST from a worker needs the
+`x-amz-content-sha256` header just as much as one from the page.
+
+`patch-fetch.test.ts` was restructured — an `installScope()` helper puts the stubs on
+`globalThis` (setting `window = global` for the main-thread tests, which is true in a
+browser), plus a new `patch-fetch in a worker scope` block that requires the module
+with neither `window` nor `XMLHttpRequest` present. 16 tests pass. Both e2e files then
+went green against a real deployment on attempt 0 (103.0s, 97.0s).
+
+Coverage doc gets `### 25`; the fixed-defect count goes 23 → 24.
+
+### Batch 16, part 2: two defects behind one fixture, and 50 of 50 green
+
+`segment-cache/memory-pressure` was batch 16's third red, and it turned out to be
+hiding the two worst bugs the harness has found so far. The fixture is deliberately
+extreme — 60 static params, each page rendering `{'a'.repeat(1024 * 1024)}` — and
+being extreme is exactly why it caught them.
+
+**Defect 26: a large init cache was only partly seeded, silently.** The segment
+prefetch for `/memory-pressure/0` answered 572 bytes of postponed shell where the
+build had written a complete 1,049,321-byte segment, with `x-nextjs-cache: MISS`.
+The cache bucket held 14 objects against the seed directory's 64, and the
+`BucketDeployment` Lambda's log said `[Errno 28] No space left on device` in
+`zip.extractall` — CDK gives that Lambda 512 MiB of `/tmp` and this app's seed
+directory is 664 MiB. It *did* report `Status: FAILED`, to
+`required-to-be-present-by-cfn`, because `cdk deploy --hotswap` invokes custom
+resources with placeholder response URLs and never reads the answer; the CLI printed
+"Contents of AWS::S3::Bucket … hotswapped!" and exited 0. `NextjsCache` now sizes
+that Lambda from the seed directory: ephemeral storage of twice the directory plus
+headroom, floored at 512 MiB and capped at Lambda's 10 GiB, `memoryLimit: 1024` past
+256 MiB, a warning above the ceiling pointing at `useEfs: true`, and
+`overrides.bucketDeploymentProps` still winning. Four `nextjs-cache.test.ts` cases
+(the large one uses a sparse file so the test stays fast).
+
+**Defect 27: every cached byte was a JSON integer.** With the cache seeded, the
+LRU case still timed out at 60s — next.js's hard per-case limit for non-dev modes —
+and the reason was that one 1 MiB segment prefetch took **4.8s of Lambda time**,
+against 45ms for a small segment from the same cache and the same regardless of
+`Accept-Encoding`. The entry on S3 was 11.6 MiB for ~1 MiB of payload, because
+`serializeCacheValue` wrote Buffers as arrays of per-byte integers — and
+`parseCacheValue` reads with a `JSON.parse` reviver, which the engine calls once per
+array element. One page of this fixture carries the payload three times
+(`rscData`, `_full`, `__PAGE__`), so answering one prefetch meant visiting over
+three million JSON numbers. Buffers now serialize as base64; both integer-array
+spellings are still read back, so older entries stay readable. Measured on the same
+deployment: entry 11,592,130 → 6,319,731 bytes, Lambda 4,800ms → 113–146ms,
+response ~5.0s → ~0.2s. **This is a ~40x win on the hot path for any app with a
+large RSC payload**, not just this fixture, and it is the first defect the harness
+has produced that is a performance bug rather than a correctness one.
+
+With both fixed the file passes on attempt 0 in 180.33s, and so do the two worker
+files from defect 25 — so all 50 of batch 16 are green and promoted.
+
+`rules.include` 294 → 344, candidates 145 → 95 (~3 hours of wall clock left), fixed
+harness defects 24 → 26. Batch 17 next, from the remaining 95.
+
+### Defect 29: a `beforeFiles` rewrite that matched its own output ran twice
+
+`test/e2e/link-with-api-rewrite` was batch 17's most interesting red. Its rule is
+`source: /:path(.*)`, `has: query json=true`, `destination: /api/json?from=/:path`,
+and the test asks for `/some/route/for?json=true` expecting `{"from":"/some/route/for"}`.
+The deployment answered `{"from":"/api/json"}`. Reproduced locally by building the
+fixture through the adapter and serving it two ways — our container shell on :3212
+against `next start` on :3213 — which is a much faster loop than a deploy and is
+what pinned it down.
+
+The Dispatcher is not the problem: `resolveRoutes` returns exactly one application
+of the rule, with `invocationTarget.query` = `{json, from: "/some/route/for", path}`.
+The second application happens inside the entrypoint. `RouteModule.prepare`
+(`route-module.ts`) calls `serverUtils.handleRewrites(req, parsedUrl)`
+**unconditionally** and `handleRewrites` (`server-utils.ts`) loops `beforeFiles`
+against `req.url` — and `req.url` is the target the rewrite already produced. The
+`has: query json=true` condition survived into that target, so the rule matched a
+second time, `:path` resolved to `api/json`, and `from` was overwritten.
+`next start` never hits this because `router-server.ts`'s `invokeRender` leaves
+`req.url` as the URL the client sent and passes the resolved target as
+`invokePath`/`invokeQuery` request meta instead, so the one pass `prepare` makes is
+the only one.
+
+The fix is the channel Next.js documents for precisely this situation. `prepare`
+reads `const query = getRequestMeta(req, 'query') || { ...parsedUrl.query }`, above
+the comment "when deployed proxies will add query values from resolving the routes
+to pass to function", and `RequestMeta.query` is typed "The query after resolving
+routes". The templates funnel `ctx.requestMeta` into `setRequestMeta`, so an adapter
+can state it: `src/runtime/core.ts` now passes
+`query: { ...result.invocationTarget.query }` along`initURL`/`hostname`/`render404`.
+That does not stop the second rewrite pass — only patching Next.js could — it stops
+that pass from being what the route sees.
+
+`req.url` deliberately stays the invocation target. It is what `asPath`,
+`searchParams` and the `nxtP` param recovery are built on (see the dynamic-route
+case in `core.test.ts`), and it is the same deployed-proxy contract; the two are
+consistent, not in tension.
+
+Verified on the local pair: both of the fixture's cases now agree with `next start`
+(`{"from":"/some/route/for"}` for the rewrite, `{"from":""}` for the direct link).
+`core.test.ts` grew a regression case that stages a deployment whose only
+`beforeFiles` rule matches its own output and asserts the resolved query reaches the
+entrypoint intact, plus a `query` assertion on the existing dynamic-route case; 21
+pass. Still to do: the deployment re-run, batched with the other batch-17 fixes.
+
+### Defect 30: repeated slashes and backslashes were a 500 or a 404, not a 308
+
+Two batch-17 reds - `test/e2e/hydration`, which navigates to exactly `//`, and
+`test/e2e/i18n-ignore-redirect-source-locale/redirects-with-basepath`, whose locale
+list includes `''` and so asks for `/basepath//to-sv` - were first read as a
+CloudFront problem, because behind CloudFront + a Lambda Function URL those paths
+answer 400 and 403 respectively. They are a runtime problem as well, and the runtime
+one is the real defect.
+
+Measured against the same local pair used for defect 29:
+
+| target | `next start` | this runtime (before) |
+| --- | --- | --- |
+| `//` | `308 -> /` | `500` |
+| `/api//json` | `308 -> /api/json` | `404` |
+| `//some/route/for?json=true` | `308 -> /some/route/for?json=true` | `500` |
+
+Next.js collapses these before routing: `base-server.ts` does
+`if (urlNoQuery?.match(/(\\|\/\/)/)) res.redirect(normalizeRepeatedSlashes(req.url), 308).body(cleanUrl).send()`,
+where `normalizeRepeatedSlashes` (`shared/lib/utils.ts`) replaces `\` with `/`, then
+`//+` with `/`, and reattaches the query untouched. `@next/routing`'s `resolveRoutes`
+does **not** do it, so nothing in this runtime did.
+
+`NextjsRuntime.handle` now does, in `collapseRepeatedSlashes`, and it runs before
+`absoluteUrl`: `new URL("//", base)` reads a leading `//` as protocol-relative and
+takes the first path segment for the host, which is where the 500 came from. Encoded
+backslashes are left alone, as Next.js leaves them - `%5C` is a character in a
+segment, not a separator. Seven `core.test.ts` cases; the local shell now answers all
+three rows above exactly as `next start` does.
+
+This fixes all four deployment patterns at the origin. It is not the whole story for
+`NextjsGlobalFunctions`, where OAC signs the raw path and the Function URL
+canonicalizes it, so such a request never reaches the origin at all - see the next
+entry.
+
+### Defect 31: behind a Function URL the 308 has to happen at the edge
+
+With defect 30 fixed the origin does the right thing, and on
+`NextjsGlobalFunctions` it still never gets asked. Measured against the standing
+byte-diff deployment `https://d2eio5nn7ciizs.cloudfront.net`:
+
+| target | response | who answered |
+| --- | --- | --- |
+| `/` | `200` | origin |
+| `/foo//bar` | `403 InvalidSignatureException` | origin (Lambda URL) |
+| `///` | `403 InvalidSignatureException` | origin (Lambda URL) |
+| `//` | `400`, `content-length: 0`, no `x-amzn-*` | CloudFront itself |
+
+The 403s are Origin Access Control: CloudFront signs the raw path, the Function URL
+canonicalizes it before verifying the signature, and the two no longer agree. No
+origin-side fix can reach them, so `createDynamicCloudFrontFunctionAssociations`'s
+existing viewer-request function - the one that already sets `x-forwarded-host` -
+now does the collapse itself and returns the same `308` Next.js would, query
+preserved including repeated keys. It stays on cloudfront-js-1.0, which means the
+redirect carries no body where Next.js sends the destination as text; no known client
+reads it.
+
+The bare `//` in that table looked out of reach, and is not. `//` at the start of a
+request target is the authority form, so it was reasonable to read that `400` as
+CloudFront refusing the request outright - but with the function deployed, `//` is
+routed to it like any other path:
+
+```
+$ curl -sSI --http1.1 'https://d2eio5nn7ciizs.cloudfront.net//'
+HTTP/1.1 308 Permanent Redirect
+Location: /
+X-Cache: FunctionGeneratedResponse from cloudfront
+```
+
+Same over HTTP/2. So `test/e2e/hydration`, which navigates to exactly `//`, needs no
+exclusion - it passes (95.5s, retry 0). Whatever produced that empty 400 in the
+earlier probe, the behavior to rely on is the measured one above. The lesson worth
+keeping: a `400` with no `x-amzn-*` headers narrows *who* answered to CloudFront, but
+says nothing about *why*, and is not evidence that a viewer-request function cannot
+run.
+
+One divergence from Next.js does remain, and it is in the query rather than the path.
+A viewer-request event exposes `querystring` as an object, never as the raw string, so
+the function has to rebuild it and `/x//y?a=1&b=2` redirects to `/x/y?b=2&a=1`. Every
+pair survives, including repeated keys; only the order is CloudFront's rather than the
+client's. `normalizeRepeatedSlashes` reattaches the query untouched, so this is
+strictly ours, and a redirect target is not order-sensitive.
+
+Tested by pulling `FunctionCode` out of the synthesized template and running it in a
+`node:vm` context as CloudFront would - eight cases, covering `//`, `///`,
+`/foo//bar`, `/basepath//to-sv`, `/a\b`, the query, and ordinary pass-through.
+Behavior rather than a snapshot on purpose: the function is a string inside a
+TypeScript template literal, so every backslash in it is escaped twice and a snapshot
+would record an escaping mistake rather than catch it.
+
+### Batch 17: 39 promoted, two defects verified, and two kinds of false green
+
+The 7-file rerun that closed out batch 17 came back 5 green, 2 red, and both reds
+had a verdict rather than a mystery:
+
+| file | result |
+| --- | --- |
+| `link-with-api-rewrite` | green, 189.7s - defect 29 verified |
+| `fallback-route-params` | green, 97.9s - also defect 29; a fallback shell's params come from the resolved query |
+| `i18n-ignore-redirect-source-locale/redirects-with-basepath` | green, 191.9s - defects 30 and 31 verified |
+| `hydration` | green, 95.5s - defect 31, including the bare `//` (see the correction in that entry) |
+| `deprecation-warnings` | green, 219.7s - confirms the `scripts/e2e-logs.sh` fix, not a cdk-nextjs change |
+| `middleware-fetches-with-any-http-method` | red, excluded: legacy edge middleware |
+| `handle-non-hoisted-swc-helpers` | red, and the cause was ours - see below |
+
+**The edge-middleware screen has a blind spot.** `middleware-fetches-with-any-http-method`
+failed at build with `assertNodeRuntimes`' edge error, which is the expected answer -
+but it should never have been offered as a candidate. It writes its middleware inline
+through `nextTestSetup({ files: { 'middleware.js': ... } })`, and `screen.mjs` greps the
+fixture directory, where there is nothing to find. The 127 files the `middleware`
+screen catches are a floor. Left as-is rather than taught to parse `files` objects:
+the cost of the blind spot is one ~7s deploy attempt, and a `files` literal can hold
+anything.
+
+**`--prefer-offline` is not the same flag in npm as in pnpm.**
+`handle-non-hoisted-swc-helpers` is the only fixture that pins
+`packageManager: npm@10.9.2`, and `scripts/e2e-deploy.sh` gave npm `--prefer-offline`
+to match the pnpm branch. npm then resolved against a stale packument and refused a
+version the registry has:
+
+```
+npm error code ETARGET
+npm error notarget No matching version found for next@16.3.5.
+```
+
+Reproduced outside the harness in a two-line scratch app - `next@16.3.5` on the first
+run, its transitive `postcss@8.5.23` on the second once the cache had warmed, and
+clean with the flag removed. pnpm treats the flag as a hint and refetches on a miss;
+npm treats the cached answer as final. Dropped for npm (with `--no-audit --no-fund`
+in its place, which is just log noise), and the file is queued behind the fix rather
+than promoted.
+
+**Two shapes of false green, one of which the timing heuristic does not catch.** The
+rule so far has been that a green under ~10-15s deployed nothing, and it correctly
+flagged `invalid-server-options` (3.5s, calls `next()` in-process) and
+`next-dynamic-lazy-compilation` (5.1s, `shouldUseTurbopack()` returns a stub). It
+said nothing at all about `cpu-profiling/cpu-profiling-dev`, which ran **187
+seconds** and asserted nothing:
+
+```ts
+const { next, isNextDev } = nextTestSetup({ ... })
+if (!isNextDev) {
+  it('skip for production mode', () => {})
+  return
+}
+```
+
+`nextTestSetup` has already built, deployed and invalidated by the time the gate is
+reached. A mode gate placed *after* setup costs full wall clock and yields zero
+coverage, and it is invisible to both the timing rule and the `mode-gated` screen
+(which looks for gates that prevent setup). The promotion rule is now: check for an
+early `return` alongside the timing, not instead of it. That is how the list went
+from 42 apparent greens to 39 promoted.
+
+Nearly-promoted but genuinely thin: the three `chrome-devtools-workspace` files
+branch on `isNextDev` too, but their production branch is
+`expect({ status }).toEqual({ status: 404 })` - a real assertion that a dev-only
+endpoint is not reachable on a real deployment. Kept, and labelled as the weakest
+rows in the table.
+
+`rules.include` 344 -> 383, candidates 95 -> 51 (~1.5 hours of wall clock left),
+fixed harness defects 26 -> 29. There is no defect 28: the number was skipped when
+`fallback-route-params` turned out to be defect 29 rather than a defect of its own,
+and it is left unassigned rather than renumbered, because 29 through 31 are already
+in commit messages.

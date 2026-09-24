@@ -16,11 +16,13 @@ function preprocessValue(value: any): any {
     return value;
   }
 
-  // Convert Buffer to our custom format
+  // Convert Buffer to our custom format. base64, not the array of per-byte
+  // integers this used to write (and that `Buffer.toJSON()` writes) — see
+  // {@link parseCacheValue} for why that mattered so much.
   if (Buffer.isBuffer(value)) {
     return {
       __type: "Buffer",
-      data: Array.from(value),
+      base64: value.toString("base64"),
     };
   }
 
@@ -66,6 +68,17 @@ export function serializeCacheValue(value: any): string {
 
 /**
  * Parse cache value with custom handling for Map and Buffer objects
+ *
+ * Buffers are read back from base64 when that is how they were written, and from
+ * an array of per-byte integers when they were not. That array is the format
+ * `Buffer.toJSON()` produces and the one this code used to write, and it is
+ * ruinous for a page with a large payload: a 1 MiB prerender became ~3 MiB of
+ * JSON text, an 11.6 MiB cache entry once html and the per-segment copies are
+ * counted, and — because `JSON.parse`'s reviver runs for *every array element* —
+ * upwards of three million reviver calls to read one page. Measured against a
+ * deployment: 4.8s of Lambda time to answer a 1 MiB segment prefetch, against
+ * 45ms for a small one from the same cache. base64 is 4/3 the bytes rather than
+ * ~3x, and `Buffer.from(str, "base64")` is one native call.
  */
 export function parseCacheValue(jsonString: string): any {
   return JSON.parse(jsonString, (_key, val) => {
@@ -75,7 +88,9 @@ export function parseCacheValue(jsonString: string): any {
     }
     // Restore Buffer objects that were serialized with __type marker (our custom format)
     if (val && typeof val === "object" && val.__type === "Buffer") {
-      return Buffer.from(val.data);
+      return typeof val.base64 === "string"
+        ? Buffer.from(val.base64, "base64")
+        : Buffer.from(val.data);
     }
     // Restore Buffer objects that were serialized with Node.js default Buffer.toJSON() format
     // This handles legacy cache entries or runtime-generated entries
@@ -125,17 +140,32 @@ export interface PrerenderVariants<T> {
   rsc?: T;
   /** Per-segment flight payloads, under `<route>.segments/`. */
   segments: T[];
+  /** A Pages Router route's `pageData`, built as its `/_next/data/` route. */
+  data?: T;
 }
 
 const INDEX_SUFFIX = "/index";
 
 /**
+ * A Pages Router data route: `/_next/data/<buildId>/<page>.json`, optionally
+ * behind a `basePath` (`normalizePathname` in Next.js's `build-complete` prefixes
+ * every output pathname, this one included).
+ *
+ * Capture 1 is that prefix and capture 2 the page path without its `.json`, so
+ * `/prod/_next/data/abc123/blog/hello.json` recomposes to `/prod/blog/hello`.
+ */
+const PAGES_DATA_PATHNAME = /^(.*)\/_next\/data\/[^/]+\/(.+)\.json$/;
+
+/**
  * Collect `ctx.outputs.prerenders` into one entry per route.
  *
- * Next.js emits up to three shapes per prerendered route — `/blog/hello`,
+ * Next.js emits up to three shapes per prerendered App Router route — `/blog/hello`,
  * `/blog/hello.rsc`, and `/blog/hello.segments/*.segment.rsc` — and a cache entry
  * needs all of them together, so they have to be grouped by route before anything
- * can be seeded.
+ * can be seeded. A Pages Router route emits two: the HTML, and its `pageData` at
+ * the route's `/_next/data/<buildId>/<page>.json` pathname
+ * ({@link PAGES_DATA_PATHNAME}). That one is not a suffix of the page's own
+ * pathname, so it is matched rather than stripped.
  *
  * The one case that is not a suffix strip is the **root route**, which cannot be
  * named `/.rsc`: its payloads are emitted under `/index.rsc` and
@@ -157,7 +187,12 @@ export function groupPrerenders<T extends { pathname: string }>(
   const htmlPathnames = new Set(
     prerenders
       .map((p) => p.pathname)
-      .filter((p) => !p.endsWith(".rsc") && !p.includes(".segments/")),
+      .filter(
+        (p) =>
+          !p.endsWith(".rsc") &&
+          !p.includes(".segments/") &&
+          !PAGES_DATA_PATHNAME.test(p),
+      ),
   );
   const groups = new Map<string, PrerenderVariants<T>>();
 
@@ -183,7 +218,10 @@ export function groupPrerenders<T extends { pathname: string }>(
 
   for (const prerender of prerenders) {
     const { pathname } = prerender;
-    if (pathname.includes(".segments/")) {
+    const dataRoute = PAGES_DATA_PATHNAME.exec(pathname);
+    if (dataRoute) {
+      variantsFor(routeOf(`${dataRoute[1]}/${dataRoute[2]}`)).data = prerender;
+    } else if (pathname.includes(".segments/")) {
       variantsFor(routeOf(pathname.split(".segments/")[0])).segments.push(
         prerender,
       );

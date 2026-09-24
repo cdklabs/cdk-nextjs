@@ -1,7 +1,14 @@
-import { cpSync, existsSync, mkdtempSync, rmSync } from "fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { RemovalPolicy } from "aws-cdk-lib";
+import { RemovalPolicy, Size } from "aws-cdk-lib";
 import {
   AttributeType,
   Billing,
@@ -23,6 +30,25 @@ import {
 } from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
+
+/** What a `BucketDeployment` Lambda gets without asking. */
+const DEFAULT_EPHEMERAL_STORAGE_MIB = 512;
+/** The most Lambda will give any function. */
+const MAX_EPHEMERAL_STORAGE_MIB = 10240;
+
+/** Bytes on disk under `dir`, following the tree but not symlinks. */
+function sizeOfDirectory(dir: string): number {
+  let total = 0;
+  for (const entry of readdirSync(dir, {
+    withFileTypes: true,
+    recursive: true,
+  })) {
+    if (entry.isFile()) {
+      total += statSync(join(entry.parentPath, entry.name)).size;
+    }
+  }
+  return total;
+}
 
 export interface NextjsCacheOverrides {
   readonly cacheBucketProps?: BucketProps;
@@ -139,6 +165,7 @@ export class NextjsCache extends Construct {
           sources: [Source.asset(this.stagingDir)],
           destinationBucket: this.cacheBucket,
           prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
+          ...this.sizeDeploymentLambda(),
           ...this.props.overrides?.bucketDeploymentProps,
         },
       );
@@ -168,6 +195,56 @@ export class NextjsCache extends Construct {
       );
     }
     this.stagingDir = undefined;
+  }
+
+  /**
+   * `/tmp` and memory for `BucketDeployment`'s unzip Lambda, scaled to the init
+   * cache it has to unpack.
+   *
+   * That Lambda downloads the asset zip into `/tmp` and then extracts it
+   * alongside, so it needs room for both at once. CDK defaults it to 512 MiB of
+   * ephemeral storage and 128 MB of memory — fine for a small app, and a hard
+   * failure for one whose prerendered payloads are large. A fixture with 60
+   * statically generated pages carrying ~1 MB of RSC each produced a 664 MiB
+   * seed directory and the handler died on
+   * `OSError: [Errno 28] No space left on device` inside `zip.extractall`.
+   * Worse, `cdk deploy --hotswap` invokes the custom resource directly with a
+   * placeholder response URL, so the `Status: FAILED` it sends goes nowhere: the
+   * CLI prints "Contents of AWS::S3::Bucket … hotswapped!", exits 0, and the app
+   * comes up serving a *partially* seeded cache. Every route whose entry did not
+   * make it is then a miss that re-renders — which, for a
+   * `cacheComponents: true` app, means a postponed shell where the prerender
+   * should have been.
+   *
+   * The zip's compressed size is not known at synth time (CDK archives the asset
+   * later), so the worst case — an incompressible payload — is what gets
+   * budgeted: twice the directory, plus headroom. Memory is only raised past
+   * CDK's default for caches big enough that 128 MB's slice of a vCPU would make
+   * the unzip and upload race the custom resource's 15-minute timeout; small
+   * apps keep the cheaper default and their existing template.
+   *
+   * Above the 10 GiB ephemeral-storage ceiling there is nothing left to ask for,
+   * so this warns and lets the deployment fail loudly rather than pretend.
+   * `overrides.bucketDeploymentProps` wins over everything here, including
+   * `useEfs: true`, which is the supported way out.
+   */
+  private sizeDeploymentLambda() {
+    const mib = Math.ceil(sizeOfDirectory(this.props.initCacheDir) / 1024 ** 2);
+    const wanted = mib * 2 + 128;
+    if (wanted > MAX_EPHEMERAL_STORAGE_MIB) {
+      console.warn(
+        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${mib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
+      );
+    }
+    const ephemeral = Math.min(
+      MAX_EPHEMERAL_STORAGE_MIB,
+      Math.max(DEFAULT_EPHEMERAL_STORAGE_MIB, wanted),
+    );
+
+    return {
+      ephemeralStorageSize: Size.mebibytes(ephemeral),
+      ...(mib > 256 ? { memoryLimit: 1024 } : {}),
+    };
   }
 
   /**
