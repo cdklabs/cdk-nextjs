@@ -2165,6 +2165,10 @@ cdk-nextjs-adapter` in the log). Closing it properly needs an example whose
 cdk-nextjs comes from a real install rather than a workspace link — a packed
 tarball install, most likely. Not done; carried as open.
 
+> **Closed** later on this branch by `.github/workflows/zero-config-build.yml` and
+> `scripts/zero-config-build.mjs`, which do exactly that. See the
+> "zero-config CI coverage" entry at the end of this document.
+
 **Measured**: `pnpm compile` 0 errors, `pnpm eslint` clean, `pnpm test` 20 suites
 / 312 tests passed, and two real `app-playground` builds from the recreated CI
 starting state (symlink present): one plain, one with the escaping
@@ -4550,3 +4554,102 @@ unsatisfiable) and
 [vercel/next.js#99155](https://github.com/vercel/next.js/issues/99155) for
 `@next/routing` collapsing a rewrite destination's repeated query key. Both
 reproduce on `16.4.0-canary.43`.
+
+## Post-PR — zero-config CI coverage: a packed tarball, on every PR
+
+Two open items closed by one build-only workflow. Neither needed AWS.
+
+The first was recorded above as a stated gap: **CI never exercised
+`NEXT_ADAPTER_PATH`**, the zero-config path the README recommends. The reason is
+structural rather than an oversight. Every example takes cdk-nextjs as
+`link:../..`, and a link is precisely the setup zero-config cannot serve — the
+symlink resolves out of the project root, the adapter derives its cache handler
+path from its own location, and Turbopack rejects a `cacheHandler` outside
+`turbopack.root`. So the examples all set `adapterPath` explicitly, and no example
+can be converted without losing the coverage it already provides. Closing the gap
+needed a cdk-nextjs that arrives by *installation*, not by link.
+
+The second was the `next-config-ts-native-ts` family: eighteen harness files whose
+verdict is **no signal** because their fixtures use top-level `await` in
+`next.config.ts` and so only build under
+`next build --experimental-next-config-strip-types`, a flag `scripts/e2e-deploy.sh`
+cannot set per fixture. Adding it run-wide was already considered and rejected
+(`docs/harness-coverage.md`), because it would switch the 21 green
+`app-dir/next-config-ts/*` files off the default loader they exist to cover.
+
+### What was built
+
+`scripts/zero-config-build.mjs`, driven by
+`.github/workflows/zero-config-build.yml` on `pull_request` and on pushes to
+`main`. It `npm pack`s the working tree, `npm install`s the tarball into a fresh
+`mkdtemp` app, and builds that app twice with `NEXT_ADAPTER_PATH` set and no
+`adapterPath` in `next.config`:
+
+1. `next.config.js` — the plain zero-config case.
+2. `next.config.ts` whose `distDir` comes out of a top-level `await`, built with
+   `--experimental-next-config-strip-types`. This is the whole of what the
+   eighteen fixtures would have told us: that `modifyConfig` still applies when
+   the config arrives through Node's native TypeScript resolution. Since the
+   awaited value *is* `distDir`, every path assertion in that case is also
+   evidence the top-level `await` took effect.
+
+A `.tgz` is load-bearing: `npm install` of a tarball extracts a real directory
+into the app's own `node_modules`, where `file:` on a *directory* would symlink
+and reproduce the case being avoided. `NEXT_ADAPTER_PATH` is resolved with
+`createRequire(appDir).resolve("cdk-nextjs/adapter")` — the same resolution
+`NextjsBuild.adapterPathEnv()` performs, from the same starting point.
+
+Per case it asserts:
+
+- `Applying modifyConfig from cdk-nextjs-adapter` in the build log (next's own
+  `Log.info` in `dist/server/config.js`), and for case 2 the *absence* of next's
+  `Falling back to legacy resolution` warning, so a fallback that happened to
+  succeed could not masquerade as native-loader coverage;
+- `required-server-files.json`: `config.adapterPath` equal to the variable,
+  `config.cacheHandler` resolving to the installed package's own
+  `lib/adapter/cache-handler.mjs`, and `config.images.customCacheHandler === true`
+  — the return value of `modifyConfig`, read back from the build rather than from
+  a log line;
+- `<distDir>/cdk-nextjs-adapter/manifest.json` at version 1, with staged
+  entrypoint files on disk for `/` and `/isr/[id]`, and a non-empty
+  `cdk-nextjs-init-cache` — so `onBuildComplete`'s replacement for
+  `output: "standalone"` is checked, not just its config hook.
+
+### Measured
+
+Both cases green locally, `Next.js 16.3.5`, 8 entrypoints and 4 seeded cache
+entries each. Negative control: with `NEXT_ADAPTER_PATH` unset, the same app
+produced no `Applying modifyConfig` line and no `cdk-nextjs-adapter` directory, so
+the gate is not vacuous.
+
+### Two judgment calls
+
+**The fixture is generated, not tracked.** Writing ~6 files from the script keeps a
+Next.js app out of `test/` where jest, `tsc` and eslint would all have opinions
+about it, and out of `examples/` where it would need a workspace entry. The cost is
+heredoc-ish string literals in the script; the benefit is that the fixture cannot
+drift into the repo's own toolchain.
+
+**`next` is pinned to the resolved version, not the range.** The fixture reads
+`node_modules/next/package.json`'s `version` rather than the `^16.3.5` in
+`package.json`. A per-PR gate should fail on our changes, not on a patch release
+that landed between two runs of the same commit; the first local run picked up
+16.3.6 this way. `react` is pinned literally, to match
+`examples/pnpm-workspace.yaml`'s catalog — bump the two together.
+
+### One unrelated fix it forced
+
+`npm pack` reads `.npmignore`, not `.gitignore`, and npm only prunes the
+*top-level* `node_modules`. A local `.claude/worktrees/` checkout was therefore
+being packed — 64,670 files and counting — which is both a publish-hygiene problem
+and, now that a workflow packs on every PR, a speed one. `.claude/**/*` and
+`/nextjs/` are added to `npmIgnoreOptions.ignorePatterns` in `.projenrc.ts`. The
+tarball is now 279 files / 3.3 MB.
+
+### Still open, deliberately
+
+The `NextjsRegionalFunctions` subset run remains blocked on the `/prod` stage
+prefix versus the app's `basePath` — deferred by the user, not resolved here. The
+eighteen `next-config-ts-native-ts` files stay **no signal** in the coverage doc;
+what changed is that their cdk-nextjs-relevant assertion is now made directly, so
+building per-fixture build-arg plumbing for them has no remaining upside.

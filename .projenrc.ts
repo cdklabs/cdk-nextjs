@@ -57,7 +57,16 @@ const project = new CdklabsConstructLibrary({
   ],
   setNodeEngineVersion: false,
   npmIgnoreOptions: {
-    ignorePatterns: ["examples/**/*"],
+    ignorePatterns: [
+      "examples/**/*",
+      // Untracked, but `npm pack` reads `.npmignore` rather than `.gitignore`, so
+      // a local `.claude/worktrees/` checkout would otherwise land in the
+      // tarball — tens of thousands of files, including its own `node_modules`
+      // (npm only prunes the *top-level* one). `scripts/zero-config-build.mjs`
+      // packs on every PR, so this is a speed matter as well as a hygiene one.
+      ".claude/**/*",
+      "/nextjs/",
+    ],
   },
   // tooling config
   rosettaOptions: {

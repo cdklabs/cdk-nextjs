@@ -69,7 +69,7 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 | unsupported      | 2 (`prerender-encoding`, and `middleware-fetches-with-any-http-method` whose edge middleware the screen missed; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files (`revalidate-dynamic`, `proxy-readable-toweb`), plus the 2 remaining `trailingslash`, 4 remaining `dynamic-route-interpolation`, 1 remaining `revalidate-path-with-rewrites` and 1 remaining case in each of the 6 `invalid-static-asset-404-*` files |
 | architectural    | the 2 remaining `resume-data-cache` cases |
-| no signal        | 49 (2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files whose fixture cannot be built here) |
+| no signal        | 49 (2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files whose fixture cannot be built here — the one thing they would have told us about cdk-nextjs is asserted by `scripts/zero-config-build.mjs` instead) |
 
 The thirty-five fixed harness defects are its whole return on investment. All of
 them were real, all of them shipped, and none of them could have been caught by
@@ -2437,6 +2437,15 @@ to the whole run, not to one fixture, and it would switch the 21 green
 trading measured coverage of the default loader for coverage of the opt-in one.
 Per-fixture build flags are not something the harness can express today; if that
 changes, this family becomes runnable with no cdk-nextjs work.
+
+The family's signal was recovered elsewhere instead, which is why it is not worth
+building that plumbing for. All eighteen files ask cdk-nextjs exactly one
+question — does `modifyConfig` still apply when `next.config` arrives through the
+native loader rather than the swc-to-CJS one? — and
+`scripts/zero-config-build.mjs` asks it directly, with a top-level-`await`
+`next.config.ts` built under the flag, on every PR and without deploying
+anything. The eighteen deploys would add coverage of the *fixtures'* own
+behaviour, which is Next.js's to verify, not ours.
 
 `next-config-ts-native-mts/**` is a different matter and needs no flag: a `.mts`
 config is loaded as ESM either way. Its 17 files are green and in `rules.include`.
