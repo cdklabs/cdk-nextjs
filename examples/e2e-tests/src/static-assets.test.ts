@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { isApiGateway } from "./utils/deployment-type";
 
 /**
  * A `public/` asset whose filename contains a space.
@@ -75,5 +76,33 @@ test.describe("static assets", () => {
     // default of `["image/webp"]`.
     expect(response.status()).toBe(200);
     expect(response.headers()["content-type"]).toBe("image/webp");
+  });
+
+  test("serves a top-level public/ asset with a space, except on API Gateway", async ({
+    request,
+  }) => {
+    // The same filename one directory up, and a completely different problem. A
+    // nested asset rides an existing wildcard behaviour; a top-level one has to be
+    // matched by name, which is where the two Functions-side limitations live:
+    //
+    // - On CloudFront it becomes its own cache behaviour, and a path pattern cannot
+    //   contain a space, so `toPathPattern` has to substitute `?` wildcards.
+    // - On `NextjsRegionalFunctions` it is skipped with a warning, because an API
+    //   Gateway resource path cannot express it at all.
+    //
+    // The 404 is therefore correct on exactly one deployment type. Asserted rather
+    // than skipped, because a skip would also pass if the asset silently stopped
+    // being served everywhere else - and because if that limitation is ever lifted,
+    // this test failing is how anyone finds out.
+    const response = await request.get("./hello%20e2e.txt");
+
+    if (isApiGateway()) {
+      expect(response.status()).toBe(404);
+      return;
+    }
+
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toContain("text/plain");
+    expect(await response.text()).toContain("hello e2e");
   });
 });

@@ -1,0 +1,19 @@
+hello e2e
+
+A `public/` file at the top level whose name contains a space, which is a
+different problem from the same file inside `public/static/`.
+
+A nested asset is served by an existing wildcard behaviour on both Global
+constructs and by an existing `static/{proxy+}` resource on
+NextjsRegionalFunctions, so it costs no infrastructure. A top-level one has to be
+matched by name, which means:
+
+- On CloudFront it becomes its own cache behaviour, from a path pattern built by
+  `toPathPattern` - and a CloudFront path pattern cannot express a space, so the
+  space has to be turned into `?` wildcards.
+- On NextjsRegionalFunctions it is skipped with a warning, because an API Gateway
+  resource path cannot express it at all. That deployment type answers 404 here by
+  design, and the e2e asserts the 404 rather than skipping the type.
+
+Deleting this file also deletes a CloudFront cache behaviour, which is a
+distribution update - see `static-assets.test.ts`.
