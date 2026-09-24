@@ -227,7 +227,7 @@ new NextjsGlobalFunctions(this, "Nextjs", {
   buildDirectory: join(import.meta.dirname, "..", "web"),
   functionGroups: [
     { name: "reports", routes: ["/dashboard/reports/**"] },
-    { name: "admin", routes: ["/admin/**", "/settings"] },
+    { name: "admin", routes: ["/admin", "/admin/**", "/settings"] },
   ],
 });
 ```
@@ -238,11 +238,12 @@ Gateway resource, for `NextjsRegionalFunctions` — per pattern.
 
 **Route patterns** are either an exact path (`/settings`) or a subtree
 (`/admin/**`). A subtree owns what is _under_ it, not the path itself:
-`/admin/**` does not claim `/admin`. Where two groups could both match, the
-longest pattern wins, so `/api/**` and `/api/reports/**` can coexist in different
-groups. Dynamic segments (`/blog/[slug]`), route group segments
-(`/(marketing)/about`), `/`, and `/**` are rejected at synth — CloudFront matches
-literal path prefixes and cannot express them.
+`/admin/**` does not claim `/admin`. To own a page and everything under it, list
+both, as the example above does: `["/admin", "/admin/**"]`. Where two groups
+could both match, the longest pattern wins, so `/api/**` and `/api/reports/**`
+can coexist in different groups. Dynamic segments (`/blog/[slug]`), route group
+segments (`/(marketing)/about`), `/`, and `/**` are rejected at synth —
+CloudFront matches literal path prefixes and cannot express them.
 
 **What splitting does and does not save.** Every function ships the same `next`
 runtime closure, so splitting only moves route-_local_ code and its dependencies.
