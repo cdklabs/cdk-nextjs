@@ -39,14 +39,34 @@ STACK_NAME="$(harness_stack_name "$APP_DIR")"
 printf '%s\n' "$STACK_NAME" >"$HARNESS_STACK_FILE"
 echo "harness: app=$APP_DIR stack=$STACK_NAME"
 
-# The harness creates the app with `skipInstall`, so there is no node_modules
-# yet. Its package.json pins `packageManager`, and its `build` script shells out
-# to `pnpm post-build`, so pnpm is not optional here.
-PNPM=(corepack pnpm)
-if ! command -v corepack >/dev/null 2>&1; then
-  PNPM=(pnpm)
-fi
-"${PNPM[@]}" install --ignore-workspace --prefer-offline
+# The harness creates the app with `skipInstall`, so there is no node_modules yet.
+#
+# Which package manager installs it is the app's choice, not ours: a fixture can
+# override `packageJson.packageManager` (`test/lib/next-modes/base.ts` merges it in
+# verbatim), and `corepack pnpm` then hard-refuses with "This project is configured
+# to use npm because …/package.json has a packageManager field" - which is how
+# test/e2e/handle-non-hoisted-swc-helpers, the one fixture that pins `npm@10.9.2`,
+# failed its deploy outright. So read the field and honor it.
+#
+# corepack is only used for pnpm, where the pinned version matters and this repo
+# already relies on it. `npm` ships with node, and going through corepack would
+# add a download of a specific npm build for no benefit.
+PM="$(node -e 'const f=require("path").join(process.argv[1],"package.json");let s="pnpm";try{s=(require(f).packageManager||"pnpm").split("@")[0]}catch{};process.stdout.write(s)' "$APP_DIR")"
+case "$PM" in
+  pnpm)
+    if command -v corepack >/dev/null 2>&1; then PM_CMD=(corepack pnpm); else PM_CMD=(pnpm); fi
+    # Without it pnpm walks up out of /tmp looking for a workspace root.
+    INSTALL_ARGS=(--ignore-workspace --prefer-offline)
+    ;;
+  *)
+    PM_CMD=("$PM")
+    INSTALL_ARGS=(--prefer-offline)
+    ;;
+esac
+echo "harness: package manager $PM (${PM_CMD[*]})"
+# The `build` script the harness writes always chains `pnpm post-build`
+# (hardcoded in base.ts), so pnpm has to be on PATH whatever $PM is.
+"${PM_CMD[@]}" install "${INSTALL_ARGS[@]}"
 
 # Make the adapter resolvable as a package rather than a loose file: the adapter
 # resolves its own cache handler with
@@ -81,7 +101,8 @@ export NEXT_TELEMETRY_DISABLED=1
 export NEXT_PRIVATE_TEST_MODE=e2e
 
 echo "harness: building with NEXT_ADAPTER_PATH=$NEXT_ADAPTER_PATH"
-"${PNPM[@]}" build 2>&1 | tee "$HARNESS_BUILD_LOG"
+# `run build`, not `build`: pnpm accepts the bare script name but npm does not.
+"${PM_CMD[@]}" run build 2>&1 | tee "$HARNESS_BUILD_LOG"
 
 # The markers the harness parses out of the logs script's output
 # (`test/lib/next-modes/next-deploy.ts`'s `parseIdsFromCliOutput`). The fixture's
