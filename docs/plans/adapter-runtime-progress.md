@@ -4541,3 +4541,12 @@ precisely the shape `normalizePagePath` rejects — and `cacheKey` is passed to
 assertions are mutually exclusive on 16.3.5. Its verdict therefore moves from
 **bug** to **upstream**, and the harness excludes it for the fixture's reason
 rather than ours. Which leaves the coverage doc with no open `bug` verdict at all.
+
+Both remaining upstream verdicts are now filed, with canary checked first so
+neither is a report of something already fixed:
+[vercel/next.js#99154](https://github.com/vercel/next.js/issues/99154) for the
+`nxtP` double-decode-and-split (and the `isAdapterTest` expectation it made
+unsatisfiable) and
+[vercel/next.js#99155](https://github.com/vercel/next.js/issues/99155) for
+`@next/routing` collapsing a rewrite destination's repeated query key. Both
+reproduce on `16.4.0-canary.43`.

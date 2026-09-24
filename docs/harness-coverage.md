@@ -1857,7 +1857,9 @@ fixture bug below and stays excluded.
 ### `incremental-cache-path-traversal` asserts a 200 for a param shape that throws
 
 `incremental-cache-path-traversal` (1 of 1). **Verdict: upstream bug in the
-fixture**, not reachable from cdk-nextjs. Excluded until it is fixed there. The
+fixture**, not reachable from cdk-nextjs. Excluded until it is fixed there. Filed
+as [vercel/next.js#99154](https://github.com/vercel/next.js/issues/99154), which
+covers the contract limitation behind it as well. The
 runtime behaviour it was exposing is fixed — see defect 35, whose closing
 paragraphs are the argument for why the file's two assertions are mutually
 exclusive.
@@ -1996,7 +1998,8 @@ verdict.
 
 `rewrites-destination-query-array` (1 of 1). **Verdict: upstream bug in
 `@next/routing`**, not reachable from cdk-nextjs. Excluded until it is fixed
-there.
+there. Filed as
+[vercel/next.js#99155](https://github.com/vercel/next.js/issues/99155).
 
 The fixture rewrites `/some-page` to `/?items=1&items=2` and asserts the index
 page renders `props.query.items.join(',')` as `1,2`. `next start` does. We answer
