@@ -65,7 +65,7 @@ Of the 472 screened (28 of which turned out to deploy nothing — see
 | ---------------- | ------ |
 | pass             | 427 whole files, plus 6 of 8 `trailingslash`, 3 of 5 `resume-data-cache`, 3 of 7 `dynamic-route-interpolation`, 1 of 2 `revalidate-path-with-rewrites` and 2 of 3 in each of the 6 `invalid-static-asset-404-*` files |
 | fixed            | 35 harness defects, every one of which came from a file listed above, and all but one now verified green against a deployment — the exception is defect 35, whose file cannot pass as written and which is verified offline against `next start` instead. Defect 23 is numbered in the same sequence but is *not* a harness defect — it came from `examples/e2e-tests`; see `docs/plans/adapter-runtime-progress.md`. There is no defect 28: the number was skipped, not withdrawn |
-| bug              | none among the harness files. Defect 36 is open, but is not a harness file verdict — the four-type e2e suite found it on `NextjsRegionalFunctions`, which the harness never deploys |
+| bug              | none among the harness files. Defect 36 — found by the four-type e2e suite on `NextjsRegionalFunctions`, not by a harness file — is fixed |
 | upstream         | 2 (`rewrites-destination-query-array` — a `@next/routing` bug; `incremental-cache-path-traversal` — a fixture asserting two things that cannot both hold. Neither reachable from here) |
 | unsupported      | 2 (`prerender-encoding`, and `middleware-fetches-with-any-http-method` whose edge middleware the screen missed; separately, 203 files are disqualified by the edge screen and never deployed) |
 | CDN-inherent     | 2 whole files (`revalidate-dynamic`, `proxy-readable-toweb`), plus the 2 remaining `trailingslash`, 4 remaining `dynamic-route-interpolation`, 1 remaining `revalidate-path-with-rewrites` and 1 remaining case in each of the 6 `invalid-static-asset-404-*` files |
@@ -2050,9 +2050,13 @@ to `handleResponse` regardless of `isMinimalMode`, so there is no bypass. The tw
 assertions cannot both hold on 16.3.5, which is why it is filed as an upstream
 fixture bug below and stays excluded.
 
-## Bug — not yet fixed
+## Bug — fixed after the four-type back-fill
 
 ### 36. Every redirect on `NextjsRegionalFunctions` drops the API Gateway stage prefix
+
+**Fixed** — see "Fix" at the end of this section. Kept here, next to where it was
+found, rather than moved into the harness's own "Fixed" list above, because it is
+not a harness finding.
 
 **Not a harness finding** — found by the cross-type e2e suite this section's
 back-fill created, which is the thing the harness structurally could not do: it only
@@ -2106,20 +2110,35 @@ flakiness was a hydration race in the test, fixed by waiting for the client rout
 before clicking (the same guard `rsc-navigation.test.ts` already carries). Nothing is
 gated in `server-action-redirect.test.ts` as a result.
 
-Candidate fix, not yet written: prefix path-absolute `Location` headers with the
-stage on the way out, in the API Gateway Lambda shell (`src/runtime/lambda.mts`),
-which is the one place that already knows the stage — `event.requestContext.stage`,
-and symmetric with the inbound rewrite. It cannot be unconditional: `nextjs-api.ts`'s
-README documents a custom domain mapped at the root, where there is no stage in the
-external path, so it has to key off the same signal the app uses
-(`PREPEND_APIGW_STAGE` / `API_GATEWAY_STAGE`) — and those are set by the user's
-`app.ts`, not by the construct, which is the part that makes this a design decision
-rather than a one-liner.
+**Fix.** Not the outbound `Location` rewrite first sketched here — that would
+have had to key off the app's own `PREPEND_APIGW_STAGE` / `API_GATEWAY_STAGE`, which
+the construct does not set. The prefix is put back on the way *in* instead, before
+Next.js routes anything, which is what makes every redirect site right at once:
+`src/runtime/api-gateway-path.ts` hands Next.js `requestContext.path` — the path
+with the stage still on it — whenever the app's `basePath` starts with it, and
+`event.path` otherwise. Nothing is configured; the stage is read off each request.
+A probe REST API (stage `test`) confirmed the two fields share an encoding and that
+only `event.path` is normalized (`/test` arrives as `"/"`, `/test//foo` as
+`"/foo"`), which is why the path is taken whole rather than reconstructed.
+`examples/app-playground/proxy.ts` lost its stage rewrite with it.
 
-Gated, not skipped, so it cannot rot: three tests in
-`examples/e2e-tests/src/url-normalization.test.ts` carry
-`test.fail(isApiGateway(), "defect #36 …")`. They still execute on all four types, so the day
-the prefix survives they fail as "passed unexpectedly" and have to be un-gated.
+Measured on a fresh `NextjsRegionalFunctions` deployment of `app-playground`:
+
+| request | before | after | `next start` |
+| --- | --- | --- | --- |
+| `/prod/isr//1` | `308` → `/isr/1` | `308` → `/prod/isr/1` | `308` → `/prod/isr/1` |
+| `/prod/isr/1/` | `308` → `/isr/1` | `308` → `/prod/isr/1` | `308` → `/prod/isr/1` |
+| `/prod/ssg/1/` | `308` → `/ssg/1` | `308` → `/prod/ssg/1` | `308` → `/prod/ssg/1` |
+| `/prod//` | `200` | `308` → `/prod/` | `308` → `/prod/` |
+
+The three `test.fail(isApiGateway(), "defect #36 …")` gates in
+`examples/e2e-tests/src/url-normalization.test.ts` went red as "passed
+unexpectedly", as designed, and are removed. One consequence is new and deliberate:
+`/prod/` now `308`s to `/prod`, as `next start` does for any `basePath: "/prod"`
+app, where the old middleware answered it directly. Two e2e tests that resolved
+URLs against the page after `page.goto("./")` now resolve them against `baseURL`.
+The suite on that deployment: 70 passed, 5 skipped, 0 failed.
+
 `url-normalization`'s first test also gained a positive assertion that the
 `Location` still carries the prefix the app is served under, because the assertions
 it shipped with — `toContain("/isr/1")` and `not.toContain("//isr")` — both pass

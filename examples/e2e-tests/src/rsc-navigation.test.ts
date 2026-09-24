@@ -27,11 +27,18 @@ test.describe("rsc navigation", () => {
   // `/index.rsc` bug; `isr/1` is a dynamic route reaching entirely different code
   // in the cache handler, so both are worth asking.
   for (const { label, path } of [
-    { label: "the home page", path: "./?_rsc" },
+    // The app's root with no trailing slash: under a `basePath` (API Gateway's
+    // `/prod`), `./?_rsc` is `/prod/?_rsc`, which Next.js answers with its
+    // `basePath` root redirect to `/prod` — as `next start` does.
+    { label: "the home page", path: "" },
     { label: "a dynamic route", path: "./isr/1?_rsc" },
   ]) {
-    test(`serves the RSC payload for ${label}`, async ({ request }) => {
-      const response = await request.get(path, {
+    test(`serves the RSC payload for ${label}`, async ({
+      request,
+      baseURL,
+    }) => {
+      const url = path || `${(baseURL ?? "").replace(/\/+$/, "")}?_rsc`;
+      const response = await request.get(url, {
         headers: { RSC: "1" },
         // A 307 here would mean the marker convention changed; following it would
         // hide that behind a passing test.

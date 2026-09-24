@@ -95,6 +95,33 @@ has no long-lived process to probe, so there was nothing for it to do there.
   Deployed resources are identical either way; this only changes which props
   compile.
 
+### `NextjsRegionalFunctions` puts the API Gateway stage back itself
+
+API Gateway strips the stage (`/prod`) from the path it passes to Lambda, so an
+app built with `basePath: "/prod"` — the setup `examples/regional-functions`
+documents — used to 404 every request unless middleware prepended the stage
+again. The example shipped that middleware in `examples/app-playground/proxy.ts`,
+driven by `PREPEND_APIGW_STAGE` and `API_GATEWAY_STAGE` on the function.
+
+The Lambda shell now does it: when the app's `basePath` starts with the prefix
+API Gateway stripped, Next.js is handed the request's unstripped path
+(`requestContext.path`). The stage is read off each request, so nothing is
+configured and a renamed stage just works. An app without a `basePath`, or behind
+a custom domain mapped at the root, sees exactly what it saw before.
+
+- **If you copied the stage-prepending middleware, remove it** along with the two
+  environment variables. The copy in the example skipped paths already starting
+  with the stage, so it is inert rather than harmful — but a variant without that
+  guard now rewrites `/prod/foo` to `/prod/prod/foo` and 404s.
+- **Redirects keep the stage.** A trailing-slash or repeated-slash redirect used
+  to answer with a `Location` outside the stage (`/isr/1` rather than
+  `/prod/isr/1`), which API Gateway then refused with a 403. They now match
+  `next start`.
+- **`/prod/` redirects to `/prod`**, as it does under `next start` for any app
+  with `basePath: "/prod"`. The middleware used to answer it directly with 200.
+  One extra hop on the stage root, and a page-relative URL resolved from the app's
+  root now resolves against `/prod` rather than `/prod/`.
+
 ### New (non-breaking): `functionGroups`
 
 Splits one Next.js app across several Lambda functions, one per declared group of

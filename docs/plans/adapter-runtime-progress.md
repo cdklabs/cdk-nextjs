@@ -4732,3 +4732,61 @@ a fetch delete that uses `ctx.tags` and issues no pre-delete GET, an untagged en
 that deletes no rows, a tags-unreadable entry whose object is still deleted, and an
 extension of the existing revalidated-fetch-entry test asserting its row goes with
 it. `pnpm jest src/adapter` — 169 passed. `pnpm compile` and `pnpm eslint` clean.
+
+## Post-PR — `NextjsRegionalFunctions` puts the API Gateway stage back itself
+
+The first half of the long-deferred "`/prod` stage prefix vs `basePath`" item,
+scoped with the user. Also closes defect 36 in `docs/harness-coverage.md`.
+
+### What was wrong
+
+API Gateway strips the stage before invoking Lambda, and the shell handed Next.js
+`event.path`, so an app built with `basePath: "/prod"` — the only way its links and
+bundle URLs carry the stage — 404'd everything. The fix lived in the *app*:
+`examples/app-playground/proxy.ts` prepended `API_GATEWAY_STAGE` via a middleware
+rewrite. Two costs. Every RegionalFunctions user had to carry that middleware; and
+because the rewrite happens after routing starts, every redirect built earlier —
+the shell's repeated-slash collapse, Next.js's `trailingSlash` normalization —
+came out stage-relative, which API Gateway 403s (defect 36).
+
+### What changed
+
+`src/runtime/api-gateway-path.ts`: for an API Gateway event, use
+`requestContext.path` (which keeps the stage) when it starts with the app's
+`basePath` on a segment boundary, else `event.path`. Called from
+`src/runtime/lambda.mts` with `runtime.manifest.config.basePath`. No prop, no env
+var: a stage named `test` or a renamed stage is read off the event. A custom domain
+mapped at the root strips nothing, so both fields agree and behavior is unchanged.
+
+Probed first on a throwaway REST API (`stickb-apigw-path-probe`, stage `test`,
+destroyed afterwards): `requestContext.path` is always `/<stage>` + the raw path,
+same percent-encoding as `event.path` (`%20`, `%C3%A9`, `%2F` all identical); only
+`event.path` is normalized (`/test` → `"/"`, `/test//foo` → `"/foo"`). That ruled
+out reconstructing the prefix from the difference and is why the path is taken
+whole. **Not verified:** a custom domain with a base path mapping — no hosted zone
+in the dev account. Documented as expected-from-AWS-docs, untested, in
+`examples/regional-functions/README.md`.
+
+Removed with it: the stage rewrite in `examples/app-playground/proxy.ts`, and
+`PREPEND_APIGW_STAGE` / `API_GATEWAY_STAGE` from `examples/regional-functions/app.ts`.
+`docs/breaking-changes.md` (0.7.0) tells users who copied the middleware to drop it.
+
+### Judgment call: `/prod/` now redirects
+
+`/prod/` 308s to `/prod`, as `next start` does for any `basePath: "/prod"` app. The
+old middleware special-cased it to 200. Kept Next.js's behavior rather than
+re-special-casing it in the shell, because fidelity to `next start` is the whole
+point of the fix. It broke two e2e tests that resolved URLs page-relative after
+`page.goto("./")` (`request-methods` POST/PUT → `/api/echo`, outside the stage) or
+requested `./?_rsc` with `maxRedirects: 0` (`rsc-navigation` home page); both now
+resolve against `baseURL`, which is equivalent on the other three types.
+
+### Verification
+
+`src/runtime/api-gateway-path.test.ts` (9 cases); `pnpm jest src/runtime` 189
+passed; `pnpm compile`, `pnpm bundle`, `pnpm eslint` clean. Deployed
+`examples/regional-functions` as `stickb-rgnl-fns` (mine): the four defect-36
+redirects now keep `/prod` and match `next start`; the full e2e suite with
+`E2E_NEXTJS_TYPE=regional-functions` went 64 passed / 6 failed → **70 passed / 5
+skipped / 0 failed** after un-gating defect 36's three `test.fail`s and the two
+test fixes above. The other three types are left to CI.

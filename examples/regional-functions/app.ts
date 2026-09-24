@@ -54,15 +54,6 @@ export class RegionalFunctionsStack extends Stack {
           functionProps: {
             environment: {
               DEBUG: "cdk-nextjs:*",
-              // Tell proxy.ts to prepend the API Gateway stage name since API
-              // Gateway strips it
-              PREPEND_APIGW_STAGE: "1",
-              // The stage name proxy.ts prepends. Read from the environment
-              // rather than per-request; see proxy.ts.
-              API_GATEWAY_STAGE: process.env["NEXTJS_BASE_PATH"]!.replace(
-                /^\//,
-                "",
-              ),
             },
           },
         },

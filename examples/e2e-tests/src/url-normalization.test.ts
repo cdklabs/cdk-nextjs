@@ -1,9 +1,5 @@
 import { test, expect } from "@playwright/test";
-import {
-  isApiGateway,
-  isGlobalFunctions,
-  isLocal,
-} from "./utils/deployment-type";
+import { isGlobalFunctions, isLocal } from "./utils/deployment-type";
 
 /**
  * A repeated slash in a path. Next.js answers one with a 308 to the collapsed
@@ -33,17 +29,13 @@ import {
  * - The 308's body. Next.js sends the destination as text; only cloudfront-js-2.0
  *   can return a body on a generated response, and no known client reads it.
  *
- * Three cases here are `test.fail`ed on `NextjsRegionalFunctions` against **defect
- * #36**, found by this file (see `docs/harness-coverage.md`). On that type *every*
- * redirect loses the stage prefix: API Gateway strips `/prod` before the Lambda
- * sees the path and only the app's `proxy.ts` puts it back, via a middleware
- * rewrite, so any `Location` built from the path itself comes out as `/isr/1` and
- * points outside the app - where API Gateway answers `403`. Measured, with `next
- * start` on the same build emitting `/prod/isr/1` for all of it.
- *
- * `test.fail` rather than `test.fixme` deliberately: these still run, so the day
- * the deployment learns its external prefix they go red as "passed unexpectedly"
- * and get un-gated instead of rotting.
+ * On `NextjsRegionalFunctions` three cases here were `test.fail`ed against
+ * **defect #36** (see `docs/harness-coverage.md`): every redirect lost the stage
+ * prefix, because API Gateway strips `/prod` before the Lambda sees the path and
+ * only the app's `proxy.ts` put it back, after routing had started. The Lambda
+ * shell now hands Next.js the unstripped path for an app whose `basePath` carries
+ * the stage (`src/runtime/api-gateway-path.ts`), so the `Location`s come out as
+ * `/prod/isr/1`, as they do under `next start` - and the gates are gone.
  */
 test.describe("url normalization", () => {
   // Built by string concatenation rather than passed as a relative path: resolving
@@ -70,11 +62,6 @@ test.describe("url normalization", () => {
     request,
     baseURL,
   }) => {
-    test.fail(
-      isApiGateway(),
-      "defect #36: the Location drops the stage prefix",
-    );
-
     const response = await request.get(rawUrl(baseURL, "/isr//1"), {
       // Observe the redirect instead of following it.
       maxRedirects: 0,
@@ -103,11 +90,6 @@ test.describe("url normalization", () => {
     request,
     baseURL,
   }) => {
-    test.fail(
-      isApiGateway(),
-      "defect #36: following the Location gets a 403 from API Gateway",
-    );
-
     // A 308 to a 404 would satisfy the test above. Following it is what proves the
     // rule is a normalization and not a way to lose a request.
     const response = await request.get(rawUrl(baseURL, "/isr//1"));
@@ -116,11 +98,6 @@ test.describe("url normalization", () => {
   });
 
   test("redirects a bare // to the root", async ({ request, baseURL }) => {
-    test.fail(
-      isApiGateway(),
-      "defect #36: API Gateway resolves `/prod//` to the root and the app answers 200",
-    );
-
     // Worth its own case: `//` at the start of a request target is also the
     // authority form of a URL, so it was not obvious that CloudFront would route
     // it to a function rather than answering it itself. It does - and an earlier

@@ -28,8 +28,18 @@ test.describe("request methods", () => {
   // truncated or re-encoded body fails on the hash rather than on the length.
   const EXPECTED_LENGTH = new TextEncoder().encode(BODY).byteLength;
 
+  /**
+   * Resolved against `baseURL`, not against the page: `page.goto("./")` on API
+   * Gateway lands on `.../prod` after Next.js's `basePath` root redirect
+   * (`/prod/` → `/prod`), and a page-relative `api/echo` from there is
+   * `/api/echo` — outside the stage, a 403 from API Gateway.
+   */
+  const echoUrl = (baseURL: string | undefined) =>
+    new URL("api/echo", baseURL).href;
+
   test("accepts a POST with a body sent by the page's own JavaScript", async ({
     page,
+    baseURL,
   }) => {
     // This has to be a fetch from inside the page, not `request.post`.
     //
@@ -42,17 +52,20 @@ test.describe("request methods", () => {
     // here for a reason that has nothing to do with the product.
     await page.goto("./", { waitUntil: "domcontentloaded" });
 
-    const result = await page.evaluate(async (body: string) => {
-      const response = await fetch("api/echo", {
-        method: "POST",
-        headers: { "content-type": "text/plain" },
-        body,
-      });
-      return {
-        status: response.status,
-        json: (await response.json()) as EchoedBody,
-      };
-    }, BODY);
+    const result = await page.evaluate(
+      async ({ url, body }) => {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "text/plain" },
+          body,
+        });
+        return {
+          status: response.status,
+          json: (await response.json()) as EchoedBody,
+        };
+      },
+      { url: echoUrl(baseURL), body: BODY },
+    );
 
     expect(result.status).toBe(200);
     expect(result.json.method).toBe("POST");
@@ -68,24 +81,27 @@ test.describe("request methods", () => {
     expect(result.json.bodySha256).toBe(digest);
   });
 
-  test("accepts a PUT with a body", async ({ page }) => {
+  test("accepts a PUT with a body", async ({ page, baseURL }) => {
     // Same path as POST, different method - worth its own case because the edge
     // has to allow the method as well as carry the body. CloudFront's
     // `ALLOW_ALL` methods policy and API Gateway's `ANY` method are two separate
     // decisions, either of which can be narrowed by accident.
     await page.goto("./", { waitUntil: "domcontentloaded" });
 
-    const result = await page.evaluate(async (body: string) => {
-      const response = await fetch("api/echo", {
-        method: "PUT",
-        headers: { "content-type": "text/plain" },
-        body,
-      });
-      return {
-        status: response.status,
-        json: (await response.json()) as EchoedBody,
-      };
-    }, BODY);
+    const result = await page.evaluate(
+      async ({ url, body }) => {
+        const response = await fetch(url, {
+          method: "PUT",
+          headers: { "content-type": "text/plain" },
+          body,
+        });
+        return {
+          status: response.status,
+          json: (await response.json()) as EchoedBody,
+        };
+      },
+      { url: echoUrl(baseURL), body: BODY },
+    );
 
     expect(result.status).toBe(200);
     expect(result.json.method).toBe("PUT");

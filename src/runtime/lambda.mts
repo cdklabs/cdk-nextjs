@@ -24,6 +24,7 @@ import type {
   LambdaFunctionURLEvent,
 } from "aws-lambda";
 import type { IncomingHttpHeaders } from "node:http";
+import { apiGatewayRequestPath } from "./api-gateway-path";
 import { loadRuntime, RuntimeRequest } from "./core";
 import { deploymentRootOf } from "./deployment-root";
 import type { ResponseHead } from "./http/response";
@@ -71,20 +72,23 @@ export const handler = awslambda.streamifyResponse(
   async (event: LambdaEvent, responseStream: Writable): Promise<void> => {
     const runtime = await runtimePromise;
     await runtime.handle(
-      toRuntimeRequest(event),
+      toRuntimeRequest(event, runtime.manifest.config.basePath),
       new LambdaResponseSink(responseStream),
     );
   },
 );
 
-function toRuntimeRequest(event: LambdaEvent): RuntimeRequest {
+function toRuntimeRequest(
+  event: LambdaEvent,
+  basePath: string,
+): RuntimeRequest {
   const body = decodeBody(event.body, event.isBase64Encoded);
   if (isApiGatewayEvent(event)) {
     return {
       method: event.httpMethod,
-      // `event.path` is the resource path without the stage prefix;
-      // `requestContext.path` includes it and would break every route match.
-      url: event.path + formatQuery(event),
+      // With the stage API Gateway stripped put back, but only for an app whose
+      // `basePath` expects it; see `apiGatewayRequestPath`.
+      url: apiGatewayRequestPath(event, basePath) + formatQuery(event),
       headers: restHeaders(event),
       body,
       remoteAddress: event.requestContext.identity?.sourceIp,
