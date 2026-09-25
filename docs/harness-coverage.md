@@ -136,12 +136,20 @@ documents exactly four keys — `headers`, `multiValueHeaders`, `cookies`,
 `responseTransferMode: STREAM` is what makes it apply. Reasoning from the field name
 would have cost a fix that was never needed.
 
-Three of the harness's findings are deliberately **not** back-filled, and stay
+Two of the harness's findings are deliberately **not** back-filled, and stay
 harness-only: `trailingSlash`, `assetPrefix`, `i18n` and the Pages Router (defects
 6, 15, 16, 17, 20, 21, 22, 32's Pages half and 33) cannot coexist with the App
-Router fixture in one `next.config.ts`; defect 29's `beforeFiles` rewrite needs
-config-level routing this app does not declare; and defect 25's web worker has no
+Router fixture in one `next.config.ts`; and defect 25's web worker has no
 per-type divergence to check.
+
+Defect 29 was a third until app-playground declared config-level routing. Its
+`next.config.ts` now has one `redirects()`, one `headers()` and one self-matching
+`beforeFiles` rewrite, covered by `examples/e2e-tests/src/config-routing.test.ts`.
+The rewrite's destination is a *page*, not a route handler: Next.js's second
+rewrite pass changes the `query` a page's `searchParams` come from, and never
+touches the `req.url` a route handler's `request.nextUrl` reads, so a route
+handler there passes with the fix reverted (measured locally, both ways). Green on
+`NextjsRegionalFunctions` on 2026-09-24.
 
 ### First run on `NextjsRegionalFunctions`
 
