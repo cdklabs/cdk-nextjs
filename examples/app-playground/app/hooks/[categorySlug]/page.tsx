@@ -1,19 +1,19 @@
-import { getCategory } from '#/app/api/categories/getCategories';
 import { HooksClient } from '#/app/hooks/_components/router-context';
+import { CategoryTitle, CategoryTitleFallback } from '#/ui/category-content';
+import { Suspense } from 'react';
 
-export default async function Page(
-  props: {
-    params: Promise<{ categorySlug: string }>;
-  }
-) {
-  const params = await props.params;
-  const category = await getCategory({ slug: params.categorySlug });
-
+export default function Page(props: {
+  params: Promise<{ categorySlug: string }>;
+}) {
   return (
     <div className="space-y-9">
-      <h1 className="text-xl font-medium text-gray-400/80">
-        All {category.name}
-      </h1>
+      {/*
+       * The title is the only part that needs the slug in the URL - see
+       * `CategoryTitle` for why that means it renders behind a boundary.
+       */}
+      <Suspense fallback={<CategoryTitleFallback />}>
+        <CategoryTitle params={props.params} prefix="All " />
+      </Suspense>
 
       <HooksClient />
     </div>

@@ -1,25 +1,19 @@
-import { getCategory } from '#/app/api/categories/getCategories';
-import { SkeletonCard } from '#/ui/skeleton-card';
+import { CategoryCards, CategoryCardsFallback } from '#/ui/category-content';
+import { Suspense } from 'react';
 
-export default async function Page(
-  props: {
-    params: Promise<{ categorySlug: string }>;
-  }
-) {
-  const params = await props.params;
-  const category = await getCategory({ slug: params.categorySlug });
-
+export default function Page(props: {
+  params: Promise<{ categorySlug: string }>;
+}) {
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-medium text-gray-400/80">
-        All {category.name}
-      </h1>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {Array.from({ length: 9 }).map((_, i) => (
-          <SkeletonCard key={i} />
-        ))}
-      </div>
+      {/*
+       * Everything that depends on the slug in the URL streams in after the shell:
+       * with `cacheComponents` on, reading `params` outside a `<Suspense>`
+       * boundary would stop this route from being prerendered at all.
+       */}
+      <Suspense fallback={<CategoryCardsFallback count={9} />}>
+        <CategoryCards params={props.params} prefix="All " count={9} />
+      </Suspense>
     </div>
   );
 }

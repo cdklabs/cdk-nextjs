@@ -227,39 +227,35 @@ export function suppressCommonNags(stack: Stack) {
   );
 }
 
-export function suppressLambdaNags(stack: Stack) {
-  suppressLambdaExecutionRole(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/Resource`,
-  );
-
-  suppressS3WildcardPermissions(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
-    "Lambda functions need wildcard S3 permissions to access cache and static assets",
-  );
-
-  // NextjsImageFunction only exists behind this experimental flag (see
-  // src/utils/experimental-flags.ts); suppressing a path with no matching
-  // resource throws.
-  if (process.env.CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION === "1") {
-    suppressLambdaExecutionRole(
-      stack,
-      `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/Resource`,
-    );
+/**
+ * @param functionGroupNames names of any `functionGroups` the stack declares.
+ * Each becomes its own Lambda function, at construct id `Functions-<name>`, and
+ * needs the same suppressions as the default one.
+ */
+export function suppressLambdaNags(
+  stack: Stack,
+  functionGroupNames: string[] = [],
+) {
+  const constructIds = [
+    "Functions",
+    ...functionGroupNames.map((name) => `Functions-${name}`),
+  ];
+  for (const constructId of constructIds) {
+    const role = `/${stack.stackName}/Nextjs/NextjsFunctions/${constructId}/ServiceRole`;
+    suppressLambdaExecutionRole(stack, `${role}/Resource`);
 
     suppressS3WildcardPermissions(
       stack,
-      `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/DefaultPolicy/Resource`,
-      "Image optimization Lambda needs wildcard S3 permissions to read static assets",
-      { includeAbort: false, includeDelete: false, includeStaticAssets: true },
+      `${role}/DefaultPolicy/Resource`,
+      "Lambda functions need wildcard S3 permissions to access cache and static assets",
+      { includeStaticAssets: true },
+    );
+
+    suppressCloudFrontInvalidationWildcard(
+      stack,
+      `${role}/DefaultPolicy/Resource`,
     );
   }
-
-  suppressCloudFrontInvalidationWildcard(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
-  );
 }
 
 export function suppressContainerNags(stack: Stack) {
@@ -312,6 +308,7 @@ export function suppressContainerNags(stack: Stack) {
     stack,
     `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
     "Container task role needs wildcard S3 permissions to access cache and static assets",
+    { includeStaticAssets: true },
   );
 
   suppressCloudFrontInvalidationWildcard(

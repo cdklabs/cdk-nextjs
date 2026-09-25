@@ -1,7 +1,19 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { App, Stack } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { App, Size, Stack } from "aws-cdk-lib";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
+import { Bucket } from "aws-cdk-lib/aws-s3";
+import { Source } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsCache } from "./nextjs-cache";
 
 describe("NextjsCache", () => {
@@ -102,6 +114,213 @@ describe("NextjsCache", () => {
       template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
         TableName: "custom-revalidation-table",
       });
+    });
+  });
+
+  describe("Init cache deployment", () => {
+    let initCacheDir: string;
+    let outdir: string;
+
+    beforeEach(() => {
+      initCacheDir = mkdtempSync(join(tmpdir(), "init-cache-src-"));
+      mkdirSync(join(initCacheDir, "server", "app"), { recursive: true });
+      writeFileSync(join(initCacheDir, "server", "app", "index.html"), "<p/>");
+      outdir = mkdtempSync(join(tmpdir(), "init-cache-out-"));
+    });
+
+    afterEach(() => {
+      rmSync(initCacheDir, { recursive: true, force: true });
+      rmSync(outdir, { recursive: true, force: true });
+    });
+
+    /**
+     * The tag `BucketDeployment` stamps on its destination bucket, and the only
+     * one that can vary between two builds. `Tags` on an `AWS::S3::Bucket` are
+     * not hotswappable, so a tag key that carries the build ID costs a full
+     * CloudFormation deployment on every deploy.
+     */
+    function ownerTags(template: Template): string[] {
+      const buckets = template.findResources("AWS::S3::Bucket");
+      return Object.values(buckets)
+        .flatMap((bucket) => bucket.Properties?.Tags ?? [])
+        .map((tag: { Key: string }) => tag.Key)
+        .filter((key) => key.startsWith("aws-cdk:cr-owned"));
+    }
+
+    function synth(buildId: string) {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", { buildId, initCacheDir });
+      return { app: ownApp, template: Template.fromStack(ownStack) };
+    }
+
+    it("keys the objects under the build ID without a destinationKeyPrefix", () => {
+      const { app: ownApp, template } = synth("build-abc123");
+
+      // Not `DestinationBucketKeyPrefix: Match.absent()` on its own: that would
+      // also pass if the staged tree had lost the build ID, which is what keeps
+      // the S3 keys the same as before this moved.
+      const deployments = template.findResources("Custom::CDKBucketDeployment");
+      expect(Object.keys(deployments)).toHaveLength(1);
+      expect(Object.values(deployments)[0].Properties).not.toHaveProperty(
+        "DestinationBucketKeyPrefix",
+      );
+
+      const assembly = ownApp.synth();
+      const stagedUnderBuildId = readdirSync(assembly.directory, {
+        withFileTypes: true,
+      }).some(
+        (entry) =>
+          entry.isDirectory() &&
+          entry.name.startsWith("asset.") &&
+          readdirSync(join(assembly.directory, entry.name)).includes(
+            "build-abc123",
+          ),
+      );
+      expect(stagedUnderBuildId).toBe(true);
+    });
+
+    it("removes its temporary staging copy once the asset is staged", () => {
+      // `Source.asset` stages during `BucketDeployment`'s construction, so the
+      // copy is dead as soon as that returns - and it is a whole init cache,
+      // measured at 664 MiB. Leaving one per synth put ~15 GB in the system temp
+      // directory over a CI loop of ~22 deploys.
+      const existing = new Set(
+        readdirSync(tmpdir()).filter((name) =>
+          name.startsWith("nextjs-init-cache-"),
+        ),
+      );
+
+      synth("build-abc123").app.synth();
+
+      const leaked = readdirSync(tmpdir()).filter(
+        (name) => name.startsWith("nextjs-init-cache-") && !existing.has(name),
+      );
+      expect(leaked).toEqual([]);
+    });
+
+    it("tags the cache bucket the same way whatever the build ID", () => {
+      const first = ownerTags(synth("build-abc123").template);
+      const second = ownerTags(synth("build-def456").template);
+
+      expect(first).toHaveLength(1);
+      expect(first[0]).toMatch(/^aws-cdk:cr-owned:[0-9a-f]{8}$/);
+      expect(second).toEqual(first);
+    });
+
+    /**
+     * The unzip Lambda holds the asset zip and its extracted contents in `/tmp`
+     * at once, so a seed directory bigger than the 512 MiB CDK asks for by
+     * default kills it with `[Errno 28] No space left on device` — and under
+     * `cdk deploy --hotswap` that failure is invisible, because the CLI hands the
+     * custom resource a placeholder response URL and never reads its status.
+     */
+    function deploymentLambda(template: Template) {
+      const functions = template.findResources("AWS::Lambda::Function", {
+        Properties: {
+          Handler: "index.handler",
+          Runtime: Match.stringLikeRegexp("^python"),
+        },
+      });
+      expect(Object.keys(functions)).toHaveLength(1);
+      return Object.values(functions)[0].Properties;
+    }
+
+    it("leaves a small init cache on the default Lambda sizing", () => {
+      const properties = deploymentLambda(synth("build-abc123").template);
+
+      // The floor, not a computed value: a handful of bytes still wants 512 MiB
+      // because that is the least Lambda will give.
+      expect(properties.EphemeralStorage).toEqual({ Size: 512 });
+      // Absent, not 128: leaving `memoryLimit` alone keeps the property out of
+      // the template, which is Lambda's own 128 MB default.
+      expect(properties.MemorySize).toBeUndefined();
+    });
+
+    it("scales /tmp and memory to a large init cache", () => {
+      // A sparse file: `statSync` reports 300 MiB, the filesystem stores almost
+      // nothing, and the zip of a 300 MiB hole costs no real work.
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      writeFileSync(big, "");
+      truncateSync(big, 300 * 1024 * 1024);
+
+      const properties = deploymentLambda(synth("build-abc123").template);
+
+      // 301 MiB of cache — the 300 MiB hole plus the fixture's own file, rounded
+      // up — doubled for the zip that sits beside it, plus headroom: 730 MiB,
+      // rounded up to the next step.
+      expect(properties.EphemeralStorage).toEqual({ Size: 1024 });
+      expect(properties.MemorySize).toBe(1024);
+    });
+
+    it("keeps the deployment's identity while the cache grows by a little", () => {
+      // `ephemeralStorageSize` is part of the singleton handler's UUID and the
+      // custom resource's logical ID. Sized to the MiB, a cache 5 MiB bigger
+      // than the last deploy's was a new handler Lambda, a new ServiceToken
+      // and a replaced custom resource - a full deployment, not a hotswap.
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      const logicalIds = (mib: number) => {
+        writeFileSync(big, "");
+        truncateSync(big, mib * 1024 * 1024);
+        const template = synth("build-abc123").template;
+        return [
+          ...Object.keys(template.findResources("Custom::CDKBucketDeployment")),
+          ...Object.keys(template.findResources("AWS::Lambda::Function")),
+        ].sort();
+      };
+
+      expect(logicalIds(305)).toEqual(logicalIds(300));
+    });
+
+    it("keeps the staging copy when asset staging is disabled", () => {
+      // `--no-staging` (and SAM) leaves the asset where it is rather than
+      // copying it into `cdk.out`, so the staging copy *is* the asset, and the
+      // publish after synth needs it.
+      const ownApp = new App({
+        outdir: mkdtempSync(join(outdir, "app-")),
+        context: { "aws:cdk:disable-asset-staging": true },
+      });
+      const existing = new Set(
+        readdirSync(tmpdir()).filter((name) =>
+          name.startsWith("nextjs-init-cache-"),
+        ),
+      );
+
+      new NextjsCache(new Stack(ownApp, "TestStack"), "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+      });
+
+      const kept = readdirSync(tmpdir()).filter(
+        (name) => name.startsWith("nextjs-init-cache-") && !existing.has(name),
+      );
+      expect(kept).toHaveLength(1);
+      rmSync(join(tmpdir(), kept[0]), { recursive: true, force: true });
+    });
+
+    it("lets overrides win over the computed sizing", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            destinationBucket: Bucket.fromBucketName(
+              ownStack,
+              "Existing",
+              "someone-elses-bucket",
+            ),
+            sources: [Source.data("marker", "x")],
+            ephemeralStorageSize: Size.gibibytes(2),
+            memoryLimit: 2048,
+          },
+        },
+      });
+
+      const properties = deploymentLambda(Template.fromStack(ownStack));
+      expect(properties.EphemeralStorage).toEqual({ Size: 2048 });
+      expect(properties.MemorySize).toBe(2048);
     });
   });
 });

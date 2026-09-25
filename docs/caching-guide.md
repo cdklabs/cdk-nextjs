@@ -56,11 +56,9 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 - **Optimization**: Cached resized, format-converted images
 - **Revalidation**: Time-based or on-demand revalidation
 
-This applies on every `NextjsType`, since `_next/image` is served by the Next.js
-server. If you replace that route with your own image optimization Lambda (via
-`NextjsApiProps.imageFunction` or `NextjsDistributionProps.imageFunctionUrl`),
-this cache kind is no longer written and you rely on HTTP caching instead
-(`Cache-Control`/`ETag` response headers, browser/CDN-cached).
+This applies on every `NextjsType`: `_next/image` is handled inside cdk-nextjs's
+runtime, which calls Next.js's own image optimizer, so the cache entry is written
+the same way it would be on any other host.
 
 ### 5. Redirect Cache (REDIRECT)
 
@@ -110,10 +108,8 @@ Cache Bucket Structure:
     "kind": "APP_PAGE",
     "html": "<!DOCTYPE html><html lang=\"en\" class=\"[color-scheme:dark]\">...</html>",
     "rscData": {
-      "type": "Buffer",
-      "data": [
-        49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, 109, ...
-      ]
+      "__type": "Buffer",
+      "base64": "MToiJFNyZWFjdC5mcmFnbQ..."
     },
     "headers": {
       "x-nextjs-stale-time": "300",
@@ -123,46 +119,32 @@ Cache Bucket Structure:
       "__type": "Map",
       "data": {
         "/_tree": {
-          "type": "Buffer",
-          "data": [
-            58, 72, 76, 91, 34, 47, 95, 110, 101, 120, 116, 47, 115, 116, 97, ...
-          ]
+          "__type": "Buffer",
+          "base64": "OkhMWyIvX25leHQvc3Rh..."
         },
         "/_full": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/isr/$d$id/__PAGE__": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/isr/$d$id": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/isr": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/_index": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/_head": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         }
       }
     }
@@ -184,10 +166,8 @@ Cache Bucket Structure:
     "kind": "APP_ROUTE",
     "status": 200,
     "body": {
-      "type": "Buffer",
-      "data": [
-        0, 0, 1, 0, 3, 0, 48, 48, 0, 0, 1, 0, 32, 0, 168, 37, 0, 0, 54, 0, 0, 0, ...
-      ]
+      "__type": "Buffer",
+      "base64": "AAABAAMAMDAAAAEAIACoJQAANgAAAA..."
     },
     "headers": {
       "cache-control": "public, max-age=0, must-revalidate",
@@ -260,10 +240,8 @@ Cache Bucket Structure:
   "value": {
     "kind": "IMAGE",
     "buffer": {
-      "type": "Buffer",
-      "data": [
-        255, 216, 255, 219, 0, 67, 0, 8, 8, 8, 8, 9, 8, 9, 10, 10, 9, 13, 14, ...
-      ]
+      "__type": "Buffer",
+      "base64": "/9j/2wBDAAgICAgJCAkKCgkNDg..."
     },
     "etag": "J29FvqevmUxXsoXBJzPbJC-g_PiMBegRLXAFLl_ZfhE",
     "extension": "jpeg",
@@ -282,6 +260,12 @@ Cache Bucket Structure:
 - **BUILD_ID Isolation**: All cache keys prefixed with `/{buildId}/`
 - **Next.js Cache Key Passthrough**: Preserves Next.js internal cache key structure
 - **Cache Kind Metadata**: Cache type stored within each cache entry's metadata
+- **Binary Payloads as base64**: RSC payloads and image bodies are `Buffer`s, written as
+  `{ "__type": "Buffer", "base64": "..." }`. `JSON.stringify` on a `Buffer` would otherwise
+  produce `{ "type": "Buffer", "data": [97, 97, ...] }` — one JSON number per byte, roughly
+  3x the bytes and, on read, one `JSON.parse` reviver call per byte. A 1 MiB RSC payload
+  costs ~4.8s of Lambda time to parse that way against ~0.2s for base64. Entries written by
+  an older build in the integer-array format are still read correctly.
 
 ### DynamoDB Revalidation Tracking
 

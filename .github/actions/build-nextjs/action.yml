@@ -1,0 +1,48 @@
+name: "Build next.js for the harness"
+description: >
+  Checks out vercel/next.js at a ref and builds it, plus the Playwright browser
+  its e2e suite drives. This is the slow thing the harness workflow caches, so it
+  runs on the cache-miss path only - from the `nextjs` job that populates the
+  cache, and from a shard as a fallback if the entry went away mid-run.
+
+inputs:
+  ref:
+    description: "vercel/next.js ref to check out"
+    required: true
+  path:
+    description: "Directory to check out into, relative to the workspace. Must match the cached path."
+    required: false
+    default: nextjs
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout vercel/next.js
+      uses: actions/checkout@v4
+      with:
+        repository: vercel/next.js
+        ref: ${{ inputs.ref }}
+        path: ${{ inputs.path }}
+        fetch-depth: 1
+
+    - name: Install and build next.js
+      working-directory: ${{ inputs.path }}
+      shell: bash
+      # The harness runs out of a next.js checkout: `run-tests.js` and the
+      # `test/lib` helpers are repo files, not published ones. The second
+      # `pnpm install` relinks the workspace against what `pnpm build` just
+      # produced.
+      run: |
+        corepack enable
+        pnpm install
+        pnpm build
+        pnpm install
+
+    - name: Install the Playwright browser
+      working-directory: ${{ inputs.path }}
+      shell: bash
+      # Downloads into ~/.cache/ms-playwright, which the workflow caches
+      # alongside the checkout. Deliberately without `--with-deps`: the system
+      # libraries that installs are apt packages outside any cacheable path, so
+      # the job that actually drives the browser installs those itself.
+      run: pnpm playwright install chromium

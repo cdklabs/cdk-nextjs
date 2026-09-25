@@ -4,72 +4,28 @@ This example demonstrates deploying a Next.js application using `NextjsRegionalF
 
 ## API Gateway Stage Path Handling
 
-When using API Gateway REST API without a custom domain, all requests go through a stage path (default: `/prod`). This requires special handling:
+Without a custom domain, every URL of a REST API carries its stage (default: `/prod`): `https://API_ID.execute-api.REGION.amazonaws.com/prod/...`. Two things follow.
 
-### The Challenge
-
-1. **External Request**: Browser requests `https://api-gateway-url/prod/api/health`
-2. **API Gateway sends to Lambda**: `event.path = "/api/health"` + `event.requestContext.stage = "prod"` (path and stage are separate)
-3. **Lambda Web Adapter translates**: Forwards path as `/api/health` to Next.js (stage not in path, but available in `x-amzn-request-context` header)
-4. **Next.js expects basePath**: With `basePath: "/prod"` in next.config.ts, Next.js expects `/prod/api/health`
-5. **Result**: 404 error without middleware to reconstruct the full path
-
-### The Solution
-
-This example uses a three-part approach:
-
-#### 1. Next.js basePath Configuration
+### 1. Build the app with `basePath` set to the stage
 
 ```typescript
 // next.config.ts
-basePath: process.env['NEXTJS_BASE_PATH'], // Set to "/prod" at build time
+basePath: process.env['NEXTJS_BASE_PATH'], // "/prod", set in app.ts before the build
 ```
 
-#### 2. Middleware Path Rewriting
+So the app's links and bundle URLs carry `/prod`. Nothing at deploy time can add it to URLs already compiled into the bundles, so this is the one place the stage name has to be known. Leave the construct's `basePath` prop unset: API Gateway strips the stage before matching resources.
+
+### 2. Nothing else
+
+API Gateway strips the stage from the path it passes to Lambda — `/prod/api/health` arrives as `event.path = "/api/health"` — while the app only routes `/prod/api/health`. cdk-nextjs's Lambda shell handles that: for an app whose `basePath` starts with the prefix API Gateway stripped, it hands Next.js `requestContext.path`, which still carries it. The stage is read off each request, so a stage named `test` or a renamed one needs no configuration, and no middleware is involved.
+
+### Raw browser-fetched URLs
 
 ```typescript
-// proxy.ts
-// Lambda Web Adapter provides stage via x-amzn-request-context header
-// Reconstruct the full path by prepending the stage name
-if (reqCtxStr) {
-  url.pathname = `/${stage}${url.pathname}`;
-  return NextResponse.rewrite(url);
-}
-```
-
-#### 3. Image Path Prefixing (raw URLs only)
-
-```typescript
-// Only for raw, browser-fetched URLs (e.g. CSS background-image) — do NOT
-// wrap <Image src=...> with this. next/image already accounts for basePath
-// on its own (see "Image Optimization" below), and the dedicated image
-// optimization Lambda strips basePath itself before resolving the S3 key.
 <div style={{ backgroundImage: `url('${getImageSrc('/static/grid.svg')}')` }} />
 ```
 
-The `getImageSrc()` helper adds the `/prod` prefix to a path when `NEXT_PUBLIC_IMAGE_SRC_PREFIX` is set. It's needed for URLs the browser fetches directly (not through `next/image`), since those aren't routed through basePath at all — everything else (`<Image src=...>`, page links) is handled automatically by Next.js/API Gateway/the image Lambda without it.
-
-### Why Both Middleware and NEXT_PUBLIC_IMAGE_SRC_PREFIX?
-
-- **Middleware**: Reconstructs the full path by prepending the stage name (from `x-amzn-request-context` header) that Lambda Web Adapter doesn't include in the URL path
-- **NEXT_PUBLIC_IMAGE_SRC_PREFIX**: Prefixes raw, browser-fetched asset URLs (CSS `background-image`, etc.) that never go through basePath-aware Next.js routing
-
-### Request Flow Example
-
-**Page Request:**
-
-1. Browser: `GET /prod/api/health`
-2. API Gateway → Lambda Web Adapter → Next.js: `GET /api/health` (stage in header, not path)
-3. Middleware reads `x-amzn-request-context` header and rewrites: `/api/health` → `/prod/api/health`
-4. Next.js routes correctly with basePath
-
-**Image Optimization:**
-
-`_next/image` is served by the server function, so Next.js middleware runs for image requests:
-
-1. Browser: `GET /prod/_next/image?url=/static/image.jpg` (plain string paths in `<Image src>` are passed through unprefixed by `next/image`; the `/prod` on the request itself comes from `basePath`)
-2. API Gateway routes `/prod/_next/image` to the server function via the `{proxy+}` catch-all
-3. Next.js fetches the source image back through API Gateway and returns the optimized image
+Next.js prefixes links, `<Image>` and bundle URLs with `basePath`, but not a string the browser fetches directly, such as a CSS `background-image`. The `getImageSrc()` helper adds `NEXT_PUBLIC_IMAGE_SRC_PREFIX` (`/prod`) to those. This is true of any `basePath` deployment, not just API Gateway. Don't wrap `<Image src=...>` with it: `next/image` already accounts for `basePath`, and cdk-nextjs's image optimizer strips it before resolving the S3 key.
 
 ## Usage
 
@@ -81,7 +37,7 @@ Access your app at: `https://YOUR_API_ID.execute-api.REGION.amazonaws.com/prod/`
 
 ## With a Custom Domain (No Stage Workarounds)
 
-Everything above exists only because the execute-api endpoint puts the stage in the URL path while API Gateway strips it before invoking Lambda. Map a custom domain at the root and the stage never appears in a URL, so all of it goes away:
+Everything above exists only because the execute-api endpoint puts the stage in the URL path. Map a custom domain at the root and the stage never appears in a URL, so all of it goes away:
 
 ```ts
 const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
@@ -102,16 +58,16 @@ const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
 });
 ```
 
-Then drop all four:
+Then drop both:
 
-| Setting | Why it's not needed |
-| --- | --- |
+| Setting                        | Why it's not needed                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
 | `basePath` in `next.config.ts` | No stage in the path, so the app's links already match the URLs the browser requests |
-| `PREPEND_APIGW_STAGE` | Nothing to re-prepend — `proxy.ts` only exists to undo the stage strip |
-| `API_GATEWAY_STAGE` | Same; it's the fallback stage name for that rewrite |
-| `NEXT_PUBLIC_IMAGE_SRC_PREFIX` | Raw browser-fetched URLs resolve at the root |
+| `NEXT_PUBLIC_IMAGE_SRC_PREFIX` | Raw browser-fetched URLs resolve at the root                                         |
 
-Leave the construct's `basePath` prop unset too. Static asset routing needs no adjustment: `NextjsApi` applies `NextjsStaticAssets.keyPrefix` to its S3 integration keys, and the image optimization Lambda keeps the app's `basePath` and the S3 key prefix separate, so with nothing set anywhere the keys resolve at the bucket root.
+With nothing stripped, the Lambda shell hands Next.js the path unchanged. A base path mapping (`basePath: "app"` on the domain) is stripped like a stage is, so an app built with `basePath: "/app"` behind one gets the same treatment — expected from the `requestContext.path` behavior AWS documents, but untested here for lack of a hosted zone.
+
+Leave the construct's `basePath` prop unset too. If the app does keep a `basePath` behind the domain (`"/docs"`), the construct mounts its resources and static assets under it, because it reads the domain's base path mapping from `restApiProps.domainName` and knows nothing is stripped. Static asset routing needs no adjustment: `NextjsApi` applies `NextjsStaticAssets.keyPrefix` to its S3 integration keys, and the runtime's image optimizer keeps the app's `basePath` and the S3 key prefix separate, so with nothing set anywhere the keys resolve at the bucket root.
 
 `nextjs.url` reports the custom domain (including a base path mapping if you configure one) rather than the execute-api endpoint.
 

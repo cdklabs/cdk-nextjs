@@ -36,7 +36,7 @@ function stubBucketContents(keys: string[], buildId = "build-1"): void {
       return Promise.resolve({});
     }
     // HeadObject
-    return Promise.resolve({ Metadata: { "next-build-id": buildId } });
+    return Promise.resolve({ Metadata: { build_id: buildId } });
   });
 }
 
@@ -64,7 +64,7 @@ function stubPagedBucketContents(pages: string[][]): void {
       return Promise.resolve({});
     }
     // HeadObject
-    return Promise.resolve({ Metadata: { "next-build-id": "build-1" } });
+    return Promise.resolve({ Metadata: { build_id: "build-1" } });
   });
 }
 
@@ -108,7 +108,7 @@ describe("pruneS3", () => {
 
     await prune("branch-a");
 
-    expect(listPrefixes()).toEqual(["branch-a/"]);
+    expect(listPrefixes()).toEqual(["branch-a/_next/"]);
   });
 
   // A bare "branch-a" prefix also matches "branch-a-staging/...", which is a
@@ -120,7 +120,7 @@ describe("pruneS3", () => {
 
     // Asserted as an exact value: a bare "branch-a", and an absent prefix, both
     // reach objects belonging to another app.
-    expect(listPrefixes()).toEqual(["branch-a/"]);
+    expect(listPrefixes()).toEqual(["branch-a/_next/"]);
   });
 
   it("takes a nested prefix as NextjsStaticAssets resolved it", async () => {
@@ -128,38 +128,103 @@ describe("pruneS3", () => {
 
     await prune("team/app");
 
-    expect(listPrefixes()).toEqual(["team/app/"]);
+    expect(listPrefixes()).toEqual(["team/app/_next/"]);
   });
 
   // The single-app case, and every deployment predating the prefix being
-  // threaded through: an unset prefix still prunes the whole bucket.
+  // threaded through: an unset prefix prunes `_next/` at the bucket root. Not
+  // the whole bucket, which holds every other app's `<basePath>/` as well.
   it.each([
     ["omitted", undefined],
     ["empty", ""],
-  ])("lists the whole bucket when the prefix is %s", async (_label, prefix) => {
+  ])(
+    "lists the root `_next/` when the prefix is %s",
+    async (_label, prefix) => {
+      stubBucketContents([]);
+
+      await prune(prefix);
+
+      expect(listPrefixes()).toEqual(["_next/"]);
+    },
+  );
+
+  // An app at "team" shares its prefix with one at "team/app", whose
+  // `team/app/_next/` is not under `team/_next/`.
+  it("leaves a nested app's assets out of the listing", async () => {
     stubBucketContents([]);
 
-    await prune(prefix);
+    await prune("team");
 
-    expect(listPrefixes()).toEqual([undefined]);
+    expect(listPrefixes()).toEqual(["team/_next/"]);
   });
 
   it("still deletes stale objects within the prefix", async () => {
     stubBucketContents([
       "branch-a/_next/static/old.js",
-      "branch-a/favicon.ico",
+      "branch-a/_next/static/older.css",
     ]);
 
     await prune("branch-a");
 
     expect(deletedKeys().sort()).toEqual([
       "branch-a/_next/static/old.js",
-      "branch-a/favicon.ico",
+      "branch-a/_next/static/older.css",
     ]);
   });
 
   it("keeps objects carrying the current build id", async () => {
     stubBucketContents(["branch-a/current.js"], CURRENT_BUILD_ID);
+
+    await prune("branch-a");
+
+    expect(deletedKeys()).toEqual([]);
+  });
+
+  // Asserted on the literal key rather than through a shared constant: the name
+  // is a contract with CDK, which lowercases the `metadata: { BUILD_ID }` that
+  // `NextjsStaticAssets` passes `BucketDeployment`. Reading any other name — this
+  // file read "next-build-id" for a long time — makes `objectBuildId` always
+  // `undefined`, and a guard that never fires cannot be told from one that has
+  // nothing to keep.
+  it("reads the build id from the metadata key BucketDeployment writes", async () => {
+    const longAgo = new Date(Date.now() - MS_TTL * 2);
+    holder.send.mockImplementation((command: unknown) => {
+      if (command instanceof ListObjectsV2Command) {
+        return Promise.resolve({
+          Contents: [{ Key: "branch-a/current.js", LastModified: longAgo }],
+        });
+      }
+      if (command instanceof DeleteObjectsCommand) {
+        return Promise.resolve({});
+      }
+      return Promise.resolve({
+        Metadata: { build_id: CURRENT_BUILD_ID },
+      });
+    });
+
+    await prune("branch-a");
+
+    expect(deletedKeys()).toEqual([]);
+  });
+
+  // Not this construct's object: `BucketDeployment` stamps every file it uploads,
+  // so an unstamped one belongs to something else sharing the bucket. Deleting it
+  // 404s whatever serves it, while keeping it only costs storage.
+  it("keeps an object that carries no build id at all", async () => {
+    const longAgo = new Date(Date.now() - MS_TTL * 2);
+    holder.send.mockImplementation((command: unknown) => {
+      if (command instanceof ListObjectsV2Command) {
+        return Promise.resolve({
+          Contents: [
+            { Key: "branch-a/someone-elses.js", LastModified: longAgo },
+          ],
+        });
+      }
+      if (command instanceof DeleteObjectsCommand) {
+        return Promise.resolve({});
+      }
+      return Promise.resolve({ Metadata: {} });
+    });
 
     await prune("branch-a");
 
@@ -180,7 +245,7 @@ describe("pruneS3", () => {
 
     await prune(prefix);
 
-    expect(listPrefixes()).toEqual(["branch-a/"]);
+    expect(listPrefixes()).toEqual(["branch-a/_next/"]);
   });
 
   describe("pagination", () => {
@@ -214,6 +279,20 @@ describe("pruneS3", () => {
 
       expect(sentCommands(ListObjectsV2Command)).toHaveLength(2);
       expect(deletedKeys()).toEqual(["a/one.js", "a/two.js"]);
+    });
+
+    // S3 scans a window of the bucket per request and filters by `Prefix`
+    // afterwards, so a page can come back with no `Contents` and still have a
+    // continuation token — exactly the shared-bucket case `keyPrefix` exists for.
+    // Stopping there left every older asset past that window undeleted, and the
+    // bucket grew without bound with nothing in the logs to say so.
+    it("keeps listing past a page whose window held no matching key", async () => {
+      stubPagedBucketContents([["a/one.js"], [], ["a/three.js"]]);
+
+      await prune("a");
+
+      expect(sentCommands(ListObjectsV2Command)).toHaveLength(3);
+      expect(deletedKeys().sort()).toEqual(["a/one.js", "a/three.js"]);
     });
   });
 });

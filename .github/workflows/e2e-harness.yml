@@ -1,0 +1,337 @@
+# Runs vercel/next.js's own e2e suite against a real cdk-nextjs deployment, via
+# the Next.js adapter compatibility harness.
+#
+# Not a per-commit gate - a run builds and ships a deployment per test file.
+# `e2e-tests.yml` stays the per-commit gate on all four NextjsTypes; this is the
+# correctness signal that no fixture app of ours could give. See
+# scripts/e2e-harness/README.md.
+#
+# The test files are split across `shard_total` parallel jobs, each with a shared
+# stack of its own (`hrns-shard-<n>`). A stack can only hold one app at a time, so
+# parallelism has to come from more stacks - see "Sharding" in the README.
+#
+# Every shard needs a built vercel/next.js checkout, which sharding multiplies
+# rather than divides. So the `nextjs` job below builds it once, into a cache the
+# shards restore - and the schedule runs every six days rather than weekly so that
+# the cache is always accessed inside GitHub's 7-day eviction window. See "Caching
+# the next.js build".
+name: e2e-harness
+on:
+  workflow_dispatch:
+    inputs:
+      nextjs_ref:
+        description: "vercel/next.js ref to test against (tag matching the `next` version in package.json by default)"
+        default: "v16.3.5"
+        type: string
+      test_filters:
+        description: "NEXT_EXTERNAL_TESTS_FILTERS, relative to the next.js checkout"
+        default: "../test/deploy-tests-manifest.json"
+        type: string
+      shard_total:
+        description: "How many parallel shards to split the test files across (one stack each). 1 reproduces the old serial run."
+        default: "10"
+        type: string
+  schedule:
+    # Every sixth day of the month at 14:00 UTC — morning on both US coasts, and
+    # the run's ceiling leaves the result the same day. Not daily, because a run
+    # ships a deployment per test file and nothing in the suite changes between two
+    # consecutive days that a run would catch; `e2e-tests.yml` is still the
+    # per-commit gate.
+    #
+    # Every six days rather than weekly, and by day-of-month rather than
+    # day-of-week, to stay inside GitHub's cache eviction window: it drops an entry
+    # not *accessed* in 7 days, and a weekly run sits exactly on that boundary -
+    # past it as soon as a scheduled run is delayed under load, which they
+    # routinely are. Every run restores the next.js build cache, so a cadence
+    # strictly under 7 days keeps it alive with no extra machinery.
+    #
+    # `*/6` expands to days 1, 7, 13, 19, 25 and 31 (standard cron steps from the
+    # range's start, so the 31st is included). Verified over 2026-2029: gaps are 6
+    # days within a month and 1, 4 or 5 across a month boundary - never 7. Dropping
+    # the 31st, or using `*/7`, would reintroduce the boundary this avoids.
+    #
+    # The cost is the drift: ~67 runs a year instead of 52, on a day of the week
+    # that moves. Read the results whenever one lands, not on a fixed morning.
+    - cron: "0 14 */6 * *"
+
+concurrency:
+  # Never two runs at once. Shards within a run get a stack each, but two runs
+  # would reuse the same shard names and each would deploy over the other's app.
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  plan:
+    # A matrix cannot be built from an input directly, so the shard list is
+    # computed here - as is the cache key, so that every job below agrees on it
+    # and the next.js ref's default is written once rather than per job.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      total: ${{ steps.plan.outputs.total }}
+      nextjs-ref: ${{ steps.plan.outputs.nextjs-ref }}
+      cache-key: ${{ steps.plan.outputs.cache-key }}
+    steps:
+      - name: Plan the shards and the cache key
+        id: plan
+        env:
+          SHARD_TOTAL: ${{ inputs.shard_total || '10' }}
+          NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
+        # `shard_total` is bounded above because every shard is a CloudFront
+        # distribution and a runner of its own: past a couple of dozen the setup
+        # cost dominates and the account starts to notice.
+        #
+        # The cache key pins everything the cached tree was built by and for: the
+        # next.js ref, and the runner image and node major that its node_modules
+        # (native addons included) were installed against. Bump `v1` to discard
+        # every entry at once.
+        run: |
+          node -e '
+            const total = Number(process.env.SHARD_TOTAL);
+            if (!Number.isInteger(total) || total < 1 || total > 20) {
+              throw new Error(`shard_total must be an integer in 1..20, got ${process.env.SHARD_TOTAL}`);
+            }
+            const ref = process.env.NEXTJS_REF;
+            if (!/^[\w.\-\/]+$/.test(ref)) {
+              throw new Error(`nextjs_ref is not a plausible git ref: ${ref}`);
+            }
+            const shards = Array.from({ length: total }, (_, i) => i + 1);
+            console.log(`shards=${JSON.stringify(shards)}`);
+            console.log(`total=${total}`);
+            console.log(`nextjs-ref=${ref}`);
+            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref.replace(/\//g, "_")}`);
+          ' >>"$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  nextjs:
+    # Builds vercel/next.js once for the whole run, into a cache every shard
+    # restores. Sharding multiplies this cost rather than dividing it - ten shards
+    # start at the same instant, so none can benefit from another's save - and it
+    # is the largest fixed cost left in a run, so it has to happen exactly once.
+    #
+    # On a hit this job is a lookup and nothing else: `lookup-only` skips the
+    # download, which the shards are about to do anyway. On a miss it builds and
+    # saves, which costs the run what it used to cost every shard. That is also
+    # what makes eviction a speed problem rather than a correctness one - the
+    # schedule keeps the entry alive, but nothing breaks if it does not.
+    #
+    # It is the shards' real restores that count as the access resetting the 7-day
+    # eviction clock; this lookup may not, which is why the schedule's cadence and
+    # not this job is what keeps the entry warm.
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Look for a cached next.js build
+        id: lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            nextjs
+            ~/.cache/ms-playwright
+          key: ${{ needs.plan.outputs.cache-key }}
+          lookup-only: true
+
+      - name: Checkout cdk-nextjs
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: actions/checkout@v4
+
+      - if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: pnpm/action-setup@v4
+      - if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build next.js
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/build-nextjs
+        with:
+          ref: ${{ needs.plan.outputs.nextjs-ref }}
+
+      - name: Report what is about to be cached
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        # A repository gets 10 GB of cache in total, evicted least-recently-used,
+        # so an entry this size is capable of displacing every other workflow's.
+        # Printed rather than asserted, because the number to compare against is
+        # whatever the other workflows are using at the time.
+        run: du -sh nextjs ~/.cache/ms-playwright
+
+      - name: Save the next.js build
+        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            nextjs
+            ~/.cache/ms-playwright
+          key: ${{ needs.plan.outputs.cache-key }}
+
+  harness:
+    needs: [plan, nextjs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      # One shard's failure says nothing about another's, and each holds a stack
+      # that its own `always()` step is what deletes. Cancelling the others would
+      # leave those to the age-floored sweep a week later.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    env:
+      TEST_FILTERS: ${{ inputs.test_filters || '../test/deploy-tests-manifest.json' }}
+      # The stack this shard owns, read by `harness_stack_name` in
+      # scripts/e2e-harness/common.sh. Every step below that touches AWS - warm,
+      # deploy, sweep - resolves the same name from it, which is the whole of what
+      # keeps two shards from deploying into each other.
+      HARNESS_SHARED_STACK_SUFFIX: shard-${{ matrix.shard }}
+    steps:
+      - name: Checkout cdk-nextjs
+        uses: actions/checkout@v4
+
+      - name: Restore the next.js build
+        id: nextjs-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            nextjs
+            ~/.cache/ms-playwright
+          key: ${{ needs.plan.outputs.cache-key }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+          # Matched to this job's `timeout-minutes`, because the action exports
+          # static credentials once and nothing here refreshes them. At the
+          # default hour, a shard running ~34 test files at 2-3 min each hit
+          # `ExpiredToken` on every file past the ~55-minute mark - and so did the
+          # `always()` stack deletion below, leaking a stack with a CloudFront
+          # distribution in it until the next scheduled sweep.
+          #
+          # Requires `MaxSessionDuration >= 10800` on GitHubActionRole; STS
+          # rejects a longer request than the role allows.
+          role-duration-seconds: 10800
+
+      - name: Warn about the cache miss
+        if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
+        # The `nextjs` job populated this entry before any shard started, so a miss
+        # here means the save failed or the entry was evicted mid-run. Rebuild
+        # rather than fail - a slow run still produces the signal the run is for -
+        # but say so in the summary, because every shard rebuilding next.js is the
+        # difference between a fast run and the two-hour one this replaced.
+        run: echo "::warning::next.js build cache miss (${{ needs.plan.outputs.cache-key }}); shard ${{ matrix.shard }} is rebuilding it"
+
+      - name: Build next.js
+        if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/build-nextjs
+        with:
+          ref: ${{ needs.plan.outputs.nextjs-ref }}
+
+      - name: Build cdk-nextjs
+        run: |
+          pnpm i
+          pnpm bundle && pnpm compile
+
+      - name: Install the Playwright system dependencies
+        working-directory: nextjs
+        # The browser itself came out of the cache; these are apt packages, which
+        # no cache can hold, so this runs on the hit path too. It is a no-op for
+        # the download in that case.
+        run: pnpm playwright install --with-deps chromium
+
+      - name: Warm this shard's stack
+        # Creating the CloudFront distribution takes ~240s, and the harness
+        # runs `createNext` inside jest's `beforeAll` - so without this the first
+        # test file is charged that wait against NEXT_E2E_TEST_TIMEOUT below,
+        # fails wholesale, and only passes on retry. Pay it once, here, where
+        # nothing is timing us. Once per shard, but all in parallel, so the wall
+        # clock is the same ~4 minutes however many shards there are.
+        run: ./scripts/e2e-warm.sh
+        env:
+          ADAPTER_DIR: ${{ github.workspace }}
+
+      - name: Run the harness
+        working-directory: nextjs
+        env:
+          NEXT_TEST_MODE: deploy
+          NEXT_E2E_TEST_TIMEOUT: 240000
+          NEXT_EXTERNAL_TESTS_FILTERS: ${{ env.TEST_FILTERS }}
+          IS_TURBOPACK_TEST: 1
+          # cdk-nextjs *is* an adapter deployment, and next.js's suite asks. Ten
+          # e2e files branch on this, most of them by way of
+          # `skipDeployment: !isAdapterTest` - left unset they report a pass in
+          # ~5s having deployed nothing. Only the Vercel deploy path reads it for
+          # anything else (a team and token), and a custom deploy script never
+          # reaches that path.
+          NEXT_ENABLE_ADAPTER: 1
+          NEXT_TEST_JOB: 1
+          NEXT_TELEMETRY_DISABLED: 1
+          ADAPTER_DIR: ${{ github.workspace }}
+          NEXT_TEST_DEPLOY_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-deploy.sh
+          NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-logs.sh
+          NEXT_TEST_CLEANUP_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-cleanup.sh
+        # `-c 1` is mandatory, not a tuning choice: every test file in this shard
+        # deploys into this shard's one stack, so two at once would race.
+        # Parallelism comes from `-g`, which splits the file list across shards
+        # *after* NEXT_EXTERNAL_TESTS_FILTERS has been applied (`run-tests.js`
+        # filters, then groups) - so the shards partition the manifest, not the
+        # whole of `test/e2e/**`. With no KV timing data configured the split is
+        # round-robin over that list, which is deterministic and near enough:
+        # per-file cost here is dominated by build-and-deploy, not by the tests.
+        # See `harness_stack_name` in scripts/e2e-harness/common.sh.
+        run: node run-tests.js --timings -c 1 --type e2e -g ${{ matrix.shard }}/${{ needs.plan.outputs.total }}
+
+      # Re-assumed rather than relied on: this is the step that deletes a stack
+      # holding a CloudFront distribution, and it runs under `always()` - after a
+      # timeout, which is exactly when the job's original credentials are most
+      # likely to be the thing that expired.
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        if: ${{ always() }}
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+
+      - name: Delete this shard's stack
+        if: ${{ always() }}
+        # `e2e-cleanup.sh` keeps the stack alive between test files on purpose, so
+        # this is the step that actually deletes it - not a backstop. `--shared`
+        # resolves HARNESS_SHARED_STACK_SUFFIX, so each shard deletes only its
+        # own, which is what lets the age floor go: dropping the floor
+        # account-wide instead would also delete the other shards' stacks, and an
+        # isolated stack a developer had running at the time.
+        run: ./scripts/e2e-sweep.sh --apply --shared
+
+  sweep:
+    # What a cancelled or timed-out run leaves behind is collected by the *next*
+    # scheduled run, at most six days later. That is why this job exists, and it
+    # still has to wait for `harness`: the age floor does not protect a run in
+    # progress, because shard stacks are reused by name and the floor reads
+    # `CreationTime`. A `hrns-shard-3` left by an earlier cancelled run is hours
+    # old and still the stack this run's shard 3 is about to `cdk deploy` into, so
+    # sweeping concurrently issued `delete-stack` on it ~30s in while the deploy
+    # started ~4 min in - and a CloudFront delete takes 15+ minutes, so the shard
+    # went red. The workflow-level `concurrency` group serializes runs, not the
+    # jobs inside one.
+    #
+    # `always()` so that a failed or cancelled shard still gets its leftovers
+    # swept rather than waiting another six days.
+    needs: harness
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+      - run: ./scripts/e2e-sweep.sh --apply

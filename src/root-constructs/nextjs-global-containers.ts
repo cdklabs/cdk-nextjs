@@ -66,6 +66,23 @@ export interface NextjsGlobalContainersProps extends NextjsBaseProps {
    */
   readonly ecsCluster?: ICluster;
   /**
+   * Path to API Route Handler that returns HTTP 200 to ensure compute health.
+   * Used by the ALB target group and the ECS container health check, both of
+   * which have to be able to tell a running task from a wedged one.
+   *
+   * Give the path as your app routes it, without your app's `basePath` —
+   * cdk-nextjs adds that prefix, since both checks hit the app directly.
+   * @example "/api/health"
+   * @example
+   * // api/health/route.ts
+   * import { NextResponse } from "next/server";
+   *
+   * export function GET() {
+   *   return NextResponse.json("");
+   * }
+   */
+  readonly healthCheckPath: string;
+  /**
    * Override props of any construct.
    */
   readonly overrides?: NextjsGlobalContainersOverrides;
@@ -168,6 +185,16 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
       distributionIdParameterName,
     );
+    // Paired with the parameter name because invalidation is the only thing that
+    // needs it: the paths the cache handler derives are routes, and CloudFront
+    // cached them under `basePath`. Set only when there is one, so apps without
+    // a `basePath` see no environment change.
+    if (this.resolvedBasePath) {
+      taskDefinition.defaultContainer?.addEnvironment(
+        "CDK_NEXTJS_BASE_PATH",
+        this.resolvedBasePath,
+      );
+    }
   }
 
   private createNextjsContainers(): NextjsContainers {
@@ -176,6 +203,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       ...this.computeBaseProps(),
       alb: this.props.alb,
       ecsCluster: this.props.ecsCluster,
+      healthCheckPath: this.resolvedHealthCheckPath(this.props.healthCheckPath),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
       overrides: {
         ...this.props.overrides?.nextjsContainers,
@@ -191,6 +219,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
+      assetPrefix: this.nextjsBuild.nextConfigAssetPrefixPath,
       basePath: this.resolvedBasePath,
       certificate: this.nextjsContainers.albFargateService.certificate,
       distribution: this.props.distribution,
@@ -203,7 +232,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   }
 
   private createNextjsPostDeploy(): NextjsPostDeploy {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
       buildId: this.nextjsBuild.buildId,
       distribution: this.nextjsDistribution.distribution,
       cacheBucket: this.nextjsCache.cacheBucket,
@@ -213,5 +242,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsPostDeploy,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
+    this.orderAfterInitCache(postDeploy);
+    return postDeploy;
   }
 }

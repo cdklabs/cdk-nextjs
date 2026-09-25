@@ -40,6 +40,7 @@ ash_output
 ~$*.xlsx
 .kiro
 .claude/worktrees
+/nextjs/
 /test-reports/
 junit.xml
 /coverage/
@@ -68,6 +69,7 @@ junit.xml
 !/.github/workflows/upgrade-main.yml
 !/.github/workflows/upgrade-dev-deps-main.yml
 !/examples/**/tsconfig.json
+!/tsconfig.esm.json
 !/.projenrc.ts
 !/src/generated-structs/OptionalNextjsPostDeployProps.ts
 !/src/generated-structs/OptionalPostDeployCustomResourceProperties.ts
@@ -86,4 +88,3 @@ junit.xml
 !/src/generated-structs/OptionalVpcProps.ts
 !/src/generated-structs/OptionalFunctionProps.ts
 !/src/generated-structs/OptionalFunctionUrlProps.ts
-!/src/generated-structs/OptionalDockerImageFunctionProps.ts

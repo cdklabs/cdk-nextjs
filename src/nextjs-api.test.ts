@@ -1,6 +1,6 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { App, Stack } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   Code,
@@ -252,6 +252,173 @@ describe("NextjsApi", () => {
           }),
         ),
       ).toBe("https://{NextjsApiRestApiCustomDomain}/team-a");
+    });
+  });
+
+  describe("functionGroups under trailingSlash", () => {
+    function fn(id: string): LambdaFunction {
+      return new LambdaFunction(stack, id, {
+        runtime: Runtime.NODEJS_22_X,
+        handler: "index.handler",
+        code: Code.fromInline("exports.handler = async () => {};"),
+      });
+    }
+
+    function createApiWithGroups(
+      routes: string[],
+      trailingSlash?: boolean,
+    ): NextjsApi {
+      return new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: fn("ServerFn"),
+        publicDirEntries: [],
+        trailingSlash,
+        functionGroups: [{ name: "reports", routes, function: fn("GroupFn") }],
+      });
+    }
+
+    function warnings(api: NextjsApi): string[] {
+      return Annotations.fromStack(stack)
+        .findWarning(`/${api.node.path}`, Match.anyValue())
+        .map((warning) => warning.entry.data as string);
+    }
+
+    it("warns that an exact route's canonical URL cannot be routed", () => {
+      // `trailingSlash: true` links to "/pricing/", and no API Gateway resource
+      // matches a trailing slash: the request reaches the root `{proxy+}` and so
+      // the default function, which does not have the route packaged. The warning
+      // is the fix here, because the resource tree cannot express it.
+      const api = createApiWithGroups(["/pricing", "/reports/**"], true);
+
+      const message = warnings(api).join("\n");
+      expect(message).toContain('"/pricing" (group "reports")');
+      // The subtree pattern is named only as the suggested fix, never as an
+      // affected route.
+      expect(message).not.toContain('"/reports/**" (group');
+    });
+
+    it("does not warn about subtree patterns, which `{proxy+}` already covers", () => {
+      const api = createApiWithGroups(["/reports/**"], true);
+
+      expect(warnings(api)).toEqual([]);
+    });
+
+    it("says nothing without trailingSlash", () => {
+      const api = createApiWithGroups(["/pricing"]);
+
+      expect(warnings(api)).toEqual([]);
+    });
+  });
+
+  describe("functionGroups resource tree", () => {
+    /** Lambda functions that `ANY` on the resource at `pathPart` invokes. */
+    function anyTargets(pathPart: string): string[] {
+      const template = Template.fromStack(stack);
+      const resources = template.findResources("AWS::ApiGateway::Resource", {
+        Properties: { PathPart: pathPart },
+      });
+      const ids = Object.keys(resources);
+      expect(ids).toHaveLength(1);
+      const methods = template.findResources("AWS::ApiGateway::Method", {
+        Properties: { HttpMethod: "ANY", ResourceId: { Ref: ids[0] } },
+      });
+      return Object.values(methods).map(
+        (method) =>
+          JSON.stringify(method.Properties.Integration.Uri).match(
+            /(ServerFn|GroupFn)[A-F0-9]+/,
+          )![1],
+      );
+    }
+
+    it("sends a group's parent paths to the default function", () => {
+      // API Gateway answers a methodless resource with 403 rather than falling
+      // back to the root `{proxy+}`, so `/api` and `/api/reports` need one.
+      new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+        functionGroups: [
+          {
+            name: "reports",
+            routes: ["/api/reports/**", "/api/export"],
+            function: new LambdaFunction(stack, "GroupFn", {
+              runtime: Runtime.NODEJS_22_X,
+              handler: "index.handler",
+              code: Code.fromInline("exports.handler = async () => {};"),
+            }),
+          },
+        ],
+      });
+
+      expect(anyTargets("api")).toEqual(["ServerFn"]);
+      expect(anyTargets("reports")).toEqual(["ServerFn"]);
+      expect(anyTargets("export")).toEqual(["GroupFn"]);
+    });
+  });
+
+  it("names the group and pattern API Gateway cannot route", () => {
+    expect(
+      () =>
+        new NextjsApi(stack, "NextjsApi", {
+          staticAssetsBucket: Bucket.fromBucketName(
+            stack,
+            "Bucket",
+            "my-bucket",
+          ),
+          serverFunction: new LambdaFunction(stack, "ServerFn", {
+            runtime: Runtime.NODEJS_22_X,
+            handler: "index.handler",
+            code: Code.fromInline("exports.handler = async () => {};"),
+          }),
+          publicDirEntries: [],
+          functionGroups: [
+            {
+              name: "about",
+              routes: ["/about~us"],
+              function: new LambdaFunction(stack, "GroupFn", {
+                runtime: Runtime.NODEJS_22_X,
+                handler: "index.handler",
+                code: Code.fromInline("exports.handler = async () => {};"),
+              }),
+            },
+          ],
+        }),
+    ).toThrow(/pattern "\/about~us" \(group "about"\) has a segment/);
+  });
+
+  describe("a public/ entry API Gateway cannot address", () => {
+    it("warns and skips it instead of failing the synth", () => {
+      // `public/hello world.jpg` is a valid Next.js asset that `addResource`
+      // rejects outright, taking the whole app's synth with it. The Global types
+      // serve it with a wildcard path pattern; here the honest outcome is one
+      // 404ing asset and a warning that names it.
+      const api = new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [
+          { name: "hello world.jpg", isDirectory: false },
+          { name: "äöüščří.png", isDirectory: false },
+          { name: "favicon.ico", isDirectory: false },
+        ],
+      });
+
+      const message = Annotations.fromStack(stack)
+        .findWarning(`/${api.node.path}`, Match.anyValue())
+        .map((warning) => warning.entry.data as string)
+        .join("\n");
+      expect(message).toContain('"hello world.jpg"');
+      expect(message).toContain('"äöüščří.png"');
+      expect(message).not.toContain('"favicon.ico"');
+      // The expressible one is still served.
+      expect(s3IntegrationKeys()).toContain("favicon.ico");
     });
   });
 });

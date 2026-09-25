@@ -9,19 +9,52 @@ import {
   mkdirSync,
   cpSync,
   renameSync,
+  realpathSync,
   statSync,
+  unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { join as joinPosix } from "node:path/posix";
 import { Construct } from "constructs";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
+import {
+  DEFAULT_FUNCTION_GROUP,
+  FUNCTION_GROUPS_ENV_VAR,
+  FunctionGroupSpec,
+  validateFunctionGroups,
+} from "../adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
-import { readNextConfigBasePath } from "../utils/base-path";
-import { useDedicatedImageFunction } from "../utils/experimental-flags";
+import {
+  ADAPTER_DIR_NAME,
+  ADAPTER_MANIFEST_VERSION,
+  AdapterManifest,
+  MANIFEST_FILE_NAME,
+  RUNTIME_DIR_NAME,
+  groupStagingDirName,
+} from "../runtime/manifest";
+import {
+  readNextConfigAssetPrefix,
+  readNextConfigAssetPrefixPath,
+  readNextConfigBasePath,
+} from "../utils/base-path";
 import { getNodeArchitecture } from "../utils/get-architecture";
+
+/**
+ * Lambda's hard limit on the unzipped size of a function's code, which
+ * CloudFormation only enforces at deploy time. Measured at synth instead, so the
+ * error names the group and arrives in seconds rather than minutes.
+ * @see https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html
+ */
+const LAMBDA_UNZIPPED_LIMIT_BYTES = 250 * 1024 * 1024;
+
+/**
+ * First line of a client chunk that `patchFetchInClientJs` has already
+ * prepended to, so a second synth over the same `.next` is a no-op.
+ */
+const PATCH_FETCH_MARKER = "/* cdk-nextjs:patch-fetch */";
 
 const debug = getDebug("cdk-nextjs:nextjs-build");
 
@@ -40,6 +73,37 @@ export interface NextjsBuildProps {
    * @see {@link NextjsBaseProps.skipBuild}
    */
   readonly skipBuild?: boolean;
+  /**
+   * Route groups to package into separate Lambda functions. Only the two
+   * Functions `NextjsType`s pass this; see `NextjsFunctionGroup`.
+   */
+  readonly functionGroups?: NextjsFunctionGroupRoutes[];
+}
+
+/**
+ * The part of a function group `NextjsBuild` needs: which routes it owns. The
+ * per-group Lambda `overrides` are `NextjsFunctions`' business.
+ */
+export interface NextjsFunctionGroupRoutes {
+  readonly name: string;
+  readonly routes: string[];
+}
+
+/** One staged deployment root, and the function group it belongs to. */
+export interface NextjsDeploymentRoot {
+  /**
+   * Group name, `default` for the implicit group that owns every unassigned
+   * route. The only entry is `default` when `functionGroups` is not used.
+   */
+  readonly name: string;
+  /** Absolute path to the deployment root: the Lambda zip asset's source. */
+  readonly path: string;
+  /**
+   * Route templates this root's package holds, as the adapter assigned them.
+   * Empty is legal: the default group still serves `/_next/image`, the static
+   * files the runtime reads off disk, and anything the catch-all routes to it.
+   */
+  readonly routes: string[];
 }
 
 export interface PublicDirEntry {
@@ -53,8 +117,11 @@ export interface PublicDirEntry {
  */
 export class NextjsBuild extends Construct {
   /**
-   * Unique id for Next.js build. Used to partition cache storage and as
+   * Unique id for this deployment. Used to partition cache storage and as
    * metadata for static assets in S3 bucket.
+   *
+   * `.next/BUILD_ID`, suffixed with the app's `deploymentId` when it sets one —
+   * see {@link getBuildId} for why that suffix is what makes this unique.
    */
   buildId: string;
   /**
@@ -68,19 +135,12 @@ export class NextjsBuild extends Construct {
    */
   publicDirEntries: PublicDirEntry[];
   /**
-   * The entrypoint JavaScript file used as an argument for Node.js to run the
-   * Next.js standalone server relative to the standalone directory.
-   * @example "./server.js"
-   * @example "./packages/ui/server.js" (monorepo)
+   * The JavaScript file Node.js runs to serve requests, relative to the
+   * deployment root. cdk-nextjs's own container shell, not `next build` output,
+   * so it is the same path for every app.
+   * @example "cdk-nextjs-runtime/server.mjs"
    */
   relativePathToEntrypoint: string;
-  /**
-   * Relative path from the standalone directory to the package containing the Next.js app.
-   * This is automatically detected from the standalone build output.
-   * @example "." for non-monorepo apps
-   * @example "./apps/web" for monorepo apps
-   */
-  relativePathToPackage: string;
   /**
    * Absolute path to the .next directory containing Next.js build artifacts
    */
@@ -94,13 +154,64 @@ export class NextjsBuild extends Construct {
    */
   nextConfigBasePath: string;
   /**
-   * Absolute path to the directory prepared for the image optimization Lambda
-   * asset: bundled handler, glibc `sharp` binaries, and `required-server-files.json`.
-   * Only set for {@link NextjsType.GLOBAL_FUNCTIONS} and
-   * {@link NextjsType.REGIONAL_FUNCTIONS}, and only when the dedicated image
-   * optimization Lambda is enabled.
+   * The Next.js app's own `assetPrefix`, as a path with a leading slash and no
+   * trailing one, empty when the app sets none or sets an absolute URL (which
+   * names an origin cdk-nextjs does not serve). Read from the same
+   * `required-server-files.json`.
+   *
+   * Exposed because it is the shape of `assetPrefix` the regional
+   * `NextjsType`s cannot serve — see `warnUnservedAssetPrefix`. What the
+   * distribution has to answer on is {@link nextConfigAssetPrefixPath}, which
+   * also covers the path an absolute prefix carries.
    */
-  imageOptimizationAssetPath?: string;
+  nextConfigAssetPrefix: string;
+  /**
+   * The path portion of the app's `assetPrefix`, whichever form it takes: "/cdn"
+   * for both `assetPrefix: "/cdn"` and `assetPrefix:
+   * "https://cdn.example.com/cdn"`, empty when there is no path to answer on.
+   *
+   * Exposed because it is a URL prefix the distribution has to answer on: Next.js
+   * emits `<assetPrefix>/_next/static/...` for every bundle and compiles a rewrite
+   * that serves those URLs' paths itself, while the objects live in S3 under
+   * `<basePath>/_next/static/...`.
+   */
+  nextConfigAssetPrefixPath: string;
+  /**
+   * Absolute path to the deployment root: the staged union of every shipped
+   * output's traced assets, written by the adapter's `onBuildComplete`. This is
+   * the Lambda zip asset and the Docker `COPY` source.
+   *
+   * With `functionGroups` there is no single root — this is the `default`
+   * group's, which exists in every build. Use {@link deploymentRoots} to reach
+   * them all.
+   * @example "/Users/john/myapp/.next/cdk-nextjs-adapter/app"
+   */
+  deploymentRootPath: string;
+  /**
+   * Every staged deployment root, one per function group. Exactly one entry
+   * (named `default`) unless `functionGroups` splits the app.
+   */
+  deploymentRoots: NextjsDeploymentRoot[];
+  /**
+   * From {@link deploymentRootPath} to the Next.js project dir, POSIX, `""` when
+   * the app is at the repo root. The runtime `chdir`s here; Containers pass it to
+   * their Dockerfile so `.next/static` and `public` land in the same place.
+   * @see AdapterManifest.relativeProjectDir
+   */
+  relativeProjectDir: string;
+  /**
+   * Whether the app has any Pages Router route, and therefore a second URL space
+   * (`/_next/data/<buildId>/<route>.json`) that carries the same routes. Only
+   * `functionGroups` cares: a group's routes have to be reachable in both.
+   */
+  hasDataRoutes: boolean;
+  /**
+   * The app's `next.config` `trailingSlash`. Only `functionGroups` cares: it
+   * decides which URL a route's own pattern has to match, since a
+   * `trailingSlash` app links to `/pricing/` and not `/pricing`.
+   * @see AdapterManifest.config
+   */
+  trailingSlash: boolean;
 
   private props: NextjsBuildProps;
   private buildCommand: string;
@@ -119,6 +230,15 @@ export class NextjsBuild extends Construct {
       "cdk-nextjs-init-cache",
     );
 
+    // Before the build, not after it: the build is minutes long, and the env var
+    // it passes groups through is only set for a non-empty array — so an invalid
+    // `functionGroups` (an empty array, a reserved name, a group owning no
+    // routes) would otherwise be reported as "the build staged the wrong
+    // groups", after paying for the build, instead of as the prop error it is.
+    if (props.functionGroups) {
+      validateFunctionGroups(props.functionGroups as FunctionGroupSpec[]);
+    }
+
     // Execute local build process
     if (props.skipBuild !== true) {
       this.runNextBuild();
@@ -126,47 +246,338 @@ export class NextjsBuild extends Construct {
       debug(`${LOG_PREFIX} Skipping: ${this.buildCommand}`);
     }
 
-    // Validate build output and set validated paths
-    this.validateNextBuildOutput();
-
-    // Auto-detect relativePathToPackage from standalone build output
-    this.relativePathToPackage = this.findRelativePathToServerJs();
-
-    // Set entrypoint path using detected relativePathToPackage
-    this.relativePathToEntrypoint = joinPosix(
-      this.relativePathToPackage === "." ? "" : this.relativePathToPackage,
-      "server.js",
-    );
+    // Deliberately outside the `skipBuild` gate. The patch is a property of
+    // *serving* through CloudFront, not of who ran `next build`: without it
+    // every POST with a body is rejected by the Lambda Function URL before it
+    // reaches the app (see `patchFetchInClientJs`). Running it only inside
+    // `runNextBuild` meant `skipBuild: true` silently shipped an app whose
+    // server actions and POST route handlers all returned 403.
+    if (props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
+      this.patchFetchInClientJs();
+    }
 
     this.buildId = this.getBuildId();
     this.publicDirEntries = this.getLocalPublicDirEntries();
     this.nextConfigBasePath = readNextConfigBasePath(this.dotNextPath);
+    this.nextConfigAssetPrefix = readNextConfigAssetPrefix(this.dotNextPath);
+    this.nextConfigAssetPrefixPath = readNextConfigAssetPrefixPath(
+      this.dotNextPath,
+    );
 
-    const standalonePath = join(this.dotNextPath, "standalone");
     const isFunctions =
       props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
       props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
 
-    const dedicatedImageFunction = isFunctions && useDedicatedImageFunction();
+    const manifest = this.readAdapterManifest();
+    this.relativeProjectDir = manifest.relativeProjectDir;
+    this.relativePathToEntrypoint = joinPosix(RUNTIME_DIR_NAME, "server.mjs");
+    this.hasDataRoutes = Object.values(manifest.entrypoints).some(
+      (entrypoint) => entrypoint.type === "page",
+    );
+    this.trailingSlash = manifest.config.trailingSlash;
+    this.deploymentRoots = this.resolveDeploymentRoots(manifest);
+    this.deploymentRootPath = this.deploymentRoots[0].path;
 
-    // Strip whatever platform-specific Sharp binaries `next build`'s output
-    // file tracing bundled in either way, since they're the host's (e.g.
-    // macOS/glibc) rather than the deployment target's.
-    this.removeExistingSharpBinaries(standalonePath);
-    // The standalone server serves `_next/image` itself unless a dedicated
-    // image optimization Lambda takes over that route, and it runs on
-    // node:24-alpine (see functions.Dockerfile) / the same Alpine base for
-    // Containers, so it needs musl binaries. Skipping this install when Sharp
-    // *is* invoked from the server is silent: `imageOptimizer` catches the
-    // load failure internally and returns the unoptimized original with an
-    // HTTP 200.
-    if (!dedicatedImageFunction) {
-      this.downloadAndInstallSharpBinaries();
+    for (const root of this.deploymentRoots) {
+      this.stageRuntime(root.path, isFunctions);
+
+      // Strip whatever platform-specific Sharp binaries `next build`'s output
+      // file tracing staged, since they're the host's (e.g. macOS/glibc) rather
+      // than the deployment target's, then install the target's. Skipping this
+      // is silent: `imageOptimizer` catches the load failure internally and
+      // returns the unoptimized original with an HTTP 200.
+      //
+      // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc);
+      // Containers run on node:24-alpine (musl). Every group optimizes images,
+      // so every root gets the binaries.
+      const sharpSource = this.removeExistingSharpBinaries(root.path);
+      this.installSharpBinariesForTarget(
+        sharpSource,
+        isFunctions ? "linux" : "linuxmusl",
+      );
+
+      if (isFunctions) {
+        this.assertUnderLambdaLimit(root);
+      }
+    }
+  }
+
+  /**
+   * Line up the groups the props asked for with the roots the build actually
+   * staged, and fail loudly when they disagree.
+   *
+   * They can disagree in both directions, and both mean the same thing — the
+   * `.next` on disk came from a build that did not see this `functionGroups` —
+   * but the causes differ: `skipBuild: true` with a build run by hand, or a
+   * stale `.next` from before the prop changed. Either way every later symptom
+   * (a Lambda missing an entrypoint, a CloudFront behavior pointing at a
+   * function that cannot serve it) is this, several steps downstream.
+   */
+  private resolveDeploymentRoots(
+    manifest: AdapterManifest,
+  ): NextjsDeploymentRoot[] {
+    const requested = this.props.functionGroups;
+    const staged = manifest.groups;
+
+    // Already validated in the constructor, so `requested` here is either absent
+    // or a non-empty, well-formed list.
+    const wanted = requested?.length
+      ? [DEFAULT_FUNCTION_GROUP, ...requested.map((group) => group.name)].sort()
+      : undefined;
+    const got = staged ? Object.keys(staged).sort() : undefined;
+
+    if (JSON.stringify(wanted) !== JSON.stringify(got)) {
+      throw new Error(
+        `${LOG_PREFIX} \`functionGroups\` asks for ` +
+          `${wanted ? `[${wanted.join(", ")}]` : "no splitting"} but the build ` +
+          `in ${this.dotNextPath} staged ` +
+          `${got ? `[${got.join(", ")}]` : "a single deployment root"}. ` +
+          `Groups are resolved during \`next build\` (cdk-nextjs passes them in ` +
+          `via ${FUNCTION_GROUPS_ENV_VAR}), so this means the build output is ` +
+          `stale, or \`skipBuild: true\` and the build was run without that ` +
+          `variable set.`,
+      );
     }
 
-    if (dedicatedImageFunction) {
-      this.imageOptimizationAssetPath =
-        this.prepareImageOptimizationAssets(standalonePath);
+    const names = got ?? [DEFAULT_FUNCTION_GROUP];
+    const roots = names.map((name) => ({
+      name,
+      path: join(
+        this.dotNextPath,
+        ADAPTER_DIR_NAME,
+        ...groupStagingDirName(staged ? name : undefined).split("/"),
+      ),
+      routes: staged?.[name] ?? [],
+    }));
+
+    // `default` first, so `deploymentRootPath` and any other "the root" caller
+    // gets the group that owns everything unassigned.
+    roots.sort((a, b) =>
+      a.name === DEFAULT_FUNCTION_GROUP
+        ? -1
+        : b.name === DEFAULT_FUNCTION_GROUP
+          ? 1
+          : a.name.localeCompare(b.name),
+    );
+
+    for (const root of roots) {
+      if (!existsSync(root.path)) {
+        throw new Error(
+          `${LOG_PREFIX} The deployment root for function group ` +
+            `"${root.name}" is missing from ${root.path}, though the adapter ` +
+            `manifest lists it. The \`.next\` directory has been modified since ` +
+            `\`next build\` ran.`,
+        );
+      }
+    }
+    return roots;
+  }
+
+  /**
+   * Lambda enforces 250 MB unzipped at CloudFormation time, which is minutes
+   * into a deploy and reports only a size. Splitting exists to stay under that
+   * cap, so the error that tells you to split further has to name the group, its
+   * size, and what to do — and arrive at synth.
+   *
+   * Symlinks are followed because `cdk-assets` dereferences them when it zips:
+   * the tree on disk is smaller than the function Lambda unpacks.
+   */
+  private assertUnderLambdaLimit(root: NextjsDeploymentRoot): void {
+    const bytes = this.dereferencedSize(root.path);
+    debug(
+      `${LOG_PREFIX} Deployment root "${root.name}" is ${(bytes / 1e6).toFixed(1)} MB unzipped`,
+    );
+    if (bytes <= LAMBDA_UNZIPPED_LIMIT_BYTES) {
+      return;
+    }
+    const mb = (value: number) => `${(value / 1024 / 1024).toFixed(0)} MB`;
+    const isSplit = this.deploymentRoots.length > 1;
+    throw new Error(
+      `${LOG_PREFIX} Function group "${root.name}" is ${mb(bytes)} unzipped, ` +
+        `over Lambda's ${mb(LAMBDA_UNZIPPED_LIMIT_BYTES)} limit. ` +
+        (isSplit
+          ? `Split its routes further, or move some of them into another group: ` +
+            `the cap is per function, so the shared \`next\` closure every group ` +
+            `duplicates costs nothing against any single budget.`
+          : `Use the \`functionGroups\` prop to package routes into separate ` +
+            `functions. Note that splitting only removes route-local code — ` +
+            `anything reachable from a shared layout or the \`next\` runtime is ` +
+            `in every group.`),
+    );
+  }
+
+  /**
+   * Total bytes of a tree with symlinks followed, as zipping it would see it.
+   *
+   * `visited` holds the *resolved* path of every directory already counted, which
+   * is what bounds the recursion. Following a symlinked directory is the point of
+   * this walk, and two workspace packages that link each other
+   * (`packages/a/node_modules/@org/b` → `../../b` and the reverse, which is how
+   * pnpm wires a monorepo) are a cycle: without the set, `assertUnderLambdaLimit`
+   * either hangs or blows the stack at synth. Keying on the real path also means a
+   * directory reached through two different links is counted once rather than
+   * twice, which is what the zip contains.
+   */
+  private dereferencedSize(path: string, visited = new Set<string>()): number {
+    let bytes = 0;
+    try {
+      const real = realpathSync(path);
+      if (visited.has(real)) {
+        return 0;
+      }
+      visited.add(real);
+    } catch {
+      return 0;
+    }
+    for (const entry of readdirSync(path, {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      const full = join(entry.parentPath, entry.name);
+      if (entry.isDirectory()) {
+        continue;
+      }
+      try {
+        // `statSync` follows links, which is the point; a dangling one is
+        // skipped rather than thrown on, since it contributes nothing to the zip.
+        const stats = statSync(full);
+        bytes += stats.isDirectory()
+          ? this.dereferencedSize(full, visited)
+          : stats.size;
+      } catch {
+        continue;
+      }
+    }
+    return bytes;
+  }
+
+  /**
+   * Read the manifest the adapter's `onBuildComplete` wrote.
+   *
+   * Its absence means `next build` ran without cdk-nextjs's adapter registered
+   * (or with a stale `next.config`), which is worth saying plainly here: every
+   * later failure — a Lambda that cannot find `manifest.json`, an empty asset —
+   * is the same cause several steps downstream.
+   */
+  private readAdapterManifest(): AdapterManifest {
+    const manifestPath = join(
+      this.dotNextPath,
+      ADAPTER_DIR_NAME,
+      MANIFEST_FILE_NAME,
+    );
+    if (!existsSync(manifestPath)) {
+      throw new Error(
+        `cdk-nextjs adapter manifest not found at ${manifestPath}. ` +
+          `"${this.buildCommand}" must run a Next.js build with cdk-nextjs's ` +
+          `adapter registered. cdk-nextjs sets \`NEXT_ADAPTER_PATH\` on the ` +
+          `build it runs itself, so this usually means either the build command ` +
+          `does not reach \`next build\` (a wrapper that drops the environment, ` +
+          `or a cached build that did not re-run), or \`skipBuild: true\` and ` +
+          `the build happened outside CDK. For the latter, set ` +
+          `\`adapterPath: require.resolve("cdk-nextjs/adapter")\` in ` +
+          `next.config.`,
+      );
+    }
+    const manifest: AdapterManifest = JSON.parse(
+      readFileSync(manifestPath, "utf-8"),
+    );
+    if (manifest.version !== ADAPTER_MANIFEST_VERSION) {
+      throw new Error(
+        `The cdk-nextjs adapter manifest at ${manifestPath} is version ` +
+          `${manifest.version}, but this version of cdk-nextjs reads version ` +
+          `${ADAPTER_MANIFEST_VERSION}. The adapter that wrote it and the ` +
+          `constructs reading it come from the same package, so this means two ` +
+          `cdk-nextjs versions are installed, or the build output is stale.`,
+      );
+    }
+    return manifest;
+  }
+
+  /**
+   * Copy cdk-nextjs's own bundled request-handling shell and the manifest into
+   * `<deploymentRoot>/cdk-nextjs-runtime/`, which is where
+   * `deploymentRootOf`/`deployedManifestPath` expect to find them.
+   *
+   * Only the shell the deployment type actually runs is copied — the Lambda
+   * handler for Functions, the `node:http` server for Containers — so nothing
+   * ships ~1.5 MB of dead code and the tree says which type produced it. Both
+   * are copied from this package's `lib/`, next to the compiled construct.
+   *
+   * Every group gets the same shell *and the same manifest*: a function only
+   * knows which routes it owns so it can say so when misrouted, and that comes
+   * from {@link FUNCTION_GROUP_ENV_VAR}, not from a per-group manifest.
+   */
+  private stageRuntime(deploymentRoot: string, isFunctions: boolean): void {
+    const shell = isFunctions ? "lambda.mjs" : "server.mjs";
+    const source = join(__dirname, "..", "runtime", shell);
+    if (!existsSync(source)) {
+      throw new Error(
+        `cdk-nextjs's bundled runtime shell not found at ${source}. Ensure the ` +
+          `cdk-nextjs package is properly built.`,
+      );
+    }
+
+    const runtimeDir = join(deploymentRoot, RUNTIME_DIR_NAME);
+    // Removed rather than merged: a stale shell from the other deployment type
+    // would otherwise sit in the asset and change its hash for no reason.
+    rmSync(runtimeDir, { recursive: true, force: true });
+    mkdirSync(runtimeDir, { recursive: true });
+    cpSync(source, join(runtimeDir, shell));
+    cpSync(
+      join(this.dotNextPath, ADAPTER_DIR_NAME, MANIFEST_FILE_NAME),
+      join(runtimeDir, MANIFEST_FILE_NAME),
+    );
+    debug(
+      `${LOG_PREFIX} Staged ${shell} and ${MANIFEST_FILE_NAME} in ${runtimeDir}`,
+    );
+  }
+
+  /**
+   * `NEXT_ADAPTER_PATH` for the build, so `adapterPath` in `next.config` is
+   * optional.
+   *
+   * Next.js reads the variable as the *default* value of `adapterPath`
+   * (`next/dist/server/config-shared.js`, `defaultConfig`), so an app that does
+   * set `adapterPath` still wins and nothing existing changes.
+   *
+   * Resolved from the Next.js app, not from cdk-nextjs's own `__dirname` and not
+   * left as a bare specifier. Both alternatives were tried and both are wrong:
+   *
+   * - cdk-nextjs's own location loses because the adapter resolves its sibling
+   *   cache handler relative to wherever *it* was loaded from. An adapter loaded
+   *   from outside the app's tree hands Next.js a `cacheHandler` outside
+   *   `turbopack.root`, which Turbopack rejects outright ("leaves the filesystem
+   *   root").
+   * - A bare specifier loses because Next.js resolves `adapterPath` from inside
+   *   its own config loader, i.e. from `next`'s realpath. Under pnpm that is the
+   *   virtual store (`node_modules/.pnpm/next@…/node_modules/next/`), and the
+   *   walk up from there never reaches the app's own `node_modules`.
+   *
+   * Unset when `cdk-nextjs` is not resolvable from the app, which is legitimate:
+   * the Next.js app and the CDK app can be separate packages, and only the CDK one
+   * necessarily depends on cdk-nextjs. {@link readAdapterManifest} reports the
+   * resulting failure and names this case.
+   *
+   * One setup this cannot serve, and the reason this repo's own examples still set
+   * `adapterPath`: a `link:`/`file:` dependency on a cdk-nextjs checkout *outside*
+   * the app's project root. The symlink resolves out of the project, so the
+   * `cacheHandler` escape above applies. Set `adapterPath` in `next.config` there
+   * — it is resolved by the build, after whatever put the adapter in place.
+   */
+  private adapterPathEnv(): Record<string, string> {
+    try {
+      return {
+        NEXT_ADAPTER_PATH: require.resolve("cdk-nextjs/adapter", {
+          paths: [this.props.buildDirectory],
+        }),
+      };
+    } catch {
+      debug(
+        `${LOG_PREFIX} Could not resolve "cdk-nextjs/adapter" from ` +
+          `${this.props.buildDirectory}; leaving NEXT_ADAPTER_PATH unset, so ` +
+          `next.config must set \`adapterPath\`.`,
+      );
+      return {};
     }
   }
 
@@ -191,37 +602,46 @@ export class NextjsBuild extends Construct {
         env: {
           ...process.env,
           CDK_NEXTJS_INIT_CACHE_DIR: this.initCacheDir,
+          ...this.adapterPathEnv(),
+          // `onBuildComplete` runs inside this process and cannot read CDK
+          // props, so the resolved groups travel as JSON. Absent when not
+          // splitting, which the adapter reads as "one deployment root".
+          ...(this.props.functionGroups?.length
+            ? {
+                [FUNCTION_GROUPS_ENV_VAR]: JSON.stringify(
+                  this.props.functionGroups.map((group) => ({
+                    name: group.name,
+                    routes: group.routes,
+                  })),
+                ),
+              }
+            : {}),
         },
       });
-
-      // Copy patch-fetch.js into client JS bundle after build only for NextjsGlobalFunctions
-      if (this.props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
-        this.patchFetchInClientJs();
-      }
     } catch (error) {
       throw new Error(`Local build failed: ${error}`);
     }
   }
 
   /**
-   * Validate Next.js build output
-   * All builds must be standalone - no fallback to regular builds
-   */
-  private validateNextBuildOutput(): void {
-    const standaloneDir = join(this.dotNextPath, "standalone");
-    // Standalone directory is mandatory
-    if (!existsSync(standaloneDir)) {
-      throw new Error(
-        `Standalone build directory not found: ${standaloneDir}. ` +
-          `All builds must be configured for standalone output. ` +
-          `Please ensure your next.config.js includes 'output: "standalone"'.`,
-      );
-    }
-    // Additional validation (server.js with .next sibling) happens in findRelativePathToServerJs()
-  }
-
-  /**
-   * Find entrypoint client side js files to patch `fetch` only for NextjsGlobalFunctions
+   * Prepend `patch-fetch.js` to the client entrypoint chunks, for
+   * `NextjsGlobalFunctions` only.
+   *
+   * This is what makes POST work at all on that type. CloudFront reaches the
+   * server through a Lambda Function URL with `AuthType: AWS_IAM`, signed by an
+   * origin access control, and AWS documents the consequence: "If you use PUT or
+   * POST methods with your Lambda function URL, your users must compute the
+   * SHA256 of the body and include the payload hash value of the request body in
+   * the `x-amz-content-sha256` header when sending the request to CloudFront.
+   * Lambda doesn't support unsigned payloads."
+   *
+   * CloudFront signs GETs itself (empty-body hash) but will not hash a body, and
+   * a browser has no way to add that header on its own, so an unpatched app
+   * answers every server action, form submission and POST route handler with
+   * `403 InvalidSignatureException` before the request reaches Next.js. The
+   * patch installs `fetch`/`XMLHttpRequest` wrappers that compute the hash.
+   *
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
    */
   private patchFetchInClientJs() {
     const staticChunksPath = join(this.dotNextPath, "static", "chunks");
@@ -244,68 +664,41 @@ export class NextjsBuild extends Construct {
 
     const patchFetchContent = readFileSync(patchFetchPath, "utf-8");
 
-    // Prepend patch-fetch logic to each entrypoint
+    // Prepend patch-fetch logic to each entrypoint, once. Now that this runs
+    // outside `runNextBuild`, the same `.next` can be synthesized more than
+    // once (`skipBuild: true`, `cdk synth` then `cdk deploy`, a retried
+    // deploy), and prepending twice would re-wrap the wrappers.
     for (const chunkFile of chunkFiles) {
       const chunkFilePath = join(staticChunksPath, chunkFile);
       const originalContent = readFileSync(chunkFilePath, "utf-8");
-      const patchedContent = patchFetchContent + "\n" + originalContent;
+      if (originalContent.startsWith(PATCH_FETCH_MARKER)) {
+        debug(`${LOG_PREFIX} Already patched, skipping: ${chunkFilePath}`);
+        continue;
+      }
+      const patchedContent =
+        PATCH_FETCH_MARKER + "\n" + patchFetchContent + "\n" + originalContent;
       writeFileSync(chunkFilePath, patchedContent);
     }
   }
 
   /**
-   * Automatically finds the relative path from standalone directory to the
-   * package containing server.js by searching for server.js with a .next sibling.
-   * @returns "." for non-monorepo apps, or relative path like "app-playground" for monorepo apps
-   */
-  private findRelativePathToServerJs(): string {
-    const standaloneDir = join(this.dotNextPath, "standalone");
-
-    if (!existsSync(standaloneDir)) {
-      throw new Error(
-        `Cannot detect relativePathToPackage: standalone directory not found at ${standaloneDir}`,
-      );
-    }
-
-    const findServerJs = (
-      dir: string,
-      relativePath: string = "",
-    ): string | null => {
-      const entries = readdirSync(dir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        const fullPath = join(dir, entry.name);
-
-        if (entry.isDirectory() && entry.name !== "node_modules") {
-          // Recursively search directories (skip node_modules at root level)
-          const result = findServerJs(fullPath, join(relativePath, entry.name));
-          if (result !== null) return result;
-        } else if (entry.isFile() && entry.name === "server.js") {
-          // Check if this server.js has a .next sibling directory
-          const parentDir = dir;
-          const dotNextPath = join(parentDir, ".next");
-          if (existsSync(dotNextPath)) {
-            return relativePath || ".";
-          }
-        }
-      }
-      return null;
-    };
-
-    const result = findServerJs(standaloneDir);
-    if (result === null) {
-      throw new Error(
-        `Cannot detect relativePathToPackage: Could not find server.js with .next sibling in ${standaloneDir}. ` +
-          `Please ensure Next.js build completed successfully or provide relativePathToPackage manually.`,
-      );
-    }
-
-    debug(`${LOG_PREFIX} Auto-detected relativePathToPackage: "${result}"`);
-    return result;
-  }
-
-  /**
-   * Get build ID from .next directory
+   * The value every deployment-scoped store is partitioned by: `.next/BUILD_ID`,
+   * plus the app's `deploymentId` when it sets one.
+   *
+   * `BUILD_ID` alone is not unique per deployment. Setting `deploymentId` (or
+   * building with `NEXT_DEPLOYMENT_ID`) turns on skew protection, and next.js
+   * then *pins* the build ID to the constant `build-TfctsWXpff2fKS` — see
+   * `getBuildId` in `next/dist/build/index.js`, which does that deliberately so
+   * that tooling doing `.replace(escapedBuildId, …)` still has something to
+   * replace. Two successive deployments of such an app would share one cache
+   * prefix and one revalidation-table partition, and the new one would read the
+   * previous one's prerenders. Appending the deployment ID restores the "one
+   * deployment, one partition" invariant that ID exists to carry.
+   *
+   * Nothing routes on this value — the `/_next/data/<buildId>/…` URL space is
+   * matched with a path parameter, and the app's own client bundles carry
+   * whatever `BUILD_ID` next.js gave them — so it is free to be longer than
+   * next.js's own.
    */
   private getBuildId(): string {
     const buildIdPath = join(this.dotNextPath, "BUILD_ID");
@@ -316,8 +709,37 @@ export class NextjsBuild extends Construct {
           `Ensure Next.js build completed successfully.`,
       );
     }
-    // BUILD_ID existence is already validated in validateNextBuildOutput()
-    return readFileSync(buildIdPath, "utf-8").trim();
+    const buildId = readFileSync(buildIdPath, "utf-8").trim();
+    const deploymentId = this.getDeploymentId();
+    return deploymentId ? `${buildId}-${deploymentId}` : buildId;
+  }
+
+  /**
+   * The app's resolved `deploymentId`, read out of `required-server-files.json`
+   * so that one computed in `next.config.js` counts as much as a literal or a
+   * `NEXT_DEPLOYMENT_ID`. Empty when the app sets none.
+   *
+   * Reduced to the characters that are safe in an S3 key prefix and a DynamoDB
+   * partition key, since this is an arbitrary user string and `/` in particular
+   * would split the prefix `prune-cache-bucket.ts` matches on.
+   */
+  private getDeploymentId(): string {
+    const requiredServerFiles = join(
+      this.dotNextPath,
+      "required-server-files.json",
+    );
+    if (!existsSync(requiredServerFiles)) return "";
+    try {
+      const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
+      const deploymentId = config?.deploymentId;
+      return typeof deploymentId === "string"
+        ? deploymentId.replace(/[^A-Za-z0-9_-]/g, "-")
+        : "";
+    } catch {
+      // `readNextConfigBasePath` already warns about an unreadable
+      // `required-server-files.json`; a second warning per synth adds nothing.
+      return "";
+    }
   }
 
   /**
@@ -343,45 +765,73 @@ export class NextjsBuild extends Construct {
   }
 
   /**
-   * Recursively find and remove existing Sharp platform binaries
+   * Recursively find and remove existing Sharp platform binaries.
+   *
+   * `root` is walked whole rather than just its `node_modules`: the staged tree
+   * is keyed by repo-root-relative path, so in a monorepo the `node_modules`
+   * holding `sharp` is several directories down. {@link isSharpBinaryPackage} is
+   * what keeps that from reaching the app's own output — the staged root holds
+   * the compiled `.next` as well as the dependencies.
+   *
+   * @returns the staged `sharp` JS wrapper to install next to, found in the same
+   * walk: a root can be hundreds of megabytes, and each group has one.
    */
-  private removeExistingSharpBinaries(standalonePath: string): void {
-    const nodeModulesPath = join(standalonePath, "node_modules");
-    if (!existsSync(nodeModulesPath)) {
-      return;
+  private removeExistingSharpBinaries(root: string): string | undefined {
+    if (!existsSync(root)) {
+      return undefined;
     }
+    const sharpCandidates: string[] = [];
 
     try {
       // Use recursive readdirSync to find all Sharp binary directories and symlinks
-      const allEntries = readdirSync(nodeModulesPath, {
+      const allEntries = readdirSync(root, {
         recursive: true,
         withFileTypes: true,
       });
 
-      const sharpBinaryPaths: string[] = [];
+      // Symlinks are unlinked, not `rmSync`ed, and they go first. pnpm points
+      // several links at one store directory, and `rmSync(…, { recursive: true,
+      // force: true })` *silently no-ops* on a symlink whose target is already
+      // gone — `force` swallows the ENOENT its `rmdir` gets. Removing a store
+      // directory before its links therefore left dangling
+      // `@img/sharp-darwin-arm64` entries in the asset, which is a latent ENOENT
+      // in whatever next dereferences the tree (`cdk-assets` does, when it zips).
+      const symlinks: string[] = [];
+      const directories: string[] = [];
 
       for (const entry of allEntries) {
-        // Check for both directories and symlinks (pnpm creates symlinks)
-        if (entry.isDirectory() || entry.isSymbolicLink()) {
-          // Match Sharp binary packages with more comprehensive patterns
-          const isSharpBinary =
-            entry.name.includes("sharp-") ||
-            entry.name.includes("sharp-libvips");
-
-          if (isSharpBinary) {
-            // For recursive readdirSync, parentPath contains the full absolute path
-            const fullPath = join(entry.parentPath, entry.name);
-            sharpBinaryPaths.push(fullPath);
+        if (entry.isDirectory() && entry.name === "sharp") {
+          const path = join(entry.parentPath, entry.name);
+          if (existsSync(join(path, "package.json"))) {
+            sharpCandidates.push(path);
           }
+          continue;
+        }
+        if (!isSharpBinaryPackage(entry.parentPath, entry.name)) continue;
+        // For recursive readdirSync, parentPath contains the full absolute path
+        const fullPath = join(entry.parentPath, entry.name);
+        if (entry.isSymbolicLink()) {
+          symlinks.push(fullPath);
+        } else if (entry.isDirectory()) {
+          directories.push(fullPath);
         }
       }
 
       debug(
-        `${LOG_PREFIX} Found ${sharpBinaryPaths.length} Sharp binary directories/symlinks to remove`,
+        `${LOG_PREFIX} Removing ${symlinks.length} Sharp binary symlinks and ${directories.length} directories`,
       );
 
-      // Remove all found Sharp binary directories and symlinks
-      for (const path of sharpBinaryPaths) {
+      for (const path of symlinks) {
+        try {
+          unlinkSync(path);
+          debug(`${LOG_PREFIX} Unlinked: ${path}`);
+        } catch (error) {
+          console.warn(
+            `${LOG_PREFIX} Warning: Could not unlink ${path}: ${error}`,
+          );
+        }
+      }
+      for (const path of directories) {
         try {
           rmSync(path, { recursive: true, force: true });
           debug(`${LOG_PREFIX} Removed: ${path}`);
@@ -396,162 +846,39 @@ export class NextjsBuild extends Construct {
         `${LOG_PREFIX} Warning: Could not read node_modules directory: ${error}`,
       );
     }
+    return pickStagedSharpPackage(sharpCandidates);
   }
 
   /**
-   * Download and install correct Sharp binaries for Linux MUSL
+   * Install the `sharp` platform binaries the deployment target needs into the
+   * staged tree.
+   *
+   * They go next to the staged `sharp` package rather than at the top of the
+   * tree, because that is the first place Node looks from `sharp`'s own
+   * `require("@img/sharp-<platform>")` under every installer layout: a sibling
+   * `@img` inside `node_modules/.pnpm/sharp@x/node_modules/` for pnpm, and
+   * `node_modules/@img/` for a hoisted install.
+   *
+   * @param libc `"linux"` (glibc, the Lambda managed runtime) or `"linuxmusl"`
+   * (Alpine, the container images).
    */
-  private downloadAndInstallSharpBinaries(): void {
-    const nodeModulesPath = join(
-      this.dotNextPath,
-      "standalone",
-      "node_modules",
-    );
-    const imgPath = join(nodeModulesPath, "@img");
-    const arch = getNodeArchitecture();
-
-    this.installSharpPackages(
-      imgPath,
-      this.getSharpBinaryPackages(
-        this.findSharpPackage(nodeModulesPath),
-        `linuxmusl-${arch}`,
-      ),
-    );
-  }
-
-  /**
-   * Assemble the deployment asset for the dedicated image optimization
-   * Lambda: the pre-bundled handler (from this package's own `lib/` output),
-   * `sharp`'s JS wrapper (already dereferenced from the pnpm store by Next's
-   * output file tracing into the standalone build), glibc `sharp` binaries
-   * (the standard Lambda managed runtime is Amazon Linux 2023/glibc, unlike
-   * the musl binaries the Docker/Lambda Web Adapter server function needs),
-   * and `required-server-files.json` (read by the handler at cold start to
-   * build `nextConfig`).
-   */
-  private prepareImageOptimizationAssets(standalonePath: string): string {
-    const assetPath = join(this.dotNextPath, "cdk-nextjs-image-optimization");
-    const nodeModulesPath = join(assetPath, "node_modules");
-    const imgPath = join(nodeModulesPath, "@img");
-
-    rmSync(assetPath, { recursive: true, force: true });
-    mkdirSync(imgPath, { recursive: true });
-
-    // Pre-bundled by esbuild into this package's own lib/ output.
-    cpSync(join(__dirname, "..", "image-optimization"), assetPath, {
-      recursive: true,
-    });
-
-    const sharpSource = this.findSharpPackage(
-      join(standalonePath, "node_modules"),
-    );
-    if (sharpSource) {
-      this.copySharpRuntime(sharpSource, nodeModulesPath);
-    } else {
+  private installSharpBinariesForTarget(
+    sharpSource: string | undefined,
+    libc: "linux" | "linuxmusl",
+  ): void {
+    if (!sharpSource) {
       console.warn(
-        `${LOG_PREFIX} "sharp" not found in standalone build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
+        `${LOG_PREFIX} "sharp" not found in the staged build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
       );
+      return;
     }
 
-    const requiredServerFiles = join(
-      this.dotNextPath,
-      "required-server-files.json",
-    );
-    if (!existsSync(requiredServerFiles)) {
-      throw new Error(
-        `${LOG_PREFIX} "required-server-files.json" not found at ${requiredServerFiles}. The image optimization Lambda reads it at cold start to build its Next.js config.`,
-      );
-    }
-    cpSync(requiredServerFiles, join(assetPath, "required-server-files.json"));
-
-    const arch = getNodeArchitecture();
     this.installSharpPackages(
-      imgPath,
-      this.getSharpBinaryPackages(sharpSource, `linux-${arch}`),
-    );
-
-    return assetPath;
-  }
-
-  /**
-   * Locate `sharp`'s JS wrapper inside a standalone `node_modules`.
-   *
-   * Next's output file tracing preserves the installer's on-disk layout, so
-   * npm/yarn produce a hoisted `node_modules/sharp` while pnpm only
-   * materializes `node_modules/.pnpm/sharp@<version>/node_modules/sharp`.
-   */
-  private findSharpPackage(nodeModulesPath: string): string | undefined {
-    const hoisted = join(nodeModulesPath, "sharp");
-    if (existsSync(join(hoisted, "package.json"))) {
-      return hoisted;
-    }
-
-    const pnpmPath = join(nodeModulesPath, ".pnpm");
-    if (!existsSync(pnpmPath)) {
-      return undefined;
-    }
-
-    const candidates = readdirSync(pnpmPath)
-      .filter((name) => name.startsWith("sharp@"))
-      .sort();
-    for (const candidate of candidates.reverse()) {
-      const nested = join(pnpmPath, candidate, "node_modules", "sharp");
-      if (existsSync(join(nested, "package.json"))) {
-        return nested;
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Copy `sharp` plus the transitive `dependencies` closure `require("sharp")`
-   * pulls in (`@img/colour`, `detect-libc`, `semver`) into `targetPath`.
-   *
-   * Copying only `sharp` itself leaves those requires unresolvable, and
-   * `imageOptimizer` swallows the resulting `MODULE_NOT_FOUND` by falling back
-   * to serving the unoptimized original, so the omission is otherwise silent.
-   */
-  private copySharpRuntime(sharpSource: string, targetPath: string): void {
-    // Under pnpm a package's dependencies are symlinked into the sibling
-    // directory alongside it, which is also where a hoisted layout keeps
-    // them, so the same lookup covers both.
-    const lookupPath = join(sharpSource, "..");
-    const queue = ["sharp"];
-    const copied = new Set<string>();
-
-    while (queue.length > 0) {
-      const name = queue.shift()!;
-      if (copied.has(name)) {
-        continue;
-      }
-
-      const source = name === "sharp" ? sharpSource : join(lookupPath, name);
-      if (!existsSync(join(source, "package.json"))) {
-        console.warn(
-          `${LOG_PREFIX} "sharp" dependency "${name}" not found in standalone build output; image optimization may fall back to serving unoptimized images.`,
-        );
-        continue;
-      }
-
-      // `dereference` resolves pnpm's symlinks into real files, since the
-      // Lambda asset is a standalone directory with no store to link into.
-      cpSync(source, join(targetPath, name), {
-        recursive: true,
-        dereference: true,
-      });
-      copied.add(name);
-
-      const manifest = JSON.parse(
-        readFileSync(join(source, "package.json"), "utf-8"),
-      );
-      // Platform binaries are optionalDependencies, installed separately at
-      // the versions this same manifest pins, so only `dependencies` here.
-      queue.push(...Object.keys(manifest.dependencies ?? {}));
-    }
-
-    debug(
-      `${LOG_PREFIX} Copied sharp runtime: ${[...copied].sort().join(", ")}`,
+      join(sharpSource, "..", "@img"),
+      this.getSharpBinaryPackages(
+        sharpSource,
+        `${libc}-${getNodeArchitecture()}`,
+      ),
     );
   }
 
@@ -559,8 +886,8 @@ export class NextjsBuild extends Construct {
    * Resolve the `@img/sharp-<platform>` and `@img/sharp-libvips-<platform>`
    * versions to install for a given platform.
    *
-   * These must match the `sharp` JS wrapper that output file tracing put in
-   * the standalone build: `sharp`'s `lib/libvips.js` compares the binary's
+   * These must match the `sharp` JS wrapper that output file tracing staged:
+   * `sharp`'s `lib/libvips.js` compares the binary's
    * reported libvips version against its own `minimumLibvipsVersion` and
    * throws at load when they disagree. `sharp` pins both in its
    * `optionalDependencies`, so that manifest is the authoritative source.
@@ -691,4 +1018,51 @@ export class NextjsBuild extends Construct {
       return false;
     }
   }
+}
+
+/**
+ * Pick the staged `sharp` JS wrapper out of every copy found in the tree.
+ *
+ * Unlike a standalone build there is no single `node_modules` to look in: the
+ * tree mirrors repo-root-relative paths, so the search is by directory name.
+ * Sorted for determinism: an app could have two `sharp` copies at different
+ * versions, and which one the *server's* `next` resolves is not knowable from
+ * here. Shortest path wins as the closest to a hoisted install.
+ */
+function pickStagedSharpPackage(candidates: string[]): string | undefined {
+  candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
+  if (candidates.length > 1) {
+    debug(
+      `${LOG_PREFIX} Multiple staged "sharp" copies; using ${candidates[0]}`,
+    );
+  }
+  return candidates[0];
+}
+
+/**
+ * Whether the entry `name` in `parentPath` is an `@img/sharp-*` platform binary
+ * package, or pnpm's store entry for one.
+ *
+ * The name alone is not enough to delete a directory by. A route segment called
+ * `sharp-edges` stages `.next/server/app/sharp-edges/`, and removing it left the
+ * manifest listing an entrypoint that is no longer on disk — every request to
+ * that route 500ing with "Could not load the entrypoint". Nor is "a `sharp-`
+ * package": `sharp-ico` and `sharp-phash` are unrelated dependencies, and
+ * removing them failed the app at runtime with MODULE_NOT_FOUND. So both the
+ * scope and the place have to match:
+ *
+ * - `node_modules/@img/sharp-…`, where every platform binary actually lives
+ * - `node_modules/.pnpm/@img+sharp-…@0.35.4`, pnpm's store, whose entries are
+ *   also what the `@img` links point at (`sharp-libvips-…` matches the same way)
+ *
+ * The `node_modules` segment is required as well, so an app directory that
+ * happens to be called `@img` or `.pnpm` is still left alone.
+ */
+function isSharpBinaryPackage(parentPath: string, name: string): boolean {
+  const segments = parentPath.split(sep);
+  const parent = segments[segments.length - 1];
+  const scoped =
+    (parent === "@img" && name.startsWith("sharp-")) ||
+    (parent === ".pnpm" && name.startsWith("@img+sharp-"));
+  return scoped && segments.includes("node_modules");
 }

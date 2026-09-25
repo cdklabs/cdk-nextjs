@@ -7,15 +7,29 @@ import type { Review } from './review';
 // good practise to add `server-only` preemptively.
 import 'server-only';
 
-export async function getReviews() {
+/**
+ * Cached for the same reason as `getCategories`: with `cacheComponents` an
+ * uncached `fetch` awaited during a render stops the route from being
+ * prerendered. An upstream failure throws from inside the cache so that it is
+ * not persisted, and `notFound()` stays outside it - see the comment in
+ * `app/api/categories/getCategories.ts`.
+ */
+async function fetchReviews(): Promise<Review[]> {
+  'use cache';
+
   const res = await fetch(`https://app-playground-api.vercel.app/api/reviews`);
 
   if (!res.ok) {
-    // Render the closest `error.js` Error Boundary
-    throw new Error('Something went wrong!');
+    throw new Error(`The reviews API responded ${res.status}`);
   }
 
-  const reviews = (await res.json()) as Review[];
+  return (await res.json()) as Review[];
+}
+
+export async function getReviews() {
+  // An upstream failure throws out of `fetchReviews` and renders the closest
+  // `error.js` Error Boundary, uncached.
+  const reviews = await fetchReviews();
 
   if (reviews.length === 0) {
     // Render the closest `not-found.js` Error Boundary

@@ -28,23 +28,42 @@ export interface OptionalNextjsContainersProps {
    */
   readonly relativeEntrypointPath?: string;
   /**
-   * Relative path from buildDirectory to the package containing Next.js app.
+   * Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check.
+   * Both hit the app directly, so this
+   * is the path including the app's `basePath` — the root constructs prefix their
+   * own `healthCheckPath` prop with it.
    * @stability stable
    */
-  readonly relativePathToPackage?: string;
+  readonly healthCheckPath?: string;
+  /**
+   * Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys.
+   * @stability stable
+   */
+  readonly staticAssetsKeyPrefix?: string;
+  /**
+   * S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
+   * @stability stable
+   */
+  readonly staticAssetsBucket?: aws_s3.IBucket;
   /**
    * DynamoDB table for revalidation metadata.
    * @stability stable
    */
   readonly revalidationTable?: aws_dynamodb.ITableV2;
   /**
+   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo root.
+   * @stability stable
+   */
+  readonly relativeProjectDir?: string;
+  /**
    * @stability stable
    */
   readonly nextjsType?: NextjsType;
   /**
+   * Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers.
    * @stability stable
    */
-  readonly healthCheckPath?: string;
+  readonly deploymentRootPath?: string;
   /**
    * S3 bucket for cache storage.
    * @stability stable

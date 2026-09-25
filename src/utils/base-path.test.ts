@@ -3,9 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextjsType } from "../constants";
 import {
+  isAssetPrefixUnserved,
   joinPath,
   normalizeBasePath,
   prefixWithBasePath,
+  readNextConfigAssetPrefix,
+  readNextConfigAssetPrefixPath,
   readNextConfigBasePath,
   resolveBasePath,
 } from "./base-path";
@@ -191,6 +194,157 @@ describe("readNextConfigBasePath", () => {
   });
 });
 
+describe("readNextConfigAssetPrefix", () => {
+  let dotNextPath: string;
+  let warn: jest.SpyInstance;
+
+  beforeEach(() => {
+    dotNextPath = mkdtempSync(join(tmpdir(), "asset-prefix-"));
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    rmSync(dotNextPath, { recursive: true, force: true });
+  });
+
+  function write(config: unknown) {
+    writeFileSync(
+      join(dotNextPath, "required-server-files.json"),
+      JSON.stringify({ config }),
+    );
+  }
+
+  it("reads a path-style assetPrefix with one leading slash", () => {
+    write({ assetPrefix: "/custom-asset-prefix" });
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("/custom-asset-prefix");
+    write({ assetPrefix: "custom-asset-prefix/" });
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("/custom-asset-prefix");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("ignores an absolute assetPrefix", () => {
+    // It names an origin cdk-nextjs does not serve, so there is no behavior to
+    // add and nothing the distribution could get wrong.
+    for (const assetPrefix of [
+      "https://cdn.example.com",
+      "http://cdn.example.com/x",
+      "//cdn.example.com",
+    ]) {
+      write({ assetPrefix });
+      expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty string for every way of setting none", () => {
+    for (const config of [
+      { assetPrefix: "" },
+      { assetPrefix: "/" },
+      { assetPrefix: undefined },
+      {},
+      // `next build` has never written a non-string here, but the file is JSON
+      // from another program's version of the schema.
+      { assetPrefix: 3 },
+    ]) {
+      write(config);
+      expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("reports the path an absolute assetPrefix carries, separately", () => {
+    // `readNextConfigAssetPrefix` answers "is this a prefix the regional
+    // NextjsTypes cannot serve"; `…Path` answers "what path do bundle URLs carry",
+    // and an absolute prefix with a path carries one — `next build` compiles a
+    // rewrite for it, so `next start` serves bundles there. See
+    // `test/e2e/app-dir/asset-prefix-absolute`.
+    for (const [assetPrefix, path] of [
+      ["https://example.vercel.sh/custom-asset-prefix", "/custom-asset-prefix"],
+      ["//example.vercel.sh/cdn/", "/cdn"],
+      ["https://example.vercel.sh/", ""],
+      ["https://example.vercel.sh", ""],
+      ["/cdn", "/cdn"],
+      ["", ""],
+    ] as const) {
+      write({ assetPrefix });
+      expect(readNextConfigAssetPrefixPath(dotNextPath)).toBe(path);
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet when the file is missing, and warns when it is unreadable", () => {
+    // `readNextConfigBasePath` reads the same file and already warns about it
+    // being absent; a second warning on every synth of an app with no
+    // `assetPrefix` would be noise. Unparseable is different — it means the file
+    // is there and says something we could not understand.
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    expect(warn).not.toHaveBeenCalled();
+
+    writeFileSync(join(dotNextPath, "required-server-files.json"), "not json");
+    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Could not read assetPrefix"),
+    );
+  });
+});
+
+describe("isAssetPrefixUnserved", () => {
+  const REGIONAL = [
+    NextjsType.REGIONAL_FUNCTIONS,
+    NextjsType.REGIONAL_CONTAINERS,
+  ];
+
+  it.each(REGIONAL)(
+    "%s: does not flag the assetPrefix Next.js derives from basePath",
+    (nextjsType) => {
+      // The regression this function was extracted for. An app that sets only
+      // `basePath: "/prod"` — `examples/regional-functions`, and every regional
+      // deployment with a basePath — gets
+      // `{"assetPrefix":"/prod","basePath":"/prod"}` in
+      // `required-server-files.json`, because Next.js resolves one from the other.
+      // Flagging that told users their bundles would 404 at the one path that does
+      // serve them, on every synth.
+      expect(isAssetPrefixUnserved(nextjsType, "/prod", "prod")).toBe(false);
+      // Both sides arrive in different shapes — the assetPrefix reader adds a
+      // leading slash, the basePath reader strips one — so the comparison has to
+      // normalize rather than compare strings.
+      expect(isAssetPrefixUnserved(nextjsType, "/prod", "/prod/")).toBe(false);
+      expect(isAssetPrefixUnserved(nextjsType, "/a/b", "a/b")).toBe(false);
+    },
+  );
+
+  it.each(REGIONAL)("%s: flags a prefix nothing serves", (nextjsType) => {
+    // A genuinely different prefix is the case the warning exists for: bundles are
+    // requested at `/cdn/_next/static/...` and neither API Gateway's
+    // `_next/static` resource nor the container's own files answer there.
+    expect(isAssetPrefixUnserved(nextjsType, "/cdn", "prod")).toBe(true);
+    expect(isAssetPrefixUnserved(nextjsType, "/cdn", undefined)).toBe(true);
+    // A prefix *under* the basePath is still a different path, not a match.
+    expect(isAssetPrefixUnserved(nextjsType, "/prod/cdn", "prod")).toBe(true);
+  });
+
+  it.each(GLOBAL)(
+    "%s: flags nothing, having a behavior for it",
+    (nextjsType) => {
+      // `NextjsDistribution` adds a cache behavior for the prefix, so on these types
+      // any prefix is served.
+      expect(isAssetPrefixUnserved(nextjsType, "/cdn", "prod")).toBe(false);
+      expect(isAssetPrefixUnserved(nextjsType, "/cdn", undefined)).toBe(false);
+    },
+  );
+
+  it.each(Object.values(NextjsType))(
+    "%s: flags nothing when there is no prefix",
+    (nextjsType) => {
+      // `readNextConfigAssetPrefix` already reduces an absolute prefix to `""`,
+      // which is the supported way to serve assets from another origin.
+      expect(isAssetPrefixUnserved(nextjsType, "", "prod")).toBe(false);
+      expect(isAssetPrefixUnserved(nextjsType, "", undefined)).toBe(false);
+    },
+  );
+});
+
 describe("resolveBasePath", () => {
   describe.each(Object.values(NextjsType))("%s", (nextjsType) => {
     it("resolves to undefined when both are unset", () => {
@@ -237,14 +391,89 @@ describe("resolveBasePath", () => {
   });
 
   describe(NextjsType.REGIONAL_FUNCTIONS, () => {
+    const RF = NextjsType.REGIONAL_FUNCTIONS;
+    const stage = (name: string) => ({
+      strippedPrefix: name,
+      customDomain: false,
+    });
+    const domain = (mapping = "") => ({
+      strippedPrefix: mapping,
+      customDomain: true,
+    });
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => warn.mockRestore());
+
     // API Gateway strips the stage before matching resources, so an app served
-    // at the default `prod` stage sets basePath: "/prod" and leaves the prop
-    // unset. Same shape as a custom domain base path mapping. Deriving here
-    // would nest every resource under a path the stage already consumed.
-    it("does not derive the app's basePath", () => {
+    // at the default `prod` stage sets basePath: "/prod" and its resources live
+    // at the root. Mounting them under "prod" would nest every resource under a
+    // path the stage already consumed.
+    it("mounts an app whose basePath is the stage at the root", () => {
+      expect(resolveBasePath(RF, undefined, "/prod")).toBeUndefined();
       expect(
-        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, undefined, "/prod"),
+        resolveBasePath(RF, undefined, "/test", stage("test")),
       ).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("mounts the rest of a basePath nested below the stage", () => {
+      expect(resolveBasePath(RF, undefined, "/prod/base")).toBe("base");
+      expect(resolveBasePath(RF, undefined, "/v2/a/b", stage("v2"))).toBe(
+        "a/b",
+      );
+    });
+
+    // The case that used to 404 every bundle: a custom domain mapped at the root
+    // strips nothing, so the app's basePath is a real resource path, and left at
+    // the root `_next/static` fell through to the Lambda catch-all.
+    it("mounts an app under its whole basePath when nothing strips it", () => {
+      expect(resolveBasePath(RF, undefined, "/docs", domain())).toBe("docs");
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("strips a custom domain's base path mapping like a stage", () => {
+      expect(
+        resolveBasePath(RF, undefined, "/app", domain("app")),
+      ).toBeUndefined();
+      expect(resolveBasePath(RF, undefined, "/app/docs", domain("app"))).toBe(
+        "docs",
+      );
+    });
+
+    it("matches the stage on a segment boundary", () => {
+      expect(resolveBasePath(RF, undefined, "/production", domain())).toBe(
+        "production",
+      );
+      expect(resolveBasePath(RF, undefined, "/production", stage("prod"))).toBe(
+        "production",
+      );
+    });
+
+    // Without a custom domain the app's own links miss the stage, which synth
+    // can say but not fix - a domain attached with `addDomainName` is invisible.
+    it("warns when an execute-api app's basePath lacks the stage", () => {
+      expect(resolveBasePath(RF, undefined, "/docs")).toBe("docs");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Set `basePath: "/prod/docs"`'),
+      );
+    });
+
+    it("warns when a custom domain's base path mapping is missing from the app's basePath", () => {
+      expect(resolveBasePath(RF, undefined, "/docs", domain("v1"))).toBe(
+        "docs",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Set `basePath: "/v1/docs"`'),
+      );
+    });
+
+    it("derives nothing when the stage is a token", () => {
+      expect(
+        resolveBasePath(RF, undefined, "/docs", { customDomain: false }),
+      ).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
     });
 
     // The stripped prefix is part of what the app emits but never part of the
@@ -265,6 +494,30 @@ describe("resolveBasePath", () => {
       expect(() =>
         resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/prod", "/prod/base"),
       ).toThrow(/nests every API Gateway resource under that path/);
+    });
+
+    // Agreeing with the app is not enough when the value starts with the stage:
+    // resources under "prod" are only reached at "/prod/prod/...".
+    it("rejects a prop equal to an app basePath that starts with the stage", () => {
+      expect(() => resolveBasePath(RF, "/prod", "/prod")).toThrow(
+        /strips "\/prod" before matching resources/,
+      );
+      expect(() => resolveBasePath(RF, "/prod/base", "/prod/base")).toThrow(
+        /Leave the prop unset/,
+      );
+      expect(() => resolveBasePath(RF, "/app", "/app", domain("app"))).toThrow(
+        /strips "\/app"/,
+      );
+    });
+
+    it("accepts a matching prop and app basePath nothing strips", () => {
+      expect(resolveBasePath(RF, "/docs", "/docs", domain())).toBe("docs");
+      expect(resolveBasePath(RF, "/production", "/production")).toBe(
+        "production",
+      );
+      expect(
+        resolveBasePath(RF, "/prod", "/prod", { customDomain: false }),
+      ).toBe("prod");
     });
 
     // The reverse is never right: the prop nests every resource, including the

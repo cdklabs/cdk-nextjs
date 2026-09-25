@@ -6,7 +6,18 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { serializeCacheValue } from "./cache-utils.js";
+import {
+  appPageCacheHeaders,
+  groupPrerenders,
+  prerenderPathToCacheKey,
+  serializeCacheValue,
+  INIT_CACHE_TAG_MANIFEST,
+  InitCacheTagManifest,
+  NEXT_CACHE_TAGS_HEADER,
+} from "./cache-utils.js";
+import { writeBuildOutputs } from "./build-outputs.js";
+import { cacheKindResolver } from "./cache-kinds.js";
+import { LOG_PREFIX } from "../constants.js";
 import getDebug from "debug";
 
 const debug = getDebug("cdk-nextjs:adapter");
@@ -17,7 +28,12 @@ const adapter: NextAdapter = {
     if (phase === "phase-production-build") {
       return {
         ...config,
-        output: "standalone",
+        // No `output: "standalone"`. `onBuildComplete` stages the deployment
+        // root from the same NFT traces `writeStandaloneDirectory` would have
+        // used, so the two are alternatives rather than layers — `next build`
+        // says as much itself, immediately above the `onBuildComplete` call:
+        // "in the future `output: standalone` might not be allowed if an adapter
+        // with `onBuildComplete` is configured."
         cacheHandler: config.cacheHandler
           ? config.cacheHandler
           : fileURLToPath(import.meta.resolve("cdk-nextjs/cache-handler")),
@@ -32,6 +48,21 @@ const adapter: NextAdapter = {
     return config;
   },
   async onBuildComplete(ctx) {
+    // Stage the deployment root and write the manifest the runtime dispatches
+    // from. This is what replaces `output: "standalone"`.
+    const { manifest, adapterDir, stagedGroups } = await writeBuildOutputs(ctx);
+    const entrypointCount = Object.keys(manifest.entrypoints).length;
+    for (const group of stagedGroups) {
+      const routes = manifest.groups?.[group.name];
+      console.log(
+        `${LOG_PREFIX} Staged ${group.fileCount} files ` +
+          `(${(group.stagedBytes / 1e6).toFixed(1)} MB) for ` +
+          `${routes ? `${routes.length} of ${entrypointCount}` : entrypointCount} ` +
+          `entrypoints in ${group.path}`,
+      );
+    }
+    debug(`Adapter output directory: ${adapterDir}`);
+
     const cacheDir =
       process.env.CDK_NEXTJS_INIT_CACHE_DIR ||
       join(ctx.distDir, "cdk-nextjs-init-cache");
@@ -40,30 +71,37 @@ const adapter: NextAdapter = {
     await mkdir(cacheDir, { recursive: true });
     debug(`Init cache directory: ${cacheDir}`);
 
-    // Group prerenders by their base pathname
-    type Prerender = (typeof ctx.outputs.prerenders)[number];
-    const prerenderGroups = groupPrerendersByBasePath(ctx.outputs.prerenders);
+    // One entry per route, with its HTML, `.rsc` and segment outputs together
+    const prerenderGroups = groupPrerenders(ctx.outputs.prerenders);
     debug(`Prerender groups: ${prerenderGroups.size} groups`);
 
-    // Build mapping of route paths to their cache kinds (needs prerender paths for dynamic routes)
-    const prerenderPaths = Array.from(prerenderGroups.keys());
-    const routeToCacheKind = getRouteToCacheKindMap(
-      ctx.outputs,
-      prerenderPaths,
-    );
-    debug(`Route mapping: ${routeToCacheKind.size} routes`);
+    const cacheKindOf = cacheKindResolver(ctx.outputs);
+
+    // Tag -> cache keys, for the rows a runtime `set` would have written.
+    // See `INIT_CACHE_TAG_MANIFEST`.
+    const tagManifest: InitCacheTagManifest = {};
 
     // Process each group and create cache entries
-    for (const [basePath, prerenders] of prerenderGroups) {
+    for (const [basePath, variants] of prerenderGroups) {
       try {
-        // Skip dynamic route templates (they don't have actual content)
-        if (basePath.includes("[")) {
-          debug(`SKIP: Dynamic route template ${basePath}`);
-          continue;
-        }
-
-        // Determine the correct cache kind from our route mapping
-        const kind = routeToCacheKind.get(basePath);
+        // A dynamic route template — `/[lang]/[slug]` — is not a dead entry: with
+        // PPR it is the route's *fallback shell*, and the server looks it up in
+        // the cache under exactly that key. `app-page-runtime` reads
+        // `prerenderManifest.dynamicRoutes[route].fallback` (the literal template
+        // string) and calls `handleResponse({ cacheKey, isFallback: true })`; the
+        // Pages Router does the same with `srcPage` for an ISR fallback. Skipping
+        // these groups made every such lookup a MISS, so the shell was rendered
+        // per request instead of resumed from the build - visible in
+        // `test/e2e/app-dir/sub-shell-generation`, where a `'use cache'` root
+        // layout reported `(runtime)` where next start reports `(buildtime)`.
+        //
+        // A Pages Router template is seeded for the same reason: in production
+        // its fill function only returns what the cache already holds, so with
+        // nothing seeded there is no `fallback: true` shell to serve and
+        // `router.isFallback` is never true (`test/e2e/fallback-route-params`).
+        // Nothing extra is needed to keep non-PPR templates out: a route with no
+        // shell emits no prerender output.
+        const kind = cacheKindOf(variants);
         if (!kind) {
           debug(`SKIP: No route kind found for ${basePath}`);
           continue;
@@ -71,15 +109,14 @@ const adapter: NextAdapter = {
 
         debug(`Processing ${basePath} (${kind})`);
 
-        const htmlPrerender = prerenders.find((p) => p.pathname === basePath);
-        const rscPrerender = prerenders.find(
-          (p) => p.pathname === `${basePath}.rsc`,
-        );
-        const segmentPrerenders = prerenders.filter((p) =>
-          p.pathname.includes(".segments/"),
-        );
+        const {
+          html: htmlPrerender,
+          rsc: rscPrerender,
+          segments: segmentPrerenders,
+          data: dataPrerender,
+        } = variants;
 
-        if (!htmlPrerender && !rscPrerender) {
+        if (!htmlPrerender && !rscPrerender && !dataPrerender) {
           debug(`SKIP: No prerender files found for ${basePath}`);
           continue; // Skip if we don't have the main files
         }
@@ -103,10 +140,11 @@ const adapter: NextAdapter = {
           const segmentData = await getSegmentData(segmentPrerenders);
 
           // Extract headers from the HTML or RSC prerender
-          const headers =
+          const headers = appPageCacheHeaders(
             htmlPrerender?.fallback?.initialHeaders ||
-            rscPrerender?.fallback?.initialHeaders ||
-            {};
+              rscPrerender?.fallback?.initialHeaders ||
+              {},
+          );
 
           cacheEntry = {
             lastModified: Date.now(),
@@ -143,17 +181,74 @@ const adapter: NextAdapter = {
               status: htmlPrerender?.fallback?.initialStatus || 200,
             },
           };
+        } else if (kind === CachedRouteKind.PAGES) {
+          // A build-time `notFound: true`. Next.js reports the route as
+          // prerendered and hands us a prerender whose `filePath` is
+          // `pages/404.html` and whose `initialStatus` is 404 - but it writes
+          // *no* output for it (no `first.html`, `.json` or `.meta`), because a
+          // Pages Router `notFound` is represented in the cache as an entry
+          // whose `value` is `null` (`pages-handler.ts`, "isNotFound in
+          // metadata"), and `FileSystemCache.set` keeps a null value in its LRU
+          // only, never on disk. So `next start` misses, re-runs
+          // `getStaticProps`, and answers 404 from `render404()`.
+          //
+          // Seeding it as an ordinary `PAGES` entry made that a 200: the entry
+          // is a HIT carrying the 404 page's HTML, and the pages handler never
+          // reads `value.status` on the HIT path, so the status stayed 200 while
+          // the body said "404 page". Skipping it restores the miss, and with it
+          // `next start`'s status. Costs one render per revalidate window, which
+          // is what `next start` pays too.
+          const initialStatus = htmlPrerender?.fallback?.initialStatus;
+          if (initialStatus !== undefined && initialStatus !== 200) {
+            debug(
+              `SKIP: PAGES ${basePath} prerendered with status ${initialStatus} (build-time notFound)`,
+            );
+            continue;
+          }
+
+          const html = await readPrerenderAsText(htmlPrerender);
+
+          if (!html) {
+            debug(`SKIP: No HTML content for PAGES ${basePath}`);
+            continue;
+          }
+
+          // `getStaticProps`' result, which the entrypoint answers
+          // `/_next/data/<buildId>/<page>.json` with and the client router reads
+          // on a navigation. A route's *fallback* template has no data file -
+          // there are no params to run `getStaticProps` with yet - and
+          // `FileSystemCache` skips the read for one too (`if (!ctx.isFallback)`),
+          // leaving `pageData` an empty object.
+          const pageDataJson = await readPrerenderAsText(dataPrerender);
+
+          cacheEntry = {
+            lastModified: Date.now(),
+            value: {
+              kind: CachedRouteKind.PAGES,
+              html,
+              pageData: pageDataJson ? JSON.parse(pageDataJson) : {},
+              // Both `undefined`, which is what `FileSystemCache` hands back for
+              // a `PAGES` entry: it reads a `.meta` sidecar for the App Router
+              // kinds only, and `sendRenderResult` supplies the content type.
+              // Seeding `fallback.initialHeaders` instead would put
+              // `content-type: text/html` on the JSON data responses served from
+              // this same entry.
+              headers: undefined,
+              status: undefined,
+            },
+          };
         } else {
           // Skip unsupported kinds
           debug(`SKIP: Unsupported route kind ${kind} for ${basePath}`);
           continue;
         }
 
-        // Write cache entry to file
-        const cacheKey =
-          basePath === "/"
-            ? "index"
-            : basePath.replace(/^\//, "").replace(/\//g, "/");
+        // Write cache entry to file, under the route rather than the URL it is
+        // served at - see `prerenderPathToCacheKey`.
+        const cacheKey = prerenderPathToCacheKey(
+          basePath,
+          ctx.config.basePath || "",
+        );
         const cacheFilePath = join(cacheDir, `${cacheKey}.json`);
 
         // Ensure parent directory exists
@@ -166,15 +261,43 @@ const adapter: NextAdapter = {
 
         await writeFile(cacheFilePath, serializeCacheValue(cacheEntry));
 
+        for (const tag of cacheEntryTags(cacheEntry)) {
+          (tagManifest[tag] ??= []).push(cacheKey);
+        }
+
         debug(`Created cache entry: ${cacheFilePath}`);
       } catch (error) {
         console.error(`Error processing prerender group ${basePath}:`, error);
       }
     }
+
+    const taggedKeys = Object.keys(tagManifest).length;
+    if (taggedKeys > 0) {
+      await writeFile(
+        join(cacheDir, INIT_CACHE_TAG_MANIFEST),
+        JSON.stringify(tagManifest),
+      );
+      debug(`Wrote ${INIT_CACHE_TAG_MANIFEST} with ${taggedKeys} tags`);
+    }
   },
 };
 
 export default adapter;
+
+/**
+ * The tags a prerender was rendered with, as Next.js records them: in the
+ * entry's own `x-next-cache-tags` header, comma separated, including the
+ * implicit `_N_T_/…` path chain `revalidatePath` uses.
+ */
+function cacheEntryTags(entry: CacheHandlerValue): string[] {
+  const headers =
+    entry.value && "headers" in entry.value ? entry.value.headers : undefined;
+  const header = headers?.[NEXT_CACHE_TAGS_HEADER];
+  if (typeof header !== "string") {
+    return [];
+  }
+  return header.split(",").filter(Boolean);
+}
 
 /**
  * Read file content from a prerender as UTF-8 string
@@ -244,108 +367,4 @@ async function getSegmentData<
   }
 
   return segmentData;
-}
-
-/**
- * Build a mapping of route paths to their cache kinds based on build outputs
- */
-function getRouteToCacheKindMap(
-  outputs: {
-    appPages: Array<{ pathname: string }>;
-    appRoutes: Array<{ pathname: string }>;
-  },
-  prerenderPaths: string[],
-): Map<string, CachedRouteKind> {
-  const routeToCacheKind = new Map<string, CachedRouteKind>();
-
-  // Helper to match a path to a dynamic route pattern
-  const matchesDynamicRoute = (path: string, pattern: string): boolean => {
-    // If pattern has no dynamic segments, must be exact match
-    if (!pattern.includes("[")) {
-      return path === pattern;
-    }
-
-    const patternParts = pattern.split("/");
-    const pathParts = path.split("/");
-
-    if (patternParts.length !== pathParts.length) {
-      return false;
-    }
-
-    return patternParts.every((patternPart, i) => {
-      // Dynamic segment matches anything
-      if (patternPart.startsWith("[") && patternPart.endsWith("]")) {
-        return true;
-      }
-      // Static segment must match exactly
-      return patternPart === pathParts[i];
-    });
-  };
-
-  // App Pages - map both templates and their prerendered instances
-  for (const appPage of outputs.appPages) {
-    routeToCacheKind.set(appPage.pathname, CachedRouteKind.APP_PAGE);
-
-    // If it's a dynamic route, also map all matching prerendered paths
-    if (appPage.pathname.includes("[")) {
-      for (const prerenderPath of prerenderPaths) {
-        if (matchesDynamicRoute(prerenderPath, appPage.pathname)) {
-          routeToCacheKind.set(prerenderPath, CachedRouteKind.APP_PAGE);
-        }
-      }
-    }
-  }
-
-  // App Routes - map both templates and their prerendered instances
-  for (const appRoute of outputs.appRoutes) {
-    routeToCacheKind.set(appRoute.pathname, CachedRouteKind.APP_ROUTE);
-
-    // If it's a dynamic route, also map all matching prerendered paths
-    if (appRoute.pathname.includes("[")) {
-      for (const prerenderPath of prerenderPaths) {
-        if (matchesDynamicRoute(prerenderPath, appRoute.pathname)) {
-          routeToCacheKind.set(prerenderPath, CachedRouteKind.APP_ROUTE);
-        }
-      }
-    }
-  }
-
-  return routeToCacheKind;
-}
-
-/**
- * Group prerenders by their base pathname (without .rsc, .segments, etc.)
- */
-function groupPrerendersByBasePath<T extends { pathname: string }>(
-  prerenders: T[],
-): Map<string, T[]> {
-  const prerenderGroups = new Map<string, T[]>();
-
-  for (const prerender of prerenders) {
-    // Extract base pathname (e.g., "/ssg/1" from "/ssg/1.rsc")
-    let basePath = prerender.pathname;
-    // Remove .rsc extension first
-    if (basePath.endsWith(".rsc")) {
-      basePath = basePath.replace(/\.rsc$/, "");
-    }
-    // Then check if it's a segment and extract the base
-    if (basePath.includes(".segments/")) {
-      basePath = basePath.split(".segments/")[0];
-    }
-
-    // Normalize /index to / (Next.js root route handling)
-    if (basePath === "/index") {
-      basePath = "/";
-    }
-
-    if (!prerenderGroups.has(basePath)) {
-      prerenderGroups.set(basePath, []);
-    }
-    const group = prerenderGroups.get(basePath);
-    if (group) {
-      group.push(prerender);
-    }
-  }
-
-  return prerenderGroups;
 }

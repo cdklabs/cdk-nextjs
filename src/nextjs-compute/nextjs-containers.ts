@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join as joinPath } from "node:path";
 import { CfnOutput, CfnResource, Duration, Stack } from "aws-cdk-lib";
 import { GatewayVpcEndpointAwsService } from "aws-cdk-lib/aws-ec2";
@@ -50,6 +50,14 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
    * to `ApplicationLoadBalancedFargateService`.
    */
   readonly ecsCluster?: ICluster;
+  /**
+   * Path to an API Route Handler that returns HTTP 200, used by the ALB target
+   * group and the ECS container health check. Both hit the app directly, so this
+   * is the path including the app's `basePath` — the root constructs prefix their
+   * own `healthCheckPath` prop with it.
+   * @example "/api/health"
+   */
+  readonly healthCheckPath: string;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
 }
@@ -117,7 +125,11 @@ export class NextjsContainers extends Construct {
       directory: buildContext,
       file: dockerfileName,
       buildArgs: {
-        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
+        // Where `.next/static` and `public` go inside the image: the staged tree
+        // is keyed by repo-root-relative path, so in a monorepo the project dir
+        // is not the image's WORKDIR. "." keeps the `COPY` destinations valid
+        // when the app is at the repo root.
+        RELATIVE_PROJECT_DIR: this.props.relativeProjectDir || ".",
         ...this.props.overrides?.dockerImageAssetProps?.buildArgs,
       },
       exclude: ["cdk.out"], // for common case where cdk deploy is run in same directory as nextjs app
@@ -138,26 +150,54 @@ export class NextjsContainers extends Construct {
   ): void {
     const targetDockerfile = joinPath(buildContext, dockerfileName);
 
-    // Check if Dockerfile already exists - if so, use the existing one (developer control)
-    if (existsSync(targetDockerfile)) {
+    // A Dockerfile the developer wrote is theirs; one cdk-nextjs generated is
+    // ours to keep current, and the header says as much. Without that check, a
+    // generated Dockerfile from an older version silently wins — and the ones
+    // this version replaces run `node server.js`, which no longer exists now
+    // that the build stages a deployment root instead of `.next/standalone`, so
+    // the container crash-loops on MODULE_NOT_FOUND until someone deletes it.
+    if (
+      existsSync(targetDockerfile) &&
+      !isGeneratedDockerfile(targetDockerfile)
+    ) {
       console.log(`${LOG_PREFIX} Using existing Dockerfile: ${dockerfileName}`);
-    } else {
-      const sourceDockerfile = joinPath(
-        __dirname,
-        "..",
-        "nextjs-build",
-        dockerfileName,
-      );
-
-      if (!existsSync(sourceDockerfile)) {
-        throw new Error(
-          `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
-        );
-      }
-
-      copyFileSync(sourceDockerfile, targetDockerfile);
-      console.log(`${LOG_PREFIX} Created ${targetDockerfile}.`);
+      return;
     }
+
+    const sourceDockerfile = joinPath(
+      __dirname,
+      "..",
+      "nextjs-build",
+      dockerfileName,
+    );
+
+    if (!existsSync(sourceDockerfile)) {
+      throw new Error(
+        `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
+      );
+    }
+
+    if (existsSync(targetDockerfile)) {
+      if (
+        readFileSync(targetDockerfile, "utf-8") ===
+        readFileSync(sourceDockerfile, "utf-8")
+      ) {
+        return;
+      }
+      // Replaced all the same — a generated file from an older version runs a
+      // server that no longer exists — but an edit made under the header, before
+      // the header said it would be overwritten, is kept beside it rather than
+      // lost without a word.
+      const backup = `${targetDockerfile}.bak`;
+      copyFileSync(targetDockerfile, backup);
+      console.warn(
+        `${LOG_PREFIX} Replaced the generated ${dockerfileName} with this version's; ` +
+          `the previous one is saved as ${backup}. To keep your own Dockerfile, ` +
+          `delete its "${GENERATED_DOCKERFILE_HEADER}" first line and cdk-nextjs will leave it alone.`,
+      );
+    }
+    copyFileSync(sourceDockerfile, targetDockerfile);
+    console.log(`${LOG_PREFIX} Created ${targetDockerfile}.`);
   }
 
   private createAlbFargateSevice(): ApplicationLoadBalancedFargateService {
@@ -210,6 +250,14 @@ export class NextjsContainers extends Construct {
             CDK_NEXTJS_REVALIDATION_TABLE_NAME:
               this.props.revalidationTable.tableName,
             CDK_NEXTJS_BUILD_ID: this.props.buildId,
+            // Read by the runtime's image optimizer for non-absolute `<Image>`
+            // URLs whose bytes are in S3 rather than in the image.
+            CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
+              this.props.staticAssetsBucket.bucketName,
+            // Where in that bucket. Not derivable from the app's `basePath`,
+            // which prefixes the URL rather than the key.
+            CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX:
+              this.props.staticAssetsKeyPrefix ?? "",
             // Merge with user-provided environment variables (user values take precedence)
             ...this.props.overrides?.taskImageOptions?.environment,
           },
@@ -229,6 +277,9 @@ export class NextjsContainers extends Construct {
       albFargateService.taskDefinition.taskRole,
     );
     this.props.revalidationTable.grantReadWriteData(
+      albFargateService.taskDefinition.taskRole,
+    );
+    this.props.staticAssetsBucket.grantRead(
       albFargateService.taskDefinition.taskRole,
     );
 
@@ -367,4 +418,18 @@ export class NextjsContainers extends Construct {
       }
     }
   }
+}
+
+/** First line of every Dockerfile in `src/nextjs-build`. */
+const GENERATED_DOCKERFILE_HEADER = "# ~~ Generated by cdk-nextjs ~~";
+
+/**
+ * Whether cdk-nextjs wrote this Dockerfile, and may therefore replace it. Reads
+ * only the first line: the rest is free to have been edited, and an edit that
+ * keeps the header is an edit that asked to be overwritten.
+ */
+function isGeneratedDockerfile(path: string): boolean {
+  return readFileSync(path, "utf-8")
+    .split("\n", 1)[0]
+    .startsWith(GENERATED_DOCKERFILE_HEADER);
 }

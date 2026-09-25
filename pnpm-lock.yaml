@@ -44,6 +44,9 @@ importers:
       '@mrgrain/jsii-struct-builder':
         specifier: ^0.7.64
         version: 0.7.64(projen@0.101.22(constructs@10.5.1))
+      '@next/routing':
+        specifier: 16.3.5
+        version: 16.3.5
       '@smithy/signature-v4':
         specifier: ^2.3.0
         version: 2.3.0
@@ -68,6 +71,9 @@ importers:
       '@typescript-eslint/parser':
         specifier: ^8
         version: 8.68.0(eslint@9.39.5)(typescript@5.9.3)
+      aws-cdk:
+        specifier: ^2.1142.0
+        version: 2.1142.0
       aws-cdk-lib:
         specifier: 2.261.0
         version: 2.261.0(constructs@10.5.1)
@@ -1115,6 +1121,9 @@ packages:
   '@next/env@16.3.5':
     resolution: {integrity: sha512-NWEXVDMqoEo0ktmU6u0sE2Vg0LOcsD7NnOTJNo3/fEaTfsg+F1bMIxuDmQbda4e3yTIQwVdUREF2yIuMOusKtg==}
 
+  '@next/routing@16.3.5':
+    resolution: {integrity: sha512-3gj3xvXCSz/87XNJKtAss+kI4BKXnRREumdBb2bQvWIS237MOBx5mnz9wWXll2lYFF10/zW5keYM0CUCpZMwbw==}
+
   '@next/swc-darwin-arm64@16.3.5':
     resolution: {integrity: sha512-pMmGgETfKvElucLHtVaeiMRbp2zUbvKx7b1yGko0liBz3cw1mKSggWN/Rp/wPz8z+E1O82u3r4L1Co+ZS5hokQ==}
     engines: {node: '>= 10'}
@@ -1631,6 +1640,11 @@ packages:
       - semver
       - yaml
       - mime-types
+
+  aws-cdk@2.1142.0:
+    resolution: {integrity: sha512-gNOeii+avTJmOwfR8tVgraZ5A2EBC/529EXg7e+yBp8Zl608dAv5CtFRoJt8QoKiruiCwYr4HF6ClNAse/NkSg==}
+    engines: {node: '>= 18.0.0'}
+    hasBin: true
 
   babel-jest@29.7.0:
     resolution: {integrity: sha512-BrvGY3xZSwEcCzKvKsCi2GgHqDqsYkOP4/by5xCgIwGXQxIEh+8ew3gmrE1y7XRR6LHZIj6yLYnUi/mm2KXKBg==}
@@ -5314,6 +5328,8 @@ snapshots:
 
   '@next/env@16.3.5': {}
 
+  '@next/routing@16.3.5': {}
+
   '@next/swc-darwin-arm64@16.3.5':
     optional: true
 
@@ -5812,6 +5828,8 @@ snapshots:
       '@aws-cdk/asset-node-proxy-agent-v6': 2.1.2
       '@aws-cdk/cloud-assembly-schema': 54.8.0
       constructs: 10.5.1
+
+  aws-cdk@2.1142.0: {}
 
   babel-jest@29.7.0(@babel/core@7.29.7):
     dependencies:

@@ -24,17 +24,35 @@ interface PruneS3Props {
   msTtl: number;
   /**
    * S3 key prefix the app's static assets live under. Surrounding slashes are
-   * normalized away. Scopes pruning to this app's objects so that apps or
-   * branches sharing one bucket under different `basePath`s don't delete each
-   * other's assets. Empty or omitted prunes the whole bucket.
+   * normalized away. Scopes pruning to this app's `_next/` objects so that apps
+   * or branches sharing one bucket under different `basePath`s don't delete
+   * each other's assets. Empty or omitted prunes `_next/` at the bucket root.
    */
   keyPrefix?: string;
 }
 
 /**
+ * The object metadata key holding the build id, as it comes back from
+ * `HeadObject`.
+ *
+ * `NextjsStaticAssets` hands `BucketDeployment` `metadata: { BUILD_ID }`, and CDK
+ * lowercases every user metadata key before putting it on the object
+ * (`mapUserMetadata` in `aws-s3-deployment`, and the deployment Lambda lowercases
+ * again in `create_metadata_args`). The name this file used to read,
+ * "next-build-id", is written by nothing: `objectBuildId` was always `undefined`,
+ * so the keep-guard never kept anything and pruning was purely age-based.
+ */
+const BUILD_ID_METADATA_KEY = "build_id";
+
+/**
  * Given `bucketName`, `currentBuildId`, and `msTtl`, list the objects under
- * `keyPrefix` and delete any that 1/ do not have a metadata key of "next-build-id"
- * and value of `currentBuildId` and 2/ were created more than `msTtl` ago
+ * `keyPrefix`'s `_next/` and delete any that 1/ carry a build id that is not
+ * `currentBuildId` and 2/ were created more than `msTtl` ago.
+ *
+ * An object with no build id at all is kept. It was not uploaded by this
+ * construct's `BucketDeployment` — which stamps every object it writes — so
+ * nothing here knows whether some other stack is serving it, and deleting a live
+ * asset 404s a page while keeping a stale one only costs storage.
  */
 export async function pruneS3(props: PruneS3Props) {
   const { bucketName, currentBuildId, msTtl, keyPrefix } = props;
@@ -44,8 +62,14 @@ export async function pruneS3(props: PruneS3Props) {
   // Prefix ("base//", "/base/") that matches no key at all — pruning would
   // silently become a no-op.
   const bare = (keyPrefix || "").replace(/^\/+/, "").replace(/\/+$/, "");
-  // Trailing slash so a prefix of "app" doesn't also match "app-staging/...".
-  const prefix = bare ? `${bare}/` : undefined;
+  // Only `_next/` under the prefix, which is where every build-hashed asset lives
+  // and so where old builds pile up. The prefix alone is not a boundary between
+  // apps: an app with none owns the bucket root, which holds every other app's
+  // `<basePath>/` too, and one at "team" holds another at "team/app". Pruning
+  // those deleted the other app's live assets once they were a month old. A
+  // `public/` file keeps its key from build to build, so leaving it costs only
+  // the storage of one that was removed from the app.
+  const prefix = bare ? `${bare}/_next/` : "_next/";
 
   const cutoffDate = new Date(Date.now() - msTtl);
   const objectsToDelete: { Key: string }[] = [];
@@ -64,12 +88,16 @@ export async function pruneS3(props: PruneS3Props) {
       new ListObjectsV2Command(listObjectsV2Input),
     );
 
-    if (!listResponse.Contents || listResponse.Contents.length === 0) {
-      break;
-    }
+    // No `break` on an empty page: `ListObjectsV2` with a `Prefix` can answer with
+    // no `Contents` and `IsTruncated: true`, having scanned a window of the bucket
+    // that held no matching key. That is exactly the shared-bucket case `keyPrefix`
+    // exists for, and breaking here stopped pruning at the first such window, so
+    // every older asset past it was never deleted. The loop's own token and page
+    // guard below terminate it.
+    const contents = listResponse.Contents ?? [];
 
     // Filter out objects without keys
-    const oldObjects = listResponse.Contents.filter((obj) => {
+    const oldObjects = contents.filter((obj) => {
       const lastModified = obj.LastModified || new Date();
       return obj.Key && lastModified < cutoffDate;
     });
@@ -92,10 +120,11 @@ export async function pruneS3(props: PruneS3Props) {
             }),
           );
 
-          const objectBuildId = headResponse.Metadata?.["next-build-id"];
+          const objectBuildId = headResponse.Metadata?.[BUILD_ID_METADATA_KEY];
 
-          // Return the key if it should be deleted
-          if (objectBuildId !== currentBuildId) {
+          // Return the key if it should be deleted. An object with no build id
+          // is left alone — see this function's doc comment.
+          if (objectBuildId && objectBuildId !== currentBuildId) {
             return { Key: object.Key };
           }
         } catch (error) {

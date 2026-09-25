@@ -1,5 +1,24 @@
-// Patch fetch to add x-amz-content-sha256 header for AWS S3 requests
-// This is required for S3 cache operations to work correctly with AWS signature v4
+// Patch `fetch`/`XMLHttpRequest` to add the `x-amz-content-sha256` header to
+// same-origin POST/PUT requests. Required by `NextjsGlobalFunctions`, whose
+// server is a Lambda Function URL with `AuthType: AWS_IAM` behind a CloudFront
+// origin access control: CloudFront signs the origin request with SigV4 but will
+// not hash a request body, and Lambda rejects unsigned payloads. Without this
+// header every server action, form submission and POST route handler is answered
+// `403 InvalidSignatureException` before it reaches Next.js.
+//
+// Written against `globalThis`, not `window`, because the chunks this is
+// prepended to do not all run on the main thread. Turbopack emits its web-worker
+// bootstrap as `static/chunks/turbopack-worker-*.js`, which the entrypoint
+// selector matches, and a worker has no `window` — reading `window.fetch` there
+// threw `ReferenceError: window is not defined` before the worker's own module
+// ran, so `new Worker(new URL(…))` never came up. `globalThis`, `location` and
+// `fetch` exist in both scopes, so one patch covers both and a worker's own
+// same-origin POSTs get signed too. `XMLHttpRequest` does not exist in every
+// worker scope, hence the guard below.
+//
+// See src/nextjs-build/nextjs-build.ts `patchFetchInClientJs`, which prepends
+// this file to the client entrypoint chunks, and
+// https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html
 
 async function sha256(data) {
   const msgBuffer =
@@ -9,11 +28,10 @@ async function sha256(data) {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-const originalFetch = window.fetch;
-const originalXMLHttpRequest = window.XMLHttpRequest;
+const originalFetch = globalThis.fetch;
 
-// Patch window.fetch
-window.fetch = async function (input, init) {
+// Patch fetch
+globalThis.fetch = async function (input, init) {
   if (!init) return originalFetch(input, init);
 
   const method = init.method?.toUpperCase();
@@ -23,15 +41,15 @@ window.fetch = async function (input, init) {
 
   let url;
   if (typeof input === "string") {
-    url = new URL(input, window.location.href);
+    url = new URL(input, location.href);
   } else if (input instanceof URL) {
     url = input;
   } else if (input instanceof Request) {
-    url = new URL(input.url, window.location.href);
+    url = new URL(input.url, location.href);
   } else {
-    url = new URL(String(input), window.location.href);
+    url = new URL(String(input), location.href);
   }
-  if (url.hostname !== window.location.hostname) {
+  if (url.hostname !== location.hostname) {
     return originalFetch(input, init);
   }
 
@@ -70,38 +88,42 @@ window.fetch = async function (input, init) {
   return originalFetch(input, init);
 };
 
-// Patch XMLHttpRequest
-window.XMLHttpRequest = class extends originalXMLHttpRequest {
-  constructor() {
-    super();
-    this.method = "";
-    this.url = "";
-    this.originalOpen = super.open;
-    this.originalSend = super.send;
+// Patch XMLHttpRequest, where there is one. A service worker scope has no
+// `XMLHttpRequest`, and `class extends undefined` is a TypeError.
+if (typeof globalThis.XMLHttpRequest !== "undefined") {
+  const originalXMLHttpRequest = globalThis.XMLHttpRequest;
 
-    super.open = (method, url, ...args) => {
-      this.method = method.toUpperCase();
-      this.url = url;
-      this.originalOpen.apply(this, [method, url, ...args]);
-    };
+  globalThis.XMLHttpRequest = class extends originalXMLHttpRequest {
+    constructor() {
+      super();
+      this.method = "";
+      this.url = "";
+      this.originalOpen = super.open;
+      this.originalSend = super.send;
 
-    super.send = async (body) => {
-      if (
-        (this.method === "PUT" || this.method === "POST") &&
-        new URL(this.url, window.location.href).hostname ===
-          window.location.hostname &&
-        body
-      ) {
-        const bodyString =
-          typeof body === "string"
-            ? body
-            : body instanceof URLSearchParams
-              ? body.toString()
-              : JSON.stringify(body);
-        const contentSha256 = await sha256(bodyString);
-        this.setRequestHeader("x-amz-content-sha256", contentSha256);
-      }
-      this.originalSend.apply(this, [body]);
-    };
-  }
-};
+      super.open = (method, url, ...args) => {
+        this.method = method.toUpperCase();
+        this.url = url;
+        this.originalOpen.apply(this, [method, url, ...args]);
+      };
+
+      super.send = async (body) => {
+        if (
+          (this.method === "PUT" || this.method === "POST") &&
+          new URL(this.url, location.href).hostname === location.hostname &&
+          body
+        ) {
+          const bodyString =
+            typeof body === "string"
+              ? body
+              : body instanceof URLSearchParams
+                ? body.toString()
+                : JSON.stringify(body);
+          const contentSha256 = await sha256(bodyString);
+          this.setRequestHeader("x-amz-content-sha256", contentSha256);
+        }
+        this.originalSend.apply(this, [body]);
+      };
+    }
+  };
+}

@@ -1,10 +1,14 @@
 /* eslint-disable import/no-extraneous-dependencies */
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
   CachedRouteKind,
   IncrementalCacheKind,
 } from "next/dist/server/response-cache";
+import type { GetIncrementalFetchCacheContext } from "next/dist/server/response-cache";
 import CdkNextjsCacheHandler from "./cache-handler";
 
 // Mock AWS SDK clients
@@ -85,6 +89,116 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       expect(result).toBeNull();
     });
 
+    it("does not copy a tag-expired S3 entry into memory", async () => {
+      // `lastModified: -1` is the S3 layer saying "a tag revalidation expired
+      // this, re-render before answering". `MemoryCacheHandler.set` stamps
+      // `lastModified: Date.now()`, so copying it into memory would present the
+      // expired body as fresh and hide the revalidation from Next.js until the
+      // memory entry's TTL ran out.
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>expired</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue({ lastModified: -1, value }),
+      };
+      expect(await cacheHandler.get("isr/1", getCtx)).toEqual({
+        lastModified: -1,
+        value,
+      });
+
+      // With the S3 layer now silent, a memory copy would answer this as a hit.
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue(null),
+      };
+      expect(await cacheHandler.get("isr/1", getCtx)).toBeNull();
+    });
+
+    it("copies a live S3 entry into memory", async () => {
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>live</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue({ lastModified: Date.now(), value }),
+      };
+      await cacheHandler.get("isr/2", getCtx);
+
+      const s3 = {
+        get: jest.fn().mockResolvedValue(null),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      expect(await cacheHandler.get("isr/2", getCtx)).toMatchObject({ value });
+      expect(s3.get).not.toHaveBeenCalled();
+    });
+
+    it("does not serve a memory hit another instance's revalidateTag expired", async () => {
+      // `revalidateTag` clears only the memory of the instance that ran it. Any
+      // other instance holding the page in memory answered from it for the
+      // whole memory TTL, and CloudFront - just invalidated - cached the stale
+      // page again. So a memory hit is checked against the tag markers too.
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>stale</html>",
+        rscData: undefined,
+        headers: { "x-next-cache-tags": "_N_T_/blog" },
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue({ lastModified: Date.now(), value }),
+      };
+      await cacheHandler.get("blog", getCtx);
+
+      // Another instance revalidated `_N_T_/blog`: the marker is newer than the
+      // memory copy, and S3 now answers with the entry expired.
+      const s3 = {
+        get: jest.fn().mockResolvedValue({ lastModified: -1, value }),
+        isRevalidated: jest.fn().mockResolvedValue(true),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      expect(await cacheHandler.get("blog", getCtx)).toEqual({
+        lastModified: -1,
+        value,
+      });
+      expect(s3.isRevalidated).toHaveBeenCalledWith(
+        expect.objectContaining({ value }),
+        getCtx,
+      );
+      expect(s3.get).toHaveBeenCalledTimes(1);
+
+      // And the memory copy is gone rather than checked again next time.
+      s3.get.mockResolvedValue(null);
+      expect(await cacheHandler.get("blog", getCtx)).toBeNull();
+    });
+
     it("should propagate resetRequestCache to memory layer", async () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
@@ -128,6 +242,62 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       // Clean up
       delete process.env.NEXT_PHASE;
       delete process.env.CDK_NEXTJS_BUILD_ID;
+    });
+
+    it("reads back a fetch entry it wrote, from memory and from disk", async () => {
+      // `cacheComponents` prerenders each page twice: the first pass runs the
+      // `fetch` and `set`s it, the second must find it already cached or Next.js
+      // fails the build with "encountered uncached or runtime data during
+      // prerendering". A write-only build-time handler therefore makes
+      // `cache: 'force-cache'` unbuildable - measured against next.js's
+      // `test/e2e/app-dir/resume-data-cache`.
+      process.env.NEXT_PHASE = "phase-production-build";
+      process.env.CDK_NEXTJS_INIT_CACHE_DIR = mkdtempSync(
+        join(tmpdir(), "cdk-nextjs-init-cache-"),
+      );
+      try {
+        const data: IncrementalCacheValue = {
+          kind: CachedRouteKind.FETCH,
+          data: {
+            headers: {},
+            body: "eyJyYW5kb20iOjF9",
+            status: 200,
+            url: "https://example.test/api/random",
+          },
+          revalidate: 31536000,
+        };
+        const fetchUrl = "https://example.test/api/random";
+        const setCtx = {
+          fetchCache: true as const,
+          tags: ["test"],
+          fetchUrl,
+          fetchIdx: 1,
+        };
+        const getCtx: GetIncrementalFetchCacheContext = {
+          kind: IncrementalCacheKind.FETCH,
+          revalidate: 31536000,
+          fetchUrl,
+          fetchIdx: 1,
+          tags: ["test"],
+        };
+        const buildHandler = new CdkNextjsCacheHandler(createMockContext());
+        await buildHandler.set("fetch-key", data, setCtx);
+        expect(await buildHandler.get("fetch-key", getCtx)).toMatchObject({
+          value: data,
+        });
+
+        // A second instance reads the file rather than the map: `next build`
+        // renders pages in worker processes, so the pass that writes and the
+        // pass that reads are not always the same process.
+        const otherWorker = new CdkNextjsCacheHandler(createMockContext());
+        expect(await otherWorker.get("fetch-key", getCtx)).toMatchObject({
+          value: data,
+        });
+        expect(await otherWorker.get("never-written", getCtx)).toBeNull();
+      } finally {
+        delete process.env.NEXT_PHASE;
+        delete process.env.CDK_NEXTJS_INIT_CACHE_DIR;
+      }
     });
 
     it("should initialize runtime handlers when not in build mode", () => {

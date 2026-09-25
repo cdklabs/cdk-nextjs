@@ -12,4 +12,4 @@ Example Next.js app based on [App Playground](https://app-router.vercel.app/) wi
 
 # Notes on app-playground
 
-The app-playground app comes from https://github.com/vercel/app-playground. In order to incorporate upstream changes, follow instructions [here](https://stackoverflow.com/a/24816134/9658768). Don't want to use git submodule because we need to make some modifications to code like add `output: 'standalone'` and including in pnpm monorepo.
+The app-playground app comes from https://github.com/vercel/app-playground. In order to incorporate upstream changes, follow instructions [here](https://stackoverflow.com/a/24816134/9658768). Don't want to use git submodule because we need to make some modifications to code like registering cdk-nextjs's adapter via `adapterPath` and including in pnpm monorepo.

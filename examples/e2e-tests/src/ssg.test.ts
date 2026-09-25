@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
+import { getPageTimestamp, getTimestampAge } from "./utils/timestamp-helpers";
 import { waitXSec } from "./utils/wait-5-sec";
 
+/**
+ * Asserted on the render timestamp the page carries in its `title` attribute,
+ * not on the "Ns ago" text. The text is relative, ticks client-side, and
+ * `/[0-2]s ago/` also matched "12s ago" and "20s ago", which is what made the
+ * on-demand case flake.
+ */
 test.describe("ssg", () => {
   test("should statically render post 1 at build time", async ({
     page,
@@ -10,12 +17,10 @@ test.describe("ssg", () => {
     test.skip(baseURL?.includes("localhost") === true);
     await waitXSec(5);
     await page.goto("./ssg/1", { waitUntil: "networkidle" });
-    // should be at least "5s ago". will be more if built longer ago.
-    // Use regex to match any time that's NOT 0-2 seconds (allowing for slight timing variance)
-    const recentTimePattern = /[0-2]s ago/;
-    const pageText = await page.locator("body").innerText();
-    const hasRecentTime = recentTimePattern.test(pageText);
-    expect(hasRecentTime).toBe(false);
+    // Rendered by `next build`, so at least the 5 seconds just waited old.
+    const age = getTimestampAge(await getPageTimestamp(page));
+    expect(age).not.toBeNull();
+    expect(age!).toBeGreaterThanOrEqual(5);
   });
 
   test("should statically render post 3 on demand", async ({
@@ -24,39 +29,31 @@ test.describe("ssg", () => {
   }) => {
     // no cache in dev mode
     test.skip(baseURL?.includes("localhost") === true);
-    await waitXSec(5);
-    let count = 1;
-    let dateChip0sCount = 0;
-    let randomPost = 0;
 
-    do {
-      // random post between 3 - 100 (on demand posts)
-      randomPost = Math.floor(Math.random() * (100 - 3 + 1)) + 3;
-      await page.goto(`./ssg/${randomPost}`, { waitUntil: "networkidle" });
-      // Check for very recent render (0-2s ago to account for network latency)
-      const pageText = await page.locator("body").innerText();
-      const recentTimePattern = /[0-2]s ago/;
-      dateChip0sCount = recentTimePattern.test(pageText) ? 1 : 0;
-
-      if (dateChip0sCount === 0) {
-        console.log(
-          `Recent time (0-2s ago) not found for post ${randomPost}. Trying again. Attempt: ${count}`,
-        );
+    // A random post between 3 and 99 (on-demand posts; 100 is `notFound()`),
+    // retried until one comes back freshly rendered: an earlier run against the
+    // same deployment may already have rendered the one picked.
+    let firstTimestamp: string | null = null;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      const post = Math.floor(Math.random() * (99 - 3 + 1)) + 3;
+      await page.goto(`./ssg/${post}`, { waitUntil: "networkidle" });
+      const timestamp = await getPageTimestamp(page);
+      // Generous, since it includes the render, the network, and clock skew
+      // between the runner and the compute.
+      if ((getTimestampAge(timestamp) ?? Infinity) < 10) {
+        firstTimestamp = timestamp;
+        break;
       }
-      count++;
-    } while (dateChip0sCount === 0 && count <= 10);
+      console.log(
+        `Post ${post} was not freshly rendered (${timestamp}). Attempt: ${attempt}`,
+      );
+    }
+    expect(firstTimestamp).not.toBeNull();
 
-    // tests that static on-demand rendered post was just rendered
-    expect(dateChip0sCount).toBeGreaterThan(0);
-
+    // The cached render is served again, not re-rendered: the page's cache
+    // entry persisted between requests.
     await waitXSec(5);
     await page.reload({ waitUntil: "networkidle" });
-
-    // tests that .html,.rsc,.meta files are successfully cached in EFS and persist between renders
-    // After reload, the cached version should show a timestamp that's NOT recent (at least 5s+)
-    const pageText2 = await page.locator("body").innerText();
-    const recentTimePattern = /[0-2]s ago/;
-    const hasRecentTime = recentTimePattern.test(pageText2);
-    expect(hasRecentTime).toBe(false);
+    expect(await getPageTimestamp(page)).toBe(firstTimestamp);
   });
 });

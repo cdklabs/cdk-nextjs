@@ -1,4 +1,4 @@
-import { Duration, Stack } from "aws-cdk-lib";
+import { Annotations, Duration, Stack, Token } from "aws-cdk-lib";
 import { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AddBehaviorOptions,
@@ -39,11 +39,12 @@ import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2
 import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { NextjsType } from "./constants";
+import { pathPatternsFor } from "./adapter/function-groups";
+import { LOG_PREFIX, NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
-import { joinPath, normalizeBasePath } from "./utils/base-path";
+import { assetPrefixPath, normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
@@ -55,7 +56,6 @@ export interface NextjsDistributionOverrides {
   readonly dynamicResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly dynamicFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
   readonly dynamicVpcOriginWithEndpointProps?: VpcOriginWithEndpointProps;
-  readonly imageFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
   readonly staticBehaviorOptions?: AddBehaviorOptions;
   readonly staticResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly s3BucketOriginProps?: OptionalS3OriginBucketWithOACProps;
@@ -67,6 +67,25 @@ export interface NextjsDistributionProps {
    * Must be provided if you want to serve static files.
    */
   readonly assetsBucket: IBucket;
+  /**
+   * The app's own `assetPrefix`. Next.js emits `<assetPrefix>/_next/static/...`
+   * for every bundle while the objects stay at `<basePath>/_next/static/...` in
+   * S3, so the prefix's path gets a cache behavior of its own that rewrites it
+   * away.
+   *
+   * Either form is accepted: a path ("/cdn"), or an absolute URL, in which case
+   * only its path counts ("https://cdn.example.com/cdn" behaves as "/cdn", and
+   * "https://cdn.example.com" needs no behavior at all). An absolute prefix's path
+   * matters because `next build` compiles a `/cdn/_next/:path+` rewrite of its
+   * own, so `next start` serves every bundle under it — a CDN fronting this
+   * distribution there has to be answered too.
+   *
+   * Applied on top of `basePath`, not under it, because that is how Next.js
+   * builds the URL.
+   *
+   * @default - read from the build's `required-server-files.json`
+   */
+  readonly assetPrefix?: string;
   /**
    * URI path prefix the app is served at. Surrounding slashes are normalized
    * away, so "/base", "base" and "/base/" all produce the same cache behaviors.
@@ -82,14 +101,6 @@ export interface NextjsDistributionProps {
    */
   readonly functionUrl?: IFunctionUrl;
   /**
-   * Function URL of the dedicated image optimization Lambda. Only applicable
-   * to `NextjsType.GLOBAL_FUNCTIONS`, and only when the dedicated image
-   * function is enabled. When omitted, the `_next/image*` behavior points at
-   * the dynamic origin, which serves image optimization from the Next.js
-   * server itself.
-   */
-  readonly imageFunctionUrl?: IFunctionUrl;
-  /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`
    */
   readonly loadBalancer?: IApplicationLoadBalancer;
@@ -103,6 +114,35 @@ export interface NextjsDistributionProps {
    * add static behaviors to distribution.
    */
   readonly publicDirEntries: PublicDirEntry[];
+  /**
+   * The non-`default` function groups, each needing its own behaviors so the
+   * routes it was packaged with reach it rather than the default function.
+   * @default - no splitting; the default behavior serves every dynamic route
+   */
+  readonly functionGroups?: NextjsDistributionFunctionGroup[];
+  /**
+   * Whether the app has Pages Router routes, and therefore a
+   * `/_next/data/<buildId>/…json` URL space that has to be routed alongside the
+   * HTML one. Ignored without {@link functionGroups}.
+   * @default false
+   */
+  readonly hasDataRoutes?: boolean;
+  /**
+   * The app's `next.config` `trailingSlash`. A `trailingSlash` app links to
+   * `/pricing/`, which an exact group pattern of `pricing` does not match, so
+   * each one needs a slash variant. Ignored without {@link functionGroups}.
+   * @default false
+   */
+  readonly trailingSlash?: boolean;
+}
+
+/** A non-default function group and the origin its routes must reach. */
+export interface NextjsDistributionFunctionGroup {
+  readonly name: string;
+  /** Path patterns the group owns, as written in `NextjsFunctionGroup.routes`. */
+  readonly routes: string[];
+  /** The group's Lambda Function URL. */
+  readonly functionUrl: IFunctionUrl;
 }
 
 export class NextjsDistribution extends Construct {
@@ -116,6 +156,13 @@ export class NextjsDistribution extends Construct {
    * relying on the caller having passed one.
    */
   private basePath: string;
+  /**
+   * `props.assetPrefix` normalized to a leading-slash path, `""` when the app
+   * sets none or sets one that already equals the `basePath` prefix — in which
+   * case the ordinary `_next/static*` behavior already covers it and a second one
+   * would be a duplicate pattern CloudFront rejects.
+   */
+  private assetPrefix: string;
   /**
    * Common security headers applied by default to all origins
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html#managed-response-headers-policies-security
@@ -141,7 +188,6 @@ export class NextjsDistribution extends Construct {
   };
   private staticOrigin: IOrigin;
   private dynamicOrigin: IOrigin;
-  private imageOrigin: IOrigin;
   private dynamicOriginResponsePolicy: IOriginRequestPolicy;
   private dynamicCloudFrontFunctionAssociations: FunctionAssociation[];
   private isFunctionCompute: boolean;
@@ -153,10 +199,10 @@ export class NextjsDistribution extends Construct {
     super(scope, id);
     this.props = props;
     this.basePath = normalizeBasePath(props.basePath);
+    this.assetPrefix = this.resolveAssetPrefix();
     this.staticOrigin = this.createStaticOrigin();
     this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
     this.dynamicOrigin = this.createDynamicOrigin();
-    this.imageOrigin = this.createImageOrigin();
     this.dynamicOriginResponsePolicy = this.createDynamicOriginRequestPolicy();
     this.dynamicCloudFrontFunctionAssociations =
       this.createDynamicCloudFrontFunctionAssociations();
@@ -209,29 +255,6 @@ export class NextjsDistribution extends Construct {
     }
   }
   /**
-   * A dedicated image optimization Lambda is only wired up when
-   * {@link NextjsDistributionProps.imageFunctionUrl} is supplied, which today
-   * only `NextjsType.GLOBAL_FUNCTIONS` does. Otherwise `_next/image*` keeps
-   * going to the dynamic origin, where the Next.js server optimizes images
-   * itself.
-   *
-   * The `_next/image*` behavior is kept either way: its cache policy
-   * (`queryStringBehavior: all()`, `accept` in the cache key) is the right one
-   * for image requests regardless of which origin answers them.
-   */
-  private createImageOrigin(): IOrigin {
-    if (!this.isFunctionCompute || !this.props.imageFunctionUrl) {
-      return this.dynamicOrigin;
-    }
-    return FunctionUrlOrigin.withOriginAccessControl(
-      this.props.imageFunctionUrl,
-      {
-        ...this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
-        ...this.props.overrides?.imageFunctionUrlOriginWithOACProps,
-      },
-    );
-  }
-  /**
    * Lambda Function URLs "expect the `Host` header to contain the origin domain
    * name, not the domain name of the CloudFront distribution."
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html#managed-origin-request-policy-all-viewer-except-host-header
@@ -250,9 +273,62 @@ export class NextjsDistribution extends Construct {
     const associations: FunctionAssociation[] = [];
     if (this.isFunctionCompute) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
+        // cloudfront-js-1.0, so ES5.1: `var`, no arrow functions, no template
+        // literals, no `Object.keys`.
         code: FunctionCode.fromInline(`
           function handler(event) {
             var request = event.request;
+            var uri = request.uri;
+
+            // Next.js answers any path containing a backslash or a repeated
+            // slash with a 308 to the collapsed path
+            // (\`normalizeRepeatedSlashes\`, called from \`base-server.ts\`), and so
+            // does this runtime. Behind a Lambda Function URL the origin never
+            // gets the chance: Origin Access Control signs the raw path while the
+            // Function URL canonicalizes it before verifying, so the origin
+            // answers 403 SignatureDoesNotMatch. Doing the redirect here is what
+            // makes \`/basepath//to-sv\` behave as it does under \`next start\`.
+            //
+            // A bare \`//\` reaches here too, and is answered the same way -
+            // measured, because \`//\` at the start of a request target is also the
+            // authority form and it was not obvious CloudFront would route it to a
+            // function at all. It does: \`GET //\` answers 308 to \`/\` with
+            // \`x-cache: FunctionGeneratedResponse\`, over both HTTP/1.1 and HTTP/2,
+            // which is what \`test/e2e/hydration\` asks for.
+            //
+            // Two things Next.js does that this cannot:
+            //
+            // - the body it sends with its own redirect (the destination, as
+            //   text), because a generated response can only carry one on
+            //   cloudfront-js-2.0. No known client reads it.
+            // - the original order of the query string. The event exposes
+            //   \`querystring\` as an object, never as the raw string, so
+            //   \`/x//y?a=1&b=2\` redirects to \`/x/y?b=2&a=1\`. The pairs all
+            //   survive; only their order is CloudFront's rather than the
+            //   client's, and a redirect target is not order-sensitive.
+            if (/\\\\|\\/\\//.test(uri)) {
+              var location = uri.replace(/\\\\/g, "/").replace(/\\/\\/+/g, "/");
+              var qs = [];
+              for (var name in request.querystring) {
+                var q = request.querystring[name];
+                qs.push(q.value === "" ? name : name + "=" + q.value);
+                if (q.multiValue) {
+                  for (var i = 0; i < q.multiValue.length; i++) {
+                    var v = q.multiValue[i].value;
+                    qs.push(v === "" ? name : name + "=" + v);
+                  }
+                }
+              }
+              if (qs.length) {
+                location = location + "?" + qs.join("&");
+              }
+              return {
+                statusCode: 308,
+                statusDescription: "Permanent Redirect",
+                headers: { location: { value: location } },
+              };
+            }
+
             request.headers["x-forwarded-host"] = request.headers.host;
             return request;
           }
@@ -289,39 +365,25 @@ export class NextjsDistribution extends Construct {
   }
   private createDynamicBehaviorOptions(): BehaviorOptions {
     const dynamicBehaviorOptions = this.props.overrides?.dynamicBehaviorOptions;
+    const cachePolicyProps = this.props.overrides?.dynamicCachePolicyProps;
     // create default cache policy if not provided
     const cachePolicy =
       dynamicBehaviorOptions?.cachePolicy ??
       new CachePolicy(this, "DynamicCachePolicy", {
-        queryStringBehavior: CacheQueryStringBehavior.all(),
-        headerBehavior: CacheHeaderBehavior.allowList(
-          // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
-          // cdk-nextjs includes the most essential headers for Next.js functionality
-          // but it's recommended to request quota increase to include all headers (commented out ones below)
-          // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
-          "accept", // content negotiation (HTML vs RSC payload)
-          "rsc", // React Server Components requests
-          "next-url", // Next.js routing
-          "next-router-state-tree", // App Router navigation state
-          "next-router-prefetch", // prefetch behavior
-          "next-router-segment-prefetch", // segment-level prefetching
-          "x-matched-path", // dynamic routes and rewrites
-          "x-prerender-revalidate", // on-demand ISR revalidation
-          "x-next-cache-tags", // tag-based cache revalidation
-          "x-prerender-bypass", // draft mode
-          // "x-nextjs-stale-time", // stale-while-revalidate behavior
-          // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)
-          // "x-nextjs-postponed", // Partial Prerendering (experimental feature)
-          // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
-        ),
-        cookieBehavior: CacheCookieBehavior.all(),
-        enableAcceptEncodingBrotli: true,
-        enableAcceptEncodingGzip: true,
+        ...(isCachingDisabled(cachePolicyProps)
+          ? DISABLED_CACHE_KEY
+          : DYNAMIC_CACHE_KEY),
+        // A response with no `Cache-Control` is not cached, which is what Next.js
+        // and every app written for it assume: a dynamic route handler sets none.
+        // CDK's default is a day, which cached `/api/*` responses at the edge for
+        // 24 hours. Anything Next.js *means* to cache - ISR, SSG, a PPR shell -
+        // says so with `s-maxage`, which `maxTtl` still honors.
+        defaultTtl: Duration.seconds(0),
         comment: this.getComment(
           "NextJS Dynamic Cache Policy",
           Stack.of(this).stackName,
         ),
-        ...this.props.overrides?.dynamicCachePolicyProps,
+        ...cachePolicyProps,
       });
     const responseHeadersPolicy =
       dynamicBehaviorOptions?.responseHeadersPolicy ??
@@ -344,6 +406,12 @@ export class NextjsDistribution extends Construct {
       ...dynamicBehaviorOptions,
     };
   }
+  /**
+   * `_next/image*` goes to the same origin as everything else — the Next.js
+   * server optimizes images in-process — but keeps its own behavior for the
+   * cache policy: `queryStringBehavior: all()` plus `accept` in the cache key is
+   * right for image requests and wrong for the rest.
+   */
   private createImageBehaviorOptions(): BehaviorOptions {
     const imageBehaviorOptions = this.props.overrides?.imageBehaviorOptions;
     // add default cache policy if not provided
@@ -380,7 +448,7 @@ export class NextjsDistribution extends Construct {
       allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
       cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
       functionAssociations: this.dynamicCloudFrontFunctionAssociations,
-      origin: this.imageOrigin,
+      origin: this.dynamicOrigin,
       originRequestPolicy: this.dynamicOriginResponsePolicy,
       cachePolicy,
       responseHeadersPolicy,
@@ -418,6 +486,10 @@ export class NextjsDistribution extends Construct {
       this.imageBehaviorOptions.origin,
       this.imageBehaviorOptions,
     );
+    // Function group behaviors, before the basePath catch-all below and after
+    // `_next/image*` (no group pattern can match an image request, and keeping
+    // the order of the unsplit case byte-identical is worth more than symmetry).
+    this.addFunctionGroupBehaviors();
     // Root Path Behaviors
     if (this.basePath) {
       // because we already have a basePath we don't use / instead we use /base-path
@@ -436,41 +508,439 @@ export class NextjsDistribution extends Construct {
       // if no base path, then default behavior will handle all other paths
     }
   }
+  /** Shared by the behaviors themselves and by the budget that counts them. */
+  private get pathPatternOptions() {
+    return {
+      hasDataRoutes: this.props.hasDataRoutes ?? false,
+      trailingSlash: this.props.trailingSlash ?? false,
+    };
+  }
+  /**
+   * One behavior per group pattern, most specific first.
+   *
+   * The order is the whole mechanism. CloudFront evaluates behaviors in order
+   * and stops at the first whose path pattern matches, and `addBehavior`
+   * appends — so `api/*` added before `api/reports/*` would swallow every
+   * report request and send it to a function whose package has no report
+   * entrypoint. Sorting here is what makes "longest pattern wins" true at the
+   * edge, matching how `assignRoutesToGroups` packaged the same routes.
+   */
+  private addFunctionGroupBehaviors() {
+    const groups = this.props.functionGroups;
+    if (!groups?.length) {
+      return;
+    }
+    if (!this.isFunctionCompute) {
+      throw new Error(
+        "`functionGroups` is only supported by NextjsGlobalFunctions.",
+      );
+    }
+    const behaviors = groups
+      .flatMap((group) =>
+        group.routes.flatMap((route) =>
+          pathPatternsFor(route, this.pathPatternOptions).map((pattern) => ({
+            group,
+            route,
+            pattern,
+          })),
+        ),
+      )
+      .sort(
+        (a, b) =>
+          behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
+      );
+
+    const originPerGroup = new Map<string, IOrigin>();
+    for (const { group, pattern } of behaviors) {
+      let origin = originPerGroup.get(group.name);
+      if (!origin) {
+        origin = FunctionUrlOrigin.withOriginAccessControl(
+          group.functionUrl,
+          this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
+        );
+        originPerGroup.set(group.name, origin);
+      }
+      // Same behavior options as every other dynamic route — only the origin
+      // differs, and it is passed separately.
+      const { origin: _ignored, ...behaviorOptions } =
+        this.dynamicBehaviorOptions;
+      this.distribution.addBehavior(
+        this.getPathPattern(pattern),
+        origin,
+        behaviorOptions,
+      );
+    }
+  }
+  /**
+   * The `assetPrefix` path that needs a behavior of its own, or `""` for none.
+   *
+   * An absolute prefix contributes its *path*: "https://cdn.example.com" needs no
+   * behavior, but "https://cdn.example.com/cdn" does, because `next build`
+   * compiles a `/cdn/_next/:path+` rewrite of its own and `next start` serves
+   * every bundle under that path — so a CDN fronting this distribution there has
+   * to be answered. A prefix equal to the `basePath` prefix is dropped — that is
+   * the Next.js default when `basePath` is set, and `_next/static*` already
+   * resolves under it, so adding a second identical pattern would make CloudFront
+   * reject the distribution.
+   */
+  private resolveAssetPrefix(): string {
+    const prefix = assetPrefixPath(this.props.assetPrefix ?? "");
+    return normalizeBasePath(prefix) === this.basePath ? "" : prefix;
+  }
+  /**
+   * Serves `<assetPrefix>/_next/static/*` from the same S3 objects as
+   * `_next/static/*`.
+   *
+   * Needed because Next.js puts `assetPrefix` in front of every bundle URL it
+   * emits while the objects keep their `<basePath>/_next/static/...` keys, and
+   * `assetPrefix` sits on top of `basePath` rather than under it, so
+   * `getPathPattern` is deliberately not used here. Without this behavior the
+   * request falls through to the default one, reaches the compute origin, and
+   * 404s: the deployment package carries no `.next/static` directory at all.
+   *
+   * A viewer-request function does the rewrite because an S3 origin keys on the
+   * request URI and `originPath` can only prepend. The prefix is a synth-time
+   * literal, so the function is a fixed-length string operation rather than a
+   * parse.
+   */
+  private addAssetPrefixBehavior() {
+    // CloudFront allows one function per event type per behavior, so an override
+    // that already claims VIEWER_REQUEST on the static behavior cannot coexist
+    // with the rewrite below — the distribution would synth and then be rejected
+    // at deploy, naming neither. Thrown here instead, where both halves are
+    // known.
+    const claimed = (
+      this.staticBehaviorOptions.functionAssociations ?? []
+    ).some(
+      (association) =>
+        association.eventType === FunctionEventType.VIEWER_REQUEST,
+    );
+    if (claimed) {
+      throw new Error(
+        `${LOG_PREFIX} \`overrides.staticBehaviorOptions.functionAssociations\` ` +
+          `already associates a CloudFront function with ` +
+          `${FunctionEventType.VIEWER_REQUEST}, but serving \`assetPrefix\` ` +
+          `("${this.assetPrefix}") needs that event type to rewrite the request ` +
+          `URI to the object's key, and CloudFront permits only one function per ` +
+          `event type per behavior. Either drop the override, or fold its logic ` +
+          `into a single function and set \`assetPrefix\` to "" so this ` +
+          `construct adds no behavior of its own.`,
+      );
+    }
+    const rewrite = new CloudFrontFunction(this, "AssetPrefixFn", {
+      comment: this.getComment(
+        "NextJS assetPrefix rewrite",
+        Stack.of(this).stackName,
+      ),
+      code: FunctionCode.fromInline(`
+        function handler(event) {
+          var request = event.request;
+          request.uri = ${JSON.stringify(
+            this.basePath ? `/${this.basePath}` : "",
+          )} + request.uri.slice(${this.assetPrefix.length});
+          return request;
+        }
+        `),
+    });
+    this.distribution.addBehavior(
+      `${this.assetPrefix}/_next/static*`,
+      this.staticOrigin,
+      {
+        ...this.staticBehaviorOptions,
+        functionAssociations: [
+          ...(this.staticBehaviorOptions.functionAssociations ?? []),
+          { eventType: FunctionEventType.VIEWER_REQUEST, function: rewrite },
+        ],
+      },
+    );
+  }
   private addStaticBehaviors() {
     this.distribution.addBehavior(
       this.getPathPattern("_next/static*"),
       this.staticOrigin,
       this.staticBehaviorOptions,
     );
-    // 22 = 25 (max) - 1 (_next/image) - 1 (_next/static) - 1 (*)
-    if (this.props.publicDirEntries.length >= 22) {
-      throw new Error(
-        `Too many public/ files in Next.js build. CloudFront limits Distributions to 25 Cache Behaviors. See documented limit here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions. Try including all public files into 1 top level directory (i.e. static/*).`,
-      );
+    if (this.assetPrefix) {
+      this.addAssetPrefixBehavior();
     }
-    for (const publicFile of this.props.publicDirEntries) {
-      const pathPattern = publicFile.isDirectory
-        ? `${publicFile.name}/*`
-        : publicFile.name;
-      if (!/^[a-zA-Z0-9_\-.*$/~"'@:+?&]+$/.test(pathPattern)) {
-        throw new Error(
-          `Invalid CloudFront Distribution Cache Behavior Path Pattern: ${pathPattern}. Please see documentation here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/distribution-web-values-specify.html#DownloadDistValuesPathPattern`,
-        );
-      }
-      const finalPathPattern = this.getPathPattern(pathPattern);
+    const publicPathPatterns = this.publicPathPatterns();
+    this.assertBehaviorBudget(publicPathPatterns.length);
+    for (const pathPattern of publicPathPatterns) {
       this.distribution.addBehavior(
-        finalPathPattern,
+        pathPattern,
         this.staticOrigin,
         this.staticBehaviorOptions,
       );
     }
   }
   /**
+   * The behavior path pattern for each top-level `public/` entry, final form:
+   * `/*` for a directory and the basePath prefix both applied.
+   *
+   * An entry whose name has no character CloudFront can spell is left out, with
+   * a warning, rather than given a pattern of nothing but wildcards. `фото/` is
+   * `????????/*` — any 8-byte first segment — and public/ behaviors are added
+   * ahead of every compute behavior, so it would send `/products/42` and
+   * `/settings/*` to S3, which answers 403. Leaving the entry out costs its own
+   * files instead: those requests reach the compute, which does not have them,
+   * and 404. One literal character is enough to keep a pattern narrow —
+   * `????????.jpg` only matches `.jpg` requests — so only the all-wildcard ones
+   * go.
+   *
+   * The length limit is checked here, on the final pattern, rather than in
+   * {@link toPathPattern}: the `/*` and the basePath count against it too, and a
+   * pattern that passed without them failed at deploy instead.
+   */
+  private publicPathPatterns(): string[] {
+    const patterns: string[] = [];
+    const unmatchable: string[] = [];
+    for (const publicFile of this.props.publicDirEntries) {
+      const name = toPathPattern(publicFile.name);
+      if (!/[^?*/]/.test(name)) {
+        unmatchable.push(`"${publicFile.name}"`);
+        continue;
+      }
+      const pathPattern = this.getPathPattern(
+        publicFile.isDirectory ? `${name}/*` : name,
+      );
+      if (pathPattern.length > MAX_PATH_PATTERN_LENGTH) {
+        throw new Error(
+          `The public/ entry "${publicFile.name}" needs a ` +
+            `${pathPattern.length}-character CloudFront path pattern, over ` +
+            `the ${MAX_PATH_PATTERN_LENGTH}-character ` +
+            "limit. Rename it, or move it into a subdirectory of public/ whose " +
+            "own name is short enough. See " +
+            "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern",
+        );
+      }
+      patterns.push(pathPattern);
+    }
+    if (unmatchable.length > 0) {
+      Annotations.of(this).addWarning(
+        `${LOG_PREFIX} These top-level public/ entries have no character a ` +
+          "CloudFront path pattern can spell, so their pattern would be " +
+          "wildcards alone and would capture every app route of the same " +
+          `length. They get no behavior, and their files will 404: ` +
+          `${unmatchable.join(", ")}. Rename them, or move them into a public/ ` +
+          "subdirectory whose name has at least one ASCII letter or digit.",
+      );
+    }
+    return patterns;
+  }
+  /**
+   * CloudFront allows 25 cache behaviors per distribution, counting the default
+   * one, and there are now three things competing for them: `public/` entries,
+   * function groups, and cdk-nextjs's own fixed set. Checked in one place so the
+   * error can say which of the three to cut.
+   *
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
+   */
+  private assertBehaviorBudget(publicPatterns: number) {
+    const groupPatterns = (this.props.functionGroups ?? []).reduce(
+      (total, group) =>
+        total +
+        group.routes.reduce(
+          (count, route) =>
+            count + pathPatternsFor(route, this.pathPatternOptions).length,
+          0,
+        ),
+      0,
+    );
+    // The default behavior, `_next/image*`, `_next/static*`, plus — with a
+    // basePath — the two that stand in for the default behavior's coverage, and
+    // — with a path-style assetPrefix — the one that serves bundles under it.
+    // `this.basePath`, not the raw prop: `basePath: "/"` normalizes to `""` and
+    // adds no behaviors, so counting it added 2 to the total and could throw
+    // "over the limit" on an app that is under it.
+    const fixed = 3 + (this.basePath ? 2 : 0) + (this.assetPrefix ? 1 : 0);
+    const total = fixed + publicPatterns + groupPatterns;
+    if (total <= MAX_CACHE_BEHAVIORS) {
+      return;
+    }
+    const parts = [
+      `${fixed} used by cdk-nextjs itself`,
+      `${publicPatterns} for top-level public/ entries`,
+    ];
+    if (groupPatterns) {
+      parts.push(`${groupPatterns} for \`functionGroups\` patterns`);
+    }
+    throw new Error(
+      `This Next.js app needs ${total} CloudFront cache behaviors, over the ` +
+        `limit of ${MAX_CACHE_BEHAVIORS} per distribution: ${parts.join(", ")}. ` +
+        `Move public/ files into a single top-level directory (one behavior ` +
+        `serves \`static/*\`)` +
+        (groupPatterns
+          ? `, and prefer one subtree pattern per function group over several ` +
+            `exact paths.`
+          : `.`) +
+        ` See https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions`,
+    );
+  }
+  /**
    * Optionally prepends base path to given path pattern.
+   *
+   * A trailing slash on `pathPattern` is load-bearing and survives, which is why
+   * this concatenates rather than going through `joinPath`. `pathPatternsFor`
+   * emits both "pricing" and "pricing/" for a `trailingSlash` app, and
+   * normalizing the second one collapsed it onto the first: `addBehavior` was
+   * then called twice with `/base/pricing`, which CloudFront rejects at deploy
+   * ("more than one cache behavior has the same path pattern"), and the
+   * canonical `/base/pricing/` was left to the `/base/*` catch-all — the misroute
+   * the second pattern exists to prevent.
    */
   private getPathPattern(pathPattern: string) {
-    return this.basePath
-      ? `/${joinPath(this.basePath, pathPattern)}`
-      : pathPattern;
+    if (!this.basePath) {
+      return pathPattern;
+    }
+    return `/${this.basePath}/${pathPattern.replace(/^\/+/, "")}`;
   }
+}
+
+/**
+ * Whether `dynamicCachePolicyProps` turns the dynamic cache off, by capping every
+ * TTL at 0.
+ *
+ * CloudFront rejects a policy that caches nothing but still has a cache key
+ * ("HeaderBehavior is invalid for policy with caching disabled"), so such a
+ * policy has to drop the key. Until the default TTL became 0 this could not
+ * come up: CDK raises `maxTtl` to `defaultTtl` when it is lower, so an override
+ * of `maxTtl: 0` synthesized as a day and deployed. Now it is honored, and
+ * without this the upgrade deploy would fail.
+ *
+ * The TTLs are resolved the way CDK resolves them: `defaultTtl` raised to
+ * `minTtl`, then `maxTtl` raised to `defaultTtl`. Checking `maxTtl` alone called
+ * `{ maxTtl: 0, defaultTtl: 1h }` disabled, dropped the key, and CDK then
+ * synthesized a policy that caches for an hour keyed on nothing — one viewer's
+ * page served to every viewer.
+ */
+function isCachingDisabled(props: CachePolicyProps | undefined): boolean {
+  const ttls = [props?.maxTtl, props?.defaultTtl, props?.minTtl];
+  if (props?.maxTtl === undefined) return false; // CDK's default is a year
+  return ttls.every(
+    (ttl) =>
+      ttl === undefined ||
+      (!Token.isUnresolved(ttl.toString()) && ttl.toSeconds() === 0),
+  );
+}
+
+/** The cache-key half of {@link CachePolicyProps}. */
+interface CacheKeyProps {
+  readonly queryStringBehavior: CacheQueryStringBehavior;
+  readonly headerBehavior: CacheHeaderBehavior;
+  readonly cookieBehavior: CacheCookieBehavior;
+  readonly enableAcceptEncodingBrotli: boolean;
+  readonly enableAcceptEncodingGzip: boolean;
+}
+
+/**
+ * What the dynamic cache policy keys on: every request input a Next.js response
+ * varies by.
+ */
+const DYNAMIC_CACHE_KEY: CacheKeyProps = {
+  queryStringBehavior: CacheQueryStringBehavior.all(),
+  headerBehavior: CacheHeaderBehavior.allowList(
+    // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
+    // cdk-nextjs includes the most essential headers for Next.js functionality
+    // but it's recommended to request quota increase to include all headers (commented out ones below)
+    // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
+    "accept", // content negotiation (HTML vs RSC payload)
+    "rsc", // React Server Components requests
+    "next-url", // Next.js routing
+    "next-router-state-tree", // App Router navigation state
+    "next-router-prefetch", // prefetch behavior
+    "next-router-segment-prefetch", // segment-level prefetching
+    "x-matched-path", // dynamic routes and rewrites
+    "x-prerender-revalidate", // on-demand ISR revalidation
+    "x-next-cache-tags", // tag-based cache revalidation
+    "x-prerender-bypass", // draft mode
+    // "x-nextjs-stale-time", // stale-while-revalidate behavior
+    // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)
+    // "x-nextjs-postponed", // Partial Prerendering (experimental feature)
+    // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
+  ),
+  cookieBehavior: CacheCookieBehavior.all(),
+  enableAcceptEncodingBrotli: true,
+  enableAcceptEncodingGzip: true,
+};
+
+/**
+ * A cache key of nothing, for a policy that caches nothing. Forwarding is
+ * unaffected: the dynamic origin request policy sends every viewer header,
+ * cookie and query string regardless.
+ */
+const DISABLED_CACHE_KEY: CacheKeyProps = {
+  queryStringBehavior: CacheQueryStringBehavior.none(),
+  headerBehavior: CacheHeaderBehavior.none(),
+  cookieBehavior: CacheCookieBehavior.none(),
+  enableAcceptEncodingBrotli: false,
+  enableAcceptEncodingGzip: false,
+};
+
+/** CloudFront's per-distribution cache behavior limit, including the default. */
+const MAX_CACHE_BEHAVIORS = 25;
+
+/**
+ * Rank a CloudFront path pattern so the most specific is added first: literal
+ * segments before the first `*` dominate, then total segments, then length.
+ *
+ * Ranking on the leading literal is what a CloudFront wildcard forces, because it
+ * matches across `/` rather than within one segment — so a pattern with an
+ * interior wildcard is far wider than its length suggests. Writing the wildcard as
+ * `<*>` to keep it out of this comment's way: an exact route's Pages Router data
+ * pattern, `_next/data/<*>/pricing.json`, also matches
+ * `/_next/data/<buildId>/docs/pricing.json`, and ranking it by total length put it
+ * ahead of `_next/data/<*>/docs/<*>` — sending a request for the second group's
+ * data URL to the first group's function, which has no entrypoint for it. Counting
+ * the literal prefix first keeps the two data patterns tied there and lets segment
+ * depth decide, while still ranking an exact `a/b` above the subtree `a/<*>` that
+ * would otherwise swallow it.
+ *
+ * Residual, and not fixable with CloudFront's two wildcards: an exact route's data
+ * pattern still over-matches a *default-group* route of the same leaf name
+ * (`/docs/pricing` with `/pricing` in a group). Give that subtree a group of its
+ * own if it comes up.
+ */
+function behaviorSpecificity(pattern: string): number {
+  const segments = pattern.split("/").filter(Boolean);
+  const firstWildcard = segments.findIndex((segment) => segment.includes("*"));
+  const literalDepth = firstWildcard === -1 ? segments.length : firstWildcard;
+  return literalDepth * 1000000 + segments.length * 10000 + pattern.length;
+}
+
+/**
+ * CloudFront's path pattern alphabet: `A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and
+ * `&`, plus the `?` wildcard. No space, no `%`, nothing non-ASCII.
+ *
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern
+ */
+const PATH_PATTERN_CHAR = /^[a-zA-Z0-9_\-.*$/~"'@:+?&]$/;
+/** CloudFront's path pattern length limit. */
+const MAX_PATH_PATTERN_LENGTH = 255;
+
+/**
+ * A `public/` entry's name as a CloudFront path pattern.
+ *
+ * `public/hello world.jpg` is a valid Next.js asset — `next start` serves it, and
+ * `next/image` points at it — but a space cannot appear in a path pattern, so
+ * cdk-nextjs used to throw at synth and the app could not be deployed at all
+ * (`next-image-legacy/unicode`, whose `public/` also holds `äöüščří.png`).
+ *
+ * CloudFront URL-decodes the request path before matching it, so the pattern is
+ * matched against `hello world.jpg`, not the `/hello%20world.jpg` on the wire.
+ * Each character outside the alphabet is replaced by one `?` per byte of its
+ * UTF-8 encoding, because that is what `?` matches: `hello?world.jpg` for the
+ * space, and two `?` for each character of `äöüščří.png`. Measured against a
+ * deployed distribution; a `?` per *percent-encoded* character (`hello???world`)
+ * synthesizes fine and never matches. A `*` would be shorter and much wider:
+ * `äöüščří.png` would become `*.png`, which would pull every `.png` request in
+ * the app onto the static origin.
+ */
+function toPathPattern(name: string): string {
+  return [...name]
+    .map((char) =>
+      PATH_PATTERN_CHAR.test(char)
+        ? char
+        : "?".repeat(Buffer.byteLength(char, "utf8")),
+    )
+    .join("");
 }

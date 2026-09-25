@@ -34,7 +34,16 @@ const project = new CdklabsConstructLibrary({
     "@aws-sdk/client-ssm",
     "@aws-sdk/lib-storage",
     "@mrgrain/jsii-struct-builder",
+    // Exact-pinned to `next` and bumped with it: it is first-party and versioned
+    // in lockstep, so a mismatch is a routing behavior difference. Bundled into
+    // the runtime by esbuild, not resolved from the deployment tree.
+    "@next/routing@16.3.5",
     "@smithy/signature-v4",
+    // The CDK CLI the Next.js compatibility harness deploys with — it runs
+    // `scripts/e2e-harness/app.js` from a temporary app directory outside
+    // `examples/`, so it cannot use the examples workspace's copy.
+    // @see scripts/e2e-harness/README.md
+    "aws-cdk",
     "@types/aws-lambda",
     "@types/debug",
     "@types/mime-types",
@@ -48,7 +57,16 @@ const project = new CdklabsConstructLibrary({
   ],
   setNodeEngineVersion: false,
   npmIgnoreOptions: {
-    ignorePatterns: ["examples/**/*"],
+    ignorePatterns: [
+      "examples/**/*",
+      // Untracked, but `npm pack` reads `.npmignore` rather than `.gitignore`, so
+      // a local `.claude/worktrees/` checkout would otherwise land in the
+      // tarball — tens of thousands of files, including its own `node_modules`
+      // (npm only prunes the *top-level* one). `scripts/zero-config-build.mjs`
+      // packs on every PR, so this is a speed matter as well as a hygiene one.
+      ".claude/**/*",
+      "/nextjs/",
+    ],
   },
   // tooling config
   rosettaOptions: {
@@ -86,6 +104,10 @@ const project = new CdklabsConstructLibrary({
     "~$*.xlsx",
     ".kiro",
     ".claude/worktrees",
+    // Where .github/workflows/e2e-harness.yml checks out vercel/next.js, and
+    // where the README tells you to put it locally. `actions/checkout` cannot
+    // write outside the workspace, so it lands in the repo.
+    "/nextjs/",
   ],
   projenrcTs: true,
   // tsconfig: {
@@ -167,11 +189,36 @@ project.package.addField("stability", "stable");
 project.gitignore.addPatterns("!/examples/**/tsconfig.json"); // must call method, cannot set in initial props
 copyDockerfiles();
 bundle();
+checkBundleSyntax();
+typeCheckEsmSources();
 updateGitHubWorkflows();
 generateStructs();
 updatePackageJson();
 
 project.synth();
+
+/**
+ * Shims the CJS globals (`require`, `__dirname`, `__filename`) that bundled CJS
+ * dependencies reference as bare identifiers but that don't exist in ESM scope.
+ *
+ * esbuild treats a banner as opaque text, so it cannot rename a source module's
+ * imports out of the way of a name the banner declares: importing
+ * `fileURLToPath` (or `createRequire`, or `dirname`) anywhere in the bundled
+ * sources would emit a hoisted `import` of the same name at the top level and
+ * the file would fail to parse with "Identifier ... has already been declared".
+ * Hence the `__cdkNextjs` prefixes — only the three CJS globals themselves,
+ * which no ESM source declares, keep their required names.
+ */
+function cjsGlobalsBanner() {
+  return [
+    "import { createRequire as __cdkNextjsCreateRequire } from 'node:module';",
+    "import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url';",
+    "import { dirname as __cdkNextjsDirname } from 'node:path';",
+    "const require = __cdkNextjsCreateRequire(import.meta.url);",
+    "const __filename = __cdkNextjsFileURLToPath(import.meta.url);",
+    "const __dirname = __cdkNextjsDirname(__filename);",
+  ].join(" ");
+}
 
 function bundle() {
   const target = `node${nodeVersion}`;
@@ -188,9 +235,14 @@ function bundle() {
   // runtime (cdklabs/cdk-nextjs#270). A static import also keeps the bundles
   // free of top-level await, so Node can still `require()` them instead of
   // throwing ERR_REQUIRE_ASYNC_MODULE.
+  // Prefixed for the reason {@link cjsGlobalsBanner} documents: `build-outputs.ts`
+  // imports `createRequire` by name and is in the adapter bundle's tree, so a
+  // banner declaring the bare name makes the output fail to parse
+  // ("Identifier 'createRequire' has already been declared"). `require` itself
+  // keeps its name — that is the whole point of the banner.
   const createRequireBanner = [
-    "import { createRequire } from 'node:module';",
-    "const require = createRequire(import.meta.url);",
+    "import { createRequire as __cdkNextjsCreateRequire } from 'node:module';",
+    "const require = __cdkNextjsCreateRequire(import.meta.url);",
   ].join(" ");
   project.bundler.addBundle("src/adapter/cache-handler.ts", {
     platform: "node",
@@ -215,36 +267,68 @@ function bundle() {
     minify: true,
     outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
-  project.bundler.addBundle("src/image-optimization/handler.mts", {
-    platform: "node",
-    target,
-    outfile: "../../../lib/image-optimization/handler.mjs",
-    // Unlike adapter.mts/cache-handler.ts, this Lambda doesn't run inside the
-    // customer's own Next.js server process, so "next" must be bundled in.
-    // "sharp" stays external: it's a native binary vendored separately by
-    // NextjsBuild into node_modules alongside this bundle. "@opentelemetry/api"
-    // stays external too: next/dist/server/lib/trace/tracer.js requires it in
-    // a try/catch and falls back to its own vendored copy when missing.
-    externals: ["sharp", "@opentelemetry/api"],
-    format: "esm",
-    // On top of `require` (see createRequireBanner above), this bundle must
-    // also shim `__dirname`/`__filename`: it inlines Next.js's compiled
-    // internals (e.g. next/dist/compiled/@hapi/accept), which reference those
-    // as bare CJS globals (even if unused at runtime, e.g. nccwpck's
-    // `__nccwpck_require__.ab = __dirname + "/"` boilerplate present in every
-    // compiled module), and they simply don't exist in real ESM scope. They
-    // must be defined via static imports too — a top-level await banner
-    // combined with that `__dirname` reference makes Node's ESM/CJS format
-    // detection refuse to load the file ("Cannot determine intended module
-    // format").
-    banner: [
-      createRequireBanner,
-      "import { fileURLToPath } from 'node:url';",
-      "import { dirname } from 'node:path';",
-      "const __filename = fileURLToPath(import.meta.url);",
-      "const __dirname = dirname(__filename);",
-    ].join(" "),
+  // The two request-handling shells. "next" stays external: the deployment
+  // already carries the traced `next` files every built entrypoint requires, and
+  // a second bundled copy would be a different module instance of the same
+  // singletons. "@next/routing" and the AWS SDK are bundled (see devDeps).
+  for (const shell of ["lambda", "server"]) {
+    project.bundler.addBundle(`src/runtime/${shell}.mts`, {
+      platform: "node",
+      target,
+      outfile: `../../../lib/runtime/${shell}.mjs`,
+      externals: ["next", "sharp", "@opentelemetry/api"],
+      format: "esm",
+      // Bundled CJS dependencies reference `require`/`__dirname`/`__filename`
+      // as bare globals, which do not exist in ESM scope.
+      banner: cjsGlobalsBanner(),
+    });
+  }
+}
+
+/**
+ * `.mts` sources are bundled by esbuild, which does not type-check, and jsii's
+ * `include` of `src/**\/*.ts` does not match `.mts` — so without this the runtime
+ * shells and the build adapter would be the only unchecked code in the repo.
+ *
+ * A separate config rather than widening jsii's: these files are ESM with
+ * `import.meta`, resolved the way esbuild resolves them (extensionless relative
+ * imports), which is not how the JSII assembly is compiled.
+ */
+function typeCheckEsmSources() {
+  const tsconfig = new javascript.TypescriptConfig(project, {
+    fileName: "tsconfig.esm.json",
+    extends: javascript.TypescriptConfigExtends.fromPaths(["./tsconfig.json"]),
+    // The `.ts` files are included because the `.mts` entrypoints import them;
+    // they are checked again here under ESM resolution rules.
+    include: ["src/**/*.mts", "src/**/*.ts"],
+    compilerOptions: {
+      noEmit: true,
+      declaration: false,
+      noEmitOnError: false,
+      module: "esnext",
+      moduleResolution: javascript.TypeScriptModuleResolution.BUNDLER,
+    },
   });
+  project.compileTask.exec(`tsc -p ${tsconfig.fileName}`);
+}
+
+/**
+ * Parses every bundle esbuild emits. Nothing else in the repo does: the bundles
+ * are ESM run by Node in Lambda/Fargate, not by jest or jsii, so a bundle that
+ * esbuild happily writes but Node cannot parse (see `cjsGlobalsBanner`) would
+ * otherwise first surface as a `Runtime.UserCodeSyntaxError` in a deployment.
+ */
+function checkBundleSyntax() {
+  const bundleTask = project.tasks.tryFind("bundle");
+  if (!bundleTask) return;
+  for (const bundled of [
+    join("lib", "adapter", "adapter.mjs"),
+    join("lib", "adapter", "cache-handler.mjs"),
+    join("lib", "runtime", "lambda.mjs"),
+    join("lib", "runtime", "server.mjs"),
+  ]) {
+    bundleTask.exec(`node --check ${bundled}`);
+  }
 }
 
 function copyDockerfiles() {
@@ -253,9 +337,6 @@ function copyDockerfiles() {
     bundleTask.exec(`mkdir -p ${join("lib", "nextjs-build")}`);
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "global-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
-    );
-    bundleTask.exec(
-      `cp ${join("src", "nextjs-build", "functions.Dockerfile")} ${join("lib", "nextjs-build")}`,
     );
     bundleTask.exec(
       `cp ${join("src", "nextjs-build", "regional-containers.Dockerfile")} ${join("lib", "nextjs-build")}`,
@@ -503,12 +584,6 @@ function generateStructs() {
     filePath: getFilePath("OptionalFunctionUrlProps"),
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.FunctionUrlProps"))
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalDockerImageFunctionProps",
-    filePath: getFilePath("OptionalDockerImageFunctionProps"),
-  })
-    .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.DockerImageFunctionProps"))
     .allOptional();
 }
 

@@ -31,6 +31,37 @@ export async function waitForTimestamp(
   return timestamp;
 }
 
+/**
+ * Polls until two consecutive loads render the same timestamp, and returns it.
+ *
+ * Needed before any "this should not have changed" assertion: an on-demand
+ * revalidation kicks off both a background re-render and a CloudFront
+ * invalidation, and until both have landed, two identical requests can
+ * legitimately return different content. Waiting for the system to settle is the
+ * difference between asserting ISR semantics and asserting that revalidation is
+ * slow.
+ */
+export async function waitForSettledTimestamp(
+  page: Page,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<string | null> {
+  const { timeoutMs = 60_000, intervalMs = 2_000 } = options;
+  const deadline = Date.now() + timeoutMs;
+  let previous = await getPageTimestamp(page);
+
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    await page.reload({ waitUntil: "networkidle" });
+    const current = await getPageTimestamp(page);
+    if (current && current === previous) {
+      return current;
+    }
+    previous = current;
+  }
+
+  return previous;
+}
+
 /** Polls until the page's timestamp differs from `staleTimestamp`. */
 export async function waitForFreshTimestamp(
   page: Page,

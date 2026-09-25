@@ -3,7 +3,6 @@ import { IBucket } from "aws-cdk-lib/aws-s3";
 import { NextjsType } from "../constants";
 
 export interface NextjsComputeBaseProps {
-  readonly healthCheckPath: string;
   /**
    * S3 bucket for cache storage
    */
@@ -24,7 +23,27 @@ export interface NextjsComputeBaseProps {
   readonly buildDirectory: string;
   readonly nextjsType: NextjsType;
   /**
-   * Relative path from buildDirectory to the package containing Next.js app
+   * Absolute path to the staged deployment root: the Lambda zip asset for
+   * Functions, the Docker `COPY` source for Containers.
+   * @see NextjsBuild.deploymentRootPath
    */
-  readonly relativePathToPackage?: string;
+  readonly deploymentRootPath: string;
+  /**
+   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo
+   * root.
+   * @see NextjsBuild.relativeProjectDir
+   */
+  readonly relativeProjectDir: string;
+  /**
+   * S3 bucket holding `.next/static` and `public`. Both deployment styles need
+   * it: the runtime's image optimizer fetches the bytes of every non-absolute
+   * `<Image>` from S3, since they are deliberately not in the deployment package.
+   */
+  readonly staticAssetsBucket: IBucket;
+  /**
+   * Key prefix the assets were uploaded under, so the image optimizer can rebuild
+   * the same keys.
+   * @see NextjsStaticAssets.keyPrefix
+   */
+  readonly staticAssetsKeyPrefix?: string;
 }

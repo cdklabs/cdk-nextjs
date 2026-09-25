@@ -35,10 +35,11 @@ export class MemoryCacheHandler implements CacheHandler {
    * Time to live in milliseconds for cache entries.
    * After this duration, entries expire and are removed from the cache.
    *
-   * **Important**: Due to the distributed nature of compute instances (Lambda functions,
-   * ECS Fargate containers, etc.), this cache only provides eventual consistency across
-   * instances. Tag revalidations will clear the cache on the instance that processes
-   * the revalidation, but other instances may serve stale data until their cache entries expire.
+   * Tag revalidations clear this cache only on the instance that processes them;
+   * every other instance finds out because the orchestrating handler checks each
+   * memory hit against the revalidation table before serving it
+   * (`S3CacheHandler.isRevalidated`), so a revalidated entry is not served from
+   * memory anywhere.
    *
    * @example
    * // Short TTL (5 minutes) - for frequently changing data
@@ -53,8 +54,8 @@ export class MemoryCacheHandler implements CacheHandler {
    * ttlMs = 24 * 60 * 60 * 1000;
    *
    * **Why adjust this?**
-   * - Lower values: More cache misses, fresher data, higher S3/DynamoDB costs
-   * - Higher values: Fewer cache misses, better performance, but longer stale data windows
+   * - Lower values: More cache misses, higher S3 costs
+   * - Higher values: Fewer cache misses, more memory held
    *
    * Set via environment variable: `CDK_NEXTJS_MEMORY_CACHE_TTL_MS`
    */
@@ -196,11 +197,8 @@ export class MemoryCacheHandler implements CacheHandler {
       `MEMORY REVALIDATE TAGS: [${tags.join(", ")}] removed ${invalidatedCount} entries`,
     );
 
-    // Note: this only clears the cache on the instance handling this request.
-    // In distributed environments (multiple Lambda functions or Fargate containers),
-    // other instances continue serving their own memory-cached entries until those
-    // entries expire (ttlMs). Set CDK_NEXTJS_MEMORY_CACHE_TTL_MS=0 to disable the
-    // memory cache entirely if strong cross-instance consistency is required.
+    // Only this instance's entries: other instances' memory hits are checked
+    // against the revalidation table by the orchestrating handler instead.
   }
 
   async resetRequestCache(): Promise<void> {

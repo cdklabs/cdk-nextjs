@@ -365,6 +365,40 @@ importers:
         specifier: 'catalog:'
         version: 24.13.3
 
+  pages-i18n:
+    dependencies:
+      next:
+        specifier: 'catalog:'
+        version: 16.3.5(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.61.1)(@types/node@24.13.3)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react:
+        specifier: 'catalog:'
+        version: 19.2.3
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.3(react@19.2.3)
+    devDependencies:
+      '@tsconfig/next':
+        specifier: 'catalog:'
+        version: 2.0.5
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.7
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.2.3(@types/react@19.2.7)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      prettier:
+        specifier: 'catalog:'
+        version: 3.2.5
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+
   private-containers:
     dependencies:
       aws-cdk-lib:

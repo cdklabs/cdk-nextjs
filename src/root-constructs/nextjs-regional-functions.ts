@@ -9,18 +9,14 @@ import {
 } from "./nextjs-base-construct";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
+  NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
 import {
-  NextjsImageFunction,
-  NextjsImageFunctionOverrides,
-} from "../nextjs-compute/nextjs-image-function";
-import {
   NextjsPostDeploy,
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
-import { useDedicatedImageFunction } from "../utils/experimental-flags";
 
 export interface NextjsRegionalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
   readonly nextjsApiProps?: NextjsApiProps;
@@ -35,12 +31,26 @@ export interface NextjsRegionalFunctionsConstructOverrides extends NextjsFunctio
 export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
-  readonly nextjsImageFunction?: NextjsImageFunctionOverrides;
   readonly nextjsApi?: NextjsApiOverrides;
   readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
+  /**
+   * Package sets of routes into separate Lambda functions, each fronted by its
+   * own API Gateway resources.
+   *
+   * Reach for this when a single function exceeds Lambda's 250 MB unzipped
+   * limit — cdk-nextjs throws at synth with the measured size when it does. It is
+   * not a performance or isolation feature: every group ships the same Next.js
+   * runtime, so splitting only moves route-local code.
+   *
+   * @see NextjsFunctionGroup for the pattern grammar and its limits. API Gateway
+   * could express more than CloudFront can, but the grammar is deliberately the
+   * same in both so switching deployment type never regroups routes.
+   * @default - one function serves every route
+   */
+  readonly functionGroups?: NextjsFunctionGroup[];
   /**
    * Override props of any construct.
    */
@@ -53,12 +63,6 @@ export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
  */
 export class NextjsRegionalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
-  /**
-   * Only created when the (experimental, unsupported) dedicated image
-   * optimization Lambda is enabled. `_next/image` is otherwise served by
-   * {@link nextjsFunctions}.
-   */
-  nextjsImageFunction?: NextjsImageFunction;
   nextjsApi: NextjsApi;
   nextjsPostDeploy: NextjsPostDeploy;
   get url(): string {
@@ -78,11 +82,6 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     this.nextjsFunctions = this.createNextjsFunctions(
       this.props.overrides?.nextjsFunctions,
     );
-    if (useDedicatedImageFunction()) {
-      this.nextjsImageFunction = this.createNextjsImageFunction(
-        this.props.overrides?.nextjsImageFunction,
-      );
-    }
     this.nextjsApi = this.createNextjsApi();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
@@ -92,16 +91,34 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
       serverFunction: this.nextjsFunctions.function,
-      imageFunction: this.nextjsImageFunction?.function,
       basePath: this.resolvedBasePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      // `serverFunction` above is the default group's, which the `{proxy+}`
+      // catch-all reaches; the rest get resources of their own.
+      functionGroups: this.props.functionGroups?.map((group) => {
+        const deployed = this.nextjsFunctions.functionGroups.find(
+          (it) => it.name === group.name,
+        );
+        if (!deployed) {
+          throw new Error(
+            `Function group "${group.name}" was not deployed as a function.`,
+          );
+        }
+        return {
+          name: group.name,
+          routes: group.routes,
+          function: deployed.function,
+        };
+      }),
+      hasDataRoutes: this.nextjsBuild.hasDataRoutes,
+      trailingSlash: this.nextjsBuild.trailingSlash,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
     });
   }
 
   private createNextjsPostDeploy(): NextjsPostDeploy {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
+    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
       buildId: this.nextjsBuild.buildId,
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
@@ -110,5 +127,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsPostDeploy,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsPostDeployProps,
     });
+    this.orderAfterInitCache(postDeploy);
+    return postDeploy;
   }
 }

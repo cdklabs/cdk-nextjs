@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useSelectedLayoutSegment } from 'next/navigation';
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/solid';
 import clsx from 'clsx';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Byline from './byline';
 
 export function GlobalNav() {
@@ -62,7 +62,18 @@ export function GlobalNav() {
 
                 <div className="space-y-1">
                   {section.items.map((item) => (
-                    <GlobalNavItem key={item.slug} item={item} close={close} />
+                    // `useSelectedLayoutSegment` reads the URL, so under
+                    // `cacheComponents` it suspends: the prerendered shell for
+                    // a route like `/loading/[categorySlug]` cannot know which
+                    // segment is selected. The boundary goes as deep as
+                    // possible so the shell still contains every nav link,
+                    // just none of them highlighted.
+                    <Suspense
+                      key={item.slug}
+                      fallback={<GlobalNavItem item={item} close={close} />}
+                    >
+                      <ActiveGlobalNavItem item={item} close={close} />
+                    </Suspense>
                   ))}
                 </div>
               </div>
@@ -75,7 +86,8 @@ export function GlobalNav() {
   );
 }
 
-function GlobalNavItem({
+/** The part that needs the URL. Rendered only once the request is known. */
+function ActiveGlobalNavItem({
   item,
   close,
 }: {
@@ -83,8 +95,21 @@ function GlobalNavItem({
   close: () => false | void;
 }) {
   const segment = useSelectedLayoutSegment();
-  const isActive = item.slug === segment;
 
+  return (
+    <GlobalNavItem item={item} close={close} isActive={item.slug === segment} />
+  );
+}
+
+function GlobalNavItem({
+  item,
+  close,
+  isActive,
+}: {
+  item: Item;
+  close: () => false | void;
+  isActive?: boolean;
+}) {
   return (
     <Link
       onClick={close}

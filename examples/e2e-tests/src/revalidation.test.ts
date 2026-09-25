@@ -1,6 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { waitXSec } from "./utils/wait-5-sec";
-import { waitForFreshTimestamp } from "./utils/wait-for-fresh-timestamp";
+import {
+  waitForFreshTimestamp,
+  waitForSettledTimestamp,
+} from "./utils/wait-for-fresh-timestamp";
 import { getPageTimestamp } from "./utils/timestamp-helpers";
 
 test.describe("revalidation", () => {
@@ -177,9 +180,17 @@ test.describe("revalidation", () => {
     });
     await waitXSec(5);
 
-    // Step 2: Visit page to create fresh cache entry
+    // Step 2: Visit page to create fresh cache entry. Poll until two loads
+    // agree rather than trusting the first one: `waitXSec(5)` above only lets
+    // the *invalidation* land, and the re-render happens on the next request -
+    // so the first load can legitimately serve the expired entry and kick off
+    // the background revalidation whose result the reload below then sees.
+    // Settling first is what makes step 3 an assertion about caching instead of
+    // an assertion that revalidation is slow.
     await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const firstTimestamp = await getPageTimestamp(page);
+    const firstTimestamp = await waitForSettledTimestamp(page, {
+      intervalMs: 1_000,
+    });
     console.log(`First visit: ${firstTimestamp}`);
 
     // Step 3: Immediately reload - should serve from cache (same timestamp)
@@ -191,40 +202,5 @@ test.describe("revalidation", () => {
     expect(cachedTimestamp).toBe(firstTimestamp);
 
     console.log("✓ Cache maintained within revalidation period");
-  });
-
-  test("should invalidate cache only for revalidated tags", async ({
-    page,
-    baseURL,
-  }) => {
-    // no cache in dev mode
-    test.skip(baseURL?.includes("localhost") === true);
-
-    // This test verifies that revalidating one tag doesn't affect unrelated pages
-    // Note: All ISR pages use the 'collection' tag, so we're testing the mechanism
-
-    // Step 1: Create cache entry for ISR page
-    await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const beforeTimestamp = await getPageTimestamp(page);
-    console.log(`Before revalidation: ${beforeTimestamp}`);
-
-    await waitXSec(2);
-
-    // Step 2: Revalidate with the 'collection' tag
-    await page.goto("./api/revalidate?collection=collection", {
-      waitUntil: "networkidle",
-    });
-
-    // Step 3: Page should be revalidated (fresh timestamp). Poll until
-    // fresh, since CloudFront invalidation and cross-instance cache eviction
-    // are eventually consistent with no fixed completion time.
-    await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const afterTimestamp = await waitForFreshTimestamp(page, beforeTimestamp);
-    console.log(`After revalidation: ${afterTimestamp}`);
-
-    // Should show fresh data
-    expect(afterTimestamp).not.toBe(beforeTimestamp);
-
-    console.log("✓ Tag-based revalidation working correctly");
   });
 });

@@ -64,10 +64,13 @@ export class NextjsStaticAssets extends Construct {
    * S3 key prefix the assets are actually uploaded under, normalized to a bare
    * path segment (empty when they live at the bucket root).
    *
-   * Consumers that read assets back out of the bucket (the image optimization
-   * Lambda, `NextjsApi`'s S3 integrations) must use this rather than the
+   * Consumers that read assets back out of the bucket (the runtime's image
+   * optimizer, `NextjsApi`'s S3 integrations) must use this rather than the
    * `basePath` prop, since `overrides.bucketDeploymentProps` can replace the
-   * prefix outright.
+   * prefix outright. Nor can they derive it from the app's own `basePath`: that
+   * is the prefix of the *URL* the app is served at, which for the API Gateway
+   * deployment types is the stage name and has nothing to do with where the
+   * bytes were uploaded.
    */
   readonly keyPrefix: string;
   private stagingDir?: string;

@@ -96,14 +96,35 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null> {
     if (this.isBuildTime) {
-      // Build time doesn't read from cache
-      return null;
+      // Reads back what this build wrote, which `cacheComponents` prerendering
+      // requires; see {@link LocalFileCacheHandler.get}.
+      return this.localFileHandler?.get(cacheKey) ?? null;
     }
 
     // Runtime: try memory first
     if (this.memoryHandler) {
       const memoryResult = await this.memoryHandler.get(cacheKey, ctx);
-      if (memoryResult) {
+      // A memory hit is checked against the same tag markers an S3 read is.
+      // `revalidateTag` can only clear the memory of the instance that ran it,
+      // so skipping the check left every other instance answering from memory
+      // for the whole memory TTL - and CloudFront, whose copy that
+      // `revalidateTag` had just invalidated, cached the stale page again.
+      // The check is one DynamoDB `BatchGetItem`; what the memory layer still
+      // saves is the S3 read and the parse of the body. A revalidated entry is
+      // dropped and read from S3, which hands it back expired or as a miss.
+      if (
+        memoryResult &&
+        (await this.s3DynamoHandler?.isRevalidated(
+          {
+            lastModified: memoryResult.lastModified,
+            value: memoryResult.value,
+          },
+          ctx,
+        ))
+      ) {
+        this.debug(`Memory cache REVALIDATED: ${cacheKey}`);
+        await this.memoryHandler.set(cacheKey, null, ctx as any);
+      } else if (memoryResult) {
         this.debug(`Memory cache HIT: ${cacheKey}`);
         return memoryResult;
       }
@@ -114,8 +135,12 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       const s3Result = await this.s3DynamoHandler.get(cacheKey, ctx);
       if (s3Result) {
         this.debug(`S3 cache HIT: ${cacheKey}`);
-        // Populate memory cache for next time
-        if (this.memoryHandler) {
+        // An entry a tag revalidation expired (`lastModified: -1`) must not be
+        // copied into memory: `MemoryCacheHandler.set` stamps `lastModified:
+        // Date.now()`, which would present the expired body as fresh and hide
+        // the revalidation from Next.js until the memory entry's TTL ran out.
+        // The re-render it asks for writes the fresh entry to both layers.
+        if (this.memoryHandler && s3Result.lastModified !== -1) {
           await this.memoryHandler.set(cacheKey, s3Result.value, ctx as any);
         }
         return s3Result;
@@ -184,7 +209,10 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
    * - Build time: Not implemented
    * - Runtime: Delegate to S3/DynamoDB handler
    */
-  async revalidateTag(tag: string): Promise<void> {
+  async revalidateTag(
+    tag: string | string[],
+    durations?: { expire?: number },
+  ): Promise<void> {
     if (this.isBuildTime) {
       return;
     }
@@ -196,7 +224,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
 
     // Clear from S3/DynamoDB
     if (this.s3DynamoHandler) {
-      await this.s3DynamoHandler.revalidateTag(tag);
+      await this.s3DynamoHandler.revalidateTag(tag, durations);
     }
   }
 

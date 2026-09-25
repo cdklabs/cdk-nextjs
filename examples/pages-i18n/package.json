@@ -1,0 +1,28 @@
+{
+  "name": "pages-i18n",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "sync-cdk-nextjs": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
+    "build": "npm run sync-cdk-nextjs && next build",
+    "dev": "npm run sync-cdk-nextjs && next dev",
+    "prettier": "prettier --write --ignore-unknown .",
+    "prettier:check": "prettier --check --ignore-unknown .",
+    "start": "next start",
+    "test": "pnpm prettier:check"
+  },
+  "dependencies": {
+    "next": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@tsconfig/next": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "cdk-nextjs": "link:../..",
+    "prettier": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -19,7 +19,6 @@ import { join } from "node:path";
 import {
   AccessLogFormat,
   LogGroupLogDestination,
-  ResponseTransferMode,
 } from "aws-cdk-lib/aws-apigateway";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
@@ -31,7 +30,6 @@ export class RegionalFunctionsStack extends Stack {
     process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
     process.env["NEXT_PUBLIC_IMAGE_SRC_PREFIX"] = "/prod"; // prefix image paths for API Gateway deployments
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
-      healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       overrides: {
         nextjsApi: {
@@ -51,31 +49,11 @@ export class RegionalFunctionsStack extends Stack {
               metricsEnabled: true,
             },
           },
-          // Only applies to the server function's route: NextjsApi never lets
-          // this leak into the dedicated image Lambda's own (always
-          // streaming) integration. Must match AWS_LWA_INVOKE_MODE below.
-          dynamicIntegrationProps: {
-            responseTransferMode: ResponseTransferMode.BUFFERED,
-          },
         },
         nextjsFunctions: {
-          dockerImageFunctionProps: {
+          functionProps: {
             environment: {
               DEBUG: "cdk-nextjs:*",
-              // Tell middleware to prepend API Gateway stage name since API Gateway strips it
-              PREPEND_APIGW_STAGE: "1",
-              // Fallback stage name for proxy.ts's re-prepend logic when a
-              // request has no x-amzn-request-context header to read it
-              // from, e.g. Next.js's own internal fetches for local
-              // `_next/image` sources.
-              API_GATEWAY_STAGE: process.env["NEXTJS_BASE_PATH"]!.replace(
-                /^\//,
-                "",
-              ),
-              // Lambda Web Adapter in this app doesn't support response
-              // streaming; must match dynamicIntegrationProps above or API
-              // Gateway returns a 500 for every request to this function.
-              AWS_LWA_INVOKE_MODE: "buffered",
             },
           },
         },
