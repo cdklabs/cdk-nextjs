@@ -12,6 +12,25 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const SERIAL_SPECS = /(isr|revalidation)\.test\.ts/;
 
+/** See `storageState` below. Empty when there is no deployment to point at. */
+function gatingCookies() {
+  const baseURL = process.env["E2E_BASE_URL"];
+  if (!baseURL) return [];
+  const { hostname } = new URL(baseURL);
+  return [
+    {
+      name: "cdk-nextjs",
+      value: "1",
+      domain: hostname,
+      path: "/",
+      expires: -1,
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax" as const,
+    },
+  ];
+}
+
 const browser = {
   ...devices["Desktop Chrome"],
   channel: "chromium" as const, // https://playwright.dev/docs/browsers#chromium-new-headless-mode
@@ -42,11 +61,12 @@ export default defineConfig({
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: "on-first-retry",
 
-    /* Set cookies for all requests */
-    extraHTTPHeaders: {
-      // only required for rgnl-containers example to comply with security
-      Cookie: "cdk-nextjs=1",
-    },
+    /* The regional-containers example's ALB only forwards requests carrying
+     * `cdk-nextjs=1`. A cookie in the jar rather than a hand-set `Cookie` header:
+     * a header is replaced by any test that sets its own cookies, the browser's
+     * own cookies are dropped next to it, and Playwright does not carry it across
+     * a redirect it follows - each of which reads as an ALB 403. */
+    storageState: { cookies: gatingCookies(), origins: [] },
   },
 
   projects: [

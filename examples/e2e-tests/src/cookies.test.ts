@@ -59,9 +59,9 @@ test.describe("cookies", () => {
     // separately, joining them with `"; "`. A `","` join - correct for most
     // repeated headers - keeps only the *first* cookie readable. That is what broke
     // draft mode, and a single-cookie request would never have shown it.
-    // `cdk-nextjs=1` has to be repeated here: a per-request `cookie` header
-    // replaces the suite-wide `extraHTTPHeaders` one rather than adding to it, and
-    // the regional-containers example's ALB rejects a request without it.
+    // `cdk-nextjs=1` is repeated here because a per-request `cookie` header is not
+    // guaranteed to merge with the jar's (`storageState` in playwright.config.ts),
+    // and the regional-containers example's ALB rejects a request without it.
     const response = await request.get("./api/echo?readcookies=1", {
       headers: {
         cookie: "cdk-nextjs=1; e2e-in-1=one; e2e-in-2=two; e2e-in-3=three",
