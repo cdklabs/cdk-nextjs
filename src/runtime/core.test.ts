@@ -36,6 +36,9 @@ exports.handler = async (req, res, ctx) => {
   // Same recursion guard as \`render404\` below: the error page is rendered for
   // the URL that was asked for, so an unguarded throw would repeat forever.
   if (url.searchParams.has("boom") && !__filename.includes("_error")) {
+    // A render that described its body before it threw.
+    res.setHeader("Content-Length", "1234");
+    res.setHeader("ETag", '"stale"');
     throw new Error("route exploded");
   }
   // What both routers do for \`notFound()\` they cannot render themselves. Only
@@ -61,6 +64,11 @@ exports.handler = async (req, res, ctx) => {
     }
     res.end(JSON.stringify({ revalidated: error === null, error }));
     return;
+  }
+  // Lets a test see the request a revalidation rendered, whose response the
+  // runtime discards.
+  if (url.searchParams.has("recordOrigin")) {
+    writeFileSync(process.env.CDK_NEXTJS_TEST_MARKER, ctx.requestMeta.initURL);
   }
   // Lets a revalidation target answer something other than 200.
   if (url.searchParams.has("status")) {
@@ -442,6 +450,26 @@ describe("NextjsRuntime.handle", () => {
     expect(stubBody(sink)).toEqual({ revalidated: true, error: null });
   });
 
+  it("renders a revalidation for the public origin the caller was served on", async () => {
+    const marker = join(root, "revalidate-origin-marker");
+    process.env.CDK_NEXTJS_TEST_MARKER = marker;
+    try {
+      await send({
+        url: "/?revalidate=%2F%3FrecordOrigin%3D1",
+        headers: {
+          host: "abc123.lambda-url.us-east-1.on.aws",
+          "x-forwarded-host": "shop.example.test",
+          "x-forwarded-proto": "https",
+        },
+      });
+      expect(readFileSync(marker, "utf-8")).toBe(
+        "https://shop.example.test/?recordOrigin=1",
+      );
+    } finally {
+      delete process.env.CDK_NEXTJS_TEST_MARKER;
+    }
+  });
+
   it("fails a revalidation whose target did not answer 200", async () => {
     const sink = await send({ url: "/?revalidate=%2F%3Fstatus%3D500" });
     expect(stubBody(sink)).toEqual({
@@ -504,10 +532,11 @@ exports.handler = async () =>
   new Response("denied", {
     status: 401,
     statusText: "Unauthorized",
-    headers: {
-      "content-type": "text/plain",
-      "set-cookie": "sid=; Path=/, flag=1; Path=/",
-    },
+    headers: [
+      ["content-type", "text/plain"],
+      ["set-cookie", "sid=; Path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"],
+      ["set-cookie", "flag=1; Path=/"],
+    ],
   });
 `),
     );
@@ -520,8 +549,63 @@ exports.handler = async () =>
     // back through the runner's `onResponse` callback.
     expect(sink.head?.statusCode).toBe(401);
     expect(sink.head?.statusMessage).toBe("Unauthorized");
-    expect(sink.head?.cookies).toEqual(["sid=; Path=/", "flag=1; Path=/"]);
+    expect(sink.head?.cookies).toEqual([
+      "sid=; Path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+      "flag=1; Path=/",
+    ]);
     expect(sink.body.toString("utf-8")).toBe("denied");
+  });
+
+  it("answers a missing build asset no-store, not under its immutable rule", async () => {
+    // In the manifest but not on disk — `stageDeployment` writes no chunks, the
+    // way a Lambda package ships none (they are on S3 behind CloudFront).
+    const sink = await send({ url: "/_next/static/chunks/0-qsb3zz6f4c7.js" });
+    expect(sink.head?.statusCode).toBe(404);
+    expect(sink.head?.headers["cache-control"]).toBe(
+      "private, no-cache, no-store, max-age=0, must-revalidate",
+    );
+  });
+
+  it("reads middleware's body only as fast as the client takes it", async () => {
+    const pulls = { count: 0 };
+    (globalThis as Record<string, unknown>).__cdkNextjsPulls = pulls;
+    const streaming = await loadRuntime(
+      stageDeployment(`
+exports.handler = async () =>
+  new Response(
+    new ReadableStream({
+      pull(controller) {
+        const pulls = globalThis.__cdkNextjsPulls;
+        pulls.count += 1;
+        if (pulls.count > 1000) controller.close();
+        else controller.enqueue(new Uint8Array(16 * 1024));
+      },
+    }),
+  );
+`),
+    );
+    // A client that takes nothing until released.
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    const sink: ResponseSink = {
+      begin: () =>
+        new Writable({
+          write(_chunk, _encoding, callback) {
+            void blocked.then(() => callback());
+          },
+        }),
+    };
+    const handled = streaming.handle(
+      { method: "GET", url: "/", headers: { host: "shop.example.test" } },
+      sink,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // 1000 chunks are 16 MiB; a few highWaterMarks' worth is all that may be
+    // buffered for a client that is not reading.
+    expect(pulls.count).toBeLessThan(50);
+    release!();
+    await handled;
+    expect(pulls.count).toBe(1001);
   });
 
   it("pads an empty body when the shell asks, so API Gateway does not 502", async () => {
@@ -546,10 +630,11 @@ exports.handler = async () =>
       stageDeployment(`
 exports.handler = async () =>
   new Response(null, {
-    headers: {
-      "x-middleware-next": "1",
-      "set-cookie": "a=1; Path=/, b=2; Path=/",
-    },
+    headers: [
+      ["x-middleware-next", "1"],
+      ["set-cookie", "a=1; Path=/"],
+      ["set-cookie", "b=2; Path=/"],
+    ],
   });
 `),
     );
@@ -617,6 +702,18 @@ describe("the error page ladder", () => {
     // `_error`'s `getInitialProps` reads `res.statusCode` to get its own prop.
     expect(stubBody(sink).file).toContain("pages/_error.js");
     expect(stubBody(sink).url).toBe("/?boom=1");
+    expect(sink.head?.headers["content-length"]).toBeUndefined();
+    expect(sink.head?.headers.etag).toBeUndefined();
+    error.mockRestore();
+  });
+
+  it("drops the failed render's Content-Length and ETag from a prerendered /500", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const sink = await send({ url: "/?boom=1" });
+    expect(sink.head?.statusCode).toBe(500);
+    expect(sink.body.toString("utf-8")).toBe(ERROR_HTML);
+    expect(sink.head?.headers["content-length"]).toBeUndefined();
+    expect(sink.head?.headers.etag).toBeUndefined();
     error.mockRestore();
   });
 

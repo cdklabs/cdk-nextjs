@@ -1,4 +1,4 @@
-import { ResponseHead, ShimServerResponse, splitSetCookie } from "./response";
+import { ResponseHead, ShimServerResponse, setCookieList } from "./response";
 
 /** Collects the head and the body bytes the way a sink would. */
 function collect(res: ShimServerResponse): {
@@ -155,19 +155,27 @@ describe("ShimServerResponse.writeHead", () => {
   });
 });
 
-describe("splitSetCookie", () => {
-  it("does not split the comma inside an Expires date", () => {
-    expect(
-      splitSetCookie("a=1; Expires=Thu, 01 Jan 2026 00:00:00 GMT, b=2; Path=/"),
-    ).toEqual(["a=1; Expires=Thu, 01 Jan 2026 00:00:00 GMT", "b=2; Path=/"]);
+describe("setCookieList", () => {
+  it.each([
+    "token=x; expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/",
+    "token=x; Expires=Wednesday, 21-Oct-26 07:28:00 GMT; Path=/",
+    "a=1; Expires=Thu, 01 Jan 2026 00:00:00 GMT",
+  ])("keeps a single cookie whole: %s", (cookie) => {
+    expect(setCookieList(cookie)).toEqual([cookie]);
   });
 
-  it("flattens an array and drops empties", () => {
-    expect(splitSetCookie(["a=1", "b=2, c=3", ""])).toEqual([
-      "a=1",
-      "b=2",
-      "c=3",
-    ]);
+  it("treats each array entry as one cookie and drops empties", () => {
+    expect(
+      setCookieList(["a=1; expires=Wed, 21 Oct 2026 07:28:00 GMT", "b=2", ""]),
+    ).toEqual(["a=1; expires=Wed, 21 Oct 2026 07:28:00 GMT", "b=2"]);
+  });
+
+  it("emits a lowercase-expires cookie as one Set-Cookie line", () => {
+    const res = new ShimServerResponse();
+    const cookie = "token=x; expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/";
+    res.setHeader("Set-Cookie", cookie);
+    res.flushHeaders();
+    expect(res.responseHead?.cookies).toEqual([cookie]);
   });
 });
 

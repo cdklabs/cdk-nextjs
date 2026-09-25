@@ -268,7 +268,9 @@ export class Dispatcher {
   /** The request path with `basePath` removed, which is what i18n applies to. */
   private withoutBasePath(pathname: string): string {
     const { basePath } = this.manifest.config;
-    return basePath && pathname.startsWith(basePath)
+    // On a segment boundary: `/docsearch` is not under the basePath `/docs`.
+    return basePath &&
+      (pathname === basePath || pathname.startsWith(`${basePath}/`))
       ? pathname.slice(basePath.length) || "/"
       : pathname;
   }

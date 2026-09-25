@@ -34,19 +34,15 @@ export interface ResponseHead {
 }
 
 /**
- * Splits a `set-cookie` value that has already been comma-joined somewhere
- * upstream. The lookbehind is the whole point: `Expires=Thu, 01 Jan 2026` has a
- * comma inside one cookie, and splitting there silently corrupts the cookie.
+ * One entry per `Set-Cookie` line, the way Node's `ServerResponse` emits them:
+ * each array element is a whole cookie and a string is exactly one. Nothing here
+ * splits on commas — `Expires=` dates contain one in every format (`Wed, 21 Oct`,
+ * `Wednesday, 21-Oct-26`), and a heuristic split turns one cookie into a session
+ * cookie on the wrong path plus a junk one.
  */
-const SET_COOKIE_SPLIT = /(?<!Expires=\w{3}),\s*/;
-
-export function splitSetCookie(value: string | string[] | number): string[] {
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => splitSetCookie(entry));
-  }
-  return String(value)
-    .split(SET_COOKIE_SPLIT)
-    .map((cookie) => cookie.trim())
+export function setCookieList(value: string | string[] | number): string[] {
+  return (Array.isArray(value) ? value : [value])
+    .map((cookie) => String(cookie).trim())
     .filter(Boolean);
 }
 
@@ -200,7 +196,7 @@ export class ShimServerResponse extends Transform {
     for (const { name, value } of this.headerStore.values()) {
       const key = name.toLowerCase();
       if (key === "set-cookie") {
-        cookies = splitSetCookie(value);
+        cookies = setCookieList(value);
         continue;
       }
       if (Array.isArray(value)) {

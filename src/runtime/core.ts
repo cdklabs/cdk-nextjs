@@ -33,7 +33,6 @@ import {
   asServerResponse,
   ResponseHead,
   ShimServerResponse,
-  splitSetCookie,
 } from "./http/response";
 import { pipeToSink, ResponseSink } from "./http/sink";
 import { RuntimeImageOptimizer } from "./image";
@@ -366,6 +365,11 @@ export class NextjsRuntime {
           { etag: this.options.manifest.config.generateEtags !== false },
         );
         if (!served) {
+          // The routing rule that matched a build asset already set its
+          // year-long `immutable` Cache-Control, and a 404 under it gets cached
+          // at the edge and in browsers for that long — a chunk that shows up on
+          // the next deploy stays missing. `next start` answers this no-store.
+          res.setHeader("Cache-Control", NO_STORE);
           // As the `not-found` branch renders it: with the request headers
           // middleware set — a CSP nonce, say — and as the path asked for.
           req.headers = toIncomingHttpHeaders(result.requestHeaders);
@@ -445,10 +449,19 @@ export class NextjsRuntime {
       {
         method: "GET",
         url: config.urlPath,
-        // `host` is the caller's, not the revalidated path's: it is what
+        // The caller's authority, not the revalidated path's: it is what
         // `absoluteUrl` builds the request URL from, and a revalidation is for
-        // the host being served.
-        headers: { ...config.headers, host: origin.headers.host },
+        // the origin being served. The forwarded pair with it — behind
+        // CloudFront `host` is the Function URL, and a render that built its
+        // absolute URLs from that would cache links to the raw function.
+        headers: {
+          ...config.headers,
+          host: origin.headers.host,
+          ...pickDefined(origin.headers, [
+            "x-forwarded-host",
+            "x-forwarded-proto",
+          ]),
+        },
         encrypted: origin.encrypted,
       },
       {
@@ -547,6 +560,12 @@ export class NextjsRuntime {
       return;
     }
     res.statusCode = 500;
+    // A failed render may have set headers describing a body that never
+    // arrived. Every rung below sends a different body, so they go first: a
+    // stale `Content-Length` on a 500.html of another size hangs the client or
+    // desyncs a keep-alive connection.
+    res.removeHeader("Content-Length");
+    res.removeHeader("ETag");
     const target = this.errorTarget;
 
     if (target.kind === "entrypoint") {
@@ -586,7 +605,7 @@ export class NextjsRuntime {
       }
     }
 
-    // A failed render may have set headers describing a body that never arrived.
+    // Again: an error page that threw may have described its own body too.
     res.removeHeader("Content-Length");
     res.removeHeader("ETag");
     res.statusCode = 500;
@@ -721,6 +740,19 @@ function absoluteUrl(request: RuntimeRequest): URL {
         ? "http"
         : "https";
   return new URL(request.url, `${proto}://${host}`);
+}
+
+function pickDefined(
+  headers: IncomingHttpHeaders,
+  names: readonly string[],
+): IncomingHttpHeaders {
+  const picked: IncomingHttpHeaders = {};
+  for (const name of names) {
+    if (headers[name] !== undefined) {
+      picked[name] = headers[name];
+    }
+  }
+  return picked;
 }
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -938,10 +970,10 @@ async function sendWebResponse(
     res.statusMessage = response.statusText;
   }
   response.headers.forEach((value, name) => {
+    // `forEach` yields `set-cookie` once per cookie, each one whole; appended
+    // once, below, for the reason `applyHeaders` gives. Nothing splits them on
+    // commas — the one inside every `Expires=` date is indistinguishable.
     if (name === "set-cookie") {
-      for (const cookie of splitSetCookie(value)) {
-        res.appendHeader("set-cookie", cookie);
-      }
       return;
     }
     if (
@@ -953,12 +985,39 @@ async function sendWebResponse(
     }
     res.setHeader(name, value);
   });
+  for (const cookie of response.headers.getSetCookie()) {
+    res.appendHeader("set-cookie", cookie);
+  }
   if (!response.body) {
     res.end();
     return;
   }
   for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-    res.write(chunk);
+    // Leaving the loop cancels the body, which is what stops a proxied origin
+    // from being read to the end for a client that has already gone.
+    if (res.destroyed) {
+      return;
+    }
+    // Paced by the client: without waiting for `drain`, a large proxied body
+    // headed for a slow client is buffered whole in memory.
+    if (!res.write(chunk) && !(await drained(res))) {
+      return;
+    }
   }
   res.end();
+}
+
+/** Resolves true once `res` drains, or false if it is destroyed first. */
+function drained(res: ShimServerResponse): Promise<boolean> {
+  return new Promise((resolve) => {
+    const onDrain = (): void => settle(true);
+    const onClose = (): void => settle(false);
+    const settle = (value: boolean): void => {
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      resolve(value);
+    };
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+  });
 }

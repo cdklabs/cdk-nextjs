@@ -16,14 +16,11 @@
  * file owns exactly two things Lambda-specific: the event shape, and the
  * `awslambda.HttpResponseStream` prelude.
  */
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Writable } from "node:stream";
-import type {
-  APIGatewayProxyEvent,
-  LambdaFunctionURLEvent,
-} from "aws-lambda";
 import type { IncomingHttpHeaders } from "node:http";
+import { dirname } from "node:path";
+import type { Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
+import type { APIGatewayProxyEvent, LambdaFunctionURLEvent } from "aws-lambda";
 import { apiGatewayRequestPath } from "./api-gateway-path";
 import { loadRuntime, RuntimeRequest } from "./core";
 import { deploymentRootOf } from "./deployment-root";
@@ -99,7 +96,8 @@ function toRuntimeRequest(
     method: http.method,
     // Raw, still percent-encoded, which is what Next.js's own normalization
     // expects.
-    url: event.rawPath + (event.rawQueryString ? `?${event.rawQueryString}` : ""),
+    url:
+      event.rawPath + (event.rawQueryString ? `?${event.rawQueryString}` : ""),
     headers: functionUrlHeaders(event),
     body,
     remoteAddress: http.sourceIp,
@@ -121,7 +119,9 @@ function decodeBody(
  * to be put back — Next.js reads `req.headers.cookie` for draft mode, the
  * prerender bypass, and anything a route handler does with `cookies()`.
  */
-function functionUrlHeaders(event: LambdaFunctionURLEvent): IncomingHttpHeaders {
+function functionUrlHeaders(
+  event: LambdaFunctionURLEvent,
+): IncomingHttpHeaders {
   const headers: IncomingHttpHeaders = {};
   for (const [name, value] of Object.entries(event.headers)) {
     if (value !== undefined) {
@@ -147,9 +147,7 @@ function functionUrlHeaders(event: LambdaFunctionURLEvent): IncomingHttpHeaders 
  */
 function restHeaders(event: APIGatewayProxyEvent): IncomingHttpHeaders {
   const headers: IncomingHttpHeaders = {};
-  for (const [name, values] of Object.entries(
-    event.multiValueHeaders ?? {},
-  )) {
+  for (const [name, values] of Object.entries(event.multiValueHeaders ?? {})) {
     if (values?.length) {
       const key = name.toLowerCase();
       headers[key] =

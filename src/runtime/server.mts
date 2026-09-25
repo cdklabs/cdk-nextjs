@@ -78,25 +78,42 @@ async function main(): Promise<void> {
     deploymentRootOf(dirname(fileURLToPath(import.meta.url))),
   );
 
+  // `handle` resolves only once the `waitUntil` work a request registered — ISR
+  // revalidation, notably — has settled, which is after its response and its
+  // connection are done. Tracked so shutdown can wait for that too.
+  const inFlight = new Set<Promise<void>>();
+
   const server = createServer((req, res) => {
-    serve(runtime, req, res).catch((error) => {
-      // `NextjsRuntime.handle` answers 500 itself, so reaching this means the
-      // shell's own translation failed.
-      console.error("The container shell failed to handle a request:", error);
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-      }
-      res.end("Internal Server Error");
-    });
+    const handled = serve(runtime, req, res)
+      .catch((error) => {
+        // `NextjsRuntime.handle` answers 500 itself, so reaching this means the
+        // shell's own translation failed.
+        console.error("The container shell failed to handle a request:", error);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        }
+        res.end("Internal Server Error");
+      })
+      .finally(() => inFlight.delete(handled));
+    inFlight.add(handled);
   });
 
   // ECS sends SIGTERM and waits `stopTimeout` before SIGKILL. Without this the
   // process exits immediately and every in-flight response is truncated during
-  // an ordinary deployment.
+  // an ordinary deployment. `server.close` alone is not enough: it calls back
+  // once the connections are gone, and a revalidation still running in
+  // `waitUntil` would be killed mid-write, losing the fresh entry.
+  let draining = false;
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.on(signal, () => {
+      if (draining) {
+        return;
+      }
+      draining = true;
       console.log(`Received ${signal}, draining connections.`);
-      server.close(() => process.exit(0));
+      server.close(() => {
+        void Promise.allSettled(inFlight).then(() => process.exit(0));
+      });
     });
   }
 
