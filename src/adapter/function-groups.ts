@@ -49,6 +49,16 @@ export interface RouteEntry {
 
 const NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
 const SUBTREE_SUFFIX = "/**";
+/**
+ * The literal characters a CloudFront path pattern may contain: its alphabet
+ * (`A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and `&`) less the two wildcards, which
+ * `validateRoutePattern` only accepts as a trailing `/**`. The same set as
+ * `PATH_PATTERN_CHAR` in `nextjs-distribution.ts`, restated here because this
+ * file is bundled into the adapter and cannot import the construct.
+ *
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern
+ */
+const PATH_PATTERN_LITERAL = /[a-zA-Z0-9_\-.$/~"'@:+&]/;
 
 /**
  * Read {@link FUNCTION_GROUPS_ENV_VAR}. `undefined` — not the empty array — when
@@ -255,6 +265,28 @@ function validateRoutePattern(route: string, groupName: string): void {
   }
   if (route.includes("//")) {
     throw new Error(`${errorPrefix()}${where} contains an empty path segment.`);
+  }
+  // A route Next.js serves can still hold a character no path pattern can:
+  // `app/über/page.tsx`, `app/a b/page.tsx`, `app/a,b/page.tsx` all build, and
+  // the pattern passes every check above. `pathPatternsFor` copies it verbatim,
+  // so it reached `addBehavior` untouched and was left for CloudFront to reject,
+  // in an error naming neither the group nor the route. The `public/`
+  // workaround, one `?` per UTF-8 byte, is not available here: `?` matches *any*
+  // byte, so `/über` would deploy as `/??ber` and also send `/xyber` to this
+  // group's function, whose zip lacks its entrypoint. That is the sibling capture
+  // dynamic segments are rejected for, so the same answer applies.
+  const invalid = [...new Set(withoutSubtree)].filter(
+    (char) => !PATH_PATTERN_LITERAL.test(char),
+  );
+  if (invalid.length > 0) {
+    throw new Error(
+      `${errorPrefix()}${where} contains ` +
+        `${invalid.map((char) => JSON.stringify(char)).join(", ")}, which a ` +
+        `CloudFront behavior path pattern cannot contain (allowed: A-Z a-z 0-9 ` +
+        `_ - . $ / ~ " ' @ : + &). Escaping it with "?" would also match other ` +
+        `routes of the same length. Use a subtree on a parent segment whose ` +
+        `name is plain ASCII instead: "/intl/**" owns "/intl/über".`,
+    );
   }
 }
 

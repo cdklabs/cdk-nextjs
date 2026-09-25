@@ -127,6 +127,34 @@ describe("validateFunctionGroups", () => {
       validateFunctionGroups([{ name: "a", routes: ["/api//x"] }]),
     ).toThrow(/empty path segment/);
   });
+
+  it.each([
+    ["/über", '"ü"'],
+    ["/a b", '" "'],
+    ["/shop/a,b/**", '","'],
+    ["/100%25", '"%"'],
+  ])(
+    "rejects %p, which holds a character no CloudFront path pattern can",
+    (route, char) => {
+      // `pathPatternsFor` copies the route verbatim into a behavior path
+      // pattern, so without this it failed at deploy naming neither the group
+      // nor the route.
+      expect(() =>
+        validateFunctionGroups([{ name: "a", routes: [route] }]),
+      ).toThrow(`contains ${char}, which a CloudFront behavior path pattern`);
+    },
+  );
+
+  it("accepts every literal in CloudFront's path pattern alphabet", () => {
+    expect(() =>
+      validateFunctionGroups([
+        {
+          name: "a",
+          routes: [`/AZaz09_-.$~"'@:+&/**`],
+        },
+      ]),
+    ).not.toThrow();
+  });
 });
 
 describe("assignRoutesToGroups", () => {
