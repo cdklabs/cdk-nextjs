@@ -3046,12 +3046,16 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-  with it — either equal to it, or prefixed by the stage or base path
-  mapping API Gateway strips before matching resources (`basePath:
-  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-  sets one is correct and common — an app served at the default `prod` stage
-  sets `basePath: "/prod"` and leaves this alone.
+- `NextjsRegionalFunctions`: leave this unset and it follows your app's
+  `basePath` minus the prefix API Gateway strips before matching resources —
+  the stage (`deployOptions.stageName`, default `prod`), or the base path
+  mapping of a custom domain set in `restApiProps.domainName`. So
+  `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+  `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+  execute-api endpoint an app `basePath` that doesn't start with the stage
+  warns, since its links will miss the stage. If you set this, the app's
+  `basePath` must end with it. A domain attached later with
+  `addDomainName()` is not seen at synth; set this explicitly then.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -3279,12 +3283,16 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-  with it — either equal to it, or prefixed by the stage or base path
-  mapping API Gateway strips before matching resources (`basePath:
-  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-  sets one is correct and common — an app served at the default `prod` stage
-  sets `basePath: "/prod"` and leaves this alone.
+- `NextjsRegionalFunctions`: leave this unset and it follows your app's
+  `basePath` minus the prefix API Gateway strips before matching resources —
+  the stage (`deployOptions.stageName`, default `prod`), or the base path
+  mapping of a custom domain set in `restApiProps.domainName`. So
+  `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+  `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+  execute-api endpoint an app `basePath` that doesn't start with the stage
+  warns, since its links will miss the stage. If you set this, the app's
+  `basePath` must end with it. A domain attached later with
+  `addDomainName()` is not seen at synth; set this explicitly then.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -5260,12 +5268,16 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-  with it — either equal to it, or prefixed by the stage or base path
-  mapping API Gateway strips before matching resources (`basePath:
-  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-  sets one is correct and common — an app served at the default `prod` stage
-  sets `basePath: "/prod"` and leaves this alone.
+- `NextjsRegionalFunctions`: leave this unset and it follows your app's
+  `basePath` minus the prefix API Gateway strips before matching resources —
+  the stage (`deployOptions.stageName`, default `prod`), or the base path
+  mapping of a custom domain set in `restApiProps.domainName`. So
+  `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+  `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+  execute-api endpoint an app `basePath` that doesn't start with the stage
+  warns, since its links will miss the stage. If you set this, the app's
+  `basePath` must end with it. A domain attached later with
+  `addDomainName()` is not seen at synth; set this explicitly then.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -5706,12 +5718,16 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-  with it — either equal to it, or prefixed by the stage or base path
-  mapping API Gateway strips before matching resources (`basePath:
-  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-  sets one is correct and common — an app served at the default `prod` stage
-  sets `basePath: "/prod"` and leaves this alone.
+- `NextjsRegionalFunctions`: leave this unset and it follows your app's
+  `basePath` minus the prefix API Gateway strips before matching resources —
+  the stage (`deployOptions.stageName`, default `prod`), or the base path
+  mapping of a custom domain set in `restApiProps.domainName`. So
+  `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+  `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+  execute-api endpoint an app `basePath` that doesn't start with the stage
+  warns, since its links will miss the stage. If you set this, the app's
+  `basePath` must end with it. A domain attached later with
+  `addDomainName()` is not seen at synth; set this explicitly then.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -6263,12 +6279,16 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-  with it — either equal to it, or prefixed by the stage or base path
-  mapping API Gateway strips before matching resources (`basePath:
-  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-  sets one is correct and common — an app served at the default `prod` stage
-  sets `basePath: "/prod"` and leaves this alone.
+- `NextjsRegionalFunctions`: leave this unset and it follows your app's
+  `basePath` minus the prefix API Gateway strips before matching resources —
+  the stage (`deployOptions.stageName`, default `prod`), or the base path
+  mapping of a custom domain set in `restApiProps.domainName`. So
+  `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+  `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+  execute-api endpoint an app `basePath` that doesn't start with the stage
+  warns, since its links will miss the stage. If you set this, the app's
+  `basePath` must end with it. A domain attached later with
+  `addDomainName()` is not seen at synth; set this explicitly then.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -6693,12 +6713,16 @@ app:
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
   value throws.
-- `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-  with it — either equal to it, or prefixed by the stage or base path
-  mapping API Gateway strips before matching resources (`basePath:
-  "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-  sets one is correct and common — an app served at the default `prod` stage
-  sets `basePath: "/prod"` and leaves this alone.
+- `NextjsRegionalFunctions`: leave this unset and it follows your app's
+  `basePath` minus the prefix API Gateway strips before matching resources —
+  the stage (`deployOptions.stageName`, default `prod`), or the base path
+  mapping of a custom domain set in `restApiProps.domainName`. So
+  `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+  `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+  execute-api endpoint an app `basePath` that doesn't start with the stage
+  warns, since its links will miss the stage. If you set this, the app's
+  `basePath` must end with it. A domain attached later with
+  `addDomainName()` is not seen at synth; set this explicitly then.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
