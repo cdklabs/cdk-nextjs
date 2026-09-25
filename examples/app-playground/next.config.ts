@@ -61,7 +61,7 @@ const nextConfig: NextConfig = {
     return {
       // Matches its own output while `?json=true` is still on the URL, which is
       // what made Next.js apply it a second time inside the entrypoint and
-      // overwrite `from` (defect 29 in docs/plans/adapter-runtime-progress.md).
+      // overwrite `from` (defect 29 in docs/harness-coverage.md).
       // Scoped to a prefix so it cannot touch any other route.
       beforeFiles: [
         {

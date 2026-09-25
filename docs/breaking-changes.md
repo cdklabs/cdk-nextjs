@@ -278,7 +278,7 @@ if you want one:
 `NextjsRegionalFunctions.nextjsImageFunction` are `undefined` unless the
 dedicated image Lambda is enabled, which no supported prop does yet. A future
 release routes `_next/image` through the adapter runtime after middleware; see
-`docs/plans/adapter-runtime-release.md`.
+`docs/adapter-runtime.md`.
 
 ## 0.5.0
 

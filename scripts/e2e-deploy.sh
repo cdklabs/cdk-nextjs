@@ -142,8 +142,8 @@ BUILD_ID="$(cat .next/BUILD_ID)"
 {
   echo "BUILD_ID: $BUILD_ID"
   echo "DEPLOYMENT_ID: $NEXT_DEPLOYMENT_ID"
-  # Flip to 1 with `docs/plans/immutable-static-assets.md`; until then static
-  # assets are re-uploaded per deploy under the same keys.
+  # Flip to 1 once cdk-nextjs opts into `config.supportsImmutableAssets`; until
+  # then static assets are re-uploaded per deploy under the same keys.
   echo "NEXT_SUPPORTS_IMMUTABLE_ASSETS: ${HARNESS_SUPPORTS_IMMUTABLE_ASSETS:-0}"
 } >"$HARNESS_MARKERS_FILE"
 

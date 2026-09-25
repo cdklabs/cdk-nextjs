@@ -594,7 +594,7 @@ the age floor for every stack in the account.
 | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `ADAPTER_DIR`                       | _required_                           | This checkout. All three scripts resolve everything from it.                                           |
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
-| `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` with `docs/plans/immutable-static-assets.md`. |
+| `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` once cdk-nextjs opts into `config.supportsImmutableAssets`. |
 | `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions`: deploy `NextjsRegionalFunctions` behind `stage-proxy.mjs`, into `hrns-rf-*` stacks. See "Running on `NextjsRegionalFunctions`". |
 | `HARNESS_PROXY_PORT`                | _derived from the stack name_        | Port `stage-proxy.mjs` listens on. Regional only.                                                      |
 | `HARNESS_ISOLATED_STACK`            | `0`                                  | One stack per test file instead of one shared one. Re-enables `e2e-cleanup.sh`.                        |
