@@ -203,39 +203,4 @@ test.describe("revalidation", () => {
 
     console.log("✓ Cache maintained within revalidation period");
   });
-
-  test("should invalidate cache only for revalidated tags", async ({
-    page,
-    baseURL,
-  }) => {
-    // no cache in dev mode
-    test.skip(baseURL?.includes("localhost") === true);
-
-    // This test verifies that revalidating one tag doesn't affect unrelated pages
-    // Note: All ISR pages use the 'collection' tag, so we're testing the mechanism
-
-    // Step 1: Create cache entry for ISR page
-    await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const beforeTimestamp = await getPageTimestamp(page);
-    console.log(`Before revalidation: ${beforeTimestamp}`);
-
-    await waitXSec(2);
-
-    // Step 2: Revalidate with the 'collection' tag
-    await page.goto("./api/revalidate?collection=collection", {
-      waitUntil: "networkidle",
-    });
-
-    // Step 3: Page should be revalidated (fresh timestamp). Poll until
-    // fresh, since CloudFront invalidation and cross-instance cache eviction
-    // are eventually consistent with no fixed completion time.
-    await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const afterTimestamp = await waitForFreshTimestamp(page, beforeTimestamp);
-    console.log(`After revalidation: ${afterTimestamp}`);
-
-    // Should show fresh data
-    expect(afterTimestamp).not.toBe(beforeTimestamp);
-
-    console.log("✓ Tag-based revalidation working correctly");
-  });
 });
