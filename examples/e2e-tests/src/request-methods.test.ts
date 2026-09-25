@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { isGlobalFunctions } from "./utils/deployment-type";
 
@@ -24,9 +25,11 @@ test.describe("request methods", () => {
     bodyLength: number;
     bodySha256: string;
   };
-  // Computed in the browser below with the same algorithm the handler uses, so a
-  // truncated or re-encoded body fails on the hash rather than on the length.
   const EXPECTED_LENGTH = new TextEncoder().encode(BODY).byteLength;
+  // The same algorithm the handler uses, so a truncated or re-encoded body fails
+  // on the hash rather than on the length. Computed here rather than in the page:
+  // `crypto.subtle` does not exist on a plain-`http:` origin.
+  const EXPECTED_SHA256 = createHash("sha256").update(BODY).digest("hex");
 
   /**
    * Resolved against `baseURL`, not against the page: `page.goto("./")` on API
@@ -70,15 +73,7 @@ test.describe("request methods", () => {
     expect(result.status).toBe(200);
     expect(result.json.method).toBe("POST");
     expect(result.json.bodyLength).toBe(EXPECTED_LENGTH);
-
-    const digest = await page.evaluate(async (body: string) => {
-      const bytes = new TextEncoder().encode(body);
-      const hash = await crypto.subtle.digest("SHA-256", bytes);
-      return Array.from(new Uint8Array(hash))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    }, BODY);
-    expect(result.json.bodySha256).toBe(digest);
+    expect(result.json.bodySha256).toBe(EXPECTED_SHA256);
   });
 
   test("accepts a PUT with a body", async ({ page, baseURL }) => {
@@ -141,7 +136,15 @@ test.describe("request methods", () => {
     // The handler declares the length its GET would have returned. A HEAD is the
     // other empty-body case: the runtime pads it, and the declared length has to
     // survive that padding rather than be replaced by it.
-    expect(response.headers()["content-length"]).toBe("42");
+    //
+    // Except behind a Lambda Function URL, which answers `0` whatever the runtime
+    // declared. Measured, not reasoned: the same runtime answers `42` through API
+    // Gateway's streaming integration, and CloudFront passes `42` through from an
+    // ALB, so the Function URL is the one layer left. Asserted rather than
+    // skipped, so a Function URL that starts honouring it shows up here.
+    expect(response.headers()["content-length"]).toBe(
+      isGlobalFunctions() ? "0" : "42",
+    );
 
     const body = await response.body();
     expect(body.byteLength).toBeLessThanOrEqual(1);

@@ -132,7 +132,10 @@ test.describe("url normalization", () => {
     // "the redirect works *and* is produced where it has to be" - the origin cannot
     // produce it at all on this type, so if this ever reads as a cache miss or hit
     // the request is reaching a Function URL that will reject its own signature.
-    expect(response.headers()["x-cache"]).toBe("FunctionGeneratedResponse");
+    // A prefix, because CloudFront appends ` from cloudfront` to every `x-cache`.
+    expect(response.headers()["x-cache"]).toMatch(
+      /^FunctionGeneratedResponse\b/,
+    );
   });
 
   test("keeps every query pair when it redirects", async ({

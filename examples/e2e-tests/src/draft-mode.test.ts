@@ -19,16 +19,25 @@ import { test, expect } from "@playwright/test";
  * taken from the runtime comment above, which names both because the code it
  * describes serves both routers.
  *
- * The browser is used rather than `request` for a specific reason: the suite sets
- * `extraHTTPHeaders: { Cookie: "cdk-nextjs=1" }`, and an explicit `Cookie` header
- * replaces whatever an `APIRequestContext` cookie jar would have sent - so the
- * draft cookie would be silently dropped and the test would assert `draft:off`
- * forever. A `BrowserContext` merges its jar into the request instead.
+ * The browser is used rather than `request` because this is a browser feature:
+ * the cookie has to survive the browser's own cookie rules, not only the wire.
+ *
+ * Which is also why it is skipped on a plain-`http:` deployment - today, the
+ * regional-containers example's bare ALB. Next.js sets `__prerender_bypass` with
+ * `Secure; SameSite=None` unconditionally, and a browser refuses a `Secure` cookie
+ * from an insecure origin, so draft mode cannot work there for any app on any
+ * platform. Keyed on the scheme rather than the deployment type, so the same
+ * example behind an HTTPS listener runs it.
  *
  * What silently breaks: every preview/draft integration in an app, with no error
  * on any side - the page just renders published content.
  */
 test.describe("draft mode", () => {
+  test.skip(
+    ({ baseURL }) => baseURL?.startsWith("http:") === true,
+    "a browser drops Next.js's `Secure` draft-mode cookie over plain HTTP",
+  );
+
   test("enabling sets the bypass cookie", async ({ page, context }) => {
     await page.goto("./api/draft?enable=1");
 
