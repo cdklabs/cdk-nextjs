@@ -174,12 +174,14 @@ With it, a `--retries 0` run of `basepath/trailing-slash`,
 ordered so each deploy changes the tree — passed all three. The `pages` `-base-path`
 variant was not re-run.
 
-One product gap it exposed, not a defect in what is documented: on this type
-the `basePath` prop is never derived from the app (see `resolveBasePath`), so an app
-whose `basePath` is *not* the stage — a custom domain mapped at the root serving
-`basePath: "/docs"` — silently 404s its static assets unless the user also sets the
-prop. Synth knows both the stage name and whether a custom domain is configured, so
-this could be derived or at least warned about. Not built; noted for a follow-up.
+It also exposed a product gap, since fixed. On this type the `basePath` prop was
+never derived from the app, so an app whose `basePath` is *not* the stage (a
+custom domain mapped at the root serving `basePath: "/docs"`) silently 404'd its
+static assets unless the user also set the prop. `resolveBasePath` now derives
+it from the app's `basePath` minus the prefix API Gateway strips: the stage, or
+the custom domain's base path mapping, both read from `restApiProps`. It warns
+when an execute-api app's `basePath` does not start with the stage. The harness
+still passes the prop explicitly, only to keep that warning quiet.
 
 ## Passing — in `rules.include`
 

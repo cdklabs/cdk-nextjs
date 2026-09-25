@@ -67,7 +67,7 @@ Then drop both:
 
 With nothing stripped, the Lambda shell hands Next.js the path unchanged. A base path mapping (`basePath: "app"` on the domain) is stripped like a stage is, so an app built with `basePath: "/app"` behind one gets the same treatment — expected from the `requestContext.path` behavior AWS documents, but untested here for lack of a hosted zone.
 
-Leave the construct's `basePath` prop unset too. Static asset routing needs no adjustment: `NextjsApi` applies `NextjsStaticAssets.keyPrefix` to its S3 integration keys, and the runtime's image optimizer keeps the app's `basePath` and the S3 key prefix separate, so with nothing set anywhere the keys resolve at the bucket root.
+Leave the construct's `basePath` prop unset too. If the app does keep a `basePath` behind the domain (`"/docs"`), the construct mounts its resources and static assets under it, because it reads the domain's base path mapping from `restApiProps.domainName` and knows nothing is stripped. Static asset routing needs no adjustment: `NextjsApi` applies `NextjsStaticAssets.keyPrefix` to its S3 integration keys, and the runtime's image optimizer keeps the app's `basePath` and the S3 key prefix separate, so with nothing set anywhere the keys resolve at the bucket root.
 
 `nextjs.url` reports the custom domain (including a base path mapping if you configure one) rather than the execute-api endpoint.
 

@@ -391,14 +391,80 @@ describe("resolveBasePath", () => {
   });
 
   describe(NextjsType.REGIONAL_FUNCTIONS, () => {
+    const RF = NextjsType.REGIONAL_FUNCTIONS;
+    const stage = (name: string) => ({
+      strippedPrefix: name,
+      customDomain: false,
+    });
+    const domain = (mapping = "") => ({
+      strippedPrefix: mapping,
+      customDomain: true,
+    });
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => warn.mockRestore());
+
     // API Gateway strips the stage before matching resources, so an app served
-    // at the default `prod` stage sets basePath: "/prod" and leaves the prop
-    // unset. Same shape as a custom domain base path mapping. Deriving here
-    // would nest every resource under a path the stage already consumed.
-    it("does not derive the app's basePath", () => {
+    // at the default `prod` stage sets basePath: "/prod" and its resources live
+    // at the root. Mounting them under "prod" would nest every resource under a
+    // path the stage already consumed.
+    it("mounts an app whose basePath is the stage at the root", () => {
+      expect(resolveBasePath(RF, undefined, "/prod")).toBeUndefined();
       expect(
-        resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, undefined, "/prod"),
+        resolveBasePath(RF, undefined, "/test", stage("test")),
       ).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("mounts the rest of a basePath nested below the stage", () => {
+      expect(resolveBasePath(RF, undefined, "/prod/base")).toBe("base");
+      expect(resolveBasePath(RF, undefined, "/v2/a/b", stage("v2"))).toBe(
+        "a/b",
+      );
+    });
+
+    // The case that used to 404 every bundle: a custom domain mapped at the root
+    // strips nothing, so the app's basePath is a real resource path, and left at
+    // the root `_next/static` fell through to the Lambda catch-all.
+    it("mounts an app under its whole basePath when nothing strips it", () => {
+      expect(resolveBasePath(RF, undefined, "/docs", domain())).toBe("docs");
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("strips a custom domain's base path mapping like a stage", () => {
+      expect(
+        resolveBasePath(RF, undefined, "/app", domain("app")),
+      ).toBeUndefined();
+      expect(resolveBasePath(RF, undefined, "/app/docs", domain("app"))).toBe(
+        "docs",
+      );
+    });
+
+    it("matches the stage on a segment boundary", () => {
+      expect(resolveBasePath(RF, undefined, "/production", domain())).toBe(
+        "production",
+      );
+      expect(resolveBasePath(RF, undefined, "/production", stage("prod"))).toBe(
+        "production",
+      );
+    });
+
+    // Without a custom domain the app's own links miss the stage, which synth
+    // can say but not fix - a domain attached with `addDomainName` is invisible.
+    it("warns when an execute-api app's basePath lacks the stage", () => {
+      expect(resolveBasePath(RF, undefined, "/docs")).toBe("docs");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Set `basePath: "/prod/docs"`'),
+      );
+    });
+
+    it("derives nothing when the stage is a token", () => {
+      expect(
+        resolveBasePath(RF, undefined, "/docs", { customDomain: false }),
+      ).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
     });
 
     // The stripped prefix is part of what the app emits but never part of the

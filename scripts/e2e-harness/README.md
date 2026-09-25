@@ -317,10 +317,11 @@ alongside the stack delete.
 
 Three things the regional deploy does that the Global one does not:
 
-- **The fixture's `basePath` becomes the construct's `basePath` prop.** On this
-  type the prop is never derived from the app, because an app's `basePath` is
-  usually the stage. A fixture's never is, so without the prop its
-  `_next/static` falls through to the Lambda catch-all and 404s.
+- **The fixture's `basePath` becomes the construct's `basePath` prop.** Synth
+  would derive the same resource path, but it would also warn that the app's
+  links miss the stage, which is true of the execute-api URL and not of the
+  proxy. Before derivation existed (see `docs/harness-coverage.md`), leaving it
+  unset 404'd every `_next/static` request.
 - **The proxy sends `x-forwarded-host: 127.0.0.1:<port>`**, because it has to
   send the execute-api `Host` for API Gateway to route. Without it every server
   action fails Next.js's CSRF check (`host` … does not match `origin`).

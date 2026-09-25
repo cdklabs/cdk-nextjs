@@ -221,6 +221,66 @@ function readAssetPrefix(dotNextPath: string, warnOnError: boolean): string {
   }
 }
 
+/**
+ * The path prefix API Gateway strips before matching resources, as far as synth
+ * can tell. Only read by `resolveBasePath` for `REGIONAL_FUNCTIONS`.
+ */
+export interface ApiGatewayPrefix {
+  /**
+   * The stage name on the execute-api endpoint, or the base path mapping on a
+   * custom domain (`""` when mapped at the root). `undefined` when it is not
+   * known at synth — a token — in which case nothing is derived.
+   */
+  readonly strippedPrefix?: string;
+  /** Whether a custom domain is configured through `restApiProps.domainName`. */
+  readonly customDomain: boolean;
+}
+
+/** `RestApi`'s own defaults: the `prod` stage, no custom domain. */
+export const DEFAULT_API_GATEWAY_PREFIX: ApiGatewayPrefix = {
+  strippedPrefix: "prod",
+  customDomain: false,
+};
+
+/**
+ * The resource path an app's `basePath` needs on `REGIONAL_FUNCTIONS` when the
+ * `basePath` prop is unset: the app's `basePath` with the prefix API Gateway
+ * strips taken off the front, or the whole of it when it does not start with
+ * that prefix.
+ *
+ * An app at the `prod` stage emits `/prod/...` and API Gateway strips `/prod`
+ * before matching, so `basePath: "/prod"` needs resources at the root and
+ * `basePath: "/prod/base"` needs them under `base`. An app whose `basePath` API
+ * Gateway does not strip — a custom domain mapped at the root, serving
+ * `basePath: "/docs"` — needs them under `docs`. Leaving that one at the root is
+ * what used to happen: `_next/static` and `public/` fell through to the
+ * `{proxy+}` catch-all, and every bundle 404'd with nothing said at synth.
+ */
+function deriveApiGatewayBasePath(
+  config: string,
+  { strippedPrefix, customDomain }: ApiGatewayPrefix,
+): string | undefined {
+  if (!config || strippedPrefix === undefined) {
+    return undefined;
+  }
+  const stripped = normalizeBasePath(strippedPrefix);
+  if (stripped && (config === stripped || config.startsWith(`${stripped}/`))) {
+    return config.slice(stripped.length + 1) || undefined;
+  }
+  if (!customDomain) {
+    // Resources under the app's basePath serve it at `/<stage>/<basePath>`, but
+    // the app's own links are `/<basePath>/...`, which misses the stage. A
+    // warning, not an error: a domain attached after synth (`addDomainName`)
+    // makes it right, and synth cannot see that.
+    console.warn(
+      `${LOG_PREFIX} your Next.js app's \`basePath\` is ${quote(config)}, which does not start with the API Gateway stage "/${stripped}". ` +
+        "Its links and bundle URLs will be requested without the stage, which the execute-api endpoint answers with 403. " +
+        `Set \`basePath: "/${joinPath(stripped, config)}"\` in your next.config, or serve the app from a custom domain mapped at the root.`,
+    );
+  }
+  return config;
+}
+
 function quote(basePath: string): string {
   return basePath ? `"/${basePath}"` : "unset";
 }
@@ -237,11 +297,15 @@ function quote(basePath: string): string {
  * land under), the config is the prefix the app emits its own links and asset
  * hrefs under — so how strictly they have to line up, and whether one can stand
  * in for the other, depends on how the `NextjsType` routes static requests.
+ *
+ * `apiGateway` is only read for `REGIONAL_FUNCTIONS`, and only when the prop is
+ * unset: see `deriveApiGatewayBasePath`.
  */
 export function resolveBasePath(
   nextjsType: NextjsType,
   propBasePath?: string,
   nextConfigBasePath?: string,
+  apiGateway: ApiGatewayPrefix = DEFAULT_API_GATEWAY_PREFIX,
 ): string | undefined {
   const prop = normalizeBasePath(propBasePath);
   const config = normalizeBasePath(nextConfigBasePath);
@@ -270,12 +334,8 @@ export function resolveBasePath(
           "Either set both to the same value, or drop the prop — left unset, it follows your app's `basePath`.",
       );
     case NextjsType.REGIONAL_FUNCTIONS:
-      // Deliberately not derived: API Gateway mounts resources below the stage
-      // and strips it before invoking the app, so an app whose basePath is the
-      // stage name (or a custom domain base path mapping that gets stripped the
-      // same way) is correct precisely because the prop stays unset.
       if (!prop) {
-        return undefined;
+        return deriveApiGatewayBasePath(config, apiGateway);
       }
       // The prop only has to be the tail of what the app emits, not all of it,
       // because the stripped prefix is part of the app's `basePath` but never

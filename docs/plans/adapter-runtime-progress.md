@@ -4839,3 +4839,39 @@ which appends the `basePath` prop from fix 1, doubling the prefix. It is
   per-shard proxy on the runner, which the port derivation already allows.
 - `invalid-static-asset-404-pages-base-path` passed only on retry before the
   settle wait and was not re-run after it.
+
+## Post-PR — `NextjsRegionalFunctions` derives its `basePath` prop
+
+The product gap the RegionalFunctions harness run exposed, fixed at the user's
+request. `resolveBasePath` never derived the prop on this type, because the usual
+app `basePath` *is* the stage and API Gateway strips it. But an app whose
+`basePath` is not stripped (custom domain at the root + `basePath: "/docs"`) got
+its resources and S3 keys at the root, and every bundle fell through to the
+Lambda catch-all and 404'd.
+
+Now, with the prop unset, the resource path is the app's `basePath` minus the
+stripped prefix. The prefix is read in `NextjsBaseConstruct.apiGatewayPrefix()`
+from the same `overrides.nextjsApi.restApiProps` that `NextjsApi` builds its
+`RestApi` from: `domainName.basePath` (default `""`) if a custom domain is set,
+else `deployOptions.stageName` (default `prod`). A token derives nothing.
+Execute-api with no custom domain and an app `basePath` not starting with the
+stage warns (the links miss the stage) instead of throwing, because
+`addDomainName()` after synth would make it right.
+
+Verified by unit tests (`base-path.test.ts`, 59 passed) and by synthesizing
+`NextjsRegionalFunctions` against `app-playground` built with `basePath: "/docs"`:
+
+| setup | resources under | S3 key prefix | stage warning |
+| --- | --- | --- | --- |
+| execute-api | `docs` | `docs` | yes |
+| custom domain, root mapping | `docs` | `docs` | no |
+| custom domain, mapping `docs` | root | root | no |
+
+And with `basePath: "/prod"` on execute-api, the example's setup: root, root, no
+warning, the same as before. Not deployed: the resource nesting under a given
+`basePath` is `NextjsApi`'s existing, tested behavior, and the harness run
+already deployed that shape with the prop set by hand.
+
+The harness keeps passing the prop explicitly. It would derive the same value,
+but also warn on every basePath fixture, and there the proxy plays the
+root-mapped domain synth cannot see.

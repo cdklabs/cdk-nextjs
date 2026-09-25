@@ -121,6 +121,15 @@ a custom domain mapped at the root, sees exactly what it saw before.
   with `basePath: "/prod"`. The middleware used to answer it directly with 200.
   One extra hop on the stage root, and a page-relative URL resolved from the app's
   root now resolves against `/prod` rather than `/prod/`.
+- **The `basePath` prop is now derived when unset**: the app's `basePath` minus
+  the prefix API Gateway strips (the stage, or a custom domain's base path
+  mapping from `restApiProps.domainName`). `basePath: "/prod"` still mounts at
+  the root, so the common setup is unchanged. An app whose `basePath` API Gateway
+  does not strip (`"/docs"` behind a root-mapped custom domain) now gets its
+  resources and its static assets' S3 keys under `docs`. Before, both stayed at
+  the root and every bundle 404'd. An explicit prop still wins. A domain
+  attached with `addDomainName()` is invisible at synth, so set the prop in that
+  case.
 
 ### New (non-breaking): `functionGroups`
 

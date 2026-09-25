@@ -1,3 +1,4 @@
+import { Token } from "aws-cdk-lib";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { IBucket } from "aws-cdk-lib/aws-s3";
@@ -5,6 +6,7 @@ import { Construct } from "constructs";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
+import { NextjsApiOverrides } from "../nextjs-api";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
 import { NextjsComputeBaseProps } from "../nextjs-compute/nextjs-compute-base-props";
@@ -20,6 +22,7 @@ import {
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
 import {
+  ApiGatewayPrefix,
   isAssetPrefixUnserved,
   prefixWithBasePath,
   resolveBasePath,
@@ -66,12 +69,16 @@ export interface NextjsBaseProps {
    *   static assets from S3 using the request path as the object key, so the two
    *   have to be identical and a mismatch 404s all of them. Setting a different
    *   value throws.
-   * - `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-   *   with it — either equal to it, or prefixed by the stage or base path
-   *   mapping API Gateway strips before matching resources (`basePath:
-   *   "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-   *   sets one is correct and common — an app served at the default `prod` stage
-   *   sets `basePath: "/prod"` and leaves this alone.
+   * - `NextjsRegionalFunctions`: leave this unset and it follows your app's
+   *   `basePath` minus the prefix API Gateway strips before matching resources —
+   *   the stage (`deployOptions.stageName`, default `prod`), or the base path
+   *   mapping of a custom domain set in `restApiProps.domainName`. So
+   *   `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+   *   `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+   *   execute-api endpoint an app `basePath` that doesn't start with the stage
+   *   warns, since its links will miss the stage. If you set this, the app's
+   *   `basePath` must end with it. A domain attached later with
+   *   `addDomainName()` is not seen at synth; set this explicitly then.
    * - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
    *   every path to the container, which serves its own static assets, so this
    *   is unconstrained.
@@ -177,6 +184,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       nextjsType,
       props.basePath,
       this.nextjsBuild.nextConfigBasePath,
+      this.apiGatewayPrefix(),
     );
     this.nextjsCache = this.createNextjsCache();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
@@ -240,6 +248,31 @@ export abstract class NextjsBaseConstruct extends Construct {
           "To namespace a shared bucket, use `basePath` — it prefixes the keys and the URLs together.",
       );
     }
+  }
+
+  /**
+   * The prefix API Gateway will strip, read from the same `restApiProps`
+   * override `NextjsApi` builds its `RestApi` from. Only meaningful for
+   * `REGIONAL_FUNCTIONS`, and read before `NextjsApi` exists because the
+   * resolved `basePath` also decides the static assets' S3 key prefix.
+   *
+   * A domain attached later with `api.addDomainName()` is invisible here, the
+   * same limitation `NextjsApi.url` documents.
+   */
+  private apiGatewayPrefix(): ApiGatewayPrefix {
+    const restApiProps = (
+      this.baseProps.overrides as { nextjsApi?: NextjsApiOverrides } | undefined
+    )?.nextjsApi?.restApiProps;
+    const domainName = restApiProps?.domainName;
+    const strippedPrefix = domainName
+      ? (domainName.basePath ?? "")
+      : (restApiProps?.deployOptions?.stageName ?? "prod");
+    return {
+      strippedPrefix: Token.isUnresolved(strippedPrefix)
+        ? undefined
+        : strippedPrefix,
+      customDomain: domainName !== undefined,
+    };
   }
 
   /**

@@ -88,14 +88,12 @@ class RegionalHarnessStack extends Stack {
     super(scope, id, props);
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       ...COMMON_PROPS,
-      // The fixture's own `basePath`, as the prop. On this type the prop is
-      // never derived from the app (`resolveBasePath`): the usual app
-      // `basePath` *is* the stage, which API Gateway strips before matching
-      // resources, so deriving it would nest them one level too deep. A
-      // fixture's `basePath` is never the stage - the proxy supplies that - so
-      // here it is a real path under which `_next/static` and `public/` have to
-      // be mounted, which is what the prop does. Unset, a `basePath: "/docs"`
-      // fixture's bundles 404 on the `{proxy+}` catch-all and nothing hydrates.
+      // The fixture's own `basePath`, as the prop. `resolveBasePath` would derive
+      // the same value - a fixture's `basePath` never starts with the stage, so
+      // all of it is a resource path - but it would also warn on every deploy
+      // that the app's links miss the stage. They do not here: the proxy plays
+      // the root-mapped custom domain synth cannot see. Setting the prop to the
+      // app's own value is the documented way to say so.
       basePath: fixtureBasePath(appDir),
       overrides: {
         nextjsApi: {
