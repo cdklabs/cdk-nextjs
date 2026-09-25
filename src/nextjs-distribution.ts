@@ -1,4 +1,4 @@
-import { Duration, Stack } from "aws-cdk-lib";
+import { Annotations, Duration, Stack, Token } from "aws-cdk-lib";
 import { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   AddBehaviorOptions,
@@ -365,45 +365,25 @@ export class NextjsDistribution extends Construct {
   }
   private createDynamicBehaviorOptions(): BehaviorOptions {
     const dynamicBehaviorOptions = this.props.overrides?.dynamicBehaviorOptions;
+    const cachePolicyProps = this.props.overrides?.dynamicCachePolicyProps;
     // create default cache policy if not provided
     const cachePolicy =
       dynamicBehaviorOptions?.cachePolicy ??
       new CachePolicy(this, "DynamicCachePolicy", {
-        queryStringBehavior: CacheQueryStringBehavior.all(),
-        headerBehavior: CacheHeaderBehavior.allowList(
-          // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
-          // cdk-nextjs includes the most essential headers for Next.js functionality
-          // but it's recommended to request quota increase to include all headers (commented out ones below)
-          // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
-          "accept", // content negotiation (HTML vs RSC payload)
-          "rsc", // React Server Components requests
-          "next-url", // Next.js routing
-          "next-router-state-tree", // App Router navigation state
-          "next-router-prefetch", // prefetch behavior
-          "next-router-segment-prefetch", // segment-level prefetching
-          "x-matched-path", // dynamic routes and rewrites
-          "x-prerender-revalidate", // on-demand ISR revalidation
-          "x-next-cache-tags", // tag-based cache revalidation
-          "x-prerender-bypass", // draft mode
-          // "x-nextjs-stale-time", // stale-while-revalidate behavior
-          // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)
-          // "x-nextjs-postponed", // Partial Prerendering (experimental feature)
-          // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
-        ),
-        cookieBehavior: CacheCookieBehavior.all(),
+        ...(isCachingDisabled(cachePolicyProps)
+          ? DISABLED_CACHE_KEY
+          : DYNAMIC_CACHE_KEY),
         // A response with no `Cache-Control` is not cached, which is what Next.js
         // and every app written for it assume: a dynamic route handler sets none.
         // CDK's default is a day, which cached `/api/*` responses at the edge for
         // 24 hours. Anything Next.js *means* to cache - ISR, SSG, a PPR shell -
         // says so with `s-maxage`, which `maxTtl` still honors.
         defaultTtl: Duration.seconds(0),
-        enableAcceptEncodingBrotli: true,
-        enableAcceptEncodingGzip: true,
         comment: this.getComment(
           "NextJS Dynamic Cache Policy",
           Stack.of(this).stackName,
         ),
-        ...this.props.overrides?.dynamicCachePolicyProps,
+        ...cachePolicyProps,
       });
     const responseHeadersPolicy =
       dynamicBehaviorOptions?.responseHeadersPolicy ??
@@ -683,18 +663,69 @@ export class NextjsDistribution extends Construct {
     if (this.assetPrefix) {
       this.addAssetPrefixBehavior();
     }
-    this.assertBehaviorBudget();
-    for (const publicFile of this.props.publicDirEntries) {
-      const pathPattern = publicFile.isDirectory
-        ? `${toPathPattern(publicFile.name)}/*`
-        : toPathPattern(publicFile.name);
-      const finalPathPattern = this.getPathPattern(pathPattern);
+    const publicPathPatterns = this.publicPathPatterns();
+    this.assertBehaviorBudget(publicPathPatterns.length);
+    for (const pathPattern of publicPathPatterns) {
       this.distribution.addBehavior(
-        finalPathPattern,
+        pathPattern,
         this.staticOrigin,
         this.staticBehaviorOptions,
       );
     }
+  }
+  /**
+   * The behavior path pattern for each top-level `public/` entry, final form:
+   * `/*` for a directory and the basePath prefix both applied.
+   *
+   * An entry whose name has no character CloudFront can spell is left out, with
+   * a warning, rather than given a pattern of nothing but wildcards. `фото/` is
+   * `????????/*` — any 8-byte first segment — and public/ behaviors are added
+   * ahead of every compute behavior, so it would send `/products/42` and
+   * `/settings/*` to S3, which answers 403. Leaving the entry out costs its own
+   * files instead: those requests reach the compute, which does not have them,
+   * and 404. One literal character is enough to keep a pattern narrow —
+   * `????????.jpg` only matches `.jpg` requests — so only the all-wildcard ones
+   * go.
+   *
+   * The length limit is checked here, on the final pattern, rather than in
+   * {@link toPathPattern}: the `/*` and the basePath count against it too, and a
+   * pattern that passed without them failed at deploy instead.
+   */
+  private publicPathPatterns(): string[] {
+    const patterns: string[] = [];
+    const unmatchable: string[] = [];
+    for (const publicFile of this.props.publicDirEntries) {
+      const name = toPathPattern(publicFile.name);
+      if (!/[^?*/]/.test(name)) {
+        unmatchable.push(`"${publicFile.name}"`);
+        continue;
+      }
+      const pathPattern = this.getPathPattern(
+        publicFile.isDirectory ? `${name}/*` : name,
+      );
+      if (pathPattern.length > MAX_PATH_PATTERN_LENGTH) {
+        throw new Error(
+          `The public/ entry "${publicFile.name}" needs a ` +
+            `${pathPattern.length}-character CloudFront path pattern, over ` +
+            `the ${MAX_PATH_PATTERN_LENGTH}-character ` +
+            "limit. Rename it, or move it into a subdirectory of public/ whose " +
+            "own name is short enough. See " +
+            "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern",
+        );
+      }
+      patterns.push(pathPattern);
+    }
+    if (unmatchable.length > 0) {
+      Annotations.of(this).addWarning(
+        `${LOG_PREFIX} These top-level public/ entries have no character a ` +
+          "CloudFront path pattern can spell, so their pattern would be " +
+          "wildcards alone and would capture every app route of the same " +
+          `length. They get no behavior, and their files will 404: ` +
+          `${unmatchable.join(", ")}. Rename them, or move them into a public/ ` +
+          "subdirectory whose name has at least one ASCII letter or digit.",
+      );
+    }
+    return patterns;
   }
   /**
    * CloudFront allows 25 cache behaviors per distribution, counting the default
@@ -704,7 +735,7 @@ export class NextjsDistribution extends Construct {
    *
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
    */
-  private assertBehaviorBudget() {
+  private assertBehaviorBudget(publicPatterns: number) {
     const groupPatterns = (this.props.functionGroups ?? []).reduce(
       (total, group) =>
         total +
@@ -722,13 +753,13 @@ export class NextjsDistribution extends Construct {
     // adds no behaviors, so counting it added 2 to the total and could throw
     // "over the limit" on an app that is under it.
     const fixed = 3 + (this.basePath ? 2 : 0) + (this.assetPrefix ? 1 : 0);
-    const total = fixed + this.props.publicDirEntries.length + groupPatterns;
+    const total = fixed + publicPatterns + groupPatterns;
     if (total <= MAX_CACHE_BEHAVIORS) {
       return;
     }
     const parts = [
       `${fixed} used by cdk-nextjs itself`,
-      `${this.props.publicDirEntries.length} for top-level public/ entries`,
+      `${publicPatterns} for top-level public/ entries`,
     ];
     if (groupPatterns) {
       parts.push(`${groupPatterns} for \`functionGroups\` patterns`);
@@ -764,6 +795,70 @@ export class NextjsDistribution extends Construct {
     return `/${this.basePath}/${pathPattern.replace(/^\/+/, "")}`;
   }
 }
+
+/**
+ * Whether `dynamicCachePolicyProps` turns the dynamic cache off, by capping every
+ * TTL at 0.
+ *
+ * CloudFront rejects a policy that caches nothing but still has a cache key
+ * ("HeaderBehavior is invalid for policy with caching disabled"), so such a
+ * policy has to drop the key. Until the default TTL became 0 this could not
+ * come up: CDK raises `maxTtl` to `defaultTtl` when it is lower, so an override
+ * of `maxTtl: 0` synthesized as a day and deployed. Now it is honored, and
+ * without this the upgrade deploy would fail.
+ */
+function isCachingDisabled(props: CachePolicyProps | undefined): boolean {
+  const maxTtl = props?.maxTtl;
+  return (
+    maxTtl !== undefined &&
+    !Token.isUnresolved(maxTtl.toString()) &&
+    maxTtl.toSeconds() === 0
+  );
+}
+
+/**
+ * What the dynamic cache policy keys on: every request input a Next.js response
+ * varies by.
+ */
+const DYNAMIC_CACHE_KEY: Partial<CachePolicyProps> = {
+  queryStringBehavior: CacheQueryStringBehavior.all(),
+  headerBehavior: CacheHeaderBehavior.allowList(
+    // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
+    // cdk-nextjs includes the most essential headers for Next.js functionality
+    // but it's recommended to request quota increase to include all headers (commented out ones below)
+    // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
+    "accept", // content negotiation (HTML vs RSC payload)
+    "rsc", // React Server Components requests
+    "next-url", // Next.js routing
+    "next-router-state-tree", // App Router navigation state
+    "next-router-prefetch", // prefetch behavior
+    "next-router-segment-prefetch", // segment-level prefetching
+    "x-matched-path", // dynamic routes and rewrites
+    "x-prerender-revalidate", // on-demand ISR revalidation
+    "x-next-cache-tags", // tag-based cache revalidation
+    "x-prerender-bypass", // draft mode
+    // "x-nextjs-stale-time", // stale-while-revalidate behavior
+    // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)
+    // "x-nextjs-postponed", // Partial Prerendering (experimental feature)
+    // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
+  ),
+  cookieBehavior: CacheCookieBehavior.all(),
+  enableAcceptEncodingBrotli: true,
+  enableAcceptEncodingGzip: true,
+};
+
+/**
+ * A cache key of nothing, for a policy that caches nothing. Forwarding is
+ * unaffected: the dynamic origin request policy sends every viewer header,
+ * cookie and query string regardless.
+ */
+const DISABLED_CACHE_KEY: Partial<CachePolicyProps> = {
+  queryStringBehavior: CacheQueryStringBehavior.none(),
+  headerBehavior: CacheHeaderBehavior.none(),
+  cookieBehavior: CacheCookieBehavior.none(),
+  enableAcceptEncodingBrotli: false,
+  enableAcceptEncodingGzip: false,
+};
 
 /** CloudFront's per-distribution cache behavior limit, including the default. */
 const MAX_CACHE_BEHAVIORS = 25;
@@ -825,21 +920,11 @@ const MAX_PATH_PATTERN_LENGTH = 255;
  * the app onto the static origin.
  */
 function toPathPattern(name: string): string {
-  const pattern = [...name]
+  return [...name]
     .map((char) =>
       PATH_PATTERN_CHAR.test(char)
         ? char
         : "?".repeat(Buffer.byteLength(char, "utf8")),
     )
     .join("");
-  if (pattern.length > MAX_PATH_PATTERN_LENGTH) {
-    throw new Error(
-      `The public/ entry "${name}" needs a ${pattern.length}-character ` +
-        `CloudFront path pattern, over the ${MAX_PATH_PATTERN_LENGTH}-character ` +
-        "limit. Rename it, or move it into a subdirectory of public/ whose own " +
-        "name is short enough. See " +
-        "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern",
-    );
-  }
-  return pattern;
 }

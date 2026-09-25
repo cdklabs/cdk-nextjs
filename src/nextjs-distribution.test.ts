@@ -1,6 +1,6 @@
 import { runInNewContext } from "node:vm";
-import { App, Stack } from "aws-cdk-lib";
-import { Match, Template } from "aws-cdk-lib/assertions";
+import { App, Duration, Stack } from "aws-cdk-lib";
+import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
   Function as CloudFrontFunction,
   FunctionCode,
@@ -511,6 +511,103 @@ describe("NextjsDistribution function group behaviors", () => {
     expect(
       () => new NextjsDistribution(stack, "Distribution", distributionProps),
     ).toThrow(/needs a 264-character CloudFront path pattern/);
+  });
+
+  it("skips a public/ entry whose pattern would be wildcards alone", () => {
+    // `фото/` is `????????/*`, which matches any 8-byte first segment. Public
+    // behaviors are added ahead of the compute ones, so `/products/42` would go
+    // to S3 and 403. The entry gets no behavior and a warning instead.
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      publicDirEntries: [
+        { name: "фото", isDirectory: true },
+        { name: "图", isDirectory: false },
+        { name: "фото-1", isDirectory: true },
+      ],
+    });
+    const patterns = pathPatterns(stack);
+    expect(patterns).not.toContain(`${"?".repeat(8)}/*`);
+    expect(patterns).not.toContain("???");
+    // One literal character keeps a pattern narrow enough to keep.
+    expect(patterns).toContain(`${"?".repeat(8)}-1/*`);
+    Annotations.fromStack(stack).hasWarning(
+      "*",
+      Match.stringLikeRegexp('"фото", "图"'),
+    );
+  });
+
+  it("does not count a skipped public/ entry against the budget", () => {
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: [
+        ...Array.from({ length: 22 }, (_, i) => `file${i}.txt`),
+        "图",
+      ],
+    });
+    // 3 fixed + 22 = 25, exactly the limit; the skipped entry adds nothing.
+    expect(
+      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+    ).not.toThrow();
+  });
+
+  it("checks the length of the final pattern, basePath and /* included", () => {
+    // 83 three-byte characters + ".pdf" is a 253-character pattern on its own,
+    // under the limit; `/docs/` in front takes it to 259, which CloudFront
+    // rejects at deploy.
+    const name = `${"图".repeat(83)}.pdf`;
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: [name],
+    });
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          basePath: "/docs",
+        }),
+    ).toThrow(/needs a 259-character CloudFront path pattern/);
+
+    const { stack: dirStack, distributionProps: dirProps } = setup([]);
+    expect(
+      () =>
+        new NextjsDistribution(dirStack, "Distribution", {
+          ...dirProps,
+          // 254 characters, under the limit until the `/*`.
+          publicDirEntries: [
+            { name: `ab${"图".repeat(84)}`, isDirectory: true },
+          ],
+        }),
+    ).toThrow(/needs a 256-character/);
+  });
+
+  it("drops the cache key when an override disables dynamic caching", () => {
+    // CloudFront rejects a policy that caches nothing but keys on headers. CDK
+    // used to raise `maxTtl: 0` to the day-long default, so the override
+    // deployed; with a default of 0 it is honored, and must stay deployable.
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      overrides: {
+        dynamicCachePolicyProps: { maxTtl: Duration.seconds(0) },
+      },
+    });
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::CachePolicy",
+      {
+        CachePolicyConfig: Match.objectLike({
+          Comment: Match.stringLikeRegexp("Dynamic"),
+          DefaultTTL: 0,
+          MaxTTL: 0,
+          MinTTL: 0,
+          ParametersInCacheKeyAndForwardedToOrigin: {
+            CookiesConfig: { CookieBehavior: "none" },
+            EnableAcceptEncodingBrotli: false,
+            EnableAcceptEncodingGzip: false,
+            HeadersConfig: { HeaderBehavior: "none" },
+            QueryStringsConfig: { QueryStringBehavior: "none" },
+          },
+        }),
+      },
+    );
   });
 
   it("rejects splitting on a deployment type that cannot route it", () => {
