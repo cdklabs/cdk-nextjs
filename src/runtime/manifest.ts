@@ -159,6 +159,12 @@ export interface AdapterManifestConfig {
    */
   readonly compress: boolean;
   /**
+   * `next.config` `generateEtags`. Honored for the files the runtime serves
+   * itself, as `next start` does (`serveStatic`'s `etag` option). Absent in a
+   * manifest from before the field existed, which means the default, `true`.
+   */
+  readonly generateEtags?: boolean;
+  /**
    * `ResolveRoutesParams["i18n"]`-shaped, narrower than NextConfigComplete.
    * `null` when the app configures no `i18n`.
    */

@@ -26,6 +26,7 @@ import {
   resolveRoutes,
 } from "@next/routing";
 import { AdapterEntrypoint, AdapterManifest } from "./manifest";
+import { publicDirKey } from "./public-files";
 
 /**
  * Runs the app's middleware. Supplied by `MiddlewareRunner` in `./middleware`.
@@ -40,6 +41,16 @@ export type MiddlewareInvoker = (
 
 export interface DispatcherOptions {
   readonly manifest: AdapterManifest;
+  /**
+   * The files under `public/`, from `readPublicFiles`: unencoded paths relative
+   * to it. Served ahead of every route, as `next start` serves them.
+   *
+   * Pass the same array on every request: the routing table built from it and
+   * the manifest is cached against both, and building it is linear in the
+   * number of files.
+   * @default - no `public/` files
+   */
+  readonly publicFiles?: readonly string[];
   /**
    * Required whenever `manifest.middleware` is non-null. `resolveRoutes` decides
    * *whether* to call it from `routing.middlewareMatchers`; we only supply the
@@ -89,13 +100,33 @@ export interface DispatchEntrypointResult extends DispatchResultBase {
   readonly requestHeaders: Headers;
 }
 
-/** A file in `manifest.staticFiles`: read off disk, not invoked. */
+/** A file in `manifest.staticFiles` or `public/`: read off disk, not invoked. */
 export interface DispatchStaticFileResult extends DispatchResultBase {
   readonly kind: "static-file";
   readonly pathname: string;
   /** Repo-root-relative key inside the deployment root. */
   readonly filePath: string;
+  readonly source: StaticFileSource;
+  /**
+   * Request headers as middleware left them, for the 404 the runtime renders
+   * when the file is not in the package after all.
+   */
+  readonly requestHeaders: Headers;
 }
+
+/**
+ * Where a static file came from, which decides what else it is allowed to do.
+ *
+ * - `public` — a file in `public/`.
+ * - `next-static` — `<distDir>/static`, the client bundles.
+ * - `server` — a build output under `<distDir>/server`: prerendered HTML, a
+ *   static metadata route's `.body`.
+ *
+ * The first two are what `next start` serves as plain files, with `send`, and
+ * only to GET and HEAD (`router-server.js`, the `fsPath` branch); the third it
+ * serves by invoking the route it came from.
+ */
+export type StaticFileSource = "public" | "next-static" | "server";
 
 /** `/_next/image`: our own optimizer, deliberately reached after middleware. */
 export interface DispatchImageOptimizationResult extends DispatchResultBase {
@@ -192,11 +223,9 @@ export class Dispatcher {
 
   private readonly routes: ResolveRoutesParams["routes"];
   private readonly i18n: ResolveRoutesParams["i18n"] | undefined;
-  private readonly staticFiles: Record<string, string>;
+  private readonly table: RoutingTable;
   private readonly imagePathname: string;
   private readonly invokeMiddleware: MiddlewareInvoker;
-  /** {@link manifest}'s, plus the `trailingSlash` variants. */
-  private readonly pathnames: string[];
   private readonly trailingSlash: boolean;
 
   public constructor(private readonly options: DispatcherOptions) {
@@ -204,10 +233,7 @@ export class Dispatcher {
     this.routes = asRoutes(manifest.routing);
     this.i18n = asI18n(manifest.config.i18n);
     this.trailingSlash = manifest.config.trailingSlash;
-    this.pathnames = this.trailingSlash
-      ? withTrailingSlashVariants(manifest.pathnames)
-      : manifest.pathnames;
-    this.staticFiles = manifest.staticFiles;
+    this.table = routingTableFor(manifest, options.publicFiles ?? NO_FILES);
     this.imagePathname = `${manifest.config.basePath}/_next/image`;
     this.notFound = resolveNotFoundTarget(manifest);
 
@@ -332,7 +358,7 @@ export class Dispatcher {
       basePath: this.manifest.config.basePath,
       headers: requestHeaders,
       requestBody: request.body,
-      pathnames: this.pathnames,
+      pathnames: this.table.pathnames,
       routes: this.routes,
       i18n: this.i18n,
       invokeMiddleware: async (ctx) => {
@@ -398,6 +424,25 @@ export class Dispatcher {
     // trailing slash; see {@link withTrailingSlashVariants}.
     const resolvedPathname = this.normalizePathname(result.resolvedPathname);
     if (resolvedPathname !== undefined) {
+      const staticFile = this.table.staticFiles.get(resolvedPathname);
+      const asStaticFile = (
+        file: StaticFileTarget,
+      ): DispatchStaticFileResult => ({
+        kind: "static-file",
+        pathname: resolvedPathname,
+        filePath: file.filePath,
+        source: file.source,
+        requestHeaders: forwardedHeaders,
+        responseHeaders,
+        status,
+      });
+      // Ahead of the entrypoints, which is `next start`'s order: its filesystem
+      // check tries `_next/static` and then `public/` before any app or page
+      // route, so `public/robots.txt` beats `app/robots.ts` and
+      // `public/favicon.ico` beats `app/favicon.ico`.
+      if (staticFile && staticFile.source !== "server") {
+        return asStaticFile(staticFile);
+      }
       const entrypoint = this.manifest.entrypoints[resolvedPathname];
       if (entrypoint) {
         const routeMatches = result.routeMatches ?? {};
@@ -424,15 +469,8 @@ export class Dispatcher {
           status,
         };
       }
-      const filePath = this.staticFiles[resolvedPathname];
-      if (filePath !== undefined) {
-        return {
-          kind: "static-file",
-          pathname: resolvedPathname,
-          filePath,
-          responseHeaders,
-          status,
-        };
+      if (staticFile) {
+        return asStaticFile(staticFile);
       }
     }
 
@@ -471,6 +509,158 @@ export class Dispatcher {
 
 export function createDispatcher(options: DispatcherOptions): Dispatcher {
   return new Dispatcher(options);
+}
+
+/** A static file, as dispatch resolves one. */
+interface StaticFileTarget {
+  readonly filePath: string;
+  readonly source: StaticFileSource;
+}
+
+/**
+ * What dispatch matches a request against, derived once from the manifest and
+ * `public/` rather than on every request: the Dispatcher itself is per request
+ * (see `NextjsRuntime.route`), and with a few thousand `public/` files the
+ * derivation is most of the cost of a dispatch.
+ */
+interface RoutingTable {
+  /**
+   * Every pathname `resolveRoutes` may match: the manifest's, every spelling of
+   * every static file, and — for a `trailingSlash` app — the slash variants.
+   */
+  readonly pathnames: string[];
+  /** Every spelling a static file is requested by → the file. */
+  readonly staticFiles: ReadonlyMap<string, StaticFileTarget>;
+}
+
+const NO_FILES: readonly string[] = [];
+
+const routingTables = new WeakMap<
+  AdapterManifest,
+  WeakMap<readonly string[], RoutingTable>
+>();
+
+function routingTableFor(
+  manifest: AdapterManifest,
+  publicFiles: readonly string[],
+): RoutingTable {
+  let byPublicFiles = routingTables.get(manifest);
+  if (!byPublicFiles) {
+    byPublicFiles = new WeakMap();
+    routingTables.set(manifest, byPublicFiles);
+  }
+  let table = byPublicFiles.get(publicFiles);
+  if (!table) {
+    table = buildRoutingTable(manifest, publicFiles);
+    byPublicFiles.set(publicFiles, table);
+  }
+  return table;
+}
+
+/**
+ * Build outputs first, then `public/` on top of them, except over
+ * `_next/static`: that is `next start`'s precedence (see
+ * {@link Dispatcher.dispatch}).
+ *
+ * A `public/` file is registered under its pathname with the default locale in
+ * front, too, for an i18n app. `resolveRoutes` puts a locale on every path
+ * outside `/_next/` and `/api/` before it matches, so `/test.txt` is looked up
+ * as `/en-US/test.txt` and never matched the bare key: no `public/` file
+ * resolved in an i18n app at all. `next start` strips the default locale — and
+ * each domain's — off a `public/` request and no other locale (filesystem.js:
+ * "legacy behavior allows visiting static assets under default locale but no
+ * other locale"), which these entries reproduce: `/en-US/test.txt` serves and
+ * `/fr/test.txt` does not.
+ */
+function buildRoutingTable(
+  manifest: AdapterManifest,
+  publicFiles: readonly string[],
+): RoutingTable {
+  const { basePath, trailingSlash } = manifest.config;
+  const staticFiles = new Map<string, StaticFileTarget>();
+  const nextStaticPrefix = `${basePath}/_next/static/`;
+
+  for (const [pathname, filePath] of Object.entries(manifest.staticFiles)) {
+    const target: StaticFileTarget = {
+      filePath,
+      source: pathname.startsWith(nextStaticPrefix) ? "next-static" : "server",
+    };
+    // The key as Next.js reported it, and then as a request spells it: a build
+    // output's pathname is the file's own name, unencoded, and the HTML that
+    // loads it percent-encodes it. `app/isr/[id]/page.tsx`'s webpack chunk is
+    // `/_next/static/chunks/app/isr/[id]/page-<hash>.js` in the outputs and
+    // `…/isr/%5Bid%5D/page-<hash>.js` in the `<script>` tag.
+    for (const spelling of [pathname, ...requestSpellings(pathname)]) {
+      if (!staticFiles.has(spelling)) {
+        staticFiles.set(spelling, target);
+      }
+    }
+  }
+
+  const publicDir = publicDirKey(manifest);
+  const i18n = asI18n(manifest.config.i18n);
+  const localePrefixes = [
+    "",
+    ...new Set(
+      i18n
+        ? [
+            i18n.defaultLocale,
+            ...(i18n.domains ?? []).map((domain) => domain.defaultLocale),
+          ].map((locale) => `/${locale}`)
+        : [],
+    ),
+  ];
+  for (const file of publicFiles) {
+    const target: StaticFileTarget = {
+      filePath: `${publicDir}/${file}`,
+      source: "public",
+    };
+    for (const spelling of requestSpellings(`/${file}`)) {
+      for (const prefix of localePrefixes) {
+        const pathname = `${basePath}${prefix}${spelling}`;
+        if (staticFiles.get(pathname)?.source !== "next-static") {
+          staticFiles.set(pathname, target);
+        }
+      }
+    }
+  }
+
+  const pathnames = [
+    ...new Set([...manifest.pathnames, ...staticFiles.keys()]),
+  ];
+  return {
+    pathnames: trailingSlash ? withTrailingSlashVariants(pathnames) : pathnames,
+    staticFiles,
+  };
+}
+
+/**
+ * The ways a request spells an unencoded path, for the exact match
+ * `@next/routing` does against `pathnames`.
+ *
+ * Two, because there are two ways to write a link to `public/images/logo@2x.png`
+ * and a browser sends each as written: `/images/logo@2x.png`, which the WHATWG
+ * URL parser leaves alone — it only encodes spaces, quotes, `#`, `?`, `<>`,
+ * `` ` ``, `{}` and non-ASCII in a path — and `/images/logo%402x.png`, which is
+ * `encodeURIComponent` a segment at a time and is how Next.js keys its own
+ * `public/` set (`encodeURIPath`). For most names the two are the same string;
+ * they differ for `@ + & , ; = $ : [ ]` and the like, and a key in only the
+ * second form 404'd every `logo@2x.png`, `c++.svg` and `icon[1].png`.
+ *
+ * `%` is encoded in both, since a literal `%` in a name can only be requested
+ * as `%25`; so are `?` and `#`, which would otherwise end the path, and `\`,
+ * which the parser turns into `/`.
+ */
+function requestSpellings(path: string): string[] {
+  const segments = path.split("/");
+  const encoded = segments.map(encodeURIComponent).join("/");
+  const parsed = new URL(
+    segments
+      .map((segment) => segment.replace(/[%?#\\]/g, encodeURIComponent))
+      .join("/"),
+    "http://n",
+  ).pathname;
+  return parsed === encoded ? [encoded] : [encoded, parsed];
 }
 
 /**

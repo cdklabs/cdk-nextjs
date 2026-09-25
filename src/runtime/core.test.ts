@@ -144,6 +144,19 @@ function write(path: string, contents: string | Buffer): void {
 const FAVICON = Buffer.from("00000100-fake-icon", "utf-8");
 const NOT_FOUND_HTML = "<html><body>prerendered 404</body></html>";
 const ERROR_HTML = "<html><body>prerendered 500</body></html>";
+/**
+ * What a container image copies into `public/`. Names `send` and the exact
+ * match in `@next/routing` each got wrong: a `%` that is not an escape, one that
+ * looks like one next to the file it decodes to, and an `@` a browser leaves
+ * alone.
+ */
+const PUBLIC_FILES: Record<string, string> = {
+  "test.txt": "hello from public",
+  "100%.png": "a literal percent",
+  "a%20b.txt": "the file named with a percent",
+  "a b.txt": "the file named with a space",
+  "images/logo@2x.png": "at sign",
+};
 
 /**
  * Materializes the tree a deployment stages: the manifest under
@@ -191,6 +204,9 @@ function stageDeployment(
   // Absent in the deployment the error-page ladder tests stage.
   if (manifest.staticFiles["/500"]) {
     write(join(root, manifest.staticFiles["/500"]), ERROR_HTML);
+  }
+  for (const [file, contents] of Object.entries(PUBLIC_FILES)) {
+    write(join(root, manifest.relativeProjectDir, "public", file), contents);
   }
   return root;
 }
@@ -374,6 +390,31 @@ describe("NextjsRuntime.handle", () => {
     // is staged as `favicon.ico.body`, and `.body` is not a media type. See
     // `setBodyFileContentType` in static-files.ts.
     expect(sink.head?.headers["content-type"]).toBe("image/x-icon");
+  });
+
+  it("serves public/ off disk, under the name the file actually has", async () => {
+    const body = async (url: string) => {
+      const sink = await send({ url });
+      expect(sink.head?.statusCode).toBe(200);
+      return sink.body.toString("utf-8");
+    };
+    expect(await body("/test.txt")).toBe("hello from public");
+    // `send` decodes the path it is given, so a raw filesystem path failed to
+    // decode (`100%.png`, an empty 400) or decoded to another file.
+    expect(await body("/100%25.png")).toBe("a literal percent");
+    expect(await body("/a%2520b.txt")).toBe("the file named with a percent");
+    expect(await body("/a%20b.txt")).toBe("the file named with a space");
+    // Both ways a link can spell it.
+    expect(await body("/images/logo@2x.png")).toBe("at sign");
+    expect(await body("/images/logo%402x.png")).toBe("at sign");
+  });
+
+  it("answers 405 to a public/ file requested with a method other than GET", async () => {
+    // `send` serves any method; `next start` does not.
+    const sink = await send({ url: "/test.txt", method: "DELETE" });
+    expect(sink.head?.statusCode).toBe(405);
+    expect(sink.head?.headers.allow).toBe("GET, HEAD");
+    expect(sink.body.toString("utf-8")).not.toContain("hello from public");
   });
 
   it("answers an unknown path through the /_not-found entrypoint", async () => {

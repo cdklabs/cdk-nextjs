@@ -44,6 +44,7 @@ import {
 } from "./manifest";
 import { createMiddlewareRunner, MiddlewareRunner } from "./middleware";
 import { setupNodeEnvironment, useNextFrom } from "./next-modules";
+import { publicDirKey, readPublicFiles } from "./public-files";
 import { serveStaticFile } from "./static-files";
 
 /** One request, normalized by a shell. */
@@ -96,10 +97,15 @@ export class NextjsRuntime {
    * this answers can happen before one exists.
    */
   private readonly errorTarget: ErrorTarget;
+  /** Listed once, at cold start; see `readPublicFiles`. */
+  private readonly publicFiles: readonly string[];
 
   public constructor(private readonly options: NextjsRuntimeOptions) {
     const { manifest, deploymentRoot } = options;
     this.entrypoints = new EntrypointRegistry(deploymentRoot, manifest);
+    this.publicFiles = readPublicFiles(
+      join(deploymentRoot, publicDirKey(manifest)),
+    );
     this.errorTarget = resolveErrorTarget(manifest);
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
@@ -219,6 +225,7 @@ export class NextjsRuntime {
     let middlewareResponse: Response | undefined;
     const dispatcher = createDispatcher({
       manifest: this.options.manifest,
+      publicFiles: this.publicFiles,
       invokeMiddleware: this.middleware?.invokerFor(
         { waitUntil, signal: request.signal },
         (response) => {
@@ -341,14 +348,34 @@ export class NextjsRuntime {
       }
 
       case "static-file": {
+        // `next start` serves a `public/` or `_next/static` file to GET and
+        // HEAD only, and `send` would serve it to any method.
+        if (
+          result.source !== "server" &&
+          req.method !== "GET" &&
+          req.method !== "HEAD"
+        ) {
+          sendMethodNotAllowed(res);
+          return;
+        }
         const served = await serveStaticFile(
           req,
           res,
           this.options.deploymentRoot,
           result.filePath,
+          { etag: this.options.manifest.config.generateEtags !== false },
         );
         if (!served) {
-          await this.sendNotFound(req, res, waitUntil, dispatcher.notFound);
+          // As the `not-found` branch renders it: with the request headers
+          // middleware set — a CSP nonce, say — and as the path asked for.
+          req.headers = toIncomingHttpHeaders(result.requestHeaders);
+          await this.sendNotFound(
+            req,
+            res,
+            waitUntil,
+            dispatcher.notFound,
+            `${result.pathname}${url.search}`,
+          );
         }
         return;
       }
@@ -833,6 +860,19 @@ function sendRedirect(
   }
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.end(location);
+}
+
+/**
+ * `next start`'s answer to a POST, PUT or DELETE for a static file: 405 with
+ * `Allow: GET, HEAD` (`router-server.js`). It renders that through `/_error`;
+ * this is the plain-text equivalent, since the status and `Allow` are what a
+ * client acts on.
+ */
+function sendMethodNotAllowed(res: ShimServerResponse): void {
+  res.statusCode = 405;
+  res.setHeader("Allow", "GET, HEAD");
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.end("Method Not Allowed");
 }
 
 /** A `next.config` rewrite whose destination is another origin. */

@@ -23,10 +23,11 @@ ARG RELATIVE_PROJECT_DIR
 # request-handling server under cdk-nextjs-runtime/. Replaces `.next/standalone`.
 COPY --chown=nextjs:nodejs .next/cdk-nextjs-adapter/app ./
 # `.next/static` and `public` are in S3 and served by CloudFront, so they are
-# deliberately not staged. They are still copied here because the manifest lists
-# their pathnames as static files the server may be asked for directly (e.g. a
-# request that bypasses the CDN's routing), and because image optimization reads
-# the source bytes of imported images from disk.
+# deliberately not staged. They are still copied here because the server answers
+# them if asked directly (e.g. a request that bypasses the CDN's routing) — the
+# manifest lists `.next/static`, and the runtime lists `public` when it starts —
+# and because image optimization reads the source bytes of imported images from
+# disk.
 COPY --chown=nextjs:nodejs .next/static ./$RELATIVE_PROJECT_DIR/.next/static
 COPY --chown=nextjs:nodejs public ./$RELATIVE_PROJECT_DIR/public
 

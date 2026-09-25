@@ -2,10 +2,11 @@
  * Serving the static files that nothing in front of the compute answers.
  *
  * `NextjsStaticAssets` uploads `<distDir>/static` and `public` to S3, and
- * CloudFront / API Gateway route those prefixes there. Everything else in
- * `manifest.staticFiles` lives under `<distDir>/server` — `404.html`, `500.html`,
- * `favicon.ico.body`, fully-static Pages Router HTML — and reaches us, exactly as
- * it reaches `next start`.
+ * CloudFront / API Gateway route those prefixes there — except on
+ * `NextjsRegionalContainers`, which has nothing in front of it and serves both
+ * off disk. Everything else in `manifest.staticFiles` lives under
+ * `<distDir>/server` — `404.html`, `500.html`, `favicon.ico.body`, fully-static
+ * Pages Router HTML — and reaches us, exactly as it reaches `next start`.
  *
  * Next.js's own `serveStatic` is used rather than a `createReadStream`, because it
  * is `send` underneath and that brings conditional requests (`If-None-Match`,
@@ -13,7 +14,7 @@
  * detection. Reimplementing those is how a "simple" file server ends up
  * disagreeing with `next start` on a 304.
  */
-import { extname, join } from "node:path";
+import { extname } from "node:path";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { nextModule } from "./next-modules";
@@ -28,26 +29,33 @@ let serveStaticModule: ServeStaticModule | undefined;
  * Returns `false` when the file is not in the deployment package, which is the
  * caller's cue to fall through to a 404.
  *
- * That happens by design for `<distDir>/static` and `public` paths on the Lambda
- * types: they are not staged (they would be a second copy of bytes already in S3,
- * and `public/` alone can blow the 250 MB unzipped Lambda cap). Reaching this with
+ * That happens by design for `<distDir>/static` paths on the Lambda types: they
+ * are not staged, being a second copy of bytes already in S3. Reaching this with
  * one of those there means the distribution didn't route it to S3. The container
- * images copy both directories in, so there they are found.
+ * images copy the directory in, so there they are found. (`public/` never gets
+ * here unfound: dispatch only knows the `public/` files that are on disk.)
  */
 export async function serveStaticFile(
   req: ShimIncomingMessage,
   res: ShimServerResponse,
   deploymentRoot: string,
   filePath: string,
+  options: { readonly etag: boolean },
 ): Promise<boolean> {
   serveStaticModule ??= nextModule<ServeStaticModule>(SERVE_STATIC);
   const { serveStatic, getContentType } = serveStaticModule;
   setBodyFileContentType(res, filePath, getContentType);
   try {
+    // Encoded, and relative to a `root`, which is how `next start` calls it:
+    // `send` percent-decodes whatever path it is handed, as though it were a
+    // URL. A raw filesystem path broke on any file name with a `%` in it —
+    // `100%.png` failed to decode and answered an empty 400, and `a%20b.txt`
+    // was looked up as `a b.txt`, serving a different file if there was one.
     await serveStatic(
       req as unknown as Parameters<typeof serveStatic>[0],
       asServerResponse(res),
-      join(deploymentRoot, filePath),
+      `/${filePath.split("/").map(encodeURIComponent).join("/")}`,
+      { root: deploymentRoot, etag: options.etag },
     );
     return true;
   } catch (error) {

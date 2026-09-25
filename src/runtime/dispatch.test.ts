@@ -1,4 +1,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { MiddlewareResult } from "@next/routing";
 import {
   createDispatcher,
@@ -10,6 +13,7 @@ import {
   toRedirect,
 } from "./dispatch";
 import { AdapterManifest } from "./manifest";
+import { readPublicFiles } from "./public-files";
 import appPlaygroundBasePath from "../adapter/__fixtures__/app-playground-base-path.json";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
 import pagesI18n from "../adapter/__fixtures__/pages-i18n.json";
@@ -249,23 +253,143 @@ describe("Dispatcher entrypoint resolution", () => {
 });
 
 describe("Dispatcher public/ files", () => {
-  it("serves a public/ file whose name has to be percent-encoded", async () => {
-    // What `buildAdapterManifest` lists for `public/static/hello e2e.png`:
-    // `@next/routing` matches the request path still encoded, so the key is too,
-    // and the file path it points at is not.
+  /**
+   * A real `public/` on disk, listed by the same `readPublicFiles` the runtime
+   * calls at cold start, so the spellings under test are the ones the lister
+   * and the routing table actually produce between them.
+   */
+  function publicDir(files: string[]): readonly string[] {
+    const dir = mkdtempSync(join(tmpdir(), "cdk-nextjs-dispatch-public-"));
+    for (const file of files) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true });
+      writeFileSync(join(dir, file), file);
+    }
+    return readPublicFiles(dir);
+  }
+
+  function dispatcherWithPublic(
+    name: keyof typeof manifests,
+    files: string[],
+  ): Dispatcher {
+    return createDispatcher({
+      manifest: manifests[name],
+      publicFiles: publicDir(files),
+      invokeMiddleware: async () => ({}),
+    });
+  }
+
+  it.each([
+    // A space is encoded by every client, so the two spellings agree.
+    ["static/hello e2e.png", ["/static/hello%20e2e.png"]],
+    // These a browser sends as written, and `encodeURIComponent` does not.
+    ["images/logo@2x.png", ["/images/logo@2x.png", "/images/logo%402x.png"]],
+    ["c++.svg", ["/c++.svg", "/c%2B%2B.svg"]],
+    ["icon[1].png", ["/icon[1].png", "/icon%5B1%5D.png"]],
+    ["Q&A.pdf", ["/Q&A.pdf", "/Q%26A.pdf"]],
+    // A literal `%` can only be requested escaped.
+    ["100%.png", ["/100%25.png"]],
+    ["фото/a.jpg", ["/%D1%84%D0%BE%D1%82%D0%BE/a.jpg"]],
+  ])(
+    "serves public/%s under every spelling a link can have",
+    async (file, urls) => {
+      const dispatcher = dispatcherWithPublic("app-playground", [file]);
+      for (const url of urls) {
+        expect(await dispatcher.dispatch(request(url))).toMatchObject({
+          kind: "static-file",
+          source: "public",
+          filePath: `app-playground/public/${file}`,
+        });
+      }
+    },
+  );
+
+  it("serves public/ ahead of an app route at the same pathname", async () => {
+    // `app/favicon.ico` is a build output here; `next start` checks public/
+    // before app and page routes, so a leftover `public/favicon.ico` wins.
+    const result = await dispatcherWithPublic("app-playground", [
+      "favicon.ico",
+    ]).dispatch(request("/favicon.ico"));
+    expect(result).toMatchObject({
+      kind: "static-file",
+      filePath: "app-playground/public/favicon.ico",
+    });
+  });
+
+  it("still serves the build output when public/ has no file there", async () => {
+    const result = await dispatcherWithPublic("app-playground", []).dispatch(
+      request("/favicon.ico"),
+    );
+    expect(result).toMatchObject({ kind: "static-file", source: "server" });
+  });
+
+  it("serves public/ under basePath", async () => {
+    const dispatcher = dispatcherWithPublic("app-playground-base-path", [
+      "test.txt",
+    ]);
+    expect(await dispatcher.dispatch(request("/prod/test.txt"))).toMatchObject({
+      kind: "static-file",
+      filePath: "app-playground/public/test.txt",
+    });
+    expect((await dispatcher.dispatch(request("/test.txt"))).kind).not.toBe(
+      "static-file",
+    );
+  });
+
+  it("serves public/ in an i18n app, bare and under a default locale only", async () => {
+    // `resolveRoutes` prefixes the locale before it matches, so `/test.txt` is
+    // looked up as `/en-US/test.txt`. `next start` strips the default locale,
+    // and each domain's, off a public/ request - `fr` is example.fr's - and no
+    // other.
+    const dispatcher = dispatcherWithPublic("pages-i18n", ["test.txt"]);
+    for (const url of ["/test.txt", "/en-US/test.txt", "/fr/test.txt"]) {
+      expect(await dispatcher.dispatch(request(url))).toMatchObject({
+        kind: "static-file",
+        filePath: "pages-i18n/public/test.txt",
+      });
+    }
+    expect(
+      (await dispatcher.dispatch(request("/nl-NL/test.txt"))).kind,
+    ).not.toBe("static-file");
+  });
+
+  it("knows nothing of public/ when the deployment has none", async () => {
+    // The Lambda types: CloudFront or API Gateway answers public/ from S3, the
+    // package does not carry it, and a request that got through anyway takes
+    // the ordinary not-found path, middleware request headers and all.
+    expect(
+      await dispatcherFor("app-playground").dispatch(request("/test.txt")),
+    ).toMatchObject({ kind: "not-found" });
+  });
+});
+
+describe("Dispatcher build-output spellings", () => {
+  it("serves a _next/static file whose name the HTML percent-encodes", async () => {
+    // webpack names an App Router chunk after its route segment, brackets and
+    // all, and Next.js reports the pathname unencoded; the `<script>` tag in
+    // the HTML asks for `%5Bid%5D`.
     const base = manifests["app-playground"];
-    const pathname = "/static/hello%20e2e.png";
-    const filePath = "app-playground/public/static/hello e2e.png";
+    const pathname = "/_next/static/chunks/app/isr/[id]/page-0123abcd.js";
+    const filePath =
+      "app-playground/.next/static/chunks/app/isr/[id]/page-0123abcd.js";
     const manifest: AdapterManifest = {
       ...base,
       staticFiles: { ...base.staticFiles, [pathname]: filePath },
       pathnames: [...base.pathnames, pathname],
     };
-    const result = await createDispatcher({
+    const dispatcher = createDispatcher({
       manifest,
       invokeMiddleware: async () => ({}),
-    }).dispatch(request("/static/hello%20e2e.png"));
-    expect(result).toMatchObject({ kind: "static-file", pathname, filePath });
+    });
+    for (const url of [
+      "/_next/static/chunks/app/isr/%5Bid%5D/page-0123abcd.js",
+      pathname,
+    ]) {
+      expect(await dispatcher.dispatch(request(url))).toMatchObject({
+        kind: "static-file",
+        source: "next-static",
+        filePath,
+      });
+    }
   });
 });
 
