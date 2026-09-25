@@ -36,6 +36,42 @@ const nextConfig: NextConfig = {
     ],
   },
   reactCompiler: true,
+  // Config-level routing, which `@next/routing` resolves and nothing else in this
+  // app declares. All three get the `basePath` prefix from Next.js, so on
+  // NextjsRegionalFunctions they are also a test of `/prod` surviving the trip.
+  // See examples/e2e-tests/src/config-routing.test.ts.
+  async redirects() {
+    return [
+      {
+        source: '/e2e/redirect-from/:slug',
+        destination: '/params/encoded/:slug',
+        permanent: false,
+      },
+    ];
+  },
+  async headers() {
+    return [
+      {
+        source: '/api/echo',
+        headers: [{ key: 'x-e2e-config-header', value: 'from-next-config' }],
+      },
+    ];
+  },
+  async rewrites() {
+    return {
+      // Matches its own output while `?json=true` is still on the URL, which is
+      // what made Next.js apply it a second time inside the entrypoint and
+      // overwrite `from` (defect 29 in docs/plans/adapter-runtime-progress.md).
+      // Scoped to a prefix so it cannot touch any other route.
+      beforeFiles: [
+        {
+          source: '/e2e/rewrite/:path(.*)',
+          has: [{ type: 'query', key: 'json', value: 'true' }],
+          destination: '/e2e/rewrite/echo?from=/:path',
+        },
+      ],
+    };
+  },
   // typedRoutes: true,
   turbopack: {
     root: rootWorkspace,
