@@ -4875,3 +4875,51 @@ already deployed that shape with the prop set by hand.
 The harness keeps passing the prop explicitly. It would derive the same value,
 but also warn on every basePath fixture, and there the proxy plays the
 root-mapped domain synth cannot see.
+
+## Post-PR — what the four-type back-fill found in `examples/e2e-tests`
+
+The back-filled files (`e9dc52d`, `e533dd9`) failed PR #271's e2e run on three of
+the four types. Two of the failures were cdk-nextjs defects that had been there
+since before the back-fill; the rest were the suite asking for things a deployment
+type cannot deliver.
+
+**Defect 37: a `public/` name that needs escaping never matched its CloudFront
+behavior.** Defect 18's fix wrote one `?` per *percent-encoded* character
+(`hello???e2e.txt`), on the reasoning that the request arrives as `%20`. But
+CloudFront URL-decodes the path before matching, and `?` matches one byte of the
+decoded path. Measured against the deployed `pr-271-glbl-fns` distribution:
+`/test%2Etxt` matched the `test.txt` behavior and served from S3, `ä` plus one
+letter filled `???`, and `€` (three UTF-8 bytes) filled it alone. So the pattern
+synthesized, deployed, and never matched: the request fell through to the default
+behavior and the Lambda answered 404. `toPathPattern` now writes one `?` per UTF-8
+byte (`hello?e2e.txt`). The `next-image-legacy/unicode` harness verdict under
+defect 24 did not catch it because that fixture reaches its files through the
+image optimizer, which reads S3 directly.
+
+**Defect 38: `NextjsRegionalContainers` served no `public/` file at all.** Not
+only the space-named one: `/test.txt` and `/static/grid.svg` answered the app's
+404 page. Next.js 16.3.5's adapter API puts `public/` in `outputs.staticFiles`
+only for `output: "export"`, and dispatch serves only what `manifest.staticFiles`
+lists, so the directory the Dockerfile copies into the image was never consulted.
+The Lambda types never noticed because the distribution routes `public/` to S3
+before the compute sees it. `buildAdapterManifest` now reads `public/` from the
+project directory into `staticFiles` (not into staging), keyed percent-encoded a
+segment at a time, because `@next/routing` matches `pathnames` against the raw
+request path. Verified locally by serving the Dockerfile's layout with
+`server.mjs`: every `public/` file, both space-named ones included, answers 200.
+
+Not defects:
+
+- **The regional-containers example's ALB rule** matched the whole `Cookie`
+  header against exactly `cdk-nextjs=1`, so any second cookie was a 403, and
+  Playwright drops a hand-set `Cookie` header when it follows a redirect. The rule
+  now matches `*cdk-nextjs=1*` and the suite sends the cookie from its jar
+  (`storageState`).
+- **Plain HTTP.** That example's ALB has no TLS, so the browser refuses Next.js's
+  `Secure` draft-mode cookie and `crypto.subtle` does not exist. Draft mode skips
+  on an `http:` base URL; the POST body hash is computed in Node.
+- **A Function URL answers a HEAD with `content-length: 0`** whatever the runtime
+  declared; API Gateway's streaming integration and CloudFront-from-an-ALB both
+  pass the declared `42`. Asserted as a divergence on `NextjsGlobalFunctions`.
+- **`x-cache`** reads `FunctionGeneratedResponse from cloudfront`; asserted as a
+  prefix.
