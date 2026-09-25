@@ -16,6 +16,7 @@ import {
   NEXT_CACHE_TAGS_HEADER,
 } from "./cache-utils.js";
 import { writeBuildOutputs } from "./build-outputs.js";
+import { cacheKindResolver } from "./cache-kinds.js";
 import { LOG_PREFIX } from "../constants.js";
 import getDebug from "debug";
 
@@ -74,13 +75,7 @@ const adapter: NextAdapter = {
     const prerenderGroups = groupPrerenders(ctx.outputs.prerenders);
     debug(`Prerender groups: ${prerenderGroups.size} groups`);
 
-    // Build mapping of route paths to their cache kinds (needs prerender paths for dynamic routes)
-    const prerenderPaths = Array.from(prerenderGroups.keys());
-    const routeToCacheKind = getRouteToCacheKindMap(
-      ctx.outputs,
-      prerenderPaths,
-    );
-    debug(`Route mapping: ${routeToCacheKind.size} routes`);
+    const cacheKindOf = cacheKindResolver(ctx.outputs);
 
     // Tag -> cache keys, for the rows a runtime `set` would have written.
     // See `INIT_CACHE_TAG_MANIFEST`.
@@ -100,12 +95,13 @@ const adapter: NextAdapter = {
         // `test/e2e/app-dir/sub-shell-generation`, where a `'use cache'` root
         // layout reported `(runtime)` where next start reports `(buildtime)`.
         //
+        // A Pages Router template is seeded for the same reason: in production
+        // its fill function only returns what the cache already holds, so with
+        // nothing seeded there is no `fallback: true` shell to serve and
+        // `router.isFallback` is never true (`test/e2e/fallback-route-params`).
         // Nothing extra is needed to keep non-PPR templates out: a route with no
-        // shell emits no prerender output, and a Pages Router template gets no
-        // kind from `getRouteToCacheKindMap` and is skipped just below.
-
-        // Determine the correct cache kind from our route mapping
-        const kind = routeToCacheKind.get(basePath);
+        // shell emits no prerender output.
+        const kind = cacheKindOf(variants);
         if (!kind) {
           debug(`SKIP: No route kind found for ${basePath}`);
           continue;
@@ -371,94 +367,4 @@ async function getSegmentData<
   }
 
   return segmentData;
-}
-
-/**
- * Build a mapping of route paths to their cache kinds based on build outputs
- */
-function getRouteToCacheKindMap(
-  outputs: {
-    pages: Array<{ pathname: string }>;
-    appPages: Array<{ pathname: string }>;
-    appRoutes: Array<{ pathname: string }>;
-  },
-  prerenderPaths: string[],
-): Map<string, CachedRouteKind> {
-  const routeToCacheKind = new Map<string, CachedRouteKind>();
-
-  // Helper to match a path to a dynamic route pattern
-  const matchesDynamicRoute = (path: string, pattern: string): boolean => {
-    // If pattern has no dynamic segments, must be exact match
-    if (!pattern.includes("[")) {
-      return path === pattern;
-    }
-
-    const patternParts = pattern.split("/");
-    const pathParts = path.split("/");
-
-    if (patternParts.length !== pathParts.length) {
-      return false;
-    }
-
-    return patternParts.every((patternPart, i) => {
-      // Dynamic segment matches anything
-      if (patternPart.startsWith("[") && patternPart.endsWith("]")) {
-        return true;
-      }
-      // Static segment must match exactly
-      return patternPart === pathParts[i];
-    });
-  };
-
-  // Pages Router pages - map both templates and their prerendered instances.
-  //
-  // The template's own entry is the `fallback: true`/`'blocking'` shell.
-  // `pages-handler.js` looks it up under `srcPage` - the literal `/blog/[slug]` -
-  // with `isFallback: true`, and in production its fill function only returns
-  // what the cache already holds (`toResponseCacheEntry(previousFallbackCacheEntry)`).
-  // With nothing seeded there is no shell to serve, so the first request to an
-  // ungenerated path blocks on a full render and answers with the real page:
-  // `router.isFallback` is never true and `__NEXT_DATA__.query` arrives populated,
-  // which `test/e2e/fallback-route-params` measures directly.
-  for (const page of outputs.pages) {
-    routeToCacheKind.set(page.pathname, CachedRouteKind.PAGES);
-
-    if (page.pathname.includes("[")) {
-      for (const prerenderPath of prerenderPaths) {
-        if (matchesDynamicRoute(prerenderPath, page.pathname)) {
-          routeToCacheKind.set(prerenderPath, CachedRouteKind.PAGES);
-        }
-      }
-    }
-  }
-
-  // App Pages - map both templates and their prerendered instances
-  for (const appPage of outputs.appPages) {
-    routeToCacheKind.set(appPage.pathname, CachedRouteKind.APP_PAGE);
-
-    // If it's a dynamic route, also map all matching prerendered paths
-    if (appPage.pathname.includes("[")) {
-      for (const prerenderPath of prerenderPaths) {
-        if (matchesDynamicRoute(prerenderPath, appPage.pathname)) {
-          routeToCacheKind.set(prerenderPath, CachedRouteKind.APP_PAGE);
-        }
-      }
-    }
-  }
-
-  // App Routes - map both templates and their prerendered instances
-  for (const appRoute of outputs.appRoutes) {
-    routeToCacheKind.set(appRoute.pathname, CachedRouteKind.APP_ROUTE);
-
-    // If it's a dynamic route, also map all matching prerendered paths
-    if (appRoute.pathname.includes("[")) {
-      for (const prerenderPath of prerenderPaths) {
-        if (matchesDynamicRoute(prerenderPath, appRoute.pathname)) {
-          routeToCacheKind.set(prerenderPath, CachedRouteKind.APP_ROUTE);
-        }
-      }
-    }
-  }
-
-  return routeToCacheKind;
 }

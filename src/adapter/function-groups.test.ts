@@ -3,6 +3,7 @@ import {
   FunctionGroupSpec,
   RouteEntry,
   assignRoutesToGroups,
+  parseFunctionGroupsEnv,
   pathPatternsFor,
   validateFunctionGroups,
 } from "./function-groups";
@@ -121,6 +122,17 @@ describe("validateFunctionGroups", () => {
       validateFunctionGroups([{ name: "a", routes: ["/index"] }]),
     ).toThrow(/cannot be routed/);
   });
+
+  it.each(["/_next", "/_next/**", "/_next/data/**"])(
+    "rejects %s, which Next.js reserves",
+    (route) => {
+      // A data route follows its page into the page's group; a `_next/*`
+      // behavior would compete with the static-asset and image behaviors.
+      expect(() =>
+        validateFunctionGroups([{ name: "a", routes: [route] }]),
+      ).toThrow(/under "\/_next"/);
+    },
+  );
 
   it("rejects an empty path segment", () => {
     expect(() =>
@@ -373,5 +385,17 @@ describe("pathPatternsFor", () => {
         trailingSlash: true,
       }),
     ).toEqual(["api/reports/*"]);
+  });
+});
+
+describe("parseFunctionGroupsEnv", () => {
+  it("rejects a routes array holding something other than strings", () => {
+    expect(() =>
+      parseFunctionGroupsEnv(JSON.stringify([{ name: "a", routes: [1] }])),
+    ).toThrow(/is not a \{ name, routes \} object/);
+  });
+
+  it("returns undefined when unset", () => {
+    expect(parseFunctionGroupsEnv(undefined)).toBeUndefined();
   });
 });

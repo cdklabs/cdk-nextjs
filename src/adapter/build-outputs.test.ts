@@ -291,6 +291,25 @@ describe("buildAdapterManifest edge cases", () => {
     expect(Object.keys(manifest.staticFiles)).toEqual(["/prod", "/prod/index"]);
   });
 
+  it("leaves an App Router `/index` route at `/index`", () => {
+    // `app/index/page.tsx` is a real route. Only the Pages Router reports its
+    // home page as `/index`.
+    const ctx = asContext(appPlayground);
+    const home = ctx.outputs.appPages.find((o) => o.pathname === "/")!;
+    const indexFile = home.filePath.replace(/page\.js$/, "index/page.js");
+    ctx.outputs.appPages.push({
+      ...home,
+      id: "/index",
+      pathname: "/index",
+      filePath: indexFile,
+    });
+    const { manifest } = build(ctx);
+    expect(manifest.entrypoints["/"].filePath).not.toBe(
+      manifest.entrypoints["/index"].filePath,
+    );
+    expect(manifest.entrypoints["/index"].filePath).toMatch(/index\/page\.js$/);
+  });
+
   it("records middleware without duplicating its matchers", () => {
     const { manifest, staging } = build(asContext(appPlayground));
     expect(manifest.middleware).not.toBeNull();
@@ -850,7 +869,9 @@ describe("writeBuildOutputs", () => {
      * and not the other's" is checkable by file. Deliberately not `makeRepo`'s
      * repo: its single output cannot be split.
      */
-    async function makeSplittableRepo() {
+    async function makeSplittableRepo(
+      options: { withNotFound?: boolean; withPagesSsr?: boolean } = {},
+    ) {
       const repoRoot = await mkdtemp(join(tmpdir(), "cdk-nextjs-groups-"));
       const projectDir = join(repoRoot, "app");
       const distDir = join(projectDir, ".next");
@@ -889,9 +910,21 @@ describe("writeBuildOutputs", () => {
         },
         routing: { dynamicRoutes: [] },
         outputs: {
-          pages: [],
+          pages: options.withPagesSsr
+            ? await (async () => {
+                const page = await outputFor("ssr", "/ssr");
+                // A separate output, with its own id, backed by the same file.
+                const dataRoute = "/_next/data/test-build/ssr.json";
+                return [page, { ...page, id: dataRoute, pathname: dataRoute }];
+              })()
+            : [],
           pagesApi: [],
-          appPages: [await outputFor("home", "/")],
+          appPages: [
+            await outputFor("home", "/"),
+            ...(options.withNotFound
+              ? [await outputFor("not-found", "/_not-found")]
+              : []),
+          ],
           appRoutes: [await outputFor("reports", "/api/reports/[id]")],
           prerenders: [],
           staticFiles: [],
@@ -980,6 +1013,43 @@ describe("writeBuildOutputs", () => {
           has(name, "app", ".next", "required-server-files.json"),
         ).resolves.toBe(true);
       }
+    });
+
+    it("stages the not-found page into every group, not only its owner", async () => {
+      // The runtime renders a 404 with the manifest's `/_not-found` wherever the
+      // request landed, so `/api/reports/nope` needs it in the reports group.
+      const { ctx } = await makeSplittableRepo({ withNotFound: true });
+      const { groups: staged, manifest } = buildAdapterManifest(ctx, {
+        buildCwd: ctx.projectDir,
+        functionGroups: groups,
+      });
+      expect(manifest.groups?.default).toContain("/_not-found");
+      expect(staged.map((group) => group.name).sort()).toEqual([
+        "default",
+        "reports",
+      ]);
+      for (const group of staged) {
+        expect([...group.staging.keys()]).toContain(
+          "app/.next/server/app/not-found.js",
+        );
+      }
+    });
+
+    it("keeps a Pages Router page's data route in the page's group", async () => {
+      const { ctx } = await makeSplittableRepo({ withPagesSsr: true });
+      const { groups: staged, manifest } = buildAdapterManifest(ctx, {
+        buildCwd: ctx.projectDir,
+        functionGroups: [{ name: "ssr", routes: ["/ssr"] }],
+      });
+      expect(manifest.groups?.ssr).toEqual([
+        "/_next/data/test-build/ssr.json",
+        "/ssr",
+      ]);
+      const defaultGroup = staged.find((group) => group.name === "default")!;
+      // Otherwise the page and its trace ship in the default zip as well.
+      expect([...defaultGroup.staging.keys()]).not.toContain(
+        "app/.next/server/app/ssr.js",
+      );
     });
 
     it("refuses to split an i18n app, whose routes are locale-prefixed", async () => {

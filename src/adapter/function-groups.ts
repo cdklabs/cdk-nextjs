@@ -43,7 +43,10 @@ export interface FunctionGroupSpec {
 export interface RouteEntry {
   /** Basepath-prefixed route template, exactly as `manifest.entrypoints` keys it. */
   readonly template: string;
-  /** `AdapterEntrypoint.id`. Two templates sharing one are never split apart. */
+  /**
+   * What identifies the entrypoint: the build side passes its `filePath`, since
+   * that is what gets staged. Two templates sharing one are never split apart.
+   */
   readonly entrypointId: string;
 }
 
@@ -89,7 +92,11 @@ export function parseFunctionGroupsEnv(
   }
   return parsed.map((entry) => {
     const group = entry as Partial<FunctionGroupSpec>;
-    if (typeof group.name !== "string" || !Array.isArray(group.routes)) {
+    if (
+      typeof group.name !== "string" ||
+      !Array.isArray(group.routes) ||
+      !group.routes.every((route) => typeof route === "string")
+    ) {
       throw new Error(
         `${errorPrefix()}${FUNCTION_GROUPS_ENV_VAR} entry ` +
           `${JSON.stringify(entry)} is not a { name, routes } object.`,
@@ -229,6 +236,18 @@ function validateRoutePattern(route: string, groupName: string): void {
         `home page always belongs to the "${DEFAULT_FUNCTION_GROUP}" group ` +
         `(a Pages Router home page is also reachable as "/index", and that is ` +
         `the same entrypoint). Group the routes around it instead.`,
+    );
+  }
+  // `/_next/…` is Next's own URL space — build assets, `/_next/image`, and the
+  // Pages Router data routes — and each has its behavior already: the data route
+  // of a grouped page follows it (see `pathPatternsFor`), and a `_next/*` behavior
+  // would compete with the static-asset and image ones for everything else.
+  if (route === "/_next" || route.startsWith("/_next/")) {
+    throw new Error(
+      `${errorPrefix()}${where} is under "/_next", which Next.js reserves for ` +
+        `build assets, image optimization and data routes. A Pages Router ` +
+        `page's "/_next/data/…" route follows the page into its group, so ` +
+        `group the page itself instead.`,
     );
   }
   if (route === SUBTREE_SUFFIX) {

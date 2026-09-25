@@ -306,9 +306,13 @@ export function buildAdapterManifest(
   const assignment = functionGroups
     ? assignRoutesToGroups(
         functionGroups,
+        // Keyed on the file, not the output `id`: a Pages Router page and its
+        // `/_next/data/<buildId>/<page>.json` route are separate outputs with
+        // separate ids backed by one file, and only the page's template matches
+        // a group pattern.
         Object.entries(entrypoints).map(([template, entrypoint]) => ({
           template,
-          entrypointId: entrypoint.id,
+          entrypointId: entrypoint.filePath,
         })),
         { basePath: ctx.config.basePath || "" },
       )
@@ -365,7 +369,11 @@ export function buildAdapterManifest(
  * request wherever that request lands, so it is duplicated by design, as is the
  * `next` closure the entrypoints share. The same goes for the static files the
  * runtime serves itself (`404.html`, `favicon.ico.body`): any group can be asked
- * for them.
+ * for them. And so are the not-found and error pages: the runtime renders a
+ * 404 or a 500 with whichever of them the shared manifest names
+ * (`resolveNotFoundTarget`, `resolveErrorTarget`), in whichever group the
+ * request reached, so a group without them answered a URL under its own
+ * pattern that matches no route with "the deployment package is incomplete".
  *
  * Ownership is matched on `output.id` rather than on pathname because the manifest
  * is what decided the grouping, and its entrypoints are keyed by *template* while
@@ -380,13 +388,27 @@ export function buildAdapterManifest(
  * incomplete". The synthesized entrypoint's `filePath` is the owning output's, so
  * that is the reliable key.
  */
+/**
+ * The entrypoints the runtime may render any request with, wherever it
+ * landed: App Router's `/_not-found`, Pages Router's `/404` and `/500`, and
+ * `/_error`. The same pathnames `dispatch.ts` resolves its 404 and 500 targets
+ * from, before basePath.
+ */
+const ERROR_PAGE_SUFFIXES = ["/_not-found", "/404", "/500", "/_error"];
+
 function collectGroupStagingPlan(
   ctx: BuildCompleteContext,
   invocable: InvocableOutput[],
   entrypoints: Record<string, AdapterEntrypoint>,
   templates: string[],
 ): Map<string, string> {
-  const ownedEntrypoints = templates.map((template) => entrypoints[template]);
+  const basePath = ctx.config.basePath || "";
+  const ownedEntrypoints = [
+    ...templates,
+    ...ERROR_PAGE_SUFFIXES.map((suffix) => `${basePath}${suffix}`),
+  ]
+    .map((template) => entrypoints[template])
+    .filter((entry): entry is AdapterEntrypoint => entry !== undefined);
   const ownedIds = new Set(ownedEntrypoints.map((entry) => entry.id));
   const ownedFiles = new Set(ownedEntrypoints.map((entry) => entry.filePath));
   const middleware = ctx.outputs.middleware;
@@ -597,10 +619,16 @@ function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
   const { repoRoot } = ctx;
   const basePath = ctx.config.basePath || "";
   const staticFiles = new Map<string, string>();
+  const pagesDir = join(ctx.distDir, "server", "pages") + sep;
 
   for (const output of ctx.outputs.staticFiles) {
     const key = toPosix(relative(repoRoot, output.filePath));
-    for (const pathname of routablePathnames(output.pathname, basePath)) {
+    const pathnames = routablePathnames(
+      output.pathname,
+      basePath,
+      output.filePath.startsWith(pagesDir),
+    );
+    for (const pathname of pathnames) {
       const existing = staticFiles.get(pathname);
       if (existing !== undefined && existing !== key) {
         throw new Error(
@@ -613,9 +641,9 @@ function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
     }
   }
 
-  // Sorted for the reason on `sortedByPathname`: object keys keep insertion
-  // order, and a byte-stable `manifest.json` is what keeps the CDK asset hash
-  // from churning.
+  // Sorted because object keys keep insertion order, and a byte-stable
+  // `manifest.json` is what keeps it diffable and the CDK asset hash from
+  // churning.
   return Object.fromEntries(
     [...staticFiles].sort(([a], [b]) => (a < b ? -1 : 1)),
   );
@@ -637,8 +665,12 @@ function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
  * the six other pages were fine) and `test/e2e/prerender-preview` (the one case
  * that fetches `/` got the 404 page's HTML, the eight that hit API routes passed).
  *
- * App Router is unaffected: it reports its home page as `/` and only the RSC
- * sibling as `/index.rsc`.
+ * Pages Router outputs only, which is what `fromPagesRouter` says. App Router
+ * reports its home page as `/` and only the RSC sibling as `/index.rsc`, so an
+ * App Router `/index` is `app/index/page.tsx` — a real route at `/index`, and
+ * mapping it to `/` made an app with both pages fail the build on a pathname
+ * collision, and an app with only the second serve it at `/`. The same goes for
+ * a `public/index` file.
  *
  * Both pathnames are registered. `/` because it is the real one; `/index` because
  * next's own minimal mode — the mode our runtime runs in — accepts it, rewriting
@@ -646,13 +678,18 @@ function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
  * (`base-server.ts`, "in minimal mode"), so dropping it would be a divergence in
  * the other direction.
  *
- * Unambiguous despite the collision it looks like: `normalizePagePath("/index")`
- * is `"/index/index"`, so a reported `/index` can only have come from the page `/`.
+ * Unambiguous within the Pages Router despite the collision it looks like:
+ * `normalizePagePath("/index")` is `"/index/index"`, so a reported `/index` can
+ * only have come from the page `/`.
  * The data route of the same page, `/_next/data/<buildId>/index.json`, and an App
  * Router `/index.rsc` are both real URLs and are left alone by the exact match.
  */
-function routablePathnames(pathname: string, basePath: string): string[] {
-  if (pathname !== `${basePath}/index`) {
+function routablePathnames(
+  pathname: string,
+  basePath: string,
+  fromPagesRouter: boolean,
+): string[] {
+  if (!fromPagesRouter || pathname !== `${basePath}/index`) {
     return [pathname];
   }
   // `basePath || "/"`, not `${basePath}/`: with `basePath: "/prod"` the home page
@@ -676,7 +713,7 @@ function stageServedStaticFiles(
   const { repoRoot, distDir } = ctx;
   const clientStaticDir = join(distDir, "static") + sep;
 
-  for (const output of sortedByPathname(ctx.outputs.staticFiles)) {
+  for (const output of ctx.outputs.staticFiles) {
     const servedByS3 =
       output.filePath.startsWith(clientStaticDir) ||
       !output.filePath.startsWith(distDir + sep);
@@ -687,16 +724,6 @@ function stageServedStaticFiles(
     assertStagingKey(key, output.filePath);
     staging.set(key, output.filePath);
   }
-}
-
-/**
- * `sortedUnique` used to give the manifest's `staticFiles` a stable order. Object
- * keys preserve insertion order, so sorting the outputs keeps `manifest.json`
- * byte-stable across builds — which is what makes it diffable and keeps the CDK
- * asset hash from churning.
- */
-function sortedByPathname<T extends { pathname: string }>(outputs: T[]): T[] {
-  return [...outputs].sort((a, b) => (a.pathname < b.pathname ? -1 : 1));
 }
 
 /**
@@ -735,7 +762,12 @@ function addEntrypoint(
   basePath: string,
 ): void {
   const filePath = toPosix(relative(repoRoot, output.filePath));
-  for (const pathname of routablePathnames(output.pathname, basePath)) {
+  const pathnames = routablePathnames(
+    output.pathname,
+    basePath,
+    type === "page",
+  );
+  for (const pathname of pathnames) {
     const existing = entrypoints[pathname];
     if (existing && existing.filePath !== filePath) {
       throw new Error(
@@ -913,14 +945,35 @@ function buildMiddleware(
  * {@link hoistStoreOnlyPackages} for what makes the tree resolvable once
  * something dereferences them.
  */
+/** Bounded so a large app doesn't exhaust file descriptors. */
+const STAGING_CONCURRENCY = 32;
+
 async function stageFiles(
   staging: StagingPlan,
   stagingDir: string,
 ): Promise<number> {
+  const planned = [...staging];
+  // One `readlink` per file, so issued concurrently; results land by index so
+  // `links` keeps the plan's order.
+  const linkTargets: Array<string | null> = new Array(planned.length);
+  let nextEntry = 0;
+  const readlinkWorker = async () => {
+    while (nextEntry < planned.length) {
+      const index = nextEntry++;
+      linkTargets[index] = await readlink(planned[index][1]).catch(() => null);
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(STAGING_CONCURRENCY, planned.length) },
+      readlinkWorker,
+    ),
+  );
+
   const files: Array<[string, string]> = [];
   const links: Array<[string, string, string]> = [];
-  for (const [key, source] of staging) {
-    const linkTarget = await readlink(source).catch(() => null);
+  for (const [index, [key, source]] of planned.entries()) {
+    const linkTarget = linkTargets[index];
     if (linkTarget === null) {
       files.push([key, source]);
     } else {
@@ -950,9 +1003,11 @@ async function stageFiles(
       bytes += size;
     }
   };
-  // Bounded so a large app doesn't exhaust file descriptors.
   await Promise.all(
-    Array.from({ length: Math.min(32, files.length) }, copyWorker),
+    Array.from(
+      { length: Math.min(STAGING_CONCURRENCY, files.length) },
+      copyWorker,
+    ),
   );
 
   await makeParents(links);
