@@ -28,10 +28,11 @@ let serveStaticModule: ServeStaticModule | undefined;
  * Returns `false` when the file is not in the deployment package, which is the
  * caller's cue to fall through to a 404.
  *
- * That happens by design for `<distDir>/static` and `public` paths: they are not
- * staged (they would be a second copy of bytes already in S3, and `public/` alone
- * can blow the 250 MB unzipped Lambda cap). Reaching this with one of those means
- * the distribution didn't route it to S3.
+ * That happens by design for `<distDir>/static` and `public` paths on the Lambda
+ * types: they are not staged (they would be a second copy of bytes already in S3,
+ * and `public/` alone can blow the 250 MB unzipped Lambda cap). Reaching this with
+ * one of those there means the distribution didn't route it to S3. The container
+ * images copy both directories in, so there they are found.
  */
 export async function serveStaticFile(
   req: ShimIncomingMessage,

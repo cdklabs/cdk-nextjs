@@ -395,6 +395,45 @@ describe("buildAdapterManifest edge cases", () => {
     ).toBeUndefined();
   });
 
+  it("lists public/ files as static files without staging them", async () => {
+    // Next.js leaves `public/` out of `outputs.staticFiles` (it lists it only for
+    // `output: "export"`), and dispatch serves only what the manifest lists, so
+    // NextjsRegionalContainers - the one type that serves `public/` off disk -
+    // answered every such request with the app's 404 page.
+    const repoRoot = await mkdtemp(join(tmpdir(), "cdk-nextjs-public-"));
+    // Every path in the fixture, rebased from `/repo` onto a real directory.
+    const ctx = asContext(
+      JSON.parse(
+        JSON.stringify(appPlaygroundBasePath).replaceAll(
+          '"/repo',
+          `"${repoRoot}`,
+        ),
+      ),
+    );
+    const publicDir = join(ctx.projectDir, "public");
+    await mkdir(join(publicDir, "static"), { recursive: true });
+    await writeFile(join(publicDir, "test.txt"), "hello");
+    await writeFile(join(publicDir, "static", "hello e2e.png"), "png");
+    // Claimed by `app/favicon.ico` too. The build output wins, as in `next start`.
+    await writeFile(join(publicDir, "favicon.ico"), "ico");
+
+    const { manifest, staging } = build(ctx);
+    expect(manifest.staticFiles["/prod/test.txt"]).toBe(
+      "app-playground/public/test.txt",
+    );
+    // Keyed as the request arrives, which is what `@next/routing` matches.
+    expect(manifest.staticFiles["/prod/static/hello%20e2e.png"]).toBe(
+      "app-playground/public/static/hello e2e.png",
+    );
+    expect(manifest.staticFiles["/prod/favicon.ico"]).not.toContain("public/");
+    expect(manifest.pathnames).toContain("/prod/test.txt");
+    // Served by S3 on the Lambda types and copied in by the Dockerfile on the
+    // container ones: never a second copy in the deployment package.
+    expect(
+      [...staging.keys()].filter((key) => key.includes("/public/")),
+    ).toEqual([]);
+  });
+
   it("warns instead of throwing when a template has no owning route", () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     const ctx = asContext(pagesI18n);

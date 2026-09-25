@@ -248,6 +248,27 @@ describe("Dispatcher entrypoint resolution", () => {
   });
 });
 
+describe("Dispatcher public/ files", () => {
+  it("serves a public/ file whose name has to be percent-encoded", async () => {
+    // What `buildAdapterManifest` lists for `public/static/hello e2e.png`:
+    // `@next/routing` matches the request path still encoded, so the key is too,
+    // and the file path it points at is not.
+    const base = manifests["app-playground"];
+    const pathname = "/static/hello%20e2e.png";
+    const filePath = "app-playground/public/static/hello e2e.png";
+    const manifest: AdapterManifest = {
+      ...base,
+      staticFiles: { ...base.staticFiles, [pathname]: filePath },
+      pathnames: [...base.pathnames, pathname],
+    };
+    const result = await createDispatcher({
+      manifest,
+      invokeMiddleware: async () => ({}),
+    }).dispatch(request("/static/hello%20e2e.png"));
+    expect(result).toMatchObject({ kind: "static-file", pathname, filePath });
+  });
+});
+
 describe("Dispatcher non-entrypoint outcomes", () => {
   it("serves a build asset as a static file with its immutable cache header", async () => {
     const manifest = manifests["app-playground"];

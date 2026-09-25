@@ -1,5 +1,5 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import {
   copyFile,
   cp,
@@ -568,13 +568,17 @@ function collectStagingPlan(
  * Job 2, third part: the static files the *runtime* has to serve, and their
  * sources.
  *
- * `outputs.staticFiles` mixes two populations with the same `STATIC_FILE` type:
+ * `outputs.staticFiles` plus `public/`, which mixes two populations:
  *
  * - **`<distDir>/static/**` and `public/**`** — uploaded to S3 by
  *   `NextjsStaticAssets`, and CloudFront / API Gateway answer them before the
  *   request ever reaches the compute. Not staged: `public/` alone can be
  *   hundreds of megabytes against a 250 MB unzipped Lambda cap, and it would be
- *   a second copy of bytes already in S3.
+ *   a second copy of bytes already in S3. `NextjsRegionalContainers` has nothing
+ *   in front of it, so its image copies both directories in and the runtime
+ *   serves them off disk. `public/` is not in `outputs.staticFiles` at all —
+ *   Next.js lists it only for `output: "export"` — so it is read from the
+ *   project directory here; see {@link publicStaticFiles}.
  * - **everything else**, all of it under `<distDir>/server/` — `404.html`,
  *   `500.html`, `favicon.ico.body`, and fully-static Pages Router HTML. Nothing
  *   in front of the compute serves these, so they are staged. Bounded by route
@@ -606,6 +610,13 @@ function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
       staticFiles.set(pathname, key);
     }
   }
+  for (const [pathname, key] of publicStaticFiles(ctx, basePath)) {
+    // A build output wins over a `public/` file at the same pathname, as it does
+    // in `next start`, whose filesystem router checks build outputs first.
+    if (!staticFiles.has(pathname)) {
+      staticFiles.set(pathname, key);
+    }
+  }
 
   // Sorted for the reason on `sortedByPathname`: object keys keep insertion
   // order, and a byte-stable `manifest.json` is what keeps the CDK asset hash
@@ -613,6 +624,41 @@ function collectStaticFiles(ctx: BuildCompleteContext): Record<string, string> {
   return Object.fromEntries(
     [...staticFiles].sort(([a], [b]) => (a < b ? -1 : 1)),
   );
+}
+
+/**
+ * `public/**` as `[pathname, key]` pairs: the pathname Next.js serves each file
+ * at and its repo-root-relative key.
+ *
+ * The pathname is percent-encoded a segment at a time, because `@next/routing`
+ * matches `pathnames` against the request path as it arrived: `public/hello
+ * e2e.txt` is requested as `/hello%20e2e.txt`, and an unencoded key never
+ * matches it. Build outputs never need this - Next.js names them - but a
+ * `public/` file is named by whoever made it.
+ *
+ * Without these, a container deployment answered every `public/` request with
+ * the app's 404 page even though its image carried the files: dispatch only
+ * serves what the manifest lists. On the other three types the entries are
+ * inert — the distribution routes `public/` to S3 before the compute sees it.
+ */
+function publicStaticFiles(
+  ctx: BuildCompleteContext,
+  basePath: string,
+): Array<[string, string]> {
+  const publicDir = join(ctx.projectDir, "public");
+  if (!existsSync(publicDir)) {
+    return [];
+  }
+  return readdirSync(publicDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry): [string, string] => {
+      const file = join(entry.parentPath, entry.name);
+      const segments = toPosix(relative(publicDir, file)).split("/");
+      return [
+        `${basePath}/${segments.map(encodeURIComponent).join("/")}`,
+        toPosix(relative(ctx.repoRoot, file)),
+      ];
+    });
 }
 
 /**
