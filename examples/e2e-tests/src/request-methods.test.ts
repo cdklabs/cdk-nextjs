@@ -47,13 +47,19 @@ test.describe("request methods", () => {
     // This has to be a fetch from inside the page, not `request.post`.
     //
     // Behind CloudFront with Origin Access Control the Function URL verifies a
-    // SigV4 signature that covers a hash of the body, and a browser cannot compute
-    // one - so `src/nextjs-build/patch-fetch.js` is injected into the client
-    // entrypoint chunks to add `x-amz-content-sha256: UNSIGNED-PAYLOAD`. That
+    // SigV4 signature that covers a hash of the body, and CloudFront will not
+    // compute it - so `src/nextjs-build/patch-fetch.js` is injected into the
+    // client entrypoint chunks to send the body's SHA-256 as
+    // `x-amz-content-sha256` (`UNSIGNED-PAYLOAD` is rejected: measured). That
     // patch only exists on `NextjsGlobalFunctions`, and only in the app's own
     // bundles. A Playwright `APIRequestContext` never loads them, so it would 403
     // here for a reason that has nothing to do with the product.
-    await page.goto("./", { waitUntil: "domcontentloaded" });
+    //
+    // `load`, not `domcontentloaded`: the chunks are async scripts, and measured
+    // on a deployment `fetch` was patched at `domcontentloaded` in 1 of 8 page
+    // loads and at `load` in 8 of 8. Any earlier and this races the patch, which a
+    // real form or server action - run after hydration - never does.
+    await page.goto("./", { waitUntil: "load" });
 
     const result = await page.evaluate(
       async ({ url, body }) => {
@@ -81,7 +87,8 @@ test.describe("request methods", () => {
     // has to allow the method as well as carry the body. CloudFront's
     // `ALLOW_ALL` methods policy and API Gateway's `ANY` method are two separate
     // decisions, either of which can be narrowed by accident.
-    await page.goto("./", { waitUntil: "domcontentloaded" });
+    // `load` for the reason given on the POST case above.
+    await page.goto("./", { waitUntil: "load" });
 
     const result = await page.evaluate(
       async ({ url, body }) => {
@@ -129,7 +136,11 @@ test.describe("request methods", () => {
     // only `GET` on the `_next/static` and `public/` resources, so a HEAD there is
     // a 403 `MissingAuthenticationToken`. That is a known limitation of that
     // deployment type, not a bug, and testing it here would just encode it.
-    const response = await request.head("./api/echo");
+    // A query nothing else sends, because a CloudFront distribution answers a HEAD
+    // from a cached GET of the same URL, and `config-routing.test.ts` GETs
+    // `./api/echo`. That cached copy is a streamed JSON body with no length, so a
+    // shared URL made this test depend on which file ran first.
+    const response = await request.head(`./api/echo?head=${Date.now()}`);
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-echo"]).toBe("echo");
 
