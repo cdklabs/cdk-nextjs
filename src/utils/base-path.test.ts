@@ -460,6 +460,15 @@ describe("resolveBasePath", () => {
       );
     });
 
+    it("warns when a custom domain's base path mapping is missing from the app's basePath", () => {
+      expect(resolveBasePath(RF, undefined, "/docs", domain("v1"))).toBe(
+        "docs",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Set `basePath: "/v1/docs"`'),
+      );
+    });
+
     it("derives nothing when the stage is a token", () => {
       expect(
         resolveBasePath(RF, undefined, "/docs", { customDomain: false }),
@@ -485,6 +494,30 @@ describe("resolveBasePath", () => {
       expect(() =>
         resolveBasePath(NextjsType.REGIONAL_FUNCTIONS, "/prod", "/prod/base"),
       ).toThrow(/nests every API Gateway resource under that path/);
+    });
+
+    // Agreeing with the app is not enough when the value starts with the stage:
+    // resources under "prod" are only reached at "/prod/prod/...".
+    it("rejects a prop equal to an app basePath that starts with the stage", () => {
+      expect(() => resolveBasePath(RF, "/prod", "/prod")).toThrow(
+        /strips "\/prod" before matching resources/,
+      );
+      expect(() => resolveBasePath(RF, "/prod/base", "/prod/base")).toThrow(
+        /Leave the prop unset/,
+      );
+      expect(() => resolveBasePath(RF, "/app", "/app", domain("app"))).toThrow(
+        /strips "\/app"/,
+      );
+    });
+
+    it("accepts a matching prop and app basePath nothing strips", () => {
+      expect(resolveBasePath(RF, "/docs", "/docs", domain())).toBe("docs");
+      expect(resolveBasePath(RF, "/production", "/production")).toBe(
+        "production",
+      );
+      expect(
+        resolveBasePath(RF, "/prod", "/prod", { customDomain: false }),
+      ).toBe("prod");
     });
 
     // The reverse is never right: the prop nests every resource, including the

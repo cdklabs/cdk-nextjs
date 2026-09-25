@@ -310,6 +310,86 @@ describe("NextjsApi", () => {
     });
   });
 
+  describe("functionGroups resource tree", () => {
+    /** Lambda functions that `ANY` on the resource at `pathPart` invokes. */
+    function anyTargets(pathPart: string): string[] {
+      const template = Template.fromStack(stack);
+      const resources = template.findResources("AWS::ApiGateway::Resource", {
+        Properties: { PathPart: pathPart },
+      });
+      const ids = Object.keys(resources);
+      expect(ids).toHaveLength(1);
+      const methods = template.findResources("AWS::ApiGateway::Method", {
+        Properties: { HttpMethod: "ANY", ResourceId: { Ref: ids[0] } },
+      });
+      return Object.values(methods).map(
+        (method) =>
+          JSON.stringify(method.Properties.Integration.Uri).match(
+            /(ServerFn|GroupFn)[A-F0-9]+/,
+          )![1],
+      );
+    }
+
+    it("sends a group's parent paths to the default function", () => {
+      // API Gateway answers a methodless resource with 403 rather than falling
+      // back to the root `{proxy+}`, so `/api` and `/api/reports` need one.
+      new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+        functionGroups: [
+          {
+            name: "reports",
+            routes: ["/api/reports/**", "/api/export"],
+            function: new LambdaFunction(stack, "GroupFn", {
+              runtime: Runtime.NODEJS_22_X,
+              handler: "index.handler",
+              code: Code.fromInline("exports.handler = async () => {};"),
+            }),
+          },
+        ],
+      });
+
+      expect(anyTargets("api")).toEqual(["ServerFn"]);
+      expect(anyTargets("reports")).toEqual(["ServerFn"]);
+      expect(anyTargets("export")).toEqual(["GroupFn"]);
+    });
+  });
+
+  it("names the group and pattern API Gateway cannot route", () => {
+    expect(
+      () =>
+        new NextjsApi(stack, "NextjsApi", {
+          staticAssetsBucket: Bucket.fromBucketName(
+            stack,
+            "Bucket",
+            "my-bucket",
+          ),
+          serverFunction: new LambdaFunction(stack, "ServerFn", {
+            runtime: Runtime.NODEJS_22_X,
+            handler: "index.handler",
+            code: Code.fromInline("exports.handler = async () => {};"),
+          }),
+          publicDirEntries: [],
+          functionGroups: [
+            {
+              name: "about",
+              routes: ["/about~us"],
+              function: new LambdaFunction(stack, "GroupFn", {
+                runtime: Runtime.NODEJS_22_X,
+                handler: "index.handler",
+                code: Code.fromInline("exports.handler = async () => {};"),
+              }),
+            },
+          ],
+        }),
+    ).toThrow(/pattern "\/about~us" \(group "about"\) has a segment/);
+  });
+
   describe("a public/ entry API Gateway cannot address", () => {
     it("warns and skips it instead of failing the synth", () => {
       // `public/hello world.jpg` is a valid Next.js asset that `addResource`

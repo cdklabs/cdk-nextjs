@@ -610,6 +610,34 @@ describe("NextjsDistribution function group behaviors", () => {
     );
   });
 
+  it("keeps the cache key when a zero maxTtl is raised by another TTL", () => {
+    // CDK raises `maxTtl` to `defaultTtl`, so this policy caches for an hour.
+    // Dropping the key for it would serve one viewer's page to every viewer.
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      overrides: {
+        dynamicCachePolicyProps: {
+          maxTtl: Duration.seconds(0),
+          defaultTtl: Duration.hours(1),
+        },
+      },
+    });
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::CachePolicy",
+      {
+        CachePolicyConfig: Match.objectLike({
+          Comment: Match.stringLikeRegexp("Dynamic"),
+          MaxTTL: 3600,
+          ParametersInCacheKeyAndForwardedToOrigin: Match.objectLike({
+            CookiesConfig: { CookieBehavior: "all" },
+            QueryStringsConfig: { QueryStringBehavior: "all" },
+          }),
+        }),
+      },
+    );
+  });
+
   it("rejects splitting on a deployment type that cannot route it", () => {
     const { stack, functionGroups, distributionProps } = setup(["api"]);
     expect(

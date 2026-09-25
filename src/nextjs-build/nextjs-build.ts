@@ -290,9 +290,9 @@ export class NextjsBuild extends Construct {
       // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc);
       // Containers run on node:24-alpine (musl). Every group optimizes images,
       // so every root gets the binaries.
-      this.removeExistingSharpBinaries(root.path);
+      const sharpSource = this.removeExistingSharpBinaries(root.path);
       this.installSharpBinariesForTarget(
-        root.path,
+        sharpSource,
         isFunctions ? "linux" : "linuxmusl",
       );
 
@@ -769,14 +769,18 @@ export class NextjsBuild extends Construct {
    *
    * `root` is walked whole rather than just its `node_modules`: the staged tree
    * is keyed by repo-root-relative path, so in a monorepo the `node_modules`
-   * holding `sharp` is several directories down. {@link isInstalledPackage} is
+   * holding `sharp` is several directories down. {@link isSharpBinaryPackage} is
    * what keeps that from reaching the app's own output — the staged root holds
    * the compiled `.next` as well as the dependencies.
+   *
+   * @returns the staged `sharp` JS wrapper to install next to, found in the same
+   * walk: a root can be hundreds of megabytes, and each group has one.
    */
-  private removeExistingSharpBinaries(root: string): void {
+  private removeExistingSharpBinaries(root: string): string | undefined {
     if (!existsSync(root)) {
-      return;
+      return undefined;
     }
+    const sharpCandidates: string[] = [];
 
     try {
       // Use recursive readdirSync to find all Sharp binary directories and symlinks
@@ -796,10 +800,14 @@ export class NextjsBuild extends Construct {
       const directories: string[] = [];
 
       for (const entry of allEntries) {
-        // `sharp-libvips-<platform>` is covered by `sharp-`; the store keys
-        // (`@img+sharp-darwin-arm64@0.35.4`) match on the same substring.
-        if (!entry.name.includes("sharp-")) continue;
-        if (!isInstalledPackage(entry.parentPath)) continue;
+        if (entry.isDirectory() && entry.name === "sharp") {
+          const path = join(entry.parentPath, entry.name);
+          if (existsSync(join(path, "package.json"))) {
+            sharpCandidates.push(path);
+          }
+          continue;
+        }
+        if (!isSharpBinaryPackage(entry.parentPath, entry.name)) continue;
         // For recursive readdirSync, parentPath contains the full absolute path
         const fullPath = join(entry.parentPath, entry.name);
         if (entry.isSymbolicLink()) {
@@ -838,6 +846,7 @@ export class NextjsBuild extends Construct {
         `${LOG_PREFIX} Warning: Could not read node_modules directory: ${error}`,
       );
     }
+    return pickStagedSharpPackage(sharpCandidates);
   }
 
   /**
@@ -854,10 +863,9 @@ export class NextjsBuild extends Construct {
    * (Alpine, the container images).
    */
   private installSharpBinariesForTarget(
-    deploymentRoot: string,
+    sharpSource: string | undefined,
     libc: "linux" | "linuxmusl",
   ): void {
-    const sharpSource = this.findStagedSharpPackage(deploymentRoot);
     if (!sharpSource) {
       console.warn(
         `${LOG_PREFIX} "sharp" not found in the staged build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
@@ -872,38 +880,6 @@ export class NextjsBuild extends Construct {
         `${libc}-${getNodeArchitecture()}`,
       ),
     );
-  }
-
-  /**
-   * Locate `sharp`'s JS wrapper anywhere in the staged tree.
-   *
-   * Unlike a standalone build there is no single `node_modules` to look in: the
-   * tree mirrors repo-root-relative paths, so the search is by directory name.
-   */
-  private findStagedSharpPackage(deploymentRoot: string): string | undefined {
-    const entries = readdirSync(deploymentRoot, {
-      recursive: true,
-      withFileTypes: true,
-    });
-    const candidates: string[] = [];
-    for (const entry of entries) {
-      if (entry.isDirectory() && entry.name === "sharp") {
-        const path = join(entry.parentPath, entry.name);
-        if (existsSync(join(path, "package.json"))) {
-          candidates.push(path);
-        }
-      }
-    }
-    // Sorted for determinism: an app could have two `sharp` copies at different
-    // versions, and which one the *server's* `next` resolves is not knowable
-    // from here. Shortest path wins as the closest to a hoisted install.
-    candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
-    if (candidates.length > 1) {
-      debug(
-        `${LOG_PREFIX} Multiple staged "sharp" copies; using ${candidates[0]}`,
-      );
-    }
-    return candidates[0];
   }
 
   /**
@@ -1045,29 +1021,48 @@ export class NextjsBuild extends Construct {
 }
 
 /**
- * Whether `parentPath` is a directory installed packages sit directly in, so a
- * `sharp-…` entry inside it is a package rather than something the app named.
+ * Pick the staged `sharp` JS wrapper out of every copy found in the tree.
  *
- * The matched name alone is not enough to delete a directory by. A route segment
- * called `sharp-edges` stages `.next/server/app/sharp-edges/`, and removing it
- * left the manifest listing an entrypoint that is no longer on disk — every
- * request to that route 500ing with "Could not load the entrypoint", from a synth
- * whose only trace was a warning. So the parent has to be one of the three places
- * a package installer puts a package:
+ * Unlike a standalone build there is no single `node_modules` to look in: the
+ * tree mirrors repo-root-relative paths, so the search is by directory name.
+ * Sorted for determinism: an app could have two `sharp` copies at different
+ * versions, and which one the *server's* `next` resolves is not knowable from
+ * here. Shortest path wins as the closest to a hoisted install.
+ */
+function pickStagedSharpPackage(candidates: string[]): string | undefined {
+  candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
+  if (candidates.length > 1) {
+    debug(
+      `${LOG_PREFIX} Multiple staged "sharp" copies; using ${candidates[0]}`,
+    );
+  }
+  return candidates[0];
+}
+
+/**
+ * Whether the entry `name` in `parentPath` is an `@img/sharp-*` platform binary
+ * package, or pnpm's store entry for one.
  *
- * - `node_modules/sharp-…`, for a top-level package
+ * The name alone is not enough to delete a directory by. A route segment called
+ * `sharp-edges` stages `.next/server/app/sharp-edges/`, and removing it left the
+ * manifest listing an entrypoint that is no longer on disk — every request to
+ * that route 500ing with "Could not load the entrypoint". Nor is "a `sharp-`
+ * package": `sharp-ico` and `sharp-phash` are unrelated dependencies, and
+ * removing them failed the app at runtime with MODULE_NOT_FOUND. So both the
+ * scope and the place have to match:
+ *
  * - `node_modules/@img/sharp-…`, where every platform binary actually lives
  * - `node_modules/.pnpm/@img+sharp-…@0.35.4`, pnpm's store, whose entries are
- *   also what the `@img` links point at
+ *   also what the `@img` links point at (`sharp-libvips-…` matches the same way)
  *
  * The `node_modules` segment is required as well, so an app directory that
  * happens to be called `@img` or `.pnpm` is still left alone.
  */
-function isInstalledPackage(parentPath: string): boolean {
+function isSharpBinaryPackage(parentPath: string, name: string): boolean {
   const segments = parentPath.split(sep);
   const parent = segments[segments.length - 1];
-  if (parent !== "node_modules" && parent !== "@img" && parent !== ".pnpm") {
-    return false;
-  }
-  return segments.includes("node_modules");
+  const scoped =
+    (parent === "@img" && name.startsWith("sharp-")) ||
+    (parent === ".pnpm" && name.startsWith("@img+sharp-"));
+  return scoped && segments.includes("node_modules");
 }

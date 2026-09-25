@@ -267,7 +267,16 @@ function deriveApiGatewayBasePath(
   if (stripped && (config === stripped || config.startsWith(`${stripped}/`))) {
     return config.slice(stripped.length + 1) || undefined;
   }
-  if (!customDomain) {
+  if (customDomain && stripped) {
+    // The same miss through a custom domain's base path mapping: served at
+    // `/<mapping>/<basePath>`, linking to `/<basePath>/...`, which no mapping
+    // covers.
+    console.warn(
+      `${LOG_PREFIX} your Next.js app's \`basePath\` is ${quote(config)}, which does not start with the custom domain's base path mapping "/${stripped}". ` +
+        "Its links and bundle URLs will be requested without the mapping, which the custom domain answers with 403. " +
+        `Set \`basePath: "/${joinPath(stripped, config)}"\` in your next.config, or map the domain at the root.`,
+    );
+  } else if (!customDomain) {
     // Resources under the app's basePath serve it at `/<stage>/<basePath>`, but
     // the app's own links are `/<basePath>/...`, which misses the stage. A
     // warning, not an error: a domain attached after synth (`addDomainName`)
@@ -279,6 +288,19 @@ function deriveApiGatewayBasePath(
     );
   }
   return config;
+}
+
+/** Whether API Gateway strips the front of `basePath` before matching resources. */
+function startsWithStrippedPrefix(
+  basePath: string,
+  { strippedPrefix }: ApiGatewayPrefix,
+): boolean {
+  const stripped = normalizeBasePath(strippedPrefix);
+  return (
+    !!basePath &&
+    !!stripped &&
+    (basePath === stripped || basePath.startsWith(`${stripped}/`))
+  );
 }
 
 function quote(basePath: string): string {
@@ -309,13 +331,25 @@ export function resolveBasePath(
 ): string | undefined {
   const prop = normalizeBasePath(propBasePath);
   const config = normalizeBasePath(nextConfigBasePath);
-  if (prop === config) {
-    return prop || undefined;
-  }
-
   const mismatch =
     `${LOG_PREFIX} basePath mismatch for NextjsType.${nextjsType}: the \`basePath\` prop is ${quote(prop)} ` +
     `but your Next.js app's config sets \`basePath\` to ${quote(config)}. `;
+  if (prop === config) {
+    if (
+      nextjsType === NextjsType.REGIONAL_FUNCTIONS &&
+      startsWithStrippedPrefix(prop, apiGateway)
+    ) {
+      // Agreeing is not enough here: API Gateway strips the stage (or base path
+      // mapping) before matching, so resources under the prop's "prod" are only
+      // reached at `/prod/prod/...`, and every link the app emits 403s.
+      throw new Error(
+        mismatch +
+          `API Gateway strips "/${normalizeBasePath(apiGateway.strippedPrefix)}" before matching resources, so a prop that repeats it nests every resource under a path no request reaches. ` +
+          "Leave the prop unset: it is derived from your app's `basePath` with that prefix taken off.",
+      );
+    }
+    return prop || undefined;
+  }
 
   switch (nextjsType) {
     case NextjsType.GLOBAL_FUNCTIONS:

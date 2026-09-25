@@ -806,21 +806,37 @@ export class NextjsDistribution extends Construct {
  * come up: CDK raises `maxTtl` to `defaultTtl` when it is lower, so an override
  * of `maxTtl: 0` synthesized as a day and deployed. Now it is honored, and
  * without this the upgrade deploy would fail.
+ *
+ * The TTLs are resolved the way CDK resolves them: `defaultTtl` raised to
+ * `minTtl`, then `maxTtl` raised to `defaultTtl`. Checking `maxTtl` alone called
+ * `{ maxTtl: 0, defaultTtl: 1h }` disabled, dropped the key, and CDK then
+ * synthesized a policy that caches for an hour keyed on nothing — one viewer's
+ * page served to every viewer.
  */
 function isCachingDisabled(props: CachePolicyProps | undefined): boolean {
-  const maxTtl = props?.maxTtl;
-  return (
-    maxTtl !== undefined &&
-    !Token.isUnresolved(maxTtl.toString()) &&
-    maxTtl.toSeconds() === 0
+  const ttls = [props?.maxTtl, props?.defaultTtl, props?.minTtl];
+  if (props?.maxTtl === undefined) return false; // CDK's default is a year
+  return ttls.every(
+    (ttl) =>
+      ttl === undefined ||
+      (!Token.isUnresolved(ttl.toString()) && ttl.toSeconds() === 0),
   );
+}
+
+/** The cache-key half of {@link CachePolicyProps}. */
+interface CacheKeyProps {
+  readonly queryStringBehavior: CacheQueryStringBehavior;
+  readonly headerBehavior: CacheHeaderBehavior;
+  readonly cookieBehavior: CacheCookieBehavior;
+  readonly enableAcceptEncodingBrotli: boolean;
+  readonly enableAcceptEncodingGzip: boolean;
 }
 
 /**
  * What the dynamic cache policy keys on: every request input a Next.js response
  * varies by.
  */
-const DYNAMIC_CACHE_KEY: Partial<CachePolicyProps> = {
+const DYNAMIC_CACHE_KEY: CacheKeyProps = {
   queryStringBehavior: CacheQueryStringBehavior.all(),
   headerBehavior: CacheHeaderBehavior.allowList(
     // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
@@ -852,7 +868,7 @@ const DYNAMIC_CACHE_KEY: Partial<CachePolicyProps> = {
  * unaffected: the dynamic origin request policy sends every viewer header,
  * cookie and query string regardless.
  */
-const DISABLED_CACHE_KEY: Partial<CachePolicyProps> = {
+const DISABLED_CACHE_KEY: CacheKeyProps = {
   queryStringBehavior: CacheQueryStringBehavior.none(),
   headerBehavior: CacheHeaderBehavior.none(),
   cookieBehavior: CacheCookieBehavior.none(),

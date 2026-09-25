@@ -143,6 +143,15 @@ export class NextjsApi extends Construct {
 
   private readonly baseResource: IResource;
   private readonly nextResource: IResource;
+  /**
+   * Resources created only as parents of a group route. API Gateway answers a
+   * request for a resource with no method itself — 403 "Missing Authentication
+   * Token" — rather than falling back to the root `{proxy+}`, so each gets the
+   * default function in {@link createDynamicIntegration}. Without that a
+   * `/api/reports/**` group turned `/api/reports` and `/api` into 403s.
+   */
+  private readonly groupParentResources = new Set<IResource>();
+  private readonly groupRouteResources = new Set<IResource>();
   private readonly props: NextjsApiProps;
   private staticIntegrationRole: IRole;
 
@@ -414,11 +423,37 @@ export class NextjsApi extends Construct {
         ...this.props.overrides?.dynamicIntegrationProps,
       });
       for (const route of group.routes) {
+        this.assertRoutable(route, group.name);
         for (const path of this.resourcePathsFor(route)) {
-          this.resourceFor(path).addMethod("ANY", integration);
+          const resource = this.resourceFor(path);
+          resource.addMethod("ANY", integration);
+          this.groupRouteResources.add(resource);
         }
       }
     }
+  }
+
+  /**
+   * The group pattern validation accepts every character a CloudFront path
+   * pattern can hold, and API Gateway's path parts hold fewer: `~`, `@`, `+`,
+   * `&` and quotes pass it and then fail `addResource` with an error that names
+   * neither the group nor the pattern. Say which, and what to do instead.
+   */
+  private assertRoutable(route: string, groupName: string) {
+    const segments = (route.endsWith("/**") ? route.slice(0, -3) : route)
+      .split("/")
+      .filter(Boolean);
+    const invalid = segments.find((segment) => !API_PATH_PART.test(segment));
+    if (invalid === undefined) {
+      return;
+    }
+    throw new Error(
+      `${LOG_PREFIX} functionGroups pattern "${route}" (group "${groupName}") ` +
+        `has a segment, "${invalid}", that an API Gateway resource path part ` +
+        "cannot hold: only [a-zA-Z0-9:._-$] are allowed. Route that path from " +
+        "a pattern higher up the tree (e.g. its parent directory with `/**`), " +
+        "or use NextjsGlobalFunctions, whose CloudFront behaviors allow it.",
+    );
   }
 
   /**
@@ -493,8 +528,12 @@ export class NextjsApi extends Construct {
   /** Walk or create a resource path, reusing whatever already exists. */
   private resourceFor(segments: string[]): IResource {
     let resource = this.baseResource;
-    for (const segment of segments) {
-      resource = resource.getResource(segment) ?? resource.addResource(segment);
+    for (const [index, segment] of segments.entries()) {
+      const existing = resource.getResource(segment);
+      resource = existing ?? resource.addResource(segment);
+      if (!existing && index < segments.length - 1) {
+        this.groupParentResources.add(resource);
+      }
     }
     return resource;
   }
@@ -511,6 +550,11 @@ export class NextjsApi extends Construct {
 
     // Add catch-all routes with streaming integration for server-side rendering
     this.baseResource.addMethod("ANY", streamingIntegration);
+    for (const resource of this.groupParentResources) {
+      if (!this.groupRouteResources.has(resource)) {
+        resource.addMethod("ANY", streamingIntegration);
+      }
+    }
     const proxyResource = this.baseResource.addResource("{proxy+}");
     proxyResource.addMethod("ANY", streamingIntegration);
   }

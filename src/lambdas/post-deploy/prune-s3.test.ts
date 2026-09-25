@@ -108,7 +108,7 @@ describe("pruneS3", () => {
 
     await prune("branch-a");
 
-    expect(listPrefixes()).toEqual(["branch-a/"]);
+    expect(listPrefixes()).toEqual(["branch-a/_next/"]);
   });
 
   // A bare "branch-a" prefix also matches "branch-a-staging/...", which is a
@@ -120,7 +120,7 @@ describe("pruneS3", () => {
 
     // Asserted as an exact value: a bare "branch-a", and an absent prefix, both
     // reach objects belonging to another app.
-    expect(listPrefixes()).toEqual(["branch-a/"]);
+    expect(listPrefixes()).toEqual(["branch-a/_next/"]);
   });
 
   it("takes a nested prefix as NextjsStaticAssets resolved it", async () => {
@@ -128,33 +128,47 @@ describe("pruneS3", () => {
 
     await prune("team/app");
 
-    expect(listPrefixes()).toEqual(["team/app/"]);
+    expect(listPrefixes()).toEqual(["team/app/_next/"]);
   });
 
   // The single-app case, and every deployment predating the prefix being
-  // threaded through: an unset prefix still prunes the whole bucket.
+  // threaded through: an unset prefix prunes `_next/` at the bucket root. Not
+  // the whole bucket, which holds every other app's `<basePath>/` as well.
   it.each([
     ["omitted", undefined],
     ["empty", ""],
-  ])("lists the whole bucket when the prefix is %s", async (_label, prefix) => {
+  ])(
+    "lists the root `_next/` when the prefix is %s",
+    async (_label, prefix) => {
+      stubBucketContents([]);
+
+      await prune(prefix);
+
+      expect(listPrefixes()).toEqual(["_next/"]);
+    },
+  );
+
+  // An app at "team" shares its prefix with one at "team/app", whose
+  // `team/app/_next/` is not under `team/_next/`.
+  it("leaves a nested app's assets out of the listing", async () => {
     stubBucketContents([]);
 
-    await prune(prefix);
+    await prune("team");
 
-    expect(listPrefixes()).toEqual([undefined]);
+    expect(listPrefixes()).toEqual(["team/_next/"]);
   });
 
   it("still deletes stale objects within the prefix", async () => {
     stubBucketContents([
       "branch-a/_next/static/old.js",
-      "branch-a/favicon.ico",
+      "branch-a/_next/static/older.css",
     ]);
 
     await prune("branch-a");
 
     expect(deletedKeys().sort()).toEqual([
       "branch-a/_next/static/old.js",
-      "branch-a/favicon.ico",
+      "branch-a/_next/static/older.css",
     ]);
   });
 
@@ -231,7 +245,7 @@ describe("pruneS3", () => {
 
     await prune(prefix);
 
-    expect(listPrefixes()).toEqual(["branch-a/"]);
+    expect(listPrefixes()).toEqual(["branch-a/_next/"]);
   });
 
   describe("pagination", () => {

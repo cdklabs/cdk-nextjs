@@ -229,9 +229,12 @@ at synth, and derived from the app where there's only one value that can work.
   based at `"/base"` — drop the prefix: the prop is now the path as your app
   routes it, and a prefixed value becomes `/base/base/api/health`, which 404s.
   Left as the default `"/api/health"`, nothing changes for you.
-- Static asset pruning is now scoped to the app's S3 key prefix, so apps or
-  branches sharing one bucket under different `basePath`s no longer delete each
-  other's assets once they age past `msTtl`. One-time cleanup: **if you are
+- Static asset pruning is now scoped to `_next/` under the app's S3 key prefix
+  (`<basePath>/_next/`, or `_next/` at the bucket root), so apps or branches
+  sharing one bucket under different `basePath`s — including one at the root —
+  no longer delete each other's assets once they age past `msTtl`. A file
+  removed from `public/` is no longer pruned; delete it by hand if the storage
+  matters. One-time cleanup: **if you are
   adding a `basePath` to an existing deployment**, objects already uploaded under
   the old prefix (the bucket root, usually) are outside the new listing and will
   never be pruned. Delete them yourself once after the first deploy.

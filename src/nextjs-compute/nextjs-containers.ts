@@ -177,6 +177,25 @@ export class NextjsContainers extends Construct {
       );
     }
 
+    if (existsSync(targetDockerfile)) {
+      if (
+        readFileSync(targetDockerfile, "utf-8") ===
+        readFileSync(sourceDockerfile, "utf-8")
+      ) {
+        return;
+      }
+      // Replaced all the same — a generated file from an older version runs a
+      // server that no longer exists — but an edit made under the header, before
+      // the header said it would be overwritten, is kept beside it rather than
+      // lost without a word.
+      const backup = `${targetDockerfile}.bak`;
+      copyFileSync(targetDockerfile, backup);
+      console.warn(
+        `${LOG_PREFIX} Replaced the generated ${dockerfileName} with this version's; ` +
+          `the previous one is saved as ${backup}. To keep your own Dockerfile, ` +
+          `delete its "${GENERATED_DOCKERFILE_HEADER}" first line and cdk-nextjs will leave it alone.`,
+      );
+    }
     copyFileSync(sourceDockerfile, targetDockerfile);
     console.log(`${LOG_PREFIX} Created ${targetDockerfile}.`);
   }

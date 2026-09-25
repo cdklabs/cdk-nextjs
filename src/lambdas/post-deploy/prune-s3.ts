@@ -24,9 +24,9 @@ interface PruneS3Props {
   msTtl: number;
   /**
    * S3 key prefix the app's static assets live under. Surrounding slashes are
-   * normalized away. Scopes pruning to this app's objects so that apps or
-   * branches sharing one bucket under different `basePath`s don't delete each
-   * other's assets. Empty or omitted prunes the whole bucket.
+   * normalized away. Scopes pruning to this app's `_next/` objects so that apps
+   * or branches sharing one bucket under different `basePath`s don't delete
+   * each other's assets. Empty or omitted prunes `_next/` at the bucket root.
    */
   keyPrefix?: string;
 }
@@ -46,7 +46,7 @@ const BUILD_ID_METADATA_KEY = "build_id";
 
 /**
  * Given `bucketName`, `currentBuildId`, and `msTtl`, list the objects under
- * `keyPrefix` and delete any that 1/ carry a build id that is not
+ * `keyPrefix`'s `_next/` and delete any that 1/ carry a build id that is not
  * `currentBuildId` and 2/ were created more than `msTtl` ago.
  *
  * An object with no build id at all is kept. It was not uploaded by this
@@ -62,8 +62,14 @@ export async function pruneS3(props: PruneS3Props) {
   // Prefix ("base//", "/base/") that matches no key at all — pruning would
   // silently become a no-op.
   const bare = (keyPrefix || "").replace(/^\/+/, "").replace(/\/+$/, "");
-  // Trailing slash so a prefix of "app" doesn't also match "app-staging/...".
-  const prefix = bare ? `${bare}/` : undefined;
+  // Only `_next/` under the prefix, which is where every build-hashed asset lives
+  // and so where old builds pile up. The prefix alone is not a boundary between
+  // apps: an app with none owns the bucket root, which holds every other app's
+  // `<basePath>/` too, and one at "team" holds another at "team/app". Pruning
+  // those deleted the other app's live assets once they were a month old. A
+  // `public/` file keeps its key from build to build, so leaving it costs only
+  // the storage of one that was removed from the app.
+  const prefix = bare ? `${bare}/_next/` : "_next/";
 
   const cutoffDate = new Date(Date.now() - msTtl);
   const objectsToDelete: { Key: string }[] = [];
