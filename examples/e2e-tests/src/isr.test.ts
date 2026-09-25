@@ -44,9 +44,23 @@ test.describe("isr", () => {
     // timestamp was unchanged here, which only held because revalidation on the
     // old `next start` path was slow enough to still be in flight.) `MISS` is
     // the failure this catches: a synchronous re-render of an expired entry.
+    //
+    // Behind CloudFront the header is the one the *cached* copy was stored
+    // with, and an edge hit is by definition not a re-render. The baseline above
+    // is usually the blocking `REVALIDATED` render the `/api/revalidate` call
+    // forces, cached for `s-maxage=10`, and CloudFront keeps serving it stale
+    // under `stale-while-revalidate` while it refetches in the background. That
+    // only surfaced once dynamic responses stopped being cached by default:
+    // before, CloudFront cached `/api/revalidate` itself for a day, and the
+    // revalidation never reached the app.
     const staleResponse = await page.reload({ waitUntil: "networkidle" });
-    const cacheState = staleResponse?.headers()["x-nextjs-cache"];
-    expect(["STALE", "HIT"]).toContain(cacheState);
+    const headers = staleResponse?.headers() ?? {};
+    const cacheState = headers["x-nextjs-cache"];
+    const edgeHit = /^Hit from cloudfront/i.test(headers["x-cache"] ?? "");
+    expect(
+      edgeHit || ["STALE", "HIT"].includes(cacheState ?? ""),
+      `x-nextjs-cache: ${cacheState}, x-cache: ${headers["x-cache"]}`,
+    ).toBe(true);
     const staleTimestamp = await getPageTimestamp(page);
     expect(staleTimestamp).toBeTruthy();
     console.log(
