@@ -96,7 +96,7 @@ export npm_config_package_manager_strict=false
 # resolves its own cache handler with
 # `import.meta.resolve("cdk-nextjs/cache-handler")` (src/adapter/adapter.mts), so
 # it has to be reachable through a package boundary with this repo's `exports`
-# map. Same shape as `examples/app-playground`'s `prebuild` script. After
+# map. Same shape as `examples/app-playground`'s `sync-cdk-nextjs` script. After
 # `pnpm install`, which prunes directories it does not know about.
 LOCAL_PKG="node_modules/cdk-nextjs"
 mkdir -p "$LOCAL_PKG/lib/adapter"

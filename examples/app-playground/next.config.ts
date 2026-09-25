@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // installed from npm needs none of this. The examples can't rely on it: they
   // depend on cdk-nextjs with `link:../..`, and resolving that symlink at synth
   // time lands outside `turbopack.root`, which makes Turbopack reject the
-  // `cacheHandler` the adapter derives from its own location. `prebuild` copies
+  // `cacheHandler` the adapter derives from its own location. `sync-cdk-nextjs` copies
   // the adapter into this app's `node_modules` instead, and this entry resolves
   // that copy — after the copy exists, since Next.js resolves `adapterPath`
   // during the build.

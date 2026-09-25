@@ -15,8 +15,9 @@
  *
  * Pass `--reuse-capture` to re-trim the previous run's dump without rebuilding.
  *
- * How it captures: `examples/<app>`'s `prebuild` script copies this repo's
- * bundled adapter into its own `node_modules/cdk-nextjs`, and `next.config.ts`
+ * How it captures: `examples/<app>`'s sync script (`sync-cdk-nextjs`, or
+ * `prebuild` where an app still calls it that) copies this repo's bundled
+ * adapter into its own `node_modules/cdk-nextjs`, and `next.config.ts`
  * resolves `adapterPath` to that copy. The copy is untracked build output, so we
  * append a wrapper to it that dumps `ctx` before delegating to the real hook,
  * then run `next build`. Nothing tracked is modified.
@@ -56,6 +57,12 @@ const KEEP_PATHNAMES = {
     "/isr/[id]",
     "/api/health",
     "/api/revalidate",
+    "/api/echo",
+    // `[id]` is a prefix of `[id2]`, which is what `@next/routing`'s param
+    // expansion gets wrong (see `dispatch.test.ts`).
+    "/params/prefix/[id]/[id2]",
+    "/params/optional/[[...rest]]",
+    "/params/encoded/[slug]",
   ],
   // Small enough to keep whole; `keep` being empty means "keep everything".
   "pages-i18n": [],
@@ -87,10 +94,10 @@ function main() {
   );
 
   if (!reuse) {
-    // The example app's `prebuild` copies this repo's *bundled* adapter, so a
+    // The example app's sync script copies this repo's *bundled* adapter, so a
     // stale bundle would silently capture the previous implementation.
     run("pnpm", ["bundle"], repoRoot);
-    run("pnpm", ["prebuild"], appDir);
+    run("pnpm", ["run", syncScriptOf(appDir)], appDir);
     patchAdapterCopy(appDir);
     rmSync(dumpPath, { force: true });
     run("npx", ["next", "build"], appDir, {
@@ -117,8 +124,26 @@ function run(cmd, args, cwd, env = {}) {
 }
 
 /**
+ * The script that copies the bundled adapter into `appDir`'s `node_modules`.
+ * app-playground calls it `sync-cdk-nextjs` and chains it from `build`/`dev`;
+ * pages-i18n still relies on npm running `prebuild` before `build`.
+ */
+function syncScriptOf(appDir) {
+  const { scripts = {} } = JSON.parse(
+    readFileSync(join(appDir, "package.json"), "utf8"),
+  );
+  const script = ["sync-cdk-nextjs", "prebuild"].find((name) => name in scripts);
+  if (!script) {
+    throw new Error(
+      `${appDir}/package.json has neither a sync-cdk-nextjs nor a prebuild script to copy the adapter with.`,
+    );
+  }
+  return script;
+}
+
+/**
  * Append a `ctx`-dumping wrapper to the untracked copy of the bundled adapter
- * that `prebuild` just made.
+ * that the sync script just made.
  */
 function patchAdapterCopy(appDir) {
   const copy = join(
