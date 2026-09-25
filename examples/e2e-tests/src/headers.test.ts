@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { isCdn } from "./utils/deployment-type";
 
 /**
  * Byte- and header-level assertions on responses, as opposed to status codes.
@@ -107,5 +108,46 @@ test.describe("response headers", () => {
     });
     expect(notModified.status()).toBe(304);
     expect(await notModified.body()).toHaveLength(0);
+  });
+});
+
+test.describe("edge caching", () => {
+  /**
+   * A dynamic response that sends no `Cache-Control` must not be cached at the
+   * edge. Next.js sends none from a dynamic route handler, and treats "no header"
+   * as "not cacheable" - but the dynamic cache policy used to inherit CDK's
+   * one-day default TTL, so every such handler behind CloudFront answered its
+   * first caller's response to everyone for 24 hours. Nothing failed: the second
+   * caller just got the first caller's body.
+   *
+   * `?bytes=` is the one `/api/echo` branch whose body differs per request (random
+   * bytes, with their hash in `x-e2e-body-sha256`) and that sets no
+   * `Cache-Control`, so a cached copy is visible as a repeated hash even if
+   * CloudFront ever stops saying so in `x-cache`. A size no other test asks for,
+   * so this file owns the cache key. Only the two Global types have a CDN to
+   * cache in; the regional ones have nothing between the client and the app.
+   */
+  test("does not cache a dynamic response that sends no Cache-Control", async ({
+    request,
+  }) => {
+    test.skip(!isCdn(), "only the Global types put CloudFront in front");
+
+    const url = "./api/echo?bytes=48";
+    const first = await request.get(url);
+    const second = await request.get(url);
+    for (const response of [first, second]) {
+      expect(response.status()).toBe(200);
+      expect(response.headers()["x-e2e-echo"]).toBe("echo");
+      // The precondition: if the route ever starts sending a `Cache-Control`,
+      // this test is no longer about the policy's default TTL.
+      expect(response.headers()["cache-control"]).toBeUndefined();
+    }
+
+    expect(second.headers()["x-e2e-body-sha256"]).not.toBe(
+      first.headers()["x-e2e-body-sha256"],
+    );
+    // `Hit from cloudfront` and `RefreshHit from cloudfront` both mean an edge
+    // copy answered.
+    expect(second.headers()["x-cache"]).not.toMatch(/Hit from cloudfront/);
   });
 });

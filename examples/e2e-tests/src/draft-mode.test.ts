@@ -23,18 +23,34 @@ import { test, expect } from "@playwright/test";
  * the cookie has to survive the browser's own cookie rules, not only the wire.
  *
  * Which is also why it is skipped on a plain-`http:` deployment - today, the
- * regional-containers example's bare ALB. Next.js sets `__prerender_bypass` with
- * `Secure; SameSite=None` unconditionally, and a browser refuses a `Secure` cookie
- * from an insecure origin, so draft mode cannot work there for any app on any
- * platform. Keyed on the scheme rather than the deployment type, so the same
- * example behind an HTTPS listener runs it.
+ * regional-containers example's bare ALB. A production Next.js server (what all
+ * four types run) sets `__prerender_bypass` with `Secure; SameSite=None`, and a
+ * browser refuses a `Secure` cookie from an insecure origin, so draft mode cannot
+ * work there for any app on any platform. Keyed on the scheme rather than the
+ * deployment type, so the same example behind an HTTPS listener runs it.
+ *
+ * Only a non-loopback `http:` origin is skipped. `localhost`, `127.0.0.1` and
+ * `[::1]` are potentially-trustworthy origins, so Chromium keeps a `Secure`
+ * cookie from them over plain HTTP - `next start` locally works - and `next dev`
+ * leaves `Secure` and `SameSite=None` off the cookie altogether.
  *
  * What silently breaks: every preview/draft integration in an app, with no error
  * on any side - the page just renders published content.
  */
+
+/** `URL.hostname` keeps the brackets on an IPv6 literal, hence `[::1]`. */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Plain HTTP to anything but loopback: where a `Secure` cookie is dropped. */
+function isInsecureRemoteOrigin(baseURL: string | undefined): boolean {
+  if (!baseURL) return false;
+  const url = new URL(baseURL);
+  return url.protocol === "http:" && !LOOPBACK_HOSTS.has(url.hostname);
+}
+
 test.describe("draft mode", () => {
   test.skip(
-    ({ baseURL }) => baseURL?.startsWith("http:") === true,
+    ({ baseURL }) => isInsecureRemoteOrigin(baseURL),
     "a browser drops Next.js's `Secure` draft-mode cookie over plain HTTP",
   );
 

@@ -136,11 +136,7 @@ test.describe("request methods", () => {
     // only `GET` on the `_next/static` and `public/` resources, so a HEAD there is
     // a 403 `MissingAuthenticationToken`. That is a known limitation of that
     // deployment type, not a bug, and testing it here would just encode it.
-    // A query nothing else sends, because a CloudFront distribution answers a HEAD
-    // from a cached GET of the same URL, and `config-routing.test.ts` GETs
-    // `./api/echo`. That cached copy is a streamed JSON body with no length, so a
-    // shared URL made this test depend on which file ran first.
-    const response = await request.head(`./api/echo?head=${Date.now()}`);
+    const response = await request.head("./api/echo");
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-echo"]).toBe("echo");
 
