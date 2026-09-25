@@ -826,14 +826,14 @@ other hit it — `[id]/[id2]`, `[slug]/[slugPart]`.
 
 Fix: after resolution, rebuild the param query from `routeMatches`, which
 `@next/routing` reports unmangled. Regression test in `src/runtime/dispatch.test.ts`
-renames a param pair in the committed `app-playground` capture, because no
-committed fixture has a naturally prefixing pair.
+dispatches `/params/prefix/a/b` against the committed `app-playground` capture,
+which since `fc3b370` includes the real `app/params/prefix/[id]/[id2]` route. (It
+used to rename the capture's `categorySlug`/`subCategorySlug` pair to `id`/`id2`
+by string replacement, because no committed fixture had a naturally prefixing
+pair; regenerating the fixture let that go.)
 
-Cross-type e2e: `examples/e2e-tests/src/routing-params.test.ts`, against a real
-`app/params/prefix/[id]/[id2]` route — so the rename hack in `dispatch.test.ts` is
-no longer the only thing exercising this. (The captured fixture still has no
-prefixing pair; regenerating it would let that hack go, and is noted as a
-follow-up rather than done here.) The values asserted are not prefixes of each
+Cross-type e2e: `examples/e2e-tests/src/routing-params.test.ts`, against the same
+route on all four deployment types. The values asserted are not prefixes of each
 other, so the test fails on a swap as well as on a drop.
 
 ### 6. A `trailingSlash` app's canonical URLs all 404'd
@@ -1372,14 +1372,32 @@ Throwing was the only thing cdk-nextjs did with that, which made an app that
 Next.js supports undeployable.
 
 **Verdict: fixed.** `toPathPattern` (`src/nextjs-distribution.ts`) replaces each
-character outside the alphabet with one `?` per character of its encoded form —
-`?` matches exactly one character, so `hello world.jpg` becomes
-`hello???world.jpg` and `äöüščří.png` becomes 42 `?` and `.png`. That is the
-narrowest pattern CloudFront can express for those names. A `*` would have been
-shorter and far wider: `äöüščří.png` would collapse to `*.png`, pulling every
-`.png` request in the app onto the static origin. A name whose pattern would
-exceed CloudFront's 255-character limit still throws, now naming the file and the
-length.
+character outside the alphabet with one `?` per byte of its UTF-8 encoding.
+CloudFront URL-decodes the request path before matching it, and `?` matches one
+byte of the *decoded* path, so `hello world.jpg` becomes `hello?world.jpg` and
+`äöüščří.png` becomes 14 `?` (two per character) and `.png`. That is the narrowest
+pattern CloudFront can express for those names. A `*` would have been shorter and
+far wider: `äöüščří.png` would collapse to `*.png`, pulling every `.png` request in
+the app onto the static origin. A name whose pattern would exceed CloudFront's
+255-character limit still throws, now naming the file and the length.
+
+Do not go back to one `?` per *percent-encoded* character (`hello???world.jpg`,
+42 `?` for `äöüščří.png`). That was this entry's first fix, and it synthesizes,
+deploys, and never matches: the request falls through to the default behavior and
+the compute answers 404. Defect 37 in `docs/plans/adapter-runtime-progress.md`
+records the measurements against a deployed distribution (`/test%2Etxt` matched
+the `test.txt` behavior, `ä` plus one letter filled `???`, `€` filled it alone).
+This entry's own harness run did not catch it because `next-image-legacy/unicode`
+reaches its files through the image optimizer, which reads S3 directly;
+`static-assets.test.ts` in `examples/e2e-tests` is what did.
+
+An entry whose pattern would contain no literal character at all — every
+character outside the alphabet, e.g. a `фото/` directory becoming `????????/*` —
+is skipped with a synth warning instead of given a behavior, because a pattern
+of nothing but `?` also captures every unrelated route of the same length and
+sends it to the static origin. The warning names the entry; its requests reach
+the default behavior like any path no behavior claims. Renaming it to include one
+ASCII character restores the behavior.
 
 The regional Functions type has the same problem one layer down: an API Gateway
 resource path part only allows `[a-zA-Z0-9:._-$]`, and `addResource` throws on the

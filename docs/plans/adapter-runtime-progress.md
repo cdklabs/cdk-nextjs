@@ -4917,9 +4917,55 @@ Not defects:
   (`storageState`).
 - **Plain HTTP.** That example's ALB has no TLS, so the browser refuses Next.js's
   `Secure` draft-mode cookie and `crypto.subtle` does not exist. Draft mode skips
-  on an `http:` base URL; the POST body hash is computed in Node.
+  on a non-loopback `http:` base URL (loopback is a secure context, so a local
+  run keeps the coverage); the POST body hash is computed in Node.
 - **A Function URL answers a HEAD with `content-length: 0`** whatever the runtime
   declared; API Gateway's streaming integration and CloudFront-from-an-ALB both
   pass the declared `42`. Asserted as a divergence on `NextjsGlobalFunctions`.
 - **`x-cache`** reads `FunctionGeneratedResponse from cloudfront`; asserted as a
   prefix.
+
+## Post-PR — what a review of defects 37 and 38 found
+
+A max-effort review of `adae659..HEAD` found both fixes incomplete, and one new
+failure mode in the first.
+
+**Defect 37, continued: an all-wildcard pattern captured app routes.** One `?`
+per byte made a name with no character CloudFront can spell a pattern of
+wildcards alone: `фото/` became `????????/*`, which matches any 8-byte first
+segment, and public/ behaviors come before every compute behavior — so
+`/products/42` went to S3 and got a 403. Such an entry now gets no behavior and a
+synth warning; its own files 404 instead. The 255-character check also moved to
+the final pattern, after `/*` and the basePath, which it had not counted.
+
+**Defect 38, reworked: `public/` is listed at cold start, not in the manifest.**
+Keying `public/` into `manifest.staticFiles` at `onBuildComplete` left six gaps,
+all reproduced: a `postbuild` (`next-sitemap`) writes into `public/` after the
+hook; the keys were `encodeURIComponent` spellings, and a browser sends `@ + & , ;
+= $ : [ ]` as written; an i18n app's router prefixes the locale before matching,
+so no key ever matched; `Dirent.isFile()` dropped symlinks; a build output beat a
+`public/` file at the same path, the reverse of `next start`; and every Lambda
+manifest carried entries for files S3 always answers. The container runtime now
+lists `public/` off disk the way `next start` does (`readPublicFiles`), and the
+Dispatcher builds a routing table from it once per cold start: both spellings of
+every name, the default-locale variants for i18n, and `public/` ahead of app
+routes. On the Lambda types the directory is absent and the table has no
+`public/` entries at all.
+
+Found alongside and fixed with it:
+
+- `send` percent-decodes the path it is handed, so `100%.png` answered an empty
+  400 and `a%20b.txt` served `a b.txt`. It is now called as `next start` calls
+  it: an encoded path under a `root`, with `generateEtags` passed through.
+- A `public/` or `_next/static` file answered POST, PUT and DELETE with 200;
+  now 405 with `Allow: GET, HEAD`.
+- A `_next/static` chunk under a dynamic segment (`isr/[id]/page-….js`, webpack)
+  is requested as `%5Bid%5D`, and only the unencoded key existed, so the page
+  never hydrated on `NextjsRegionalContainers`. Build-output keys get the same
+  request spellings.
+- A static file missing from the package rendered the 404 without the request
+  headers middleware set.
+- An override of `dynamicCachePolicyProps.maxTtl: 0`, which CDK used to raise to
+  the day-long default, is honored now that the default is 0 — and CloudFront
+  rejects a policy that caches nothing but keys on headers. Such a policy now
+  drops its cache key.

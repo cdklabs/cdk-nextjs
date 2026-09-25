@@ -15,10 +15,9 @@
  *
  * Pass `--reuse-capture` to re-trim the previous run's dump without rebuilding.
  *
- * How it captures: `examples/<app>`'s sync script (`sync-cdk-nextjs`, or
- * `prebuild` where an app still calls it that) copies this repo's bundled
- * adapter into its own `node_modules/cdk-nextjs`, and `next.config.ts`
- * resolves `adapterPath` to that copy. The copy is untracked build output, so we
+ * How it captures: `examples/<app>`'s `sync-cdk-nextjs` script copies this
+ * repo's bundled adapter into its own `node_modules/cdk-nextjs`, and
+ * `next.config.ts` resolves `adapterPath` to that copy. The copy is untracked build output, so we
  * append a wrapper to it that dumps `ctx` before delegating to the real hook,
  * then run `next build`. Nothing tracked is modified.
  *
@@ -49,16 +48,15 @@ const MAX_STATIC_FILES = 8;
 
 /**
  * Which route templates to keep per example app. Chosen to cover: the root
- * page, a nested dynamic route, a multi-segment dynamic route, an ISR route, the
- * synthetic `_not-found` page, and both a static and a mutating route handler.
- * Each app-router page also has a sibling `.rsc` output, kept automatically.
+ * page, a dynamic ISR route, a multi-segment dynamic route whose param names
+ * prefix one another, optional catch-all and encoded params, the synthetic
+ * `_not-found` page, and both a static and a mutating route handler. Each
+ * app-router page also has a sibling `.rsc` output, kept automatically.
  */
 const KEEP_PATHNAMES = {
   "app-playground": [
     "/",
     "/_not-found",
-    "/context/[categorySlug]",
-    "/context/[categorySlug]/[subCategorySlug]",
     "/isr/[id]",
     "/api/health",
     "/api/revalidate",
@@ -104,7 +102,7 @@ function main() {
     // The example app's sync script copies this repo's *bundled* adapter, so a
     // stale bundle would silently capture the previous implementation.
     run("pnpm", ["bundle"], repoRoot);
-    run("pnpm", ["run", syncScriptOf(appDir)], appDir);
+    run("pnpm", ["run", "sync-cdk-nextjs"], appDir);
     patchAdapterCopy(appDir);
     rmSync(dumpPath, { force: true });
     run("npx", ["next", "build"], appDir, {
@@ -128,26 +126,6 @@ function run(cmd, args, cwd, env = {}) {
     stdio: ["ignore", "inherit", "inherit"],
     env: { ...process.env, ...env },
   });
-}
-
-/**
- * The script that copies the bundled adapter into `appDir`'s `node_modules`.
- * app-playground calls it `sync-cdk-nextjs` and chains it from `build`/`dev`;
- * pages-i18n still relies on npm running `prebuild` before `build`.
- */
-function syncScriptOf(appDir) {
-  const { scripts = {} } = JSON.parse(
-    readFileSync(join(appDir, "package.json"), "utf8"),
-  );
-  const script = ["sync-cdk-nextjs", "prebuild"].find(
-    (name) => name in scripts,
-  );
-  if (!script) {
-    throw new Error(
-      `${appDir}/package.json has neither a sync-cdk-nextjs nor a prebuild script to copy the adapter with.`,
-    );
-  }
-  return script;
 }
 
 /**

@@ -146,6 +146,27 @@ relied on the old behavior, send `Cache-Control: s-maxage=<seconds>` from the
 route, or restore it with
 `overrides.nextjsDistribution.dynamicCachePolicyProps.defaultTtl`.
 
+An override of `dynamicCachePolicyProps.maxTtl` below a day was silently raised
+to a day before (CDK lifts `maxTtl` to `defaultTtl`), and is now honored as
+written. In particular `maxTtl: Duration.seconds(0)` now really turns the dynamic
+cache off, and the policy drops its cache key to match, because CloudFront
+rejects a policy that caches nothing but keys on headers, cookies or query
+strings. What reaches the origin does not change: the origin request policy
+forwards all of those regardless.
+
+### Behavior change: `public/` on `NextjsRegionalContainers` follows `next start`
+
+The container runtime now serves `public/` the way `next start` does. It lists
+the directory when the task starts, so files a `postbuild` step writes
+(`next-sitemap`'s `sitemap.xml`, for one) are served. A `public/` file wins over
+an app route at the same path (`public/robots.txt` over `app/robots.ts`), and
+only GET and HEAD are answered; other methods get a 405. On
+`NextjsGlobalFunctions` and `NextjsGlobalContainers`, a top-level `public/`
+entry whose name has no ASCII letter, digit or other character CloudFront can
+match (`public/фото/`) no longer gets a cache behavior, since that behavior
+would have captured every app route of the same length. The synth warns, and the
+entry's files 404. Rename it, or move it under an ASCII-named directory.
+
 ### New (non-breaking): `functionGroups`
 
 Splits one Next.js app across several Lambda functions, one per declared group of
