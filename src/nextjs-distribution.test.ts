@@ -459,19 +459,20 @@ describe("NextjsDistribution function group behaviors", () => {
 
   it("wildcards a public/ name CloudFront cannot spell", () => {
     // `public/hello world.jpg` is a valid Next.js asset, but a space cannot appear
-    // in a path pattern and neither can the `%` of the `/hello%20world.jpg` the
-    // request actually arrives as, so cdk-nextjs threw at synth and the app could
-    // not be deployed at all. One `?` per character of the encoded form is the
-    // narrowest pattern CloudFront can express.
+    // in a path pattern, so cdk-nextjs threw at synth and the app could not be
+    // deployed at all. CloudFront matches the *decoded* path, and `?` matches one
+    // byte of it, so one `?` per UTF-8 byte is the narrowest pattern that
+    // matches. Not one per percent-encoded character: `hello???world.jpg`
+    // deploys and then never matches, which is a 404 rather than a synth error.
     const { stack, distributionProps } = setup([], {
       publicDirEntries: ["hello world.jpg", "äöüščří.png", "favicon.ico"],
     });
     new NextjsDistribution(stack, "Distribution", distributionProps);
     expect(pathPatterns(stack)).toEqual(
       expect.arrayContaining([
-        "hello???world.jpg",
-        // 7 characters, 6 encoded characters each.
-        `${"?".repeat(42)}.png`,
+        "hello?world.jpg",
+        // 7 characters, 2 UTF-8 bytes each.
+        `${"?".repeat(14)}.png`,
         "favicon.ico",
       ]),
     );
@@ -483,16 +484,16 @@ describe("NextjsDistribution function group behaviors", () => {
       ...distributionProps,
       publicDirEntries: [{ name: "my images", isDirectory: true }],
     });
-    expect(pathPatterns(stack)).toContain("my???images/*");
+    expect(pathPatterns(stack)).toContain("my?images/*");
   });
 
   it("rejects a public/ name too long to express as a path pattern", () => {
     const { stack, distributionProps } = setup([], {
-      publicDirEntries: [`${"ä".repeat(50)}.png`],
+      publicDirEntries: [`${"ä".repeat(130)}.png`],
     });
     expect(
       () => new NextjsDistribution(stack, "Distribution", distributionProps),
-    ).toThrow(/needs a 304-character CloudFront path pattern/);
+    ).toThrow(/needs a 264-character CloudFront path pattern/);
   });
 
   it("rejects splitting on a deployment type that cannot route it", () => {

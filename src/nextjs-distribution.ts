@@ -808,20 +808,22 @@ const MAX_PATH_PATTERN_LENGTH = 255;
  * cdk-nextjs used to throw at synth and the app could not be deployed at all
  * (`next-image-legacy/unicode`, whose `public/` also holds `äöüščří.png`).
  *
- * The request arrives percent-encoded (`/hello%20world.jpg`), and `%` is not in
- * the alphabet either, so the encoding cannot be written out literally. Each
- * character outside the alphabet is replaced instead by one `?` per character of
- * its encoded form — `?` matches exactly one character, so `hello???world.jpg` is
- * the narrowest pattern CloudFront can express for that file. A `*` would be
- * shorter and much wider: `äöüščří.png` would become `*.png`, which would pull
- * every `.png` request in the app onto the static origin.
+ * CloudFront URL-decodes the request path before matching it, so the pattern is
+ * matched against `hello world.jpg`, not the `/hello%20world.jpg` on the wire.
+ * Each character outside the alphabet is replaced by one `?` per byte of its
+ * UTF-8 encoding, because that is what `?` matches: `hello?world.jpg` for the
+ * space, and two `?` for each character of `äöüščří.png`. Measured against a
+ * deployed distribution; a `?` per *percent-encoded* character (`hello???world`)
+ * synthesizes fine and never matches. A `*` would be shorter and much wider:
+ * `äöüščří.png` would become `*.png`, which would pull every `.png` request in
+ * the app onto the static origin.
  */
 function toPathPattern(name: string): string {
   const pattern = [...name]
     .map((char) =>
       PATH_PATTERN_CHAR.test(char)
         ? char
-        : "?".repeat(encodeURIComponent(char).length),
+        : "?".repeat(Buffer.byteLength(char, "utf8")),
     )
     .join("");
   if (pattern.length > MAX_PATH_PATTERN_LENGTH) {
