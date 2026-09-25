@@ -391,6 +391,12 @@ export class NextjsDistribution extends Construct {
           // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
         ),
         cookieBehavior: CacheCookieBehavior.all(),
+        // A response with no `Cache-Control` is not cached, which is what Next.js
+        // and every app written for it assume: a dynamic route handler sets none.
+        // CDK's default is a day, which cached `/api/*` responses at the edge for
+        // 24 hours. Anything Next.js *means* to cache - ISR, SSG, a PPR shell -
+        // says so with `s-maxage`, which `maxTtl` still honors.
+        defaultTtl: Duration.seconds(0),
         enableAcceptEncodingBrotli: true,
         enableAcceptEncodingGzip: true,
         comment: this.getComment(

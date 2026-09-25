@@ -131,6 +131,21 @@ a custom domain mapped at the root, sees exactly what it saw before.
   attached with `addDomainName()` is invisible at synth, so set the prop in that
   case.
 
+### Responses without `Cache-Control` are no longer cached by CloudFront
+
+The dynamic cache policy on `NextjsGlobalFunctions` and `NextjsGlobalContainers`
+now has a default TTL of 0 rather than CDK's default of one day. Before, any
+dynamic response that sent no `Cache-Control` - typically a route handler - was
+cached at the edge for 24 hours (per query string and cookie set). Next.js treats
+"no header" as "not cacheable", and so does every other host an app is likely to
+have been written against.
+
+What Next.js means to cache is unaffected: ISR, SSG and PPR shells send
+`s-maxage`, which the policy still honors up to its one-year `maxTtl`. If you
+relied on the old behavior, send `Cache-Control: s-maxage=<seconds>` from the
+route, or restore it with
+`overrides.nextjsDistribution.dynamicCachePolicyProps.defaultTtl`.
+
 ### New (non-breaking): `functionGroups`
 
 Splits one Next.js app across several Lambda functions, one per declared group of

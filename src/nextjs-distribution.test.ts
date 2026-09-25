@@ -1,6 +1,6 @@
 import { runInNewContext } from "node:vm";
 import { App, Stack } from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import {
   Function as CloudFrontFunction,
   FunctionCode,
@@ -455,6 +455,23 @@ describe("NextjsDistribution function group behaviors", () => {
           assetPrefix: "/cdn",
         }),
     ).toThrow(/26 CloudFront cache behaviors.*4 used by cdk-nextjs itself/s);
+  });
+
+  it("does not cache a dynamic response that sends no Cache-Control", () => {
+    // CDK's `CachePolicy` default is a day, which cached every route handler
+    // without a `Cache-Control` - `/api/echo` in app-playground - for 24 hours.
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", distributionProps);
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::CachePolicy",
+      {
+        CachePolicyConfig: Match.objectLike({
+          Comment: Match.stringLikeRegexp("Dynamic"),
+          DefaultTTL: 0,
+          MinTTL: 0,
+        }),
+      },
+    );
   });
 
   it("wildcards a public/ name CloudFront cannot spell", () => {
