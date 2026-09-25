@@ -132,7 +132,7 @@ overrides the [infrastructure variables](#infrastructure-configuration) too.
 
 Time to live in milliseconds for in-memory cache entries. After this duration, entries expire and are removed from the cache.
 
-**Important**: Due to the distributed nature of compute instances (Lambda functions, ECS Fargate containers, etc.), the memory cache by default provides eventual consistency across instances. Tag revalidations will clear the cache on the instance that processes the revalidation, but other instances may serve stale data until their cache entries expire. If you require strong consistency, set this to `0` to disable the memory cache (all requests will fall through to S3 + DynamoDB).
+**Note**: Every memory hit is checked against the DynamoDB revalidation markers (one `BatchGetItem`), so an entry revalidated on another instance is not served from memory. Memory still saves the S3 read and body parse. Set this to `0` to disable the memory cache entirely (all requests will fall through to S3 + DynamoDB).
 
 **Default**: `3600000` (1 hour)
 

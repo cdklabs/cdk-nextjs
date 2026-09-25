@@ -247,9 +247,55 @@ describe("NextjsCache", () => {
       const properties = deploymentLambda(synth("build-abc123").template);
 
       // 301 MiB of cache — the 300 MiB hole plus the fixture's own file, rounded
-      // up — doubled for the zip that sits beside it, plus headroom.
-      expect(properties.EphemeralStorage).toEqual({ Size: 730 });
+      // up — doubled for the zip that sits beside it, plus headroom: 730 MiB,
+      // rounded up to the next step.
+      expect(properties.EphemeralStorage).toEqual({ Size: 1024 });
       expect(properties.MemorySize).toBe(1024);
+    });
+
+    it("keeps the deployment's identity while the cache grows by a little", () => {
+      // `ephemeralStorageSize` is part of the singleton handler's UUID and the
+      // custom resource's logical ID. Sized to the MiB, a cache 5 MiB bigger
+      // than the last deploy's was a new handler Lambda, a new ServiceToken
+      // and a replaced custom resource - a full deployment, not a hotswap.
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      const logicalIds = (mib: number) => {
+        writeFileSync(big, "");
+        truncateSync(big, mib * 1024 * 1024);
+        const template = synth("build-abc123").template;
+        return [
+          ...Object.keys(template.findResources("Custom::CDKBucketDeployment")),
+          ...Object.keys(template.findResources("AWS::Lambda::Function")),
+        ].sort();
+      };
+
+      expect(logicalIds(305)).toEqual(logicalIds(300));
+    });
+
+    it("keeps the staging copy when asset staging is disabled", () => {
+      // `--no-staging` (and SAM) leaves the asset where it is rather than
+      // copying it into `cdk.out`, so the staging copy *is* the asset, and the
+      // publish after synth needs it.
+      const ownApp = new App({
+        outdir: mkdtempSync(join(outdir, "app-")),
+        context: { "aws:cdk:disable-asset-staging": true },
+      });
+      const existing = new Set(
+        readdirSync(tmpdir()).filter((name) =>
+          name.startsWith("nextjs-init-cache-"),
+        ),
+      );
+
+      new NextjsCache(new Stack(ownApp, "TestStack"), "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+      });
+
+      const kept = readdirSync(tmpdir()).filter(
+        (name) => name.startsWith("nextjs-init-cache-") && !existing.has(name),
+      );
+      expect(kept).toHaveLength(1);
+      rmSync(join(tmpdir(), kept[0]), { recursive: true, force: true });
     });
 
     it("lets overrides win over the computed sizing", () => {

@@ -144,10 +144,59 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       };
       await cacheHandler.get("isr/2", getCtx);
 
-      const s3 = { get: jest.fn().mockResolvedValue(null) };
+      const s3 = {
+        get: jest.fn().mockResolvedValue(null),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+      };
       (cacheHandler as any).s3DynamoHandler = s3;
       expect(await cacheHandler.get("isr/2", getCtx)).toMatchObject({ value });
       expect(s3.get).not.toHaveBeenCalled();
+    });
+
+    it("does not serve a memory hit another instance's revalidateTag expired", async () => {
+      // `revalidateTag` clears only the memory of the instance that ran it. Any
+      // other instance holding the page in memory answered from it for the
+      // whole memory TTL, and CloudFront - just invalidated - cached the stale
+      // page again. So a memory hit is checked against the tag markers too.
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>stale</html>",
+        rscData: undefined,
+        headers: { "x-next-cache-tags": "_N_T_/blog" },
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue({ lastModified: Date.now(), value }),
+      };
+      await cacheHandler.get("blog", getCtx);
+
+      // Another instance revalidated `_N_T_/blog`: the marker is newer than the
+      // memory copy, and S3 now answers with the entry expired.
+      const s3 = {
+        get: jest.fn().mockResolvedValue({ lastModified: -1, value }),
+        isRevalidated: jest.fn().mockResolvedValue(true),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      expect(await cacheHandler.get("blog", getCtx)).toEqual({
+        lastModified: -1,
+        value,
+      });
+      expect(s3.isRevalidated).toHaveBeenCalledWith(
+        expect.objectContaining({ value }),
+        getCtx,
+      );
+      expect(s3.get).toHaveBeenCalledTimes(1);
+
+      // And the memory copy is gone rather than checked again next time.
+      s3.get.mockResolvedValue(null);
+      expect(await cacheHandler.get("blog", getCtx)).toBeNull();
     });
 
     it("should propagate resetRequestCache to memory layer", async () => {

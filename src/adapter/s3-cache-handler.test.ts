@@ -1,4 +1,13 @@
 /* eslint-disable import/no-extraneous-dependencies */
+import { join } from "node:path";
+// What `require.cache` holds in a running server. Jest's `createRequire` hands
+// out a cache of its own that nothing is ever loaded into, so the handler's
+// lookup of Next.js's tag manifest reads this stand-in instead.
+const mockModuleCache: Record<string, unknown> = {};
+jest.mock("node:module", () => ({
+  ...jest.requireActual("node:module"),
+  createRequire: () => ({ cache: mockModuleCache }),
+}));
 // Mock AWS SDK
 jest.mock("@aws-sdk/client-s3");
 jest.mock("@aws-sdk/client-dynamodb");
@@ -10,9 +19,9 @@ import {
   CreateInvalidationCommand,
 } from "@aws-sdk/client-cloudfront";
 import {
+  BatchGetItemCommand,
   DeleteItemCommand,
   DynamoDBClient,
-  GetItemCommand,
   QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
@@ -63,17 +72,40 @@ describe("S3DynamoCacheHandler", () => {
   });
 
   /**
+   * The input a mocked command was constructed with. The SDK's command classes
+   * are automocked, so an instance carries nothing of its own.
+   */
+  const commandInput = (command: unknown, type: unknown) => {
+    const mock = type as jest.Mock;
+    return mock.mock.calls[mock.mock.instances.indexOf(command)][0];
+  };
+
+  /**
    * Answer DynamoDB by command type rather than by call order: `revalidateTag`
    * writes its tag marker before querying the tag's mapping rows, and which of
-   * those comes first is an implementation detail.
+   * those comes first is an implementation detail. `get` is the marker row every
+   * requested tag has, as a `GetItem` would have returned it.
    */
-  const dynamoResponses = (responses: { query?: unknown; get?: unknown }) => {
+  const dynamoResponses = (responses: {
+    query?: unknown;
+    get?: { Item?: Record<string, unknown> };
+  }) => {
     mockDynamoSend.mockImplementation((command: unknown) => {
       if (command instanceof QueryCommand) {
         return Promise.resolve(responses.query ?? {});
       }
-      if (command instanceof GetItemCommand) {
-        return Promise.resolve(responses.get ?? {});
+      if (command instanceof BatchGetItemCommand) {
+        const { RequestItems } = commandInput(command, BatchGetItemCommand);
+        const [[table, { Keys }]] = Object.entries(RequestItems) as [
+          string,
+          { Keys: { sk: unknown }[] },
+        ][];
+        const item = responses.get?.Item;
+        return Promise.resolve({
+          Responses: {
+            [table]: item ? Keys.map(({ sk }) => ({ ...item, sk })) : [],
+          },
+        });
       }
       return Promise.resolve({});
     });
@@ -337,13 +369,13 @@ describe("S3DynamoCacheHandler", () => {
       });
 
       expect(result).toBeNull();
-      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
-      // And its mapping rows with it, from the tags it was *stored* with: the
-      // request's `softTags` never had rows written for them.
-      const deletedKeys = (DeleteItemCommand as unknown as jest.Mock).mock.calls
-        .map(([input]) => input.Key.sk.S)
-        .sort();
-      expect(deletedKeys).toEqual(["collection#test-build-id/fetch-key.json"]);
+      // Not deleted: the refetch this provokes overwrites it through `set`.
+      // Deleting it here raced that write, so a concurrent request's fresh
+      // entry could be the one removed.
+      expect(mockS3Send).not.toHaveBeenCalledWith(
+        expect.any(DeleteObjectCommand),
+      );
+      expect(DeleteItemCommand as unknown as jest.Mock).not.toHaveBeenCalled();
     });
 
     it("checks a fetch entry against the request's implicit tags, not its own", async () => {
@@ -390,7 +422,106 @@ describe("S3DynamoCacheHandler", () => {
       });
 
       expect(result).toBeNull();
-      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+      const [{ RequestItems }] = (BatchGetItemCommand as unknown as jest.Mock)
+        .mock.calls[0];
+      expect(
+        RequestItems["test-table"].Keys.map(
+          (key: { sk: { S: string } }) => key.sk.S,
+        ),
+      ).toEqual(["_N_T_/layout", "_N_T_/dynamic"]);
+    });
+
+    describe("a tag revalidated with a profile", () => {
+      // `revalidateTag("posts", "max")` is stale-while-revalidate: the entry is
+      // served once more while a background render replaces it, and expires
+      // outright only after the profile's `expire`. Treating it as `updateTag`
+      // made every such call a blocking re-render.
+      const lastModified = Date.now() - 1000;
+      const stored = {
+        lastModified,
+        value: {
+          kind: CachedRouteKind.APP_PAGE,
+          html: "<html>posts</html>",
+          headers: { "x-next-cache-tags": "posts" },
+        },
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+      const manifestPath = join(
+        "/deployment/node_modules/next/dist/server/lib/incremental-cache",
+        "tags-manifest.external.js",
+      );
+
+      beforeEach(() => {
+        mockS3Send.mockImplementation((command: unknown) =>
+          Promise.resolve(
+            command instanceof GetObjectCommand
+              ? {
+                  Body: {
+                    transformToString: jest
+                      .fn()
+                      .mockResolvedValue(JSON.stringify(stored)),
+                  },
+                  ContentType: "application/json",
+                }
+              : {},
+          ),
+        );
+      });
+
+      afterEach(() => {
+        delete mockModuleCache[manifestPath];
+      });
+
+      it("serves the entry and marks the tag stale in Next.js's manifest", async () => {
+        const tagsManifest = new Map<string, { stale?: number }>();
+        mockModuleCache[manifestPath] = { exports: { tagsManifest } };
+        const staleAt = lastModified + 500;
+        dynamoResponses({
+          get: {
+            Item: {
+              staleAt: { N: String(staleAt) },
+              expiredAt: { N: String(Date.now() + 60_000) },
+            },
+          },
+        });
+
+        expect(await handler.get("posts", getCtx)).toEqual({
+          lastModified,
+          value: stored.value,
+        });
+        // Where `IncrementalCache.get` reads it, to answer `isStale: true`.
+        expect(tagsManifest.get("posts")).toEqual({ stale: staleAt });
+      });
+
+      it("expires the entry when Next.js's manifest cannot be found", async () => {
+        // A stale mark nothing reads would serve the entry as fresh; a blocking
+        // render is the safe side of that.
+        dynamoResponses({
+          get: { Item: { staleAt: { N: String(lastModified + 500) } } },
+        });
+
+        expect(await handler.get("posts", getCtx)).toMatchObject({
+          lastModified: -1,
+        });
+      });
+
+      it("expires the entry once the profile's expire has passed", async () => {
+        dynamoResponses({
+          get: {
+            Item: {
+              staleAt: { N: String(lastModified + 100) },
+              expiredAt: { N: String(lastModified + 500) },
+            },
+          },
+        });
+
+        expect(await handler.get("posts", getCtx)).toMatchObject({
+          lastModified: -1,
+        });
+      });
     });
 
     it("should handle S3 errors and return null", async () => {
@@ -405,6 +536,41 @@ describe("S3DynamoCacheHandler", () => {
   });
 
   describe("set", () => {
+    // Mapping rows exist only to name CloudFront paths, so only a deployment
+    // with a distribution keeps them.
+    beforeEach(() => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      handler = new S3CacheHandler({ context: mockContext });
+    });
+
+    it("keeps no mapping rows without a distribution to invalidate", async () => {
+      // The Regional constructs have no CloudFront. A row per tag per `set`,
+      // and the S3 read before a delete to name them, bought nothing there.
+      delete process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME;
+      const regional = new S3CacheHandler({ context: mockContext });
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+
+      await regional.set(
+        "/isr/1",
+        {
+          kind: CachedRouteKind.APP_PAGE,
+          html: "<p/>",
+          rscData: undefined,
+          headers: { "x-next-cache-tags": "tag" },
+          postponed: undefined,
+          segmentData: undefined,
+          status: undefined,
+        },
+        createSetContext([]),
+      );
+      await regional.set("/isr/1", null, { isFallback: false });
+
+      expect(mockDynamoSend).not.toHaveBeenCalled();
+      expect(mockS3Send).not.toHaveBeenCalledWith(expect.any(GetObjectCommand));
+      expect(mockS3Send).toHaveBeenCalledWith(expect.any(DeleteObjectCommand));
+    });
+
     it("should store cache value in S3", async () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
@@ -641,7 +807,8 @@ describe("S3DynamoCacheHandler", () => {
 
       await handler.revalidateTag("test-tag");
 
-      expect(mockDynamoSend).toHaveBeenCalledWith(expect.any(QueryCommand));
+      // No distribution, so no mapping rows to read: the marker is all of it.
+      expect(mockDynamoSend).not.toHaveBeenCalledWith(expect.any(QueryCommand));
       expect(mockDynamoSend).toHaveBeenCalledWith(
         expect.any(UpdateItemCommand),
       );
@@ -712,11 +879,14 @@ describe("S3DynamoCacheHandler", () => {
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
       expect(invalidationInput.DistributionId).toBe("test-distribution-id");
-      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
-        // `?*` too: an invalidation path matches only the query string it
-        // spells out, and a page's RSC payload is cached under `?_rsc=<hash>`.
-        expect.arrayContaining(["/isr/1", "/isr/1?*", "/isr/2", "/isr/2?*"]),
-      );
+      // One trailing wildcard per page: an invalidation path matches only the
+      // query string it spells out, and a page's RSC payload is cached under
+      // `?_rsc=<hash>` - `/isr/1*` covers it, and the slash variant, for one
+      // of the fifteen wildcards instead of two.
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/isr/1*",
+        "/isr/2*",
+      ]);
     });
 
     it("splits a mapping row at the tag's length, so a tag containing # still resolves", async () => {
@@ -742,11 +912,8 @@ describe("S3DynamoCacheHandler", () => {
       const [invalidationInput] = (
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
-      expect(invalidationInput.InvalidationBatch.Paths.Items.sort()).toEqual([
-        "/account",
-        "/account/",
-        "/account/?*",
-        "/account?*",
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/account*",
       ]);
     });
 
@@ -772,13 +939,10 @@ describe("S3DynamoCacheHandler", () => {
       const [invalidationInput] = (
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
-      // Both slash variants: a `trailingSlash` app's cached URI is the redirect
-      // target, not the route.
-      expect(invalidationInput.InvalidationBatch.Paths.Items.sort()).toEqual([
-        "/en/legacy",
-        "/en/legacy/",
-        "/en/legacy/?*",
-        "/en/legacy?*",
+      // Both slash variants, which the trailing wildcard covers: a
+      // `trailingSlash` app's cached URI is the redirect target, not the route.
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/en/legacy*",
       ]);
     });
 
@@ -817,11 +981,13 @@ describe("S3DynamoCacheHandler", () => {
       ).mock.calls[0];
       expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
         expect.arrayContaining([
-          "/base/isr/1",
-          "/base/isr/1?*",
-          // The app's root under a `basePath` is `/base`, not `/base/`.
+          "/base/isr/1*",
+          // The app's root under a `basePath` is `/base`, not `/base/`, and
+          // spelled out: `/base*` would be the whole app.
           "/base",
           "/base?*",
+          "/base/",
+          "/base/?*",
         ]),
       );
       expect(invalidationInput.InvalidationBatch.Paths.Items).not.toContain(
@@ -847,11 +1013,8 @@ describe("S3DynamoCacheHandler", () => {
       const [invalidationInput] = (
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
-      expect(invalidationInput.InvalidationBatch.Paths.Items.sort()).toEqual([
-        "/base/blog",
-        "/base/blog/",
-        "/base/blog/?*",
-        "/base/blog?*",
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/base/blog*",
       ]);
     });
 
@@ -925,7 +1088,7 @@ describe("S3DynamoCacheHandler", () => {
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
       expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
-        expect.arrayContaining(["/pricing", "/pricing?*"]),
+        expect.arrayContaining(["/pricing*"]),
       );
     });
 
@@ -963,7 +1126,7 @@ describe("S3DynamoCacheHandler", () => {
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
       const items: string[] = invalidationInput.InvalidationBatch.Paths.Items;
-      expect(items).toEqual(expect.arrayContaining(["/blog/hello"]));
+      expect(items).toEqual(["/blog/hello*"]);
       expect(items.some((path) => path.includes("["))).toBe(false);
       expect(items.some((path) => path.includes("0123456789abcdef"))).toBe(
         false,
@@ -1007,9 +1170,10 @@ describe("S3DynamoCacheHandler", () => {
       const [invalidationInput] = (
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
-      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(
-        expect.arrayContaining(["/isr/1", "/isr/2"]),
-      );
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/isr/1*",
+        "/isr/2*",
+      ]);
     });
 
     it("collapses to one app-wide wildcard rather than sending many invalidations", async () => {
@@ -1042,6 +1206,111 @@ describe("S3DynamoCacheHandler", () => {
         CreateInvalidationCommand as unknown as jest.Mock
       ).mock.calls[0];
       expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual(["/*"]);
+    });
+
+    /** A handler with a distribution, and DynamoDB answering `query` for it. */
+    const withDistribution = (query: unknown) => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      dynamoResponses({ query });
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+      return new S3CacheHandler({ context: mockContext });
+    };
+    const invalidations = (): string[][] =>
+      (CreateInvalidationCommand as unknown as jest.Mock).mock.calls.map(
+        ([input]) => input.InvalidationBatch.Paths.Items,
+      );
+    const pages = (tag: string, count: number) => ({
+      Items: Array.from({ length: count }, (_, i) => ({
+        sk: { S: `${tag}#test-build-id/isr/${i}.json` },
+      })),
+    });
+
+    it("sends a tag's paths as one request while they fit", async () => {
+      // CloudFront's wildcard quota is shared by every invalidation in
+      // progress on the distribution. Splitting ten pages' twenty wildcards
+      // into two back-to-back requests had the second rejected, and its pages
+      // stayed stale at the edge.
+      await withDistribution(pages("test-tag", 10)).revalidateTag("test-tag");
+
+      expect(invalidations()).toHaveLength(1);
+      expect(invalidations()[0]).toHaveLength(10);
+    });
+
+    it("collapses to the whole app past fifteen wildcards", async () => {
+      await withDistribution(pages("test-tag", 16)).revalidateTag("test-tag");
+
+      expect(invalidations()).toEqual([["/*"]]);
+    });
+
+    it("invalidates every tag of one call in a single request", async () => {
+      // `revalidateTag` hands the handler every tag a request revalidated at
+      // once; a request per tag competes for the same quota.
+      await withDistribution({ Items: [] }).revalidateTag([
+        "_N_T_/a",
+        "_N_T_/b",
+      ]);
+
+      expect(invalidations()).toEqual([["/a*", "/b*"]]);
+    });
+
+    it("invalidates the whole app when a tag has more rows than it walks", async () => {
+      // The rows past the last page walked are pages too; invalidating only the
+      // ones read left the rest stale at the edge for up to a year.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      mockDynamoSend.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof QueryCommand
+            ? {
+                Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }],
+                LastEvaluatedKey: { pk: { S: "test-build-id" } },
+              }
+            : {},
+        ),
+      );
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await new S3CacheHandler({ context: mockContext }).revalidateTag(
+        "test-tag",
+      );
+
+      expect(invalidations()).toEqual([["/*"]]);
+    });
+
+    it("ignores rows that another tag sharing the prefix owns", async () => {
+      // `begins_with(sk, "user#")` also matches the tag `user#42`: its bare
+      // marker row, and its mapping rows. Read as `user`'s, they became
+      // invalidation paths like `/42` that name nothing.
+      await withDistribution({
+        Items: [
+          { sk: { S: "user#42" } },
+          { sk: { S: "user#42#test-build-id/account.json" } },
+          { sk: { S: "user#test-build-id/profile.json" } },
+        ],
+      }).revalidateTag("user");
+
+      expect(invalidations()).toEqual([["/profile*"]]);
+    });
+
+    it("records a profile's revalidation as stale now, expiring later", async () => {
+      const before = Date.now();
+      await handler.revalidateTag("posts", { expire: 60 });
+
+      const [input] = (UpdateItemCommand as unknown as jest.Mock).mock.calls[0];
+      expect(input.Key.sk.S).toBe("posts");
+      expect(input.UpdateExpression).toBe(
+        "SET staleAt = :stale, expiredAt = :expired",
+      );
+      const staleAt = Number(input.ExpressionAttributeValues[":stale"].N);
+      expect(staleAt).toBeGreaterThanOrEqual(before);
+      expect(Number(input.ExpressionAttributeValues[":expired"].N)).toBe(
+        staleAt + 60_000,
+      );
     });
   });
 
