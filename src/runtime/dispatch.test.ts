@@ -208,26 +208,43 @@ describe("Dispatcher entrypoint resolution", () => {
     // order, so the `$nxtPid` prefix wins and leaves a literal `2`: the route is
     // invoked with `nxtPid2=a2`. `repairRouteParamQuery` corrects it from
     // `routeMatches`. Measured against `test/e2e/app-dir/use-params`, whose
-    // fixture is `app/[id]/[id2]/page.tsx`; the committed fixtures have no two
-    // params where one name prefixes the other, so this renames a pair that the
-    // app-playground capture does have.
-    const renamed = JSON.parse(
-      JSON.stringify(appPlayground)
-        .replace(/subCategorySlug/g, "id2")
-        .replace(/categorySlug/g, "id"),
+    // fixture is `app/[id]/[id2]/page.tsx`; app-playground's
+    // `app/params/prefix/[id]/[id2]` is the same shape.
+    const result = await dispatcherFor("app-playground").dispatch(
+      request("/params/prefix/a/b"),
     );
-    const result = await createDispatcher({
-      manifest: manifestOf(renamed),
-      invokeMiddleware: async () => ({}),
-    }).dispatch(request("/context/a/b"));
     expect(result.kind).toBe("entrypoint");
     if (result.kind !== "entrypoint") return;
-    expect(result.resolvedPathname).toBe("/context/[id]/[id2]");
+    expect(result.resolvedPathname).toBe("/params/prefix/[id]/[id2]");
     expect(result.invocationTarget).toEqual({
-      pathname: "/context/a/b",
+      pathname: "/params/prefix/a/b",
       query: { nxtPid: "a", nxtPid2: "b" },
     });
     expect(result.query).toEqual({ nxtPid: "a", nxtPid2: "b" });
+  });
+
+  it("applies a gated beforeFiles rewrite from next.config.ts once", async () => {
+    // app-playground's one config rewrite: `/e2e/rewrite/:path(.*)` with
+    // `has: query json=true`, to `/e2e/rewrite/echo?from=/:path`. Its output
+    // matches it again, which is what Next.js re-applies inside the entrypoint
+    // (defect 29) - the Dispatcher's half is resolving it exactly once.
+    const dispatcher = dispatcherFor("app-playground");
+    const rewritten = await dispatcher.dispatch(
+      request("/e2e/rewrite/some/route?json=true"),
+    );
+    expect(rewritten.kind).toBe("entrypoint");
+    if (rewritten.kind !== "entrypoint") return;
+    expect(rewritten.resolvedPathname).toBe("/e2e/rewrite/echo");
+    expect(rewritten.invocationTarget.query).toMatchObject({
+      from: "/some/route",
+      json: "true",
+    });
+
+    // Without the `has` condition the rule does not fire and nothing else
+    // serves the path.
+    expect(
+      await dispatcher.dispatch(request("/e2e/rewrite/some/route")),
+    ).toMatchObject({ kind: "not-found" });
   });
 });
 

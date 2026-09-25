@@ -38,8 +38,13 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PLACEHOLDER_ROOT = "/repo";
 /** Per kept output, how many `node_modules/` asset keys to retain. */
 const NODE_MODULES_ASSET_SAMPLE = 8;
-/** Cap on *concrete* prerenders. Dynamic templates are always kept in full. */
-const MAX_PRERENDERS = 12;
+/**
+ * Cap on *concrete* prerenders, per route template. Per template rather than
+ * overall, so that adding a route to `KEEP_PATHNAMES` cannot push another
+ * route's concrete pages (`/isr/1` and its `.rsc`/segment variants) out of the
+ * fixture. Dynamic templates are always kept in full.
+ */
+const MAX_PRERENDERS_PER_ROUTE = 12;
 const MAX_STATIC_FILES = 8;
 
 /**
@@ -58,6 +63,8 @@ const KEEP_PATHNAMES = {
     "/api/health",
     "/api/revalidate",
     "/api/echo",
+    // The destination of `next.config.ts`'s one `beforeFiles` rewrite.
+    "/e2e/rewrite/echo",
     // `[id]` is a prefix of `[id2]`, which is what `@next/routing`'s param
     // expansion gets wrong (see `dispatch.test.ts`).
     "/params/prefix/[id]/[id2]",
@@ -132,7 +139,9 @@ function syncScriptOf(appDir) {
   const { scripts = {} } = JSON.parse(
     readFileSync(join(appDir, "package.json"), "utf8"),
   );
-  const script = ["sync-cdk-nextjs", "prebuild"].find((name) => name in scripts);
+  const script = ["sync-cdk-nextjs", "prebuild"].find(
+    (name) => name in scripts,
+  );
   if (!script) {
     throw new Error(
       `${appDir}/package.json has neither a sync-cdk-nextjs nor a prebuild script to copy the adapter with.`,
@@ -273,16 +282,18 @@ function trim(raw, { app, name }) {
       ...raw.outputs.prerenders.filter(
         (p) => keptTemplates.has(p.route) && p.pathname.includes("["),
       ),
-      ...raw.outputs.prerenders
-        .filter((p) => keptTemplates.has(p.route) && !p.pathname.includes("["))
-        .slice(0, MAX_PRERENDERS),
-    ]
-      .map((p) => ({
-        ...p,
-        fallback: p.fallback
-          ? { ...p.fallback, filePath: rewrite(p.fallback.filePath) }
-          : p.fallback,
-      })),
+      ...capPerRoute(
+        raw.outputs.prerenders.filter(
+          (p) => keptTemplates.has(p.route) && !p.pathname.includes("["),
+        ),
+        MAX_PRERENDERS_PER_ROUTE,
+      ),
+    ].map((p) => ({
+      ...p,
+      fallback: p.fallback
+        ? { ...p.fallback, filePath: rewrite(p.fallback.filePath) }
+        : p.fallback,
+    })),
     staticFiles: [
       ...raw.outputs.staticFiles.filter(
         (f) => !normalize(f.pathname).startsWith("/_next/static"),
@@ -308,7 +319,7 @@ function trim(raw, { app, name }) {
         repoRootRewrittenTo: PLACEHOLDER_ROOT,
         keptRouteTemplates: [...keptTemplates].sort(),
         nodeModulesAssetsPerOutput: NODE_MODULES_ASSET_SAMPLE,
-        maxConcretePrerenders: MAX_PRERENDERS,
+        maxConcretePrerendersPerRoute: MAX_PRERENDERS_PER_ROUTE,
         maxStaticFiles: MAX_STATIC_FILES,
       },
     },
@@ -321,6 +332,16 @@ function trim(raw, { app, name }) {
     buildId: raw.buildId,
     config: raw.config,
   };
+}
+
+/** The first `max` of `prerenders` for each `route`, in their original order. */
+function capPerRoute(prerenders, max) {
+  const seen = new Map();
+  return prerenders.filter((p) => {
+    const count = seen.get(p.route) ?? 0;
+    seen.set(p.route, count + 1);
+    return count < max;
+  });
 }
 
 main();

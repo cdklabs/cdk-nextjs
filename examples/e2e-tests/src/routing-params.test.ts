@@ -18,9 +18,9 @@ test.describe("routing params", () => {
     page,
   }) => {
     // `id` is a prefix of `id2`. Recovering params by `startsWith` rather than by
-    // equality gives `id2` the value of `id`, or drops it entirely. No committed
-    // adapter fixture has a naturally prefixing pair, which is why
-    // `dispatch.test.ts` has to rename one by hand - this route is the real thing.
+    // equality gives `id2` the value of `id`, or drops it entirely.
+    // `dispatch.test.ts` asserts the same route against the adapter fixture; this
+    // is the deployed half.
     await page.goto("./params/prefix/first/second");
 
     const params = JSON.parse(
