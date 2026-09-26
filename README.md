@@ -29,7 +29,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 - Global Content Delivery Network (CDN) built with [Amazon CloudFront](https://aws.amazon.com/cloudfront/) to deliver content with low latency and high transfer speeds.
 - Serverless functions powered by [AWS Lambda](https://aws.amazon.com/lambda/) or serverless containers powered by [AWS Fargate](https://aws.amazon.com/fargate/).
 - Static assets (JS, CSS, public folder) are stored and served from [Amazon Simple Storage Service (S3)](https://aws.amazon.com/s3/) for all constructs (except `NextjsRegionalContainers`) to decrease latency and reduce compute costs by serving directly from S3.
-- [Optimized images](https://nextjs.org/docs/pages/building-your-application/optimizing/images), [data cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), and [full route cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache) are shared across compute with [Amazon Simple Storage Service (S3)](https://aws.amazon.com/s3/) with supporting metadata in [Amazon DynamoDB](https://aws.amazon.com/dynamodb).
+- [Optimized images](https://nextjs.org/docs/pages/building-your-application/optimizing/images), [data cache](https://nextjs.org/docs/app/building-your-application/caching#data-cache), [full route cache](https://nextjs.org/docs/app/building-your-application/caching#full-route-cache) and [`'use cache: remote'`](https://nextjs.org/docs/app/api-reference/directives/use-cache-remote) are shared across compute with [Amazon Simple Storage Service (S3)](https://aws.amazon.com/s3/) with supporting metadata in [Amazon DynamoDB](https://aws.amazon.com/dynamodb), and `revalidateTag`/`revalidatePath` reach plain [`'use cache'`](https://nextjs.org/docs/app/api-reference/directives/use-cache) on every instance. See [`'use cache'` and `'use cache: remote'`](#use-cache-and-use-cache-remote).
 - Customize every construct via `overrides`.
 - AWS security and operational best practices are utilized, guided by [cdk-nag](https://github.com/cdklabs/cdk-nag).
 - First class support for [monorepos](https://monorepo.tools/).
@@ -166,6 +166,59 @@ Maximum number of cache entries to store in memory. When this limit is reached, 
 
 **Memory considerations**: Each entry stores the full cache value (HTML, JSON, etc.). A typical page cache might be 10-100KB, so 1000 entries ≈ 10-100MB of memory. Consider your compute environment's memory limits (Lambda: 128MB-10GB, Fargate: 512MB-30GB) and size accordingly.
 
+### `'use cache'` and `'use cache: remote'`
+
+The adapter registers two [`cacheHandlers`](https://nextjs.org/docs/app/api-reference/config/next-config-js/cacheHandlers)
+next to the `cacheHandler` it already sets, unless your `next.config` names a
+handler of its own for either:
+
+| Directive             | `cacheHandlers` name | Stored                           | Tags                    |
+| --------------------- | -------------------- | -------------------------------- | ----------------------- |
+| `'use cache'`         | `default`            | each instance's memory           | DynamoDB, all instances |
+| `'use cache: remote'` | `remote`             | S3 cache bucket, memory in front | DynamoDB, all instances |
+
+- **`'use cache: remote'`** is shared: an entry any instance generates is the one
+  every instance serves, until it expires or a tag is revalidated. Use it for
+  results you don't want each Lambda instance or task to compute on its own. It
+  costs an S3 `GetObject` the first time an instance reads an entry, and a
+  `PutObject` per generated entry. Objects live under
+  `<buildId>/_use-cache/` in the cache bucket and are pruned with the build.
+- **`'use cache'`** stays per instance, as Next.js intends — but `revalidateTag`,
+  `updateTag` and `revalidatePath` now expire it on every instance, not only the
+  one that ran them. Next.js's built-in handler keeps tags in process memory, so
+  before this every other instance kept serving the revalidated value, even into
+  pages re-rendered because of that revalidation.
+
+Both read the same per-tag marker rows in the revalidation table that ISR and
+the data cache use. Each instance re-reads the tags it has seen at most once per
+[`CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`](#cdk_nextjs_use_cache_tag_refresh_ms), so
+a revalidation on another instance is honored within that window (1 second by
+default) and on the instance that ran it immediately. A tag an instance has not
+seen yet — an entry read from S3, a page's implicit `revalidatePath` tags — is
+read before it is trusted, once per instance.
+
+Two instances that generate the same `'use cache: remote'` entry at the same
+moment both store it; each serves its own copy until that copy's `revalidate`
+time, after which S3's is used.
+
+#### `CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`
+
+How long, in milliseconds, an instance trusts its copy of a `'use cache'` tag's
+revalidation marker before reading it again. That read is one DynamoDB
+`BatchGetItem` per 100 tracked tags (at most 1000 are tracked), shared by every
+request on the instance during the window. `0` reads before every request that
+uses a cache.
+
+**Default**: `1000`
+
+#### `CDK_NEXTJS_USE_CACHE_MEMORY_BYTES`
+
+Size bound, in bytes, of each handler's in-memory store: all of `'use cache'`,
+and the memory tier in front of S3 for `'use cache: remote'`. Least recently used
+entries are evicted first.
+
+**Default**: `52428800` (50 MB, Next.js's own default)
+
 ### Infrastructure Configuration
 
 The construct sets these itself (`CDK_NEXTJS_BASE_PATH` only where noted) and they
@@ -177,7 +230,7 @@ Unique identifier for the Next.js build. Used for cache isolation between deploy
 
 #### `CDK_NEXTJS_CACHE_BUCKET_NAME`
 
-S3 bucket name for storing cached data (optimized images, data cache, full route cache).
+S3 bucket name for storing cached data (optimized images, data cache, full route cache, `'use cache: remote'`).
 
 #### `CDK_NEXTJS_REVALIDATION_TABLE_NAME`
 

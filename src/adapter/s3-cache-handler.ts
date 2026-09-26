@@ -11,20 +11,12 @@ import {
 } from "@aws-sdk/client-cloudfront";
 import {
   AttributeValue,
-  BatchGetItemCommand,
-  BatchGetItemCommandOutput,
   DeleteItemCommand,
   DynamoDBClient,
   QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
-import {
-  S3Client,
-  GetObjectCommand,
-  PutObjectCommand,
-  DeleteObjectCommand,
-  NoSuchKey,
-} from "@aws-sdk/client-s3";
+import { S3Client, DeleteObjectCommand, NoSuchKey } from "@aws-sdk/client-s3";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 import getDebug from "debug";
 import {
@@ -39,6 +31,17 @@ import {
   SetIncrementalFetchCacheContext,
   SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
+import {
+  AwsCacheConfig,
+  buildS3Key,
+  CacheBucket,
+  markerState,
+  resolveAwsCacheConfig,
+  RevalidateDurations,
+  RevalidationState,
+  TagMarkerTable,
+  tagMarkerTtl,
+} from "./aws-cache-store";
 import {
   serializeCacheValue,
   parseCacheValue,
@@ -281,25 +284,6 @@ const MAX_SOFT_REVALIDATED_KEYS = 1000;
  */
 const MAX_TAG_QUERY_PAGES = 20;
 
-/** DynamoDB's cap on keys in one `BatchGetItem`. */
-const BATCH_GET_MAX_KEYS = 100;
-
-/**
- * How long one instance trusts a tag marker it read, unless
- * `CDK_NEXTJS_TAG_MARKER_TTL_MS` says otherwise. Every cache hit checks its tags'
- * markers, and every marker of a deployment shares one partition key, so
- * reading them per request capped a route's cache hits at the partition's read
- * throughput (~1,900 req/s on NextjsRegionalFunctions). Held for a second, the
- * reads scale with instances and tags instead of requests; the cost is that a
- * `revalidateTag` another instance ran reaches this one up to a second late.
- */
-const DEFAULT_TAG_MARKER_TTL_MS = 1000;
-
-/** Past this many cached markers, expired ones are swept on the next read. */
-const TAG_MARKER_CACHE_SWEEP_SIZE = 1000;
-
-type TagMarker = Record<string, AttributeValue> | undefined;
-
 /**
  * Next.js's in-process tag manifest, which `IncrementalCache.get` consults to
  * decide whether an entry is stale - or `undefined` when it cannot be found
@@ -331,79 +315,17 @@ function nextTagsManifest():
   return manifest instanceof Map ? manifest : undefined;
 }
 
-/**
- * The `durations` Next.js 16 passes `revalidateTag` for a profile:
- * `revalidateTag("posts", "max")` arrives as `{ expire: <the profile's expire> }`.
- * Absent for `updateTag` and a bare `revalidateTag`, which expire immediately.
- */
-interface RevalidateDurations {
-  expire?: number;
-}
+type S3CacheConfig = Pick<AwsCacheConfig, "bucketName" | "region" | "buildId">;
 
-/**
- * What the tag markers say about an entry: untouched, served stale while a
- * background render replaces it, or expired and re-rendered before answering.
- */
-type RevalidationState = "fresh" | "stale" | "expired";
-
-/** A DynamoDB number attribute as a number, or `undefined` when absent. */
-function numberAttribute(
-  value: AttributeValue | undefined,
-): number | undefined {
-  return value?.N === undefined ? undefined : Number(value.N);
-}
-
-/**
- * The marker-row update for a tag revalidated at `now`.
- *
- * Without `durations` - `updateTag`, or `revalidateTag` with no profile - the
- * tag's entries expire immediately (`revalidatedAt`). With them the entries go
- * stale now and expire after the profile's `expire`, the same pair of
- * timestamps Next.js's `FileSystemCache.revalidateTag` records.
- */
-function markerUpdate(
-  now: number,
-  durations: RevalidateDurations | undefined,
-): Pick<
-  ConstructorParameters<typeof UpdateItemCommand>[0],
-  "UpdateExpression" | "ExpressionAttributeValues"
+interface DynamoDBRevalidationConfig extends Pick<
+  AwsCacheConfig,
+  "tableName" | "region" | "buildId"
 > {
-  if (!durations) {
-    return {
-      UpdateExpression: "SET revalidatedAt = :timestamp",
-      ExpressionAttributeValues: { ":timestamp": { N: String(now) } },
-    };
-  }
-  if (durations.expire === undefined) {
-    return {
-      UpdateExpression: "SET staleAt = :stale",
-      ExpressionAttributeValues: { ":stale": { N: String(now) } },
-    };
-  }
-  return {
-    UpdateExpression: "SET staleAt = :stale, expiredAt = :expired",
-    ExpressionAttributeValues: {
-      ":stale": { N: String(now) },
-      ":expired": { N: String(now + durations.expire * 1000) },
-    },
-  };
-}
-
-interface S3CacheConfig {
-  bucketName: string;
-  region: string;
-  buildId: string;
-}
-
-interface DynamoDBRevalidationConfig {
-  tableName: string;
-  region: string;
-  buildId: string;
   /**
    * How long a tag's marker row, once read, answers every revalidation check
    * on this instance without reading DynamoDB again. `0` reads it on every
    * check. From `CDK_NEXTJS_TAG_MARKER_TTL_MS`.
-   * @see readTagMarkers
+   * @see TagMarkerTable.read
    */
   markerTtlMs: number;
 }
@@ -442,6 +364,8 @@ export class S3CacheHandler implements CacheHandler {
   private dynamoClient: DynamoDBClient;
   private cloudFrontClient: CloudFrontClient;
   private ssmClient: SSMClient;
+  private bucket: CacheBucket;
+  private tagMarkers: TagMarkerTable;
   private s3Config: S3CacheConfig;
   private dynamoConfig: DynamoDBRevalidationConfig;
   private cloudFrontConfig: CloudFrontInvalidationConfig;
@@ -450,16 +374,6 @@ export class S3CacheHandler implements CacheHandler {
   // Cached for the lifetime of this instance (i.e. the compute instance) once
   // resolved, since a deployment's distribution ID never changes at runtime.
   private cachedDistributionId: string | null = null;
-
-  /**
-   * Tag markers by tag, each the read that fetched it, so concurrent checks
-   * share one `BatchGetItem` rather than each sending their own.
-   * @see readTagMarkers
-   */
-  private tagMarkers = new Map<
-    string,
-    { expiresAt: number; marker: Promise<TagMarker> }
-  >();
 
   /**
    * Cache keys this instance served stale because of a soft `revalidateTag`,
@@ -480,27 +394,18 @@ export class S3CacheHandler implements CacheHandler {
   private softRevalidatedKeys = new Set<string>();
 
   constructor(options: S3CacheHandlerOptions) {
-    const buildId = process.env.CDK_NEXTJS_BUILD_ID || "";
-
     // Initialize S3 configuration from environment variables and options
-    this.s3Config = {
-      bucketName:
-        options.s3Config?.bucketName ||
-        process.env.CDK_NEXTJS_CACHE_BUCKET_NAME ||
-        "",
-      region: options.s3Config?.region || process.env.AWS_REGION || "us-east-1",
-      buildId: options.s3Config?.buildId || buildId,
-    };
+    const { bucketName, region, buildId } = resolveAwsCacheConfig(
+      options.s3Config,
+    );
+    this.s3Config = { bucketName, region, buildId };
 
     // Initialize DynamoDB configuration from environment variables and options
+    const dynamo = resolveAwsCacheConfig(options.dynamoConfig);
     this.dynamoConfig = {
-      tableName:
-        options.dynamoConfig?.tableName ||
-        process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME ||
-        "",
-      region:
-        options.dynamoConfig?.region || process.env.AWS_REGION || "us-east-1",
-      buildId: options.dynamoConfig?.buildId || buildId,
+      tableName: dynamo.tableName,
+      region: dynamo.region,
+      buildId: dynamo.buildId,
       markerTtlMs:
         options.dynamoConfig?.markerTtlMs ??
         tagMarkerTtl(process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS),
@@ -534,6 +439,13 @@ export class S3CacheHandler implements CacheHandler {
       region: this.cloudFrontConfig.region,
     });
     this.ssmClient = new SSMClient({ region: this.cloudFrontConfig.region });
+    this.bucket = new CacheBucket(this.s3Client, this.s3Config.bucketName);
+    this.tagMarkers = new TagMarkerTable(
+      this.dynamoClient,
+      this.dynamoConfig.tableName,
+      this.dynamoConfig.buildId,
+      this.dynamoConfig.markerTtlMs,
+    );
 
     if (!this.s3Config.bucketName) {
       console.warn(
@@ -547,7 +459,7 @@ export class S3CacheHandler implements CacheHandler {
       );
     }
 
-    if (!buildId) {
+    if (!process.env.CDK_NEXTJS_BUILD_ID) {
       console.warn(
         "CDK_NEXTJS_BUILD_ID environment variable not set, cache isolation may not work correctly",
       );
@@ -577,23 +489,19 @@ export class S3CacheHandler implements CacheHandler {
 
       const s3Key = this.buildS3Key(cacheKey);
 
-      const command = new GetObjectCommand({
-        Bucket: this.s3Config.bucketName,
-        Key: s3Key,
-      });
+      const response = await this.bucket.get(s3Key);
 
-      const response = await this.s3Client.send(command);
-
-      if (!response.Body) {
+      if (!response) {
+        this.debug(`S3 CACHE MISS: ${cacheKey}`);
         return null;
       }
 
       // Handle different content types appropriately for documented formats
       let cacheValue: CacheHandlerValue;
-      const contentType = response.ContentType || "application/json";
+      const contentType = response.contentType || "application/json";
 
       // Handle text-based data (JSON, HTML, plain text) - all documented formats are text-based
-      const bodyString = await response.Body.transformToString("utf-8");
+      const bodyString = response.body;
 
       if (contentType.includes("application/json")) {
         // Parse the stored CacheHandlerValue directly
@@ -633,12 +541,7 @@ export class S3CacheHandler implements CacheHandler {
 
       return cacheValue;
     } catch (error) {
-      if (error instanceof NoSuchKey) {
-        this.debug(`S3 CACHE MISS: ${cacheKey}`);
-        return null;
-      }
-
-      // Log actual errors (not cache misses)
+      // Log actual errors (a cache miss is not one: see `CacheBucket.get`)
       console.error(`Error retrieving cache from S3:`, error);
       return null;
     }
@@ -798,14 +701,8 @@ export class S3CacheHandler implements CacheHandler {
       // Serialize with custom handling for Map and Buffer objects
       const body = serializeCacheValue(cacheEntryWithTags);
 
-      const command = new PutObjectCommand({
-        Bucket: this.s3Config.bucketName,
-        Key: s3Key,
-        Body: body,
-        ContentType: "application/json; charset=utf-8", // Always JSON since we store CacheHandlerValue
-      });
-
-      await this.s3Client.send(command);
+      // Always JSON since we store CacheHandlerValue
+      await this.bucket.putJson(s3Key, body);
 
       this.debug(`S3 CACHE STORED: ${cacheKey} (${data.kind})`);
 
@@ -892,20 +789,7 @@ export class S3CacheHandler implements CacheHandler {
     // runtime `set` wrote; a build-time prerender has none, so without this
     // marker `revalidateTag` would have nothing to act on for a static page.
     // See `checkIfRevalidated`, which reads it.
-    const now = Date.now();
-    await this.dynamoClient.send(
-      new UpdateItemCommand({
-        TableName: this.dynamoConfig.tableName,
-        Key: {
-          pk: { S: this.dynamoConfig.buildId },
-          sk: { S: tag },
-        },
-        ...markerUpdate(now, durations),
-      }),
-    );
-    // After the write, not before: a check between the two would cache the
-    // marker as it was.
-    this.tagMarkers.delete(tag);
+    await this.tagMarkers.write(tag, Date.now(), durations);
 
     if (!this.mapsTagsToPaths) {
       return { routes: [], truncated: false };
@@ -1150,21 +1034,9 @@ export class S3CacheHandler implements CacheHandler {
     );
   }
 
+  /** `{buildId}/{cacheKey}.json`; see {@link buildS3Key}. */
   private buildS3Key(cacheKey: string): string {
-    // Use BUILD_ID prefixing: {buildId}/{cacheKey}.json
-
-    // Handle edge cases:
-    // - Root path "/" should become "index" or similar
-    // - Remove leading slashes to prevent empty folders
-    let cleanCacheKey = cacheKey;
-
-    if (cacheKey === "/" || cacheKey === "") {
-      cleanCacheKey = "index";
-    } else if (cacheKey.startsWith("/")) {
-      cleanCacheKey = cacheKey.slice(1);
-    }
-
-    return join(this.s3Config.buildId, `${cleanCacheKey}.json`);
+    return buildS3Key(this.s3Config.buildId, cacheKey);
   }
 
   private async storeDynamoDBTagMappings(
@@ -1283,21 +1155,13 @@ export class S3CacheHandler implements CacheHandler {
       return [];
     }
     try {
-      const response = await this.s3Client.send(
-        new GetObjectCommand({
-          Bucket: this.s3Config.bucketName,
-          Key: s3Key,
-        }),
-      );
-      if (!response.Body) {
+      const response = await this.bucket.get(s3Key);
+      if (!response) {
         return [];
       }
-      const bodyString = await response.Body.transformToString("utf-8");
-      return entryTags(parseCacheValue(bodyString));
+      return entryTags(parseCacheValue(response.body));
     } catch (error) {
-      if (!(error instanceof NoSuchKey)) {
-        console.warn(`Failed to read tags of ${s3Key} before deleting:`, error);
-      }
+      console.warn(`Failed to read tags of ${s3Key} before deleting:`, error);
       return [];
     }
   }
@@ -1323,29 +1187,20 @@ export class S3CacheHandler implements CacheHandler {
     tags: string[],
   ): Promise<RevalidationState> {
     try {
-      const markers = await this.readTagMarkers(tags);
+      const markers = await this.tagMarkers.read(tags);
       const now = Date.now();
       const staleTags: [string, number][] = [];
 
       for (const [tag, marker] of markers) {
-        const revalidatedAt = numberAttribute(marker.revalidatedAt);
-        const expiredAt = numberAttribute(marker.expiredAt);
-        const staleAt = numberAttribute(marker.staleAt);
-        // `expiredAt` in the future is a profile's `expire` that has not come
-        // yet, compared the way Next.js's `areTagsExpired` does.
-        if (
-          (revalidatedAt !== undefined && revalidatedAt > cacheLastModified) ||
-          (expiredAt !== undefined &&
-            expiredAt <= now &&
-            expiredAt > cacheLastModified)
-        ) {
+        const state = markerState(marker, cacheLastModified, now);
+        if (state === "expired") {
           this.debug(
             `Tag ${tag} expired entry created at ${cacheLastModified}`,
           );
           return "expired";
         }
-        if (staleAt !== undefined && staleAt > cacheLastModified) {
-          staleTags.push([tag, staleAt]);
+        if (state === "stale" && marker.staleAt !== undefined) {
+          staleTags.push([tag, marker.staleAt]);
         }
       }
 
@@ -1373,120 +1228,4 @@ export class S3CacheHandler implements CacheHandler {
       return "fresh";
     }
   }
-
-  /**
-   * The marker rows for `tags` that exist, by tag. A marker read within the
-   * last {@link DynamoDBRevalidationConfig.markerTtlMs} is answered from this
-   * instance's memory, a read still in flight is joined, and the rest are read
-   * together (see {@link fetchTagMarkers}). `revalidateTag` drops the markers
-   * it writes, so the instance that ran it sees its own revalidation at once.
-   */
-  private async readTagMarkers(
-    tags: string[],
-  ): Promise<Map<string, Record<string, AttributeValue>>> {
-    const unique = Array.from(new Set(tags));
-    const ttl = this.dynamoConfig.markerTtlMs;
-    if (ttl <= 0) {
-      return this.fetchTagMarkers(unique);
-    }
-
-    const now = Date.now();
-    if (this.tagMarkers.size > TAG_MARKER_CACHE_SWEEP_SIZE) {
-      for (const [tag, cached] of this.tagMarkers) {
-        if (cached.expiresAt <= now) {
-          this.tagMarkers.delete(tag);
-        }
-      }
-    }
-    const missing = unique.filter(
-      (tag) => !((this.tagMarkers.get(tag)?.expiresAt ?? 0) > now),
-    );
-    if (missing.length > 0) {
-      const read = this.fetchTagMarkers(missing);
-      // Measured from when the read was sent, so a slow read is trusted no
-      // longer than a fast one.
-      const expiresAt = now + ttl;
-      for (const tag of missing) {
-        const marker = read.then((markers) => markers.get(tag));
-        this.tagMarkers.set(tag, { expiresAt, marker });
-        // A failed read is not an answer: forget it, so the next check asks
-        // again. Only if it is still this read's entry, not a newer one.
-        marker.catch(() => {
-          if (this.tagMarkers.get(tag)?.marker === marker) {
-            this.tagMarkers.delete(tag);
-          }
-        });
-      }
-    }
-
-    const markers = new Map<string, Record<string, AttributeValue>>();
-    const entries = await Promise.all(
-      unique.map(
-        async (tag) => [tag, await this.tagMarkers.get(tag)!.marker] as const,
-      ),
-    );
-    for (const [tag, marker] of entries) {
-      if (marker) {
-        markers.set(tag, marker);
-      }
-    }
-    return markers;
-  }
-
-  /**
-   * Read the marker rows for `tags` from DynamoDB, in one `BatchGetItem` per
-   * {@link BATCH_GET_MAX_KEYS} tags rather than a `GetItem` each: a page
-   * carries its whole implicit `_N_T_/…` chain plus the app's own tags, a
-   * page with a few fetches checks each of them too, and every one is on the
-   * request path.
-   */
-  private async fetchTagMarkers(
-    unique: string[],
-  ): Promise<Map<string, Record<string, AttributeValue>>> {
-    const { tableName, buildId } = this.dynamoConfig;
-    const markers = new Map<string, Record<string, AttributeValue>>();
-
-    for (let i = 0; i < unique.length; i += BATCH_GET_MAX_KEYS) {
-      let keys: Record<string, AttributeValue>[] | undefined = unique
-        .slice(i, i + BATCH_GET_MAX_KEYS)
-        .map((tag) => ({ pk: { S: buildId }, sk: { S: tag } }));
-      // `UnprocessedKeys` is DynamoDB declining part of the batch under load;
-      // a marker left unread is a revalidation missed, so it is asked again.
-      for (let attempt = 0; keys?.length && attempt < 3; attempt++) {
-        const response: BatchGetItemCommandOutput =
-          await this.dynamoClient.send(
-            new BatchGetItemCommand({
-              RequestItems: {
-                [tableName]: {
-                  Keys: keys,
-                  ProjectionExpression: "sk, revalidatedAt, staleAt, expiredAt",
-                },
-              },
-            }),
-          );
-        for (const item of response.Responses?.[tableName] ?? []) {
-          const tag = item.sk?.S;
-          if (tag !== undefined) {
-            markers.set(tag, item);
-          }
-        }
-        keys = response.UnprocessedKeys?.[tableName]?.Keys;
-      }
-      if (keys?.length) {
-        throw new Error(
-          `DynamoDB left ${keys.length} tag markers unread after retrying`,
-        );
-      }
-    }
-    return markers;
-  }
-}
-
-/**
- * `CDK_NEXTJS_TAG_MARKER_TTL_MS` as a TTL, or the default when it is unset or
- * not a non-negative number.
- */
-function tagMarkerTtl(value: string | undefined): number {
-  const ttl = value === undefined || value === "" ? NaN : Number(value);
-  return Number.isFinite(ttl) && ttl >= 0 ? ttl : DEFAULT_TAG_MARKER_TTL_MS;
 }

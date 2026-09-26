@@ -6,7 +6,8 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * `cacheTag('collection')` exists in exactly one route - `app/isr/[id]/page.tsx` -
  * and `/api/revalidate` only ever touches that tag plus
- * `revalidatePath('/isr/[id]')`. `app/ssg/[id]`'s `'use cache'` carries no tag, so
+ * `revalidatePath('/isr/[id]')`. `app/ssg/[id]`'s `'use cache: remote'` carries no
+ * tag, and `use-cache.test.ts` revalidates only tags of its own per-run key, so
  * nothing else in the app is reachable from a revalidation these two trigger. That
  * is why the serial lane is these two files and not the whole suite.
  */

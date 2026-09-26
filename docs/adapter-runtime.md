@@ -79,6 +79,11 @@ server.mts                               @next/routing             static file
 - **Cache** (`src/adapter/cache-handler.ts`): memory in front of S3 + DynamoDB
   at runtime, local files at build time. It also creates the CloudFront
   invalidations for on-demand revalidation on the Global types.
+- **`'use cache'` handlers** (`src/adapter/use-cache-{default,remote}-handler.ts`,
+  registered as `cacheHandlers`): `default` keeps entries in memory, `remote`
+  in S3 with memory in front, and both read tag revalidations from the same
+  DynamoDB marker rows as the cache handler (`src/adapter/aws-cache-store.ts`
+  is the plumbing all three share).
 
 ### Invariants worth not breaking
 

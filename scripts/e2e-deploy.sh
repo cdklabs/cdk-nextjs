@@ -23,8 +23,13 @@ APP_DIR="$PWD"
 CDK_BIN="${CDK_BIN:-$ADAPTER_DIR/node_modules/.bin/cdk}"
 ADAPTER_ENTRY="$ADAPTER_DIR/lib/adapter/adapter.mjs"
 CACHE_HANDLER_ENTRY="$ADAPTER_DIR/lib/adapter/cache-handler.mjs"
+# `cacheHandlers.default` / `.remote`, resolved the same way (src/adapter/adapter.mts).
+USE_CACHE_HANDLER_ENTRIES=(
+  "$ADAPTER_DIR/lib/adapter/use-cache-default-handler.mjs"
+  "$ADAPTER_DIR/lib/adapter/use-cache-remote-handler.mjs"
+)
 
-for required in "$ADAPTER_ENTRY" "$CACHE_HANDLER_ENTRY" "$ADAPTER_DIR/lib/index.js"; do
+for required in "$ADAPTER_ENTRY" "$CACHE_HANDLER_ENTRY" "${USE_CACHE_HANDLER_ENTRIES[@]}" "$ADAPTER_DIR/lib/index.js"; do
   if [ ! -f "$required" ]; then
     echo "harness: $required is missing. Run \`pnpm bundle && pnpm compile\` in $ADAPTER_DIR." >&2
     exit 1
@@ -101,7 +106,7 @@ export npm_config_package_manager_strict=false
 LOCAL_PKG="node_modules/cdk-nextjs"
 mkdir -p "$LOCAL_PKG/lib/adapter"
 cp "$ADAPTER_DIR/package.json" "$LOCAL_PKG/package.json"
-cp "$ADAPTER_ENTRY" "$CACHE_HANDLER_ENTRY" "$LOCAL_PKG/lib/adapter/"
+cp "$ADAPTER_ENTRY" "$CACHE_HANDLER_ENTRY" "${USE_CACHE_HANDLER_ENTRIES[@]}" "$LOCAL_PKG/lib/adapter/"
 # `next build` reads this into `config.adapterPath`
 # (next/dist/server/config-shared.js), which is how the harness's fixtures - who
 # know nothing about cdk-nextjs - get built through our adapter.

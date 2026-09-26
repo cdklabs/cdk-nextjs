@@ -37,12 +37,26 @@ const adapter: NextAdapter = {
         cacheHandler: config.cacheHandler
           ? config.cacheHandler
           : fileURLToPath(import.meta.resolve("cdk-nextjs/cache-handler")),
+        cacheHandlers: useCacheHandlers(config.cacheHandlers),
         images: {
           ...config.images,
           customCacheHandler: config.images.customCacheHandler
             ? config.images.customCacheHandler
             : true, // TODO: remove in Next.js 17
         },
+      };
+    }
+    if (phase === "phase-production-server") {
+      // `next start`. The deployed runtime needs none of this: its route modules
+      // read `cacheHandlers` from `required-server-files.json`, which the build
+      // phase above wrote. But `next start` registers the handlers once, from
+      // *this* config, before any route module gets the chance, and a registry
+      // initialized without them stays that way (`initializeCacheHandlers` in
+      // `next/dist/server/use-cache/handlers.js` only runs once). Same handlers
+      // here, so `next start` caches the way a deployment does.
+      return {
+        ...config,
+        cacheHandlers: useCacheHandlers(config.cacheHandlers),
       };
     }
     return config;
@@ -283,6 +297,30 @@ const adapter: NextAdapter = {
 };
 
 export default adapter;
+
+/**
+ * `cacheHandlers` with cdk-nextjs's handlers for the two names Next.js defines -
+ * `default` (`'use cache'`) and `remote` (`'use cache: remote'`) - and whatever
+ * the app configured itself left as it is, including either of those two.
+ *
+ * Without them Next.js maps both names to one in-memory handler whose tags are
+ * process-local, so on a multi-instance deployment `'use cache: remote'` is not
+ * shared and a `revalidateTag` reaches only the instance that ran it. See
+ * `use-cache-remote-handler.ts` and `use-cache-default-handler.ts`.
+ */
+function useCacheHandlers(
+  configured: Record<string, string | undefined> | undefined,
+): Record<string, string | undefined> {
+  return {
+    ...configured,
+    default:
+      configured?.default ||
+      fileURLToPath(import.meta.resolve("cdk-nextjs/cache-handlers/default")),
+    remote:
+      configured?.remote ||
+      fileURLToPath(import.meta.resolve("cdk-nextjs/cache-handlers/remote")),
+  };
+}
 
 /**
  * The tags a prerender was rendered with, as Next.js records them: in the

@@ -205,6 +205,32 @@ image, script, font or style (by `Sec-Fetch-Dest`) now get a plain-text
 `Not Found` with `Cache-Control: no-store`, as `next start` answers them, instead
 of rendering your `not-found` page.
 
+### New: `'use cache: remote'` is shared across instances
+
+The adapter now also sets Next.js's
+[`cacheHandlers`](https://nextjs.org/docs/app/api-reference/config/next-config-js/cacheHandlers):
+`remote` stores `'use cache: remote'` entries in the cache bucket (under
+`<buildId>/_use-cache/`, with an in-memory tier in front), so every Lambda
+instance or Fargate task serves the same entry. Before, Next.js fell back to its
+per-process in-memory handler, and `'use cache: remote'` was no more shared than
+`'use cache'`.
+
+`default` keeps plain `'use cache'` in memory, as before, but its tags now go
+through the revalidation table: a `revalidateTag`, `updateTag` or
+`revalidatePath` expires `'use cache'` entries on every instance within
+`CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS` (1 second by default), instead of only on
+the instance that ran it.
+
+A `cacheHandlers.default` or `cacheHandlers.remote` your `next.config` sets is
+left alone. See [README](../README.md#use-cache-and-use-cache-remote) for the
+cost and the settings.
+
+If you register the adapter yourself and copy its files rather than installing
+the package (as the examples' `sync-cdk-nextjs` script does), copy
+`lib/adapter/use-cache-default-handler.mjs` and
+`lib/adapter/use-cache-remote-handler.mjs` too: the adapter resolves them through
+the package's `cdk-nextjs/cache-handlers/default` and `/remote` exports.
+
 ### Performance compared with 0.6.2
 
 Measured with the [load tests](../examples/load-tests) against

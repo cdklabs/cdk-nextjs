@@ -53,7 +53,7 @@ Expanding Turbopack's root to include the entire monorepo causes it to repeatedl
 The `examples/app-playground/package.json` includes a `sync-cdk-nextjs` script that copies the necessary files directly into `node_modules` without symlinks:
 
 ```json
-"sync-cdk-nextjs": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs"
+"sync-cdk-nextjs": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs ../../lib/adapter/use-cache-default-handler.mjs ../../lib/adapter/use-cache-remote-handler.mjs node_modules/cdk-nextjs/lib/adapter/"
 ```
 
 Both `build` and `dev` chain it explicitly (`npm run sync-cdk-nextjs && next …`) so the copy happens no matter which package manager invokes them. While hacky, it:

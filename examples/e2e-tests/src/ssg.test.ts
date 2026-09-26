@@ -50,10 +50,17 @@ test.describe("ssg", () => {
     }
     expect(firstTimestamp).not.toBeNull();
 
-    // The cached render is served again, not re-rendered: the page's cache
-    // entry persisted between requests.
+    // The same render is served again, whichever instance answers. Not
+    // because the page is cached: an id outside `generateStaticParams` is
+    // answered from the `/ssg/[id]` fallback shell and resumed per request
+    // (`cache-control: private, no-store`), in `next start` too. What is cached
+    // is `Post`, with `'use cache: remote'` - in S3, so a reload served by
+    // another Lambda instance finds it. With plain `'use cache'` this only
+    // passed when the reload happened to reach the same instance.
     await waitXSec(5);
-    await page.reload({ waitUntil: "networkidle" });
-    expect(await getPageTimestamp(page)).toBe(firstTimestamp);
+    for (let reload = 0; reload < 3; reload++) {
+      await page.reload({ waitUntil: "networkidle" });
+      expect(await getPageTimestamp(page)).toBe(firstTimestamp);
+    }
   });
 });

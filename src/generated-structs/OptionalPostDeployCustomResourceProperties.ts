@@ -6,8 +6,10 @@
 export interface OptionalPostDeployCustomResourceProperties {
   /**
    * S3 key prefix to scope static asset pruning to.
-   * Empty or absent prunes the
-   * whole bucket.
+   * Only `<prefix>/_next/` is
+   * pruned, where every build-hashed asset lives, so `public/` files and other
+   * apps' prefixes are never touched. Empty or absent prunes `_next/` at the
+   * bucket root.
    * @stability stable
    */
   readonly staticAssetsKeyPrefix?: string;

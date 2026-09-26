@@ -252,6 +252,18 @@ function bundle() {
     format: "esm",
     banner: createRequireBanner,
   });
+  // One bundle per `cacheHandlers` name: Next.js loads each from its own path
+  // and takes the module's default export as the handler.
+  for (const kind of ["default", "remote"]) {
+    project.bundler.addBundle(`src/adapter/use-cache-${kind}-handler.ts`, {
+      platform: "node",
+      target,
+      outfile: `../../../lib/adapter/use-cache-${kind}-handler.mjs`,
+      externals: ["next"],
+      format: "esm",
+      banner: createRequireBanner,
+    });
+  }
   project.bundler.addBundle("src/adapter/adapter.mts", {
     platform: "node",
     target,
@@ -324,6 +336,8 @@ function checkBundleSyntax() {
   for (const bundled of [
     join("lib", "adapter", "adapter.mjs"),
     join("lib", "adapter", "cache-handler.mjs"),
+    join("lib", "adapter", "use-cache-default-handler.mjs"),
+    join("lib", "adapter", "use-cache-remote-handler.mjs"),
     join("lib", "runtime", "lambda.mjs"),
     join("lib", "runtime", "server.mjs"),
   ]) {
@@ -622,6 +636,14 @@ function updatePackageJson() {
       "./cache-handler": {
         import: "./lib/adapter/cache-handler.mjs",
         default: "./lib/adapter/cache-handler.mjs",
+      },
+      "./cache-handlers/default": {
+        import: "./lib/adapter/use-cache-default-handler.mjs",
+        default: "./lib/adapter/use-cache-default-handler.mjs",
+      },
+      "./cache-handlers/remote": {
+        import: "./lib/adapter/use-cache-remote-handler.mjs",
+        default: "./lib/adapter/use-cache-remote-handler.mjs",
       },
     }),
   );
