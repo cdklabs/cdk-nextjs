@@ -241,18 +241,28 @@ p50 / p99 in ms; "faster" is 0.6.2 over 0.7.0.
 
 | Construct                  | Compute p50 | Compute p99 | Cold start p50 | Compared at      |
 | -------------------------- | ----------- | ----------- | -------------- | ---------------- |
-| `NextjsGlobalFunctions`    | 1.7× faster | 1.6× faster | 1.3× faster    | 1000 req/s/route |
-| `NextjsGlobalContainers`   | same        | 1.1× faster | –              | 10 req/s/route   |
-| `NextjsRegionalContainers` | 5.0× faster | 3.4× faster | –              | 10 req/s/route   |
-| `NextjsRegionalFunctions`  | 1.1× faster | same        | 1.6× faster    | 1000 req/s/route |
+| `NextjsGlobalFunctions`    | 1.7× faster | 1.5× faster | 1.3× faster    | 1000 req/s/route |
+| `NextjsGlobalContainers`   | 1.1× faster | 1.1× faster | –              | 10 req/s/route   |
+| `NextjsRegionalContainers` | 7.0× faster | 3.9× faster | –              | 10 req/s/route   |
+| `NextjsRegionalFunctions`  | 1.9× faster | 1.5× faster | 1.6× faster    | 1000 req/s/route |
 
 Compute is the geometric mean over the routes that reach compute on every
 construct (`ssr`, `stream`, `rsc`, `api`), at the highest rate both versions
-served with under 1% errors.
+served with under 1% errors. `stream` counts by time to first byte, since its
+total includes a fixed 200 ms delay in the page.
+
+The Containers constructs are compared at 10 req/s per route because 50 was
+past capacity for 0.6.2 on `NextjsGlobalContainers` (5% errors) and for both
+versions on `NextjsRegionalContainers`. A step lasts 3 minutes, less than the
+time a new task takes to start serving, so each run measures the two tasks it
+started with. On `NextjsGlobalContainers`, 0.7.0 is also 1.1× faster at 50
+req/s per route.
 
 **`NextjsGlobalFunctions`**: RSC payloads and route handlers are the big
 change, since they no longer pass through the Lambda Web Adapter and the
-standalone server. At 1000 req/s per route:
+standalone server. At 10 req/s per route both versions' p50s are within 5% on
+every compute route. From 50 req/s up, 0.6.2 adds a flat ~40 ms to `rsc` and
+`api`, most of the difference. At 1000 req/s per route:
 
 | Route           | 0.6.2      | 0.7.0      | Faster      |
 | --------------- | ---------- | ---------- | ----------- |
@@ -287,7 +297,8 @@ tasks keep up long enough for autoscaling.
 
 **`NextjsRegionalFunctions`**: responses stream through API Gateway, where 0.6.2
 buffered them, and prerendered pages no longer go through the standalone
-server. At 50 req/s per route:
+server. Rendering itself changed little: `ssr`, `rsc` and `api` p50s are 1.1×
+faster at every rate. At 50 req/s per route:
 
 | Route           | 0.6.2      | 0.7.0      | Faster        |
 | --------------- | ---------- | ---------- | ------------- |
