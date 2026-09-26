@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { isLocal } from "./utils/deployment-type";
+import { getDeploymentType, isLocal } from "./utils/deployment-type";
 
 /**
  * The status codes an app produces other than 200, and the bodies that go with
@@ -26,6 +26,37 @@ test.describe("status codes", () => {
     expect(await response.text()).toContain(
       "Could not find requested resource",
     );
+  });
+
+  test("answers an unknown path with a 404 nothing may cache", async ({
+    request,
+  }) => {
+    // The body comes from the prerendered `/_not-found`, whose cache entry
+    // carries a year-long `s-maxage`. Sent with the 404, a CDN keeps it that long
+    // - past the deploy that adds the route. `next start` answers no-store.
+    const response = await request.get(
+      `./this-route-does-not-exist-e2e-${Date.now()}`,
+    );
+    expect(response.status()).toBe(404);
+    expect(response.headers()["cache-control"]).toContain("no-store");
+  });
+
+  test("answers a missing build asset with a 404 nothing may cache", async ({
+    request,
+  }) => {
+    // Only the ALB sends `_next/static` to the app. The other three types serve
+    // it from S3, so the runtime never sees the request.
+    test.skip(
+      getDeploymentType() !== "regional-containers",
+      "only regional-containers serves _next/static from the runtime",
+    );
+    // A chunk a later deploy may add, asked for early: cached under its
+    // `immutable` rule, it would stay missing for a year.
+    const response = await request.get(
+      `./_next/static/chunks/does-not-exist-${Date.now()}.js`,
+    );
+    expect(response.status()).toBe(404);
+    expect(response.headers()["cache-control"]).toContain("no-store");
   });
 
   test("answers notFound() from a route handler with a 404", async ({

@@ -74,6 +74,11 @@ exports.handler = async (req, res, ctx) => {
   if (url.searchParams.has("status")) {
     res.statusCode = Number(url.searchParams.get("status"));
   }
+  // What a prerendered \`/_not-found\` does: it sends the Cache-Control of its
+  // own cache entry, a year for one that never revalidates.
+  if (url.searchParams.has("cacheControl")) {
+    res.setHeader("Cache-Control", url.searchParams.get("cacheControl"));
+  }
   if (url.searchParams.has("waitUntil")) {
     ctx.waitUntil(
       new Promise((resolve) =>
@@ -437,11 +442,35 @@ describe("NextjsRuntime.handle", () => {
     expect(stubBody(sink).url).toBe("/nope?q=1");
   });
 
+  it("answers an unknown path no-store, whatever the /_not-found entry sends", async () => {
+    // A prerendered `/_not-found` is a cache HIT with a year-long `s-maxage`,
+    // and the CDN would keep this 404 for that long — past the deploy that adds
+    // the route. `next start` answers an unmatched path no-store.
+    const sink = await send({
+      url: `/nope?cacheControl=${encodeURIComponent("s-maxage=31536000")}`,
+    });
+    expect(sink.head?.statusCode).toBe(404);
+    expect(sink.head?.headers["cache-control"]).toBe(
+      "private, no-cache, no-store, max-age=0, must-revalidate",
+    );
+  });
+
   it("renders the 404 page when a route calls requestMeta.render404()", async () => {
     const sink = await send({ url: "/?render404=1" });
     expect(sink.head?.statusCode).toBe(404);
     // Whatever the route that gave up was rendering, for the same reason.
     expect(stubBody(sink).url).toBe("/?render404=1");
+  });
+
+  it("leaves a render404() 404 the Cache-Control its route gave it", async () => {
+    // `notFound()` from an ISR page is a cacheable result of that page, kept for
+    // its revalidate period, so the no-store for unmatched paths must not
+    // reach it.
+    const sink = await send({
+      url: `/?render404=1&cacheControl=${encodeURIComponent("s-maxage=60")}`,
+    });
+    expect(sink.head?.statusCode).toBe(404);
+    expect(sink.head?.headers["cache-control"]).toBe("s-maxage=60");
   });
 
   it("runs requestMeta.revalidate() against itself, not over the network", async () => {
@@ -560,6 +589,16 @@ exports.handler = async () =>
     // In the manifest but not on disk — `stageDeployment` writes no chunks, the
     // way a Lambda package ships none (they are on S3 behind CloudFront).
     const sink = await send({ url: "/_next/static/chunks/0-qsb3zz6f4c7.js" });
+    expect(sink.head?.statusCode).toBe(404);
+    expect(sink.head?.headers["cache-control"]).toBe(
+      "private, no-cache, no-store, max-age=0, must-revalidate",
+    );
+  });
+
+  it("keeps a missing build asset no-store when the /_not-found entry sets its own", async () => {
+    const sink = await send({
+      url: `/_next/static/chunks/0-qsb3zz6f4c7.js?cacheControl=${encodeURIComponent("s-maxage=31536000")}`,
+    });
     expect(sink.head?.statusCode).toBe(404);
     expect(sink.head?.headers["cache-control"]).toBe(
       "private, no-cache, no-store, max-age=0, must-revalidate",

@@ -369,7 +369,9 @@ export class NextjsRuntime {
           // year-long `immutable` Cache-Control, and a 404 under it gets cached
           // at the edge and in browsers for that long — a chunk that shows up on
           // the next deploy stays missing. `next start` answers this no-store.
-          res.setHeader("Cache-Control", NO_STORE);
+          // Pinned, because the `/_not-found` that renders the body sends its
+          // own year-long `s-maxage` when it is prerendered.
+          res.pinHeader("Cache-Control", NO_STORE);
           // As the `not-found` branch renders it: with the request headers
           // middleware set — a CSP nonce, say — and as the path asked for.
           req.headers = toIncomingHttpHeaders(result.requestHeaders);
@@ -412,6 +414,13 @@ export class NextjsRuntime {
         // client hydrated off a `/_not-found` payload reports the wrong
         // `usePathname()` and pushes the wrong history entry. `next start`
         // renders the not-found module against the original URL too.
+        //
+        // No-store, as `next start` answers an unmatched path. A prerendered
+        // `/_not-found` would otherwise send its cache entry's year-long
+        // `s-maxage`, and the CDN would keep the 404 past the deploy that adds
+        // the route. `render404` is not this path: a `notFound()` from an ISR
+        // page is cacheable for that page's revalidate period.
+        res.pinHeader("Cache-Control", NO_STORE);
         await this.sendNotFound(
           req,
           res,
