@@ -223,7 +223,8 @@ and each is several times cheaper. At 10 req/s per route:
 | `rsc`    | 65 / 275  | 9.4 / 64 | 6.9× / 4.3× |
 | `api`    | 62 / 242  | 6.9 / 55 | 8.9× / 4.4× |
 
-`ssr` capacity is the same, 675 req/s. At 50 req/s on every route at once
+`ssr` capacity is the same, 675 req/s; `isr` capacity rose from 3,200 to at
+least 6,075 req/s. At 50 req/s on every route at once
 (400 req/s including assets and image optimization), neither version's two
 tasks keep up long enough for autoscaling.
 
@@ -239,20 +240,19 @@ server. At 50 req/s per route:
 | `image`         | 81 / 173   | 125 / 221  | 0.7× (slower) |
 | Cold start TTFB | 2182 (p50) | 1380 (p50) | 1.6×          |
 
-`ssr` capacity is at least 6,560 req/s on both.
+`ssr` and `isr` capacity are at least 6,560 req/s on both.
 
-Two things are slower:
+The Regional constructs' cache hits now check their tags' revalidation markers
+in DynamoDB, in-memory hits included, which is what lets `revalidateTag` reach
+every instance. Each instance holds a marker it read for a second
+(`CDK_NEXTJS_TAG_MARKER_TTL_MS`), since read on every request they capped a
+route's cache hits at about 1,900 req/s: every marker of a deployment shares one
+partition key. The `isr` latencies above predate that TTL; the capacities
+include it.
 
-- **ISR throughput on the Regional constructs.** Every cache hit, memory hits
-  included, now checks its tags' revalidation markers in DynamoDB, which is what
-  lets `revalidateTag` reach every instance. All of a deployment's markers share
-  one partition key, so one route's cached pages top out at about 1,900 req/s on
-  `NextjsRegionalFunctions` (0.6.2: at least 6,560) and 1,600 on
-  `NextjsRegionalContainers` (0.6.2: 3,200), where DynamoDB throttles reads. The
-  Global constructs serve cached pages from CloudFront and aren't affected.
-- **Image optimization on `NextjsRegionalFunctions`**, 1.5× slower, now that it
-  runs in the server function instead of a dedicated one (see
-  [The dedicated image optimization Lambda is gone](#the-dedicated-image-optimization-lambda-is-gone)).
+One thing is slower: **image optimization on `NextjsRegionalFunctions`**, 1.5×,
+now that it runs in the server function instead of a dedicated one (see
+[The dedicated image optimization Lambda is gone](#the-dedicated-image-optimization-lambda-is-gone)).
 
 0.6.2 also needed two things of the app that 0.7.0 does not: middleware on
 `NextjsRegionalFunctions` to re-add the API Gateway stage to every path, and a

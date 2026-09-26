@@ -583,8 +583,8 @@ What each route measures:
 | -------------------------- | ----------------- | ----------------------------------------- | -------------- | -------------- | -------------- |
 | `NextjsGlobalFunctions`    | 36 / 103          | 33 / 84                                   | ≥ 6560 req/s   | ≥ 6560 req/s   | 1390 ms        |
 | `NextjsGlobalContainers`   | 19 / 44           | 18 / 219                                  | 194 req/s      | ≥ 6400 req/s   | –              |
-| `NextjsRegionalContainers` | 22 / 172          | 1972 / 39536 ⚠️ 0.54% errors, 76% dropped | 675 req/s      | 1600 req/s     | –              |
-| `NextjsRegionalFunctions`  | 32 / 114          | 30 / 103                                  | ≥ 6560 req/s   | 1943 req/s     | 1380 ms        |
+| `NextjsRegionalContainers` | 22 / 172          | 1972 / 39536 ⚠️ 0.54% errors, 76% dropped | 675 req/s      | ≥ 6075 req/s   | –              |
+| `NextjsRegionalFunctions`  | 32 / 114          | 30 / 103                                  | ≥ 6560 req/s   | ≥ 6560 req/s   | 1380 ms        |
 
 _Latency is p50 / p99 in ms, with every route loaded at that rate at once. Capacity is the highest rate sustained with p99 under 1000 ms and under 1% errors._
 
@@ -593,7 +593,7 @@ What this means for choosing one:
 - **Functions constructs scale with no sizing.** Both held at least 6,560 req/s of SSR, the load generator's limit, at the same latency as at 10 req/s. The cost is a cold start of about 1.4 s on a new execution environment.
 - **Containers constructs are fastest per request but need sizing.** Two 1 vCPU tasks served SSR at 19–22 ms p50 against Lambda's ~30 ms, but tasks take minutes to add. Past capacity they don't degrade gradually: tasks too busy to answer the ALB health check are replaced, which leaves fewer tasks for the same load. Leave headroom.
 - **CloudFront carries the Global constructs' cached traffic.** Prerendered pages, ISR hits, images and assets were answered at the edge in 2–3 ms at every rate. On the Regional constructs every request reaches the construct: `NextjsRegionalContainers` serves assets and image optimization from the same tasks, so 50 req/s on every route at once (400 req/s) is already more than two tasks handle.
-- **ISR on the Regional constructs tops out at roughly 1,600–1,900 req/s per deployment.** Every cache hit checks its tags' revalidation markers in DynamoDB, which is what lets `revalidateTag` reach every instance, and all of a deployment's markers share one partition. The Global constructs serve cached pages from CloudFront instead.
+- **Cached pages scale on every construct.** ISR hits held at least 6,000 req/s on all four: at the edge on the Global constructs, and through the S3 + DynamoDB cache on the Regional ones, where each instance holds a tag's revalidation marker for a second (`CDK_NEXTJS_TAG_MARKER_TTL_MS`, see the [Caching Guide](./docs/caching-guide.md)).
 
 <details>
 <summary><code>NextjsGlobalFunctions</code></summary>
@@ -627,6 +627,7 @@ Browser, p75 in ms, under 50 req/s per route:
 | image  | 52  | 6.7  | 10                     |
 
 </details>
+
 <details>
 <summary><code>NextjsGlobalContainers</code></summary>
 
@@ -657,6 +658,7 @@ Browser, p75 in ms, under 50 req/s per route:
 | image  | 52  | 5.4  | 11                     |
 
 </details>
+
 <details>
 <summary><code>NextjsRegionalContainers</code></summary>
 
@@ -674,7 +676,7 @@ Latency per route, p50 / p99 in ms, with every route at the same rate at once:
 | api           | 6.9 / 55  | 429 / 26041 ⚠️ 0.25% errors, 38% dropped  | no CDN   |
 | image         | 140 / 440 | 1599 / 27489 ⚠️ 0.22% errors, 69% dropped | no CDN   |
 
-Capacity: `isr` 1600 req/s, `ssr` 675 req/s.
+Capacity: `isr` ≥ 6075 req/s, `ssr` 675 req/s.
 
 Browser, p75 in ms, under 10 req/s per route. `static` is each visit's first page: on a plain-HTTP origin, Chrome tries HTTPS first and falls back after about 3 s (HTTPS-Upgrades), which real visitors pay too. Put a certificate on the ALB to avoid it.
 
@@ -687,6 +689,7 @@ Browser, p75 in ms, under 10 req/s per route. `static` is each visit's first pag
 | image  | 212  | 38   | 9.6                    |
 
 </details>
+
 <details>
 <summary><code>NextjsRegionalFunctions</code></summary>
 
@@ -704,7 +707,7 @@ Latency per route, p50 / p99 in ms, with every route at the same rate at once:
 | api           | 24 / 84   | 22 / 70   | 22 / 97   | 22 / 67    | no CDN   |
 | image         | 127 / 210 | 125 / 221 | 125 / 236 | 123 / 211  | no CDN   |
 
-Capacity: `isr` 1943 req/s, `ssr` ≥ 6560 req/s.
+Capacity: `isr` ≥ 6560 req/s, `ssr` ≥ 6560 req/s.
 
 Cold start, time to first byte of `/ssr` on a new execution environment: p50 1380 ms, p90 1442 ms (warm: 71 ms).
 
