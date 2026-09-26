@@ -489,6 +489,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsBuild.property.dotNextPath">dotNextPath</a></code> | <code>string</code> | Absolute path to the .next directory containing Next.js build artifacts. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has any Pages Router route, and therefore a second URL space (`/_next/data/<buildId>/<route>.json`) that carries the same routes. Only `functionGroups` cares: a group's routes have to be reachable in both. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.initCacheDir">initCacheDir</a></code> | <code>string</code> | Absolute path to the init cache directory. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.nextBuildId">nextBuildId</a></code> | <code>string</code> | The build ID Next.js itself uses, `.next/BUILD_ID` without the `deploymentId` suffix {@link buildId} carries: the `<buildId>` segment of every Pages Router `/_next/data/<buildId>/…json` URL, so it is what those URLs are routed on when `functionGroups` splits the app. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefix">nextConfigAssetPrefix</a></code> | <code>string</code> | The Next.js app's own `assetPrefix`, as a path with a leading slash and no trailing one, empty when the app sets none or sets an absolute URL (which names an origin cdk-nextjs does not serve). Read from the same `required-server-files.json`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefixPath">nextConfigAssetPrefixPath</a></code> | <code>string</code> | The path portion of the app's `assetPrefix`, whichever form it takes: "/cdn" for both `assetPrefix: "/cdn"` and `assetPrefix: "https://cdn.example.com/cdn"`, empty when there is no path to answer on. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigBasePath">nextConfigBasePath</a></code> | <code>string</code> | The Next.js app's own `basePath` — the URL prefix it generates its links and asset hrefs under — read out of the build's `required-server-files.json`. Normalized to a bare path segment, empty when the app sets none. Exposed so root constructs can reconcile it with the CDK `basePath` prop, which is a distinct thing; see `resolveBasePath`. |
@@ -609,6 +610,18 @@ Absolute path to the init cache directory.
 "/Users/john/myapp/.next/cdk-nextjs-init-cache"
 ```
 
+
+##### `nextBuildId`<sup>Required</sup> <a name="nextBuildId" id="cdk-nextjs.NextjsBuild.property.nextBuildId"></a>
+
+```typescript
+public readonly nextBuildId: string;
+```
+
+- *Type:* string
+
+The build ID Next.js itself uses, `.next/BUILD_ID` without the `deploymentId` suffix {@link buildId} carries: the `<buildId>` segment of every Pages Router `/_next/data/<buildId>/…json` URL, so it is what those URLs are routed on when `functionGroups` splits the app.
+
+---
 
 ##### `nextConfigAssetPrefix`<sup>Required</sup> <a name="nextConfigAssetPrefix" id="cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefix"></a>
 
@@ -4340,6 +4353,8 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.nextBuildId">nextBuildId</a></code> | <code>string</code> | The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required with {@link functionGroups} when {@link hasDataRoutes} is set. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}. |
 
@@ -4495,6 +4510,41 @@ public readonly loadBalancer: IApplicationLoadBalancer;
 - *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
 
 Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
+
+---
+
+##### `maxCacheBehaviors`<sup>Optional</sup> <a name="maxCacheBehaviors" id="cdk-nextjs.NextjsDistributionProps.property.maxCacheBehaviors"></a>
+
+```typescript
+public readonly maxCacheBehaviors: number;
+```
+
+- *Type:* number
+- *Default:* 75 - CloudFront's default quota
+
+The most cache behaviors the distribution may have, the default one included.
+
+cdk-nextjs counts what it adds (plus whatever a supplied
+{@link distribution} already has) against this at synth, so running out
+is a synth error naming what used them rather than a failed deploy.
+
+Raise it after raising the "Cache behaviors per distribution" quota for
+your account.
+
+> [https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions)
+
+---
+
+##### `nextBuildId`<sup>Optional</sup> <a name="nextBuildId" id="cdk-nextjs.NextjsDistributionProps.property.nextBuildId"></a>
+
+```typescript
+public readonly nextBuildId: string;
+```
+
+- *Type:* string
+- *Default:* none; only needed for a split Pages Router app
+
+The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required with {@link functionGroups} when {@link hasDataRoutes} is set.
 
 ---
 
@@ -4818,7 +4868,7 @@ const nextjsFunctionsOverrides: NextjsFunctionsOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.functionProps">functionProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.functionProps">functionProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a></code> | Props for the Lambda function. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsOverrides.property.functionUrlProps">functionUrlProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionUrlProps">OptionalFunctionUrlProps</a></code> | *No description.* |
 
 ---
@@ -4830,6 +4880,16 @@ public readonly functionProps: OptionalFunctionProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a>
+
+Props for the Lambda function.
+
+Construct-wide (`NextjsFunctionsProps.overrides`), these apply to every
+function group's Lambda — memory, timeout, VPC, role and the rest are
+shared — except the props that identify one function: `functionName`,
+`code` and `handler` apply to the `default` group only. A second function
+with the same name fails the deploy, and another group's code or handler
+would ship the wrong deployment root. Set those per group, in the group's
+own `overrides`, where they apply to that group alone.
 
 ---
 
@@ -10660,6 +10720,8 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextBuildId">nextBuildId</a></code> | <code>string</code> | The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required with {@link functionGroups} when {@link hasDataRoutes} is set. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}. |
@@ -10794,6 +10856,39 @@ public readonly loadBalancer: IApplicationLoadBalancer;
 - *Type:* aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer
 
 Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
+
+---
+
+##### `maxCacheBehaviors`<sup>Optional</sup> <a name="maxCacheBehaviors" id="cdk-nextjs.OptionalNextjsDistributionProps.property.maxCacheBehaviors"></a>
+
+```typescript
+public readonly maxCacheBehaviors: number;
+```
+
+- *Type:* number
+- *Default:* 75 - CloudFront's default quota
+
+The most cache behaviors the distribution may have, the default one included.
+
+cdk-nextjs counts what it adds (plus whatever a supplied
+{@link distribution} already has) against this at synth, so running out
+is a synth error naming what used them rather than a failed deploy.
+
+Raise it after raising the "Cache behaviors per distribution" quota for
+your account.
+
+---
+
+##### `nextBuildId`<sup>Optional</sup> <a name="nextBuildId" id="cdk-nextjs.OptionalNextjsDistributionProps.property.nextBuildId"></a>
+
+```typescript
+public readonly nextBuildId: string;
+```
+
+- *Type:* string
+- *Default:* none; only needed for a split Pages Router app
+
+The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required with {@link functionGroups} when {@link hasDataRoutes} is set.
 
 ---
 
@@ -11053,8 +11148,10 @@ public readonly staticAssetsKeyPrefix: string;
 
 S3 key prefix to scope static asset pruning to.
 
-Empty or absent prunes the
-whole bucket.
+Only `<prefix>/_next/` is
+pruned, where every build-hashed asset lives, so `public/` files and other
+apps' prefixes are never touched. Empty or absent prunes `_next/` at the
+bucket root.
 
 ---
 
@@ -11779,8 +11876,10 @@ public readonly staticAssetsKeyPrefix: string;
 
 S3 key prefix to scope static asset pruning to.
 
-Empty or absent prunes the
-whole bucket.
+Only `<prefix>/_next/` is
+pruned, where every build-hashed asset lives, so `public/` files and other
+apps' prefixes are never touched. Empty or absent prunes `_next/` at the
+bucket root.
 
 ---
 
