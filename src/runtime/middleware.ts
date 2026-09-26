@@ -3,18 +3,21 @@
  * The middleware runner: the `invokeMiddleware` callback `resolveRoutes` calls,
  * and nothing more.
  *
- * Deliberately small. Two things that look like they belong here do not:
+ * Deliberately small. A middleware runner would normally own two more jobs,
+ * deciding whether middleware runs and interpreting what it returned, but
+ * neither is done here:
  *
- * - **Matcher evaluation.** `resolveRoutes` gates middleware itself from
- *   `routes.middlewareMatchers`, which Next builds with the
- *   `x-prerender-revalidate` `missing` rule already injected — so ISR
- *   revalidation requests skip user middleware with no work here.
- * - **The `x-middleware-*` header protocol.** `@next/routing` exports
- *   `responseToMiddlewareResult`, which translates
+ * - **Matcher evaluation** (does this path run middleware?). `resolveRoutes`
+ *   already checks `routes.middlewareMatchers` before calling us, and Next
+ *   builds those matchers with the `x-prerender-revalidate` `missing` rule
+ *   injected, so ISR revalidation requests skip user middleware too.
+ *   Re-checking here would duplicate that and risk disagreeing with it.
+ * - **The `x-middleware-*` header protocol** (what did middleware ask for?).
+ *   `@next/routing` exports `responseToMiddlewareResult`, which translates
  *   `x-middleware-override-headers` / `x-middleware-request-*` /
  *   `x-middleware-rewrite` / `location` / `x-middleware-refresh` into a
- *   `MiddlewareResult`. Hand-rolling that is how the previous implementation
- *   drifted from `next start`.
+ *   `MiddlewareResult`. The previous implementation parsed these headers by
+ *   hand and drifted from `next start`.
  */
 import { join } from "node:path";
 import { responseToMiddlewareResult } from "@next/routing";
