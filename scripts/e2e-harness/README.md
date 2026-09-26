@@ -117,7 +117,13 @@ What the shared stack is paid for in:
   properties for the same reason: its default `buildId` and invalidation caller
   reference change on every synth, and a changed custom-resource property is not
   hotswappable, so either one alone would drag the deploy back through
-  CloudFormation.
+  CloudFormation. The pin is only safe because a shared stack is always
+  _created_ by `e2e-warm.sh`'s throwaway app: the create does run the custom
+  resource, and with `buildId: "harness"` it would prune the creating app's own
+  `<buildId>/` cache and seed none of its tags. So `e2e-deploy.sh` runs
+  `e2e-warm.sh` itself when a shared stack does not exist yet, and an isolated
+  stack (`HARNESS_ISOLATED_STACK=1`), which no other fixture hotswaps into, is not
+  pinned at all.
 
 `test/deploy-tests-manifest.json` still lists test files explicitly rather than
 taking next.js's `test/e2e/**` include rule, and this still runs on a schedule
@@ -582,11 +588,26 @@ are two layers:
 
 Both refuse to delete a stack unless it is named `hrns-*` **and** tagged
 `cdk-nextjs:harness=1`, re-checked immediately before the delete. The sweeper is
-additionally a dry run unless given `--apply`, and ignores anything younger than
-`HARNESS_SWEEP_MAX_AGE_HOURS` (default 6) so it can never delete a stack out from
-under a run in progress. To delete a stack you just created, name it — `--shared`
-or `--stack NAME`, which narrows the sweep to that one stack instead of lowering
-the age floor for every stack in the account.
+additionally a dry run unless given `--apply`, and ignores any stack used within
+the last `HARNESS_SWEEP_MAX_AGE_HOURS` (default 6). "Used" is the latest of the
+stack's `CreationTime`, its `LastUpdatedTime`, and its server function's
+`LastModified` — the last because a shared stack is reused for hours by hotswap,
+which never touches CloudFormation's timestamps but does rewrite the function.
+That is re-read right before each delete as well.
+
+The floor protects a stack that was deployed into recently. It cannot protect one
+that has sat idle for six hours and is *about* to be deployed into again — a
+reused shared or shard name at the start of a run — so don't run an
+account-wide `--apply` sweep while a run is starting. CI's scheduled sweep waits
+for the `harness` job for this reason.
+
+A stack left in `DELETE_FAILED` is retried by the next sweep, through the same
+gates. `--wait` blocks until each delete finishes and exits non-zero if one ends
+in `DELETE_FAILED`, printing the failing resources; CI's per-shard delete uses it
+so the next run never deploys into a stack that is still being deleted. To delete
+a stack you just created, name it — `--shared` or `--stack NAME`, which narrows
+the sweep to that one stack instead of lowering the age floor for every stack in
+the account.
 
 ## Environment knobs
 

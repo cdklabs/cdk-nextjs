@@ -44,6 +44,19 @@ STACK_NAME="$(harness_stack_name "$APP_DIR")"
 printf '%s\n' "$STACK_NAME" >"$HARNESS_STACK_FILE"
 echo "harness: app=$APP_DIR stack=$STACK_NAME"
 
+# A shared stack has to be created by `e2e-warm.sh`'s throwaway app, never by a
+# fixture: `app.js` pins the post-deploy `buildId` for shared stacks so test files
+# can hotswap, and the one deploy that runs the custom resource anyway - the
+# create - would then prune this fixture's `<buildId>/` cache and seed none of
+# its tags. CI warms every shard before the suite starts; this covers a local run
+# that did not. HARNESS_WARMING is how `e2e-warm.sh`'s own deploy says it is the
+# warm-up.
+if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ] && [ "${HARNESS_WARMING:-0}" != "1" ] &&
+  ! aws cloudformation describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1; then
+  echo "harness: $STACK_NAME does not exist yet; creating it with scripts/e2e-warm.sh first"
+  ADAPTER_DIR="$ADAPTER_DIR" "$ADAPTER_DIR/scripts/e2e-warm.sh"
+fi
+
 # The harness creates the app with `skipInstall`, so there is no node_modules yet.
 #
 # Which package manager installs it is the app's choice, not ours: a fixture can

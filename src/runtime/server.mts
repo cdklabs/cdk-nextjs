@@ -13,12 +13,10 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname } from "node:path";
-import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { loadRuntime, NextjsRuntime } from "./core";
 import { deploymentRootOf } from "./deployment-root";
-import type { ResponseHead } from "./http/response";
-import type { ResponseSink } from "./http/sink";
+import { NodeResponseSink } from "./http/node-sink";
 
 const PORT = Number(process.env.PORT ?? 3000);
 /** ECS tasks must bind every interface to be reachable by the ALB. */
@@ -42,20 +40,6 @@ function hasRequestBody(req: IncomingMessage): boolean {
     req.headers["content-length"] !== undefined ||
     req.headers["transfer-encoding"] !== undefined
   );
-}
-
-class NodeResponseSink implements ResponseSink {
-  public constructor(private readonly res: ServerResponse) {}
-
-  public begin(head: ResponseHead): Writable {
-    this.res.writeHead(head.statusCode, head.statusMessage, {
-      ...head.headers,
-      // The one header Node models as an array, which is exactly why
-      // `ResponseHead` carries cookies separately.
-      ...(head.cookies.length > 0 ? { "set-cookie": head.cookies } : {}),
-    });
-    return this.res;
-  }
 }
 
 async function serve(

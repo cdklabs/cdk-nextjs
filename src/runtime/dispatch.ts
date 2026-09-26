@@ -347,15 +347,79 @@ export class Dispatcher {
     return `${resolved.pathname}${resolved.search}${resolved.hash}`;
   }
 
+  /**
+   * The `headers()` rules a request matched, for a response middleware wrote
+   * itself.
+   *
+   * They compile into `routing.beforeMiddleware`, and `resolveRoutes` applies
+   * them there, but when middleware answers it returns `{ middlewareResponded:
+   * true }` and nothing else, so they were lost: a middleware 401 went out
+   * without the app's HSTS and CSP. `next start` sends them with it (its
+   * `resolve-routes.js` sets them on the response before middleware runs). So
+   * that one phase is run again on its own — no middleware, no files, nothing
+   * after it — which leaves exactly the headers it set.
+   */
+  private async beforeMiddlewareHeaders(
+    url: URL,
+    headers: Headers,
+  ): Promise<Headers> {
+    const result = await resolveRoutes({
+      url,
+      buildId: this.manifest.buildId,
+      basePath: this.manifest.config.basePath,
+      headers,
+      requestBody: emptyBody(),
+      pathnames: [],
+      routes: {
+        ...this.routes,
+        middlewareMatchers: [],
+        beforeFiles: [],
+        afterFiles: [],
+        dynamicRoutes: [],
+        onMatch: [],
+        fallback: [],
+      },
+      i18n: this.i18n,
+      invokeMiddleware: async () => ({}),
+    });
+    const responseHeaders = new Headers(result.resolvedHeaders ?? undefined);
+    // A locale-detection redirect is decided after middleware, and middleware
+    // already answered, so its `location` is not owed.
+    if (result.redirect) {
+      responseHeaders.delete("location");
+    }
+    return responseHeaders;
+  }
+
+  /**
+   * The URL to optimize, once `/_next/image` has resolved: as middleware
+   * rewrote it, or as received — or, when a `next.config` rewrite is what put
+   * the request on the image path, rebuilt from the query `resolveRoutes`
+   * resolved, which is the only place that rewrite's destination query is.
+   */
+  private imageUrl(result: ResolveRoutesResult, received: URL): URL {
+    if (received.pathname === this.imagePathname) return received;
+    const url = new URL(received.toString());
+    url.pathname = this.imagePathname;
+    if (result.resolvedQuery) {
+      url.search = toSearch(result.resolvedQuery);
+    }
+    return url;
+  }
+
   public async dispatch(request: DispatchRequest): Promise<DispatchResult> {
     // Copied because `resolveRoutes` is free to mutate what it is handed, and
     // the caller's headers object outlives this call.
     const requestHeaders = new Headers(request.headers);
+    // A second copy, as the request reached `beforeMiddleware`, for
+    // {@link beforeMiddlewareHeaders}.
+    const receivedHeaders = new Headers(request.headers);
+    const url = this.withRootLocale(request.url, requestHeaders);
     let middlewareRequestHeaders: Headers | undefined;
     let middlewareRewrite: URL | undefined;
 
     const result = await resolveRoutes({
-      url: this.withRootLocale(request.url, requestHeaders),
+      url,
       buildId: this.manifest.buildId,
       basePath: this.manifest.config.basePath,
       headers: requestHeaders,
@@ -396,7 +460,14 @@ export class Dispatcher {
     const status = result.status;
 
     if (result.middlewareResponded) {
-      return { kind: "middleware-responded", responseHeaders, status };
+      return {
+        kind: "middleware-responded",
+        responseHeaders: await this.beforeMiddlewareHeaders(
+          url,
+          receivedHeaders,
+        ),
+        status,
+      };
     }
 
     if (result.externalRewrite) {
@@ -425,6 +496,19 @@ export class Dispatcher {
     // Both are keys into `entrypoints`/`staticFiles`, which never carry a
     // trailing slash; see {@link withTrailingSlashVariants}.
     const resolvedPathname = this.normalizePathname(result.resolvedPathname);
+    // In `pathnames` (see {@link buildRoutingTable}), so it resolves in the
+    // filesystem phase: after middleware and `beforeFiles`, and before any
+    // dynamic route, which is `next start`'s order. Unlisted, a root catch-all
+    // (`app/[...slug]`) or any two-segment dynamic route took every image
+    // request as `slug: ["_next", "image"]`.
+    if (resolvedPathname === this.imagePathname) {
+      return {
+        kind: "image-optimization",
+        url: this.imageUrl(result, middlewareRewrite ?? request.url),
+        requestHeaders: forwardedHeaders,
+        responseHeaders,
+      };
+    }
     if (resolvedPathname !== undefined) {
       const staticFile = this.table.staticFiles.get(resolvedPathname);
       const asStaticFile = (
@@ -480,10 +564,9 @@ export class Dispatcher {
       return { kind: "response", status, responseHeaders };
     }
 
-    // Unresolved. `/_next/image` is not an adapter output type at all, so it can
-    // never appear in `pathnames` and always lands here. That is the intended
-    // design, not a gap: image optimization has to run *after* middleware, and
-    // dispatch is the first point where that is true.
+    // Unresolved. `/_next/image` normally resolves above; this is the fallback
+    // for a request that reached the image path without `resolveRoutes`
+    // matching it.
     //
     // Matched against the rewritten URL when middleware rewrote one, because
     // middleware may be what puts the request on the image path at all: the
@@ -627,8 +710,16 @@ function buildRoutingTable(
     }
   }
 
+  // `/_next/image` is not an adapter output, but it is a filesystem route to
+  // `next start` (`filesystem.js` answers it as `nextImage`), and listing it is
+  // what lets it resolve ahead of the dynamic routes; see
+  // {@link Dispatcher.dispatch}.
   const pathnames = [
-    ...new Set([...manifest.pathnames, ...staticFiles.keys()]),
+    ...new Set([
+      ...manifest.pathnames,
+      ...staticFiles.keys(),
+      `${basePath}/_next/image`,
+    ]),
   ];
   return {
     pathnames: trailingSlash ? withTrailingSlashVariants(pathnames) : pathnames,
@@ -663,6 +754,26 @@ function requestSpellings(path: string): string[] {
     "http://n",
   ).pathname;
   return parsed === encoded ? [encoded] : [encoded, parsed];
+}
+
+/** A request body for a `resolveRoutes` call that never runs middleware. */
+function emptyBody(): ReadableStream {
+  return new ReadableStream({
+    start(controller) {
+      controller.close();
+    },
+  });
+}
+
+/** A `ResolveRoutesQuery` back into a query string, repeats and all. */
+function toSearch(query: ResolveRoutesQuery): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item !== undefined) search.append(key, item);
+    }
+  }
+  return search.toString();
 }
 
 /**

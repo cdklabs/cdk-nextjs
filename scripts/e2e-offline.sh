@@ -34,6 +34,8 @@ if [ ! -d "$FIXTURE_DIR" ]; then
 fi
 for required in "$ADAPTER_DIR/lib/adapter/adapter.mjs" \
   "$ADAPTER_DIR/lib/adapter/cache-handler.mjs" \
+  "$ADAPTER_DIR/lib/adapter/use-cache-default-handler.mjs" \
+  "$ADAPTER_DIR/lib/adapter/use-cache-remote-handler.mjs" \
   "$ADAPTER_DIR/lib/runtime/server.mjs"; do
   if [ ! -f "$required" ]; then
     echo "e2e-offline: $required is missing. Run \`pnpm bundle\` in $ADAPTER_DIR." >&2
@@ -55,7 +57,12 @@ printf '{ "name": "%s", "private": true }\n' "$APP_NAME" >"$APP_DIR/package.json
 
 mkdir -p "$APP_DIR/node_modules/cdk-nextjs/lib/adapter"
 cp "$ADAPTER_DIR/package.json" "$APP_DIR/node_modules/cdk-nextjs/package.json"
+# Everything the adapter points `next build` at: the adapter itself, the
+# `cacheHandler`, and the two `cacheHandlers` it resolves through the package's
+# `cache-handlers/*` exports.
 cp "$ADAPTER_DIR/lib/adapter/adapter.mjs" "$ADAPTER_DIR/lib/adapter/cache-handler.mjs" \
+  "$ADAPTER_DIR/lib/adapter/use-cache-default-handler.mjs" \
+  "$ADAPTER_DIR/lib/adapter/use-cache-remote-handler.mjs" \
   "$APP_DIR/node_modules/cdk-nextjs/lib/adapter/"
 
 cd "$APP_DIR"

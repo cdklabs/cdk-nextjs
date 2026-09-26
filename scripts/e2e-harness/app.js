@@ -16,6 +16,11 @@ const stackName = required("HARNESS_STACK_NAME");
 // `global-functions` (the default) or `regional-functions`; see common.sh's
 // `harness_nextjs_type`, which validates it and keeps the two stack names apart.
 const nextjsType = process.env["HARNESS_NEXTJS_TYPE"] || "global-functions";
+if (nextjsType !== "global-functions" && nextjsType !== "regional-functions") {
+  throw new Error(
+    `HARNESS_NEXTJS_TYPE=${nextjsType} is not global-functions or regional-functions`,
+  );
+}
 
 function required(name) {
   const value = process.env[name];
@@ -45,7 +50,7 @@ function required(name) {
  * `scripts/e2e-deploy.sh` invalidates the distribution itself - it has to, since
  * a hotswap never runs CloudFormation and so never runs a custom resource at all.
  */
-const PINNED_POST_DEPLOY = {
+const SHARED_POST_DEPLOY = {
   customResourceProperties: {
     buildId: "harness",
     // Dropped, not pinned to a fixed caller reference: CDK strips undefined
@@ -54,6 +59,21 @@ const PINNED_POST_DEPLOY = {
     createInvalidationCommandInput: undefined,
   },
 };
+
+/**
+ * The pin only holds up if the stack is *created* by an app whose cache it does
+ * not matter to lose: on a create the custom resource does run, and with
+ * `buildId: "harness"` it prunes every other `<buildId>/` prefix from the cache
+ * bucket - which is the app just deployed - and seeds no tag mappings. On a
+ * shared stack that app is the throwaway one `scripts/e2e-warm.sh` deploys, and
+ * `e2e-deploy.sh` runs it first when the stack does not exist yet.
+ *
+ * An isolated stack (`HARNESS_ISOLATED_STACK=1`) is created by the fixture itself
+ * and never hotswapped into by another, so there is nothing to pin for: it gets
+ * the real post-deploy pass, as a production deploy would.
+ */
+const PINNED_POST_DEPLOY =
+  process.env["HARNESS_ISOLATED_STACK"] === "1" ? undefined : SHARED_POST_DEPLOY;
 
 const COMMON_PROPS = {
   buildDirectory: appDir,

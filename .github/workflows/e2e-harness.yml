@@ -308,19 +308,25 @@ jobs:
         # own, which is what lets the age floor go: dropping the floor
         # account-wide instead would also delete the other shards' stacks, and an
         # isolated stack a developer had running at the time.
-        run: ./scripts/e2e-sweep.sh --apply --shared
+        #
+        # `--wait`: the next run's shard N deploys into this same stack name, and
+        # the workflow's `concurrency` group only holds it back until this job
+        # ends. Returning as soon as `delete-stack` is accepted would let it start
+        # against a stack still DELETE_IN_PROGRESS (a CloudFront delete takes 15+
+        # minutes), and a DELETE_FAILED would go unnoticed until the sweep.
+        run: ./scripts/e2e-sweep.sh --apply --shared --wait
 
   sweep:
     # What a cancelled or timed-out run leaves behind is collected by the *next*
     # scheduled run, at most six days later. That is why this job exists, and it
-    # still has to wait for `harness`: the age floor does not protect a run in
-    # progress, because shard stacks are reused by name and the floor reads
-    # `CreationTime`. A `hrns-shard-3` left by an earlier cancelled run is hours
-    # old and still the stack this run's shard 3 is about to `cdk deploy` into, so
-    # sweeping concurrently issued `delete-stack` on it ~30s in while the deploy
-    # started ~4 min in - and a CloudFront delete takes 15+ minutes, so the shard
-    # went red. The workflow-level `concurrency` group serializes runs, not the
-    # jobs inside one.
+    # still has to wait for `harness`. The age floor now counts from a stack's
+    # last deploy (its server function's `LastModified`, which hotswaps move), not
+    # its `CreationTime` - but a `hrns-shard-3` left by an earlier cancelled run
+    # is still hours idle at the moment this run's shard 3 is about to
+    # `cdk deploy` into it. Sweeping concurrently once issued `delete-stack` on it
+    # ~30s in while the deploy started ~4 min in, and a CloudFront delete takes
+    # 15+ minutes, so the shard went red. The workflow-level `concurrency` group
+    # serializes runs, not the jobs inside one.
     #
     # `always()` so that a failed or cancelled shard still gets its leftovers
     # swept rather than waiting another six days.

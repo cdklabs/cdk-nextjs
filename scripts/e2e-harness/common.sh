@@ -74,7 +74,11 @@ harness_app_id() {
 harness_stack_name() {
   local dir="$1"
   local prefix="$HARNESS_STACK_PREFIX"
-  if [ "$(harness_nextjs_type)" = "regional-functions" ]; then
+  local type
+  # Assigned on its own line so a rejected type fails this function instead of
+  # comparing as "" and quietly naming a Global stack.
+  type="$(harness_nextjs_type)" || return 1
+  if [ "$type" = "regional-functions" ]; then
     prefix="${prefix}rf-"
   fi
   if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ]; then
@@ -87,6 +91,10 @@ harness_stack_name() {
 # Which root construct `app.js` deploys: `global-functions` (the default) or
 # `regional-functions`. Exits on anything else, rather than quietly deploying the
 # default under a name that says otherwise.
+#
+# When called as `$(harness_nextjs_type)`, that `exit` only ends the command
+# substitution's subshell, which is why this file also runs it once at the top
+# level (at the bottom), where it ends the script that sourced it.
 harness_nextjs_type() {
   local type="${HARNESS_NEXTJS_TYPE:-global-functions}"
   case "$type" in
@@ -190,3 +198,7 @@ harness_stop_proxy() {
     rm -f "$state.pid" "$state.target"
   fi
 }
+
+# Validate HARNESS_NEXTJS_TYPE as soon as any harness script sources this file.
+# Not in a subshell, so `harness_nextjs_type`'s `exit 1` ends the sourcing script.
+harness_nextjs_type >/dev/null

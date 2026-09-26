@@ -40,6 +40,29 @@ export interface ImageOptimizerOptions {
    * of the bucket, which is the default.
    */
   readonly bucketKeyPrefix: string;
+  /**
+   * Requests a local source from the app's own routes, for one S3 has no file
+   * for: `<Image src="/api/avatar?id=42">`, served by a route handler. `next
+   * start` fetches every local source that way (`fetchInternalImage`); here it
+   * is the fallback, since nearly every source is a file, and a `GetObject` is
+   * far cheaper than a route invocation.
+   *
+   * Given the request being optimized, for its authority; like `next start`,
+   * the viewer's cookies and other headers are not the implementation's to
+   * forward.
+   * @default - S3 only: a source that is not a file is a 400
+   */
+  readonly fetchInternal?: (
+    href: string,
+    req: ShimIncomingMessage,
+  ) => Promise<InternalImageResponse>;
+}
+
+/** The response {@link ImageOptimizerOptions.fetchInternal} got. */
+export interface InternalImageResponse {
+  readonly statusCode: number;
+  readonly headers: Readonly<Record<string, string | string[] | undefined>>;
+  readonly body: Buffer;
 }
 
 /** What `required-server-files.json` is read for. */
@@ -92,15 +115,7 @@ export class RuntimeImageOptimizer {
             imagesConfig.maximumResponseBody,
             imagesConfig.maximumRedirects,
           )
-        : await fetchFromS3(this.s3, this.options.bucket, href, {
-            urlBasePath: nextConfig.basePath,
-            keyPrefix: this.options.bucketKeyPrefix,
-          }).then((result) => ({
-            buffer: result.buffer,
-            contentType: result.contentType,
-            cacheControl: null,
-            etag: result.etag,
-          }));
+        : await this.fetchLocal(req, href, nextConfig, next.optimizer);
 
       const {
         buffer,
@@ -166,6 +181,53 @@ export class RuntimeImageOptimizer {
       sendText(res, statusCode, message);
     }
   }
+
+  private async fetchLocal(
+    req: ShimIncomingMessage,
+    href: string,
+    nextConfig: ReturnType<typeof loadImageRuntime>["nextConfig"],
+    optimizer: NextImageModules["optimizer"],
+  ) {
+    try {
+      const result = await fetchFromS3(this.s3, this.options.bucket, href, {
+        urlBasePath: nextConfig.basePath,
+        keyPrefix: this.options.bucketKeyPrefix,
+        assetPrefix: nextConfig.assetPrefix,
+      });
+      return {
+        buffer: result.buffer,
+        contentType: result.contentType,
+        cacheControl: null,
+        etag: result.etag,
+      };
+    } catch (error) {
+      const { fetchInternal } = this.options;
+      const missing = error instanceof Error && error.name === "NoSuchKey";
+      if (!fetchInternal || !missing) throw error;
+
+      // What `fetchInternalImage` checks, and throws, for the same response.
+      const response = await fetchInternal(href, req);
+      if (!response.statusCode || response.body.length === 0) {
+        throw new optimizer.ImageError(
+          400,
+          '"url" parameter is valid but internal response is invalid',
+        );
+      }
+      return {
+        buffer: response.body,
+        contentType: firstHeader(response.headers["content-type"]) ?? null,
+        cacheControl: firstHeader(response.headers["cache-control"]) ?? null,
+        etag: optimizer.extractEtag(
+          firstHeader(response.headers.etag) ?? null,
+          response.body,
+        ),
+      };
+    }
+  }
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function sendText(

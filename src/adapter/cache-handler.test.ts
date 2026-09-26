@@ -62,13 +62,21 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
         status: undefined,
       };
 
-      // Set cache entry
-      await cacheHandler.set("test-key", testData, {
-        fetchCache: true as const,
-        tags: [],
-      });
+      const s3 = {
+        set: jest.fn().mockResolvedValue(undefined),
+        get: jest.fn().mockResolvedValue(null),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      const setCtx = { fetchCache: true as const, tags: [] };
 
-      // Get should return from memory
+      // Set cache entry
+      await cacheHandler.set("test-key", testData, setCtx);
+
+      // S3/DynamoDB got the write, with the context it needs for tags.
+      expect(s3.set).toHaveBeenCalledWith("test-key", testData, setCtx);
+
+      // Get should return from memory, without asking S3.
       const result = await cacheHandler.get("test-key", {
         kind: IncrementalCacheKind.APP_PAGE,
         isFallback: false,
@@ -76,6 +84,77 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
 
       expect(result).not.toBeNull();
       expect(result?.value).toEqual(testData);
+      expect(s3.get).not.toHaveBeenCalled();
+    });
+
+    it("deletes from both layers on set(key, null)", async () => {
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>gone</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const s3 = {
+        set: jest.fn().mockResolvedValue(undefined),
+        get: jest.fn().mockResolvedValue(null),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      const setCtx = { fetchCache: true as const, tags: [] };
+      await cacheHandler.set("gone-key", testData, setCtx);
+
+      await cacheHandler.set("gone-key", null, setCtx);
+
+      // The S3 layer is told to delete, not skipped.
+      expect(s3.set).toHaveBeenLastCalledWith("gone-key", null, setCtx);
+      // And memory no longer answers: the read falls through to S3.
+      expect(
+        await cacheHandler.get("gone-key", {
+          kind: IncrementalCacheKind.APP_PAGE,
+          isFallback: false,
+        }),
+      ).toBeNull();
+      expect(s3.get).toHaveBeenCalledTimes(1);
+    });
+
+    it("revalidates a tag in memory and in S3/DynamoDB, passing the durations through", async () => {
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>tagged</html>",
+        rscData: undefined,
+        headers: { "x-next-cache-tags": "posts" },
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const s3 = {
+        set: jest.fn().mockResolvedValue(undefined),
+        get: jest.fn().mockResolvedValue(null),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+        revalidateTag: jest.fn().mockResolvedValue(undefined),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      const memoryRevalidate = jest.spyOn(
+        (cacheHandler as any).memoryHandler,
+        "revalidateTag",
+      );
+
+      await cacheHandler.set("tagged-key", testData, {
+        fetchCache: true as const,
+        tags: ["posts"],
+      });
+      // `revalidateTag(tag, profile)`: the durations decide stale vs expired,
+      // so dropping them turns every soft revalidation into a hard one.
+      await cacheHandler.revalidateTag(["posts"], { expire: 60 });
+
+      expect(memoryRevalidate).toHaveBeenCalledWith(["posts"]);
+      expect(s3.revalidateTag).toHaveBeenCalledWith(["posts"], { expire: 60 });
+
+      await cacheHandler.revalidateTag("posts");
+      expect(s3.revalidateTag).toHaveBeenLastCalledWith("posts", undefined);
     });
 
     it("should handle cache misses gracefully", async () => {

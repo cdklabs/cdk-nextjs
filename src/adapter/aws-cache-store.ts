@@ -269,7 +269,8 @@ export class TagMarkerTable {
     now: number,
     durations: RevalidateDurations | undefined,
   ): Promise<void> {
-    await this.client.send(
+    const remember = this.markerTtlMs > 0;
+    const response = await this.client.send(
       new UpdateItemCommand({
         TableName: this.tableName,
         Key: {
@@ -277,11 +278,29 @@ export class TagMarkerTable {
           sk: { S: tag },
         },
         ...markerUpdate(now, durations),
+        // The row as this write left it, so this instance can remember it
+        // rather than read it back: `read` is eventually consistent, and a
+        // read-back racing replication would cache the marker from before the
+        // write — the instance that just ran `revalidateTag` serving what it
+        // revalidated for another `markerTtlMs`.
+        ...(remember ? { ReturnValues: "ALL_NEW" as const } : {}),
       }),
     );
     // After the write, not before: a check between the two would cache the
     // marker as it was.
-    this.cached.delete(tag);
+    if (remember && response?.Attributes) {
+      const item = response.Attributes;
+      this.cached.set(tag, {
+        expiresAt: Date.now() + this.markerTtlMs,
+        marker: Promise.resolve({
+          revalidatedAt: numberAttribute(item.revalidatedAt),
+          staleAt: numberAttribute(item.staleAt),
+          expiredAt: numberAttribute(item.expiredAt),
+        }),
+      });
+    } else {
+      this.cached.delete(tag);
+    }
   }
 
   /**
@@ -293,8 +312,9 @@ export class TagMarkerTable {
    *
    * A marker read within the last `markerTtlMs` is answered from this
    * instance's memory, a read still in flight is joined, and the rest are read
-   * together. `write` drops the marker it writes, so the instance that
-   * revalidated a tag sees it at once.
+   * together. `write` remembers the marker it writes, so the instance that
+   * revalidated a tag sees it at once, without an eventually consistent
+   * read-back.
    */
   async read(tags: string[]): Promise<Map<string, TagMarker>> {
     const unique = Array.from(new Set(tags));

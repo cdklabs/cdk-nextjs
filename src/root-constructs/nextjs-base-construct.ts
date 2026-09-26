@@ -78,7 +78,9 @@ export interface NextjsBaseProps {
    *   execute-api endpoint an app `basePath` that doesn't start with the stage
    *   warns, since its links will miss the stage. If you set this, the app's
    *   `basePath` must end with it. A domain attached later with
-   *   `addDomainName()` is not seen at synth; set this explicitly then.
+   *   `addDomainName()` is not seen at synth; set this explicitly then — to
+   *   `"/"` when that domain's base path mapping strips your app's whole
+   *   `basePath`, which mounts every resource at the root.
    * - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
    *   every path to the container, which serves its own static assets, so this
    *   is unconstrained.
@@ -260,9 +262,18 @@ export abstract class NextjsBaseConstruct extends Construct {
    * same limitation `NextjsApi.url` documents.
    */
   private apiGatewayPrefix(): ApiGatewayPrefix {
-    const restApiProps = (
-      this.baseProps.overrides as { nextjsApi?: NextjsApiOverrides } | undefined
-    )?.nextjsApi?.restApiProps;
+    // `nextjsRegionalFunctions.nextjsApiProps` is spread over `NextjsApi`'s
+    // props last, so an `overrides` there replaces `overrides.nextjsApi`
+    // wholesale and is the one the `RestApi` is built from.
+    const constructOverrides = this.constructOverrides as
+      { nextjsApiProps?: { overrides?: NextjsApiOverrides } } | undefined;
+    const apiOverrides =
+      constructOverrides?.nextjsApiProps?.overrides ??
+      (
+        this.baseProps.overrides as
+          { nextjsApi?: NextjsApiOverrides } | undefined
+      )?.nextjsApi;
+    const restApiProps = apiOverrides?.restApiProps;
     const domainName = restApiProps?.domainName;
     const strippedPrefix = domainName
       ? (domainName.basePath ?? "")

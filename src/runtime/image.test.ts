@@ -18,7 +18,7 @@ import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
 import { createIncomingMessage } from "./http/request";
 import { ResponseHead, ShimServerResponse } from "./http/response";
 import { pipeToSink } from "./http/sink";
-import { RuntimeImageOptimizer } from "./image";
+import { ImageOptimizerOptions, RuntimeImageOptimizer } from "./image";
 import { AdapterManifest } from "./manifest";
 import { useNextFrom } from "./next-modules";
 
@@ -80,7 +80,11 @@ interface Answer {
 
 async function request(
   src: string,
-  init: { method?: string; headers?: Record<string, string> } = {},
+  init: {
+    method?: string;
+    headers?: Record<string, string>;
+    via?: RuntimeImageOptimizer;
+  } = {},
 ): Promise<Answer> {
   const url = new URL(
     `https://shop.example.test/_next/image?url=${encodeURIComponent(src)}&w=640&q=75`,
@@ -109,7 +113,7 @@ async function request(
     },
     { compress: false },
   );
-  await optimizer.handle(req, res, url);
+  await (init.via ?? optimizer).handle(req, res, url);
   await done;
   return { head: head!, body: Buffer.concat(chunks).toString() };
 }
@@ -182,5 +186,83 @@ describe("RuntimeImageOptimizer response", () => {
     expect(head.statusCode).toBe(200);
     expect(head.headers["content-length"]).toBe(String(PNG.length));
     expect(body).toBe("");
+  });
+});
+
+describe("RuntimeImageOptimizer sources", () => {
+  // `next start` fetches a remote source only when `remotePatterns` or `domains`
+  // allow it; the stage's config allows none. Anything else would make the
+  // optimizer an open proxy into whatever it can reach.
+  it.each([
+    ["another origin", "https://evil.example.test/x.png"],
+    ["instance metadata", "http://169.254.169.254/latest/meta-data/"],
+    ["a protocol-relative url", "//evil.example.test/x.png"],
+  ])("rejects a remote source that is not allowed: %s", async (_name, src) => {
+    (imageOptimizer as jest.Mock).mockClear();
+    const { head, body } = await request(src);
+    expect(head.statusCode).toBe(400);
+    expect(body).toMatch(/"url" parameter/);
+    expect(imageOptimizer).not.toHaveBeenCalled();
+  });
+
+  function withS3Miss(
+    fetchInternal?: ImageOptimizerOptions["fetchInternal"],
+  ): RuntimeImageOptimizer {
+    const missing = new RuntimeImageOptimizer({
+      deploymentRoot: stage(),
+      manifest: {
+        relativeProjectDir: "",
+        config: { distDir: ".next" },
+      } as unknown as AdapterManifest,
+      bucket: "assets",
+      bucketKeyPrefix: "",
+      fetchInternal,
+    });
+    (missing as unknown as { s3: S3Client }).s3 = {
+      send: async () => {
+        throw Object.assign(new Error("missing"), { name: "NoSuchKey" });
+      },
+    } as unknown as S3Client;
+    return missing;
+  }
+
+  it("falls back to the app's routes for a source S3 has no file for", async () => {
+    const fetchInternal = jest.fn(async () => ({
+      statusCode: 200,
+      headers: {
+        "content-type": "image/png",
+        "cache-control": "public, max-age=120",
+      },
+      body: Buffer.from("route-bytes"),
+    }));
+    const { head } = await request("/api/avatar?id=42", {
+      via: withS3Miss(fetchInternal),
+    });
+    expect(head.statusCode).toBe(200);
+    expect(fetchInternal).toHaveBeenCalledWith(
+      "/api/avatar?id=42",
+      expect.anything(),
+    );
+    expect((imageOptimizer as jest.Mock).mock.lastCall[0]).toMatchObject({
+      buffer: Buffer.from("route-bytes"),
+      contentType: "image/png",
+      cacheControl: "public, max-age=120",
+    });
+  });
+
+  it("answers 400 when the route sends no body", async () => {
+    const { head } = await request("/api/avatar?id=42", {
+      via: withS3Miss(async () => ({
+        statusCode: 404,
+        headers: {},
+        body: Buffer.alloc(0),
+      })),
+    });
+    expect(head.statusCode).toBe(400);
+  });
+
+  it("answers 400 for a missing file when there is no route fallback", async () => {
+    const { head } = await request("/missing.png", { via: withS3Miss() });
+    expect(head.statusCode).toBe(400);
   });
 });

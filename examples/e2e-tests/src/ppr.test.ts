@@ -14,7 +14,7 @@ import { test, expect } from "@playwright/test";
  * lost PPR, by blocking on the dynamic part before sending a byte.
  */
 test.describe("ppr", () => {
-  test("streams the shell before the request-dependent part", async ({
+  test("puts the shell before the request-dependent part", async ({
     page,
     request,
     baseURL,
@@ -51,7 +51,9 @@ test.describe("ppr", () => {
 
     // Order in the byte stream is the assertion. Both halves being present only
     // proves the page rendered; the shell being *first* is what proves it was
-    // prerendered and the rest resumed onto it.
+    // prerendered and the rest resumed onto it. It does not prove the shell was
+    // *sent* first - this body is fully buffered, and a path that held the whole
+    // response back would produce the same bytes. The next test covers that.
     expect(shellIndex).toBeLessThan(dynamicIndex);
 
     // And the streamed half really is per-request.
@@ -61,6 +63,50 @@ test.describe("ppr", () => {
     await expect(
       page.getByRole("link", { name: "desc", exact: true }),
     ).toHaveClass(/bg-vercel-blue/);
+  });
+
+  test("flushes the shell before the request-dependent part has rendered", async ({
+    baseURL,
+  }) => {
+    test.skip(baseURL?.includes("localhost") === true);
+
+    // `fetch`, not Playwright's `request`: that buffers the body, and when each
+    // byte arrived is the whole assertion. The ALB gate's cookie has to be set by
+    // hand for the same reason - `storageState` only reaches Playwright's own
+    // clients - and there is no redirect here for a hand-set header to be lost on.
+    const url = new URL("./patterns/ppr-streaming?id=e2e", baseURL);
+    const startedAt = Date.now();
+    const response = await fetch(url, { headers: { cookie: "cdk-nextjs=1" } });
+    expect(response.status).toBe(200);
+    expect(response.body).toBeTruthy();
+
+    // `app/patterns/ppr-streaming/page.tsx` holds its request-dependent part back
+    // for 2 s. Record when each marker first appears in the bytes received so far.
+    const decoder = new TextDecoder();
+    const reader = response.body!.getReader();
+    let received = "";
+    let shellAt: number | undefined;
+    let dynamicAt: number | undefined;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += decoder.decode(value, { stream: true });
+      const now = Date.now() - startedAt;
+      if (shellAt === undefined && received.includes("ppr-shell-marker")) {
+        shellAt = now;
+      }
+      if (dynamicAt === undefined && received.includes("ppr-dynamic-e2e")) {
+        dynamicAt = now;
+      }
+    }
+    console.log(`ppr: shell at ${shellAt}ms, dynamic part at ${dynamicAt}ms`);
+
+    expect(shellAt).toBeDefined();
+    expect(dynamicAt).toBeDefined();
+    // Well under the 2 s the page waits, so network jitter cannot fake it, and
+    // far above what a buffered response could show: anything that waited for
+    // the end of the body would hand over both markers at the same instant.
+    expect(dynamicAt! - shellAt!).toBeGreaterThanOrEqual(1_000);
   });
 
   test("serves the same shell for a param the build never saw", async ({

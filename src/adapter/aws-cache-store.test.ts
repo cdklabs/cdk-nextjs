@@ -171,6 +171,40 @@ describe("TagMarkerTable", () => {
     });
   });
 
+  // A read-back after the write is eventually consistent, so it can return
+  // the marker from before it; caching that would hide this instance's own
+  // `revalidateTag` from it for the whole TTL.
+  it("remembers the marker it wrote instead of reading it back", async () => {
+    const cached = new TagMarkerTable(
+      new DynamoDBClient({}),
+      "tbl",
+      "build",
+      1000,
+    );
+    // Before the write: an old marker, now cached.
+    send.mockResolvedValueOnce({
+      Responses: { tbl: [{ sk: { S: "posts" }, revalidatedAt: { N: "1" } }] },
+    });
+    expect((await cached.read(["posts"])).get("posts")?.revalidatedAt).toBe(1);
+
+    send.mockResolvedValueOnce({
+      Attributes: { sk: { S: "posts" }, revalidatedAt: { N: "5000" } },
+    });
+    await cached.write("posts", 5000, undefined);
+    expect(
+      commandInput(send.mock.calls[1][0], UpdateItemCommand).ReturnValues,
+    ).toBe("ALL_NEW");
+
+    // A stale replica would answer with the old row; it must not be asked.
+    send.mockResolvedValue({
+      Responses: { tbl: [{ sk: { S: "posts" }, revalidatedAt: { N: "1" } }] },
+    });
+    expect((await cached.read(["posts"])).get("posts")?.revalidatedAt).toBe(
+      5000,
+    );
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it("asks again for unprocessed keys, and gives up after three tries", async () => {
     const unprocessed = {
       UnprocessedKeys: {

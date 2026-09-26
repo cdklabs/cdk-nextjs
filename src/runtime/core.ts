@@ -35,7 +35,7 @@ import {
   ShimServerResponse,
 } from "./http/response";
 import { pipeToSink, ResponseSink } from "./http/sink";
-import { RuntimeImageOptimizer } from "./image";
+import { InternalImageResponse, RuntimeImageOptimizer } from "./image";
 import {
   AdapterManifest,
   deployedManifestPath,
@@ -111,6 +111,7 @@ export class NextjsRuntime {
       manifest,
       bucket: options.bucket ?? "",
       bucketKeyPrefix: options.bucketKeyPrefix ?? "",
+      fetchInternal: (href, req) => this.fetchInternal(href, req),
     });
     // The runner is shared — it memoizes the loaded middleware module — while the
     // `invokeMiddleware` callback it produces is per request.
@@ -140,7 +141,11 @@ export class NextjsRuntime {
     const req = createIncomingMessage({
       method: request.method,
       url: request.url,
-      headers: request.headers,
+      headers: withoutInternalHeaders(
+        request.headers,
+        request.url,
+        manifest.config.basePath,
+      ),
       body: body.forRequest,
       remoteAddress: request.remoteAddress,
       encrypted: request.encrypted,
@@ -341,7 +346,14 @@ export class NextjsRuntime {
               this.revalidate(config, request),
           },
         });
-        if (!res.writableEnded) {
+        // A Pages API route owns the end of its response: `stream.pipe(res)`,
+        // an `externalResolver` proxy, or a callback that calls `res.json()`
+        // later all return from the handler before they are done writing, and
+        // ending here sent an empty 200 and made their writes throw
+        // `ERR_STREAM_WRITE_AFTER_END`. `next start`'s `apiResolver` leaves it
+        // open too — one that never ends stalls, there as here. `handle` awaits
+        // the response itself, so nothing is cut short by returning.
+        if (!res.writableEnded && result.entrypoint.type !== "page-api") {
           res.end();
         }
         return;
@@ -498,8 +510,7 @@ export class NextjsRuntime {
     config: RevalidateConfig,
     origin: RuntimeRequest,
   ): Promise<void> {
-    let head: ResponseHead | undefined;
-    await this.handle(
+    const { head } = await this.handleInternally(
       {
         method: "GET",
         url: config.urlPath,
@@ -518,16 +529,7 @@ export class NextjsRuntime {
         },
         encrypted: origin.encrypted,
       },
-      {
-        begin(responseHead) {
-          head = responseHead;
-          return new Writable({
-            write(_chunk, _encoding, callback) {
-              callback();
-            },
-          });
-        },
-      },
+      { keepBody: false },
     );
 
     const status = head?.statusCode ?? 500;
@@ -536,8 +538,109 @@ export class NextjsRuntime {
       status !== 200 &&
       !(status === 404 && config.opts.unstable_onlyGenerated)
     ) {
-      throw new Error(`Invalid response ${status}`);
+      throw new Error(
+        `Invalid response ${status}${this.otherGroupHint(config.urlPath)}`,
+      );
     }
+
+    await invalidateRevalidatedPage(config.urlPath, this.options.manifest);
+  }
+
+  /**
+   * An image optimization source that is not a file: `<Image src="/api/avatar">`
+   * served by a route handler. Wired in as the optimizer's `fetchInternal`, and
+   * run in process for the reasons {@link revalidate} is — `next start` fetches
+   * the source from itself over loopback, which here would be a second billed
+   * invocation through CloudFront.
+   *
+   * Only the authority is forwarded, as `next start`'s `fetchInternalImage`
+   * forwards none of the viewer's headers: the source is cached and served to
+   * everyone, so it must not depend on one viewer's cookies.
+   */
+  private async fetchInternal(
+    href: string,
+    req: ShimIncomingMessage,
+  ): Promise<InternalImageResponse> {
+    const { head, body } = await this.handleInternally(
+      {
+        method: "GET",
+        url: href,
+        headers: pickDefined(req.headers, [
+          "host",
+          "x-forwarded-host",
+          "x-forwarded-proto",
+        ]),
+        encrypted: (req.socket as { encrypted?: boolean } | undefined)
+          ?.encrypted,
+      },
+      { keepBody: true },
+    );
+    return {
+      statusCode: head?.statusCode ?? 0,
+      headers: head?.headers ?? {},
+      body,
+    };
+  }
+
+  /**
+   * One request through {@link handle}, answered to this runtime instead of a
+   * client: the head, and the body when it is wanted. `handle` awaits the
+   * request's `waitUntil` work too, so whatever the render wrote is committed by
+   * the time this resolves.
+   */
+  private async handleInternally(
+    request: RuntimeRequest,
+    options: { readonly keepBody: boolean },
+  ): Promise<{ head?: ResponseHead; body: Buffer }> {
+    let head: ResponseHead | undefined;
+    const chunks: Buffer[] = [];
+    await this.handle(request, {
+      begin(responseHead) {
+        head = responseHead;
+        return new Writable({
+          write(chunk, _encoding, callback) {
+            if (options.keepBody) {
+              chunks.push(Buffer.from(chunk));
+            }
+            callback();
+          },
+        });
+      },
+    });
+    return { head, body: Buffer.concat(chunks) };
+  }
+
+  /**
+   * Why a revalidation of a page packaged into another `functionGroups` group
+   * fails: it is rendered in process, and this function does not have the page's
+   * code. Empty when that is not the reason.
+   */
+  private otherGroupHint(urlPath: string): string {
+    const { groups } = this.options.manifest;
+    const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
+    if (!groups || !self) {
+      return "";
+    }
+    const pathname = urlPath.split("?")[0];
+    const owned = new Set(groups[self] ?? []);
+    const owner = Object.entries(groups).find(
+      ([name, templates]) =>
+        name !== self &&
+        templates.some(
+          (template) =>
+            !owned.has(template) && templateMatches(template, pathname),
+        ),
+    )?.[0];
+    if (!owner) {
+      return "";
+    }
+    return (
+      `: "${pathname}" looks like it belongs to \`functionGroups\` group ` +
+      `"${owner}", and res.revalidate() can only revalidate pages in the ` +
+      `group it runs in ("${self}"). Call it from an API route in group ` +
+      `"${owner}", or use revalidatePath()/revalidateTag(), which work from ` +
+      `any group.`
+    );
   }
 
   /**
@@ -712,6 +815,123 @@ function withoutPathPrefix(pathname: string, prefix: string): string {
     return pathname;
   }
   return pathname.slice(prefix.length) || "/";
+}
+
+/**
+ * `INTERNAL_HEADERS` from `next/dist/server/lib/server-ipc/utils.js` (Next
+ * 16.3), which `next start` deletes from every request before routing it
+ * (`filterInternalHeaders` in `router-server.js`). They are signals between
+ * Next's own router and render layers; honoring one a client sent lets it steer
+ * those layers — `next-resume` makes a PPR page resume from a postponed state
+ * the client supplies. Restated rather than required, like
+ * {@link NON_HTML_SEC_FETCH_DESTS}.
+ */
+const INTERNAL_HEADERS: ReadonlySet<string> = new Set([
+  "x-middleware-rewrite",
+  "x-middleware-redirect",
+  "x-middleware-set-cookie",
+  "x-middleware-skip",
+  "x-middleware-override-headers",
+  "x-middleware-next",
+  "x-now-route-matches",
+  "x-matched-path",
+  "x-nextjs-data",
+  "x-next-resume-state-length",
+  "next-resume",
+]);
+
+/**
+ * The request headers with {@link INTERNAL_HEADERS} removed, and `x-nextjs-data`
+ * put back for a `_next/data` request, which is what `next start`'s
+ * `resolveRoutes` does (`setIsNextDataRequest`) right after stripping it: the
+ * header is internal, but Next's handlers and middleware still read it — it is
+ * how a data request gets `x-nextjs-matched-path` — so a real data request has
+ * to keep it.
+ */
+export function withoutInternalHeaders(
+  headers: IncomingHttpHeaders,
+  target: string,
+  basePath: string,
+): IncomingHttpHeaders {
+  const filtered: IncomingHttpHeaders = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (!INTERNAL_HEADERS.has(name)) {
+      filtered[name] = value;
+    }
+  }
+  const pathname = withoutPathPrefix(target.split("?")[0], basePath);
+  if (pathname.startsWith("/_next/data/") && pathname.endsWith(".json")) {
+    filtered["x-nextjs-data"] = "1";
+  }
+  return filtered;
+}
+
+/**
+ * The hook the cache handler registers (`s3-cache-handler.ts`) when it has a
+ * CloudFront distribution to invalidate. A global rather than an import, because
+ * the cache handler is a separate bundle that Next.js loads itself: the runtime
+ * and it share a process, not a module graph.
+ */
+const REVALIDATED_PAGE_HOOK = Symbol.for(
+  "cdk-nextjs.invalidateRevalidatedPage",
+);
+
+type RevalidatedPageHook = (route: string, dataRoute: string) => Promise<void>;
+
+/**
+ * Invalidate the CDN copies of a page `res.revalidate()` just regenerated: its
+ * HTML and RSC payload, and its Pages Router `_next/data` JSON. Without this the
+ * fresh entry sat behind CloudFront's copy of the old one for the page's whole
+ * `s-maxage` — a year, for an on-demand-only ISR page. `revalidatePath` and
+ * `revalidateTag` go through the cache handler's `revalidateTag`, which already
+ * invalidates; `res.revalidate()` does not touch it.
+ *
+ * Both routes are without `basePath`, which the hook prefixes. A no-op outside
+ * the Global constructs, where no hook is registered.
+ */
+async function invalidateRevalidatedPage(
+  urlPath: string,
+  manifest: AdapterManifest,
+): Promise<void> {
+  const hook = (globalThis as Record<symbol, unknown>)[
+    REVALIDATED_PAGE_HOOK
+  ] as RevalidatedPageHook | undefined;
+  if (typeof hook !== "function") {
+    return;
+  }
+  const route = withoutPathPrefix(
+    urlPath.split("?")[0],
+    manifest.config.basePath,
+  );
+  const dataRoute = `/_next/data/${manifest.buildId}${
+    route === "/" ? "/index" : route.replace(/\/+$/, "")
+  }.json`;
+  try {
+    await hook(route, dataRoute);
+  } catch (error) {
+    // The regeneration itself succeeded; the edge catches up at `s-maxage`.
+    console.warn(`Could not invalidate the CDN copy of ${urlPath}:`, error);
+  }
+}
+
+/**
+ * Whether a route template (`/blog/[slug]`, `/docs/[...all]`,
+ * `/shop/[[...rest]]`) matches `pathname`. Only precise enough to name the
+ * group in an error message.
+ */
+function templateMatches(template: string, pathname: string): boolean {
+  const pattern = template
+    .split("/")
+    .map((segment) => {
+      if (/^\[\[\.\.\..+\]\]$/.test(segment)) return "(?:/.*)?";
+      if (/^\[\.\.\..+\]$/.test(segment)) return "/.+";
+      if (/^\[.+\]$/.test(segment)) return "/[^/]+";
+      return segment
+        ? `/${segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+        : "";
+    })
+    .join("");
+  return new RegExp(`^${pattern || "/"}/?$`).test(pathname);
 }
 
 function asError(error: unknown): Error {

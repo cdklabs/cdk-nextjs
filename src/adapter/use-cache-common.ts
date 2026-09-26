@@ -394,7 +394,11 @@ export class UseCacheTagManifest {
    * `createdAt`: the most severe answer of any of them.
    */
   state(tags: readonly string[], createdAt: Timestamp): RevalidationState {
-    const at = Date.now();
+    // `now()`, not `Date.now()`, here and wherever a marker is stamped:
+    // `createdAt` is on Next.js's clock, and a marker on the wall clock would be
+    // compared across the two, so an entry regenerated just after a
+    // revalidation could still read as older than it wherever they drift.
+    const at = now();
     let state: RevalidationState = "fresh";
     for (const tag of tags) {
       const marker = this.tags.get(tag);
@@ -419,7 +423,7 @@ export class UseCacheTagManifest {
    * Next.js's default handler, which reads only `expired` for implicit tags.
    */
   expiration(tags: readonly string[]): Timestamp {
-    const at = Date.now();
+    const at = now();
     let latest = 0;
     for (const tag of tags) {
       const marker = this.tags.get(tag);
@@ -440,7 +444,7 @@ export class UseCacheTagManifest {
     tags: readonly string[],
     durations: RevalidateDurations | undefined,
   ): Promise<void> {
-    const at = Date.now();
+    const at = now();
     const marker = markerFor(at, durations);
     for (const tag of tags) {
       this.remember(tag, { ...this.tags.get(tag), ...marker });

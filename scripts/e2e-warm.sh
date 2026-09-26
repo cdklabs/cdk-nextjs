@@ -120,7 +120,19 @@ printf 'harness warm-up\n' >"$WARM_DIR/public/warm.txt"
 # and deploys, and prints the URL on stdout.
 # Named in the log because a sharded run has one of these per shard, and which
 # stack a warm-up was for is otherwise only inferable from the job name.
-echo "warm: deploying $(harness_stack_name "")"
+STACK_NAME="$(harness_stack_name "")"
+
+# A stack still being deleted - by the previous run's cleanup, if that run was
+# cut off before its own wait finished - cannot be deployed into, and CloudFront
+# makes that wait 15+ minutes. Wait it out here, where it costs no test file.
+STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+  --query "Stacks[0].StackStatus" --output text 2>/dev/null)" || STATUS=""
+if [ "$STATUS" = "DELETE_IN_PROGRESS" ]; then
+  echo "warm: $STACK_NAME is still being deleted; waiting for that to finish"
+  aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+fi
+
+echo "warm: deploying $STACK_NAME"
 cd "$WARM_DIR"
-URL="$("$ADAPTER_DIR/scripts/e2e-deploy.sh")"
+URL="$(HARNESS_WARMING=1 "$ADAPTER_DIR/scripts/e2e-deploy.sh")"
 echo "warm: shared stack ready at $URL"

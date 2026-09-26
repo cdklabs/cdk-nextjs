@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { App, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { AttributeType, TableV2 } from "aws-cdk-lib/aws-dynamodb";
-import { Code } from "aws-cdk-lib/aws-lambda";
+import { Architecture, Code } from "aws-cdk-lib/aws-lambda";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { NextjsFunctions, NextjsFunctionsOverrides } from "./nextjs-functions";
 import { NextjsType } from "../constants";
+import { getLambdaArchitecture } from "../utils/get-architecture";
 
 describe("NextjsFunctions overrides", () => {
   let dir: string;
@@ -95,5 +96,30 @@ describe("NextjsFunctions overrides", () => {
 
     expect(functions.default.FunctionName).toBe("my-app");
     expect(functions.reports.FunctionName).toBe("my-app-reports");
+  });
+
+  describe("architecture", () => {
+    const host = getLambdaArchitecture();
+    const other =
+      host.name === Architecture.ARM_64.name
+        ? Architecture.X86_64
+        : Architecture.ARM_64;
+
+    it("accepts an override that matches the staged binaries", () => {
+      const functions = synth({ functionProps: { architecture: host } });
+      expect(functions.default.Architectures).toEqual([host.name]);
+    });
+
+    // `sharp` is staged for the synth machine, so the function can't run on
+    // anything else — and silently deploying the host's architecture instead
+    // of the one asked for is how this used to fail.
+    it("throws on an override the staged binaries can't run on", () => {
+      expect(() => synth({ functionProps: { architecture: other } })).toThrow(
+        /functionProps\.architecture is/,
+      );
+      expect(() =>
+        synth({}, { functionProps: { architecture: other } }),
+      ).toThrow(/functionProps\.architecture is/);
+    });
   });
 });

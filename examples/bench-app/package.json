@@ -3,7 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "sync-cdk-nextjs": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
+    "sync-cdk-nextjs": "rm -rf node_modules/cdk-nextjs && mkdir -p node_modules/cdk-nextjs/lib/adapter && cp ../../package.json node_modules/cdk-nextjs/package.json && cp ../../lib/adapter/adapter.mjs node_modules/cdk-nextjs/lib/adapter/adapter.mjs && cp ../../lib/adapter/cache-handler.mjs ../../lib/adapter/use-cache-default-handler.mjs ../../lib/adapter/use-cache-remote-handler.mjs node_modules/cdk-nextjs/lib/adapter/",
     "build": "npm run sync-cdk-nextjs && next build",
     "dev": "npm run sync-cdk-nextjs && next dev --turbo",
     "start": "next start"

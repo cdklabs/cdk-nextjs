@@ -246,6 +246,11 @@ function isWildcardPath(path: string): boolean {
  * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-invalidations
  */
 const MAX_WILDCARD_PATHS_PER_INVALIDATION = 15;
+
+/** Must match `REVALIDATED_PAGE_HOOK` in `src/runtime/core.ts`. */
+const REVALIDATED_PAGE_HOOK = Symbol.for(
+  "cdk-nextjs.invalidateRevalidatedPage",
+);
 const MAX_PATHS_PER_INVALIDATION = 3000;
 
 /**
@@ -446,6 +451,24 @@ export class S3CacheHandler implements CacheHandler {
       this.dynamoConfig.buildId,
       this.dynamoConfig.markerTtlMs,
     );
+
+    // `res.revalidate()` regenerates a page without going through
+    // `revalidateTag`, so the runtime asks for the CDN copies itself, through
+    // this hook (`invalidateRevalidatedPage` in `src/runtime/core.ts`). A global
+    // because the runtime and this handler are separate bundles in one process.
+    // Every instance registers the same thing, so the latest one winning is fine.
+    if (this.cloudFrontConfig.distributionIdParameterName) {
+      (globalThis as Record<symbol, unknown>)[REVALIDATED_PAGE_HOOK] = (
+        route: string,
+        dataRoute: string,
+      ): Promise<void> => {
+        const { basePath } = this.cloudFrontConfig;
+        return this.invalidateCloudFrontPaths([
+          ...cdnInvalidationPaths(route, basePath),
+          ...cdnInvalidationPaths(dataRoute, basePath),
+        ]);
+      };
+    }
 
     if (!this.s3Config.bucketName) {
       console.warn(

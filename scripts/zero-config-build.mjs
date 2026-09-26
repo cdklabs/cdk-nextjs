@@ -127,6 +127,8 @@ function pack(appDir) {
   for (const file of [
     "lib/adapter/adapter.mjs",
     "lib/adapter/cache-handler.mjs",
+    "lib/adapter/use-cache-default-handler.mjs",
+    "lib/adapter/use-cache-remote-handler.mjs",
     "lib/index.js",
   ]) {
     assert(

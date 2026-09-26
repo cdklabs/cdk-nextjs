@@ -394,6 +394,14 @@ export function resolveBasePath(
       );
     case NextjsType.REGIONAL_FUNCTIONS:
       if (!prop) {
+        // A prop that is set but names no path ("/") is an explicit root
+        // mount, not "unset": it is how an app says the prefix is stripped by
+        // something synth can't see — a domain attached later with
+        // `addDomainName({ basePath })`, say — so deriving here would nest the
+        // resources under a path the stripped requests never reach.
+        if (propBasePath !== undefined) {
+          return undefined;
+        }
         return deriveApiGatewayBasePath(config, apiGateway);
       }
       // The prop only has to be the tail of what the app emits, not all of it,

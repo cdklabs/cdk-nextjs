@@ -494,6 +494,10 @@ describe("buildAdapterManifest edge cases", () => {
       /cannot deploy middleware built for the edge runtime/,
     );
     expect(() => build(ctx)).toThrow(middleware.filePath);
+    // Both ways out: `middleware.ts` only defaults to edge.
+    expect(() => build(ctx)).toThrow(/runtime: "nodejs"/);
+    expect(() => build(ctx)).toThrow(/proxy\.ts/);
+    expect(() => build(ctx)).not.toThrow(/edge-only/);
     expect(() => build(ctx)).not.toThrow(
       /cannot deploy routes built for the edge runtime/,
     );

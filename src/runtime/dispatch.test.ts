@@ -41,9 +41,30 @@ function manifestOf(fixture: unknown): AdapterManifest {
   }
 }
 
+/**
+ * The fixture with `app/params/optional/[[...rest]]` moved to `app/[[...rest]]`,
+ * a root optional catch-all: a route every request not claimed earlier falls
+ * into, `/_next/image` included unless dispatch puts it ahead of them. No example
+ * app has one, and a capture would add a whole app to cover one route, so the
+ * route is moved rather than captured.
+ */
+function withRootCatchAll(fixture: unknown): unknown {
+  return JSON.parse(
+    JSON.stringify(fixture)
+      .split("/params/optional/[[...rest]]")
+      .join("/[[...rest]]")
+      .split("[/]?/params/optional(?:")
+      .join("[/]?(?:"),
+  );
+}
+
 const manifests = {
   "app-playground": manifestOf(appPlayground),
   "app-playground-base-path": manifestOf(appPlaygroundBasePath),
+  "app-playground-root-catch-all": manifestOf(withRootCatchAll(appPlayground)),
+  "app-playground-base-path-root-catch-all": manifestOf(
+    withRootCatchAll(appPlaygroundBasePath),
+  ),
   "pages-i18n": manifestOf(pagesI18n),
 } as const;
 
@@ -425,6 +446,53 @@ describe("Dispatcher non-entrypoint outcomes", () => {
     expect(prefixed.url.searchParams.get("url")).toBe("/foo.png");
   });
 
+  it("routes /_next/image to the optimizer ahead of a root catch-all", async () => {
+    const query = "?url=%2Ffoo.png&w=640&q=75";
+    const catchAll = dispatcherFor("app-playground-root-catch-all");
+    const image = await catchAll.dispatch(request(`/_next/image${query}`));
+    expect(image.kind).toBe("image-optimization");
+    if (image.kind !== "image-optimization") return;
+    expect(image.url.searchParams.get("url")).toBe("/foo.png");
+
+    // The catch-all itself still takes everything else.
+    const page = await catchAll.dispatch(request("/a/b"));
+    expect(page.kind).toBe("entrypoint");
+    if (page.kind !== "entrypoint") return;
+    expect(page.resolvedPathname).toBe("/[[...rest]]");
+
+    const prefixed = await dispatcherFor(
+      "app-playground-base-path-root-catch-all",
+    ).dispatch(request(`/prod/_next/image${query}`));
+    expect(prefixed.kind).toBe("image-optimization");
+  });
+
+  it("optimizes the destination of a next.config rewrite onto /_next/image", async () => {
+    const manifest = manifests["app-playground-root-catch-all"];
+    const routing = manifest.routing as { beforeFiles: unknown[] };
+    const result = await createDispatcher({
+      manifest: {
+        ...manifest,
+        routing: {
+          ...routing,
+          beforeFiles: [
+            {
+              source: "/avatar/:id",
+              sourceRegex: "^\\/avatar(?:\\/([^\\/]+?))(?:\\/)?$",
+              destination: "/_next/image?url=%2Favatars%2F$1.png&w=64&q=75",
+            },
+            ...routing.beforeFiles,
+          ],
+        },
+      },
+      invokeMiddleware: async () => ({}),
+    }).dispatch(request("/avatar/42"));
+    expect(result.kind).toBe("image-optimization");
+    if (result.kind !== "image-optimization") return;
+    expect(result.url.pathname).toBe("/_next/image");
+    expect(result.url.searchParams.get("url")).toBe("/avatars/42.png");
+    expect(result.url.searchParams.get("w")).toBe("64");
+  });
+
   it("redirects a trailing slash", async () => {
     const result = await dispatcherFor("app-playground").dispatch(
       request("/isr/1/"),
@@ -663,6 +731,23 @@ describe("Dispatcher middleware handling", () => {
     expect(result.kind).toBe("middleware-responded");
   });
 
+  it("sends next.config headers() with a response middleware wrote", async () => {
+    // `app-playground`'s `headers()` sets this on `/api/echo`; `next start`
+    // sends it with a middleware 401 there too.
+    const result = await dispatcherFor("app-playground", async () => ({
+      bodySent: true,
+    })).dispatch(request("/api/echo"));
+    expect(result.kind).toBe("middleware-responded");
+    expect(result.responseHeaders.get("x-e2e-config-header")).toBe(
+      "from-next-config",
+    );
+
+    const other = await dispatcherFor("app-playground", async () => ({
+      bodySent: true,
+    })).dispatch(request("/isr/1"));
+    expect(other.responseHeaders.has("x-e2e-config-header")).toBe(false);
+  });
+
   it("normalizes a middleware redirect to a same-origin path", async () => {
     const result = await dispatcherFor("app-playground", async () => ({
       redirect: { url: new URL("/login", ORIGIN), status: 307 },
@@ -690,8 +775,7 @@ describe("Dispatcher middleware handling", () => {
   it("routes /_next/image when middleware is what put the request on it", async () => {
     // The API Gateway examples' middleware rewrites `/x` to `/<stage>/x` so the
     // build's `basePath` lines up. `resolveRoutes` never reports the rewritten
-    // URL back — and cannot resolve `/_next/image` itself — so matching the URL
-    // as received would 404 every optimized image behind such a rewrite.
+    // URL back, so optimizing the URL as received would lose the rewrite.
     const query = "?url=%2Ffoo.png&w=640&q=75";
     const result = await dispatcherFor(
       "app-playground-base-path",

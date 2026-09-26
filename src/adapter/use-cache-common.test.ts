@@ -6,6 +6,7 @@ import { TagMarker, TagMarkerTable } from "./aws-cache-store";
 import {
   cacheEntryOf,
   EntryLru,
+  now,
   PendingSets,
   readStream,
   StoredEntry,
@@ -24,14 +25,14 @@ function fakeMarkers(rows = new Map<string, TagMarker>()) {
     return found;
   });
   const write = jest.fn(
-    async (tag: string, now: number, durations?: { expire?: number }) => {
+    async (tag: string, at: number, durations?: { expire?: number }) => {
       const row = rows.get(tag) ?? {};
       if (!durations) {
-        row.revalidatedAt = now;
+        row.revalidatedAt = at;
       } else {
-        row.staleAt = now;
+        row.staleAt = at;
         if (durations.expire !== undefined) {
-          row.expiredAt = now + durations.expire * 1000;
+          row.expiredAt = at + durations.expire * 1000;
         }
       }
       rows.set(tag, row);
@@ -150,6 +151,23 @@ describe("UseCacheTagManifest", () => {
     expect(tags.state(["a"], createdAt)).toBe("stale");
     // Not an expiration yet, so implicit tags are not affected either.
     expect(tags.expiration(["a"])).toBe(0);
+  });
+
+  // Next.js stamps entries with `performance.timeOrigin + performance.now()`,
+  // which can run behind `Date.now()`. A marker stamped on the wall clock would
+  // then postdate an entry regenerated right after the revalidation, which
+  // would read as revalidated again, and again.
+  it("stamps markers on the clock entries are stamped with", async () => {
+    const wall = jest.spyOn(Date, "now").mockImplementation(() => now() + 500);
+    try {
+      const tags = new UseCacheTagManifest({ markers: undefined });
+      await tags.update(["a"], undefined);
+      const regenerated = now() + 1;
+      expect(tags.state(["a"], regenerated)).toBe("fresh");
+      expect(tags.state(["a"], regenerated - 100)).toBe("expired");
+    } finally {
+      wall.mockRestore();
+    }
   });
 
   it("reports the latest past expiration of implicit tags", async () => {

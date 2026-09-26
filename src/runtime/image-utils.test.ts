@@ -105,6 +105,44 @@ describe("fetchFromS3", () => {
     expect(keyOf()).toBe("static/foo.jpg");
   });
 
+  // With `assetPrefix: "/cdn"`, a static import's href is
+  // `/cdn/_next/static/media/…`, with `basePath` nowhere in it.
+  it("strips a path assetPrefix in front of /_next/", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/cdn/_next/static/media/a.png", {
+      urlBasePath: "/base",
+      keyPrefix: "",
+      assetPrefix: "/cdn/",
+    });
+
+    expect(keyOf()).toBe("_next/static/media/a.png");
+  });
+
+  it("leaves a public/ file under a directory named like the assetPrefix alone", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/cdn/logo.png", {
+      urlBasePath: "",
+      keyPrefix: "",
+      assetPrefix: "/cdn",
+    });
+
+    expect(keyOf()).toBe("cdn/logo.png");
+  });
+
+  it("ignores an absolute assetPrefix", async () => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", "/_next/static/media/a.png", {
+      urlBasePath: "",
+      keyPrefix: "",
+      assetPrefix: "https://cdn.example.test",
+    });
+
+    expect(keyOf()).toBe("_next/static/media/a.png");
+  });
+
   it("only matches basePath on a path boundary", async () => {
     ok();
 

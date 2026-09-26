@@ -10,11 +10,18 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { loadRuntime, NextjsRuntime, RuntimeRequest, splitBody } from "./core";
+import {
+  loadRuntime,
+  NextjsRuntime,
+  RuntimeRequest,
+  splitBody,
+  withoutInternalHeaders,
+} from "./core";
 import {
   BuildCompleteContext,
   buildAdapterManifest,
 } from "../adapter/build-outputs";
+import { createIncomingMessage } from "./http/request";
 import { ResponseHead } from "./http/response";
 import { ResponseSink } from "./http/sink";
 import { AdapterManifest, deployedManifestPath } from "./manifest";
@@ -87,6 +94,14 @@ exports.handler = async (req, res, ctx) => {
     res.end(JSON.stringify({ bodyLength: length }));
     return;
   }
+  // A Pages API route that returns before it is done writing: what
+  // \`stream.pipe(res)\` and a callback-style \`res.json()\` both look like.
+  if (url.searchParams.has("endLater")) {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.write("first,");
+    setTimeout(() => res.end("second"), 10);
+    return;
+  }
   if (url.searchParams.has("waitUntil")) {
     ctx.waitUntil(
       new Promise((resolve) =>
@@ -110,6 +125,9 @@ exports.handler = async (req, res, ctx) => {
       waitUntil: typeof ctx.waitUntil,
       cwd: process.cwd(),
       header: req.headers["x-from-middleware"] || null,
+      nextResume: req.headers["next-resume"] || null,
+      matchedPath: req.headers["x-matched-path"] || null,
+      cookie: req.headers.cookie || null,
     }),
   );
 };
@@ -515,6 +533,100 @@ describe("NextjsRuntime.handle", () => {
     });
   });
 
+  describe("invalidating the CDN copy of a revalidated page", () => {
+    const hookKey = Symbol.for("cdk-nextjs.invalidateRevalidatedPage");
+    const globals = globalThis as Record<symbol, unknown>;
+    afterEach(() => {
+      delete globals[hookKey];
+    });
+
+    it("hands the cache handler's hook the page and its _next/data route", async () => {
+      const hook = jest.fn(async () => {});
+      globals[hookKey] = hook;
+      await send({ url: "/?revalidate=%2Fisr%2F42" });
+      expect(hook).toHaveBeenCalledWith(
+        "/isr/42",
+        `/_next/data/${runtime.manifest.buildId}/isr/42.json`,
+      );
+    });
+
+    it("names the root's data route index.json", async () => {
+      const hook = jest.fn(async () => {});
+      globals[hookKey] = hook;
+      await send({ url: "/?revalidate=%2F" });
+      expect(hook).toHaveBeenCalledWith(
+        "/",
+        `/_next/data/${runtime.manifest.buildId}/index.json`,
+      );
+    });
+
+    it("invalidates nothing when the revalidation failed", async () => {
+      const hook = jest.fn(async () => {});
+      globals[hookKey] = hook;
+      await send({ url: "/?revalidate=%2F%3Fstatus%3D500" });
+      expect(hook).not.toHaveBeenCalled();
+    });
+
+    it("still reports success when the invalidation fails", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      globals[hookKey] = async () => {
+        throw new Error("TooManyInvalidationsInProgress");
+      };
+      const sink = await send({ url: "/?revalidate=%2F" });
+      expect(stubBody(sink)).toEqual({ revalidated: true, error: null });
+      warn.mockRestore();
+    });
+  });
+
+  it("strips the internal headers next start does not honor from a client", async () => {
+    const sink = await send({
+      url: "/",
+      headers: {
+        host: "shop.example.test",
+        "next-resume": "1",
+        "x-matched-path": "/admin",
+      },
+    });
+    expect(stubBody(sink)).toMatchObject({
+      nextResume: null,
+      matchedPath: null,
+    });
+  });
+
+  it("fetches an image source from a route handler, in process and without cookies", async () => {
+    const images = (
+      runtime as unknown as {
+        images: {
+          options: {
+            fetchInternal: (
+              href: string,
+              req: ReturnType<typeof createIncomingMessage>,
+            ) => Promise<{
+              statusCode: number;
+              headers: Record<string, unknown>;
+              body: Buffer;
+            }>;
+          };
+        };
+      }
+    ).images;
+    const viewer = createIncomingMessage({
+      method: "GET",
+      url: "/_next/image?url=%2Fapi%2Fhealth%3Favatar%3D42&w=64&q=75",
+      headers: { host: "shop.example.test", cookie: "session=secret" },
+    });
+    const response = await images.options.fetchInternal(
+      "/api/health?avatar=42",
+      viewer,
+    );
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body.toString("utf-8"));
+    expect(body.file).toContain("api/health");
+    expect(body.url).toBe("/api/health?avatar=42");
+    expect(body.initURL).toBe("https://shop.example.test/api/health?avatar=42");
+    expect(body.cookie).toBeNull();
+  });
+
   it("redirects a trailing slash, with the Refresh fallback for a 308", async () => {
     const sink = await send({ url: "/isr/42/" });
     expect(sink.head?.statusCode).toBe(308);
@@ -767,6 +879,96 @@ exports.handler = async () =>
  * `pages/_error` reachable. `test/e2e/async-modules` is the measurement:
  * `/make-error` throws in `getServerSideProps` and expects "hello error".
  */
+describe("a Pages API route", () => {
+  it("is left to end its own response, as next start leaves it", async () => {
+    const pagesApi = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, (manifest) => ({
+        ...manifest,
+        entrypoints: {
+          ...manifest.entrypoints,
+          "/api/health": {
+            ...manifest.entrypoints["/api/health"],
+            type: "page-api",
+          },
+        },
+      })),
+    );
+    const sink = new CollectingSink();
+    await pagesApi.handle(
+      {
+        method: "GET",
+        url: "/api/health?endLater=1",
+        headers: { host: "shop.example.test" },
+      },
+      sink,
+    );
+    expect(sink.body.toString("utf-8")).toBe("first,second");
+  });
+
+  it("is still ended for a route of any other kind", async () => {
+    const sink = await send({ url: "/api/health?endLater=1" });
+    expect(sink.body.toString("utf-8")).toBe("first,");
+  });
+});
+
+describe("res.revalidate() across functionGroups", () => {
+  it("says which group owns a page it cannot render", async () => {
+    const grouped = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, (manifest) => ({
+        ...manifest,
+        groups: {
+          default: Object.keys(manifest.entrypoints).filter(
+            (template) => template !== "/isr/[id]",
+          ),
+          blog: ["/isr/[id]"],
+        },
+      })),
+    );
+    process.env.CDK_NEXTJS_FUNCTION_GROUP = "default";
+    try {
+      const sink = new CollectingSink();
+      await grouped.handle(
+        {
+          method: "GET",
+          url: "/?revalidate=%2Fisr%2F1%3Fstatus%3D500",
+          headers: { host: "shop.example.test" },
+        },
+        sink,
+      );
+      const { error } = JSON.parse(sink.body.toString("utf-8"));
+      expect(error).toMatch(/^Invalid response 500: /);
+      expect(error).toContain('group "blog"');
+      expect(error).toContain('("default")');
+    } finally {
+      delete process.env.CDK_NEXTJS_FUNCTION_GROUP;
+    }
+  });
+});
+
+describe("withoutInternalHeaders", () => {
+  it("drops every header on Next's internal list", () => {
+    expect(
+      withoutInternalHeaders(
+        {
+          host: "a.test",
+          "next-resume": "1",
+          "x-middleware-rewrite": "/x",
+          "x-nextjs-data": "1",
+        },
+        "/blog",
+        "",
+      ),
+    ).toEqual({ host: "a.test" });
+  });
+
+  it("marks a _next/data request as one, as next start's router does", () => {
+    expect(
+      withoutInternalHeaders({}, "/base/_next/data/abc/blog.json?x=1", "/base"),
+    ).toEqual({ "x-nextjs-data": "1" });
+    expect(withoutInternalHeaders({}, "/_next/data/abc/blog", "")).toEqual({});
+  });
+});
+
 describe("the error page ladder", () => {
   /**
    * An app with a custom `pages/_error` that cannot be prerendered — one with

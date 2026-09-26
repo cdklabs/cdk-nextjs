@@ -465,8 +465,10 @@ function assertNodeRuntimes(
     reasons.push(
       `cdk-nextjs cannot deploy middleware built for the edge runtime ` +
         `(${middleware.filePath}, runtime: "${middleware.runtime}"). ` +
-        `Next.js 16 runs \`proxy.ts\` on the Node runtime; the legacy ` +
-        `\`middleware.ts\` entrypoint is edge-only.`,
+        `Rename it to \`proxy.ts\` (Next.js 16 runs proxy on the Node ` +
+        `runtime), or keep \`middleware.ts\` and add ` +
+        `\`export const config = { runtime: "nodejs" }\` to it — ` +
+        `\`middleware.ts\` defaults to the edge runtime, but does not require it.`,
     );
   }
 
@@ -749,7 +751,9 @@ function assertBuildCwd(ctx: BuildCompleteContext, buildCwd: string): void {
       `into every built entrypoint, and cdk-nextjs cannot reproduce that layout ` +
       `in the deployment package. Change directory first (\`cd ` +
       `${relative(cwd, ctx.projectDir) || "."} && next build\`) instead of ` +
-      `passing the directory as an argument.`,
+      `passing the directory as an argument; in a monorepo, run the app's own ` +
+      `build script from its directory (e.g. \`pnpm --filter <app> build\`, ` +
+      `which runs in the package directory).`,
   );
 }
 

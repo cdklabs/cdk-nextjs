@@ -410,6 +410,17 @@ describe("resolveBasePath", () => {
     // at the default `prod` stage sets basePath: "/prod" and its resources live
     // at the root. Mounting them under "prod" would nest every resource under a
     // path the stage already consumed.
+    // A domain attached with `addDomainName({ basePath: "v1" })` strips "/v1"
+    // where synth can't see it; "/" is how the user says so. Deriving would
+    // mount everything under "v1", which the stripped requests never reach.
+    it('mounts at the root when the prop is "/", instead of deriving', () => {
+      expect(resolveBasePath(RF, "/", "/v1")).toBeUndefined();
+      expect(resolveBasePath(RF, "/", "/v1", domain())).toBeUndefined();
+      expect(resolveBasePath(RF, "/", "/prod/base")).toBeUndefined();
+      // Unset still derives.
+      expect(resolveBasePath(RF, undefined, "/v1")).toBe("v1");
+    });
+
     it("mounts an app whose basePath is the stage at the root", () => {
       expect(resolveBasePath(RF, undefined, "/prod")).toBeUndefined();
       expect(

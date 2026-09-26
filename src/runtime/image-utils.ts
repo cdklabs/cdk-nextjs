@@ -23,6 +23,15 @@ export interface S3AssetLocation {
    * under, without a leading slash. Empty for a bucket-root deployment.
    */
   readonly keyPrefix: string;
+  /**
+   * The app's `assetPrefix`, when it is a path (`/cdn`). Next.js puts it in
+   * front of `/_next/` in place of `basePath`, so a statically imported image's
+   * href is `/cdn/_next/static/media/…`, and `next start` strips it again when
+   * it serves the file. An absolute `assetPrefix` makes the href absolute, which
+   * never reaches here.
+   * @default - none
+   */
+  readonly assetPrefix?: string;
 }
 
 /**
@@ -57,7 +66,7 @@ export async function fetchFromS3(
   // routes the href as a request, whose query and fragment never reach the
   // static file lookup. Left on, they became part of the key, which missed.
   // Cut before decoding, so a `?` that is part of the name (`%3F`) survives.
-  const path = url.split(/[?#]/, 1)[0];
+  const path = withoutAssetPrefix(url.split(/[?#]/, 1)[0], location);
   // Matching on a path boundary keeps a sibling like "/basement/logo.png" from
   // being treated as basePath "/base" plus "ment/logo.png". It's still
   // indistinguishable from a real `public/base/` directory, which loses; that's
@@ -95,6 +104,19 @@ export async function fetchFromS3(
     contentType: response.ContentType || null,
     etag: response.ETag || "",
   };
+}
+
+/**
+ * `/cdn/_next/static/media/logo.png` → `/_next/static/media/logo.png`, for a
+ * path `assetPrefix` of `/cdn`: only in front of `/_next/`, the one place
+ * Next.js puts it.
+ */
+function withoutAssetPrefix(path: string, location: S3AssetLocation): string {
+  const assetPrefix = location.assetPrefix?.replace(/\/+$/, "") ?? "";
+  if (!assetPrefix.startsWith("/")) return path;
+  return path.startsWith(`${assetPrefix}/_next/`)
+    ? path.slice(assetPrefix.length)
+    : path;
 }
 
 /**

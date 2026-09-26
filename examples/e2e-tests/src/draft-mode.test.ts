@@ -6,7 +6,8 @@ import { test, expect } from "@playwright/test";
  * `previewModeId` generated at build time, so a page reporting draft mode as *on*
  * proves the exact bytes the server set came back to it.
  *
- * That makes it the end-to-end proof of something only unit-tested today. The API
+ * That makes it the end-to-end proof of something otherwise only unit-tested (in
+ * `src/runtime/lambda-event.test.ts`). The API
  * Gateway shell rebuilds a single `Cookie` header from values that arrived
  * separately, joining them with `"; "`; the runtime's own comment records that a
  * `","` join - correct for most repeated headers - "lost every cookie after the
