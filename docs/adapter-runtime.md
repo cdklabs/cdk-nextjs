@@ -31,8 +31,10 @@ refuses any output whose runtime is not `nodejs` (`assertNodeRuntimes`).
 
 What is deliberately _not_ in the staging tree: `<distDir>/static` and
 `public/`. On the Lambda types, CloudFront or API Gateway answers them from S3,
-and `public/` alone can exceed the 250 MB unzipped Lambda limit. The container
-images copy both in (`src/nextjs-build/*.Dockerfile`).
+and `public/` alone can exceed the 250 MB unzipped Lambda limit.
+`NextjsGlobalContainers` leaves them out for the same reason CloudFront makes
+them unnecessary; only `NextjsRegionalContainers`, with no CDN in front of it,
+copies both into its image (`src/nextjs-build/regional-containers.Dockerfile`).
 
 ## Request time
 
@@ -142,7 +144,7 @@ for anything that changed from an earlier release.
   deployment disagree" questions come down to diffing the two responses. For an
   app in `examples/`, run `lib/runtime/server.mjs` from its
   `.next/cdk-nextjs-adapter/app`, with `.next/static` and `public` copied in as
-  the Dockerfile does.
+  the regional containers Dockerfile does.
 - **Tell the CDN from the origin.** Behind CloudFront, `x-cache` says whether the
   edge answered, and every other header is the one the _cached copy_ was stored
   with. An `x-nextjs-cache: REVALIDATED` on a `Hit from cloudfront` is an old
