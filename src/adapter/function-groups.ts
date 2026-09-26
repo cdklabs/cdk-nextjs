@@ -48,7 +48,59 @@ export interface RouteEntry {
    * that is what gets staged. Two templates sharing one are never split apart.
    */
   readonly entrypointId: string;
+  /**
+   * The entrypoint's `AdapterEntrypointType`. Only `"page"` changes anything: a
+   * Pages Router page is also requested at `/_next/data/<buildId>/<page>.json`,
+   * so that URL has to reach the page's group too.
+   */
+  readonly type?: string;
 }
+
+/** What {@link assignRoutesToGroups} needs to know besides the routes. */
+export interface AssignRoutesOptions {
+  /** `next.config` `basePath`, which every manifest template carries. */
+  readonly basePath: string;
+  /**
+   * Next.js's build ID — the segment in `/_next/data/<buildId>/…` URLs, which is
+   * `ctx.buildId` and `.next/BUILD_ID`, not cdk-nextjs's deployment-suffixed
+   * one. Required when any entry is a Pages Router page.
+   */
+  readonly buildId?: string;
+  /** `next.config` `trailingSlash`. */
+  readonly trailingSlash?: boolean;
+  /**
+   * `ctx.routing`, for the `next.config` rewrites whose source and destination
+   * have to land in one group. Omitted, no rewrite is checked.
+   */
+  readonly routing?: RoutingRules;
+}
+
+/** One `ctx.routing` rewrite, reduced to the fields read here. */
+export interface RewriteRule {
+  /** The path-to-regexp source, basePath included (`/old/:path*`). */
+  readonly source?: string;
+  readonly destination?: string;
+}
+
+/** The part of `ctx.routing` {@link assignRoutesToGroups} reads. */
+export interface RoutingRules {
+  readonly beforeFiles?: readonly RewriteRule[];
+  readonly afterFiles?: readonly RewriteRule[];
+  readonly fallback?: readonly RewriteRule[];
+  /** Next.js's own template matchers, used to resolve a rewrite's destination. */
+  readonly dynamicRoutes?: readonly {
+    readonly sourceRegex: string;
+    readonly destination?: string;
+  }[];
+}
+
+/**
+ * The pages the runtime may render any request with, wherever it landed: App
+ * Router's `/_not-found`, Pages Router's `/404` and `/500`, and `/_error`. Every
+ * group stages them (`collectGroupStagingPlan`), so no URL has to be routed to
+ * them. Before basePath.
+ */
+export const ERROR_PAGE_SUFFIXES = ["/_not-found", "/404", "/500", "/_error"];
 
 const NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
 const SUBTREE_SUFFIX = "/**";
@@ -125,7 +177,7 @@ export function assertNoI18nSplitting(i18n: unknown): void {
     `${errorPrefix()}\`functionGroups\` cannot be combined with \`i18n\`. ` +
       `With i18n every route is locale-prefixed, so routing a group at the edge ` +
       `would need one CloudFront behavior per locale per pattern, against a ` +
-      `limit of 25 for the whole distribution. Deploy one function for every ` +
+      `quota of 75 for the whole distribution. Deploy one function for every ` +
       `route (omit \`functionGroups\`), or drop \`i18n\`.`,
   );
 }
@@ -221,21 +273,19 @@ function validateRoutePattern(route: string, groupName: string): void {
         `the browser requests them.`,
     );
   }
-  // `/index` is the same page under the name `next build` reports it by: the
-  // adapter derives Pages pathnames with `normalizePagePath`, so a Pages Router
-  // home page arrives as `/index` and `routablePathnames` registers it under `/`
-  // as well, both backed by one entrypoint. Claiming `/index` therefore moved the
-  // home page's entrypoint into the group while `/` kept falling through to the
-  // distribution's default behavior, whose function no longer had it — a 500
-  // reading "the deployment package is incomplete" on the app's most-requested
-  // URL. Rejecting it here is the same limit as `/`, reached by the other name.
-  if (route === "/" || route === "/index") {
+  // `/index` is deliberately allowed. For the App Router it is a real route of
+  // its own (`app/index/page.tsx`), which `routablePathnames` keeps apart from
+  // `/`. For the Pages Router it is the home page under the name `next build`
+  // reports it by, one entrypoint registered under `/` as well — and grouping
+  // that would leave `/` on the default behavior with a function that lacks the
+  // file. Only the assignment can tell the two apart, and its coverage check
+  // (`assertEdgeReachesEveryFile`) rejects the second.
+  if (route === "/") {
     throw new Error(
       `${errorPrefix()}${where} cannot be routed. CloudFront has no path ` +
         `pattern that matches only "/" — the default behavior serves it — so the ` +
-        `home page always belongs to the "${DEFAULT_FUNCTION_GROUP}" group ` +
-        `(a Pages Router home page is also reachable as "/index", and that is ` +
-        `the same entrypoint). Group the routes around it instead.`,
+        `home page always belongs to the "${DEFAULT_FUNCTION_GROUP}" group. ` +
+        `Group the routes around it instead.`,
     );
   }
   // `/_next/…` is Next's own URL space — build assets, `/_next/image`, and the
@@ -310,7 +360,9 @@ function validateRoutePattern(route: string, groupName: string): void {
 }
 
 /**
- * Split every route template across the groups, longest matching pattern first.
+ * Split every route template across the groups, longest matching pattern first,
+ * then prove that the edge routes every URL each file serves to the group that
+ * file was packaged into.
  *
  * Returns a record keyed by group name and always containing
  * {@link DEFAULT_FUNCTION_GROUP}, so callers can iterate it as the complete set
@@ -321,20 +373,26 @@ function validateRoutePattern(route: string, groupName: string): void {
  * `basePath` is prepended to each pattern before matching, because manifest
  * templates are basePath-prefixed and consumers write the routes their app
  * declares.
+ *
+ * Packaging matches patterns against *templates*, but CloudFront routes *URLs*,
+ * and a file answers URLs none of its templates spells: an optional catch-all's
+ * parent, the `trailingSlash` form, a Pages Router data URL, every other
+ * template it shares (root params synthesize `/en` and `/de` from one
+ * `[locale]` page). An interception route is worse: it is never requested at its
+ * own path at all. So after matching, intercepting files move to the group of
+ * the URL they intercept ({@link reassignInterceptingFiles}), and the result is
+ * replayed through the same behaviors `NextjsDistribution` deploys
+ * ({@link assertEdgeReachesEveryFile}, {@link assertRewritesStayInGroup}). A URL
+ * that would reach a function without its file throws here, during `next build`,
+ * rather than answering 500 once deployed.
  */
 export function assignRoutesToGroups(
   groups: readonly FunctionGroupSpec[],
   entries: readonly RouteEntry[],
-  options: { basePath: string },
+  options: AssignRoutesOptions,
 ): Record<string, string[]> {
   validateFunctionGroups(groups);
-
-  const assigned: Record<string, string[]> = {
-    [DEFAULT_FUNCTION_GROUP]: [],
-  };
-  for (const group of groups) {
-    assigned[group.name] = [];
-  }
+  const basePath = normalizedBasePath(options.basePath);
 
   // Most specific first, so the first match is the winner and "longest wins"
   // needs no second pass. Segment count before string length: "/a/b" is more
@@ -344,7 +402,7 @@ export function assignRoutesToGroups(
       group.routes.map((route) => ({
         group: group.name,
         route,
-        match: prefixBasePath(route, options.basePath),
+        match: prefixBasePath(route, basePath),
       })),
     )
     .sort((a, b) => specificity(b.match) - specificity(a.match));
@@ -378,7 +436,10 @@ export function assignRoutesToGroups(
       matchedPatterns.add(`${pattern.group}\u0000${pattern.route}`);
       winner ??= index;
     }
-    if (winner === undefined) {
+    // An intercepting file's own template (`/feed/(..)photo/[id]`) is not a URL
+    // anyone requests, so it does not decide the file's group; the URL it
+    // intercepts does, below. Its match still counts against the typo check.
+    if (winner === undefined || isInterceptionTemplate(entry.template)) {
       continue;
     }
     const incumbent = winningIndexOfEntrypoint.get(entry.entrypointId);
@@ -386,12 +447,6 @@ export function assignRoutesToGroups(
       winningIndexOfEntrypoint.set(entry.entrypointId, winner);
       groupOfEntrypoint.set(entry.entrypointId, patterns[winner].group);
     }
-  }
-
-  for (const entry of entries) {
-    const group =
-      groupOfEntrypoint.get(entry.entrypointId) ?? DEFAULT_FUNCTION_GROUP;
-    assigned[group].push(entry.template);
   }
 
   // A pattern matching nothing is a typo, and a typo here is invisible: the
@@ -402,19 +457,91 @@ export function assignRoutesToGroups(
       if (!matchedPatterns.has(`${group.name}\u0000${route}`)) {
         throw new Error(
           `${errorPrefix()}Group "${group.name}" pattern "${route}" matches no ` +
-            `route in this build. Patterns match route templates as Next.js ` +
-            `declares them (e.g. "/blog/[slug]" is matched by "/blog/**"), and ` +
-            `prerendered pages and static assets are served from S3 and need no ` +
-            `group.`,
+            `route in this build. ` +
+            optionalCatchAllParentHint(route, entries, basePath) +
+            `Patterns match route templates as Next.js declares them (e.g. ` +
+            `"/blog/[slug]" is matched by "/blog/**"), and prerendered pages and ` +
+            `static assets are served from S3 and need no group.`,
         );
       }
     }
   }
 
+  const edge: EdgeOptions = {
+    basePath,
+    buildId: options.buildId,
+    trailingSlash: options.trailingSlash ?? false,
+    hasDataRoutes: entries.some((entry) => entry.type === "page"),
+  };
+  reassignInterceptingFiles(
+    entries,
+    groupOfEntrypoint,
+    edgeBehaviors(
+      groups,
+      templatesByGroup(groups, entries, groupOfEntrypoint),
+      edge,
+    ),
+    edge,
+  );
+  const assigned = templatesByGroup(groups, entries, groupOfEntrypoint);
+  // Rebuilt rather than reused: an intercepting file never adds an optional
+  // catch-all parent, so this is the same list, but only by that argument.
+  const behaviors = edgeBehaviors(groups, assigned, edge);
+  assertEdgeReachesEveryFile(entries, groupOfEntrypoint, behaviors, edge);
+  assertRewritesStayInGroup(
+    entries,
+    groupOfEntrypoint,
+    behaviors,
+    options.routing,
+  );
+
   for (const key of Object.keys(assigned)) {
     assigned[key] = [...assigned[key]].sort();
   }
   return assigned;
+}
+
+/**
+ * The patterns a group is *routed* on: the ones it declares, plus the parent
+ * path of every optional catch-all a subtree pattern moved into it.
+ *
+ * `/blog/[[...slug]]` serves `/blog` as well as everything under it, and
+ * `/blog/**` moves the whole file — but deploys as `blog/*`, which does not
+ * match `/blog`. So the parent is routed automatically, as an exact pattern of
+ * its own; declaring `/blog` by hand is a pattern with no route of its own and
+ * is rejected as a typo, with a hint pointing here. Nothing else a subtree owns
+ * needs this: a file whose parent URL is its subtree's base can only be an
+ * optional catch-all, since Next.js rejects `app/blog/page.tsx` next to it.
+ *
+ * Both sides call this — `assignRoutesToGroups` to check coverage, the root
+ * constructs to build the behaviors — from the same `routes` and the templates
+ * the manifest assigned the group, so they cannot disagree.
+ *
+ * @param ownedTemplates the templates assigned to the group, basePath-prefixed
+ *   as `manifest.groups` records them
+ */
+export function routedPatterns(
+  routes: readonly string[],
+  ownedTemplates: readonly string[],
+  basePath: string,
+): string[] {
+  const result = [...routes];
+  for (const route of routes) {
+    if (!route.endsWith(SUBTREE_SUFFIX)) {
+      continue;
+    }
+    const parent = route.slice(0, -SUBTREE_SUFFIX.length);
+    const prefix = `${prefixBasePath(parent, basePath)}/`;
+    const ownsOptionalCatchAll = ownedTemplates.some(
+      (template) =>
+        template.startsWith(prefix) &&
+        OPTIONAL_CATCH_ALL_SEGMENT.test(template.slice(prefix.length)),
+    );
+    if (ownsOptionalCatchAll && !result.includes(parent)) {
+      result.push(parent);
+    }
+  }
+  return result;
 }
 
 /**
@@ -436,7 +563,11 @@ export function assignRoutesToGroups(
  */
 export function pathPatternsFor(
   route: string,
-  options: { hasDataRoutes: boolean; trailingSlash?: boolean },
+  options: {
+    hasDataRoutes: boolean;
+    trailingSlash?: boolean;
+    buildId?: string;
+  },
 ): string[] {
   const isSubtree = route.endsWith(SUBTREE_SUFFIX);
   const base = isSubtree ? route.slice(0, -SUBTREE_SUFFIX.length) : route;
@@ -446,13 +577,75 @@ export function pathPatternsFor(
     patterns.push(`${bare}/`);
   }
   if (options.hasDataRoutes) {
-    // The build ID sits between `_next/data` and the route, and changes every
-    // build, so it is the one place a `*` is load-bearing rather than a fallback.
+    // The literal build ID, not a `*` for it. CloudFront's `*` also matches
+    // `/`, so `_next/data/*/blog/*` claimed `/_next/data/<id>/docs/blog/x.json`
+    // too — another group's page, sent to a function without it. Every other
+    // pattern is anchored at the start of the path; this one now is as well.
+    //
+    // It makes these behaviors change whenever the build ID does, which is every
+    // deploy unless `deploymentId` pins it. A client still holding the previous
+    // build requests `/_next/data/<old id>/…`, which no behavior matches, so it
+    // reaches the default function. That is correct rather than merely
+    // harmless: `next start` 404s a data request for another build ID
+    // (`handleNextDataRequest` in `next/dist/server/base-server.js`) and so does
+    // the runtime, which has no pathname for it, and the Pages Router client
+    // treats a data 404 as an asset error and hard-navigates to the page
+    // (`fetchNextData` → `markAssetError` → `handleRouteInfoError` in
+    // `next/dist/shared/lib/router/router.js`), which gets the new build.
     patterns.push(
-      isSubtree ? `_next/data/*/${bare}/*` : `_next/data/*/${bare}.json`,
+      isSubtree
+        ? `_next/data/${dataBuildId(options.buildId)}/${bare}/*`
+        : `_next/data/${dataBuildId(options.buildId)}/${bare}.json`,
     );
   }
   return patterns;
+}
+
+/**
+ * Rank a CloudFront path pattern so the most specific is added first: literal
+ * segments before the first `*` dominate, then total segments, then length.
+ * `NextjsDistribution` adds behaviors in this order and {@link edgeBehaviors}
+ * replays it, so it lives here, where both can reach it.
+ *
+ * Ranking on the leading literal is what a CloudFront wildcard forces, because
+ * it matches across `/` rather than within one segment: an exact `a/b` has to
+ * precede the subtree `a/*` that would otherwise swallow it, though the two are
+ * the same length and depth. Since the data patterns carry the literal build ID,
+ * no pattern has a wildcard anywhere but at its end.
+ */
+export function behaviorSpecificity(pattern: string): number {
+  const segments = pattern.split("/").filter(Boolean);
+  const firstWildcard = segments.findIndex((segment) => segment.includes("*"));
+  const literalDepth = firstWildcard === -1 ? segments.length : firstWildcard;
+  return literalDepth * 1000000 + segments.length * 10000 + pattern.length;
+}
+
+/**
+ * The build ID as it goes into a path pattern. A custom `generateBuildId` can
+ * return anything, and a character CloudFront cannot spell would otherwise fail
+ * the deploy naming neither the build ID nor the group.
+ */
+function dataBuildId(buildId: string | undefined): string {
+  if (!buildId) {
+    throw new Error(
+      `${errorPrefix()}Routing a Pages Router app's "/_next/data/<buildId>/…" ` +
+        `URLs needs its build ID, and none was passed. This is a cdk-nextjs ` +
+        `bug: the build ID comes from the adapter manifest.`,
+    );
+  }
+  const invalid = [...new Set(buildId)].filter(
+    (char) => !PATH_PATTERN_LITERAL.test(char) || char === "/",
+  );
+  if (invalid.length > 0) {
+    throw new Error(
+      `${errorPrefix()}The build ID "${buildId}" contains ` +
+        `${invalid.map((char) => JSON.stringify(char)).join(", ")}, which a ` +
+        `CloudFront path pattern cannot hold, so its "/_next/data" URLs cannot ` +
+        `be routed to a group. Make \`generateBuildId\` return only A-Z a-z ` +
+        `0-9 _ - . characters.`,
+    );
+  }
+  return buildId;
 }
 
 /** Sort key for "longest matching pattern wins". */
@@ -472,7 +665,8 @@ function segmentCount(path: string): number {
  * A subtree owns what is *under* it, not the path itself: `/api/reports/**`
  * becomes CloudFront `api/reports/*`, which does not match `/api/reports`.
  * Claiming the parent too would package a route into a group the edge never
- * routes there. Write both patterns to own both.
+ * routes there. The one exception, an optional catch-all's parent, is routed
+ * by {@link routedPatterns} instead of matched here.
  */
 function matchesPattern(pattern: string, template: string): boolean {
   if (pattern.endsWith(SUBTREE_SUFFIX)) {
@@ -481,11 +675,613 @@ function matchesPattern(pattern: string, template: string): boolean {
   return template === pattern;
 }
 
-function prefixBasePath(route: string, basePath: string): string {
-  if (!basePath) {
-    return route;
+/**
+ * The typo check's hint for the one exact pattern that was the documented
+ * workaround: the parent of an optional catch-all, which has no template.
+ */
+function optionalCatchAllParentHint(
+  route: string,
+  entries: readonly RouteEntry[],
+  basePath: string,
+): string {
+  if (route.endsWith(SUBTREE_SUFFIX)) {
+    return "";
   }
-  return `${basePath.replace(/\/$/, "")}${route}`;
+  const prefix = `${prefixBasePath(route, basePath)}/`;
+  const catchAll = entries.find(
+    (entry) =>
+      entry.template.startsWith(prefix) &&
+      OPTIONAL_CATCH_ALL_SEGMENT.test(entry.template.slice(prefix.length)),
+  );
+  if (!catchAll) {
+    return "";
+  }
+  return (
+    `"${route}" is served by the optional catch-all "${catchAll.template}", ` +
+    `whose subtree pattern "${route}${SUBTREE_SUFFIX}" routes "${route}" as ` +
+    `well — use that instead. `
+  );
+}
+
+/** `/blog/[[...slug]]`'s last segment. */
+const OPTIONAL_CATCH_ALL_SEGMENT = /^\[\[\.\.\.[^\]/]+\]\]$/;
+
+/**
+ * Next.js's interception markers, longest-overlapping first, exactly as
+ * `INTERCEPTION_ROUTE_MARKERS` in
+ * `next/dist/shared/lib/router/utils/interception-routes.js` orders them.
+ */
+const INTERCEPTION_MARKERS = ["(..)(..)", "(.)", "(..)", "(...)"];
+
+function interceptionMarkerOf(path: string): string | undefined {
+  for (const segment of path.split("/")) {
+    const marker = INTERCEPTION_MARKERS.find((it) => segment.startsWith(it));
+    if (marker) {
+      return marker;
+    }
+  }
+  return undefined;
+}
+
+function isInterceptionTemplate(template: string): boolean {
+  return interceptionMarkerOf(template) !== undefined;
+}
+
+/**
+ * The route an interception route intercepts: `/feed/(..)photo/[id]` →
+ * `/photo/[id]`. `extractInterceptionRouteInformation` from
+ * `next/dist/shared/lib/router/utils/interception-routes.js`, restated because
+ * this file is bundled without `next`. The template is already a normalized app
+ * path (no route groups, no `@slot`s), so none of its normalization is needed.
+ * Next.js's interception rewrite matches exactly this path, and only with a
+ * `Next-Url` header — which CloudFront does not route on.
+ */
+export function interceptedRoute(path: string): string | undefined {
+  const marker = interceptionMarkerOf(path);
+  if (marker === undefined) {
+    return undefined;
+  }
+  const at = path.indexOf(marker);
+  const intercepting = path.slice(0, at).split("/").filter(Boolean);
+  const rest = path
+    .slice(at + marker.length)
+    .split("/")
+    .filter(Boolean);
+  const parent =
+    marker === "(.)"
+      ? intercepting
+      : marker === "(..)"
+        ? intercepting.slice(0, -1)
+        : marker === "(..)(..)"
+          ? intercepting.slice(0, -2)
+          : [];
+  return `/${[...parent, ...rest].join("/")}`;
+}
+
+/**
+ * Templates that name what a request is *rewritten* to inside Next.js, never
+ * what the browser asks for: the RSC payload (`/pricing.rsc`) and segment
+ * prefetches (`/pricing.segments/…`) are requested as `/pricing` with an `RSC`
+ * header, which is why `pricing` alone has always routed them.
+ */
+function isInternalTemplate(path: string): boolean {
+  return path.endsWith(".rsc") || path.includes(".segments/");
+}
+
+/** The edge's inputs, as `NextjsDistribution` receives them. */
+interface EdgeOptions {
+  /** With a leading slash, `""` for none. */
+  readonly basePath: string;
+  readonly buildId?: string;
+  readonly trailingSlash: boolean;
+  readonly hasDataRoutes: boolean;
+}
+
+/** One CloudFront behavior a group gets, and the pattern it came from. */
+interface EdgeBehavior {
+  readonly group: string;
+  /** The group pattern (`/blog/**`) the behavior was generated from. */
+  readonly route: string;
+  /** The behavior path pattern, before basePath (`blog/*`). */
+  readonly pattern: string;
+  readonly regex: RegExp;
+}
+
+/**
+ * Every group behavior `NextjsDistribution.addFunctionGroupBehaviors` adds, in
+ * the order it adds them: the same patterns, from the same functions, sorted by
+ * the same key, so the first match here is the first match at the edge.
+ */
+function edgeBehaviors(
+  groups: readonly FunctionGroupSpec[],
+  assigned: Record<string, string[]>,
+  edge: EdgeOptions,
+): EdgeBehavior[] {
+  return groups
+    .flatMap((group) =>
+      routedPatterns(
+        group.routes,
+        assigned[group.name] ?? [],
+        edge.basePath,
+      ).flatMap((route) =>
+        pathPatternsFor(route, edge).map((pattern) => ({
+          group: group.name,
+          route,
+          pattern,
+          regex: cloudFrontPatternRegex(`${edge.basePath}/${pattern}`),
+        })),
+      ),
+    )
+    .sort(
+      (a, b) => behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
+    );
+}
+
+/**
+ * CloudFront path pattern matching: anchored at both ends, `*` for any run of
+ * characters `/` included, `?` for exactly one, case-sensitive. `pattern` has to
+ * carry the leading slash CloudFront implies.
+ *
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern
+ */
+export function cloudFrontPatternRegex(pattern: string): RegExp {
+  const source = [...pattern]
+    .map((char) =>
+      char === "*"
+        ? ".*"
+        : char === "?"
+          ? "."
+          : char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    )
+    .join("");
+  return new RegExp(`^${source}$`);
+}
+
+/** The behavior CloudFront would pick for `url`, `undefined` for the default one. */
+function edgeBehaviorFor(
+  behaviors: readonly EdgeBehavior[],
+  url: string,
+): EdgeBehavior | undefined {
+  return behaviors.find((behavior) => behavior.regex.test(url));
+}
+
+function templatesByGroup(
+  groups: readonly FunctionGroupSpec[],
+  entries: readonly RouteEntry[],
+  groupOfEntrypoint: ReadonlyMap<string, string>,
+): Record<string, string[]> {
+  const assigned: Record<string, string[]> = {
+    [DEFAULT_FUNCTION_GROUP]: [],
+  };
+  for (const group of groups) {
+    assigned[group.name] = [];
+  }
+  for (const entry of entries) {
+    const group =
+      groupOfEntrypoint.get(entry.entrypointId) ?? DEFAULT_FUNCTION_GROUP;
+    assigned[group].push(entry.template);
+  }
+  return assigned;
+}
+
+/**
+ * Put each intercepting file in the group of the URL it intercepts.
+ *
+ * With `/feed/**` grouped, `app/feed/(..)photo/[id]/page.tsx` matched it and
+ * moved to the feed group. But the soft navigation it exists for requests
+ * `/photo/1` with a `Next-Url: /feed` header; CloudFront routes on the URL alone,
+ * so the request reaches whichever function owns `/photo/*`, where Next.js's
+ * interception rewrite (a `beforeFiles` rule on that header) resolves it to the
+ * intercepting file — which that function did not have.
+ *
+ * Moving the file there is always possible unless the intercepted URL space is
+ * itself split: `/photo/[id]` in the default group with `/photo/1` grouped
+ * elsewhere would need the file in both. That throws.
+ */
+function reassignInterceptingFiles(
+  entries: readonly RouteEntry[],
+  groupOfEntrypoint: Map<string, string>,
+  behaviors: readonly EdgeBehavior[],
+  edge: EdgeOptions,
+): void {
+  for (const entry of entries) {
+    const path = stripBasePath(entry.template, edge.basePath);
+    if (path === undefined || isInternalTemplate(path)) {
+      continue;
+    }
+    const target = interceptedRoute(path);
+    if (target === undefined) {
+      continue;
+    }
+    const url = withBasePath(target, edge.basePath);
+    const group =
+      edgeBehaviorFor(behaviors, url)?.group ?? DEFAULT_FUNCTION_GROUP;
+    const intercepted = templateRegex(url);
+    const split = behaviors.find(
+      (behavior) =>
+        behavior.group !== group &&
+        !behavior.pattern.startsWith("_next/data/") &&
+        sampleUrl(behavior.route, edge.basePath).some((it) =>
+          intercepted.test(it),
+        ),
+    );
+    if (split) {
+      throw new Error(
+        `${errorPrefix()}"${entry.entrypointId}" is the interception route ` +
+          `"${entry.template}", which Next.js reaches by rewriting a request for ` +
+          `"${url}" inside whichever function CloudFront sent it to — so it is ` +
+          `packaged with the group that owns "${url}". That URL space is split, ` +
+          `though: most of it reaches ${groupLabel(group)}, but group ` +
+          `"${split.group}"'s pattern "${split.route}" claims part of it, and ` +
+          `one file cannot be in both. Route all of "${target}" to one group.`,
+      );
+    }
+    groupOfEntrypoint.set(entry.entrypointId, group);
+  }
+}
+
+/** A URL a group pattern routes, to test against another route's URL space. */
+function sampleUrl(route: string, basePath: string): string[] {
+  return route.endsWith(SUBTREE_SUFFIX)
+    ? [`${basePath}${route.slice(0, -SUBTREE_SUFFIX.length)}/_`]
+    : [`${basePath}${route}`];
+}
+
+/** The URLs a template stands for, as a regex: `[id]` is one segment, and so on. */
+function templateRegex(template: string): RegExp {
+  const source = template
+    .split("/")
+    .filter(Boolean)
+    .map((segment) =>
+      OPTIONAL_CATCH_ALL_SEGMENT.test(segment)
+        ? "(?:/.+)?"
+        : /^\[\.\.\.[^\]]+\]$/.test(segment)
+          ? "/.+"
+          : /^\[[^\]]+\]$/.test(segment)
+            ? "/[^/]+"
+            : `/${segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+    )
+    .join("");
+  return new RegExp(`^${source || "/"}$`);
+}
+
+/**
+ * Throw unless every URL each file serves reaches the group holding it.
+ *
+ * Checked for every file, the default group's included: the invariant is "the
+ * edge never sends a request to a function without its file", and a group
+ * pattern can break it by claiming a URL of a file left in the default group as
+ * easily as by leaving one behind.
+ */
+function assertEdgeReachesEveryFile(
+  entries: readonly RouteEntry[],
+  groupOfEntrypoint: ReadonlyMap<string, string>,
+  behaviors: readonly EdgeBehavior[],
+  edge: EdgeOptions,
+): void {
+  const files = new Map<string, RouteEntry[]>();
+  for (const entry of entries) {
+    const list = files.get(entry.entrypointId) ?? [];
+    list.push(entry);
+    files.set(entry.entrypointId, list);
+  }
+  for (const [file, fileEntries] of files) {
+    const owner = groupOfEntrypoint.get(file) ?? DEFAULT_FUNCTION_GROUP;
+    const misrouted: Misroute[] = [];
+    for (const entry of fileEntries) {
+      for (const url of servedUrls(entry.template, entry.type, edge)) {
+        const behavior = edgeBehaviorFor(behaviors, url);
+        const group = behavior?.group ?? DEFAULT_FUNCTION_GROUP;
+        if (group !== owner && !misrouted.some((it) => it.url === url)) {
+          misrouted.push({ url, group, route: behavior?.route });
+        }
+      }
+    }
+    if (misrouted.length > 0) {
+      throw new Error(misroutedFileMessage(file, owner, misrouted, edge));
+    }
+  }
+}
+
+interface Misroute {
+  readonly url: string;
+  /** Where CloudFront sends it. */
+  readonly group: string;
+  /** The pattern that sent it there, `undefined` for the default behavior. */
+  readonly route?: string;
+}
+
+/**
+ * The URLs one template's file answers at the edge.
+ *
+ * Nothing for the error pages (every group stages them), the RSC and
+ * segment-prefetch rewrites (requested at the page's own URL), and interception
+ * routes (reached only through the intercepted URL's rewrite). Otherwise the
+ * template itself, an optional catch-all's parent, and for each of those the
+ * `trailingSlash` form and a Pages Router page's data URL. Only the slash-less
+ * data URL: the client never adds one.
+ */
+function servedUrls(
+  template: string,
+  type: string | undefined,
+  edge: EdgeOptions,
+): string[] {
+  const path = stripBasePath(template, edge.basePath);
+  if (
+    path === undefined ||
+    ERROR_PAGE_SUFFIXES.includes(path) ||
+    isInternalTemplate(path) ||
+    isInterceptionTemplate(path)
+  ) {
+    return [];
+  }
+  if (path.startsWith("/_next/data/")) {
+    return [template];
+  }
+  const paths = [path];
+  const optional = /^(.*)\/(\[\[\.\.\.[^\]/]+\]\])$/.exec(path);
+  if (optional) {
+    paths.push(optional[1] || "/");
+  }
+  const urls: string[] = [];
+  for (const it of paths) {
+    const url = withBasePath(it, edge.basePath);
+    urls.push(url);
+    if (edge.trailingSlash && it !== "/") {
+      urls.push(`${url}/`);
+    }
+    if (type === "page" && edge.buildId) {
+      urls.push(
+        `${edge.basePath}/_next/data/${edge.buildId}${it === "/" ? "/index" : it}.json`,
+      );
+    }
+  }
+  return urls;
+}
+
+function misroutedFileMessage(
+  file: string,
+  owner: string,
+  misrouted: readonly Misroute[],
+  edge: EdgeOptions,
+): string {
+  const where = misrouted
+    .map(
+      (it) =>
+        `"${it.url}" to ${groupLabel(it.group)}` +
+        (it.route ? ` (its pattern "${it.route}")` : ""),
+    )
+    .join(", ");
+  const head =
+    `${errorPrefix()}"${file}" is packaged into ${groupLabel(owner)}, but ` +
+    `CloudFront would send ${where}, whose function does not have it: a 500 on ` +
+    `every such request. Every URL one file serves has to reach the group that ` +
+    `holds the file.`;
+  if (owner === DEFAULT_FUNCTION_GROUP) {
+    return (
+      `${head} A pattern claims a URL of a file that no pattern moved: narrow ` +
+      `it, or give the group the file's other routes too.`
+    );
+  }
+  const unroutable = misrouted.filter(
+    (it) => suggestedPattern(it.url, edge) === undefined,
+  );
+  if (unroutable.length > 0) {
+    return (
+      `${head} ${unroutable.map((it) => `"${it.url}"`).join(", ")} cannot be ` +
+      `routed to any group — CloudFront has no pattern for the home page alone, ` +
+      `and a dynamic first segment would need "/**" — so this file can only be ` +
+      `served by the "${DEFAULT_FUNCTION_GROUP}" group. Remove the pattern that ` +
+      `moved it. (A Pages Router home page is also "/index": one file.)`
+    );
+  }
+  const suggestions = [
+    ...new Set(misrouted.map((it) => suggestedPattern(it.url, edge)!)),
+  ];
+  return (
+    `${head} Add ${suggestions.map((it) => `"${it}"`).join(", ")} to group ` +
+    `"${owner}"'s routes.`
+  );
+}
+
+/**
+ * The group pattern that would route `url`, `undefined` when none can: a static
+ * path routes as itself, a dynamic one as the subtree above its first dynamic
+ * segment, and a data URL or `trailingSlash` form as the page it belongs to.
+ */
+function suggestedPattern(url: string, edge: EdgeOptions): string | undefined {
+  let path = stripBasePath(url, edge.basePath) ?? url;
+  const dataPrefix = `/_next/data/${edge.buildId}/`;
+  if (path.startsWith(dataPrefix) && path.endsWith(".json")) {
+    path = `/${path.slice(dataPrefix.length, -".json".length)}`;
+    path = path === "/index" ? "/" : path;
+  }
+  if (path.length > 1 && path.endsWith("/")) {
+    path = path.slice(0, -1);
+  }
+  const segments = path.split("/").filter(Boolean);
+  const firstDynamic = segments.findIndex((segment) => segment.startsWith("["));
+  if (segments.length === 0 || firstDynamic === 0) {
+    return undefined;
+  }
+  return firstDynamic === -1
+    ? path
+    : `/${segments.slice(0, firstDynamic).join("/")}${SUBTREE_SUFFIX}`;
+}
+
+/**
+ * Throw on a `next.config` rewrite whose source reaches one group and whose
+ * destination is packaged into another.
+ *
+ * A rewrite runs inside the function that received the request, so
+ * `/old/:path*` → `/new` with `/new/**` grouped and `/old` not sends `/old/x` to
+ * the default function, which rewrites it to a file it lacks.
+ *
+ * Only the rewrites whose destination is a literal path can be resolved to a
+ * file here; one built from the source's parameters (`/blog/:slug` →
+ * `/posts/:slug`) is skipped, as are external ones. The source is checked at the
+ * granularity of its literal prefix: each parameter stands in as a dynamic
+ * segment. Rewrites done by middleware (`NextResponse.rewrite`) are code, not
+ * config, and cannot be checked at all.
+ */
+function assertRewritesStayInGroup(
+  entries: readonly RouteEntry[],
+  groupOfEntrypoint: ReadonlyMap<string, string>,
+  behaviors: readonly EdgeBehavior[],
+  routing: RoutingRules | undefined,
+): void {
+  if (!routing) {
+    return;
+  }
+  const fileOfTemplate = new Map(
+    entries
+      .filter((entry) => !isInternalTemplate(entry.template))
+      .map((entry) => [entry.template, entry.entrypointId]),
+  );
+  const phases: [readonly RewriteRule[] | undefined, boolean][] = [
+    [routing.beforeFiles, false],
+    // `afterFiles` and `fallback` only apply when no file matched the URL, so a
+    // source that is itself a route never reaches the destination.
+    [routing.afterFiles, true],
+    [routing.fallback, true],
+  ];
+  for (const [rules, yieldsToFiles] of phases) {
+    for (const rule of rules ?? []) {
+      const destination = literalDestination(rule.destination);
+      // Next.js's own interception rewrites are here too, on `Next-Url`;
+      // `reassignInterceptingFiles` has already put their files in place.
+      if (destination === undefined || isInterceptionTemplate(destination)) {
+        continue;
+      }
+      const file = resolveFile(destination, fileOfTemplate, routing);
+      if (file === undefined) {
+        continue;
+      }
+      const target = groupOfEntrypoint.get(file) ?? DEFAULT_FUNCTION_GROUP;
+      for (const url of rewriteSourceUrls(rule.source)) {
+        if (yieldsToFiles && fileOfTemplate.has(url)) {
+          continue;
+        }
+        const behavior = edgeBehaviorFor(behaviors, url);
+        const group = behavior?.group ?? DEFAULT_FUNCTION_GROUP;
+        if (group === target) {
+          continue;
+        }
+        throw new Error(
+          `${errorPrefix()}The next.config rewrite from "${rule.source}" to ` +
+            `"${rule.destination}" crosses groups: CloudFront sends "${url}" to ` +
+            `${groupLabel(group)}` +
+            (behavior ? ` (its pattern "${behavior.route}")` : "") +
+            `, and Next.js then serves it with "${file}", which is packaged ` +
+            `into ${groupLabel(target)}. A rewrite is applied inside the ` +
+            `function that received the request, so its source and its ` +
+            `destination have to be routed to the same group.`,
+        );
+      }
+    }
+  }
+}
+
+/** A rewrite destination's pathname, `undefined` unless it is a literal local path. */
+function literalDestination(
+  destination: string | undefined,
+): string | undefined {
+  if (!destination?.startsWith("/")) {
+    return undefined;
+  }
+  const pathname = destination.split(/[?#]/)[0];
+  if (/[$:]/.test(pathname)) {
+    return undefined;
+  }
+  return pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+}
+
+/**
+ * The file Next.js serves `pathname` with: a template of that exact name, or
+ * else the first of Next.js's own dynamic route rules that matches — matched
+ * case-insensitively, as `resolveRoutes` does.
+ */
+function resolveFile(
+  pathname: string,
+  fileOfTemplate: ReadonlyMap<string, string>,
+  routing: RoutingRules,
+): string | undefined {
+  const exact = fileOfTemplate.get(pathname);
+  if (exact !== undefined) {
+    return exact;
+  }
+  for (const route of routing.dynamicRoutes ?? []) {
+    let matches: boolean;
+    try {
+      matches = new RegExp(route.sourceRegex, "i").test(pathname);
+    } catch {
+      continue;
+    }
+    if (matches) {
+      const template = route.destination?.split("?")[0];
+      return template === undefined ? undefined : fileOfTemplate.get(template);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The URL shapes a path-to-regexp rewrite source matches, as template-like
+ * paths: each literal segment kept, each parameter replaced by `[name]`, and —
+ * when the last one is optional (`:path*`, `:slug?`) — the path without it too.
+ */
+function rewriteSourceUrls(source: string | undefined): string[] {
+  if (!source?.startsWith("/")) {
+    return [];
+  }
+  const segments: string[] = [];
+  let optionalFrom: number | undefined;
+  for (const segment of source.split("/").slice(1)) {
+    if (!/[:()*?+{}[\]]/.test(segment)) {
+      segments.push(segment);
+      continue;
+    }
+    optionalFrom = /^:\w+[*?]$/.test(segment) ? segments.length : undefined;
+    segments.push(`[${/:(\w+)/.exec(segment)?.[1] ?? "param"}]`);
+  }
+  const urls = [`/${segments.join("/")}`];
+  if (optionalFrom !== undefined) {
+    urls.push(`/${segments.slice(0, optionalFrom).join("/")}`);
+  }
+  return urls;
+}
+
+function groupLabel(group: string): string {
+  return group === DEFAULT_FUNCTION_GROUP
+    ? `the "${DEFAULT_FUNCTION_GROUP}" group`
+    : `group "${group}"`;
+}
+
+/** `basePath` with one leading slash and no trailing one; `""` for none. */
+function normalizedBasePath(basePath: string): string {
+  const bare = (basePath || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  return bare ? `/${bare}` : "";
+}
+
+function prefixBasePath(route: string, basePath: string): string {
+  return `${normalizedBasePath(basePath)}${route}`;
+}
+
+/** `template` without `basePath` (`/` for the base itself), `undefined` if outside it. */
+function stripBasePath(template: string, basePath: string): string | undefined {
+  if (!basePath) {
+    return template;
+  }
+  if (template === basePath) {
+    return "/";
+  }
+  return template.startsWith(`${basePath}/`)
+    ? template.slice(basePath.length)
+    : undefined;
+}
+
+function withBasePath(path: string, basePath: string): string {
+  return path === "/" ? basePath || "/" : `${basePath}${path}`;
 }
 
 /**

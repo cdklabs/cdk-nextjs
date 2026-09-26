@@ -1,4 +1,5 @@
 import { Construct } from "constructs";
+import { routedPatterns } from "../adapter/function-groups";
 import { NextjsType } from "../constants";
 import { NextjsApi, NextjsApiOverrides, NextjsApiProps } from "../nextjs-api";
 import {
@@ -107,7 +108,15 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
         }
         return {
           name: group.name,
-          routes: group.routes,
+          // Plus the parent of any optional catch-all a subtree pattern moved
+          // into the group, which that pattern's behavior does not match.
+          routes: routedPatterns(
+            group.routes,
+            this.nextjsBuild.deploymentRoots.find(
+              (it) => it.name === group.name,
+            )?.routes ?? [],
+            this.nextjsBuild.nextConfigBasePath,
+          ),
           function: deployed.function,
         };
       }),

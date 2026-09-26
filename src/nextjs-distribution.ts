@@ -40,7 +40,11 @@ import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2
 import { IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { pathPatternsFor } from "./adapter/function-groups";
+import {
+  behaviorSpecificity,
+  cloudFrontPatternRegex,
+  pathPatternsFor,
+} from "./adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
@@ -129,6 +133,27 @@ export interface NextjsDistributionProps {
    */
   readonly hasDataRoutes?: boolean;
   /**
+   * The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs —
+   * `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data
+   * routes are matched on it literally, because a `*` in its place also matches
+   * `/` and would claim other groups' data URLs. Required with
+   * {@link functionGroups} when {@link hasDataRoutes} is set.
+   * @default - none; only needed for a split Pages Router app
+   */
+  readonly nextBuildId?: string;
+  /**
+   * The most cache behaviors the distribution may have, the default one
+   * included. cdk-nextjs counts what it adds (plus whatever a supplied
+   * {@link distribution} already has) against this at synth, so running out
+   * is a synth error naming what used them rather than a failed deploy.
+   *
+   * Raise it after raising the "Cache behaviors per distribution" quota for
+   * your account.
+   * @default 75 - CloudFront's default quota
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
+   */
+  readonly maxCacheBehaviors?: number;
+  /**
    * The app's `next.config` `trailingSlash`. A `trailingSlash` app links to
    * `/pricing/`, which an exact group pattern of `pricing` does not match, so
    * each one needs a slash variant. Ignored without {@link functionGroups}.
@@ -195,6 +220,12 @@ export class NextjsDistribution extends Construct {
   private staticBehaviorOptions: BehaviorOptions;
   private dynamicBehaviorOptions: BehaviorOptions;
   private imageBehaviorOptions: BehaviorOptions;
+  /**
+   * Cache behaviors the distribution had before this construct added any: those
+   * of a supplied `distribution`, or of `overrides.distributionProps`. Counted
+   * against {@link NextjsDistributionProps.maxCacheBehaviors}.
+   */
+  private preexistingBehaviors: number;
 
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
     super(scope, id);
@@ -211,6 +242,8 @@ export class NextjsDistribution extends Construct {
     this.dynamicBehaviorOptions = this.createDynamicBehaviorOptions();
     this.imageBehaviorOptions = this.createImageBehaviorOptions();
     this.distribution = this.getDistribution();
+    this.preexistingBehaviors = countAdditionalBehaviors(this.distribution);
+    this.validateFunctionGroupProps();
     this.addStaticBehaviors();
     this.addDynamicBehaviors();
   }
@@ -514,12 +547,56 @@ export class NextjsDistribution extends Construct {
       // if no base path, then default behavior will handle all other paths
     }
   }
+  /**
+   * Before any behavior is computed: the budget and the `public/` checks both
+   * generate the group patterns, and would otherwise fail first with a less
+   * useful message.
+   */
+  private validateFunctionGroupProps() {
+    if (!this.props.functionGroups?.length) {
+      return;
+    }
+    if (!this.isFunctionCompute) {
+      throw new Error(
+        "`functionGroups` is only supported by NextjsGlobalFunctions.",
+      );
+    }
+    if (this.props.hasDataRoutes && !this.props.nextBuildId) {
+      throw new Error(
+        `${LOG_PREFIX} \`nextBuildId\` is required with \`functionGroups\` ` +
+          `when \`hasDataRoutes\` is set: a group's "/_next/data/<buildId>/…" ` +
+          `behaviors are matched on it. Pass \`NextjsBuild.nextBuildId\`.`,
+      );
+    }
+  }
   /** Shared by the behaviors themselves and by the budget that counts them. */
   private get pathPatternOptions() {
     return {
       hasDataRoutes: this.props.hasDataRoutes ?? false,
       trailingSlash: this.props.trailingSlash ?? false,
+      buildId: this.props.nextBuildId,
     };
+  }
+  /**
+   * Every group behavior, final path pattern included, in the order
+   * {@link addFunctionGroupBehaviors} adds them.
+   */
+  private functionGroupBehaviors() {
+    return (this.props.functionGroups ?? [])
+      .flatMap((group) =>
+        group.routes.flatMap((route) =>
+          pathPatternsFor(route, this.pathPatternOptions).map((pattern) => ({
+            group,
+            route,
+            pattern,
+            pathPattern: this.getPathPattern(pattern),
+          })),
+        ),
+      )
+      .sort(
+        (a, b) =>
+          behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
+      );
   }
   /**
    * One behavior per group pattern, most specific first.
@@ -536,28 +613,8 @@ export class NextjsDistribution extends Construct {
     if (!groups?.length) {
       return;
     }
-    if (!this.isFunctionCompute) {
-      throw new Error(
-        "`functionGroups` is only supported by NextjsGlobalFunctions.",
-      );
-    }
-    const behaviors = groups
-      .flatMap((group) =>
-        group.routes.flatMap((route) =>
-          pathPatternsFor(route, this.pathPatternOptions).map((pattern) => ({
-            group,
-            route,
-            pattern,
-          })),
-        ),
-      )
-      .sort(
-        (a, b) =>
-          behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
-      );
-
     const originPerGroup = new Map<string, IOrigin>();
-    for (const { group, pattern } of behaviors) {
+    for (const { group, pathPattern } of this.functionGroupBehaviors()) {
       let origin = originPerGroup.get(group.name);
       if (!origin) {
         origin = FunctionUrlOrigin.withOriginAccessControl(
@@ -570,11 +627,7 @@ export class NextjsDistribution extends Construct {
       // differs, and it is passed separately.
       const { origin: _ignored, ...behaviorOptions } =
         this.dynamicBehaviorOptions;
-      this.distribution.addBehavior(
-        this.getPathPattern(pattern),
-        origin,
-        behaviorOptions,
-      );
+      this.distribution.addBehavior(pathPattern, origin, behaviorOptions);
     }
   }
   /**
@@ -671,6 +724,7 @@ export class NextjsDistribution extends Construct {
     }
     const publicPathPatterns = this.publicPathPatterns();
     this.assertBehaviorBudget(publicPathPatterns.length);
+    this.assertNoPublicCollisions(publicPathPatterns);
     for (const pathPattern of publicPathPatterns) {
       this.distribution.addBehavior(
         pathPattern,
@@ -734,24 +788,71 @@ export class NextjsDistribution extends Construct {
     return patterns;
   }
   /**
-   * CloudFront allows 25 cache behaviors per distribution, counting the default
-   * one, and there are now three things competing for them: `public/` entries,
-   * function groups, and cdk-nextjs's own fixed set. Checked in one place so the
-   * error can say which of the three to cut.
+   * Refuse a group behavior that a `public/` behavior would make unreachable.
+   *
+   * `public/` behaviors are added first, and CloudFront stops at the first match,
+   * so two cases send a group's route to S3 instead of its function — which is
+   * why this is checked at synth, where both sides are known:
+   * - the same pattern twice: `public/docs/` and `/docs/**` both deploy as
+   *   `docs/*`. The synth succeeded and CloudFront rejected the deploy.
+   * - a group pattern under a public directory: `/docs/guide/**` behind
+   *   `docs/*` deploys and never matches.
+   */
+  private assertNoPublicCollisions(publicPathPatterns: string[]) {
+    const publicRegexes = publicPathPatterns.map((pattern) => ({
+      pattern,
+      regex: cloudFrontPatternRegex(`/${pattern.replace(/^\/+/, "")}`),
+    }));
+    for (const { group, route, pathPattern } of this.functionGroupBehaviors()) {
+      const duplicate = publicPathPatterns.includes(pathPattern);
+      // Matching the group pattern's own text is enough: its only wildcard is a
+      // trailing `*`, so a public pattern that matches the text up to and
+      // including it matches every URL the group pattern does.
+      const shadow = duplicate
+        ? undefined
+        : publicRegexes.find(({ regex }) =>
+            regex.test(`/${pathPattern.replace(/^\/+/, "")}`),
+          );
+      if (!duplicate && !shadow) {
+        continue;
+      }
+      throw new Error(
+        `${LOG_PREFIX} \`functionGroups\` pattern "${route}" (group ` +
+          `"${group.name}") ` +
+          (duplicate
+            ? `deploys as the path pattern "${pathPattern}", which a top-level ` +
+              `public/ entry already uses — CloudFront rejects a distribution ` +
+              `with two behaviors on one path pattern. `
+            : `deploys as "${pathPattern}", but the top-level public/ entry ` +
+              `behind "${shadow!.pattern}" is matched first and sends every ` +
+              `such request to S3, so the group's function would never see ` +
+              `them. `) +
+          `Move those public/ files under a directory no route uses, or ` +
+          `group a different path.`,
+      );
+    }
+  }
+  /**
+   * CloudFront has a per-distribution cache behavior quota, counting the default
+   * one — 75 unless raised, and `maxCacheBehaviors` says which — and there are
+   * four things competing for it: `public/` entries, function groups,
+   * cdk-nextjs's own fixed set, and whatever the distribution already had.
+   * Checked in one place so the error can say which to cut.
    *
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
    */
   private assertBehaviorBudget(publicPatterns: number) {
-    const groupPatterns = (this.props.functionGroups ?? []).reduce(
-      (total, group) =>
-        total +
-        group.routes.reduce(
-          (count, route) =>
-            count + pathPatternsFor(route, this.pathPatternOptions).length,
-          0,
-        ),
-      0,
-    );
+    const limit = this.props.maxCacheBehaviors ?? DEFAULT_MAX_CACHE_BEHAVIORS;
+    if (Token.isUnresolved(limit)) {
+      return;
+    }
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error(
+        `${LOG_PREFIX} \`maxCacheBehaviors\` must be a positive integer, got ` +
+          `${limit}.`,
+      );
+    }
+    const groupPatterns = this.functionGroupBehaviors().length;
     // The default behavior, `_next/image*`, `_next/static*`, plus — with a
     // basePath — the two that stand in for the default behavior's coverage, and
     // — with a path-style assetPrefix — the one that serves bundles under it.
@@ -759,8 +860,9 @@ export class NextjsDistribution extends Construct {
     // adds no behaviors, so counting it added 2 to the total and could throw
     // "over the limit" on an app that is under it.
     const fixed = 3 + (this.basePath ? 2 : 0) + (this.assetPrefix ? 1 : 0);
-    const total = fixed + publicPatterns + groupPatterns;
-    if (total <= MAX_CACHE_BEHAVIORS) {
+    const total =
+      fixed + publicPatterns + groupPatterns + this.preexistingBehaviors;
+    if (total <= limit) {
       return;
     }
     const parts = [
@@ -770,16 +872,23 @@ export class NextjsDistribution extends Construct {
     if (groupPatterns) {
       parts.push(`${groupPatterns} for \`functionGroups\` patterns`);
     }
+    if (this.preexistingBehaviors) {
+      parts.push(
+        `${this.preexistingBehaviors} already on the distribution before ` +
+          `cdk-nextjs added its own`,
+      );
+    }
     throw new Error(
       `This Next.js app needs ${total} CloudFront cache behaviors, over the ` +
-        `limit of ${MAX_CACHE_BEHAVIORS} per distribution: ${parts.join(", ")}. ` +
+        `limit of ${limit} per distribution: ${parts.join(", ")}. ` +
         `Move public/ files into a single top-level directory (one behavior ` +
         `serves \`static/*\`)` +
         (groupPatterns
           ? `, and prefer one subtree pattern per function group over several ` +
-            `exact paths.`
-          : `.`) +
-        ` See https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions`,
+            `exact paths`
+          : ``) +
+        `. If your account's quota is higher than ${limit}, set ` +
+        `\`maxCacheBehaviors\` to it. See https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions`,
     );
   }
   /**
@@ -882,35 +991,30 @@ const DISABLED_CACHE_KEY: CacheKeyProps = {
   enableAcceptEncodingGzip: false,
 };
 
-/** CloudFront's per-distribution cache behavior limit, including the default. */
-const MAX_CACHE_BEHAVIORS = 25;
+/**
+ * CloudFront's default "Cache behaviors per distribution" quota, the default
+ * behavior included. Adjustable, hence `maxCacheBehaviors`.
+ *
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
+ */
+const DEFAULT_MAX_CACHE_BEHAVIORS = 75;
 
 /**
- * Rank a CloudFront path pattern so the most specific is added first: literal
- * segments before the first `*` dominate, then total segments, then length.
- *
- * Ranking on the leading literal is what a CloudFront wildcard forces, because it
- * matches across `/` rather than within one segment — so a pattern with an
- * interior wildcard is far wider than its length suggests. Writing the wildcard as
- * `<*>` to keep it out of this comment's way: an exact route's Pages Router data
- * pattern, `_next/data/<*>/pricing.json`, also matches
- * `/_next/data/<buildId>/docs/pricing.json`, and ranking it by total length put it
- * ahead of `_next/data/<*>/docs/<*>` — sending a request for the second group's
- * data URL to the first group's function, which has no entrypoint for it. Counting
- * the literal prefix first keeps the two data patterns tied there and lets segment
- * depth decide, while still ranking an exact `a/b` above the subtree `a/<*>` that
- * would otherwise swallow it.
- *
- * Residual, and not fixable with CloudFront's two wildcards: an exact route's data
- * pattern still over-matches a *default-group* route of the same leaf name
- * (`/docs/pricing` with `/pricing` in a group). Give that subtree a group of its
- * own if it comes up.
+ * The additional behaviors a `Distribution` already holds. CDK keeps them in a
+ * private `additionalBehaviors` field with no public accessor — a plain array in
+ * older releases, an `ArrayState` wrapping one (`.array`) in current ones. Read
+ * defensively, so a CDK that changes it again counts 0 rather than failing the
+ * synth.
  */
-function behaviorSpecificity(pattern: string): number {
-  const segments = pattern.split("/").filter(Boolean);
-  const firstWildcard = segments.findIndex((segment) => segment.includes("*"));
-  const literalDepth = firstWildcard === -1 ? segments.length : firstWildcard;
-  return literalDepth * 1000000 + segments.length * 10000 + pattern.length;
+function countAdditionalBehaviors(distribution: Distribution): number {
+  const behaviors = (
+    distribution as unknown as { additionalBehaviors?: unknown }
+  ).additionalBehaviors;
+  if (Array.isArray(behaviors)) {
+    return behaviors.length;
+  }
+  const wrapped = (behaviors as { array?: unknown } | undefined)?.array;
+  return Array.isArray(wrapped) ? wrapped.length : 0;
 }
 
 /**

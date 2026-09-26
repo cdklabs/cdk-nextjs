@@ -1,10 +1,16 @@
+import appPlayground from "./__fixtures__/app-playground.json";
+import pagesI18n from "./__fixtures__/pages-i18n.json";
+import { BuildCompleteContext, buildAdapterManifest } from "./build-outputs";
 import {
+  AssignRoutesOptions,
   DEFAULT_FUNCTION_GROUP,
   FunctionGroupSpec,
   RouteEntry,
   assignRoutesToGroups,
+  interceptedRoute,
   parseFunctionGroupsEnv,
   pathPatternsFor,
+  routedPatterns,
   validateFunctionGroups,
 } from "./function-groups";
 
@@ -12,11 +18,46 @@ import {
 const routes = (...templates: string[]): RouteEntry[] =>
   templates.map((template) => ({ template, entrypointId: template }));
 
+const BUILD_ID = "abc123";
+
 const assign = (
   groups: FunctionGroupSpec[],
   entries: RouteEntry[],
   basePath = "",
-) => assignRoutesToGroups(groups, entries, { basePath });
+  options: Partial<AssignRoutesOptions> = {},
+) =>
+  assignRoutesToGroups(groups, entries, {
+    basePath,
+    buildId: BUILD_ID,
+    ...options,
+  });
+
+/**
+ * A captured `onBuildComplete` fixture's routes, exactly as `buildAdapterManifest`
+ * hands them to the assignment, plus the rest of what it passes.
+ */
+function fixtureRoutes(fixture: unknown) {
+  const ctx = structuredClone(fixture) as BuildCompleteContext;
+  const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  const { manifest } = buildAdapterManifest(ctx, { buildCwd: ctx.projectDir });
+  warn.mockRestore();
+  const entries: RouteEntry[] = Object.entries(manifest.entrypoints).map(
+    ([template, entrypoint]) => ({
+      template,
+      entrypointId: entrypoint.filePath,
+      type: entrypoint.type,
+    }),
+  );
+  return {
+    entries,
+    options: {
+      basePath: ctx.config.basePath || "",
+      buildId: ctx.buildId,
+      trailingSlash: ctx.config.trailingSlash === true,
+      routing: ctx.routing,
+    } as AssignRoutesOptions,
+  };
+}
 
 describe("validateFunctionGroups", () => {
   it("rejects an empty array rather than treating it as no splitting", () => {
@@ -113,14 +154,13 @@ describe("validateFunctionGroups", () => {
     ).toThrow(/cannot be routed/);
   });
 
-  it("rejects /index, the other name for the root", () => {
-    // A Pages Router home page arrives as `/index` and is registered under `/`
-    // too, backed by one entrypoint. Claiming `/index` moved that entrypoint into
-    // the group while `/` still went to the default behavior's function, which
-    // then answered 500 on the app's most-requested URL.
+  it("accepts /index, which is a real App Router route", () => {
+    // `app/index/page.tsx` is served at `/index`, apart from `/`. Only the
+    // assignment knows which router `/index` came from; it rejects the Pages
+    // Router home page, which is the same file as `/`.
     expect(() =>
       validateFunctionGroups([{ name: "a", routes: ["/index"] }]),
-    ).toThrow(/cannot be routed/);
+    ).not.toThrow();
   });
 
   it.each(["/_next", "/_next/**", "/_next/data/**"])(
@@ -279,13 +319,28 @@ describe("assignRoutesToGroups", () => {
       { name: "api", routes: ["/api/**"] },
       { name: "reports", routes: ["/api/reports/**"] },
     ];
-    const forward = assign(groups, entries);
-    const reversed = assign(groups, [...entries].reverse());
-    expect(forward).toEqual(reversed);
     // `/api/reports/**` is the most specific claim any of the entrypoint's
-    // templates has, so it takes the whole entrypoint.
-    expect(forward.reports).toEqual(["/api/health", "/api/reports/summary"]);
-    expect(forward.api).toEqual([]);
+    // templates has, so it takes the whole entrypoint — and then the edge still
+    // sends `/api/health` to the api group, which lacks the file. That used to
+    // deploy and 500; it is the coverage check's to reject, identically in both
+    // orders.
+    const message =
+      /"\/api\/health" to group "api" \(its pattern "\/api\/\*\*"\)/;
+    expect(() => assign(groups, entries)).toThrow(message);
+    expect(() => assign(groups, [...entries].reverse())).toThrow(message);
+    expect(() => assign(groups, entries)).toThrow(
+      /Add "\/api\/health" to group "reports"'s routes/,
+    );
+    // Which is the fix: the exact pattern beats the api subtree at the edge.
+    const fixed = assign(
+      [
+        groups[0],
+        { name: "reports", routes: ["/api/reports/**", "/api/health"] },
+      ],
+      entries,
+    );
+    expect(fixed.reports).toEqual(["/api/health", "/api/reports/summary"]);
+    expect(fixed.api).toEqual([]);
   });
 
   it("prefixes basePath before matching, since manifest templates carry it", () => {
@@ -304,12 +359,17 @@ describe("assignRoutesToGroups", () => {
     const assigned = assign(
       [{ name: "blog", routes: ["/blog/**"] }],
       [
-        { template: "/blog/[slug]", entrypointId: "pages/blog/[slug]" },
+        {
+          template: "/blog/[slug]",
+          entrypointId: "pages/blog/[slug]",
+          type: "page",
+        },
         {
           template: "/_next/data/abc123/blog/[slug].json",
           entrypointId: "pages/blog/[slug]",
+          type: "page",
         },
-        { template: "/", entrypointId: "pages/index" },
+        { template: "/", entrypointId: "pages/index", type: "page" },
       ],
     );
     expect(assigned.blog).toEqual([
@@ -338,6 +398,402 @@ describe("assignRoutesToGroups", () => {
   });
 });
 
+describe("what the edge routes, checked against what was packaged", () => {
+  describe("Pages Router data URLs (A)", () => {
+    it("keeps a nested page's data URL in its own group", () => {
+      // With `_next/data/*/blog/*`, CloudFront sent the docs group's
+      // `/_next/data/<id>/docs/blog/intro.json` to the blog function.
+      const page = (template: string, file: string): RouteEntry[] => [
+        { template, entrypointId: file, type: "page" },
+        {
+          template: `/_next/data/${BUILD_ID}${template}.json`,
+          entrypointId: file,
+          type: "page",
+        },
+      ];
+      const assigned = assign(
+        [
+          { name: "blog", routes: ["/blog/**"] },
+          { name: "docs", routes: ["/docs/**"] },
+        ],
+        [
+          ...page("/blog/[slug]", "pages/blog/[slug].js"),
+          ...page("/docs/blog/[slug]", "pages/docs/blog/[slug].js"),
+        ],
+      );
+      expect(assigned.docs).toEqual([
+        "/_next/data/abc123/docs/blog/[slug].json",
+        "/docs/blog/[slug]",
+      ]);
+    });
+
+    it("routes the pages-i18n fixture's page and data URLs together", () => {
+      // Splitting refuses i18n, so drop the locale-prefixed copies and keep the
+      // shape the fixture has without them: a dynamic SSG page, an SSR page with
+      // its data output, two API routes.
+      const { entries, options } = fixtureRoutes(pagesI18n);
+      const locale = /^\/(?:_next\/data\/[^/]+\/)?(?:en-US|fr|nl-NL)(?:\/|$)/;
+      const unlocalized = entries.filter(
+        (entry) => !locale.test(entry.template),
+      );
+      const assigned = assignRoutesToGroups(
+        [
+          { name: "blog", routes: ["/blog/**"] },
+          { name: "ssr", routes: ["/ssr"] },
+        ],
+        unlocalized,
+        options,
+      );
+      expect(assigned.blog).toEqual(["/blog/[slug]"]);
+      expect(assigned.ssr).toEqual([
+        `/_next/data/${options.buildId}/ssr.json`,
+        "/ssr",
+      ]);
+    });
+  });
+
+  describe("an optional catch-all's parent (B)", () => {
+    it("routes the parent URL with the subtree that moved the file", () => {
+      const { entries, options } = fixtureRoutes(appPlayground);
+      const groups = [{ name: "params", routes: ["/params/optional/**"] }];
+      const assigned = assignRoutesToGroups(groups, entries, options);
+      expect(assigned.params).toContain("/params/optional/[[...rest]]");
+      // `params/optional/*` does not match `/params/optional`, which the same
+      // file serves: the constructs add the exact behavior from this.
+      expect(
+        routedPatterns(groups[0].routes, assigned.params, options.basePath),
+      ).toEqual(["/params/optional/**", "/params/optional"]);
+    });
+
+    it("points the old exact-pattern workaround at the subtree", () => {
+      const { entries, options } = fixtureRoutes(appPlayground);
+      expect(() =>
+        assignRoutesToGroups(
+          [{ name: "params", routes: ["/params/optional"] }],
+          entries,
+          options,
+        ),
+      ).toThrow(
+        /served by the optional catch-all "\/params\/optional\/\[\[\.\.\.rest\]\]", whose subtree pattern "\/params\/optional\/\*\*" routes "\/params\/optional" as well/,
+      );
+    });
+
+    it("works under a basePath too", () => {
+      const assigned = assign(
+        [{ name: "shop", routes: ["/shop/**"] }],
+        routes("/base/shop/[[...slug]]", "/base"),
+        "/base",
+      );
+      expect(assigned.shop).toEqual(["/base/shop/[[...slug]]"]);
+      expect(routedPatterns(["/shop/**"], assigned.shop, "base")).toEqual([
+        "/shop/**",
+        "/shop",
+      ]);
+    });
+
+    it("routes a Pages Router optional catch-all's parent data URL", () => {
+      // `/_next/data/<id>/shop.json` belongs to the same file, and the exact
+      // `/shop` pattern `routedPatterns` adds carries it.
+      const assigned = assign(
+        [{ name: "shop", routes: ["/shop/**"] }],
+        [
+          {
+            template: "/shop/[[...slug]]",
+            entrypointId: "pages/shop/[[...slug]].js",
+            type: "page",
+          },
+        ],
+      );
+      expect(assigned.shop).toEqual(["/shop/[[...slug]]"]);
+    });
+  });
+
+  describe("one file behind several templates (C)", () => {
+    // `app/[locale]/page.tsx` with root params: `/en` and `/de` are synthesized
+    // from one output, alongside its own `/[locale]` template.
+    const rootParams: RouteEntry[] = [
+      "/[locale]",
+      "/[locale].rsc",
+      "/en",
+      "/en.rsc",
+      "/de",
+      "/de.rsc",
+    ].map((template) => ({
+      template,
+      entrypointId: "app/[locale]/page.js",
+      type: "app-page",
+    }));
+
+    it("rejects a pattern that moves the file for one of its URLs", () => {
+      // Only `en` got a behavior, so `/de` reached the default function, which
+      // no longer had the file.
+      expect(() =>
+        assign([{ name: "intl", routes: ["/en"] }], rootParams),
+      ).toThrow(
+        /"app\/\[locale\]\/page\.js" is packaged into group "intl", but CloudFront would send "\/\[locale\]" to the "default" group, "\/de" to the "default" group/,
+      );
+      // And says the file cannot be grouped at all: `/[locale]` would need `/**`.
+      expect(() =>
+        assign([{ name: "intl", routes: ["/en", "/de"] }], rootParams),
+      ).toThrow(/"\/\[locale\]" cannot be routed to any group/);
+    });
+
+    it("suggests the pattern that covers a static template it left behind", () => {
+      const shared: RouteEntry[] = [
+        { template: "/about", entrypointId: "shared.js" },
+        { template: "/team", entrypointId: "shared.js" },
+      ];
+      expect(() => assign([{ name: "m", routes: ["/about"] }], shared)).toThrow(
+        /Add "\/team" to group "m"'s routes/,
+      );
+      expect(
+        assign([{ name: "m", routes: ["/about", "/team"] }], shared).m,
+      ).toEqual(["/about", "/team"]);
+    });
+
+    it("checks the trailingSlash form, which exact patterns route", () => {
+      const assigned = assign(
+        [{ name: "p", routes: ["/pricing"] }],
+        routes("/pricing"),
+        "",
+        { trailingSlash: true },
+      );
+      expect(assigned.p).toEqual(["/pricing"]);
+    });
+
+    it("rejects a group pattern claiming a data URL of a file left in default", () => {
+      // An App Router `/index` next to a Pages Router home page: the group's
+      // `_next/data/<id>/index.json` behavior is the home page's data URL.
+      expect(() =>
+        assign(
+          [{ name: "idx", routes: ["/index"] }],
+          [
+            { template: "/", entrypointId: "pages/index.js", type: "page" },
+            {
+              template: "/index",
+              entrypointId: "app/index/page.js",
+              type: "app-page",
+            },
+          ],
+        ),
+      ).toThrow(
+        /"pages\/index\.js" is packaged into the "default" group, but CloudFront would send "\/_next\/data\/abc123\/index\.json" to group "idx"/,
+      );
+    });
+  });
+
+  describe("interception routes (D)", () => {
+    const photoApp = (): RouteEntry[] => [
+      { template: "/feed", entrypointId: "app/feed/page.js", type: "app-page" },
+      {
+        template: "/feed/(..)photo/[id]",
+        entrypointId: "app/feed/(..)photo/[id]/page.js",
+        type: "app-page",
+      },
+      {
+        template: "/feed/(..)photo/[id].rsc",
+        entrypointId: "app/feed/(..)photo/[id]/page.js",
+        type: "app-page",
+      },
+      {
+        template: "/photo/[id]",
+        entrypointId: "app/photo/[id]/page.js",
+        type: "app-page",
+      },
+    ];
+
+    it("packages an intercepting file with the URL it intercepts", () => {
+      // The soft navigation requests `/photo/1`, which CloudFront sends to the
+      // default function; Next.js rewrites it there to the intercepting file.
+      const assigned = assign(
+        [{ name: "feed", routes: ["/feed/**"] }],
+        [
+          ...photoApp(),
+          { template: "/feed/[post]", entrypointId: "app/feed/[post]/page.js" },
+        ],
+      );
+      expect(assigned.feed).toEqual(["/feed/[post]"]);
+      expect(assigned[DEFAULT_FUNCTION_GROUP]).toContain(
+        "/feed/(..)photo/[id]",
+      );
+      expect(assigned[DEFAULT_FUNCTION_GROUP]).toContain(
+        "/feed/(..)photo/[id].rsc",
+      );
+    });
+
+    it("follows the intercepted route into its group", () => {
+      const assigned = assign(
+        [{ name: "photos", routes: ["/photo/**"] }],
+        photoApp(),
+      );
+      expect(assigned.photos).toEqual([
+        "/feed/(..)photo/[id]",
+        "/feed/(..)photo/[id].rsc",
+        "/photo/[id]",
+      ]);
+    });
+
+    it("throws when the intercepted URL space is split between groups", () => {
+      expect(() =>
+        assign(
+          [{ name: "one", routes: ["/photo/1"] }],
+          [
+            ...photoApp(),
+            { template: "/photo/1", entrypointId: "app/photo/1/page.js" },
+          ],
+        ),
+      ).toThrow(
+        /interception route "\/feed\/\(\.\.\)photo\/\[id\]".*group "one"'s pattern "\/photo\/1" claims part of it/s,
+      );
+    });
+
+    it.each([
+      ["/feed/(..)photo/[id]", "/photo/[id]"],
+      ["/feed/(.)photo/[id]", "/feed/photo/[id]"],
+      ["/(.)photo/[id]", "/photo/[id]"],
+      ["/a/b/(..)(..)photo", "/photo"],
+      ["/a/b/(...)photo", "/photo"],
+      ["/photo/[id]", undefined],
+    ])("resolves %p to the route it intercepts, %p", (path, expected) => {
+      expect(interceptedRoute(path)).toBe(expected);
+    });
+  });
+
+  describe("next.config rewrites (D)", () => {
+    it("rejects a rewrite whose source and destination land in different groups", () => {
+      // app-playground rewrites `/e2e/rewrite/:path(.*)` to `/e2e/rewrite/echo`.
+      // Grouping only the destination leaves the source on the default
+      // function, which then rewrites to a file it does not have.
+      const { entries, options } = fixtureRoutes(appPlayground);
+      expect(() =>
+        assignRoutesToGroups(
+          [{ name: "echo", routes: ["/e2e/rewrite/echo"] }],
+          entries,
+          options,
+        ),
+      ).toThrow(
+        /rewrite from "\/e2e\/rewrite\/:path\(\.\*\)" to "\/e2e\/rewrite\/echo\?.*" crosses groups: CloudFront sends "\/e2e\/rewrite\/\[path\]" to the "default" group, and Next\.js then serves it with ".*echo\/page\.js", which is packaged into group "echo"/,
+      );
+      // Both ends in one group is fine.
+      expect(
+        assignRoutesToGroups(
+          [{ name: "e2e", routes: ["/e2e/rewrite/**"] }],
+          entries,
+          options,
+        ).e2e,
+      ).toContain("/e2e/rewrite/echo");
+    });
+
+    it("resolves a destination through Next.js's dynamic route rules", () => {
+      const routing = {
+        beforeFiles: [{ source: "/old", destination: "/blog/hello" }],
+        dynamicRoutes: [
+          {
+            sourceRegex: "^/blog/([^/]+?)(?:/)?$",
+            destination: "/blog/[slug]",
+          },
+        ],
+      };
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          routes("/blog/[slug]"),
+          "",
+          {
+            routing,
+          },
+        ),
+      ).toThrow(/CloudFront sends "\/old" to the "default" group/);
+    });
+
+    it("skips an afterFiles source a route already serves, and parameterized destinations", () => {
+      const routing = {
+        // Never applied: `/pricing` is a route, and afterFiles yields to it.
+        afterFiles: [{ source: "/pricing", destination: "/blog/x" }],
+        // Not resolvable at synth.
+        beforeFiles: [{ source: "/b/:slug", destination: "/blog/:slug" }],
+      };
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          routes("/blog/x", "/pricing"),
+          "",
+          { routing },
+        ),
+      ).not.toThrow();
+    });
+
+    it("checks the path an optional parameter leaves", () => {
+      const routing = {
+        beforeFiles: [{ source: "/docs/:path*", destination: "/docs-app" }],
+      };
+      expect(() =>
+        assign(
+          [{ name: "docs", routes: ["/docs/**", "/docs-app"] }],
+          routes("/docs-app", "/docs/[page]"),
+          "",
+          { routing },
+        ),
+      ).toThrow(/CloudFront sends "\/docs" to the "default" group/);
+    });
+  });
+
+  describe("/index (G)", () => {
+    it("groups an App Router /index, a route of its own", () => {
+      const assigned = assign(
+        [{ name: "idx", routes: ["/index"] }],
+        [
+          { template: "/", entrypointId: "app/page.js", type: "app-page" },
+          {
+            template: "/index.rsc",
+            entrypointId: "app/page.js",
+            type: "app-page",
+          },
+          {
+            template: "/index",
+            entrypointId: "app/index/page.js",
+            type: "app-page",
+          },
+        ],
+      );
+      expect(assigned.idx).toEqual(["/index"]);
+    });
+
+    it("rejects the Pages Router home page, which is also /", () => {
+      expect(() =>
+        assign(
+          [{ name: "idx", routes: ["/index"] }],
+          ["/", "/index", `/_next/data/${BUILD_ID}/index.json`].map(
+            (template) => ({
+              template,
+              entrypointId: "pages/index.js",
+              type: "page",
+            }),
+          ),
+        ),
+      ).toThrow(/"\/" cannot be routed to any group.*"\/index": one file/s);
+    });
+  });
+});
+
+describe("routedPatterns", () => {
+  it("adds nothing for a group without an optional catch-all at a subtree's base", () => {
+    expect(
+      routedPatterns(
+        ["/blog/**", "/pricing"],
+        ["/blog/[slug]", "/blog/x/[[...rest]]", "/pricing"],
+        "",
+      ),
+    ).toEqual(["/blog/**", "/pricing"]);
+  });
+
+  it("does not repeat a parent the group already declares", () => {
+    expect(
+      routedPatterns(["/shop/**", "/shop"], ["/shop/[[...slug]]"], ""),
+    ).toEqual(["/shop/**", "/shop"]);
+  });
+});
+
 describe("pathPatternsFor", () => {
   it("drops the leading slash, because the distribution adds basePath itself", () => {
     expect(pathPatternsFor("/pricing", { hasDataRoutes: false })).toEqual([
@@ -351,15 +807,31 @@ describe("pathPatternsFor", () => {
     ).toEqual(["api/reports/*"]);
   });
 
-  it("adds the `_next/data` URL space for Pages Router groups", () => {
-    expect(pathPatternsFor("/blog/**", { hasDataRoutes: true })).toEqual([
+  it("adds the `_next/data` URL space for Pages Router groups, on the literal build ID", () => {
+    // A `*` for the build ID also matches `/`, so `_next/data/*/blog/*` claimed
+    // `/_next/data/<id>/docs/blog/x.json`, a page of another group.
+    const options = { hasDataRoutes: true, buildId: BUILD_ID };
+    expect(pathPatternsFor("/blog/**", options)).toEqual([
       "blog/*",
-      "_next/data/*/blog/*",
+      "_next/data/abc123/blog/*",
     ]);
-    expect(pathPatternsFor("/pricing", { hasDataRoutes: true })).toEqual([
+    expect(pathPatternsFor("/pricing", options)).toEqual([
       "pricing",
-      "_next/data/*/pricing.json",
+      "_next/data/abc123/pricing.json",
     ]);
+  });
+
+  it("refuses to route data URLs without the build ID", () => {
+    expect(() => pathPatternsFor("/blog/**", { hasDataRoutes: true })).toThrow(
+      /needs its build ID/,
+    );
+  });
+
+  it("refuses a build ID a path pattern cannot hold", () => {
+    // `generateBuildId` can return anything.
+    expect(() =>
+      pathPatternsFor("/blog/**", { hasDataRoutes: true, buildId: "v1/2 3" }),
+    ).toThrow(/The build ID "v1\/2 3" contains "\/", " "/);
   });
 
   it("adds the trailing-slash form for a trailingSlash app", async () => {

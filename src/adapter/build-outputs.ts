@@ -16,6 +16,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { NextAdapter } from "next";
 import {
   DEFAULT_FUNCTION_GROUP,
+  ERROR_PAGE_SUFFIXES,
   FUNCTION_GROUPS_ENV_VAR,
   FunctionGroupSpec,
   assertNoI18nSplitting,
@@ -313,8 +314,14 @@ export function buildAdapterManifest(
         Object.entries(entrypoints).map(([template, entrypoint]) => ({
           template,
           entrypointId: entrypoint.filePath,
+          type: entrypoint.type,
         })),
-        { basePath: ctx.config.basePath || "" },
+        {
+          basePath: ctx.config.basePath || "",
+          buildId: ctx.buildId,
+          trailingSlash: ctx.config.trailingSlash === true,
+          routing: ctx.routing,
+        },
       )
     : undefined;
 
@@ -388,14 +395,6 @@ export function buildAdapterManifest(
  * incomplete". The synthesized entrypoint's `filePath` is the owning output's, so
  * that is the reliable key.
  */
-/**
- * The entrypoints the runtime may render any request with, wherever it
- * landed: App Router's `/_not-found`, Pages Router's `/404` and `/500`, and
- * `/_error`. The same pathnames `dispatch.ts` resolves its 404 and 500 targets
- * from, before basePath.
- */
-const ERROR_PAGE_SUFFIXES = ["/_not-found", "/404", "/500", "/_error"];
-
 function collectGroupStagingPlan(
   ctx: BuildCompleteContext,
   invocable: InvocableOutput[],

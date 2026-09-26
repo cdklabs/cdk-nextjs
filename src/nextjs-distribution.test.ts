@@ -3,9 +3,11 @@ import { App, Duration, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
   Function as CloudFrontFunction,
+  Distribution,
   FunctionCode,
   FunctionEventType,
 } from "aws-cdk-lib/aws-cloudfront";
+import { S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import {
   Code,
   Function as LambdaFunction,
@@ -161,27 +163,38 @@ describe("NextjsDistribution function group behaviors", () => {
     expect(pathPatterns(stack).slice(2)).toEqual(["a/b", "a/*"]);
   });
 
-  it("orders data-route patterns by their literal prefix too", () => {
-    // Every `_next/data` pattern starts with the same two literal segments and a
-    // wildcard for the build id, so the part that distinguishes them comes after
-    // a `*`. `_next/data/*/docs/*` would otherwise be ordered by length against
-    // `_next/data/*/pricing.json` and could claim `/docs/x.json` for the wrong
-    // group.
+  it("anchors data-route patterns on the literal build ID", () => {
+    // With a `*` for the build ID, `_next/data/*/blog/*` also matched
+    // `/_next/data/<id>/docs/blog/x.json` — CloudFront's `*` crosses `/` — and
+    // sent another group's data URL to the blog function.
     const { stack, functionGroups, distributionProps } = setup(
-      ["docs", "mkt"],
+      ["blog", "docs"],
       {
-        routesFor: (name) => (name === "docs" ? ["/docs/**"] : ["/pricing"]),
+        routesFor: (name) => (name === "blog" ? ["/blog/**"] : ["/docs/**"]),
       },
     );
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
       functionGroups,
       hasDataRoutes: true,
+      nextBuildId: "abc123",
     });
     const patterns = pathPatterns(stack).slice(2);
-    expect(patterns.indexOf("_next/data/*/docs/*")).toBeLessThan(
-      patterns.indexOf("_next/data/*/pricing.json"),
-    );
+    expect(patterns).toContain("_next/data/abc123/blog/*");
+    expect(patterns).toContain("_next/data/abc123/docs/*");
+    expect(patterns.some((pattern) => pattern.includes("data/*"))).toBe(false);
+  });
+
+  it("requires the build ID to route a split Pages Router app", () => {
+    const { stack, functionGroups, distributionProps } = setup(["blog"]);
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          functionGroups,
+          hasDataRoutes: true,
+        }),
+    ).toThrow(/`nextBuildId` is required/);
   });
 
   it("adds the trailing-slash form of an exact pattern for a trailingSlash app", () => {
@@ -230,8 +243,80 @@ describe("NextjsDistribution function group behaviors", () => {
     // public = 26. Counting only the 3 reported 24 and let the synth through, so
     // the limit arrived as a CloudFront deploy failure.
     expect(
-      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          maxCacheBehaviors: 25,
+        }),
     ).toThrow(/26 CloudFront cache behaviors.*5 used by cdk-nextjs itself/s);
+  });
+
+  it("defaults the budget to CloudFront's quota of 75", () => {
+    // The hard-coded 25 predated the quota's increase to 75.
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: Array.from({ length: 72 }, (_, i) => `file${i}.txt`),
+    });
+    expect(
+      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+    ).not.toThrow();
+    const { stack: over, distributionProps: overProps } = setup([], {
+      publicDirEntries: Array.from({ length: 73 }, (_, i) => `file${i}.txt`),
+    });
+    expect(
+      () => new NextjsDistribution(over, "Distribution", overProps),
+    ).toThrow(
+      /76 CloudFront cache behaviors, over the limit of 75.*set `maxCacheBehaviors`/s,
+    );
+  });
+
+  it("honors a raised maxCacheBehaviors", () => {
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: Array.from({ length: 97 }, (_, i) => `file${i}.txt`),
+    });
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          maxCacheBehaviors: 100,
+        }),
+    ).not.toThrow();
+  });
+
+  it("rejects a maxCacheBehaviors that is not a positive integer", () => {
+    const { stack, distributionProps } = setup([]);
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          maxCacheBehaviors: 0,
+        }),
+    ).toThrow(/must be a positive integer/);
+  });
+
+  it("counts the behaviors a supplied distribution already has", () => {
+    const { stack, distributionProps } = setup([], {
+      publicDirEntries: Array.from({ length: 20 }, (_, i) => `file${i}.txt`),
+    });
+    const origin = S3BucketOrigin.withOriginAccessControl(
+      distributionProps.assetsBucket,
+    );
+    const distribution = new Distribution(stack, "Existing", {
+      defaultBehavior: { origin },
+      additionalBehaviors: {
+        "legacy/*": { origin },
+        "old/*": { origin },
+        status: { origin },
+      },
+    });
+    // 3 fixed + 20 public + 3 already there = 26.
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          distribution,
+          maxCacheBehaviors: 25,
+        }),
+    ).toThrow(/26 CloudFront cache behaviors.*3 already on the distribution/s);
   });
 
   it("does not count basePath behaviors for a basePath of /", () => {
@@ -242,7 +327,11 @@ describe("NextjsDistribution function group behaviors", () => {
       publicDirEntries: Array.from({ length: 22 }, (_, i) => `file${i}.txt`),
     });
     expect(
-      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          maxCacheBehaviors: 25,
+        }),
     ).not.toThrow();
   });
 
@@ -254,10 +343,11 @@ describe("NextjsDistribution function group behaviors", () => {
       ...distributionProps,
       functionGroups,
       hasDataRoutes: true,
+      nextBuildId: "abc123",
     });
     expect(pathPatterns(stack).slice(2).sort()).toEqual([
-      "_next/data/*/blog/*",
-      "_next/data/*/pricing.json",
+      "_next/data/abc123/blog/*",
+      "_next/data/abc123/pricing.json",
       "blog/*",
       "pricing",
     ]);
@@ -316,10 +406,85 @@ describe("NextjsDistribution function group behaviors", () => {
         new NextjsDistribution(stack, "Distribution", {
           ...distributionProps,
           functionGroups,
+          maxCacheBehaviors: 25,
         }),
     ).toThrow(
       /26 CloudFront cache behaviors.*1 for `functionGroups` patterns/s,
     );
+  });
+
+  it("rejects a group pattern that duplicates a public/ directory's", () => {
+    // `public/docs/` and `/docs/**` both deploy as `docs/*`: the synth
+    // succeeded and CloudFront rejected the deploy.
+    const { stack, functionGroups, distributionProps } = setup(["docs"]);
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          functionGroups,
+          publicDirEntries: [{ name: "docs", isDirectory: true }],
+        }),
+    ).toThrow(
+      /pattern "\/docs\/\*\*" \(group "docs"\) deploys as the path pattern "docs\/\*", which a top-level public\/ entry already uses/,
+    );
+  });
+
+  it("rejects a group pattern a public/ directory's behavior would shadow", () => {
+    // `docs/*` is added first, so `docs/guide/*` never matches.
+    const { stack, functionGroups, distributionProps } = setup(["guide"], {
+      routesFor: () => ["/docs/guide/**"],
+    });
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          functionGroups,
+          publicDirEntries: [{ name: "docs", isDirectory: true }],
+        }),
+    ).toThrow(/public\/ entry behind "docs\/\*" is matched first/);
+  });
+
+  it("rejects an exact group pattern equal to a public/ file's, basePath included", () => {
+    const { stack, functionGroups, distributionProps } = setup(["mkt"], {
+      routesFor: () => ["/robots.txt"],
+      basePath: "/base",
+    });
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          functionGroups,
+          publicDirEntries: [{ name: "robots.txt", isDirectory: false }],
+        }),
+    ).toThrow(/deploys as the path pattern "\/base\/robots\.txt"/);
+  });
+
+  it("allows a group pattern beside a public/ entry it does not overlap", () => {
+    // `/docs` exact is not under `docs/*`, and `docs/*` does not match `/docs`.
+    const { stack, functionGroups, distributionProps } = setup(["docs"], {
+      routesFor: () => ["/docs"],
+    });
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+      publicDirEntries: [{ name: "docs", isDirectory: true }],
+    });
+    expect(pathPatterns(stack)).toEqual(
+      expect.arrayContaining(["docs/*", "docs"]),
+    );
+  });
+
+  it("routes an optional catch-all's parent when the group lists it", () => {
+    // What the root constructs pass for `/shop/**` over `shop/[[...slug]]`
+    // (see `routedPatterns`): `shop/*` alone does not match `/shop`.
+    const { stack, functionGroups, distributionProps } = setup(["shop"], {
+      routesFor: () => ["/shop/**", "/shop"],
+    });
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+    });
+    expect(pathPatterns(stack).slice(2).sort()).toEqual(["shop", "shop/*"]);
   });
 
   it("serves bundles under a path-style assetPrefix, rewriting the prefix away", () => {
@@ -468,6 +633,7 @@ describe("NextjsDistribution function group behaviors", () => {
         new NextjsDistribution(stack, "Distribution", {
           ...distributionProps,
           assetPrefix: "/cdn",
+          maxCacheBehaviors: 25,
         }),
     ).toThrow(/26 CloudFront cache behaviors.*4 used by cdk-nextjs itself/s);
   });
@@ -561,7 +727,11 @@ describe("NextjsDistribution function group behaviors", () => {
     });
     // 3 fixed + 22 = 25, exactly the limit; the skipped entry adds nothing.
     expect(
-      () => new NextjsDistribution(stack, "Distribution", distributionProps),
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          maxCacheBehaviors: 25,
+        }),
     ).not.toThrow();
   });
 

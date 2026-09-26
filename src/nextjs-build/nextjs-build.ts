@@ -130,6 +130,13 @@ export class NextjsBuild extends Construct {
    */
   buildId: string;
   /**
+   * The build ID Next.js itself uses, `.next/BUILD_ID` without the
+   * `deploymentId` suffix {@link buildId} carries: the `<buildId>` segment of
+   * every Pages Router `/_next/data/<buildId>/…json` URL, so it is what those
+   * URLs are routed on when `functionGroups` splits the app.
+   */
+  nextBuildId: string;
+  /**
    * Absolute path to the init cache directory
    * @example "/Users/john/myapp/.next/cdk-nextjs-init-cache"
    */
@@ -267,6 +274,7 @@ export class NextjsBuild extends Construct {
     }
 
     this.buildId = this.getBuildId();
+    this.nextBuildId = manifest.buildId;
     this.publicDirEntries = this.getLocalPublicDirEntries();
     this.nextConfigBasePath = readNextConfigBasePath(this.dotNextPath);
     this.nextConfigAssetPrefix = readNextConfigAssetPrefix(this.dotNextPath);
@@ -663,9 +671,8 @@ export class NextjsBuild extends Construct {
    * deployment, one partition" invariant that ID exists to carry.
    *
    * Nothing routes on this value — the `/_next/data/<buildId>/…` URL space is
-   * matched with a path parameter, and the app's own client bundles carry
-   * whatever `BUILD_ID` next.js gave them — so it is free to be longer than
-   * next.js's own.
+   * routed on {@link nextBuildId}, which is what the app's own client bundles
+   * carry — so it is free to be longer than next.js's own.
    */
   private getBuildId(): string {
     const buildIdPath = join(this.dotNextPath, "BUILD_ID");

@@ -264,7 +264,54 @@ both, as the example above does: `["/admin", "/admin/**"]`. Where two groups
 could both match, the longest pattern wins, so `/api/**` and `/api/reports/**`
 can coexist in different groups. Dynamic segments (`/blog/[slug]`), route group
 segments (`/(marketing)/about`), `/`, and `/**` are rejected at synth —
-CloudFront matches literal path prefixes and cannot express them.
+CloudFront matches literal path prefixes and cannot express them. `/index` is
+accepted for an App Router `app/index/page.tsx`, but not for a Pages Router home
+page, which is the same file as `/`.
+
+**What is routed for you.** Patterns decide which _files_ a group packages; the
+edge then has to send every URL those files serve to that group. cdk-nextjs
+derives these without extra patterns:
+
+- A Pages Router page's data URL, `/_next/data/<buildId>/<page>.json`. The
+  behavior carries the literal build ID, so it changes on every deploy; a
+  client still on the previous build falls through to the `default` function,
+  which answers 404, and the Next.js client reloads the page.
+- The `trailingSlash` form of an exact pattern (`/pricing/`). API Gateway cannot
+  express it; `NextjsRegionalFunctions` warns instead.
+- The parent of an optional catch-all. `/shop/**` moving
+  `app/shop/[[...slug]]/page.tsx` also routes `/shop`, which the same file
+  serves. Do not add `/shop` yourself: it matches no route and is rejected.
+- An [interception route](https://nextjs.org/docs/app/api-reference/file-conventions/intercepting-routes)
+  is packaged with the group that owns the URL it intercepts, not by its own
+  path: `app/feed/(..)photo/[id]` follows `/photo/[id]`, because a soft
+  navigation requests `/photo/1` and Next.js rewrites it in whichever function
+  receives it.
+
+**What synth rejects.** After assigning routes, cdk-nextjs replays the
+CloudFront behaviors over every URL each file serves and fails when one would
+reach a function without its file, naming the file, the URL and the pattern to
+add. That covers:
+
+- A file behind several templates that a pattern only partly covers — root
+  params (`app/[locale]/page.tsx` prerendered as `/en` and `/de`) grouped with
+  `/en` alone. A dynamic first segment can never be routed, so such a file stays
+  in `default`.
+- An intercepted URL space split between groups (`/photo/[id]` in one,
+  `/photo/1` in another), since the intercepting file cannot be in both.
+- A `next.config` rewrite whose source reaches one group and whose destination
+  file is in another: rewrites run inside the function that received the
+  request. Only rewrites with a literal destination are checked.
+- A group pattern that duplicates a top-level `public/` entry's behavior
+  (`public/docs/` and `/docs/**`), or sits under one (`/docs/guide/**`), which
+  would send the group's routes to S3.
+
+Not checked, because it is only known at request time: **a middleware
+`NextResponse.rewrite()`** to a route in another group reaches the function that
+received the original URL, which answers 500 for a file it lacks. Keep a
+middleware rewrite's source and destination in the same group. The same goes
+for a `next.config` rewrite whose destination is built from its parameters
+(`/b/:slug` → `/blog/:slug`), and for a dynamic segment of a `default` route
+that overlaps a group's literal path (`/[section]/intro` against `/docs/**`).
 
 **What splitting does and does not save.** Every function ships the same `next`
 runtime closure, so splitting only moves route-_local_ code and its dependencies.
@@ -278,9 +325,10 @@ Notes:
 - A pattern that matches no route in the build is a synth error, not a silent
   no-op — it is almost always a typo.
 - Cannot be combined with `i18n`: locale-prefixed routes would need one
-  CloudFront behavior per locale per pattern, against a budget of 25.
-- Group patterns count against the same 25-behavior CloudFront limit as your
-  `public/` entries (see [Limitations](#limitations)).
+  CloudFront behavior per locale per pattern.
+- Group patterns (and the routes derived from them above) count against the
+  same CloudFront behavior budget as your `public/` entries (see
+  [Limitations](#limitations)).
 - Per-group `overrides` let you size each function independently:
   `{ name: "reports", routes: [...], overrides: { functionProps: { memorySize: 2048 } } }`.
 
@@ -471,12 +519,12 @@ Note: CloudFront distributions take several minutes to create/update, so this ar
 
 ## Limitations
 
-- If using `NextjsGlobalFunctions` or `NextjsGlobalContainers` (which use CloudFront), the number of top level files/directories cannot exceed 25, the max number of behaviors a CloudFront Distribution supports. We recommend you put all of your public assets into one top level directory (i.e. public/static) so you don't reach this limit. See [CloudFront Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) for more information.
+- If using `NextjsGlobalFunctions` or `NextjsGlobalContainers` (which use CloudFront), each top level file/directory in `public/` takes a CloudFront cache behavior, and a distribution's default quota is 75 behaviors (cdk-nextjs uses 3 to 6 itself, and counts any a distribution you supply already has). We recommend you put all of your public assets into one top level directory (i.e. public/static) so you don't reach this limit. If you raise the quota for your account, set `maxCacheBehaviors` on the distribution props (`overrides.nextjsGlobalFunctions.nextjsDistributionProps`, or the Containers equivalent) to match. See [CloudFront Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) for more information.
 - If using `NextjsGlobalFunctions` or `NextjsGlobalContainers`, on-demand revalidation ([revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath), [revalidateTag](https://nextjs.org/docs/app/api-reference/functions/revalidateTag)) creates the CloudFront invalidations for you, but [invalidations](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html) are eventually consistent: until one completes (usually seconds, occasionally minutes), some edge locations can still serve the previous copy.
 - If using `NextjsGlobalFunctions`, a client-supplied `Authorization` header does not reach your app: CloudFront signs each request to the Lambda Function URL with SigV4, which uses that header. Send credentials under a different name (e.g. `x-authorization`) and read that header in your app. cdk-nextjs does not rename it for you — it no longer uses [AWS Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter), so `AWS_LWA_AUTHORIZATION_SOURCE` no longer applies.
 - If using `NextjsGlobalFunctions`, a `POST` or `PUT` with a request body must carry an `x-amz-content-sha256` header holding the hex SHA-256 of that body. This is [AWS behavior](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html), not a cdk-nextjs choice: CloudFront signs the origin request to the Lambda Function URL with SigV4 but does not hash the body, and Lambda rejects an unsigned payload with `403 InvalidSignatureException`. Requests from your own pages are handled for you — cdk-nextjs injects a `fetch`/`XMLHttpRequest` wrapper into the client bundle that adds the header, so server actions, route handlers and `fetch` from the browser all work untouched. **Anything that is not that browser bundle has to add the header itself**: `curl`, a mobile app, a webhook provider, another service calling your API routes. Server-to-server callers can compute it with the AWS SDK's `Sha256`, or with `crypto.createHash("sha256").update(body).digest("hex")`. The other three deployment types are unaffected.
 - If using `NextjsGlobalFunctions`, a `HEAD` request is answered with `content-length: 0`, whatever length your handler declares. This is Lambda Function URL behavior: the same runtime's declared length reaches the client through API Gateway (`NextjsRegionalFunctions`) and from an ALB, with or without CloudFront in front (the two Containers types).
-- Group patterns declared via [`functionGroups`](#splitting-a-large-app-across-functions) also count against the 25-behavior CloudFront limit above.
+- Group patterns declared via [`functionGroups`](#splitting-a-large-app-across-functions) also count against the CloudFront behavior limit above.
 - If using `NextjsRegionalFunctions` without a custom domain, API Gateway REST APIs require a [stage name](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-stages.html) (default: `/prod`) to be specified. This causes links to pages and static assets to break because they're not prefixed with the stage name. You can work around this issue by specifying [basePath](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) in next.config.js as your stage name — leave the construct's `basePath` prop unset when you do, since API Gateway strips the stage before matching resources. API Gateway strips the stage from the path it passes to Lambda; cdk-nextjs puts it back for an app whose `basePath` starts with it, reading the stage off each request, so no middleware is needed and a renamed stage needs no configuration. Mapping a custom domain at the root avoids all of this — see [examples/regional-functions/README.md](./examples/regional-functions/README.md#with-a-custom-domain-no-stage-workarounds).
 
 ## Additional Security Recommendations

@@ -426,6 +426,7 @@ export class NextjsApi extends Construct {
       });
       for (const route of group.routes) {
         this.assertRoutable(route, group.name);
+        this.assertNoPublicCollision(route, group.name);
         for (const path of this.resourcePathsFor(route)) {
           const resource = this.resourceFor(path);
           resource.addMethod("ANY", integration);
@@ -455,6 +456,40 @@ export class NextjsApi extends Construct {
         "cannot hold: only [a-zA-Z0-9:._-$] are allowed. Route that path from " +
         "a pattern higher up the tree (e.g. its parent directory with `/**`), " +
         "or use NextjsGlobalFunctions, whose CloudFront behaviors allow it.",
+    );
+  }
+
+  /**
+   * Refuse a group route that shares a resource with a `public/` entry.
+   *
+   * A public directory `docs` is `docs/{proxy+}` with a `GET` to S3. `/docs/**`
+   * adds `ANY` to that same resource, and API Gateway prefers the `GET`, so
+   * every page load under the group went to S3; `/docs/guide/**` is a more
+   * specific resource instead, and takes `/docs/guide/…` away from the public
+   * files. A public file `pricing` and an exact `/pricing` are the same
+   * resource the same way. `NextjsDistribution` rejects the CloudFront
+   * equivalents.
+   */
+  private assertNoPublicCollision(route: string, groupName: string) {
+    const isSubtree = route.endsWith("/**");
+    const segments = (isSubtree ? route.slice(0, -3) : route)
+      .split("/")
+      .filter(Boolean);
+    const entry = this.props.publicDirEntries.find((it) =>
+      it.isDirectory
+        ? it.name === segments[0] && (isSubtree || segments.length > 1)
+        : !isSubtree && segments.length === 1 && it.name === segments[0],
+    );
+    if (!entry) {
+      return;
+    }
+    throw new Error(
+      `${LOG_PREFIX} functionGroups pattern "${route}" (group "${groupName}") ` +
+        `overlaps the top-level public/ ${entry.isDirectory ? "directory" : "file"} ` +
+        `"${entry.name}", which API Gateway serves from S3 on the same ` +
+        `resource path, so one of the two would never be reached. Move those ` +
+        `public/ files under a directory no route uses, or group a different ` +
+        `path.`,
     );
   }
 
@@ -513,6 +548,11 @@ export class NextjsApi extends Construct {
     if (this.props.hasDataRoutes) {
       // `<buildId>` changes every build, so it is a path parameter rather than a
       // literal — the integration ignores it, the runtime reads it off the URL.
+      // Unlike CloudFront's `*`, which `NextjsDistribution` had to replace with
+      // the literal ID, a path parameter is exactly one segment, so
+      // `/_next/data/{buildId}/blog/{proxy+}` cannot capture another group's
+      // `/_next/data/<id>/docs/blog/…`. A request for an old build ID reaches
+      // the group, which 404s it just as the default function would.
       const dataPrefix = ["_next", "data", "{buildId}"];
       paths.push(
         isSubtree
