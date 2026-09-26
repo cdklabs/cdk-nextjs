@@ -23,6 +23,15 @@ import type { ResponseSink } from "./http/sink";
 const PORT = Number(process.env.PORT ?? 3000);
 /** ECS tasks must bind every interface to be reachable by the ALB. */
 const HOSTNAME = process.env.HOSTNAME ?? "0.0.0.0";
+/**
+ * Longer than the ALB's idle timeout (60 s by default). With Node's default of
+ * 5 s, the server closes keep-alive connections the ALB still considers open;
+ * the ALB answers the next request on one with a 502, and CloudFront caches
+ * that 502 for its error caching TTL, failing every request for the path until
+ * it expires. An ALB with a longer idle timeout needs this raised to match.
+ * https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html#connection-idle-timeout
+ */
+const KEEP_ALIVE_TIMEOUT_MS = 65_000;
 
 /** Methods RFC 9110 allows a body on, and only when one is actually framed. */
 function hasRequestBody(req: IncomingMessage): boolean {
@@ -97,6 +106,10 @@ async function main(): Promise<void> {
       .finally(() => inFlight.delete(handled));
     inFlight.add(handled);
   });
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+  // must exceed keepAliveTimeout, or Node can drop a connection that just
+  // started sending a request's headers
+  server.headersTimeout = KEEP_ALIVE_TIMEOUT_MS + 1_000;
 
   // ECS sends SIGTERM and waits `stopTimeout` before SIGKILL. Without this the
   // process exits immediately and every in-flight response is truncated during
