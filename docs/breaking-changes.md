@@ -174,6 +174,37 @@ routes, so an app too large for Lambda's 250 MB unzipped limit can still deploy.
 Opt-in: omit it and you get one function, exactly as before. See
 [README](../README.md#splitting-a-large-app-across-functions).
 
+Splitting is checked when `next build` runs: every URL a grouped file serves
+must reach that file's group at the edge, or the build fails naming the URL and
+the pattern to add. That rejects, among others, a pattern that claims only some
+of the URLs one file serves (`/en` for an `app/[locale]/page.tsx` that also
+serves `/de`), a static rewrite whose source and destination land in different
+groups, and a group pattern that duplicates or is shadowed by a `public/`
+behavior. An optional catch-all's parent (`/blog` for `/blog/[[...slug]]`) is
+routed with `/blog/**` automatically, and listing `/blog` as well is now an
+error. Intercepting routes (`(..)photo`) are packaged with the group that owns
+the URL they intercept. Rewrites made by middleware are not checked.
+
+With groups and Pages Router data routes, the `_next/data` behaviors name the
+literal Next.js build ID, so they change on every deploy unless a
+`deploymentId` pins it.
+
+### Behavior change: the cache-behavior limit is 75 and configurable
+
+`NextjsDistribution` used to reject a build needing more than 25 cache behaviors
+(`public/` entries and, now, group patterns). The limit is CloudFront's default
+quota of 75, set with the new `maxCacheBehaviors` prop if your account's quota
+was raised. Behaviors already on a distribution you pass in, or add through
+`overrides.nextjsDistribution.distributionProps`, now count against it.
+
+### Behavior change: a missing `_next/static` file is a plain-text 404
+
+A request for a `/_next/static/` file that doesn't exist - typically a client
+holding chunk hashes from the previous deploy - and a request for a missing
+image, script, font or style (by `Sec-Fetch-Dest`) now get a plain-text
+`Not Found` with `Cache-Control: no-store`, as `next start` answers them, instead
+of rendering your `not-found` page.
+
 ### Performance compared with 0.6.2
 
 Measured with the [load tests](../examples/load-tests) against
