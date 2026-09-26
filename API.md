@@ -3068,7 +3068,9 @@ app:
   execute-api endpoint an app `basePath` that doesn't start with the stage
   warns, since its links will miss the stage. If you set this, the app's
   `basePath` must end with it. A domain attached later with
-  `addDomainName()` is not seen at synth; set this explicitly then.
+  `addDomainName()` is not seen at synth; set this explicitly then — to
+  `"/"` when that domain's base path mapping strips your app's whole
+  `basePath`, which mounts every resource at the root.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -3305,7 +3307,9 @@ app:
   execute-api endpoint an app `basePath` that doesn't start with the stage
   warns, since its links will miss the stage. If you set this, the app's
   `basePath` must end with it. A domain attached later with
-  `addDomainName()` is not seen at synth; set this explicitly then.
+  `addDomainName()` is not seen at synth; set this explicitly then — to
+  `"/"` when that domain's base path mapping strips your app's whole
+  `basePath`, which mounts every resource at the root.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -5337,7 +5341,9 @@ app:
   execute-api endpoint an app `basePath` that doesn't start with the stage
   warns, since its links will miss the stage. If you set this, the app's
   `basePath` must end with it. A domain attached later with
-  `addDomainName()` is not seen at synth; set this explicitly then.
+  `addDomainName()` is not seen at synth; set this explicitly then — to
+  `"/"` when that domain's base path mapping strips your app's whole
+  `basePath`, which mounts every resource at the root.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -5787,7 +5793,9 @@ app:
   execute-api endpoint an app `basePath` that doesn't start with the stage
   warns, since its links will miss the stage. If you set this, the app's
   `basePath` must end with it. A domain attached later with
-  `addDomainName()` is not seen at synth; set this explicitly then.
+  `addDomainName()` is not seen at synth; set this explicitly then — to
+  `"/"` when that domain's base path mapping strips your app's whole
+  `basePath`, which mounts every resource at the root.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -6348,7 +6356,9 @@ app:
   execute-api endpoint an app `basePath` that doesn't start with the stage
   warns, since its links will miss the stage. If you set this, the app's
   `basePath` must end with it. A domain attached later with
-  `addDomainName()` is not seen at synth; set this explicitly then.
+  `addDomainName()` is not seen at synth; set this explicitly then — to
+  `"/"` when that domain's base path mapping strips your app's whole
+  `basePath`, which mounts every resource at the root.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
@@ -6782,7 +6792,9 @@ app:
   execute-api endpoint an app `basePath` that doesn't start with the stage
   warns, since its links will miss the stage. If you set this, the app's
   `basePath` must end with it. A domain attached later with
-  `addDomainName()` is not seen at synth; set this explicitly then.
+  `addDomainName()` is not seen at synth; set this explicitly then — to
+  `"/"` when that domain's base path mapping strips your app's whole
+  `basePath`, which mounts every resource at the root.
 - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
   every path to the container, which serves its own static assets, so this
   is unconstrained.
