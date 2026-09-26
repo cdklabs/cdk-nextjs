@@ -13,12 +13,8 @@ import { join } from "node:path";
 import { S3Client } from "@aws-sdk/client-s3";
 import type { NextConfigComplete } from "next/dist/server/config-shared.js";
 import type { ShimIncomingMessage } from "./http/request";
-import { ShimServerResponse } from "./http/response";
-import {
-  fetchFromS3,
-  getFileNameWithExtension,
-  resolveErrorResponse,
-} from "./image-utils";
+import { asServerResponse, ShimServerResponse } from "./http/response";
+import { fetchFromS3, resolveErrorResponse } from "./image-utils";
 import { AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
 
@@ -72,6 +68,7 @@ export class RuntimeImageOptimizer {
       ImageOptimizerCache,
       fetchExternalImage,
       imageOptimizer,
+      sendResponse,
     } = next.optimizer;
 
     try {
@@ -135,38 +132,32 @@ export class RuntimeImageOptimizer {
         );
       }
 
-      res.setHeader(
-        "Cache-Control",
-        `public, max-age=${maxAge}, must-revalidate`,
-      );
-      res.setHeader("ETag", etag);
-
-      if (req.headers["if-none-match"] === etag) {
-        res.statusCode = 304;
-        res.end();
-        return;
-      }
-
-      const fileName = getFileNameWithExtension(
-        href,
-        contentType,
-        next.serveStatic.getExtension,
-      );
+      // Next's own response writer, rather than a restatement of it, so the
+      // headers `next start` sends come with it: the year-long `immutable` for
+      // a `/_next/static/media` src, `If-None-Match` as `fresh` reads it (weak
+      // and listed tags, `Cache-Control: no-cache`), a `Content-Disposition`
+      // that RFC 5987-encodes a filename `writeHead` would reject as
+      // non-latin1, `Content-Length`, and no body for HEAD. The restated
+      // version had drifted on every one of those.
+      //
+      // `MISS` because there is no image cache here to hit: every request that
+      // reaches the origin is optimized afresh, and CloudFront is the cache.
       res.statusCode = 200;
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Vary", "Accept");
-      res.setHeader(
-        "Content-Disposition",
-        `${imagesConfig.contentDispositionType}; ` +
-          `filename="${fileName.replace(/"/g, "")}"`,
+      sendResponse(
+        req as unknown as Parameters<typeof sendResponse>[0],
+        asServerResponse(res),
+        href,
+        // `null` for a type `mime` doesn't know, which `sendResponse` handles
+        // (no `Content-Type`, `image.bin`); its signature just doesn't say so.
+        next.serveStatic.getExtension(contentType) ?? "",
+        buffer,
+        etag,
+        params.isStatic,
+        "MISS",
+        imagesConfig,
+        maxAge,
+        false,
       );
-      if (imagesConfig.contentSecurityPolicy) {
-        res.setHeader(
-          "Content-Security-Policy",
-          imagesConfig.contentSecurityPolicy,
-        );
-      }
-      res.end(buffer);
     } catch (error) {
       const { statusCode, message } = resolveErrorResponse(error, ImageError);
       if (statusCode >= 500) {

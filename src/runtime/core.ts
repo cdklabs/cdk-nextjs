@@ -184,7 +184,7 @@ export class NextjsRuntime {
         // handlers wrap nothing — the same throw is an invocation error and a
         // 502.
         const url = absoluteUrl(request);
-        await this.route(req, res, url, body.forDispatch, waitUntil, request);
+        await this.route(req, res, url, body, waitUntil, request);
       }
     } catch (error) {
       await this.sendError(req, res, waitUntil, error);
@@ -212,7 +212,7 @@ export class NextjsRuntime {
     req: ShimIncomingMessage,
     res: ShimServerResponse,
     url: URL,
-    requestBody: ReadableStream,
+    body: SplitBody,
     waitUntil: (promise: Promise<unknown>) => void,
     request: RuntimeRequest,
   ): Promise<void> {
@@ -237,8 +237,9 @@ export class NextjsRuntime {
       method: req.method ?? "GET",
       url,
       headers: new Headers(toWebHeaders(req.headers)),
-      body: requestBody,
+      body: body.forDispatch,
     });
+    body.releaseUnread(result.kind === "middleware-responded");
 
     applyHeaders(res, result.responseHeaders);
     if (result.status !== undefined) {
@@ -366,21 +367,17 @@ export class NextjsRuntime {
         );
         if (!served) {
           // The routing rule that matched a build asset already set its
-          // year-long `immutable` Cache-Control, and a 404 under it gets cached
-          // at the edge and in browsers for that long — a chunk that shows up on
-          // the next deploy stays missing. `next start` answers this no-store.
-          // Pinned, because the `/_not-found` that renders the body sends its
-          // own year-long `s-maxage` when it is prerendered.
-          res.pinHeader("Cache-Control", NO_STORE);
-          // As the `not-found` branch renders it: with the request headers
-          // middleware set — a CSP nonce, say — and as the path asked for.
-          req.headers = toIncomingHttpHeaders(result.requestHeaders);
-          await this.sendNotFound(
+          // year-long `immutable` Cache-Control, which `sendUnmatched`
+          // replaces: under it the 404 would be cached at the edge and in
+          // browsers for that long, and a chunk that shows up on the next
+          // deploy would stay missing.
+          await this.sendUnmatched(
             req,
             res,
             waitUntil,
+            result,
             dispatcher.notFound,
-            `${result.pathname}${url.search}`,
+            url,
           );
         }
         return;
@@ -408,28 +405,76 @@ export class NextjsRuntime {
         return;
 
       case "not-found":
-        req.headers = toIncomingHttpHeaders(result.requestHeaders);
-        // Rendered as the path that was asked for, not as `/_not-found`: the
-        // App Router serializes the canonical URL into the RSC payload, so a
-        // client hydrated off a `/_not-found` payload reports the wrong
-        // `usePathname()` and pushes the wrong history entry. `next start`
-        // renders the not-found module against the original URL too.
-        //
-        // No-store, as `next start` answers an unmatched path. A prerendered
-        // `/_not-found` would otherwise send its cache entry's year-long
-        // `s-maxage`, and the CDN would keep the 404 past the deploy that adds
-        // the route. `render404` is not this path: a `notFound()` from an ISR
-        // page is cacheable for that page's revalidate period.
-        res.pinHeader("Cache-Control", NO_STORE);
-        await this.sendNotFound(
+        await this.sendUnmatched(
           req,
           res,
           waitUntil,
+          result,
           result.notFound,
-          `${result.pathname}${url.search}`,
+          url,
         );
         return;
     }
+  }
+
+  /**
+   * `next start`'s answer to a path nothing serves (`router-server.js`, the
+   * "404 case"), for both ways of getting here: dispatch matched nothing, or it
+   * matched a build asset that is not in the package.
+   *
+   * No-store, always. A prerendered `/_not-found` would otherwise send its
+   * cache entry's year-long `s-maxage`, and the CDN would keep the 404 past the
+   * deploy that adds the route. Set rather than forced: Next's page handlers
+   * only write a `Cache-Control` when none is set (`sendRenderResult`,
+   * `pages-handler.js`), which is exactly how `next start`'s own no-store here
+   * survives the render. `render404` is not this path: a `notFound()` from an
+   * ISR page is cacheable for that page's revalidate period.
+   *
+   * A missing `_next/static` file, and a GET or HEAD whose `Sec-Fetch-Dest`
+   * says it cannot display HTML (an `<img>`, a script, a font), get a
+   * plain-text `Not Found` instead of the rendered page — nothing would show
+   * it, and rendering it is the expensive part.
+   *
+   * Everything else renders the app's 404 as the path that was asked for, not
+   * as `/_not-found`: the App Router serializes the canonical URL into the RSC
+   * payload, so a client hydrated off a `/_not-found` payload reports the wrong
+   * `usePathname()` and pushes the wrong history entry. It renders with the
+   * request headers middleware set, too — a CSP nonce, say.
+   */
+  private async sendUnmatched(
+    req: ShimIncomingMessage,
+    res: ShimServerResponse,
+    waitUntil: (promise: Promise<unknown>) => void,
+    result: { readonly pathname: string; readonly requestHeaders: Headers },
+    target: NotFoundTarget,
+    url: URL,
+  ): Promise<void> {
+    res.setHeader("Cache-Control", NO_STORE);
+    const { basePath, assetPrefix } = this.options.manifest.config;
+    const pathname = withoutPathPrefix(
+      withoutPathPrefix(result.pathname, basePath),
+      assetPrefix,
+    );
+    if (
+      pathname.startsWith("/_next/static/") ||
+      ((req.method === "GET" || req.method === "HEAD") &&
+        NON_HTML_SEC_FETCH_DESTS.has(
+          first(req.headers["sec-fetch-dest"]) ?? "",
+        ))
+    ) {
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.end("Not Found");
+      return;
+    }
+    req.headers = toIncomingHttpHeaders(result.requestHeaders);
+    await this.sendNotFound(
+      req,
+      res,
+      waitUntil,
+      target,
+      `${result.pathname}${url.search}`,
+    );
   }
 
   /**
@@ -630,6 +675,45 @@ export class NextjsRuntime {
  */
 const NO_STORE = "private, no-cache, no-store, max-age=0, must-revalidate";
 
+/**
+ * `Sec-Fetch-Dest` values that can never display an HTML response, from
+ * `next/dist/server/lib/is-non-html-sec-fetch-dest.js`. Restated rather than
+ * required, because that module is recent and the app's `next` may predate it:
+ * a failed require here would turn every 404 into a 500. Excludes `document`,
+ * `iframe` and the like, and `empty` — `fetch()`, which is how RSC requests go.
+ */
+const NON_HTML_SEC_FETCH_DESTS: ReadonlySet<string> = new Set([
+  "audio",
+  "audioworklet",
+  "font",
+  "image",
+  "json",
+  "manifest",
+  "paintworklet",
+  "report",
+  "script",
+  "serviceworker",
+  "sharedworker",
+  "style",
+  "track",
+  "video",
+  "webidentity",
+  "worker",
+  "xslt",
+]);
+
+/**
+ * `removePathPrefix` (`next/dist/shared/lib/router/utils/remove-path-prefix.js`):
+ * strips `prefix` on a path boundary only. An absolute-URL `assetPrefix` never
+ * matches a pathname, so it is a no-op there, as it is in Next.
+ */
+function withoutPathPrefix(pathname: string, prefix: string): string {
+  if (!prefix || !(pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return pathname;
+  }
+  return pathname.slice(prefix.length) || "/";
+}
+
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -792,30 +876,73 @@ function collapseRepeatedSlashes(target: string): string | undefined {
   return pathname.replace(/\\/g, "/").replace(/\/\/+/g, "/") + query;
 }
 
+export interface SplitBody {
+  /** What `req` reads: the entrypoint's copy. */
+  readonly forRequest?: Readable | Buffer;
+  /** What `resolveRoutes` hands middleware. */
+  readonly forDispatch: ReadableStream;
+  /**
+   * Called once dispatch has returned, with whether middleware answered the
+   * request itself. Lets go of whichever copy nothing will read any more.
+   */
+  releaseUnread(middlewareResponded: boolean): void;
+}
+
 /**
  * `resolveRoutes` hands `requestBody` to middleware, which consumes it, while the
  * entrypoint needs the same bytes — the same problem `next-server` solves with
  * `getCloneableBody()`. Only split when there is middleware to feed: teeing costs
  * a buffer copy of every upload on a path that would otherwise be a straight pipe.
+ *
+ * A `tee()` buffers, for the branch that is behind, every chunk the other one
+ * has read — so a branch that is never read holds the whole body. Middleware
+ * that doesn't read the body is the common case (and its matcher may not even
+ * have run it), after which the entrypoint streaming an upload would pile all
+ * of it up in the middleware branch: the whole upload in memory, on a
+ * container that serves other requests. So once dispatch returns, the branch
+ * with no reader left is cancelled — the middleware one, or the entrypoint one
+ * when middleware answered and `req` will never be read. Cancelling one
+ * branch leaves the source and the other branch running.
  */
-function splitBody(
+export function splitBody(
   body: Readable | Buffer | undefined,
   hasMiddleware: boolean,
-): { forRequest?: Readable | Buffer; forDispatch: ReadableStream } {
+): SplitBody {
+  const releaseNothing = (): void => {};
   if (body === undefined) {
-    return { forDispatch: emptyStream() };
+    return { forDispatch: emptyStream(), releaseUnread: releaseNothing };
   }
   if (!hasMiddleware) {
-    return { forRequest: body, forDispatch: emptyStream() };
+    return {
+      forRequest: body,
+      forDispatch: emptyStream(),
+      releaseUnread: releaseNothing,
+    };
   }
   if (Buffer.isBuffer(body)) {
     // Already fully in memory, so "teeing" is just reading it twice.
-    return { forRequest: body, forDispatch: bufferStream(body) };
+    return {
+      forRequest: body,
+      forDispatch: bufferStream(body),
+      releaseUnread: releaseNothing,
+    };
   }
   const [forMiddleware, forEntrypoint] = Readable.toWeb(body).tee();
+  const forRequest = Readable.fromWeb(forEntrypoint as never);
   return {
-    forRequest: Readable.fromWeb(forEntrypoint as never),
+    forRequest,
     forDispatch: forMiddleware as ReadableStream,
+    releaseUnread(middlewareResponded) {
+      if (middlewareResponded) {
+        // `fromWeb` holds the branch's reader, so it is destroyed rather than
+        // cancelled; its `_destroy` cancels the reader.
+        forRequest.destroy();
+      } else if (!forMiddleware.locked) {
+        // Locked means middleware took a reader: it is reading, or has read,
+        // the body itself, and a locked stream cannot be cancelled anyway.
+        forMiddleware.cancel().catch(() => {});
+      }
+    },
   };
 }
 

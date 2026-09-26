@@ -3,12 +3,7 @@ jest.mock("@aws-sdk/client-s3");
 
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ImageError } from "next/dist/server/image-optimizer.js";
-import { getExtension } from "next/dist/server/serve-static.js";
-import {
-  fetchFromS3,
-  getFileNameWithExtension,
-  resolveErrorResponse,
-} from "./image-utils";
+import { fetchFromS3, resolveErrorResponse } from "./image-utils";
 
 function asyncIterableFrom(chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
   return {
@@ -148,6 +143,26 @@ describe("fetchFromS3", () => {
     expect(keyOf()).toBe(key);
   });
 
+  // A cache-buster on a local src: `next start` routes the href as a request, so
+  // the query and fragment never reach the file lookup.
+  it.each([
+    ["/logo.png?v=2", "logo.png"],
+    ["/logo.png#top", "logo.png"],
+    ["/logo.png?v=2#top", "logo.png"],
+    ["/base/logo.png?v=2", "logo.png"],
+    // A `?` that is part of the name arrives encoded and is not a query.
+    ["/what%3F.png?v=2", "what?.png"],
+  ])("keys %s by its path alone", async (url, key) => {
+    ok();
+
+    await fetchFromS3(s3, "my-bucket", url, {
+      urlBasePath: "/base",
+      keyPrefix: "",
+    });
+
+    expect(keyOf()).toBe(key);
+  });
+
   it("leaves a name that isn't valid percent-encoding alone", async () => {
     ok();
 
@@ -189,30 +204,6 @@ describe("fetchFromS3", () => {
     await expect(
       fetchFromS3(s3, "my-bucket", "/missing.png", ROOT),
     ).rejects.toThrow(/Empty response from S3/);
-  });
-});
-
-describe("getFileNameWithExtension", () => {
-  it("derives filename and extension from the url and content type", () => {
-    expect(
-      getFileNameWithExtension(
-        "/foo/bar.png?w=100&q=75",
-        "image/webp",
-        getExtension,
-      ),
-    ).toBe("bar.webp");
-  });
-
-  it("falls back to image.bin when contentType is missing", () => {
-    expect(getFileNameWithExtension("/foo/bar.png", null, getExtension)).toBe(
-      "image.bin",
-    );
-  });
-
-  it("falls back to image.bin when the url has no filename segment", () => {
-    expect(getFileNameWithExtension("/", "image/png", getExtension)).toBe(
-      "image.bin",
-    );
   });
 });
 

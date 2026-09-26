@@ -127,7 +127,22 @@ export function pipeToSink(
       if (sink.padEmptyBody) {
         stages.push(padEmptyBody());
       }
-      stages.push(sink.begin(gzip ? withGzipHeaders(head) : head));
+      try {
+        stages.push(sink.begin(gzip ? withGzipHeaders(head) : head));
+      } catch (error) {
+        // This runs inside whichever `res` call flushed the head — usually a
+        // `write()` from deep inside Next.js — so an escaping throw lands there,
+        // the pipeline below never starts, and nothing would settle this
+        // promise: `handle()` would hang. A sink's `writeHead` rejecting a
+        // header value is how it happens. Destroying `res` is what stops the
+        // writer; the `"error"` that emits is a no-op after the `reject`.
+        for (const stage of stages) {
+          stage.destroy();
+        }
+        reject(error);
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
 
       pipeline(res, ...(stages as [Writable])).then(resolve, reject);
     });

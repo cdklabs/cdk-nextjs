@@ -81,8 +81,6 @@ export class ShimServerResponse extends Transform {
     string,
     { name: string; value: HeaderValue }
   >();
-  /** Lowercased names {@link pinHeader} fixed; every later write is ignored. */
-  private readonly pinned = new Set<string>();
   private head?: ResponseHead;
 
   public constructor() {
@@ -91,31 +89,13 @@ export class ShimServerResponse extends Transform {
 
   // --- header API -----------------------------------------------------------
 
-  /**
-   * Set a header that nothing downstream can change. For a response the runtime
-   * decides a property of before handing it to an entrypoint that would
-   * otherwise overwrite it — a 404 for an unmatched path is rendered by the
-   * app's `/_not-found`, which sends its own cache entry's `Cache-Control`.
-   */
-  public pinHeader(name: string, value: HeaderValue): this {
-    this.headerStore.set(name.toLowerCase(), { name, value });
-    this.pinned.add(name.toLowerCase());
-    return this;
-  }
-
   public setHeader(name: string, value: HeaderValue): this {
-    if (this.pinned.has(name.toLowerCase())) {
-      return this;
-    }
     this.headerStore.set(name.toLowerCase(), { name, value });
     return this;
   }
 
   public appendHeader(name: string, value: string | string[]): this {
     const key = name.toLowerCase();
-    if (this.pinned.has(key)) {
-      return this;
-    }
     const current = this.headerStore.get(key);
     if (current === undefined) {
       return this.setHeader(name, value);
@@ -151,9 +131,6 @@ export class ShimServerResponse extends Transform {
   }
 
   public removeHeader(name: string): void {
-    if (this.pinned.has(name.toLowerCase())) {
-      return;
-    }
     this.headerStore.delete(name.toLowerCase());
   }
 

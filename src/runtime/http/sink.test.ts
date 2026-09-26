@@ -257,6 +257,36 @@ describe("pipeToSink lifecycle", () => {
 
     await expect(done).rejects.toThrow("boom");
   });
+
+  // A sink that cannot take the head — `writeHead` rejecting a header value is
+  // the real case — throws from inside the `"head"` listener, where nothing
+  // else would catch it and the pipeline never starts.
+  it.each([
+    ["writes a body", (res: ShimServerResponse) => res.end("body")],
+    ["ends empty", (res: ShimServerResponse) => res.end()],
+    ["flushes its head first", (res: ShimServerResponse) => res.writeHead(200)],
+  ])(
+    "rejects and destroys the response when begin() throws and the response %s",
+    async (_name, write) => {
+      const req = requestWith({});
+      const res = new ShimServerResponse();
+      const done = pipeToSink(
+        req,
+        res,
+        {
+          begin() {
+            throw new Error("bad head");
+          },
+        },
+        { compress: false },
+      );
+
+      write(res);
+
+      await expect(done).rejects.toThrow("bad head");
+      expect(res.destroyed).toBe(true);
+    },
+  );
 });
 
 describe("acceptsGzip", () => {

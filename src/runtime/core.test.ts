@@ -8,9 +8,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { loadRuntime, NextjsRuntime, RuntimeRequest } from "./core";
+import { loadRuntime, NextjsRuntime, RuntimeRequest, splitBody } from "./core";
 import {
   BuildCompleteContext,
   buildAdapterManifest,
@@ -75,9 +75,17 @@ exports.handler = async (req, res, ctx) => {
     res.statusCode = Number(url.searchParams.get("status"));
   }
   // What a prerendered \`/_not-found\` does: it sends the Cache-Control of its
-  // own cache entry, a year for one that never revalidates.
-  if (url.searchParams.has("cacheControl")) {
+  // own cache entry, a year for one that never revalidates — but only when the
+  // response has none yet, as \`sendRenderResult\` and \`pages-handler.js\` do.
+  if (url.searchParams.has("cacheControl") && !res.getHeader("Cache-Control")) {
     res.setHeader("Cache-Control", url.searchParams.get("cacheControl"));
+  }
+  // A route that reads its request body, reporting what arrived.
+  if (url.searchParams.has("readBody")) {
+    let length = 0;
+    for await (const chunk of req) length += chunk.length;
+    res.end(JSON.stringify({ bodyLength: length }));
+    return;
   }
   if (url.searchParams.has("waitUntil")) {
     ctx.waitUntil(
@@ -595,14 +603,81 @@ exports.handler = async () =>
     );
   });
 
-  it("keeps a missing build asset no-store when the /_not-found entry sets its own", async () => {
-    const sink = await send({
-      url: `/_next/static/chunks/0-qsb3zz6f4c7.js?cacheControl=${encodeURIComponent("s-maxage=31536000")}`,
-    });
+  // `next start` answers these without rendering the 404 page (`router-server.js`,
+  // the "404 case"): nothing would display it, and rendering is the cost.
+  it.each([
+    ["a missing build asset", "/_next/static/chunks/0-qsb3zz6f4c7.js"],
+    ["a build asset no deploy produced", "/_next/static/chunks/stale-0000.js"],
+  ])("answers %s with a plain-text Not Found", async (_name, url) => {
+    const sink = await send({ url });
     expect(sink.head?.statusCode).toBe(404);
+    expect(sink.head?.headers["content-type"]).toBe(
+      "text/plain; charset=utf-8",
+    );
     expect(sink.head?.headers["cache-control"]).toBe(
       "private, no-cache, no-store, max-age=0, must-revalidate",
     );
+    expect(sink.body.toString("utf-8")).toBe("Not Found");
+  });
+
+  it.each(["image", "script", "font", "style"])(
+    "answers an unknown path fetched as a %s subresource with a plain-text Not Found",
+    async (dest) => {
+      const sink = await send({
+        url: "/nope.png",
+        headers: { host: "shop.example.test", "sec-fetch-dest": dest },
+      });
+      expect(sink.head?.statusCode).toBe(404);
+      expect(sink.head?.headers["cache-control"]).toBe(
+        "private, no-cache, no-store, max-age=0, must-revalidate",
+      );
+      expect(sink.body.toString("utf-8")).toBe("Not Found");
+    },
+  );
+
+  it.each([
+    // A navigation, and `fetch()` — which is how an RSC request goes.
+    ["a document", "GET", "document"],
+    ["a fetch", "GET", "empty"],
+    // `next start` only short-circuits GET and HEAD.
+    ["an image POST", "POST", "image"],
+  ])("still renders the 404 page for %s", async (_name, method, dest) => {
+    const sink = await send({
+      url: "/nope",
+      method,
+      headers: { host: "shop.example.test", "sec-fetch-dest": dest },
+    });
+    expect(sink.head?.statusCode).toBe(404);
+    expect(stubBody(sink).file).toContain("_not-found");
+  });
+
+  it("settles and destroys the response when the sink cannot take the head", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    // What the Lambda sink's `writeHead` does with a header value it rejects.
+    const handled = runtime.handle(
+      { method: "GET", url: "/", headers: { host: "shop.example.test" } },
+      {
+        begin() {
+          throw new TypeError("Invalid character in header content");
+        },
+      },
+    );
+    await expect(handled).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith(
+      "The response stream did not complete:",
+      expect.objectContaining({ message: expect.stringContaining("header") }),
+    );
+    error.mockRestore();
+  });
+
+  it("streams an upload through middleware to the route intact", async () => {
+    const chunk = Buffer.alloc(64 * 1024, 1);
+    const sink = await send({
+      url: "/?readBody=1",
+      method: "POST",
+      body: Readable.from(Array.from({ length: 32 }, () => chunk)),
+    });
+    expect(stubBody(sink)).toEqual({ bodyLength: 32 * chunk.length });
   });
 
   it("reads middleware's body only as fast as the client takes it", async () => {
@@ -974,5 +1049,63 @@ describe("a path with repeated slashes or a backslash", () => {
   it("leaves an encoded backslash alone", async () => {
     const sink = await send({ url: "/a%5Cb" });
     expect(sink.head?.statusCode).not.toBe(308);
+  });
+});
+
+describe("splitBody", () => {
+  const CHUNK = Buffer.alloc(16 * 1024, 7);
+  const upload = () =>
+    Readable.from(
+      Array.from({ length: 8 }, () => CHUNK),
+      { objectMode: false },
+    );
+
+  async function drain(stream: AsyncIterable<Uint8Array>): Promise<number> {
+    let length = 0;
+    for await (const chunk of stream) {
+      length += chunk.length;
+    }
+    return length;
+  }
+
+  // A tee buffers for the branch that is behind, so the middleware branch that
+  // nothing reads would otherwise hold every byte the route streams.
+  it("cancels the middleware copy once dispatch is done with it", async () => {
+    const body = splitBody(upload(), true);
+    body.releaseUnread(false);
+
+    const reader = body.forDispatch.getReader();
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+    expect(await drain(body.forRequest as Readable)).toBe(8 * CHUNK.length);
+  });
+
+  it("leaves the middleware copy alone when middleware is reading it", async () => {
+    const body = splitBody(upload(), true);
+    const reading = drain(
+      body.forDispatch as unknown as AsyncIterable<Uint8Array>,
+    );
+    body.releaseUnread(false);
+
+    expect(await reading).toBe(8 * CHUNK.length);
+  });
+
+  // Middleware answered, possibly with the upload as its own body; `req` is
+  // never read, so its copy is the one that would pile up.
+  it("releases the route's copy when middleware answered", async () => {
+    const body = splitBody(upload(), true);
+    body.releaseUnread(true);
+
+    expect((body.forRequest as Readable).destroyed).toBe(true);
+    expect(
+      await drain(body.forDispatch as unknown as AsyncIterable<Uint8Array>),
+    ).toBe(8 * CHUNK.length);
+  });
+
+  it("does not split at all without middleware", () => {
+    const source = upload();
+    const body = splitBody(source, false);
+    expect(body.forRequest).toBe(source);
+    body.releaseUnread(false);
+    expect(source.destroyed).toBe(false);
   });
 });
