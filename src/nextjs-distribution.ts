@@ -1,6 +1,7 @@
 import { Annotations, Duration, Stack, Token } from "aws-cdk-lib";
 import { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
+  AccessLevel,
   AddBehaviorOptions,
   AllowedMethods,
   BehaviorOptions,
@@ -227,10 +228,11 @@ export class NextjsDistribution extends Construct {
   }
 
   private createStaticOrigin(): IOrigin {
-    return S3BucketOrigin.withOriginAccessControl(
-      this.props.assetsBucket,
-      this.props.overrides?.s3BucketOriginProps,
-    );
+    return S3BucketOrigin.withOriginAccessControl(this.props.assetsBucket, {
+      // LIST lets S3 answer a missing key with 404 instead of 403
+      originAccessLevels: [AccessLevel.READ, AccessLevel.LIST],
+      ...this.props.overrides?.s3BucketOriginProps,
+    });
   }
   private createDynamicOrigin(): IOrigin {
     if (this.isFunctionCompute) {

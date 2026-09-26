@@ -284,16 +284,16 @@ as a ~7s build failure naming `assertNodeRuntimes`.
 
 ## CDN-inherent — excluded, acceptable
 
-### A missing `/_next/static/*` is a 403 from S3, not a 404 from Next.js
+### A missing `/_next/static/*` is a 404 from S3, not from Next.js
 
 The 6 `invalid-static-asset-404-*` files, 1 of 3 cases each (via `suites`). The
 case wants a `404` with body exactly `Not Found` for a nonexistent static asset.
-S3 behind Origin Access Control answers `403`: the OAC principal has `s3:GetObject`
-but not `s3:ListBucket`, so S3 will not reveal a key is absent. Granting
-`ListBucket` would fix the status but not the body (S3's XML error), and widens the
-bucket policy for one assertion. Not done. Real-app cost: a never-built asset is a
-403 instead of a 404. The two passing cases (valid asset → 200, invalid non-asset
-path → the app's 404 page) show Next.js's own handling is intact.
+S3 behind Origin Access Control answers the `404` itself (the OAC principal has
+`s3:ListBucket`, so S3 may say a key is absent) with its XML `NoSuchKey` body.
+Matching the body would take a Lambda@Edge origin-response rewrite for one
+assertion. Not done. Real-app cost: none beyond the body. The two passing cases
+(valid asset → 200, invalid non-asset path → the app's 404 page) show Next.js's
+own handling is intact.
 
 ### A `POST` body from a non-browser client needs a payload hash
 

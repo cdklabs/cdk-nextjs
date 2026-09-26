@@ -94,6 +94,21 @@ describe("NextjsDistribution function group behaviors", () => {
     expect(pathPatterns(stack)).toEqual(["_next/static*", "_next/image*"]);
   });
 
+  it("lets the OAC principal list the bucket so a missing asset is a 404", () => {
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", distributionProps);
+    Template.fromStack(stack).hasResourceProperties("AWS::S3::BucketPolicy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ["s3:GetObject", "s3:ListBucket"],
+            Principal: { Service: "cloudfront.amazonaws.com" },
+          }),
+        ]),
+      },
+    });
+  });
+
   it("orders overlapping group patterns most specific first", () => {
     // CloudFront stops at the first matching behavior, so `api/*` ahead of
     // `api/reports/*` would send every report request to the wrong function.
