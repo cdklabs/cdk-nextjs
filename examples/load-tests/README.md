@@ -33,6 +33,7 @@ a number is CloudFront's or the construct's.
 | `pnpm cold-start` | Functions constructs only. Forces fresh Lambda execution environments, then measures `CONCURRENCY` (10) simultaneous first requests, `ROUNDS` (5) times.                                                                                                                                  |
 | `pnpm browser`    | Web Vitals (LCP, FCP, CLS, TTFB) and client-side navigation time from real Chromium visitors. For vitals under load, run it from a second machine while `pnpm latency` runs on the first, with `UNDER_LOAD="50 req/s per route"` (or whatever the load is) so the report says so.         |
 | `pnpm report`     | Turns `results/` into the README's markdown tables.                                                                                                                                                                                                                                       |
+| `pnpm use-cache`  | `'use cache'` with many tags per instance: `RATE` (200) req/s over `/use-cache/0` to `/use-cache/<TAGS - 1>` (`TAGS`, 1000) and `REVALIDATE_RATE` (1) `revalidateTag`s a second, for `DURATION_SECONDS` (600). See [`'use cache'` tag reads](#use-cache-tag-reads).                       |
 
 Results go to `results/<LABEL>/<script>-<time>.json`, where `LABEL` is the
 construct, e.g. `global-functions`.
@@ -102,6 +103,27 @@ pnpm runner:destroy
 The instance role can list and reconfigure only `perf-*` stacks' functions,
 for `cold-start`. Changing anything in this directory replaces the instances on
 the next `runner:deploy`.
+
+### `'use cache'` tag reads
+
+`pnpm use-cache` measures what k6 can't see: the revalidation table's reads per
+instance while each one tracks about `TAGS` `'use cache'` tags. Its latencies
+only show that the tag checks cost the request nothing. Read the table's
+metrics for the run's window from CloudWatch (the table name is
+`RevalidationTableName` in `stack-outputs.json`):
+
+```sh
+for metric in ConsumedReadCapacityUnits ReadThrottleEvents; do
+  aws cloudwatch get-metric-statistics --namespace AWS/DynamoDB \
+    --metric-name $metric --dimensions Name=TableName,Value=<table> \
+    --start-time <run start> --end-time <run end> --period 60 --statistics Sum
+done
+```
+
+Divide `ConsumedReadCapacityUnits` per minute by 60 and by the number of
+instances or tasks to get RCU per second per instance. The Containers
+constructs' task count is in the ECS console; for the Functions constructs,
+use the Lambda `ConcurrentExecutions` metric.
 
 ## Reading the numbers
 

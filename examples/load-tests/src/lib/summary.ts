@@ -17,7 +17,8 @@ export const SUMMARY_TREND_STATS = [
 
 export interface ScenarioMeta {
   name: string;
-  kind: Kind;
+  /** A route kind, or one of the `use-cache` script's own requests. */
+  kind: Kind | "use-cache" | "revalidate";
   rate: number;
   durationSeconds: number;
 }

@@ -6,6 +6,8 @@ import {
   AttributeValue,
   BatchGetItemCommand,
   DynamoDBClient,
+  PutItemCommand,
+  QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import {
@@ -18,7 +20,11 @@ import type {
   CacheEntry,
   CacheHandler,
 } from "next/dist/server/lib/cache-handlers/types";
-import { CacheBucket, TagMarkerTable } from "./aws-cache-store";
+import {
+  CacheBucket,
+  RevalidationLog,
+  TagMarkerTable,
+} from "./aws-cache-store";
 import { readStream, UseCacheTagManifest } from "./use-cache-common";
 import { createDefaultUseCacheHandler } from "./use-cache-default-handler";
 import { createRemoteUseCacheHandler } from "./use-cache-remote-handler";
@@ -56,6 +62,8 @@ const s3Send = jest.fn(async (command: unknown) => {
 
 /** The revalidation table's marker rows, as a map. */
 const rows = new Map<string, Record<string, AttributeValue>>();
+/** Its revalidation log rows, by sort key. */
+const logRows = new Map<string, Record<string, AttributeValue>>();
 const dynamoSend = jest.fn(async (command: unknown) => {
   if (command instanceof UpdateItemCommand) {
     const { Key, ExpressionAttributeValues } = commandInput(
@@ -88,6 +96,21 @@ const dynamoSend = jest.fn(async (command: unknown) => {
       },
     };
   }
+  if (command instanceof PutItemCommand) {
+    const { Item } = commandInput(command, PutItemCommand);
+    logRows.set(Item.sk.S, Item);
+    return {};
+  }
+  if (command instanceof QueryCommand) {
+    const { ExpressionAttributeValues } = commandInput(command, QueryCommand);
+    const since = ExpressionAttributeValues[":since"].S as string;
+    return {
+      Items: Array.from(logRows.keys())
+        .filter((sk) => sk >= since)
+        .sort()
+        .map((sk) => logRows.get(sk)),
+    };
+  }
   throw new Error("unexpected DynamoDB command");
 });
 
@@ -106,6 +129,7 @@ const dynamoCalls = (type: unknown) =>
 function tagManifest(refreshIntervalMs = 0) {
   return new UseCacheTagManifest({
     markers: new TagMarkerTable(new DynamoDBClient({}), "table", "build"),
+    log: new RevalidationLog(new DynamoDBClient({}), "table", "build"),
     refreshIntervalMs,
   });
 }
@@ -162,6 +186,7 @@ async function read(handler: CacheHandler, key: string) {
 beforeEach(() => {
   objects.clear();
   rows.clear();
+  logRows.clear();
 });
 
 describe("cacheHandlers.remote", () => {
@@ -337,9 +362,13 @@ describe("cacheHandlers.default", () => {
     // What Next.js does for `revalidateTag`: `updateTags` on every handler of
     // the instance that ran it - here, `a`.
     await a.updateTags(["posts"], { expire: 0 });
+    dynamoSend.mockClear();
 
     expect(await read(a, "k")).toBeUndefined();
     expect(await read(b, "k")).toBeUndefined();
+    // `b` learned of it from the log, not by re-reading its tags' markers.
+    expect(dynamoCalls(QueryCommand)).toBeGreaterThan(0);
+    expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
   });
 
   it("waits for the refresh interval before re-reading tags", async () => {
@@ -355,6 +384,7 @@ describe("cacheHandlers.default", () => {
     // Inside the window: still served, and no read spent on it.
     expect(await read(b, "k")).toBe("b");
     expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
+    expect(dynamoCalls(QueryCommand)).toBe(0);
   });
 
   it("drops an entry past revalidate, as Next.js's in-memory handler does", async () => {
@@ -392,6 +422,7 @@ describe("cacheHandlers.default", () => {
     const handlers = [defaultInstance(tags), remoteInstance(tags)];
     await Promise.all(handlers.map((h) => h.updateTags(["a", "b"])));
     expect(dynamoCalls(UpdateItemCommand)).toBe(2);
+    expect(dynamoCalls(PutItemCommand)).toBe(2);
   });
 
   it("stores nothing from a stream that errors, and releases the pending get", async () => {

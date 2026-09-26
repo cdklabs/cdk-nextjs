@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: rootWorkspace,
   },
+  // `'use cache'` without `cacheComponents`, which would change how every
+  // other route renders. Only /use-cache/[n] uses the directive.
+  experimental: {
+    useCache: true,
+  },
 };
 
 export default nextConfig;

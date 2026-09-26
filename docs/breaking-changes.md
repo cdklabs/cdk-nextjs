@@ -282,6 +282,28 @@ the package (as the examples' `sync-cdk-nextjs` script does), copy
 `lib/adapter/use-cache-remote-handler.mjs` too: the adapter resolves them through
 the package's `cdk-nextjs/cache-handlers/default` and `/remote` exports.
 
+### Behavior change: the revalidation table gains a TTL and a log
+
+`'use cache'` and `'use cache: remote'` no longer re-read every tag an instance
+tracks once a second. With up to 1000 tracked tags that was ten `BatchGetItem`s
+a second per instance, all on one DynamoDB partition, so a handful of busy
+instances could throttle it (and each cost about 500 RCU a second).
+
+Instead, each `revalidateTag`/`updateTag` also writes a row to a revalidation
+log (`pk = <buildId>#log`, `sk = <epoch-ms>#<tag>`), and each instance sends one
+`Query` per `CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS` for the rows it hasn't seen.
+The marker rows stay the source of truth: an instance still reads a tag's marker
+the first time it needs it, re-reads its tracked markers every 10 minutes, and
+after any gap the log may not cover.
+
+- The table `NextjsCache` creates now has TTL on the `ttl` attribute, which the
+  log rows set 15 minutes out. Enabling it is an in-place update.
+  `revalidationTableProps` in `overrides` still wins.
+- If you pass your own `revalidationTable`, enable TTL on `ttl` yourself, or
+  the log rows accumulate.
+- `revalidateTag` costs one more write per tag (`PutItem`), which the existing
+  table grant already allows.
+
 ### Performance compared with 0.6.2
 
 Measured with the [load tests](../examples/load-tests) against

@@ -15,6 +15,9 @@ import {
   BatchGetItemCommand,
   BatchGetItemCommandOutput,
   DynamoDBClient,
+  PutItemCommand,
+  QueryCommand,
+  QueryCommandOutput,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import {
@@ -206,6 +209,15 @@ function numberAttribute(
   return value?.N === undefined ? undefined : Number(value.N);
 }
 
+/** The marker fields of a marker or log row. */
+function markerOf(item: Record<string, AttributeValue>): TagMarker {
+  return {
+    revalidatedAt: numberAttribute(item.revalidatedAt),
+    staleAt: numberAttribute(item.staleAt),
+    expiredAt: numberAttribute(item.expiredAt),
+  };
+}
+
 /** DynamoDB's cap on keys in one `BatchGetItem`. */
 export const BATCH_GET_MAX_KEYS = 100;
 
@@ -292,11 +304,7 @@ export class TagMarkerTable {
       const item = response.Attributes;
       this.cached.set(tag, {
         expiresAt: Date.now() + this.markerTtlMs,
-        marker: Promise.resolve({
-          revalidatedAt: numberAttribute(item.revalidatedAt),
-          staleAt: numberAttribute(item.staleAt),
-          expiredAt: numberAttribute(item.expiredAt),
-        }),
+        marker: Promise.resolve(markerOf(item)),
       });
     } else {
       this.cached.delete(tag);
@@ -391,11 +399,7 @@ export class TagMarkerTable {
         for (const item of response.Responses?.[tableName] ?? []) {
           const tag = item.sk?.S;
           if (tag !== undefined) {
-            markers.set(tag, {
-              revalidatedAt: numberAttribute(item.revalidatedAt),
-              staleAt: numberAttribute(item.staleAt),
-              expiredAt: numberAttribute(item.expiredAt),
-            });
+            markers.set(tag, markerOf(item));
           }
         }
         keys = response.UnprocessedKeys?.[tableName]?.Keys;
@@ -408,6 +412,129 @@ export class TagMarkerTable {
     }
     return markers;
   }
+}
+
+/**
+ * How long a revalidation log row is kept (`ttl`, epoch seconds). DynamoDB never
+ * deletes an item before its TTL, only some time after, so a reader that last
+ * queried less than this long ago (less a margin for writers' clocks) is sure
+ * to find every row it has not seen yet.
+ */
+export const REVALIDATION_LOG_TTL_MS = 15 * 60 * 1000;
+
+/** The most `Query` pages one {@link RevalidationLog.query} reads. */
+export const REVALIDATION_LOG_MAX_PAGES = 5;
+
+/** Digits a log row's timestamp is zero-padded to, so sort keys sort by time. */
+const LOG_SK_DIGITS = 15;
+
+/** A revalidation read back from the log. */
+export interface RevalidationLogRow {
+  /** The row's sort key: unique per revalidation of a tag. */
+  sk: string;
+  /** When it was written, on the writer's `Date.now()`. */
+  at: number;
+  tag: string;
+  /** The marker fields the revalidation set, as {@link markerFor} returns them. */
+  marker: TagMarker;
+}
+
+/**
+ * The revalidation log: one row per tag revalidation (`pk = <buildId>#log`,
+ * `sk = <Date.now(), zero-padded>#<tag>`), which expires after
+ * {@link REVALIDATION_LOG_TTL_MS}.
+ *
+ * The marker rows stay the source of truth. The log exists so an instance
+ * can ask "what was revalidated since I last looked?" in one `Query`, instead
+ * of re-reading every tag it tracks to find out that almost none changed. Every
+ * marker row of a deployment shares one partition, and those re-reads from a
+ * handful of busy instances were enough to throttle it.
+ *
+ * The sort key's timestamp is the writer's wall clock (`Date.now()`), not the
+ * performance clock the marker values are stamped with: it only orders rows for
+ * readers' cursors, which are on their own wall clocks, and is never compared
+ * with an entry's timestamp.
+ */
+export class RevalidationLog {
+  private readonly pk: string;
+
+  constructor(
+    private readonly client: DynamoDBClient,
+    private readonly tableName: string,
+    buildId: string,
+  ) {
+    this.pk = `${buildId}#log`;
+  }
+
+  /** Record that `tag` was revalidated at `at` (`Date.now()`), setting `marker`. */
+  async put(tag: string, at: number, marker: TagMarker): Promise<void> {
+    const item: Record<string, AttributeValue> = {
+      pk: { S: this.pk },
+      sk: { S: `${logSkPrefix(at)}#${tag}` },
+      ttl: { N: String(Math.ceil((at + REVALIDATION_LOG_TTL_MS) / 1000)) },
+    };
+    for (const field of ["revalidatedAt", "staleAt", "expiredAt"] as const) {
+      const value = marker[field];
+      if (value !== undefined) {
+        item[field] = { N: String(value) };
+      }
+    }
+    await this.client.send(
+      new PutItemCommand({ TableName: this.tableName, Item: item }),
+    );
+  }
+
+  /**
+   * The rows written at or after `since` (`Date.now()`), oldest first.
+   * `truncated` when there were more than {@link REVALIDATION_LOG_MAX_PAGES}
+   * pages of them, and `rows` is only the start.
+   *
+   * Eventually consistent: a row written a moment ago may not show yet, which
+   * is what the reader's lookback is for.
+   */
+  async query(
+    since: number,
+  ): Promise<{ rows: RevalidationLogRow[]; truncated: boolean }> {
+    const rows: RevalidationLogRow[] = [];
+    let startKey: Record<string, AttributeValue> | undefined;
+    for (let page = 0; page < REVALIDATION_LOG_MAX_PAGES; page++) {
+      const response: QueryCommandOutput = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: "pk = :pk AND sk >= :since",
+          ExpressionAttributeValues: {
+            ":pk": { S: this.pk },
+            ":since": { S: logSkPrefix(Math.max(0, since)) },
+          },
+          ProjectionExpression: "sk, revalidatedAt, staleAt, expiredAt",
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      for (const item of response.Items ?? []) {
+        const sk = item.sk?.S;
+        // `<digits>#<tag>`: the tag is everything after the fixed-width
+        // timestamp, `#`s included.
+        if (sk === undefined || sk[LOG_SK_DIGITS] !== "#") {
+          continue;
+        }
+        rows.push({
+          sk,
+          at: Number(sk.slice(0, LOG_SK_DIGITS)),
+          tag: sk.slice(LOG_SK_DIGITS + 1),
+          marker: markerOf(item),
+        });
+      }
+      startKey = response.LastEvaluatedKey;
+      if (!startKey) {
+        return { rows, truncated: false };
+      }
+    }
+    return { rows, truncated: true };
+  }
+}
+
+function logSkPrefix(at: number): string {
+  return String(Math.floor(at)).padStart(LOG_SK_DIGITS, "0");
 }
 
 /** An object read back from the cache bucket. */

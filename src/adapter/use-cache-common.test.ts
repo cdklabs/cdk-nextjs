@@ -2,10 +2,17 @@
 jest.mock("@aws-sdk/client-dynamodb");
 
 import type { CacheEntry } from "next/dist/server/lib/cache-handlers/types";
-import { TagMarker, TagMarkerTable } from "./aws-cache-store";
+import {
+  RevalidationLog,
+  RevalidationLogRow,
+  TagMarker,
+  TagMarkerTable,
+} from "./aws-cache-store";
 import {
   cacheEntryOf,
+  DEFAULT_TAG_RESYNC_MS,
   EntryLru,
+  MAX_REVALIDATION_LOG_GAP_MS,
   now,
   PendingSets,
   readStream,
@@ -46,6 +53,37 @@ function fakeMarkers(rows = new Map<string, TagMarker>()) {
   };
 }
 
+/**
+ * A `RevalidationLog` over a plain array, counting its calls. Its query returns
+ * what the real one would: every row at or after `since`, oldest first.
+ */
+function fakeLog(rows: RevalidationLogRow[] = []) {
+  const put = jest.fn(async (tag: string, at: number, marker: TagMarker) => {
+    rows.push({
+      sk: `${String(at).padStart(15, "0")}#${tag}`,
+      at,
+      tag,
+      marker,
+    });
+  });
+  const query = jest.fn(async (since: number) => ({
+    rows: rows.filter((row) => row.at >= since).sort((a, b) => a.at - b.at),
+    truncated: false,
+  }));
+  return {
+    rows,
+    put,
+    query,
+    log: { put, query } as unknown as RevalidationLog,
+  };
+}
+
+/** A wall clock a test moves by hand. */
+function fakeClock(start = 1_000_000) {
+  const clock = { at: start, now: () => clock.at };
+  return clock;
+}
+
 function streamOf(...chunks: string[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
     start(controller) {
@@ -84,31 +122,11 @@ describe("UseCacheTagManifest", () => {
     expect(tags.state(["b"], 40)).toBe("fresh");
   });
 
-  it("refreshes tracked tags at most once per interval", async () => {
-    const markers = fakeMarkers();
-    const tags = new UseCacheTagManifest({
-      markers: markers.table,
-      refreshIntervalMs: 50,
-    });
-    // Nothing tracked: nothing to read.
-    await tags.refresh();
-    expect(markers.read).not.toHaveBeenCalled();
-
-    tags.track(["a"]);
-    // Just tracked, so not due yet.
-    await tags.refresh();
-    expect(markers.read).not.toHaveBeenCalled();
-
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    await Promise.all([tags.refresh(), tags.refresh()]);
-    await tags.refresh();
-    expect(markers.read).toHaveBeenCalledTimes(1);
-  });
-
-  it("sees another instance's revalidation on the next refresh", async () => {
+  it("re-reads every tracked marker on each refresh without a log", async () => {
     const rows = new Map<string, TagMarker>();
+    const markers = fakeMarkers(rows);
     const here = new UseCacheTagManifest({
-      markers: fakeMarkers(rows).table,
+      markers: markers.table,
       refreshIntervalMs: 0,
     });
     const there = new UseCacheTagManifest({
@@ -123,6 +141,7 @@ describe("UseCacheTagManifest", () => {
     expect(here.state(["posts"], createdAt)).toBe("fresh");
     await here.refresh();
     expect(here.state(["posts"], createdAt)).toBe("expired");
+    expect(markers.read).toHaveBeenCalledWith(["posts"]);
   });
 
   it("applies its own revalidation at once, and writes it once for both handlers", async () => {
@@ -236,6 +255,207 @@ describe("UseCacheTagManifest", () => {
     await tags.refresh();
     await tags.update(["a"], undefined);
     expect(tags.state(["a"], Date.now() - 1000)).toBe("expired");
+  });
+});
+
+describe("UseCacheTagManifest with the revalidation log", () => {
+  const INTERVAL = 1000;
+
+  /** Two instances, `a` and `b`, over one table and one clock. */
+  function instances(options: { resyncIntervalMs?: number } = {}) {
+    const markerRows = new Map<string, TagMarker>();
+    const logRows: RevalidationLogRow[] = [];
+    const clock = fakeClock();
+    const instance = () => {
+      const markers = fakeMarkers(markerRows);
+      const log = fakeLog(logRows);
+      const tags = new UseCacheTagManifest({
+        markers: markers.table,
+        log: log.log,
+        refreshIntervalMs: INTERVAL,
+        clock: clock.now,
+        ...options,
+      });
+      return { markers, log, tags };
+    };
+    return { clock, logRows, a: instance(), b: instance() };
+  }
+
+  const createdAt = () => now() - 1000;
+
+  it("reaches another instance within one interval, in one Query and no BatchGetItem", async () => {
+    const { clock, a, b } = instances();
+    b.tags.track(["posts"]);
+
+    await a.tags.update(["posts"], undefined);
+    expect(a.log.put).toHaveBeenCalledWith(
+      "posts",
+      clock.at,
+      expect.objectContaining({ revalidatedAt: expect.any(Number) }),
+    );
+
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    expect(b.tags.state(["posts"], createdAt())).toBe("expired");
+    expect(b.log.query).toHaveBeenCalledTimes(1);
+    expect(b.markers.read).not.toHaveBeenCalled();
+  });
+
+  it("issues no read while the interval has not passed", async () => {
+    const { clock, b } = instances();
+    // Nothing tracked: nothing to ask.
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    expect(b.log.query).not.toHaveBeenCalled();
+
+    b.tags.track(["posts"]);
+    await Promise.all([b.tags.refresh(), b.tags.refresh()]);
+    expect(b.log.query).toHaveBeenCalledTimes(1);
+
+    clock.at += INTERVAL - 1;
+    await b.tags.refresh();
+    expect(b.log.query).toHaveBeenCalledTimes(1);
+    expect(b.markers.read).not.toHaveBeenCalled();
+
+    clock.at += 1;
+    await b.tags.refresh();
+    expect(b.log.query).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies a row read again inside the lookback only once", async () => {
+    const { clock, logRows, b } = instances();
+    b.tags.track(["posts"]);
+    let reads = 0;
+    const row: RevalidationLogRow = {
+      sk: `${clock.at}#posts`,
+      at: clock.at,
+      tag: "posts",
+      get marker() {
+        reads++;
+        return { revalidatedAt: now() };
+      },
+    };
+    // The same row twice in one page, and again on the next query.
+    logRows.push(row, row);
+
+    for (let i = 0; i < 3; i++) {
+      clock.at += INTERVAL;
+      await b.tags.refresh();
+    }
+    expect(b.log.query).toHaveBeenCalledTimes(3);
+    expect(reads).toBe(1);
+    expect(b.tags.state(["posts"], createdAt())).toBe("expired");
+  });
+
+  // Replication lag, or a writer whose clock runs behind: the row shows up
+  // after a query that should have seen it, with a sort key before it.
+  it("still sees a row that appears up to the lookback late", async () => {
+    const { clock, logRows, b } = instances();
+    b.tags.track(["late", "too-late"]);
+    clock.at += INTERVAL;
+    const firstQuery = clock.at;
+    await b.tags.refresh();
+
+    const marker = { revalidatedAt: now() };
+    logRows.push(
+      { sk: "late", at: firstQuery - 5000, tag: "late", marker },
+      { sk: "too-late", at: firstQuery - 5001, tag: "too-late", marker },
+    );
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    expect(b.log.query).toHaveBeenLastCalledWith(firstQuery - 5000);
+    expect(b.tags.state(["late"], createdAt())).toBe("expired");
+    // Past the lookback: what the periodic re-read of the markers is for.
+    expect(b.tags.state(["too-late"], createdAt())).toBe("fresh");
+  });
+
+  it("re-reads every tracked marker once after a gap the log may not cover", async () => {
+    const { clock, a, b } = instances();
+    b.tags.track(["posts", "other"]);
+    await a.tags.update(["posts"], undefined);
+
+    clock.at += MAX_REVALIDATION_LOG_GAP_MS + 1;
+    await b.tags.refresh();
+    expect(b.markers.read).toHaveBeenCalledTimes(1);
+    expect(b.markers.read).toHaveBeenCalledWith(["posts", "other"]);
+    expect(b.log.query).not.toHaveBeenCalled();
+    expect(b.tags.state(["posts"], createdAt())).toBe("expired");
+
+    // Then back on the log, from just before the re-read.
+    const reread = clock.at;
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    expect(b.markers.read).toHaveBeenCalledTimes(1);
+    expect(b.log.query).toHaveBeenCalledWith(reread - 5000);
+  });
+
+  it("re-reads every tracked marker once per resync interval regardless", async () => {
+    const { clock, b } = instances({ resyncIntervalMs: 10 * INTERVAL });
+    b.tags.track(["posts"]);
+    for (let i = 0; i < 10; i++) {
+      clock.at += INTERVAL;
+      await b.tags.refresh();
+    }
+    expect(b.log.query).toHaveBeenCalledTimes(9);
+    expect(b.markers.read).toHaveBeenCalledTimes(1);
+    expect(DEFAULT_TAG_RESYNC_MS).toBeLessThanOrEqual(
+      MAX_REVALIDATION_LOG_GAP_MS,
+    );
+  });
+
+  it("re-reads the markers when the log has more rows than one query reads", async () => {
+    const { clock, b } = instances();
+    b.tags.track(["posts"]);
+    b.log.query.mockResolvedValueOnce({ rows: [], truncated: true });
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    expect(b.markers.read).toHaveBeenCalledWith(["posts"]);
+  });
+
+  it("is visible at once on the instance that ran updateTag", async () => {
+    const { a } = instances();
+    a.tags.track(["posts"]);
+    await a.tags.update(["posts"], undefined);
+    expect(a.tags.state(["posts"], createdAt())).toBe("expired");
+    expect(a.markers.write).toHaveBeenCalledTimes(1);
+    expect(a.log.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps its tags through a failed query and asks again next interval", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const { clock, a, b } = instances();
+    b.tags.track(["posts"]);
+    await a.tags.update(["posts"], undefined);
+    b.log.query.mockRejectedValueOnce(new Error("throttled"));
+
+    clock.at += INTERVAL;
+    const cursor = clock.at - INTERVAL - 5000;
+    await b.tags.refresh();
+    expect(b.tags.state(["posts"], createdAt())).toBe("fresh");
+    expect(error).toHaveBeenCalled();
+
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    // From the same cursor, so nothing written meanwhile is skipped.
+    expect(b.log.query).toHaveBeenLastCalledWith(cursor);
+    expect(b.tags.state(["posts"], createdAt())).toBe("expired");
+    expect(b.markers.read).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("still writes the marker when the log row fails", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const { a } = instances();
+    a.log.put.mockRejectedValueOnce(new Error("throttled"));
+    await a.tags.update(["posts"], undefined);
+    expect(a.markers.rows.get("posts")?.revalidatedAt).toEqual(
+      expect.any(Number),
+    );
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(/revalidation log/),
+      expect.any(Error),
+    );
+    error.mockRestore();
   });
 });
 

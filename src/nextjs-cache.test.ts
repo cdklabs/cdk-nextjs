@@ -83,6 +83,20 @@ describe("NextjsCache", () => {
       });
     });
 
+    // The 'use cache' revalidation log's rows expire through `ttl`.
+    it("expires revalidation log rows through a TTL attribute", () => {
+      new NextjsCache(stack, "TestCache", {
+        buildId: "test-build-123",
+        initCacheDir: "/tmp/test-cache",
+      });
+      Template.fromStack(stack).hasResourceProperties(
+        "AWS::DynamoDB::GlobalTable",
+        {
+          TimeToLiveSpecification: { AttributeName: "ttl", Enabled: true },
+        },
+      );
+    });
+
     it("should apply custom overrides", () => {
       new NextjsCache(stack, "TestCache", {
         buildId: "test-build-123",
@@ -101,6 +115,7 @@ describe("NextjsCache", () => {
               name: "cacheKey",
               type: AttributeType.STRING,
             },
+            timeToLiveAttribute: "expiresAt",
           },
         },
       });
@@ -113,6 +128,7 @@ describe("NextjsCache", () => {
 
       template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
         TableName: "custom-revalidation-table",
+        TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
       });
     });
   });

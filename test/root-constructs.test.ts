@@ -117,17 +117,53 @@ function actionsOfRole(template: Template, roleId: string): string[] {
 
 function expectCacheGrants(template: Template, logicalId: string) {
   expectCacheActions(actionsOf(template, logicalId));
+  const fn = template.toJSON().Resources[logicalId];
+  expectTableScopedDynamoGrants(template, fn.Properties.Role["Fn::GetAtt"][0]);
+}
+
+/**
+ * Every DynamoDB statement on `roleId`'s policies names the revalidation table
+ * (or its indexes), never `*`: the `'use cache'` log's `Query` and `PutItem`
+ * included.
+ */
+function expectTableScopedDynamoGrants(template: Template, roleId: string) {
+  const [tableId] = Object.keys(
+    template.findResources("AWS::DynamoDB::GlobalTable"),
+  );
+  const statements = Object.values(template.findResources("AWS::IAM::Policy"))
+    .filter((policy) =>
+      policy.Properties.Roles.some((role: any) => role.Ref === roleId),
+    )
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+    .filter((statement: any) =>
+      [statement.Action]
+        .flat()
+        .some((action: string) => action.startsWith("dynamodb:")),
+    );
+  const actions = statements.flatMap((statement: any) =>
+    [statement.Action].flat(),
+  );
+  expect(actions).toEqual(
+    expect.arrayContaining(["dynamodb:Query", "dynamodb:PutItem"]),
+  );
+  for (const statement of statements) {
+    for (const resource of [statement.Resource].flat()) {
+      expect(resource).not.toBe("*");
+      expect(JSON.stringify(resource)).toContain(tableId);
+    }
+  }
 }
 
 /** The task role of the one ECS task definition in the stack. */
 function taskRoleActions(template: Template): string[] {
+  return actionsOfRole(template, taskRoleId(template));
+}
+
+function taskRoleId(template: Template): string {
   const [taskDefinition] = Object.values(
     template.findResources("AWS::ECS::TaskDefinition"),
   );
-  return actionsOfRole(
-    template,
-    taskDefinition.Properties.TaskRoleArn["Fn::GetAtt"][0],
-  );
+  return taskDefinition.Properties.TaskRoleArn["Fn::GetAtt"][0];
 }
 
 function expectCacheActions(actions: string[]) {
@@ -266,6 +302,7 @@ describe("NextjsGlobalContainers", () => {
     template.resourceCountIs("AWS::Lambda::Url", 0);
     template.resourceCountIs("AWS::ECS::Service", 1);
     expectCacheActions(taskRoleActions(template));
+    expectTableScopedDynamoGrants(template, taskRoleId(template));
   });
 });
 
@@ -283,5 +320,6 @@ describe("NextjsRegionalContainers", () => {
     template.resourceCountIs("AWS::ECS::Service", 1);
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
     expectCacheActions(taskRoleActions(template));
+    expectTableScopedDynamoGrants(template, taskRoleId(template));
   });
 });

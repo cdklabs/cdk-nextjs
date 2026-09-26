@@ -138,6 +138,9 @@ export class NextjsCache extends Construct {
   /**
    * Creates DynamoDB table for revalidation metadata
    * Schema: pk (buildId or "METADATA"), sk (tag#cacheKey or "CURRENT_BUILD"), createdAt, revalidatedAt
+   *
+   * Also the `'use cache'` revalidation log (pk "<buildId>#log",
+   * sk "<epoch-ms>#<tag>"), whose rows expire through the `ttl` attribute.
    */
   private createRevalidationTable(): TableV2 {
     const table = new TableV2(this, "RevalidationTable", {
@@ -151,6 +154,7 @@ export class NextjsCache extends Construct {
       },
       billing: Billing.onDemand(),
       removalPolicy: RemovalPolicy.DESTROY,
+      timeToLiveAttribute: "ttl",
       ...this.props.overrides?.revalidationTableProps,
     });
 

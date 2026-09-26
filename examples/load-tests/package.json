@@ -7,6 +7,7 @@
     "latency": "bash scripts/k6.sh latency",
     "capacity": "bash scripts/k6.sh capacity",
     "browser": "bash scripts/k6.sh browser",
+    "use-cache": "bash scripts/k6.sh use-cache",
     "cold-start": "dotenv -- node scripts/cold-start.ts",
     "report": "node scripts/report.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/tsconfig.json && tsc -p stacks/tsconfig.json --noEmit && tsc -p runner/tsconfig.json --noEmit",

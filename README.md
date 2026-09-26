@@ -70,7 +70,7 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-`require.resolve` works in an ESM `next.config.ts` too, because Next.js transpiles the config to CJS before evaluating it. (For the same reason `import.meta.resolve` returns a plain absolute path there rather than a `file://` URL. Prefer `require.resolve`: Next.js resolves `adapterPath` with `require.resolve`, which rejects a `file://` URL, so `import.meta.resolve` only happens to work inside a config file.)
+`require.resolve` works in an ESM `next.config.ts` too, because Next.js transpiles the config to CJS before evaluating it.
 
 ### cdk-nextjs Created Dockerfile
 
@@ -190,12 +190,26 @@ handler of its own for either:
   pages re-rendered because of that revalidation.
 
 Both read the same per-tag marker rows in the revalidation table that ISR and
-the data cache use. Each instance re-reads the tags it has seen at most once per
-[`CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`](#cdk_nextjs_use_cache_tag_refresh_ms), so
-a revalidation on another instance is honored within that window (1 second by
-default) and on the instance that ran it immediately. A tag an instance has not
-seen yet — an entry read from S3, a page's implicit `revalidatePath` tags — is
-read before it is trusted, once per instance.
+the data cache use. A tag an instance has not seen yet — an entry read from S3,
+a page's implicit `revalidatePath` tags — is read from its marker before it is
+trusted, once per instance.
+
+After that, an instance doesn't re-read the tags it tracks to learn what
+changed. Each `revalidateTag`/`updateTag` also writes a row to a revalidation
+log in the same table (`pk = <buildId>#log`, expiring after 15 minutes through
+the table's `ttl` attribute). At most once per
+[`CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`](#cdk_nextjs_use_cache_tag_refresh_ms),
+each instance sends one DynamoDB `Query` for the rows written since its last
+one and applies those for tags it tracks. So a revalidation on another instance
+is honored within that window (1 second by default), and on the instance that ran
+it immediately. An idle instance's query costs 0.5 RCU a second, where
+re-reading up to 1000 tracked tags cost about 500. Every 10 minutes, and after
+a gap the log may no longer cover (a Lambda frozen between invocations, a run
+of failed queries), an instance re-reads all its tracked markers once instead.
+
+If you pass your own `revalidationTable`, enable TTL on its `ttl` attribute, or
+the log rows (about 100 bytes per revalidated tag) are kept until the build is
+replaced and the table is cleaned up by hand.
 
 Two instances that generate the same `'use cache: remote'` entry at the same
 moment both store it; each serves its own copy until that copy's `revalidate`
@@ -203,10 +217,10 @@ time, after which S3's is used.
 
 #### `CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`
 
-How long, in milliseconds, an instance trusts its copy of a `'use cache'` tag's
-revalidation marker before reading it again. That read is one DynamoDB
-`BatchGetItem` per 100 tracked tags (at most 1000 are tracked), shared by every
-request on the instance during the window. `0` reads before every request that
+How often, at most, in milliseconds, an instance asks the revalidation log what
+other instances revalidated: the longest a `revalidateTag` elsewhere goes unseen.
+It's one DynamoDB `Query`, however many tags the instance tracks, shared by every
+request on the instance during the window. `0` asks before every request that
 uses a cache.
 
 **Default**: `1000`

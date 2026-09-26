@@ -5,6 +5,8 @@ jest.mock("@aws-sdk/client-dynamodb");
 import {
   BatchGetItemCommand,
   DynamoDBClient,
+  PutItemCommand,
+  QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import {
@@ -20,6 +22,9 @@ import {
   markerState,
   markerUpdate,
   resolveAwsCacheConfig,
+  REVALIDATION_LOG_MAX_PAGES,
+  REVALIDATION_LOG_TTL_MS,
+  RevalidationLog,
   TagMarkerTable,
   useCacheS3Key,
 } from "./aws-cache-store";
@@ -218,6 +223,85 @@ describe("TagMarkerTable", () => {
 
     send.mockResolvedValue(unprocessed);
     await expect(table.read(["a"])).rejects.toThrow(/unread after retrying/);
+  });
+});
+
+describe("RevalidationLog", () => {
+  const send = jest.fn();
+  let log: RevalidationLog;
+
+  beforeEach(() => {
+    send.mockReset();
+    (DynamoDBClient as jest.Mock).mockImplementation(() => ({ send }));
+    log = new RevalidationLog(new DynamoDBClient({}), "tbl", "build");
+  });
+
+  it("puts one row per revalidation under the build's log, with a TTL", async () => {
+    send.mockResolvedValue({});
+    const at = 1_727_000_000_123;
+    await log.put("user#42", at, { staleAt: 5, expiredAt: 6 });
+    expect(commandInput(send.mock.calls[0][0], PutItemCommand)).toEqual({
+      TableName: "tbl",
+      Item: {
+        pk: { S: "build#log" },
+        sk: { S: "001727000000123#user#42" },
+        ttl: { N: String(Math.ceil((at + REVALIDATION_LOG_TTL_MS) / 1000)) },
+        staleAt: { N: "5" },
+        expiredAt: { N: "6" },
+      },
+    });
+  });
+
+  it("queries from a zero-padded cursor and parses the tag after it", async () => {
+    send
+      .mockResolvedValueOnce({
+        Items: [
+          { sk: { S: "000000000001000#a" }, revalidatedAt: { N: "7" } },
+          { sk: { S: "not a log row" } },
+        ],
+        LastEvaluatedKey: { pk: { S: "build#log" }, sk: { S: "x" } },
+      })
+      .mockResolvedValueOnce({
+        Items: [{ sk: { S: "000000000002000#user#42" }, staleAt: { N: "8" } }],
+      });
+    const { rows, truncated } = await log.query(999.5);
+
+    const first = commandInput(send.mock.calls[0][0], QueryCommand);
+    expect(first).toMatchObject({
+      TableName: "tbl",
+      KeyConditionExpression: "pk = :pk AND sk >= :since",
+      ExpressionAttributeValues: {
+        ":pk": { S: "build#log" },
+        ":since": { S: "000000000000999" },
+      },
+    });
+    expect(
+      commandInput(send.mock.calls[1][0], QueryCommand).ExclusiveStartKey,
+    ).toEqual({ pk: { S: "build#log" }, sk: { S: "x" } });
+    expect(truncated).toBe(false);
+    expect(rows).toEqual([
+      {
+        sk: "000000000001000#a",
+        at: 1000,
+        tag: "a",
+        marker: { revalidatedAt: 7, staleAt: undefined, expiredAt: undefined },
+      },
+      {
+        sk: "000000000002000#user#42",
+        at: 2000,
+        tag: "user#42",
+        marker: { revalidatedAt: undefined, staleAt: 8, expiredAt: undefined },
+      },
+    ]);
+  });
+
+  it("stops after its page bound and says so", async () => {
+    send.mockResolvedValue({
+      Items: [],
+      LastEvaluatedKey: { pk: { S: "build#log" }, sk: { S: "x" } },
+    });
+    expect((await log.query(0)).truncated).toBe(true);
+    expect(send).toHaveBeenCalledTimes(REVALIDATION_LOG_MAX_PAGES);
   });
 });
 

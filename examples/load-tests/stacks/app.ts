@@ -8,6 +8,7 @@ import {
   NextjsGlobalContainers,
   NextjsGlobalFunctions,
   NextjsRegionalContainers,
+  NextjsCache,
   NextjsRegionalFunctions,
 } from "cdk-nextjs";
 import { Construct } from "constructs";
@@ -45,35 +46,35 @@ class LoadTestStack extends Stack {
     props?: StackProps,
   ) {
     super(scope, id, props);
-    let url: string;
+    let nextjs: { url: string; nextjsCache: NextjsCache };
     switch (construct) {
       case "global-functions": {
-        url = new NextjsGlobalFunctions(this, "Nextjs", { buildDirectory }).url;
+        nextjs = new NextjsGlobalFunctions(this, "Nextjs", { buildDirectory });
         break;
       }
       case "global-containers": {
-        const nextjs = new NextjsGlobalContainers(this, "Nextjs", {
+        const containers = new NextjsGlobalContainers(this, "Nextjs", {
           buildDirectory,
           healthCheckPath,
         });
-        scaleOnCpu(nextjs.nextjsContainers.albFargateService);
-        url = nextjs.url;
+        scaleOnCpu(containers.nextjsContainers.albFargateService);
+        nextjs = containers;
         break;
       }
       case "regional-containers": {
-        const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
+        const containers = new NextjsRegionalContainers(this, "Nextjs", {
           buildDirectory,
           healthCheckPath,
         });
-        scaleOnCpu(nextjs.nextjsContainers.albFargateService);
-        requireCookie(nextjs.nextjsContainers.albFargateService);
-        url = nextjs.url;
+        scaleOnCpu(containers.nextjsContainers.albFargateService);
+        requireCookie(containers.nextjsContainers.albFargateService);
+        nextjs = containers;
         break;
       }
       case "regional-functions": {
         // the default API Gateway stage name, which the app must serve under
         process.env["NEXTJS_BASE_PATH"] = "/prod";
-        url = new NextjsRegionalFunctions(this, "Nextjs", {
+        nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
           buildDirectory,
           overrides: {
             nextjsApi: {
@@ -81,11 +82,19 @@ class LoadTestStack extends Stack {
               restApiProps: { cloudWatchRole: false },
             },
           },
-        }).url;
+        });
         break;
       }
     }
-    new CfnOutput(this, "CdkNextjsUrl", { value: url, key: "CdkNextjsUrl" });
+    new CfnOutput(this, "CdkNextjsUrl", {
+      value: nextjs.url,
+      key: "CdkNextjsUrl",
+    });
+    // For the `use-cache` script's DynamoDB read and throttle metrics.
+    new CfnOutput(this, "RevalidationTableName", {
+      value: nextjs.nextjsCache.revalidationTable.tableName,
+      key: "RevalidationTableName",
+    });
   }
 }
 

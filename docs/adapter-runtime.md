@@ -85,7 +85,12 @@ server.mts                               @next/routing             static file
   registered as `cacheHandlers`): `default` keeps entries in memory, `remote`
   in S3 with memory in front, and both read tag revalidations from the same
   DynamoDB marker rows as the cache handler (`src/adapter/aws-cache-store.ts`
-  is the plumbing all three share).
+  is the plumbing all three share). Past a tag's first read they learn about
+  revalidations from the revalidation log (`RevalidationLog`, `pk =
+<buildId>#log`): one `Query` per refresh interval instead of re-reading every
+  tracked marker. The cache handler's own marker cache (`readTagMarkers`, 1 s,
+  `CDK_NEXTJS_TAG_MARKER_TTL_MS`) still re-reads markers, and is the next
+  candidate for the same log.
 
 ### Invariants worth not breaking
 
