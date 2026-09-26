@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "k6"
+    ],
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "**/*.ts"
+  ]
+}

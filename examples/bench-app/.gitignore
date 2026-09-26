@@ -1,0 +1,4 @@
+/node_modules
+/.next/
+/*.Dockerfile
+next-env.d.ts
