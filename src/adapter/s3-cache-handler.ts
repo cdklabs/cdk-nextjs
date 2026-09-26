@@ -257,6 +257,22 @@ const MAX_TAG_QUERY_PAGES = 20;
 const BATCH_GET_MAX_KEYS = 100;
 
 /**
+ * How long one instance trusts a tag marker it read, unless
+ * `CDK_NEXTJS_TAG_MARKER_TTL_MS` says otherwise. Every cache hit checks its tags'
+ * markers, and every marker of a deployment shares one partition key, so
+ * reading them per request capped a route's cache hits at the partition's read
+ * throughput (~1,900 req/s on NextjsRegionalFunctions). Held for a second, the
+ * reads scale with instances and tags instead of requests; the cost is that a
+ * `revalidateTag` another instance ran reaches this one up to a second late.
+ */
+const DEFAULT_TAG_MARKER_TTL_MS = 1000;
+
+/** Past this many cached markers, expired ones are swept on the next read. */
+const TAG_MARKER_CACHE_SWEEP_SIZE = 1000;
+
+type TagMarker = Record<string, AttributeValue> | undefined;
+
+/**
  * Next.js's in-process tag manifest, which `IncrementalCache.get` consults to
  * decide whether an entry is stale - or `undefined` when it cannot be found
  * unambiguously.
@@ -349,6 +365,13 @@ interface DynamoDBRevalidationConfig {
   tableName: string;
   region: string;
   buildId: string;
+  /**
+   * How long a tag's marker row, once read, answers every revalidation check
+   * on this instance without reading DynamoDB again. `0` reads it on every
+   * check. From `CDK_NEXTJS_TAG_MARKER_TTL_MS`.
+   * @see readTagMarkers
+   */
+  markerTtlMs: number;
 }
 
 interface CloudFrontInvalidationConfig {
@@ -394,6 +417,16 @@ export class S3CacheHandler implements CacheHandler {
   // resolved, since a deployment's distribution ID never changes at runtime.
   private cachedDistributionId: string | null = null;
 
+  /**
+   * Tag markers by tag, each the read that fetched it, so concurrent checks
+   * share one `BatchGetItem` rather than each sending their own.
+   * @see readTagMarkers
+   */
+  private tagMarkers = new Map<
+    string,
+    { expiresAt: number; marker: Promise<TagMarker> }
+  >();
+
   constructor(options: S3CacheHandlerOptions) {
     const buildId = process.env.CDK_NEXTJS_BUILD_ID || "";
 
@@ -416,6 +449,9 @@ export class S3CacheHandler implements CacheHandler {
       region:
         options.dynamoConfig?.region || process.env.AWS_REGION || "us-east-1",
       buildId: options.dynamoConfig?.buildId || buildId,
+      markerTtlMs:
+        options.dynamoConfig?.markerTtlMs ??
+        tagMarkerTtl(process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS),
     };
 
     // Initialize CloudFront configuration from environment variables and options.
@@ -762,6 +798,9 @@ export class S3CacheHandler implements CacheHandler {
         ...markerUpdate(now, durations),
       }),
     );
+    // After the write, not before: a check between the two would cache the
+    // marker as it was.
+    this.tagMarkers.delete(tag);
 
     if (!this.mapsTagsToPaths) {
       return { routes: [], truncated: false };
@@ -1218,17 +1257,75 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
-   * The marker rows for `tags` that exist, by tag, in one `BatchGetItem` per
+   * The marker rows for `tags` that exist, by tag. A marker read within the
+   * last {@link DynamoDBRevalidationConfig.markerTtlMs} is answered from this
+   * instance's memory, a read still in flight is joined, and the rest are read
+   * together (see {@link fetchTagMarkers}). `revalidateTag` drops the markers
+   * it writes, so the instance that ran it sees its own revalidation at once.
+   */
+  private async readTagMarkers(
+    tags: string[],
+  ): Promise<Map<string, Record<string, AttributeValue>>> {
+    const unique = Array.from(new Set(tags));
+    const ttl = this.dynamoConfig.markerTtlMs;
+    if (ttl <= 0) {
+      return this.fetchTagMarkers(unique);
+    }
+
+    const now = Date.now();
+    if (this.tagMarkers.size > TAG_MARKER_CACHE_SWEEP_SIZE) {
+      for (const [tag, cached] of this.tagMarkers) {
+        if (cached.expiresAt <= now) {
+          this.tagMarkers.delete(tag);
+        }
+      }
+    }
+    const missing = unique.filter(
+      (tag) => !((this.tagMarkers.get(tag)?.expiresAt ?? 0) > now),
+    );
+    if (missing.length > 0) {
+      const read = this.fetchTagMarkers(missing);
+      // Measured from when the read was sent, so a slow read is trusted no
+      // longer than a fast one.
+      const expiresAt = now + ttl;
+      for (const tag of missing) {
+        const marker = read.then((markers) => markers.get(tag));
+        this.tagMarkers.set(tag, { expiresAt, marker });
+        // A failed read is not an answer: forget it, so the next check asks
+        // again. Only if it is still this read's entry, not a newer one.
+        marker.catch(() => {
+          if (this.tagMarkers.get(tag)?.marker === marker) {
+            this.tagMarkers.delete(tag);
+          }
+        });
+      }
+    }
+
+    const markers = new Map<string, Record<string, AttributeValue>>();
+    const entries = await Promise.all(
+      unique.map(
+        async (tag) => [tag, await this.tagMarkers.get(tag)!.marker] as const,
+      ),
+    );
+    for (const [tag, marker] of entries) {
+      if (marker) {
+        markers.set(tag, marker);
+      }
+    }
+    return markers;
+  }
+
+  /**
+   * Read the marker rows for `tags` from DynamoDB, in one `BatchGetItem` per
    * {@link BATCH_GET_MAX_KEYS} tags rather than a `GetItem` each: a page
    * carries its whole implicit `_N_T_/…` chain plus the app's own tags, a
    * page with a few fetches checks each of them too, and every one is on the
    * request path.
    */
-  private async readTagMarkers(
-    tags: string[],
+  private async fetchTagMarkers(
+    unique: string[],
   ): Promise<Map<string, Record<string, AttributeValue>>> {
     const { tableName, buildId } = this.dynamoConfig;
-    const unique = Array.from(new Set(tags));
     const markers = new Map<string, Record<string, AttributeValue>>();
 
     for (let i = 0; i < unique.length; i += BATCH_GET_MAX_KEYS) {
@@ -1265,4 +1362,13 @@ export class S3CacheHandler implements CacheHandler {
     }
     return markers;
   }
+}
+
+/**
+ * `CDK_NEXTJS_TAG_MARKER_TTL_MS` as a TTL, or the default when it is unset or
+ * not a non-negative number.
+ */
+function tagMarkerTtl(value: string | undefined): number {
+  const ttl = value === undefined || value === "" ? NaN : Number(value);
+  return Number.isFinite(ttl) && ttl >= 0 ? ttl : DEFAULT_TAG_MARKER_TTL_MS;
 }

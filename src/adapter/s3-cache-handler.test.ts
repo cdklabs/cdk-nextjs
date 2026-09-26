@@ -242,6 +242,11 @@ describe("S3DynamoCacheHandler", () => {
         kind: IncrementalCacheKind.APP_PAGE,
         isFallback: false,
       } as const;
+      // Each step below changes the markers DynamoDB holds; read them afresh.
+      handler = new S3CacheHandler({
+        context: mockContext,
+        dynamoConfig: { markerTtlMs: 0 },
+      });
 
       // No marker at all: the tag was never revalidated.
       dynamoResponses({});
@@ -532,6 +537,129 @@ describe("S3DynamoCacheHandler", () => {
         isFallback: false,
       });
       expect(result).toBeNull();
+    });
+  });
+
+  describe("tag marker cache", () => {
+    // Every cache hit checks its tags' markers, and all of a deployment's
+    // markers share one partition key: read per request, they capped a route's
+    // cache hits at ~1,900 req/s. Each instance holds them for a second.
+    const lastModified = Date.now() - 60_000;
+    const stored = {
+      lastModified,
+      value: {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>cached</html>",
+        headers: { "x-next-cache-tags": "_N_T_/page,posts" },
+      },
+    };
+    const getCtx = {
+      kind: IncrementalCacheKind.APP_PAGE,
+      isFallback: false,
+    } as const;
+    const markerReads = () =>
+      mockDynamoSend.mock.calls.filter(
+        ([command]) => command instanceof BatchGetItemCommand,
+      ).length;
+    // What `get` answers for a revalidated page: expired, not a miss.
+    const expired = { lastModified: -1 };
+    const revalidatedAfterStore = {
+      get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
+    };
+
+    beforeEach(() => {
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: jest
+                    .fn()
+                    .mockResolvedValue(JSON.stringify(stored)),
+                },
+                ContentType: "application/json",
+              }
+            : {},
+        ),
+      );
+      dynamoResponses({});
+    });
+
+    it("answers checks within the TTL from the markers it already read", async () => {
+      await handler.get("page", getCtx);
+      await handler.get("page", getCtx);
+
+      expect(markerReads()).toBe(1);
+    });
+
+    it("reads the markers again once the TTL has passed", async () => {
+      const now = Date.now();
+      const clock = jest.spyOn(Date, "now").mockReturnValue(now);
+      await handler.get("page", getCtx);
+      clock.mockReturnValue(now + 1001);
+      dynamoResponses(revalidatedAfterStore);
+
+      expect(await handler.get("page", getCtx)).toMatchObject(expired);
+      expect(markerReads()).toBe(2);
+    });
+
+    it("shares one read between concurrent checks", async () => {
+      await Promise.all([
+        handler.get("page", getCtx),
+        handler.get("page", getCtx),
+        handler.get("page", getCtx),
+      ]);
+
+      expect(markerReads()).toBe(1);
+    });
+
+    it("sees its own revalidateTag at once", async () => {
+      expect(await handler.get("page", getCtx)).toMatchObject({ lastModified });
+
+      dynamoResponses(revalidatedAfterStore);
+      await handler.revalidateTag("posts");
+
+      expect(await handler.get("page", getCtx)).toMatchObject(expired);
+    });
+
+    it("doesn't keep a failed read", async () => {
+      jest.spyOn(console, "error").mockImplementation();
+      mockDynamoSend.mockImplementation((command: unknown) =>
+        command instanceof BatchGetItemCommand
+          ? Promise.reject(new Error("throttled"))
+          : Promise.resolve({}),
+      );
+      // A failed check keeps the entry, as it did before the cache.
+      expect(await handler.get("page", getCtx)).toMatchObject({ lastModified });
+
+      dynamoResponses(revalidatedAfterStore);
+      expect(await handler.get("page", getCtx)).toMatchObject(expired);
+    });
+
+    it("reads on every check with CDK_NEXTJS_TAG_MARKER_TTL_MS=0", async () => {
+      process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS = "0";
+      handler = new S3CacheHandler({ context: mockContext });
+      try {
+        await handler.get("page", getCtx);
+        await handler.get("page", getCtx);
+      } finally {
+        delete process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS;
+      }
+
+      expect(markerReads()).toBe(2);
+    });
+
+    it("keeps the default for a CDK_NEXTJS_TAG_MARKER_TTL_MS that isn't a duration", async () => {
+      process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS = "soon";
+      handler = new S3CacheHandler({ context: mockContext });
+      try {
+        await handler.get("page", getCtx);
+        await handler.get("page", getCtx);
+      } finally {
+        delete process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS;
+      }
+
+      expect(markerReads()).toBe(1);
     });
   });
 
