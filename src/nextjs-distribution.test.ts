@@ -738,12 +738,23 @@ describe("the viewer-request CloudFront Function", () => {
   });
 
   it("keeps the query on the redirect, including repeated keys", () => {
+    // CloudFront's shape for a repeated key: `multiValue` holds every value,
+    // the first included, and `value` repeats that first one.
     const result = send("/x//y", {
       json: { value: "true" },
-      a: { value: "1", multiValue: [{ value: "2" }] },
+      a: { value: "1", multiValue: [{ value: "1" }, { value: "2" }] },
       flag: { value: "" },
     });
     expect(redirect(result).location).toBe("/x/y?json=true&a=1&a=2&flag");
+  });
+
+  it("passes percent-encoded query values through without re-encoding", () => {
+    // CloudFront hands the function the values still encoded, as sent.
+    const result = send("/x//y", {
+      a: { value: "%20b%26c" },
+      p: { value: "1+2" },
+    });
+    expect(redirect(result).location).toBe("/x/y?a=%20b%26c&p=1+2");
   });
 
   it("passes an ordinary path through with x-forwarded-host set", () => {

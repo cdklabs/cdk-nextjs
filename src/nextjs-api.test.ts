@@ -358,6 +358,80 @@ describe("NextjsApi", () => {
       expect(anyTargets("reports")).toEqual(["ServerFn"]);
       expect(anyTargets("export")).toEqual(["GroupFn"]);
     });
+
+    function createGroupedApi(hasDataRoutes: boolean) {
+      new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+        hasDataRoutes,
+        functionGroups: [
+          {
+            name: "reports",
+            routes: ["/reports/**", "/docs/intro"],
+            function: new LambdaFunction(stack, "GroupFn", {
+              runtime: Runtime.NODEJS_22_X,
+              handler: "index.handler",
+              code: Code.fromInline("exports.handler = async () => {};"),
+            }),
+          },
+        ],
+      });
+    }
+
+    /** Every resource path in the API, e.g. `/_next/data/{buildId}/x.json`. */
+    function resourcePaths(): string[] {
+      const resources = Template.fromStack(stack).findResources(
+        "AWS::ApiGateway::Resource",
+      );
+      const pathOf = (id: string): string => {
+        const { ParentId, PathPart } = resources[id].Properties;
+        const parent = ParentId.Ref;
+        return parent && resources[parent]
+          ? `${pathOf(parent)}/${PathPart}`
+          : `/${PathPart}`;
+      };
+      return Object.keys(resources).map(pathOf).sort();
+    }
+
+    it("routes a group's Pages Router data URLs to it too", () => {
+      createGroupedApi(true);
+
+      const paths = resourcePaths();
+      expect(paths).toContain("/_next/data/{buildId}/reports/{proxy+}");
+      expect(paths).toContain("/_next/data/{buildId}/docs/intro.json");
+      expect(anyTargets("intro.json")).toEqual(["GroupFn"]);
+      // A methodless parent answers 403, so the data prefix needs the default.
+      expect(anyTargets("{buildId}")).toEqual(["ServerFn"]);
+    });
+
+    it("adds no data routes for an app without Pages Router routes", () => {
+      createGroupedApi(false);
+
+      expect(
+        resourcePaths().filter((path) => path.startsWith("/_next/data")),
+      ).toEqual([]);
+    });
+
+    it("grants each function one API-scoped permission, not two per method", () => {
+      // Per-method permissions put two statements in the function's resource
+      // policy for every `ANY`, which outgrows Lambda's 20 KB cap.
+      createGroupedApi(true);
+
+      const permissions = Object.values(
+        Template.fromStack(stack).findResources("AWS::Lambda::Permission"),
+      );
+      expect(permissions).toHaveLength(2);
+      for (const permission of permissions) {
+        const sourceArn = JSON.stringify(permission.Properties.SourceArn);
+        expect(sourceArn).toContain(":execute-api:");
+        expect(sourceArn).toContain("/*/*/*");
+      }
+    });
   });
 
   it("names the group and pattern API Gateway cannot route", () => {

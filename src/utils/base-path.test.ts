@@ -496,6 +496,33 @@ describe("resolveBasePath", () => {
       ).toThrow(/nests every API Gateway resource under that path/);
     });
 
+    // Any other leading prefix is served at `/prod/base/...` while the app
+    // links to `/foo/base/...`, so only the stripped prefix itself qualifies.
+    it("only accepts the stripped prefix in front of the prop", () => {
+      expect(() => resolveBasePath(RF, "/base", "/foo/base")).toThrow(
+        /nests every API Gateway resource under that path/,
+      );
+      expect(() => resolveBasePath(RF, "/base", "/prod/x/base")).toThrow(
+        /nests every API Gateway resource under that path/,
+      );
+      expect(resolveBasePath(RF, "/docs", "/app/docs", domain("app"))).toBe(
+        "docs",
+      );
+      expect(() =>
+        resolveBasePath(RF, "/docs", "/prod/docs", domain("app")),
+      ).toThrow(/nests every API Gateway resource under that path/);
+      // A custom domain mapped at the root strips nothing, so only equality works.
+      expect(() => resolveBasePath(RF, "/docs", "/v1/docs", domain())).toThrow(
+        /nests every API Gateway resource under that path/,
+      );
+    });
+
+    it("falls back to a trailing segment when the stage is a token", () => {
+      expect(
+        resolveBasePath(RF, "/base", "/foo/base", { customDomain: false }),
+      ).toBe("base");
+    });
+
     // Agreeing with the app is not enough when the value starts with the stage:
     // resources under "prod" are only reached at "/prod/prod/...".
     it("rejects a prop equal to an app basePath that starts with the stage", () => {
@@ -512,12 +539,26 @@ describe("resolveBasePath", () => {
 
     it("accepts a matching prop and app basePath nothing strips", () => {
       expect(resolveBasePath(RF, "/docs", "/docs", domain())).toBe("docs");
-      expect(resolveBasePath(RF, "/production", "/production")).toBe(
-        "production",
-      );
       expect(
         resolveBasePath(RF, "/prod", "/prod", { customDomain: false }),
       ).toBe("prod");
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    // Matching the app is the unset case's problem again when a stage or
+    // mapping is stripped that the app's basePath lacks, so it warns the same.
+    it("warns when a matching prop and app basePath lack the stage", () => {
+      expect(resolveBasePath(RF, "/production", "/production")).toBe(
+        "production",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Set `basePath: "/prod/production"`'),
+      );
+      warn.mockClear();
+      expect(resolveBasePath(RF, "/docs", "/docs", domain("v1"))).toBe("docs");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Set `basePath: "/v1/docs"`'),
+      );
     });
 
     // The reverse is never right: the prop nests every resource, including the

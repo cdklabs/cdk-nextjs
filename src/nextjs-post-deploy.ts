@@ -102,8 +102,10 @@ export interface PostDeployCustomResourceProperties {
   readonly msTtl: string;
   readonly staticAssetsBucketName?: string;
   /**
-   * S3 key prefix to scope static asset pruning to. Empty or absent prunes the
-   * whole bucket.
+   * S3 key prefix to scope static asset pruning to. Only `<prefix>/_next/` is
+   * pruned, where every build-hashed asset lives, so `public/` files and other
+   * apps' prefixes are never touched. Empty or absent prunes `_next/` at the
+   * bucket root.
    */
   readonly staticAssetsKeyPrefix?: string;
 }

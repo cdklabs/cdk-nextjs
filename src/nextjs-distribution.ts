@@ -308,17 +308,21 @@ export class NextjsDistribution extends Construct {
             //   \`/x//y?a=1&b=2\` redirects to \`/x/y?b=2&a=1\`. The pairs all
             //   survive; only their order is CloudFront's rather than the
             //   client's, and a redirect target is not order-sensitive.
+            //
+            // A repeated key's \`multiValue\` already holds its first value, which
+            // \`value\` repeats, so it is one or the other, never both. Names and
+            // values arrive as the client sent them, still percent-encoded
+            // (measured: \`?a=%20b%26c&p=1+2\` reads back unchanged), so they are
+            // joined as-is; encoding them again would turn \`%20\` into \`%2520\`.
             if (/\\\\|\\/\\//.test(uri)) {
               var location = uri.replace(/\\\\/g, "/").replace(/\\/\\/+/g, "/");
               var qs = [];
               for (var name in request.querystring) {
                 var q = request.querystring[name];
-                qs.push(q.value === "" ? name : name + "=" + q.value);
-                if (q.multiValue) {
-                  for (var i = 0; i < q.multiValue.length; i++) {
-                    var v = q.multiValue[i].value;
-                    qs.push(v === "" ? name : name + "=" + v);
-                  }
+                var values = q.multiValue || [q];
+                for (var i = 0; i < values.length; i++) {
+                  var v = values[i].value;
+                  qs.push(v === "" ? name : name + "=" + v);
                 }
               }
               if (qs.length) {

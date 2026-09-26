@@ -267,7 +267,27 @@ function deriveApiGatewayBasePath(
   if (stripped && (config === stripped || config.startsWith(`${stripped}/`))) {
     return config.slice(stripped.length + 1) || undefined;
   }
-  if (customDomain && stripped) {
+  warnUnstrippedBasePath(config, { strippedPrefix, customDomain });
+  return config;
+}
+
+/**
+ * Warn that an app mounted under its whole `basePath` is served somewhere its
+ * own links don't reach, when API Gateway strips a prefix that `basePath` lacks.
+ * Both ways of arriving there warn: the prop left unset (derived to the whole
+ * `basePath`) and the prop set to the same value.
+ */
+function warnUnstrippedBasePath(
+  config: string,
+  { strippedPrefix, customDomain }: ApiGatewayPrefix,
+): void {
+  const stripped = normalizeBasePath(strippedPrefix);
+  if (strippedPrefix === undefined || !stripped) {
+    // A token, or a custom domain mapped at the root: nothing is stripped that
+    // the app's links could miss.
+    return;
+  }
+  if (customDomain) {
     // The same miss through a custom domain's base path mapping: served at
     // `/<mapping>/<basePath>`, linking to `/<basePath>/...`, which no mapping
     // covers.
@@ -276,7 +296,7 @@ function deriveApiGatewayBasePath(
         "Its links and bundle URLs will be requested without the mapping, which the custom domain answers with 403. " +
         `Set \`basePath: "/${joinPath(stripped, config)}"\` in your next.config, or map the domain at the root.`,
     );
-  } else if (!customDomain) {
+  } else {
     // Resources under the app's basePath serve it at `/<stage>/<basePath>`, but
     // the app's own links are `/<basePath>/...`, which misses the stage. A
     // warning, not an error: a domain attached after synth (`addDomainName`)
@@ -287,7 +307,6 @@ function deriveApiGatewayBasePath(
         `Set \`basePath: "/${joinPath(stripped, config)}"\` in your next.config, or serve the app from a custom domain mapped at the root.`,
     );
   }
-  return config;
 }
 
 /** Whether API Gateway strips the front of `basePath` before matching resources. */
@@ -348,6 +367,12 @@ export function resolveBasePath(
           "Leave the prop unset: it is derived from your app's `basePath` with that prefix taken off.",
       );
     }
+    if (nextjsType === NextjsType.REGIONAL_FUNCTIONS && prop) {
+      // Agreeing the other way round has the unset case's problem: resources
+      // under "docs" are reached at `/prod/docs/...`, the app links to
+      // `/docs/...`.
+      warnUnstrippedBasePath(config, apiGateway);
+    }
     return prop || undefined;
   }
 
@@ -374,9 +399,16 @@ export function resolveBasePath(
       // The prop only has to be the tail of what the app emits, not all of it,
       // because the stripped prefix is part of the app's `basePath` but never
       // part of the resource path: an app at the `prod` stage nested under
-      // "/base" sets `basePath: "/prod/base"` and the prop to "/base". Checked
-      // on a path boundary so "/prod/base" doesn't accept a prop of "se".
-      if (config.endsWith(`/${prop}`)) {
+      // "/base" sets `basePath: "/prod/base"` and the prop to "/base". Exactly
+      // the stripped prefix and then the prop, not any tail: with a prop of
+      // "/base" an app at "/foo/base" is served at `/prod/base/...` and links
+      // to `/foo/base/...`, which 403s. Only a token stage, which synth can't
+      // read, falls back to a tail on a path boundary.
+      if (
+        apiGateway.strippedPrefix === undefined
+          ? config.endsWith(`/${prop}`)
+          : config === joinPath(apiGateway.strippedPrefix, prop)
+      ) {
         return prop;
       }
       // Anything else never works: the prop moves every resource, including the
@@ -384,7 +416,7 @@ export function resolveBasePath(
       throw new Error(
         mismatch +
           "The `basePath` prop nests every API Gateway resource under that path, including the catch-all, so the app has to emit its links under the same prefix or every request 404s. " +
-          'Either set your app\'s `basePath` to end with the prop (optionally prefixed by the stage or base path mapping API Gateway strips, e.g. `basePath: "/prod/base"` with a prop of "/base"), or leave the prop unset — unset is what you want when the app\'s `basePath` is the API Gateway stage name, since the stage isn\'t part of the resource path.',
+          'Either set your app\'s `basePath` to the prop, or to the prop prefixed by the stage or base path mapping API Gateway strips (e.g. `basePath: "/prod/base"` with a prop of "/base"), or leave the prop unset — unset is what you want when the app\'s `basePath` is the API Gateway stage name, since the stage isn\'t part of the resource path.',
       );
     case NextjsType.REGIONAL_CONTAINERS:
       // The ALB forwards every path to the container, which serves its own

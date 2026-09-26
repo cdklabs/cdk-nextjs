@@ -1,7 +1,9 @@
-import { execSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { execFileSync, execSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import {
+  Dirent,
   existsSync,
+  lstatSync,
   readFileSync,
   readdirSync,
   writeFileSync,
@@ -51,10 +53,13 @@ import { getNodeArchitecture } from "../utils/get-architecture";
 const LAMBDA_UNZIPPED_LIMIT_BYTES = 250 * 1024 * 1024;
 
 /**
- * First line of a client chunk that `patchFetchInClientJs` has already
- * prepended to, so a second synth over the same `.next` is a no-op.
+ * Opens the patch `patchFetchInClientJs` prepends to a client chunk, followed by
+ * a hash of the patch itself, so a second synth over the same `.next` is a no-op
+ * while one by a cdk-nextjs with a different `patch-fetch.js` replaces it.
  */
-const PATCH_FETCH_MARKER = "/* cdk-nextjs:patch-fetch */";
+const PATCH_FETCH_MARKER = "/* cdk-nextjs:patch-fetch";
+/** Closes the prepended patch; the chunk's own content starts after it. */
+const PATCH_FETCH_END_MARKER = "/* cdk-nextjs:patch-fetch:end */";
 
 const debug = getDebug("cdk-nextjs:nextjs-build");
 
@@ -246,6 +251,11 @@ export class NextjsBuild extends Construct {
       debug(`${LOG_PREFIX} Skipping: ${this.buildCommand}`);
     }
 
+    // First, before anything else reads `.next`: a missing manifest is the one
+    // error that names the cause (no build, or one without the adapter), where
+    // every later read fails with a bare ENOENT.
+    const manifest = this.readAdapterManifest();
+
     // Deliberately outside the `skipBuild` gate. The patch is a property of
     // *serving* through CloudFront, not of who ran `next build`: without it
     // every POST with a body is rejected by the Lambda Function URL before it
@@ -268,7 +278,6 @@ export class NextjsBuild extends Construct {
       props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
       props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
 
-    const manifest = this.readAdapterManifest();
     this.relativeProjectDir = manifest.relativeProjectDir;
     this.relativePathToEntrypoint = joinPosix(RUNTIME_DIR_NAME, "server.mjs");
     this.hasDataRoutes = Object.values(manifest.entrypoints).some(
@@ -292,6 +301,7 @@ export class NextjsBuild extends Construct {
       // so every root gets the binaries.
       const sharpSource = this.removeExistingSharpBinaries(root.path);
       this.installSharpBinariesForTarget(
+        root.path,
         sharpSource,
         isFunctions ? "linux" : "linuxmusl",
       );
@@ -383,7 +393,7 @@ export class NextjsBuild extends Construct {
    * the tree on disk is smaller than the function Lambda unpacks.
    */
   private assertUnderLambdaLimit(root: NextjsDeploymentRoot): void {
-    const bytes = this.dereferencedSize(root.path);
+    const bytes = dereferencedSize(root.path);
     debug(
       `${LOG_PREFIX} Deployment root "${root.name}" is ${(bytes / 1e6).toFixed(1)} MB unzipped`,
     );
@@ -404,51 +414,6 @@ export class NextjsBuild extends Construct {
             `anything reachable from a shared layout or the \`next\` runtime is ` +
             `in every group.`),
     );
-  }
-
-  /**
-   * Total bytes of a tree with symlinks followed, as zipping it would see it.
-   *
-   * `visited` holds the *resolved* path of every directory already counted, which
-   * is what bounds the recursion. Following a symlinked directory is the point of
-   * this walk, and two workspace packages that link each other
-   * (`packages/a/node_modules/@org/b` → `../../b` and the reverse, which is how
-   * pnpm wires a monorepo) are a cycle: without the set, `assertUnderLambdaLimit`
-   * either hangs or blows the stack at synth. Keying on the real path also means a
-   * directory reached through two different links is counted once rather than
-   * twice, which is what the zip contains.
-   */
-  private dereferencedSize(path: string, visited = new Set<string>()): number {
-    let bytes = 0;
-    try {
-      const real = realpathSync(path);
-      if (visited.has(real)) {
-        return 0;
-      }
-      visited.add(real);
-    } catch {
-      return 0;
-    }
-    for (const entry of readdirSync(path, {
-      recursive: true,
-      withFileTypes: true,
-    })) {
-      const full = join(entry.parentPath, entry.name);
-      if (entry.isDirectory()) {
-        continue;
-      }
-      try {
-        // `statSync` follows links, which is the point; a dangling one is
-        // skipped rather than thrown on, since it contributes nothing to the zip.
-        const stats = statSync(full);
-        bytes += stats.isDirectory()
-          ? this.dereferencedSize(full, visited)
-          : stats.size;
-      } catch {
-        continue;
-      }
-    }
-    return bytes;
   }
 
   /**
@@ -670,13 +635,15 @@ export class NextjsBuild extends Construct {
     // deploy), and prepending twice would re-wrap the wrappers.
     for (const chunkFile of chunkFiles) {
       const chunkFilePath = join(staticChunksPath, chunkFile);
-      const originalContent = readFileSync(chunkFilePath, "utf-8");
-      if (originalContent.startsWith(PATCH_FETCH_MARKER)) {
+      const patchedContent = patchClientChunk(
+        readFileSync(chunkFilePath, "utf-8"),
+        patchFetchContent,
+        chunkFilePath,
+      );
+      if (patchedContent === undefined) {
         debug(`${LOG_PREFIX} Already patched, skipping: ${chunkFilePath}`);
         continue;
       }
-      const patchedContent =
-        PATCH_FETCH_MARKER + "\n" + patchFetchContent + "\n" + originalContent;
       writeFileSync(chunkFilePath, patchedContent);
     }
   }
@@ -783,11 +750,11 @@ export class NextjsBuild extends Construct {
     const sharpCandidates: string[] = [];
 
     try {
-      // Use recursive readdirSync to find all Sharp binary directories and symlinks
-      const allEntries = readdirSync(root, {
-        recursive: true,
-        withFileTypes: true,
-      });
+      // Links are listed, not followed: every link in a staged root points
+      // inside it (`stageFiles` copies the ones that don't), so its target is
+      // walked at its own path anyway, and following them is what let a
+      // workspace cycle hang the synth.
+      const allEntries = listTree(root);
 
       // Symlinks are unlinked, not `rmSync`ed, and they go first. pnpm points
       // several links at one store directory, and `rmSync(…, { recursive: true,
@@ -808,7 +775,6 @@ export class NextjsBuild extends Construct {
           continue;
         }
         if (!isSharpBinaryPackage(entry.parentPath, entry.name)) continue;
-        // For recursive readdirSync, parentPath contains the full absolute path
         const fullPath = join(entry.parentPath, entry.name);
         if (entry.isSymbolicLink()) {
           symlinks.push(fullPath);
@@ -851,18 +817,16 @@ export class NextjsBuild extends Construct {
 
   /**
    * Install the `sharp` platform binaries the deployment target needs into the
-   * staged tree.
+   * staged tree, at {@link sharpBinaryDir}.
    *
-   * They go next to the staged `sharp` package rather than at the top of the
-   * tree, because that is the first place Node looks from `sharp`'s own
-   * `require("@img/sharp-<platform>")` under every installer layout: a sibling
-   * `@img` inside `node_modules/.pnpm/sharp@x/node_modules/` for pnpm, and
-   * `node_modules/@img/` for a hoisted install.
-   *
+   * @param root the deployment root.
+   * @param sharpSource the staged `sharp` package, whose manifest pins the
+   * binary versions.
    * @param libc `"linux"` (glibc, the Lambda managed runtime) or `"linuxmusl"`
    * (Alpine, the container images).
    */
   private installSharpBinariesForTarget(
+    root: string,
     sharpSource: string | undefined,
     libc: "linux" | "linuxmusl",
   ): void {
@@ -874,7 +838,7 @@ export class NextjsBuild extends Construct {
     }
 
     this.installSharpPackages(
-      join(sharpSource, "..", "@img"),
+      sharpBinaryDir(root),
       this.getSharpBinaryPackages(
         sharpSource,
         `${libc}-${getNodeArchitecture()}`,
@@ -969,8 +933,19 @@ export class NextjsBuild extends Construct {
             // --fail makes curl exit non-zero on HTTP errors and --retry
             // handles transient connection drops so a partial transfer
             // isn't cached as valid.
-            execSync(
-              `curl -L --fail --retry 3 --retry-delay 1 -o "${tempFile}" "${url}"`,
+            execFileSync(
+              "curl",
+              [
+                "-L",
+                "--fail",
+                "--retry",
+                "3",
+                "--retry-delay",
+                "1",
+                "-o",
+                tempFile,
+                url,
+              ],
               { stdio: "pipe" },
             );
 
@@ -993,8 +968,9 @@ export class NextjsBuild extends Construct {
         }
 
         mkdirSync(targetDir, { recursive: true });
-        execSync(
-          `tar -xzf "${cachedFile}" -C "${targetDir}" --strip-components=1`,
+        execFileSync(
+          "tar",
+          ["-xzf", cachedFile, "-C", targetDir, "--strip-components=1"],
           { stdio: "pipe" },
         );
 
@@ -1065,4 +1041,128 @@ function isSharpBinaryPackage(parentPath: string, name: string): boolean {
     (parent === "@img" && name.startsWith("sharp-")) ||
     (parent === ".pnpm" && name.startsWith("@img+sharp-"));
   return scoped && segments.includes("node_modules");
+}
+
+/**
+ * Where the target's `@img/sharp-*` binaries go: `<root>/node_modules/@img`.
+ *
+ * Not next to the staged `sharp` package. Under pnpm that is
+ * `node_modules/.pnpm/sharp@x/node_modules/@img`, which only the store copy of
+ * `sharp` resolves from, and the Functions zip dereferences symlinks
+ * (`cdk-assets` zips with `followSymbolicLinks`): every link to `sharp` —
+ * `app/node_modules/sharp`, `.pnpm/next@y/node_modules/sharp` — becomes a copy
+ * that looks for `@img` from its own path and walks up, never into the store.
+ * The root `node_modules` is on every one of those walks, and on the store
+ * copy's too (which is what Containers, whose `COPY` keeps the links, load), so
+ * it serves every layout. It is also where main installed them.
+ */
+export function sharpBinaryDir(root: string): string {
+  return join(root, "node_modules", "@img");
+}
+
+/**
+ * Every entry under `root`, links listed but not followed.
+ *
+ * An explicit walk rather than `readdirSync({ recursive: true })`, which on
+ * Node 24 descends into symlinked directories itself and so never returns on a
+ * cycle — two workspace packages that link each other, which is how pnpm wires a
+ * monorepo.
+ */
+export function listTree(root: string): Dirent[] {
+  const entries: Dirent[] = [];
+  const pending = [root];
+  for (let dir = pending.pop(); dir !== undefined; dir = pending.pop()) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      entries.push(entry);
+      if (entry.isDirectory()) {
+        pending.push(join(dir, entry.name));
+      }
+    }
+  }
+  return entries;
+}
+
+/**
+ * Total bytes of a tree with symlinks followed, as zipping it would see it.
+ *
+ * `cdk-assets` zips a Functions asset with `followSymbolicLinks`, so every link
+ * to a directory becomes a full copy at the link's path: two links to one pnpm
+ * store package are that package twice in the zip, and are counted twice here.
+ * What bounds the walk is `ancestors`, the resolved paths of the directories
+ * the *current* path is inside. A link back to one of them is a cycle (two
+ * workspace packages linking each other), which would otherwise hang the synth
+ * or blow the stack, and contributes nothing more. Keying on ancestors rather
+ * than on every directory seen is what keeps the second link's copy counted:
+ * the zip has it, so Lambda's 250 MB cap does too.
+ *
+ * A dangling link, or anything that cannot be read, is skipped rather than
+ * thrown on, since it contributes nothing to the zip.
+ */
+export function dereferencedSize(
+  path: string,
+  ancestors: ReadonlySet<string> = new Set(),
+): number {
+  let real: string;
+  let entries: Dirent[];
+  try {
+    real = realpathSync(path);
+    if (ancestors.has(real)) {
+      return 0;
+    }
+    entries = readdirSync(path, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  const inside = new Set(ancestors).add(real);
+  let bytes = 0;
+  for (const entry of entries) {
+    const full = join(path, entry.name);
+    try {
+      // `statSync` follows links, which is the point.
+      const stats = entry.isSymbolicLink() ? statSync(full) : lstatSync(full);
+      bytes += stats.isDirectory()
+        ? dereferencedSize(full, inside)
+        : stats.size;
+    } catch {
+      continue;
+    }
+  }
+  return bytes;
+}
+
+/**
+ * `chunk` with `patch` prepended between `PATCH_FETCH_MARKER` and
+ * `PATCH_FETCH_END_MARKER`, or `undefined` when it already carries this exact
+ * patch.
+ *
+ * The opening marker carries a hash of the patch, so a chunk patched by a
+ * cdk-nextjs whose `patch-fetch.js` differs (an upgrade, over a `.next` reused
+ * with `skipBuild: true`) is not mistaken for current: the old patch is cut off
+ * at its end marker and this one put in its place, rather than the old one
+ * shipping or both stacking up.
+ */
+export function patchClientChunk(
+  chunk: string,
+  patch: string,
+  chunkPath: string,
+): string | undefined {
+  const hash = createHash("sha256").update(patch).digest("hex").slice(0, 16);
+  const open = `${PATCH_FETCH_MARKER} ${hash} */`;
+  if (chunk.startsWith(`${open}\n`)) {
+    return undefined;
+  }
+  let original = chunk;
+  if (chunk.startsWith(PATCH_FETCH_MARKER)) {
+    const end = chunk.indexOf(`\n${PATCH_FETCH_END_MARKER}\n`);
+    if (end === -1) {
+      // Only a pre-release cdk-nextjs wrote the marker without an end, and
+      // where its patch stops cannot be told from the chunk's own code.
+      throw new Error(
+        `${LOG_PREFIX} ${chunkPath} carries a cdk-nextjs fetch patch this ` +
+          `version cannot replace. Re-run \`next build\` to regenerate it.`,
+      );
+    }
+    original = chunk.slice(end + PATCH_FETCH_END_MARKER.length + 2);
+  }
+  return `${open}\n${patch}\n${PATCH_FETCH_END_MARKER}\n${original}`;
 }

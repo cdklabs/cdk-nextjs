@@ -24,6 +24,17 @@ import { RUNTIME_DIR_NAME } from "../runtime/manifest";
 import { getLambdaArchitecture } from "../utils/get-architecture";
 
 export interface NextjsFunctionsOverrides {
+  /**
+   * Props for the Lambda function.
+   *
+   * Construct-wide (`NextjsFunctionsProps.overrides`), these apply to every
+   * function group's Lambda — memory, timeout, VPC, role and the rest are
+   * shared — except the props that identify one function: `functionName`,
+   * `code` and `handler` apply to the `default` group only. A second function
+   * with the same name fails the deploy, and another group's code or handler
+   * would ship the wrong deployment root. Set those per group, in the group's
+   * own `overrides`, where they apply to that group alone.
+   */
   readonly functionProps?: OptionalFunctionProps;
   readonly functionUrlProps?: OptionalFunctionUrlProps;
 }
@@ -198,7 +209,7 @@ export class NextjsFunctions extends Construct {
       memorySize: 2048,
       runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
       timeout: Duration.seconds(30),
-      ...this.props.overrides?.functionProps,
+      ...this.sharedFunctionProps(root.name),
       ...groupOverrides?.functionProps,
       // Must not be overridable: `NextjsBuild` stages `sharp` binaries matching
       // the synth machine's architecture, so the deployed function's
@@ -238,5 +249,21 @@ export class NextjsFunctions extends Construct {
     this.props.staticAssetsBucket.grantRead(fn);
 
     return fn;
+  }
+
+  /**
+   * The construct-wide `functionProps`, minus what identifies a single function
+   * when this is not the `default` group; see
+   * {@link NextjsFunctionsOverrides.functionProps}.
+   */
+  private sharedFunctionProps(
+    groupName: string,
+  ): OptionalFunctionProps | undefined {
+    const shared = this.props.overrides?.functionProps;
+    if (!shared || groupName === DEFAULT_FUNCTION_GROUP) {
+      return shared;
+    }
+    const { functionName, code, handler, ...rest } = shared;
+    return rest;
   }
 }

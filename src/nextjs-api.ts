@@ -420,6 +420,8 @@ export class NextjsApi extends Construct {
     for (const group of groups) {
       const integration = new LambdaIntegration(group.function, {
         responseTransferMode: ResponseTransferMode.STREAM,
+        // One API-wide permission per function; see `createDynamicIntegration`.
+        scopePermissionToMethod: false,
         ...this.props.overrides?.dynamicIntegrationProps,
       });
       for (const route of group.routes) {
@@ -542,9 +544,17 @@ export class NextjsApi extends Construct {
    * Create Lambda Proxy integration for all other routes
    */
   private createDynamicIntegration(serverFunction: IFunction) {
-    // All other routes use streaming for better performance
+    // All other routes use streaming for better performance.
+    //
+    // `scopePermissionToMethod: false` grants the function one permission for
+    // this API's execute-api ARN (`<api>/*/*/*`) instead of two per method (the
+    // method and its console test-invoke). Every group adds resources that the
+    // default function still answers for its parents and data routes, and at
+    // ~350 bytes a statement the per-method policy outgrows Lambda's 20 KB
+    // resource-policy cap after a few dozen `ANY` methods, failing the deploy.
     const streamingIntegration = new LambdaIntegration(serverFunction, {
       responseTransferMode: ResponseTransferMode.STREAM,
+      scopePermissionToMethod: false,
       ...this.props.overrides?.dynamicIntegrationProps,
     });
 
