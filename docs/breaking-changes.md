@@ -174,6 +174,91 @@ routes, so an app too large for Lambda's 250 MB unzipped limit can still deploy.
 Opt-in: omit it and you get one function, exactly as before. See
 [README](../README.md#splitting-a-large-app-across-functions).
 
+### Performance compared with 0.6.2
+
+Measured with the [load tests](../examples/load-tests) against
+[`examples/bench-app`](../examples/bench-app), both versions deployed side by
+side from one EC2 load generator per stack in us-east-1: 2048 MB Lambda
+functions, and 1 vCPU / 2 GB Fargate tasks autoscaling from 2 to 10. Latency is
+p50 / p99 in ms; "faster" is 0.6.2 over 0.7.0.
+
+| Construct                  | Compute p50 | Compute p99 | Cold start p50 | Compared at      |
+| -------------------------- | ----------- | ----------- | -------------- | ---------------- |
+| `NextjsGlobalFunctions`    | 1.7× faster | 1.6× faster | 1.3× faster    | 1000 req/s/route |
+| `NextjsGlobalContainers`   | same        | 1.1× faster | –              | 10 req/s/route   |
+| `NextjsRegionalContainers` | 5.0× faster | 3.4× faster | –              | 10 req/s/route   |
+| `NextjsRegionalFunctions`  | 1.1× faster | same        | 1.6× faster    | 1000 req/s/route |
+
+Compute is the geometric mean over the routes that reach compute on every
+construct (`ssr`, `stream`, `rsc`, `api`), at the highest rate both versions
+served with under 1% errors.
+
+**`NextjsGlobalFunctions`**: RSC payloads and route handlers are the big
+change, since they no longer pass through the Lambda Web Adapter and the
+standalone server. At 1000 req/s per route:
+
+| Route           | 0.6.2      | 0.7.0      | Faster      |
+| --------------- | ---------- | ---------- | ----------- |
+| `rsc`           | 69 / 94    | 25 / 52    | 2.8× / 1.8× |
+| `api`           | 67 / 89    | 23 / 47    | 2.9× / 1.9× |
+| `ssr`           | 31 / 109   | 29 / 73    | 1.1× / 1.5× |
+| Cold start TTFB | 1844 (p50) | 1390 (p50) | 1.3×        |
+
+Both sustain at least 6,560 req/s of `ssr`, the load generator's limit.
+
+**`NextjsGlobalContainers`**: latency is unchanged, but 0.6.2 served sporadic
+502s under load (5% of `ssr` at 50 req/s per route). Node's default keep-alive
+timeout (5 s) is shorter than the ALB's idle timeout (60 s), so the ALB reused
+connections the server had closed, and CloudFront cached each 502 for its
+10 s error caching TTL. 0.7.0's server outlives the ALB's timeout. `ssr`
+capacity rose from 129 to 194 req/s on two to ten tasks.
+
+**`NextjsRegionalContainers`**: with no CDN, every request is the container's,
+and each is several times cheaper. At 10 req/s per route:
+
+| Route    | 0.6.2     | 0.7.0    | Faster      |
+| -------- | --------- | -------- | ----------- |
+| `static` | 197 / 442 | 41 / 163 | 4.8× / 2.7× |
+| `ssr`    | 137 / 602 | 22 / 172 | 6.3× / 3.5× |
+| `rsc`    | 65 / 275  | 9.4 / 64 | 6.9× / 4.3× |
+| `api`    | 62 / 242  | 6.9 / 55 | 8.9× / 4.4× |
+
+`ssr` capacity is the same, 675 req/s. At 50 req/s on every route at once
+(400 req/s including assets and image optimization), neither version's two
+tasks keep up long enough for autoscaling.
+
+**`NextjsRegionalFunctions`**: responses stream through API Gateway, where 0.6.2
+buffered them, and prerendered pages no longer go through the standalone
+server. At 50 req/s per route:
+
+| Route           | 0.6.2      | 0.7.0      | Faster        |
+| --------------- | ---------- | ---------- | ------------- |
+| `stream` (TTFB) | 231 / 280  | 25 / 84    | 9.2× / 3.3×   |
+| `static`        | 128 / 231  | 57 / 140   | 2.3× / 1.6×   |
+| `isr`           | 128 / 229  | 56 / 124   | 2.3× / 1.8×   |
+| `image`         | 81 / 173   | 125 / 221  | 0.7× (slower) |
+| Cold start TTFB | 2182 (p50) | 1380 (p50) | 1.6×          |
+
+`ssr` capacity is at least 6,560 req/s on both.
+
+Two things are slower:
+
+- **ISR throughput on the Regional constructs.** Every cache hit, memory hits
+  included, now checks its tags' revalidation markers in DynamoDB, which is what
+  lets `revalidateTag` reach every instance. All of a deployment's markers share
+  one partition key, so one route's cached pages top out at about 1,900 req/s on
+  `NextjsRegionalFunctions` (0.6.2: at least 6,560) and 1,600 on
+  `NextjsRegionalContainers` (0.6.2: 3,200), where DynamoDB throttles reads. The
+  Global constructs serve cached pages from CloudFront and aren't affected.
+- **Image optimization on `NextjsRegionalFunctions`**, 1.5× slower, now that it
+  runs in the server function instead of a dedicated one (see
+  [The dedicated image optimization Lambda is gone](#the-dedicated-image-optimization-lambda-is-gone)).
+
+0.6.2 also needed two things of the app that 0.7.0 does not: middleware on
+`NextjsRegionalFunctions` to re-add the API Gateway stage to every path, and a
+`Cache-Control` header on every dynamic response, without which CloudFront
+cached it for a day.
+
 ## 0.6.0
 
 ### `basePath` is reconciled with your Next.js app's own `basePath`
