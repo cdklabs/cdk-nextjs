@@ -80,23 +80,25 @@ export async function seedTagMappings(props: SeedTagMappingsProps) {
   }
 
   const createdAt = { N: Date.now().toString() };
-  const requests: WriteRequest[] = [];
+  // Keyed by sort key, because two manifest entries can name the same row -
+  // `app/index/page.tsx` and `/` both map to cache key `index` - and a
+  // `BatchWriteItem` holding the same key twice is rejected whole, dropping the
+  // other 24 rows with it.
+  const rows = new Map<string, WriteRequest>();
   for (const [tag, cacheKeys] of Object.entries(manifest)) {
     for (const cacheKey of cacheKeys) {
-      requests.push({
+      // Same shape the cache handler's `storeDynamoDBTagMappings` writes,
+      // including the `.json` suffix `buildS3Key` adds, because
+      // `revalidateTag` reads the S3 key straight back out of the sort key.
+      const sk = `${tag}#${buildId}/${cacheKey}.json`;
+      rows.set(sk, {
         PutRequest: {
-          Item: {
-            pk: { S: buildId },
-            // Same shape the cache handler's `storeDynamoDBTagMappings` writes,
-            // including the `.json` suffix `buildS3Key` adds, because
-            // `revalidateTag` reads the S3 key straight back out of the sort key.
-            sk: { S: `${tag}#${buildId}/${cacheKey}.json` },
-            createdAt,
-          },
+          Item: { pk: { S: buildId }, sk: { S: sk }, createdAt },
         },
       });
     }
   }
+  const requests = Array.from(rows.values());
 
   if (requests.length === 0) {
     return;

@@ -141,10 +141,15 @@ export class MemoryCacheHandler implements CacheHandler {
     return null;
   }
 
+  /**
+   * `lastModified` is the time the entry was rendered, for an entry copied in
+   * from a slower layer; a fresh render leaves it out and is stamped now.
+   */
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
     ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+    lastModified?: number,
   ): Promise<void> {
     if (!data) {
       // Delete from memory cache
@@ -158,7 +163,7 @@ export class MemoryCacheHandler implements CacheHandler {
 
     // Store in memory cache with proper CacheHandlerValue structure
     const cacheHandlerValue: CacheHandlerValue = {
-      lastModified: Date.now(),
+      lastModified: lastModified ?? Date.now(),
       value: data,
     };
 
@@ -201,10 +206,15 @@ export class MemoryCacheHandler implements CacheHandler {
     // against the revalidation table by the orchestrating handler instead.
   }
 
-  async resetRequestCache(): Promise<void> {
-    // Clear in-memory cache
-    this.inMemoryCache.clear();
-  }
+  /**
+   * Deliberately a no-op. Next.js calls `resetRequestCache` at the start of
+   * every request (`base-server`, `app-page`, `app-route`), and its own
+   * `FileSystemCache` - whose LRU is shared across requests the same way this
+   * one is - leaves it empty: the hook is for state scoped to one request, and
+   * nothing here is. Clearing the map in it meant no entry ever survived to a
+   * second request, so every read went to S3.
+   */
+  async resetRequestCache(): Promise<void> {}
 
   /**
    * Remove all expired cache entries

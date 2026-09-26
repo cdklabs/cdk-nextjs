@@ -74,6 +74,32 @@ describe("seedTagMappings", () => {
     }
   });
 
+  it("writes a row two manifest entries name only once", async () => {
+    // `app/index/page.tsx` and `/` both land on cache key `index`. DynamoDB
+    // rejects a `BatchWriteItem` naming the same key twice, and with it every
+    // other row in the batch.
+    mockS3Send.mockResolvedValue({
+      Body: {
+        transformToString: jest.fn().mockResolvedValue(
+          JSON.stringify({
+            "_N_T_/": ["index", "index", "blog/first"],
+          }),
+        ),
+      },
+    });
+
+    await seedTagMappings(props);
+
+    expect(
+      writtenRows()
+        .map((row: any) => row.PutRequest.Item.sk.S)
+        .sort(),
+    ).toEqual([
+      "_N_T_/#test-build-id/blog/first.json",
+      "_N_T_/#test-build-id/index.json",
+    ]);
+  });
+
   it("does nothing when the app has no tagged prerenders", async () => {
     mockS3Send.mockRejectedValue(
       new NoSuchKey({ $metadata: {}, message: "The key does not exist" }),

@@ -120,6 +120,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
             value: memoryResult.value,
           },
           ctx,
+          cacheKey,
         ))
       ) {
         this.debug(`Memory cache REVALIDATED: ${cacheKey}`);
@@ -135,13 +136,22 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       const s3Result = await this.s3DynamoHandler.get(cacheKey, ctx);
       if (s3Result) {
         this.debug(`S3 cache HIT: ${cacheKey}`);
-        // An entry a tag revalidation expired (`lastModified: -1`) must not be
-        // copied into memory: `MemoryCacheHandler.set` stamps `lastModified:
-        // Date.now()`, which would present the expired body as fresh and hide
-        // the revalidation from Next.js until the memory entry's TTL ran out.
-        // The re-render it asks for writes the fresh entry to both layers.
+        // Promoted with the S3 entry's own `lastModified`, not the time of the
+        // copy: Next.js ages the entry from it for time-based revalidation, and
+        // the tag markers are compared against it too. Stamping `Date.now()`
+        // made an entry that was due for regeneration look freshly rendered,
+        // and one a soft `revalidateTag` had made stale look newer than the
+        // stale mark, so memory hits served it as fresh for the whole memory
+        // TTL. An entry a tag revalidation expired (`lastModified: -1`) is not
+        // copied at all: the re-render it asks for writes the fresh entry to
+        // both layers.
         if (this.memoryHandler && s3Result.lastModified !== -1) {
-          await this.memoryHandler.set(cacheKey, s3Result.value, ctx as any);
+          await this.memoryHandler.set(
+            cacheKey,
+            s3Result.value,
+            ctx as any,
+            s3Result.lastModified,
+          );
         }
         return s3Result;
       }
@@ -229,7 +239,8 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
   }
 
   /**
-   * Reset request cache (called between requests)
+   * Reset request cache (called at the start of every request). Nothing here is
+   * request-scoped; see {@link MemoryCacheHandler.resetRequestCache}.
    */
   async resetRequestCache(): Promise<void> {
     if (this.memoryHandler) {

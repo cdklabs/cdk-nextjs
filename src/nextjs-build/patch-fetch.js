@@ -28,10 +28,18 @@ async function sha256(data) {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Set on the wrappers below, so that a second copy of this file sharing the
+// global scope leaves them alone. `patchFetchInClientJs` prepends it to every
+// entrypoint chunk, and a page can load more than one. Wrapped twice, the outer
+// wrapper re-encodes a `FormData` body as a `Uint8Array` and the inner one then
+// hashed *that* as JSON, overwriting the right header with a wrong one: a 403.
+// The top-level declarations need no IIFE of their own to coexist: esbuild
+// bundles this file into one (see `.projenrc.ts`), and that is what ships.
+const PATCHED = Symbol.for("cdk-nextjs:patch-fetch");
+
 const originalFetch = globalThis.fetch;
 
-// Patch fetch
-globalThis.fetch = async function (input, init) {
+async function signedFetch(input, init) {
   if (!init) return originalFetch(input, init);
 
   const method = init.method?.toUpperCase();
@@ -72,6 +80,10 @@ globalThis.fetch = async function (input, init) {
       bodyBytes = new Uint8Array(await body.arrayBuffer());
     } else if (body instanceof ArrayBuffer) {
       bodyBytes = new Uint8Array(body);
+    } else if (ArrayBuffer.isView(body)) {
+      // A typed array or `DataView` is sent as the bytes it views - which is
+      // also what the `FormData` branch above hands on as the body.
+      bodyBytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
     } else if (body instanceof URLSearchParams) {
       bodyBytes = new TextEncoder().encode(body.toString());
     } else {
@@ -86,11 +98,20 @@ globalThis.fetch = async function (input, init) {
   init.headers = headers;
 
   return originalFetch(input, init);
-};
+}
+
+// Patch fetch
+if (!originalFetch[PATCHED]) {
+  signedFetch[PATCHED] = true;
+  globalThis.fetch = signedFetch;
+}
 
 // Patch XMLHttpRequest, where there is one. A service worker scope has no
 // `XMLHttpRequest`, and `class extends undefined` is a TypeError.
-if (typeof globalThis.XMLHttpRequest !== "undefined") {
+if (
+  typeof globalThis.XMLHttpRequest !== "undefined" &&
+  !globalThis.XMLHttpRequest[PATCHED]
+) {
   const originalXMLHttpRequest = globalThis.XMLHttpRequest;
 
   globalThis.XMLHttpRequest = class extends originalXMLHttpRequest {
@@ -126,4 +147,5 @@ if (typeof globalThis.XMLHttpRequest !== "undefined") {
       };
     }
   };
+  globalThis.XMLHttpRequest[PATCHED] = true;
 }

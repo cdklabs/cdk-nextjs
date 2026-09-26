@@ -91,10 +91,8 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
 
     it("does not copy a tag-expired S3 entry into memory", async () => {
       // `lastModified: -1` is the S3 layer saying "a tag revalidation expired
-      // this, re-render before answering". `MemoryCacheHandler.set` stamps
-      // `lastModified: Date.now()`, so copying it into memory would present the
-      // expired body as fresh and hide the revalidation from Next.js until the
-      // memory entry's TTL ran out.
+      // this, re-render before answering". Copied into memory, the expired body
+      // would be answered from there instead of from the re-render.
       const value: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>expired</html>",
@@ -153,6 +151,46 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       expect(s3.get).not.toHaveBeenCalled();
     });
 
+    it("keeps the S3 entry's lastModified when copying it into memory", async () => {
+      // Next.js ages the entry from `lastModified`, and the tag markers are
+      // compared against it. Stamping the time of the copy made a page a soft
+      // `revalidateTag` had made stale look newer than the stale mark.
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>old</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+      const renderedAt = Date.now() - 60_000;
+
+      (cacheHandler as any).s3DynamoHandler = {
+        get: jest.fn().mockResolvedValue({ lastModified: renderedAt, value }),
+      };
+      await cacheHandler.get("isr/3", getCtx);
+
+      const s3 = {
+        get: jest.fn().mockResolvedValue(null),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+      expect(await cacheHandler.get("isr/3", getCtx)).toEqual({
+        lastModified: renderedAt,
+        value,
+      });
+      expect(s3.isRevalidated).toHaveBeenCalledWith(
+        { lastModified: renderedAt, value },
+        getCtx,
+        "isr/3",
+      );
+    });
+
     it("does not serve a memory hit another instance's revalidateTag expired", async () => {
       // `revalidateTag` clears only the memory of the instance that ran it. Any
       // other instance holding the page in memory answered from it for the
@@ -191,6 +229,7 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       expect(s3.isRevalidated).toHaveBeenCalledWith(
         expect.objectContaining({ value }),
         getCtx,
+        "blog",
       );
       expect(s3.get).toHaveBeenCalledTimes(1);
 
@@ -199,7 +238,9 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       expect(await cacheHandler.get("blog", getCtx)).toBeNull();
     });
 
-    it("should propagate resetRequestCache to memory layer", async () => {
+    it("keeps memory entries across resetRequestCache", async () => {
+      // Next.js calls it at the start of every request; clearing the shared
+      // memory cache there sent every read to S3.
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>reset</html>",
@@ -219,12 +260,18 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       // Reset
       await cacheHandler.resetRequestCache();
 
-      // Verify entry is gone from memory
+      // Still answered from memory, without asking S3.
+      const s3 = {
+        get: jest.fn().mockResolvedValue(null),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
       const result = await cacheHandler.get("reset-key", {
         kind: IncrementalCacheKind.APP_PAGE,
         isFallback: false,
       });
-      expect(result).toBeNull();
+      expect(result?.value).toEqual(testData);
+      expect(s3.get).not.toHaveBeenCalled();
     });
   });
 

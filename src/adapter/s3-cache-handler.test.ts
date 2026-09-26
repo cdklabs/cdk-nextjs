@@ -527,6 +527,88 @@ describe("S3DynamoCacheHandler", () => {
           lastModified: -1,
         });
       });
+
+      describe("behind a distribution", () => {
+        // `revalidateTag`'s invalidation goes out before the stale entry is
+        // served, and the stale response carries the entry's original
+        // `s-maxage`: CloudFront caches it again. Only the regeneration's `set`
+        // knows when the fresh entry exists to be fetched instead.
+        let cdnHandler: S3CacheHandler;
+        const regenerated = stored.value as unknown as IncrementalCacheValue;
+        const invalidatedPaths = (): string[][] =>
+          (CreateInvalidationCommand as unknown as jest.Mock).mock.calls.map(
+            ([input]) => input.InvalidationBatch.Paths.Items,
+          );
+
+        beforeEach(() => {
+          process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+          cdnHandler = new S3CacheHandler({ context: mockContext });
+          mockModuleCache[manifestPath] = {
+            exports: { tagsManifest: new Map() },
+          };
+          dynamoResponses({
+            get: { Item: { staleAt: { N: String(lastModified + 500) } } },
+          });
+          mockSsmSend.mockResolvedValue({
+            Parameter: { Value: "test-distribution-id" },
+          });
+          mockCloudFrontSend.mockResolvedValue({});
+        });
+
+        it("invalidates the page again once its regeneration is stored", async () => {
+          await cdnHandler.get("posts", getCtx);
+          expect(invalidatedPaths()).toEqual([]);
+
+          await cdnHandler.set("posts", regenerated, {
+            cacheControl: { revalidate: false, expire: undefined },
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+
+          expect(invalidatedPaths()).toEqual([["/posts*"]]);
+
+          // Once: a later write of the same page is an ordinary one.
+          await cdnHandler.set("posts", regenerated, {
+            cacheControl: { revalidate: false, expire: undefined },
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+          expect(invalidatedPaths()).toHaveLength(1);
+        });
+
+        it("remembers a stale memory hit by the key it was read under", async () => {
+          await cdnHandler.isRevalidated(stored, getCtx, "posts");
+          await cdnHandler.set("posts", regenerated, {
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+
+          expect(invalidatedPaths()).toEqual([["/posts*"]]);
+        });
+
+        it("does not invalidate after an ordinary write", async () => {
+          await cdnHandler.set("posts", regenerated, {
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+
+          expect(invalidatedPaths()).toEqual([]);
+        });
+
+        it("forgets a stale page that is deleted instead of regenerated", async () => {
+          await cdnHandler.get("posts", getCtx);
+          await cdnHandler.set("posts", null, {
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+          await cdnHandler.set("posts", regenerated, {
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+
+          expect(invalidatedPaths()).toEqual([]);
+        });
+      });
     });
 
     it("should handle S3 errors and return null", async () => {
@@ -1423,6 +1505,79 @@ describe("S3DynamoCacheHandler", () => {
       }).revalidateTag("user");
 
       expect(invalidations()).toEqual([["/profile*"]]);
+    });
+
+    it("invalidates the whole app when a tag's mapping rows cannot be read", async () => {
+      // The marker row is written before the Query, so a failed Query leaves
+      // the tag revalidated at the origin with no paths named for the edge.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      jest.spyOn(console, "error").mockImplementation();
+      mockDynamoSend.mockImplementation((command: unknown) =>
+        command instanceof QueryCommand
+          ? Promise.reject(new Error("ProvisionedThroughputExceeded"))
+          : Promise.resolve({}),
+      );
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await new S3CacheHandler({ context: mockContext }).revalidateTag([
+        "_N_T_/a",
+        "posts",
+      ]);
+
+      expect(invalidations()).toEqual([["/*"]]);
+    });
+
+    describe("when CloudFront's invalidation quota is full", () => {
+      beforeEach(() => {
+        jest.useFakeTimers();
+      });
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      const quotaError = () =>
+        Object.assign(
+          new Error("Your request contains too many invalidations"),
+          {
+            name: "TooManyInvalidationsInProgress",
+          },
+        );
+
+      it("retries as one app-wide wildcard after a backoff", async () => {
+        const cdnHandler = withDistribution(pages("test-tag", 2));
+        mockCloudFrontSend
+          .mockRejectedValueOnce(quotaError())
+          .mockResolvedValueOnce({});
+
+        const done = cdnHandler.revalidateTag("test-tag");
+        await jest.advanceTimersByTimeAsync(1000);
+        await done;
+
+        expect(invalidations()).toEqual([["/isr/0*", "/isr/1*"], ["/*"]]);
+      });
+
+      it("gives up after the last retry", async () => {
+        const cdnHandler = withDistribution(pages("test-tag", 1));
+        mockCloudFrontSend.mockRejectedValue(quotaError());
+
+        const done = cdnHandler.revalidateTag("test-tag");
+        await jest.advanceTimersByTimeAsync(3000);
+        await expect(done).resolves.toBeUndefined();
+
+        expect(invalidations()).toEqual([["/isr/0*"], ["/*"], ["/*"]]);
+      });
+
+      it("does not retry any other error", async () => {
+        const cdnHandler = withDistribution(pages("test-tag", 1));
+        mockCloudFrontSend.mockRejectedValue(new Error("AccessDenied"));
+
+        await cdnHandler.revalidateTag("test-tag");
+
+        expect(invalidations()).toEqual([["/isr/0*"]]);
+      });
     });
 
     it("records a profile's revalidation as stale now, expiring later", async () => {

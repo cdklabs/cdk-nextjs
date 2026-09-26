@@ -144,6 +144,47 @@ describe("patch-fetch", () => {
       expect(headers.get("x-amz-content-sha256")).toBe(sha256(buffer));
     });
 
+    test("hashes a typed array body over the bytes it views", async () => {
+      const bytes = new TextEncoder().encode("xxtyped array contents");
+      const view = bytes.subarray(2);
+
+      await (global as any).window.fetch("https://example.com/api", {
+        method: "POST",
+        body: view,
+      });
+
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(
+        sha256("typed array contents"),
+      );
+    });
+
+    test("wraps fetch once when a second patched chunk loads in the same scope", async () => {
+      // Every entrypoint chunk carries a copy. Wrapped twice, the outer wrapper
+      // re-encoded a FormData body to bytes and the inner one overwrote the
+      // right hash with one of those bytes as JSON.
+      const patchedOnce = (global as any).fetch;
+      const patchedXhr = (global as any).XMLHttpRequest;
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the second chunk's copy
+      require("./patch-fetch.js");
+      expect((global as any).fetch).toBe(patchedOnce);
+      expect((global as any).XMLHttpRequest).toBe(patchedXhr);
+
+      const formData = new FormData();
+      formData.append("field", "value");
+      await (global as any).window.fetch("https://example.com/api", {
+        method: "POST",
+        body: formData,
+      });
+
+      expect(originalFetch).toHaveBeenCalledTimes(1);
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(
+        sha256(capturedInit!.body as Uint8Array),
+      );
+    });
+
     test("hashes an empty byte array when no body is present", async () => {
       await (global as any).window.fetch("https://example.com/api", {
         method: "POST",

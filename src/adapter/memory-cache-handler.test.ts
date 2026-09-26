@@ -152,8 +152,42 @@ describe("MemoryCacheHandler", () => {
     });
   });
 
+  describe("set", () => {
+    it("keeps the lastModified an entry copied from a slower layer was rendered at", async () => {
+      // Stamping the time of the copy made an entry due for regeneration, or
+      // one a soft `revalidateTag` had made stale, look freshly rendered.
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>promoted</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const renderedAt = Date.now() - 60_000;
+
+      await handler.set(
+        "promoted",
+        testData,
+        { fetchCache: true as const },
+        renderedAt,
+      );
+
+      expect(
+        await handler.get("promoted", {
+          kind: IncrementalCacheKind.APP_PAGE,
+          isFallback: false,
+        }),
+      ).toEqual({ lastModified: renderedAt, value: testData });
+    });
+  });
+
   describe("resetRequestCache", () => {
-    it("should clear all caches", async () => {
+    it("keeps the shared cache across requests", async () => {
+      // Next.js calls this at the start of every request, and its own
+      // `FileSystemCache` makes it a no-op; clearing here meant no entry ever
+      // survived to a second request.
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>reset test</html>",
@@ -172,7 +206,7 @@ describe("MemoryCacheHandler", () => {
 
       await handler.resetRequestCache();
 
-      expect(handler.getCacheSize()).toBe(0);
+      expect(handler.getCacheSize()).toBe(1);
     });
   });
 });

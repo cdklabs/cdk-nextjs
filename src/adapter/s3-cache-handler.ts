@@ -246,6 +246,34 @@ const MAX_WILDCARD_PATHS_PER_INVALIDATION = 15;
 const MAX_PATHS_PER_INVALIDATION = 3000;
 
 /**
+ * Retries of an invalidation CloudFront rejected for its in-progress quota, and
+ * the delay before the first; each later one waits twice as long.
+ *
+ * Sizing a request against the quota cannot see the invalidations other
+ * instances already have in flight, so two `revalidateTag`s close together can
+ * each fit on their own and still be rejected together. Dropping the rejected
+ * one left its pages stale at the edge for the whole `s-maxage`. The retry asks
+ * for the whole app instead, which is one wildcard - the least of the quota any
+ * request can take - at the cost of a colder edge.
+ */
+const INVALIDATION_RETRIES = 2;
+const INVALIDATION_RETRY_DELAY_MS = 1000;
+
+/** The errors that mean "the quota is full right now", not "this is wrong". */
+function isInvalidationQuotaError(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === "TooManyInvalidationsInProgress" || name === "Throttling";
+}
+
+/**
+ * The most cache keys to remember as served stale while awaiting their
+ * regeneration. A background render that fails never calls `set`, so without a
+ * bound its key would stay behind for the life of the instance.
+ * @see S3CacheHandler.softRevalidatedKeys
+ */
+const MAX_SOFT_REVALIDATED_KEYS = 1000;
+
+/**
  * How many 1 MB Query pages of one tag's mapping rows to walk. A ceiling rather
  * than a real limit: it bounds a runaway tag instead of paginating a whole table
  * on a request path. A tag cut off here invalidates the whole app, because the
@@ -311,6 +339,12 @@ function nextTagsManifest():
 interface RevalidateDurations {
   expire?: number;
 }
+
+/**
+ * What the tag markers say about an entry: untouched, served stale while a
+ * background render replaces it, or expired and re-rendered before answering.
+ */
+type RevalidationState = "fresh" | "stale" | "expired";
 
 /** A DynamoDB number attribute as a number, or `undefined` when absent. */
 function numberAttribute(
@@ -426,6 +460,24 @@ export class S3CacheHandler implements CacheHandler {
     string,
     { expiresAt: number; marker: Promise<TagMarker> }
   >();
+
+  /**
+   * Cache keys this instance served stale because of a soft `revalidateTag`,
+   * whose regenerated entry `set` has yet to write.
+   *
+   * `revalidateTag(tag, profile)` invalidates CloudFront at once, but the next
+   * request is answered from the stale entry - stale-while-revalidate - and that
+   * response carries the entry's original `s-maxage`, so the edge caches the
+   * stale body again. The background render that replaces it runs in this same
+   * process, so `set` checks this set and invalidates the key's paths a second
+   * time once the fresh entry is in S3. Without that, the edge kept serving the
+   * pre-revalidation page for the whole `s-maxage`.
+   *
+   * Expiring soft-revalidated entries outright instead would also keep the edge
+   * right, but it turns every `revalidateTag(tag, "max")` into a blocking render
+   * at the origin, which is the thing a profile asks not to happen.
+   */
+  private softRevalidatedKeys = new Set<string>();
 
   constructor(options: S3CacheHandlerOptions) {
     const buildId = process.env.CDK_NEXTJS_BUILD_ID || "";
@@ -553,7 +605,7 @@ export class S3CacheHandler implements CacheHandler {
           value: parsedValue.value,
         };
 
-        if (await this.isRevalidated(parsedValue, ctx)) {
+        if (await this.isRevalidated(parsedValue, ctx, cacheKey)) {
           this.debug(`S3 CACHE INVALIDATED BY TAG: ${cacheKey}`);
           // A revalidated `fetch` entry has to read as a miss so the request
           // refetches instead of reusing the body - the same thing Next.js's
@@ -613,10 +665,15 @@ export class S3CacheHandler implements CacheHandler {
    * ever evict it: a `force-dynamic` page whose data comes from such a fetch
    * re-rendered on every request and still served the same body forever.
    * Measured against next.js's `test/e2e/app-dir/revalidate-path-with-rewrites`.
+   *
+   * `cacheKey` is the key the entry was read under. A response entry found
+   * stale is remembered by it, for `set` to invalidate CloudFront again once
+   * its regeneration lands: see {@link softRevalidatedKeys}.
    */
   async isRevalidated(
     entry: { lastModified?: number; tags?: string[]; value?: unknown },
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+    cacheKey?: string,
   ): Promise<boolean> {
     if (!this.dynamoConfig.tableName) {
       return false;
@@ -627,7 +684,34 @@ export class S3CacheHandler implements CacheHandler {
     if (checkTags.length === 0) {
       return false;
     }
-    return this.checkIfRevalidated(entry.lastModified ?? 0, checkTags);
+    const state = await this.checkIfRevalidated(
+      entry.lastModified ?? 0,
+      checkTags,
+    );
+    if (state === "stale" && cacheKey !== undefined && !isFetchCacheGet(ctx)) {
+      this.noteSoftRevalidated(cacheKey);
+    }
+    return state === "expired";
+  }
+
+  /**
+   * Remember that `cacheKey` was served stale, when there is a distribution
+   * whose copy of it will need invalidating again. See
+   * {@link softRevalidatedKeys}.
+   */
+  private noteSoftRevalidated(cacheKey: string): void {
+    if (!this.cloudFrontConfig.distributionIdParameterName) {
+      return;
+    }
+    this.softRevalidatedKeys.delete(cacheKey);
+    if (this.softRevalidatedKeys.size >= MAX_SOFT_REVALIDATED_KEYS) {
+      // Insertion order: the first key is the one waiting longest.
+      const oldest = this.softRevalidatedKeys.values().next().value;
+      if (oldest !== undefined) {
+        this.softRevalidatedKeys.delete(oldest);
+      }
+    }
+    this.softRevalidatedKeys.add(cacheKey);
   }
 
   async set(
@@ -643,6 +727,9 @@ export class S3CacheHandler implements CacheHandler {
         if (!this.s3Config.bucketName) {
           return;
         }
+
+        // The entry is gone, so there is no regeneration left to wait for.
+        this.softRevalidatedKeys.delete(cacheKey);
 
         // Build S3 key without needing to know the kind
         const s3Key = this.buildS3Key(cacheKey);
@@ -722,6 +809,19 @@ export class S3CacheHandler implements CacheHandler {
 
       this.debug(`S3 CACHE STORED: ${cacheKey} (${data.kind})`);
 
+      // The regeneration of an entry served stale: CloudFront may have cached
+      // that stale response after `revalidateTag`'s invalidation, so the key's
+      // paths go once more now that S3 holds the fresh one.
+      if (this.softRevalidatedKeys.delete(cacheKey)) {
+        const route = this.s3KeyToInvalidationPath(s3Key);
+        if (route !== undefined) {
+          this.debug(`SOFT REVALIDATION REGENERATED: ${cacheKey}`);
+          await this.invalidateCloudFrontPaths(
+            cdnInvalidationPaths(route, this.cloudFrontConfig.basePath),
+          );
+        }
+      }
+
       // Store tag-to-cache-key mappings in DynamoDB for revalidation
       if (tags.length > 0 && this.mapsTagsToPaths) {
         this.debug(`STORING TAGS: ${cacheKey} -> [${tags.join(", ")}]`);
@@ -753,6 +853,11 @@ export class S3CacheHandler implements CacheHandler {
     for (const result of results) {
       if (result.status === "rejected") {
         console.error("Error updating revalidation metadata:", result.reason);
+        // Its marker row may already be written - the Query after it is what
+        // failed - so the tag's entries can be revalidated at the origin while
+        // nothing names their CloudFront paths. The same answer as a tag cut
+        // short by `MAX_TAG_QUERY_PAGES`: the whole app, never a stale page.
+        wholeApp = true;
         continue;
       }
       routes.push(...result.value.routes);
@@ -962,29 +1067,41 @@ export class S3CacheHandler implements CacheHandler {
       batch = [wholeApp];
     }
 
-    this.debug(
-      `CLOUDFRONT INVALIDATION: [${batch.join(", ")}] on distribution ${distributionId}`,
-    );
-    try {
-      await this.cloudFrontClient.send(
-        new CreateInvalidationCommand({
-          DistributionId: distributionId,
-          InvalidationBatch: {
-            CallerReference: randomUUID(),
-            Paths: {
-              Quantity: batch.length,
-              Items: batch,
+    for (let attempt = 0; ; attempt++) {
+      this.debug(
+        `CLOUDFRONT INVALIDATION: [${batch.join(", ")}] on distribution ${distributionId}`,
+      );
+      try {
+        await this.cloudFrontClient.send(
+          new CreateInvalidationCommand({
+            DistributionId: distributionId,
+            InvalidationBatch: {
+              CallerReference: randomUUID(),
+              Paths: {
+                Quantity: batch.length,
+                Items: batch,
+              },
             },
-          },
-        }),
-      );
-    } catch (error) {
-      // Log but don't fail - the S3/DynamoDB invalidation already succeeded,
-      // and the CloudFront cache policy TTL provides an eventual fallback.
-      console.warn(
-        `Failed to create CloudFront invalidation for [${batch.join(", ")}]:`,
-        error,
-      );
+          }),
+        );
+        return;
+      } catch (error) {
+        if (isInvalidationQuotaError(error) && attempt < INVALIDATION_RETRIES) {
+          // See `INVALIDATION_RETRIES`.
+          batch = [`${this.cloudFrontConfig.basePath}/*`];
+          await new Promise((resolve) =>
+            setTimeout(resolve, INVALIDATION_RETRY_DELAY_MS * 2 ** attempt),
+          );
+          continue;
+        }
+        // Log but don't fail - the S3/DynamoDB invalidation already succeeded,
+        // and the CloudFront cache policy TTL provides an eventual fallback.
+        console.warn(
+          `Failed to create CloudFront invalidation for [${batch.join(", ")}]:`,
+          error,
+        );
+        return;
+      }
     }
   }
 
@@ -1186,7 +1303,7 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
-   * Whether any of `tags` was revalidated after this entry was stored.
+   * Whether any of `tags` was revalidated after this entry was stored, and how.
    *
    * Reads the per-tag marker rows `revalidateSingleTag` writes, by primary key.
    * Scanning the tag's mapping rows instead would answer the wrong question:
@@ -1196,14 +1313,15 @@ export class S3CacheHandler implements CacheHandler {
    *
    * A tag revalidated with a profile only makes the entry *stale*: that is
    * reported to Next.js through its tag manifest (see {@link nextTagsManifest})
-   * and answered `false` here, so the entry is served while a background render
-   * replaces it. When the manifest cannot be reached a stale entry is reported
-   * expired instead - a blocking render, never a stale page presented as fresh.
+   * and answered `"stale"` here, so the entry is served while a background
+   * render replaces it. When the manifest cannot be reached a stale entry is
+   * reported expired instead - a blocking render, never a stale page presented
+   * as fresh.
    */
   private async checkIfRevalidated(
     cacheLastModified: number,
     tags: string[],
-  ): Promise<boolean> {
+  ): Promise<RevalidationState> {
     try {
       const markers = await this.readTagMarkers(tags);
       const now = Date.now();
@@ -1224,7 +1342,7 @@ export class S3CacheHandler implements CacheHandler {
           this.debug(
             `Tag ${tag} expired entry created at ${cacheLastModified}`,
           );
-          return true;
+          return "expired";
         }
         if (staleAt !== undefined && staleAt > cacheLastModified) {
           staleTags.push([tag, staleAt]);
@@ -1232,7 +1350,7 @@ export class S3CacheHandler implements CacheHandler {
       }
 
       if (staleTags.length === 0) {
-        return false;
+        return "fresh";
       }
       const manifest = nextTagsManifest();
       if (!manifest) {
@@ -1240,7 +1358,7 @@ export class S3CacheHandler implements CacheHandler {
           `Tags [${staleTags.map(([tag]) => tag)}] are stale and Next.js's tag ` +
             `manifest is unreachable, expiring the entry instead`,
         );
-        return true;
+        return "expired";
       }
       for (const [tag, staleAt] of staleTags) {
         const existing = manifest.get(tag);
@@ -1248,11 +1366,11 @@ export class S3CacheHandler implements CacheHandler {
           manifest.set(tag, { ...existing, stale: staleAt });
         }
       }
-      return false;
+      return "stale";
     } catch (error) {
       console.error("Error checking cache revalidation:", error);
       // On error, assume cache is valid to avoid unnecessary cache misses
-      return false;
+      return "fresh";
     }
   }
 
