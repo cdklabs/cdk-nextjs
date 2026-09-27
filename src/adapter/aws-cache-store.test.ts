@@ -150,6 +150,7 @@ describe("TagMarkerTable", () => {
         ":stale": { N: "1000" },
         ":expired": { N: "2000" },
       },
+      ReturnValues: "ALL_NEW",
     });
   });
 
@@ -177,37 +178,22 @@ describe("TagMarkerTable", () => {
   });
 
   // A read-back after the write is eventually consistent, so it can return
-  // the marker from before it; caching that would hide this instance's own
-  // `revalidateTag` from it for the whole TTL.
-  it("remembers the marker it wrote instead of reading it back", async () => {
-    const cached = new TagMarkerTable(
-      new DynamoDBClient({}),
-      "tbl",
-      "build",
-      1000,
-    );
-    // Before the write: an old marker, now cached.
+  // the marker from before it: the writer tracks what the write returned.
+  it("returns the row as the write left it", async () => {
     send.mockResolvedValueOnce({
-      Responses: { tbl: [{ sk: { S: "posts" }, revalidatedAt: { N: "1" } }] },
+      Attributes: {
+        sk: { S: "posts" },
+        revalidatedAt: { N: "5000" },
+        staleAt: { N: "10" },
+      },
     });
-    expect((await cached.read(["posts"])).get("posts")?.revalidatedAt).toBe(1);
-
-    send.mockResolvedValueOnce({
-      Attributes: { sk: { S: "posts" }, revalidatedAt: { N: "5000" } },
+    expect(await table.write("posts", 5000, undefined)).toEqual({
+      revalidatedAt: 5000,
+      staleAt: 10,
+      expiredAt: undefined,
     });
-    await cached.write("posts", 5000, undefined);
-    expect(
-      commandInput(send.mock.calls[1][0], UpdateItemCommand).ReturnValues,
-    ).toBe("ALL_NEW");
-
-    // A stale replica would answer with the old row; it must not be asked.
-    send.mockResolvedValue({
-      Responses: { tbl: [{ sk: { S: "posts" }, revalidatedAt: { N: "1" } }] },
-    });
-    expect((await cached.read(["posts"])).get("posts")?.revalidatedAt).toBe(
-      5000,
-    );
-    expect(send).toHaveBeenCalledTimes(2);
+    send.mockResolvedValueOnce({});
+    expect(await table.write("posts", 6000, undefined)).toBeUndefined();
   });
 
   it("asks again for unprocessed keys, and gives up after three tries", async () => {

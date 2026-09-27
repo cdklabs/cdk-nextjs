@@ -3,6 +3,8 @@ jest.mock("@aws-sdk/client-dynamodb");
 
 import type { CacheEntry } from "next/dist/server/lib/cache-handlers/types";
 import {
+  DEFAULT_TAG_RESYNC_MS,
+  MAX_REVALIDATION_LOG_GAP_MS,
   RevalidationLog,
   RevalidationLogRow,
   TagMarker,
@@ -10,9 +12,7 @@ import {
 } from "./aws-cache-store";
 import {
   cacheEntryOf,
-  DEFAULT_TAG_RESYNC_MS,
   EntryLru,
-  MAX_REVALIDATION_LOG_GAP_MS,
   now,
   PendingSets,
   readStream,
@@ -262,7 +262,9 @@ describe("UseCacheTagManifest with the revalidation log", () => {
   const INTERVAL = 1000;
 
   /** Two instances, `a` and `b`, over one table and one clock. */
-  function instances(options: { resyncIntervalMs?: number } = {}) {
+  function instances(
+    options: { resyncIntervalMs?: number; random?: () => number } = {},
+  ) {
     const markerRows = new Map<string, TagMarker>();
     const logRows: RevalidationLogRow[] = [];
     const clock = fakeClock();
@@ -274,6 +276,8 @@ describe("UseCacheTagManifest with the revalidation log", () => {
         log: log.log,
         refreshIntervalMs: INTERVAL,
         clock: clock.now,
+        // No jitter unless a test asks: the resync lands on its interval.
+        random: () => 0,
         ...options,
       });
       return { markers, log, tags };
@@ -309,6 +313,11 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     expect(b.log.query).not.toHaveBeenCalled();
 
     b.tags.track(["posts"]);
+    // That refresh still counts: what is tracked since was read, or is new.
+    await b.tags.refresh();
+    expect(b.log.query).not.toHaveBeenCalled();
+
+    clock.at += INTERVAL;
     await Promise.all([b.tags.refresh(), b.tags.refresh()]);
     expect(b.log.query).toHaveBeenCalledTimes(1);
 
@@ -401,6 +410,46 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     expect(DEFAULT_TAG_RESYNC_MS).toBeLessThanOrEqual(
       MAX_REVALIDATION_LOG_GAP_MS,
     );
+  });
+
+  // Instances started together must not all re-read at once.
+  it("spreads the resync over the last quarter of its interval", async () => {
+    for (const [random, due] of [
+      [0, 10],
+      [0.5, 9],
+      [1, 8],
+    ] as const) {
+      const { clock, b } = instances({
+        resyncIntervalMs: 10 * INTERVAL,
+        random: () => random,
+      });
+      b.tags.track(["posts"]);
+      let resyncAt = 0;
+      for (let i = 1; i <= 10 && !resyncAt; i++) {
+        clock.at += INTERVAL;
+        await b.tags.refresh();
+        if (b.markers.read.mock.calls.length > 0) resyncAt = i;
+      }
+      // 100%, 87.5% and 75% of the interval, at the next refresh after it.
+      expect([random, resyncAt]).toEqual([random, due]);
+    }
+  });
+
+  it("reads a tag whose first read failed again on the next refresh", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const { clock, a, b } = instances();
+    // Only the marker row has it, so only reading the marker finds it.
+    a.log.put.mockRejectedValueOnce(new Error("throttled"));
+    await a.tags.update(["posts"], undefined);
+    b.markers.read.mockRejectedValueOnce(new Error("throttled"));
+    await b.tags.ensure(["posts"]);
+    expect(b.tags.state(["posts"], createdAt())).toBe("fresh");
+    clock.at += INTERVAL;
+
+    await b.tags.refresh();
+    expect(b.markers.read).toHaveBeenLastCalledWith(["posts"]);
+    expect(b.tags.state(["posts"], createdAt())).toBe("expired");
+    error.mockRestore();
   });
 
   it("re-reads the markers when the log has more rows than one query reads", async () => {

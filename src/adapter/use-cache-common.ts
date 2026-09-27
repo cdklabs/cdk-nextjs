@@ -17,11 +17,11 @@ import {
   markerState,
   resolveAwsCacheConfig,
   RevalidateDurations,
-  REVALIDATION_LOG_TTL_MS,
   RevalidationLog,
   RevalidationState,
-  TagMarker,
   TagMarkerTable,
+  TrackedTagMarkers,
+  TrackedTagMarkersOptions,
 } from "./aws-cache-store";
 
 /**
@@ -220,55 +220,12 @@ export const DEFAULT_MEMORY_BYTES = 50 * 1024 * 1024;
  */
 export const DEFAULT_TAG_REFRESH_MS = 1000;
 
-/**
- * How far behind the last query's start the next one starts reading the log:
- * the room for the `Query` being eventually consistent and for writers' clocks
- * running behind the reader's. Rows inside it are read again, and dropped as
- * already applied.
- */
-export const REVALIDATION_LOG_LOOKBACK_MS = 5000;
-
-/**
- * How long the manifest goes on the log alone before re-reading every tracked
- * tag's marker row anyway. The log is the fast path, but the marker rows are
- * the source of truth: a log row whose write failed would otherwise be missed
- * for as long as the tag stays tracked. At 1000 tracked tags this is ~500 RCU
- * once per interval, next to the ~500 RCU a second re-reading every second cost.
- */
-export const DEFAULT_TAG_RESYNC_MS = 10 * 60 * 1000;
-
-/**
- * How long since the last successful log query the log can still be trusted to
- * hold every row not read yet: its TTL less a margin for writers' clocks. Past
- * it - a Lambda frozen between invocations, a run of failed queries - the
- * manifest re-reads the tracked tags' markers instead, once, and carries on
- * from there.
- */
-export const MAX_REVALIDATION_LOG_GAP_MS =
-  REVALIDATION_LOG_TTL_MS - 5 * 60 * 1000;
-
-/**
- * The most tags one instance tracks. Past it the least recently used is
- * forgotten, which costs only a read the next time it is needed: an untracked
- * tag is read before it is trusted. Bounds a full re-read at
- * `ceil(1000 / 100)` `BatchGetItem`s.
- */
-export const DEFAULT_MAX_TRACKED_TAGS = 1000;
-
 /** How {@link UseCacheTagManifest} is built. */
-export interface UseCacheTagManifestOptions {
-  /** The revalidation table, or `undefined` for tags local to this process. */
-  markers: TagMarkerTable | undefined;
-  /**
-   * The revalidation log in the same table. Without it, every refresh
-   * re-reads every tracked tag's marker.
-   */
-  log?: RevalidationLog;
+export interface UseCacheTagManifestOptions extends Omit<
+  TrackedTagMarkersOptions,
+  "refreshIntervalMs" | "debug"
+> {
   refreshIntervalMs?: number;
-  maxTrackedTags?: number;
-  resyncIntervalMs?: number;
-  /** The wall clock the log's cursor and the intervals are kept on. */
-  clock?: () => number;
 }
 
 /**
@@ -282,61 +239,26 @@ export interface UseCacheTagManifestOptions {
  * `cacheHandlers` interface's answer is `refreshTags`, "called before starting
  * a new request … to refresh the local tags manifest", and this is that manifest,
  * backed by the same marker rows the incremental cache's `revalidateTag`
- * writes (`pk = buildId`, `sk = tag`).
- *
- * The cost is bounded per instance, not per request:
- * - {@link ensure} reads a tag's marker the first time it is needed and not
- *   again until it is evicted, so an entry or a page's implicit tags cost one
- *   read per instance, not one per request.
- * - {@link refresh}, at most once per `refreshIntervalMs`, sends one `Query`
- *   for the {@link RevalidationLog} rows written since the last one, and
- *   applies those of tags this instance tracks. Concurrent requests share it.
- *   Every {@link DEFAULT_TAG_RESYNC_MS}, or after a gap the log may no longer
- *   cover, it re-reads every tracked marker instead.
- * A `revalidateTag` on another instance is therefore seen within
- * `refreshIntervalMs` (plus the query itself), and at once on the instance that
- * ran it.
+ * writes (`pk = buildId`, `sk = tag`), and kept current through the
+ * revalidation log: see {@link TrackedTagMarkers} for how, and for the cost.
  */
 export class UseCacheTagManifest {
   private readonly markers: TagMarkerTable | undefined;
   private readonly log: RevalidationLog | undefined;
-  private readonly refreshIntervalMs: number;
-  private readonly maxTrackedTags: number;
-  private readonly resyncIntervalMs: number;
+  private readonly tracked: TrackedTagMarkers;
   private readonly clock: () => number;
-  /** By tag, least recently used first. */
-  private readonly tags = new Map<string, TagMarker>();
-  private readonly reading = new Map<string, Promise<void>>();
-  private lastRefresh = -Infinity;
-  private refreshing: Promise<void> | undefined;
   private readonly updating = new Map<string, Promise<void>>();
-  /**
-   * Where the next log query starts (`Date.now()`): the last successful one's
-   * start, less {@link REVALIDATION_LOG_LOOKBACK_MS}.
-   */
-  private cursor: number;
-  /** When the last successful log query, or full re-read, started. */
-  private lastLogRead: number;
-  /** When the last successful full re-read started. */
-  private lastFullRead: number;
-  /** Log rows at or after the cursor already applied, by sort key. */
-  private readonly applied = new Map<string, number>();
-  private readonly debug = getDebug("cdk-nextjs:cache-handler:use-cache:tags");
 
   constructor(options: UseCacheTagManifestOptions) {
     this.markers = options.markers;
     this.log = options.markers ? options.log : undefined;
-    this.refreshIntervalMs =
-      options.refreshIntervalMs ?? DEFAULT_TAG_REFRESH_MS;
-    this.maxTrackedTags = options.maxTrackedTags ?? DEFAULT_MAX_TRACKED_TAGS;
-    this.resyncIntervalMs = options.resyncIntervalMs ?? DEFAULT_TAG_RESYNC_MS;
-    this.clock = options.clock ?? Date.now;
-    // Nothing is tracked yet, so nothing before this can be missed: every tag
-    // is read from its marker the first time it is needed.
-    const at = this.clock();
-    this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
-    this.lastLogRead = at;
-    this.lastFullRead = at;
+    this.clock = options.clock ?? (() => Date.now());
+    this.tracked = new TrackedTagMarkers({
+      ...options,
+      refreshIntervalMs: options.refreshIntervalMs ?? DEFAULT_TAG_REFRESH_MS,
+      debug: getDebug("cdk-nextjs:cache-handler:use-cache:tags"),
+      label: "'use cache' tag",
+    });
   }
 
   /** Whether markers are read from, and written to, the revalidation table. */
@@ -344,76 +266,27 @@ export class UseCacheTagManifest {
     return this.markers !== undefined;
   }
 
-  /**
-   * Start tracking `tags` without reading them: those of an entry this
-   * instance just stored. Nothing revalidated before it was created can apply
-   * to it, and the log carries anything after.
-   */
+  /** @see TrackedTagMarkers.track */
   track(tags: readonly string[]): void {
-    for (const tag of tags) {
-      this.remember(tag, this.tags.get(tag) ?? {});
-    }
+    this.tracked.track(tags);
   }
 
   /**
-   * Read the markers of whichever of `tags` this instance does not track yet.
-   * Needed before judging an entry this instance did not create - one read
-   * from S3, or a page's implicit tags - since its tags may have been
-   * revalidated at any time before.
+   * Read the markers of whichever of `tags` this instance does not track yet:
+   * needed before judging an entry this instance did not create - one read
+   * from S3, or a page's implicit tags. See {@link TrackedTagMarkers.ensure}.
    */
-  async ensure(tags: readonly string[]): Promise<void> {
-    if (!this.markers) {
-      this.track(tags);
-      return;
-    }
-    const waits: Promise<void>[] = [];
-    const unread: string[] = [];
-    for (const tag of new Set(tags)) {
-      const inFlight = this.reading.get(tag);
-      if (inFlight) {
-        waits.push(inFlight);
-      } else if (this.tags.has(tag)) {
-        this.touch(tag);
-      } else {
-        unread.push(tag);
-      }
-    }
-    if (unread.length > 0) {
-      // `readInto` never rejects: a failed read leaves the tags tracked.
-      const read = this.readInto(unread).then(() => {
-        for (const tag of unread) {
-          this.reading.delete(tag);
-        }
-      });
-      for (const tag of unread) {
-        this.reading.set(tag, read);
-      }
-      waits.push(read);
-    }
-    await Promise.all(waits);
+  ensure(tags: readonly string[]): Promise<void> {
+    return this.tracked.ensure(tags);
   }
 
   /**
    * Catch up on revalidations other instances ran, at most once per
    * `refreshIntervalMs`. Next.js calls this before the first cache read of a
-   * request; see {@link UseCacheTagManifest} for the cost.
+   * request. See {@link TrackedTagMarkers.refresh}.
    */
-  async refresh(): Promise<void> {
-    if (!this.markers || this.tags.size === 0) {
-      return;
-    }
-    if (this.refreshing) {
-      return this.refreshing;
-    }
-    const at = this.clock();
-    if (at - this.lastRefresh < this.refreshIntervalMs) {
-      return;
-    }
-    this.lastRefresh = at;
-    this.refreshing = this.sync(at).finally(() => {
-      this.refreshing = undefined;
-    });
-    return this.refreshing;
+  refresh(): Promise<void> {
+    return this.tracked.refresh();
   }
 
   /**
@@ -453,7 +326,7 @@ export class UseCacheTagManifest {
     const at = now();
     let state: RevalidationState = "fresh";
     for (const tag of tags) {
-      const marker = this.tags.get(tag);
+      const marker = this.tracked.get(tag);
       if (!marker) {
         continue;
       }
@@ -478,7 +351,7 @@ export class UseCacheTagManifest {
     const at = now();
     let latest = 0;
     for (const tag of tags) {
-      const marker = this.tags.get(tag);
+      const marker = this.tracked.get(tag);
       if (!marker) {
         continue;
       }
@@ -499,7 +372,7 @@ export class UseCacheTagManifest {
     const at = now();
     const marker = markerFor(at, durations);
     for (const tag of tags) {
-      this.remember(tag, { ...this.tags.get(tag), ...marker });
+      this.tracked.set(tag, { ...this.tracked.get(tag), ...marker });
     }
     if (!this.markers) {
       return;
@@ -508,7 +381,7 @@ export class UseCacheTagManifest {
     // The log row's sort key is on the wall clock, the marker values on
     // Next.js's: see `RevalidationLog`.
     const loggedAt = this.clock();
-    const writes: [string, Promise<void>][] = [];
+    const writes: [string, Promise<unknown>][] = [];
     for (const tag of new Set(tags)) {
       writes.push([
         "Error writing 'use cache' tag revalidation marker:",
@@ -528,156 +401,6 @@ export class UseCacheTagManifest {
       }
     });
   }
-
-  /**
-   * One refresh started at `at`: the log rows since the cursor, or every
-   * tracked marker when the log alone is not enough (no log, the periodic
-   * resync, a gap the log may not cover, more rows than one query reads).
-   *
-   * A failed query changes nothing but the log: the tags stay tracked as they
-   * were, and the next refresh asks again from the same cursor.
-   */
-  private async sync(at: number): Promise<void> {
-    const log = this.log;
-    if (
-      !log ||
-      at - this.lastFullRead >= this.resyncIntervalMs ||
-      at - this.lastLogRead > MAX_REVALIDATION_LOG_GAP_MS
-    ) {
-      return this.readAll(at);
-    }
-    let result: Awaited<ReturnType<RevalidationLog["query"]>>;
-    try {
-      result = await log.query(this.cursor);
-    } catch (error) {
-      console.error("Error reading 'use cache' revalidation log:", error);
-      return;
-    }
-    if (result.truncated) {
-      this.debug("revalidation log has more rows than one query reads");
-      return this.readAll(at);
-    }
-    let applied = 0;
-    for (const row of result.rows) {
-      if (this.applied.has(row.sk)) {
-        continue;
-      }
-      this.applied.set(row.sk, row.at);
-      const marker = this.tags.get(row.tag);
-      if (marker) {
-        // `set` on a key already there keeps its place in the LRU order: being
-        // revalidated elsewhere is not a use.
-        this.tags.set(row.tag, merge(marker, row.marker));
-        applied++;
-      }
-    }
-    this.lastLogRead = at;
-    this.advance(at - REVALIDATION_LOG_LOOKBACK_MS);
-    this.debug(
-      `read ${result.rows.length} revalidation log rows (${applied} applied)`,
-    );
-  }
-
-  /** Re-read every tracked tag's marker, and move the log's cursor past it. */
-  private async readAll(at: number): Promise<void> {
-    if (await this.readInto(Array.from(this.tags.keys()))) {
-      this.lastFullRead = at;
-      this.lastLogRead = at;
-      // A revalidation the (eventually consistent) read missed is still in the
-      // log from here on.
-      this.advance(at - REVALIDATION_LOG_LOOKBACK_MS);
-    }
-  }
-
-  /**
-   * Move the cursor forward to `cursor`, forgetting applied rows before it:
-   * no query returns them again.
-   */
-  private advance(cursor: number): void {
-    if (cursor <= this.cursor) {
-      return;
-    }
-    this.cursor = cursor;
-    for (const [sk, at] of this.applied) {
-      if (at < cursor) {
-        this.applied.delete(sk);
-      }
-    }
-  }
-
-  /**
-   * Read `tags` from the table into the manifest, and report whether that
-   * worked. A read that fails leaves them as they were (tracked, so a later
-   * refresh tries again): the same "assume the entry is valid" the incremental
-   * cache answers with, rather than a miss on every request while DynamoDB is
-   * unavailable.
-   */
-  private async readInto(tags: string[]): Promise<boolean> {
-    if (tags.length === 0) {
-      return true;
-    }
-    try {
-      const read = await this.markers!.read(tags);
-      for (const tag of tags) {
-        this.remember(tag, merge(this.tags.get(tag), read.get(tag)));
-      }
-      this.debug(`read ${tags.length} tag markers (${read.size} set)`);
-      return true;
-    } catch (error) {
-      console.error("Error reading 'use cache' tag markers:", error);
-      this.track(tags);
-      return false;
-    }
-  }
-
-  private remember(tag: string, marker: TagMarker): void {
-    this.tags.delete(tag);
-    this.tags.set(tag, marker);
-    for (const oldest of this.tags.keys()) {
-      if (this.tags.size <= this.maxTrackedTags) {
-        break;
-      }
-      this.tags.delete(oldest);
-    }
-  }
-
-  private touch(tag: string): void {
-    const marker = this.tags.get(tag);
-    if (marker) {
-      this.remember(tag, marker);
-    }
-  }
-}
-
-/**
- * A marker as read from the table, keeping whatever this instance wrote that
- * the read does not show yet: `BatchGetItem` is eventually consistent, and a
- * read straight after this instance's own `updateTags` could otherwise take its
- * revalidation back.
- */
-function merge(
-  local: TagMarker | undefined,
-  remote: TagMarker | undefined,
-): TagMarker {
-  if (!local) {
-    return remote ?? {};
-  }
-  if (!remote) {
-    return local;
-  }
-  const localStaleIsNewer = (local.staleAt ?? -1) > (remote.staleAt ?? -1);
-  return {
-    revalidatedAt: maxDefined(local.revalidatedAt, remote.revalidatedAt),
-    staleAt: maxDefined(local.staleAt, remote.staleAt),
-    // Written together with `staleAt`, so it belongs to whichever is newer.
-    expiredAt: localStaleIsNewer ? local.expiredAt : remote.expiredAt,
-  };
-}
-
-function maxDefined(a: number | undefined, b: number | undefined) {
-  if (a === undefined) return b;
-  if (b === undefined) return a;
-  return Math.max(a, b);
 }
 
 /**

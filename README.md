@@ -203,9 +203,13 @@ each instance sends one DynamoDB `Query` for the rows written since its last
 one and applies those for tags it tracks. So a revalidation on another instance
 is honored within that window (1 second by default), and on the instance that ran
 it immediately. An idle instance's query costs 0.5 RCU a second, where
-re-reading up to 1000 tracked tags cost about 500. Every 10 minutes, and after
-a gap the log may no longer cover (a Lambda frozen between invocations, a run
-of failed queries), an instance re-reads all its tracked markers once instead.
+re-reading up to 1000 tracked tags cost about 500. Every 7.5 to 10 minutes (a
+random point per instance, so instances started together don't all re-read at
+once), and after a gap the log may no longer cover (a Lambda frozen between
+invocations, a run of failed queries), an instance re-reads all its tracked
+markers once instead. ISR and the data cache catch up on revalidations from the
+same log, once per
+[`CDK_NEXTJS_TAG_MARKER_TTL_MS`](./docs/caching-guide.md#on-demand-revalidation).
 
 If you pass your own `revalidationTable`, enable TTL on its `ttl` attribute, or
 the log rows (about 100 bytes per revalidated tag) are kept until the build is

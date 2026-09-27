@@ -22,6 +22,7 @@ import {
   BatchGetItemCommand,
   DeleteItemCommand,
   DynamoDBClient,
+  PutItemCommand,
   QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
@@ -674,13 +675,51 @@ describe("S3DynamoCacheHandler", () => {
       expect(markerReads()).toBe(1);
     });
 
-    it("reads the markers again once the TTL has passed", async () => {
+    const logQueries = () =>
+      mockDynamoSend.mock.calls.filter(
+        ([command]) => command instanceof QueryCommand,
+      ).length;
+
+    // Another instance's `revalidateTag`, as the revalidation log returns it.
+    const loggedRevalidation = (at: number) => ({
+      query: {
+        Items: [
+          {
+            sk: { S: `${String(at).padStart(15, "0")}#posts` },
+            revalidatedAt: { N: String(lastModified + 1000) },
+          },
+        ],
+      },
+    });
+
+    it("learns of another instance's revalidation from the log once the interval has passed", async () => {
       const now = Date.now();
       const clock = jest.spyOn(Date, "now").mockReturnValue(now);
       await handler.get("page", getCtx);
+      dynamoResponses(loggedRevalidation(now));
+
+      // Inside the interval: nothing read.
+      clock.mockReturnValue(now + 999);
+      expect(await handler.get("page", getCtx)).toMatchObject({ lastModified });
+      expect(logQueries()).toBe(0);
+
       clock.mockReturnValue(now + 1001);
+      expect(await handler.get("page", getCtx)).toMatchObject(expired);
+      // One Query, and the page's markers not read again.
+      expect(logQueries()).toBe(1);
+      expect(markerReads()).toBe(1);
+    });
+
+    it("re-reads its tracked markers at the periodic resync", async () => {
+      const now = Date.now();
+      const clock = jest.spyOn(Date, "now").mockReturnValue(now);
+      // The earliest a resync comes: 75% of the interval.
+      jest.spyOn(Math, "random").mockReturnValue(1);
+      handler = new S3CacheHandler({ context: mockContext });
+      await handler.get("page", getCtx);
       dynamoResponses(revalidatedAfterStore);
 
+      clock.mockReturnValue(now + 0.75 * 10 * 60 * 1000);
       expect(await handler.get("page", getCtx)).toMatchObject(expired);
       expect(markerReads()).toBe(2);
     });
@@ -695,16 +734,45 @@ describe("S3DynamoCacheHandler", () => {
       expect(markerReads()).toBe(1);
     });
 
-    it("sees its own revalidateTag at once", async () => {
+    it("sees its own revalidateTag at once, and logs it for the others", async () => {
       expect(await handler.get("page", getCtx)).toMatchObject({ lastModified });
 
       dynamoResponses(revalidatedAfterStore);
       await handler.revalidateTag("posts");
 
       expect(await handler.get("page", getCtx)).toMatchObject(expired);
+      const puts = mockDynamoSend.mock.calls.filter(
+        ([command]) => command instanceof PutItemCommand,
+      );
+      expect(puts).toHaveLength(1);
+      expect(commandInput(puts[0][0], PutItemCommand).Item).toMatchObject({
+        pk: { S: "test-build-id#log" },
+        sk: { S: expect.stringMatching(/^\d{15}#posts$/) },
+        revalidatedAt: { N: expect.any(String) },
+        ttl: { N: expect.any(String) },
+      });
     });
 
-    it("doesn't keep a failed read", async () => {
+    it("still records the revalidation when its log row fails", async () => {
+      const error = jest.spyOn(console, "error").mockImplementation();
+      mockDynamoSend.mockImplementation((command: unknown) =>
+        command instanceof PutItemCommand
+          ? Promise.reject(new Error("throttled"))
+          : Promise.resolve({}),
+      );
+      await handler.revalidateTag("posts");
+
+      expect(await handler.get("page", getCtx)).toMatchObject(expired);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringMatching(/revalidation log/),
+        expect.any(Error),
+      );
+    });
+
+    it("reads a marker whose read failed again on the next refresh", async () => {
+      const now = Date.now();
+      const clock = jest.spyOn(Date, "now").mockReturnValue(now);
+      handler = new S3CacheHandler({ context: mockContext });
       jest.spyOn(console, "error").mockImplementation();
       mockDynamoSend.mockImplementation((command: unknown) =>
         command instanceof BatchGetItemCommand
@@ -715,6 +783,7 @@ describe("S3DynamoCacheHandler", () => {
       expect(await handler.get("page", getCtx)).toMatchObject({ lastModified });
 
       dynamoResponses(revalidatedAfterStore);
+      clock.mockReturnValue(now + 1000);
       expect(await handler.get("page", getCtx)).toMatchObject(expired);
     });
 

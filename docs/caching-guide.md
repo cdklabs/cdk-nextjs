@@ -410,7 +410,7 @@ When `revalidateTag("user-profile")` is called:
 4. **Auto-cleanup**: Delete stale S3 entry and return cache miss
 5. **Fresh Data**: Next request will fetch fresh data and create new cache entry
 
-**Marker reads are held for a second per instance.** Every cache hit checks its tags, in-memory hits included, and every marker of a deployment shares one partition key. So each instance keeps the markers it read for 1 s, and concurrent checks share one read, rather than reading DynamoDB on every request. The instance that calls `revalidateTag` sees it immediately; other instances see it up to 1 s later, which is within what CloudFront's invalidation already takes. Set `CDK_NEXTJS_TAG_MARKER_TTL_MS` on the functions or tasks (through `overrides`) to change it, or to `0` to check DynamoDB on every request.
+**Marker reads are kept per instance, and caught up from a log.** Every cache hit checks its tags, in-memory hits included, and every marker of a deployment shares one partition key. So each instance reads a tag's marker the first time it needs it and keeps it. Once a second it sends one `Query` to the revalidation log (`pk = <buildId>#log`, one row per revalidated tag, expiring after 15 minutes) for what other instances revalidated since, instead of re-reading its tags. Concurrent checks share that query. Every 7.5 to 10 minutes, at a random point per instance, it re-reads the markers it keeps anyway, since the marker rows are the source of truth. The instance that calls `revalidateTag` sees it immediately; other instances see it up to 1 s later, which is within what CloudFront's invalidation already takes. Set `CDK_NEXTJS_TAG_MARKER_TTL_MS` on the functions or tasks (through `overrides`) to change the interval, or to `0` to read the markers from DynamoDB on every check.
 
 ### Time-based Revalidation
 
@@ -450,7 +450,7 @@ export async function updateUser(userId: string) {
 ### DynamoDB Revalidation
 
 - **Query Latency**: ~1-5ms (single partition key lookup)
-- **Revalidation Check**: One `BatchGetItem` for a page's tags, at most once per second per instance (`CDK_NEXTJS_TAG_MARKER_TTL_MS`)
+- **Revalidation Check**: One `BatchGetItem` for tags an instance hasn't seen yet, then one revalidation log `Query` per second per instance, however many tags it keeps (`CDK_NEXTJS_TAG_MARKER_TTL_MS`)
 - **Scalability**: Handles millions of cache entries
 - **Cost**: Minimal - only pays for actual reads/writes
 - **Consistency**: Eventually consistent (sufficient for cache invalidation)

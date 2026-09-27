@@ -35,12 +35,17 @@ import {
   AwsCacheConfig,
   buildS3Key,
   CacheBucket,
+  markerFor,
   markerState,
+  mergeMarkers,
   resolveAwsCacheConfig,
   RevalidateDurations,
+  RevalidationLog,
   RevalidationState,
+  TagMarker,
   TagMarkerTable,
   tagMarkerTtl,
+  TrackedTagMarkers,
 } from "./aws-cache-store";
 import {
   serializeCacheValue,
@@ -327,10 +332,11 @@ interface DynamoDBRevalidationConfig extends Pick<
   "tableName" | "region" | "buildId"
 > {
   /**
-   * How long a tag's marker row, once read, answers every revalidation check
-   * on this instance without reading DynamoDB again. `0` reads it on every
-   * check. From `CDK_NEXTJS_TAG_MARKER_TTL_MS`.
-   * @see TagMarkerTable.read
+   * How often, at most, this instance catches up on other instances'
+   * revalidations from the revalidation log: the staleness window for a
+   * `revalidateTag` run elsewhere. `0` reads the markers on every check
+   * instead. From `CDK_NEXTJS_TAG_MARKER_TTL_MS`.
+   * @see TrackedTagMarkers
    */
   markerTtlMs: number;
 }
@@ -371,6 +377,9 @@ export class S3CacheHandler implements CacheHandler {
   private ssmClient: SSMClient;
   private bucket: CacheBucket;
   private tagMarkers: TagMarkerTable;
+  private revalidationLog: RevalidationLog;
+  /** The markers this instance tracks, or `undefined` to read on every check. */
+  private trackedMarkers: TrackedTagMarkers | undefined;
   private s3Config: S3CacheConfig;
   private dynamoConfig: DynamoDBRevalidationConfig;
   private cloudFrontConfig: CloudFrontInvalidationConfig;
@@ -449,8 +458,22 @@ export class S3CacheHandler implements CacheHandler {
       this.dynamoClient,
       this.dynamoConfig.tableName,
       this.dynamoConfig.buildId,
-      this.dynamoConfig.markerTtlMs,
     );
+    this.revalidationLog = new RevalidationLog(
+      this.dynamoClient,
+      this.dynamoConfig.tableName,
+      this.dynamoConfig.buildId,
+    );
+    this.trackedMarkers =
+      this.dynamoConfig.markerTtlMs > 0
+        ? new TrackedTagMarkers({
+            markers: this.tagMarkers,
+            log: this.revalidationLog,
+            refreshIntervalMs: this.dynamoConfig.markerTtlMs,
+            debug: getDebug("cdk-nextjs:cache-handler:s3:tags"),
+            label: "tag",
+          })
+        : undefined;
 
     // `res.revalidate()` regenerates a page without going through
     // `revalidateTag`, so the runtime asks for the CDN copies itself, through
@@ -812,7 +835,7 @@ export class S3CacheHandler implements CacheHandler {
     // runtime `set` wrote; a build-time prerender has none, so without this
     // marker `revalidateTag` would have nothing to act on for a static page.
     // See `checkIfRevalidated`, which reads it.
-    await this.tagMarkers.write(tag, Date.now(), durations);
+    await this.recordRevalidation(tag, durations);
 
     if (!this.mapsTagsToPaths) {
       return { routes: [], truncated: false };
@@ -1190,6 +1213,64 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
+   * Write `tag`'s marker row and its revalidation log row, and track the marker
+   * as written: this instance sees its own `revalidateTag` at once, other
+   * instances within {@link DynamoDBRevalidationConfig.markerTtlMs}.
+   *
+   * The `'use cache'` handlers' manifest writes a log row for the same call
+   * too, when they are registered. Two rows for one revalidation cost a write
+   * each and are applied alike; relying on the other writer would miss every
+   * revalidation of an app that registers its own `cacheHandlers`.
+   */
+  private async recordRevalidation(
+    tag: string,
+    durations: RevalidateDurations | undefined,
+  ): Promise<void> {
+    const at = Date.now();
+    const [row] = await Promise.all([
+      this.tagMarkers.write(tag, at, durations),
+      // Not the revalidation failing: the marker row is the source of truth,
+      // and every instance re-reads it within `DEFAULT_TAG_RESYNC_MS`.
+      this.revalidationLog
+        .put(tag, at, markerFor(at, durations))
+        .catch((error) =>
+          console.error("Error writing tag revalidation log row:", error),
+        ),
+    ]);
+    const tracked = this.trackedMarkers;
+    if (tracked) {
+      tracked.set(
+        tag,
+        mergeMarkers(tracked.get(tag), row ?? markerFor(at, durations)),
+      );
+    }
+  }
+
+  /**
+   * The markers of `tags` that are set, by tag: this instance's tracked copy,
+   * caught up from the revalidation log at most once per `markerTtlMs`, or
+   * straight from the table on every check when that is `0`.
+   */
+  private async readTagMarkers(
+    tags: string[],
+  ): Promise<Map<string, TagMarker>> {
+    const tracked = this.trackedMarkers;
+    if (!tracked) {
+      return this.tagMarkers.read(tags);
+    }
+    await tracked.refresh();
+    await tracked.ensure(tags);
+    const markers = new Map<string, TagMarker>();
+    for (const tag of tags) {
+      const marker = tracked.get(tag);
+      if (marker) {
+        markers.set(tag, marker);
+      }
+    }
+    return markers;
+  }
+
+  /**
    * Whether any of `tags` was revalidated after this entry was stored, and how.
    *
    * Reads the per-tag marker rows `revalidateSingleTag` writes, by primary key.
@@ -1210,7 +1291,7 @@ export class S3CacheHandler implements CacheHandler {
     tags: string[],
   ): Promise<RevalidationState> {
     try {
-      const markers = await this.tagMarkers.read(tags);
+      const markers = await this.readTagMarkers(tags);
       const now = Date.now();
       const staleTags: [string, number][] = [];
 
