@@ -451,7 +451,7 @@ For routes with time-based revalidation (e.g., `revalidate: 3600`):
 - Triggers background regeneration when expired
 - Updates cache files in S3 automatically
 
-**Known limitation on Lambda**: this background regeneration is Next.js's own fire-and-forget work, not something cdk-nextjs's cache handler is invoked to await — the same "no signal for when background work is complete" gap that led to `NextjsRevalidation` (an SQS-based workaround) being removed in favor of waiting for Next.js's [Deployment Adapters `waitFor` API](https://github.com/vercel/next.js/discussions/77740) (see `docs/breaking-changes.md` 0.4.0). Until cdk-nextjs adopts `waitFor`, time-based revalidation on Lambda may occasionally not complete before the execution environment spins down, unrelated to the CloudFront-edge-cache invalidation described below (which only fires for explicit tag/path revalidation, not time-based expiry).
+**On Lambda, background regeneration completes before the environment freezes.** Next.js hands this work to the runtime through the adapter API's `waitUntil`. The runtime awaits it after the response stream has closed, so it adds billed duration but no latency, and the function's timeout bounds it. The Containers constructs' server does the same. This is unrelated to the CloudFront edge-cache invalidation described below, which only fires for explicit tag or path revalidation, not time-based expiry.
 
 ### Tag-based Revalidation
 
