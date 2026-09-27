@@ -3435,6 +3435,7 @@ const nextjsBuildProps: NextjsBuildProps = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsBuildProps.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into each deployment root. |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroupRoutes">NextjsFunctionGroupRoutes</a>[]</code> | Route groups to package into separate Lambda functions. |
 | <code><a href="#cdk-nextjs.NextjsBuildProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | *No description.* |
@@ -3460,6 +3461,23 @@ public readonly nextjsType: NextjsType;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
+
+---
+
+##### `architecture`<sup>Optional</sup> <a name="architecture" id="cdk-nextjs.NextjsBuildProps.property.architecture"></a>
+
+```typescript
+public readonly architecture: Architecture;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Architecture
+- *Default:* the architecture of the machine running synth
+
+Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into each deployment root.
+
+A group's own
+{@link NextjsFunctionGroupRoutes.architecture} wins for that group. Ignored
+by the Containers types, whose image is built for the synth machine.
 
 ---
 
@@ -4080,9 +4098,24 @@ const nextjsDeploymentRoot: NextjsDeploymentRoot = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsDeploymentRoot.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | The architecture this root's native dependencies (`sharp`) were staged for. |
 | <code><a href="#cdk-nextjs.NextjsDeploymentRoot.property.name">name</a></code> | <code>string</code> | Group name, `default` for the implicit group that owns every unassigned route. |
 | <code><a href="#cdk-nextjs.NextjsDeploymentRoot.property.path">path</a></code> | <code>string</code> | Absolute path to the deployment root: the Lambda zip asset's source. |
 | <code><a href="#cdk-nextjs.NextjsDeploymentRoot.property.routes">routes</a></code> | <code>string[]</code> | Route templates this root's package holds, as the adapter assigned them. |
+
+---
+
+##### `architecture`<sup>Required</sup> <a name="architecture" id="cdk-nextjs.NextjsDeploymentRoot.property.architecture"></a>
+
+```typescript
+public readonly architecture: Architecture;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Architecture
+
+The architecture this root's native dependencies (`sharp`) were staged for.
+
+The Lambda deploying it must use the same one.
 
 ---
 
@@ -4768,6 +4801,7 @@ const nextjsFunctionGroupRoutes: NextjsFunctionGroupRoutes = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsFunctionGroupRoutes.property.name">name</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionGroupRoutes.property.routes">routes</a></code> | <code>string[]</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsFunctionGroupRoutes.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | This group's Lambda architecture, when it differs from {@link NextjsBuildProps.architecture}. |
 
 ---
 
@@ -4788,6 +4822,19 @@ public readonly routes: string[];
 ```
 
 - *Type:* string[]
+
+---
+
+##### `architecture`<sup>Optional</sup> <a name="architecture" id="cdk-nextjs.NextjsFunctionGroupRoutes.property.architecture"></a>
+
+```typescript
+public readonly architecture: Architecture;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Architecture
+- *Default:* NextjsBuildProps.architecture
+
+This group's Lambda architecture, when it differs from {@link NextjsBuildProps.architecture}.
 
 ---
 
@@ -10367,11 +10414,29 @@ const optionalNextjsBuildProps: OptionalNextjsBuildProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into each deployment root. |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroupRoutes">NextjsFunctionGroupRoutes</a>[]</code> | Route groups to package into separate Lambda functions. |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | *No description.* |
+
+---
+
+##### `architecture`<sup>Optional</sup> <a name="architecture" id="cdk-nextjs.OptionalNextjsBuildProps.property.architecture"></a>
+
+```typescript
+public readonly architecture: Architecture;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Architecture
+- *Default:* the architecture of the machine running synth
+
+Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into each deployment root.
+
+A group's own
+{@link NextjsFunctionGroupRoutes.architecture} wins for that group. Ignored
+by the Containers types, whose image is built for the synth machine.
 
 ---
 
