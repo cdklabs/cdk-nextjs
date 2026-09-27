@@ -15,6 +15,7 @@ import type {
 import {
   markerFor,
   markerState,
+  mergeMarkers,
   resolveAwsCacheConfig,
   RevalidateDurations,
   RevalidationLog,
@@ -22,16 +23,10 @@ import {
   TagMarkerTable,
   TrackedTagMarkers,
   TrackedTagMarkersOptions,
+  markerClock as now,
 } from "./aws-cache-store";
 
-/**
- * The clock Next.js stamps `CacheEntry.timestamp` with and compares it against
- * (`performance.timeOrigin + performance.now()`, in `use-cache-wrapper.js` and
- * the default handler), rather than `Date.now()`.
- */
-export function now(): number {
-  return performance.timeOrigin + performance.now();
-}
+export { markerClock as now } from "./aws-cache-store";
 
 /** Whether this process is `next build` rather than a deployed server. */
 export function isBuildPhase(): boolean {
@@ -385,7 +380,16 @@ export class UseCacheTagManifest {
     for (const tag of new Set(tags)) {
       writes.push([
         "Error writing 'use cache' tag revalidation marker:",
-        markers.write(tag, at, durations),
+        // The row as it is now, which carries any earlier `revalidatedAt`
+        // another instance wrote: tracking only what this call set would
+        // hide that one until the rolling re-read, and an entry older than it
+        // would read as merely stale. What `S3CacheHandler.recordRevalidation`
+        // does with the same row.
+        markers.write(tag, at, durations).then((row) => {
+          if (row) {
+            this.tracked.set(tag, mergeMarkers(this.tracked.get(tag), row));
+          }
+        }),
       ]);
       if (log) {
         writes.push([

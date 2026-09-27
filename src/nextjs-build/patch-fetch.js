@@ -28,6 +28,49 @@ async function sha256(data) {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// The exact bytes a `fetch` or `XMLHttpRequest` body is sent as, which is what
+// the hash has to cover. `body` is what to send instead of the original, and
+// `contentType` the header to send with it, when the original cannot be sent
+// as-is: a `FormData` is encoded here (so its boundary is known), and the
+// encoding replaces it.
+async function encodeBody(body) {
+  if (!body) return { bytes: new Uint8Array(0), body };
+  if (typeof body === "string") {
+    return { bytes: new TextEncoder().encode(body), body };
+  }
+  if (body instanceof FormData) {
+    // Encode via Response so File/Blob parts survive as bytes. The hash must
+    // cover the exact sent bytes (incl. boundary), so the encoding becomes the body.
+    const encoded = new Response(body);
+    const bytes = new Uint8Array(await encoded.arrayBuffer());
+    return {
+      bytes,
+      body: bytes,
+      contentType: encoded.headers.get("content-type") ?? undefined,
+    };
+  }
+  if (body instanceof Blob) {
+    return { bytes: new Uint8Array(await body.arrayBuffer()), body };
+  }
+  if (body instanceof ArrayBuffer) {
+    return { bytes: new Uint8Array(body), body };
+  }
+  if (ArrayBuffer.isView(body)) {
+    // A typed array or `DataView` is sent as the bytes it views - which is
+    // also what the `FormData` branch above hands on as the body.
+    return {
+      bytes: new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
+      body,
+    };
+  }
+  if (body instanceof URLSearchParams) {
+    return { bytes: new TextEncoder().encode(body.toString()), body };
+  }
+  // Anything else is sent stringified (an XHR `Document` aside, which is rare
+  // enough to leave unsigned-correct), so hash what it stringifies to.
+  return { bytes: new TextEncoder().encode(String(body)), body };
+}
+
 // Set on the wrappers below, so that a second copy of this file sharing the
 // global scope leaves them alone. `patchFetchInClientJs` prepends it to every
 // entrypoint chunk, and a page can load more than one. Wrapped twice, the outer
@@ -61,37 +104,11 @@ async function signedFetch(input, init) {
     return originalFetch(input, init);
   }
 
-  const body = init.body;
-  let bodyBytes;
   const headers = new Headers(init.headers);
-
-  if (body) {
-    if (typeof body === "string") {
-      bodyBytes = new TextEncoder().encode(body);
-    } else if (body instanceof FormData) {
-      // Encode via Response so File/Blob parts survive as bytes. The hash must
-      // cover the exact sent bytes (incl. boundary), so the encoding becomes the body.
-      const encoded = new Response(body);
-      bodyBytes = new Uint8Array(await encoded.arrayBuffer());
-      const contentType = encoded.headers.get("content-type");
-      if (contentType) headers.set("content-type", contentType);
-      init.body = bodyBytes;
-    } else if (body instanceof Blob) {
-      bodyBytes = new Uint8Array(await body.arrayBuffer());
-    } else if (body instanceof ArrayBuffer) {
-      bodyBytes = new Uint8Array(body);
-    } else if (ArrayBuffer.isView(body)) {
-      // A typed array or `DataView` is sent as the bytes it views - which is
-      // also what the `FormData` branch above hands on as the body.
-      bodyBytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
-    } else if (body instanceof URLSearchParams) {
-      bodyBytes = new TextEncoder().encode(body.toString());
-    } else {
-      bodyBytes = new TextEncoder().encode(JSON.stringify(body));
-    }
-  } else {
-    bodyBytes = new Uint8Array(0);
-  }
+  const encoded = await encodeBody(init.body);
+  if (encoded.contentType) headers.set("content-type", encoded.contentType);
+  if (encoded.body !== init.body) init.body = encoded.body;
+  const bodyBytes = encoded.bytes;
 
   const contentSha256 = await sha256(bodyBytes);
   headers.set("x-amz-content-sha256", contentSha256);
@@ -134,13 +151,15 @@ if (
           new URL(this.url, location.href).hostname === location.hostname &&
           body
         ) {
-          const bodyString =
-            typeof body === "string"
-              ? body
-              : body instanceof URLSearchParams
-                ? body.toString()
-                : JSON.stringify(body);
-          const contentSha256 = await sha256(bodyString);
+          // Through the same encoding as `fetch`: hashing `JSON.stringify` of
+          // a `FormData`, `Blob` or typed array hashed `{}` rather than the bytes
+          // XHR sends, and every such upload was a 403.
+          const encoded = await encodeBody(body);
+          if (encoded.contentType) {
+            this.setRequestHeader("content-type", encoded.contentType);
+          }
+          body = encoded.body;
+          const contentSha256 = await sha256(encoded.bytes);
           this.setRequestHeader("x-amz-content-sha256", contentSha256);
         }
         this.originalSend.apply(this, [body]);

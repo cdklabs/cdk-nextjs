@@ -81,6 +81,7 @@ export {
   NextjsStaticAssetsProps,
 } from "./nextjs-static-assets";
 
+export { OptionalNextjsApiProps } from "./generated-structs/OptionalNextjsApiProps";
 export { OptionalNextjsBuildProps } from "./generated-structs/OptionalNextjsBuildProps";
 export { OptionalNextjsContainersProps } from "./generated-structs/OptionalNextjsContainersProps";
 export { OptionalNextjsDistributionProps } from "./generated-structs/OptionalNextjsDistributionProps";

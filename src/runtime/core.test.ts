@@ -55,6 +55,8 @@ exports.handler = async (req, res, ctx) => {
     // A render that described its body before it threw.
     res.setHeader("Content-Length", "1234");
     res.setHeader("ETag", '"stale"');
+    // What \`getServerSideProps\` (or a \`headers()\` rule) can leave behind.
+    res.setHeader("Cache-Control", "s-maxage=60");
     throw new Error("route exploded");
   }
   // What both routers do for \`notFound()\` they cannot render themselves. Only
@@ -275,6 +277,12 @@ function stageDeployment(
   for (const [file, contents] of Object.entries(PUBLIC_FILES)) {
     write(join(root, manifest.relativeProjectDir, "public", file), contents);
   }
+  // `.env` rather than `.env.production`: `@next/env` picks the mode from
+  // NODE_ENV, which jest sets to "test".
+  write(
+    join(root, manifest.relativeProjectDir, ".env"),
+    "CDK_NEXTJS_TEST_FROM_ENV_FILE=from-file\nCDK_NEXTJS_TEST_SET_BY_LAMBDA=from-file\n",
+  );
   return root;
 }
 
@@ -284,6 +292,7 @@ const originalCwd = process.cwd();
 
 beforeAll(async () => {
   jest.spyOn(console, "warn").mockImplementation(() => {});
+  process.env.CDK_NEXTJS_TEST_SET_BY_LAMBDA = "from-lambda";
   root = stageDeployment();
   // `loadRuntime` chdirs, which is the point of it.
   runtime = await loadRuntime(root);
@@ -321,6 +330,11 @@ function stubBody(sink: CollectingSink): Record<string, unknown> {
 describe("loadRuntime", () => {
   it("chdirs to the staged project dir, because entrypoints resolve against cwd", () => {
     expect(process.cwd()).toBe(join(root, "app-playground"));
+  });
+
+  it("loads the staged env files the way next start does, without overriding the function's environment", () => {
+    expect(process.env.CDK_NEXTJS_TEST_FROM_ENV_FILE).toBe("from-file");
+    expect(process.env.CDK_NEXTJS_TEST_SET_BY_LAMBDA).toBe("from-lambda");
   });
 
   it("explains a deployment package with no manifest", async () => {
@@ -1067,6 +1081,8 @@ describe("the error page ladder", () => {
     expect(stubBody(sink).url).toBe("/?boom=1");
     expect(sink.head?.headers["content-length"]).toBeUndefined();
     expect(sink.head?.headers.etag).toBeUndefined();
+    // Not the throwing render's `s-maxage=60`: a cached 500 at CloudFront.
+    expect(sink.head?.headers["cache-control"]).toMatch(/no-store/);
     error.mockRestore();
   });
 

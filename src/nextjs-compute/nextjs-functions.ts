@@ -244,6 +244,10 @@ export class NextjsFunctions extends Construct {
       // An override that disagrees throws above rather than being dropped here.
       architecture,
       environment: {
+        // What `next start` and the Containers Dockerfiles set. Externalized
+        // packages (React for Pages Router SSR among them) load their dev
+        // builds without it.
+        NODE_ENV: "production",
         // Cache configuration environment variables
         CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
         CDK_NEXTJS_REVALIDATION_TABLE_NAME:

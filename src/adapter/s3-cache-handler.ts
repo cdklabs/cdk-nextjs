@@ -37,6 +37,7 @@ import {
   CacheBucket,
   markerFor,
   markerState,
+  markerClock,
   mergeMarkers,
   resolveAwsCacheConfig,
   RevalidateDurations,
@@ -734,7 +735,8 @@ export class S3CacheHandler implements CacheHandler {
 
       // Create CacheHandlerValue structure for S3 storage with tags
       const cacheHandlerValue: CacheHandlerValue = {
-        lastModified: Date.now(),
+        // On the marker clock, since that is what it is compared with.
+        lastModified: markerClock(),
         value: data,
       };
 
@@ -1226,13 +1228,15 @@ export class S3CacheHandler implements CacheHandler {
     tag: string,
     durations: RevalidateDurations | undefined,
   ): Promise<void> {
-    const at = Date.now();
+    // The marker on the clock the `'use cache'` handlers stamp the same rows
+    // with; the log row's sort key on the wall clock (see `RevalidationLog`).
+    const at = markerClock();
     const [row] = await Promise.all([
       this.tagMarkers.write(tag, at, durations),
       // Not the revalidation failing: the marker row is the source of truth,
       // and every instance re-reads it within `DEFAULT_TAG_RESYNC_MS`.
       this.revalidationLog
-        .put(tag, at, markerFor(at, durations))
+        .put(tag, Date.now(), markerFor(at, durations))
         .catch((error) =>
           console.error("Error writing tag revalidation log row:", error),
         ),
@@ -1292,11 +1296,11 @@ export class S3CacheHandler implements CacheHandler {
   ): Promise<RevalidationState> {
     try {
       const markers = await this.readTagMarkers(tags);
-      const now = Date.now();
+      const at = markerClock();
       const staleTags: [string, number][] = [];
 
       for (const [tag, marker] of markers) {
-        const state = markerState(marker, cacheLastModified, now);
+        const state = markerState(marker, cacheLastModified, at);
         if (state === "expired") {
           this.debug(
             `Tag ${tag} expired entry created at ${cacheLastModified}`,

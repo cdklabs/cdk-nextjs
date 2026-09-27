@@ -47,7 +47,11 @@ import {
   MANIFEST_FILE_NAME,
 } from "./manifest";
 import { createMiddlewareRunner, MiddlewareRunner } from "./middleware";
-import { setupNodeEnvironment, useNextFrom } from "./next-modules";
+import {
+  loadEnvFiles,
+  setupNodeEnvironment,
+  useNextFrom,
+} from "./next-modules";
 import { publicDirKey, resolvePublicFiles } from "./public-files";
 import { serveS3PublicFile, serveStaticFile } from "./static-files";
 
@@ -495,6 +499,17 @@ export class NextjsRuntime {
       }
 
       case "image-optimization":
+        if (!this.images.isEnabled()) {
+          await this.sendUnmatched(
+            req,
+            res,
+            waitUntil,
+            { pathname: url.pathname, requestHeaders: result.requestHeaders },
+            dispatcher.notFound,
+            url,
+          );
+          return;
+        }
         req.headers = toIncomingHttpHeaders(result.requestHeaders);
         await this.images.handle(req, res, result.url, waitUntil);
         return;
@@ -846,6 +861,10 @@ export class NextjsRuntime {
     // desyncs a keep-alive connection.
     res.removeHeader("Content-Length");
     res.removeHeader("ETag");
+    // Every rung, the error-page entrypoint included: otherwise the throwing
+    // render's `s-maxage` (or a `headers()` rule's) rides along and CloudFront
+    // caches the 500. `next start` sets it before rendering the error page too.
+    res.setHeader("Cache-Control", NO_STORE);
     const target = this.errorTarget;
 
     if (target.kind === "entrypoint") {
@@ -1151,10 +1170,18 @@ export async function loadRuntime(
       { cause: error },
     );
   }
+  // `next start` forces this, and externalized packages (React for Pages Router
+  // SSR, anything in `serverExternalPackages`) pick their dev or prod build from
+  // it at require time. The Containers Dockerfiles set it and the Functions
+  // constructs do too; this covers a hand-wired function. Before any `require`.
+  // (`next`'s typings declare NODE_ENV read-only.)
+  (process.env as Record<string, string | undefined>).NODE_ENV ??= "production";
   process.chdir(projectDir);
   // Before anything can serve a request: the runtime's own `next` imports resolve
   // out of the staged app, not out of the shell's directory. See `next-modules.ts`.
   useNextFrom(projectDir);
+  // Before any entrypoint can read them at module scope.
+  loadEnvFiles(projectDir);
   // Then, before any entrypoint (or middleware) can be loaded: Next's own
   // node-environment bootstrap. See `setupNodeEnvironment`.
   setupNodeEnvironment();

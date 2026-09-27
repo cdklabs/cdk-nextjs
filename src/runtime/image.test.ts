@@ -120,6 +120,30 @@ async function request(
   return { head: head!, body: Buffer.concat(chunks).toString() };
 }
 
+describe("RuntimeImageOptimizer.isEnabled", () => {
+  const withImages = (images: Record<string, unknown>) =>
+    new RuntimeImageOptimizer({
+      deploymentRoot: stage({
+        images: { ...imageConfigDefault, localPatterns: undefined, ...images },
+      }),
+      manifest: {
+        relativeProjectDir: "",
+        config: { distDir: ".next" },
+      } as unknown as AdapterManifest,
+      bucket: "assets",
+      bucketKeyPrefix: "",
+    });
+
+  // Where `next start` answers 404 rather than optimize.
+  it("is off for images.unoptimized and for a non-default loader", () => {
+    expect(withImages({}).isEnabled()).toBe(true);
+    expect(withImages({ unoptimized: true }).isEnabled()).toBe(false);
+    expect(
+      withImages({ loader: "custom", loaderFile: "./loader.js" }).isEnabled(),
+    ).toBe(false);
+  });
+});
+
 describe("RuntimeImageOptimizer response", () => {
   it("answers with the headers next start sends", async () => {
     const { head, body } = await request("/photos/logo.png");

@@ -72,6 +72,36 @@ export function setupNodeEnvironment(): void {
 }
 
 /**
+ * Load the staged `.env` / `.env.production` into `process.env`, the way
+ * `NextNodeServer` does when `next start` constructs it. Nothing else would:
+ * the built entrypoints never call `loadEnvConfig`, and the runtime builds no
+ * `NextNodeServer`.
+ *
+ * Same semantics as `next start` because it is the same function — variables
+ * already in `process.env` (the Lambda or task environment) win over the files.
+ * `@next/env` is a dependency of `next`, not of the app, so it is resolved from
+ * `next`'s own directory; the adapter stages it on that basis
+ * (`addRuntimeNextClosure`).
+ */
+export function loadEnvFiles(projectDir: string): void {
+  const nextEnvRequire = createRequire(nextModuleResolve("next/package.json"));
+  // Typed locally: `@next/env` is `next`'s dependency, not a resolvable one here.
+  const { loadEnvConfig } = nextEnvRequire("@next/env") as {
+    loadEnvConfig: (dir: string, dev?: boolean) => unknown;
+  };
+  loadEnvConfig(projectDir, false);
+}
+
+function nextModuleResolve(specifier: string): string {
+  if (!nextRequire) {
+    throw new Error(
+      `Cannot resolve "${specifier}": \`useNextFrom\` has not run yet.`,
+    );
+  }
+  return nextRequire.resolve(specifier);
+}
+
+/**
  * `require` a `next` submodule from the staged app.
  *
  * Pass the module's own type — `nextModule<typeof import("next/dist/...")>(...)` —

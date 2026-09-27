@@ -111,6 +111,19 @@ export class RuntimeImageOptimizer {
 
   public constructor(private readonly options: ImageOptimizerOptions) {}
 
+  /**
+   * Whether the app serves `/_next/image` at all. `next start` answers 404
+   * when `images.unoptimized` is set or a non-default `loader` is configured
+   * (`next-server.js`), and so does the runtime: otherwise anyone can make the
+   * compute run sharp and write the image cache on an endpoint the app turned
+   * off.
+   */
+  public isEnabled(): boolean {
+    this.loaded ??= loadImageRuntime(this.options);
+    const { imagesConfig } = this.loaded;
+    return imagesConfig.loader === "default" && !imagesConfig.unoptimized;
+  }
+
   public async handle(
     req: ShimIncomingMessage,
     res: ShimServerResponse,

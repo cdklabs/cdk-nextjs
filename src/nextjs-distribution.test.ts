@@ -544,6 +544,62 @@ describe("NextjsDistribution function group behaviors", () => {
     ).toThrow(/already associates a CloudFront function with viewer-request/);
   });
 
+  const userFn = (stack: Stack, eventType: FunctionEventType) => ({
+    eventType,
+    function: new CloudFrontFunction(stack, `UserFn${eventType}`, {
+      code: FunctionCode.fromInline(
+        "function handler(event) { return event.request || event.response; }",
+      ),
+    }),
+  });
+
+  it.each(["dynamicBehaviorOptions", "imageBehaviorOptions"] as const)(
+    "refuses a %s override that would replace the x-forwarded-host function",
+    (overrideName) => {
+      // The runtime trusts `x-forwarded-host` on Function URL events because
+      // this function overwrites it; replaced, a viewer's own header reaches it.
+      const { stack, distributionProps } = setup([]);
+      expect(
+        () =>
+          new NextjsDistribution(stack, "Distribution", {
+            ...distributionProps,
+            overrides: {
+              [overrideName]: {
+                functionAssociations: [
+                  userFn(stack, FunctionEventType.VIEWER_REQUEST),
+                ],
+              },
+            },
+          }),
+      ).toThrow(
+        new RegExp(`overrides\\.${overrideName}\\.functionAssociations`),
+      );
+    },
+  );
+
+  it("keeps the x-forwarded-host function next to an override's other associations", () => {
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      overrides: {
+        dynamicBehaviorOptions: {
+          functionAssociations: [
+            userFn(stack, FunctionEventType.VIEWER_RESPONSE),
+          ],
+        },
+      },
+    });
+    const config = Object.values(
+      Template.fromStack(stack).findResources("AWS::CloudFront::Distribution"),
+    )[0].Properties.DistributionConfig;
+    const eventTypes = (
+      config.DefaultCacheBehavior.FunctionAssociations as Array<{
+        EventType: string;
+      }>
+    ).map((association) => association.EventType);
+    expect(eventTypes.sort()).toEqual(["viewer-request", "viewer-response"]);
+  });
+
   it("rewrites an assetPrefix back onto the basePath S3 keys", () => {
     const { stack, distributionProps } = setup([], { basePath: "/base" });
     new NextjsDistribution(stack, "Distribution", {

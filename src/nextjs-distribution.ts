@@ -437,13 +437,57 @@ export class NextjsDistribution extends Construct {
     return {
       allowedMethods: AllowedMethods.ALLOW_ALL,
       cachePolicy,
-      functionAssociations: this.dynamicCloudFrontFunctionAssociations,
       origin: this.dynamicOrigin,
       originRequestPolicy: this.dynamicOriginResponsePolicy,
       responseHeadersPolicy,
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...dynamicBehaviorOptions,
+      functionAssociations: this.withDynamicFunctionAssociations(
+        "dynamicBehaviorOptions",
+        dynamicBehaviorOptions?.functionAssociations,
+      ),
     };
+  }
+  /**
+   * The behavior's function associations: an override's, plus the viewer-request
+   * function Global Functions depends on.
+   *
+   * Spreading the override's `functionAssociations` over ours would silently
+   * drop that function, and with it the only thing standing between a viewer's
+   * own `X-Forwarded-Host` and the runtime, which trusts that header on Function
+   * URL events (`lambda-event.ts`): host injection into redirects and absolute
+   * URLs, cached for other viewers because the header is not in the cache key.
+   * So ours is kept, and an override claiming VIEWER_REQUEST — which CloudFront
+   * allows only one of per behavior — is an error rather than a replacement.
+   */
+  private withDynamicFunctionAssociations(
+    overrideName: string,
+    overridden: FunctionAssociation[] | undefined,
+  ): FunctionAssociation[] {
+    if (!overridden) {
+      return this.dynamicCloudFrontFunctionAssociations;
+    }
+    if (!this.isFunctionCompute) {
+      return overridden;
+    }
+    const claimed = overridden.some(
+      (association) =>
+        association.eventType === FunctionEventType.VIEWER_REQUEST,
+    );
+    if (claimed) {
+      throw new Error(
+        `${LOG_PREFIX} \`overrides.${overrideName}.functionAssociations\` ` +
+          `associates a CloudFront function with ` +
+          `${FunctionEventType.VIEWER_REQUEST}, but NextjsGlobalFunctions needs ` +
+          `that event type for its own function, which overwrites ` +
+          `\`x-forwarded-host\` with the viewer's \`Host\` (the runtime trusts ` +
+          `that header behind CloudFront) and redirects repeated slashes. ` +
+          `CloudFront permits only one function per event type per behavior. ` +
+          `Move the logic to ${FunctionEventType.VIEWER_RESPONSE}, or into ` +
+          `the app's middleware.`,
+      );
+    }
+    return [...overridden, ...this.dynamicCloudFrontFunctionAssociations];
   }
   /**
    * `_next/image*` goes to the same origin as everything else — the Next.js
@@ -486,13 +530,16 @@ export class NextjsDistribution extends Construct {
     return {
       allowedMethods: AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
       cachedMethods: CachedMethods.CACHE_GET_HEAD_OPTIONS,
-      functionAssociations: this.dynamicCloudFrontFunctionAssociations,
       origin: this.dynamicOrigin,
       originRequestPolicy: this.dynamicOriginResponsePolicy,
       cachePolicy,
       responseHeadersPolicy,
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...imageBehaviorOptions,
+      functionAssociations: this.withDynamicFunctionAssociations(
+        "imageBehaviorOptions",
+        imageBehaviorOptions?.functionAssociations,
+      ),
     };
   }
   /**

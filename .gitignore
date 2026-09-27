@@ -84,6 +84,7 @@ junit.xml
 !/src/generated-structs/OptionalNextjsBuildProps.ts
 !/src/generated-structs/OptionalNextjsCacheProps.ts
 !/src/generated-structs/OptionalNextjsDistributionProps.ts
+!/src/generated-structs/OptionalNextjsApiProps.ts
 !/src/generated-structs/OptionalNextjsContainersProps.ts
 !/src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts
 !/src/generated-structs/OptionalVpcProps.ts

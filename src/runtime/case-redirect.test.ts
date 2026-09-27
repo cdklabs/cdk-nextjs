@@ -40,6 +40,35 @@ describe("caseCanonicalPath", () => {
     );
   });
 
+  // What dispatch actually hands over: `resolvedPathname` is a manifest key,
+  // which carries the basePath, and for Pages i18n the locale as well.
+  it("matches basePath- and locale-prefixed templates", () => {
+    const manifest = {
+      config: { basePath: "/prod", i18n: { locales: ["en-US", "fr"] } },
+    } as unknown as Config;
+    expect(
+      caseCanonicalPath(
+        "/prod/API/reports/1",
+        "/prod/api/reports/[id]",
+        manifest,
+      ),
+    ).toBe("/prod/api/reports/1");
+    expect(
+      caseCanonicalPath(
+        "/prod/fr/BLOG/hello",
+        "/prod/en-US/blog/[slug]",
+        manifest,
+      ),
+    ).toBe("/prod/fr/blog/hello");
+    expect(
+      caseCanonicalPath(
+        "/prod/BLOG/hello",
+        "/prod/en-US/blog/[slug]",
+        manifest,
+      ),
+    ).toBe("/prod/blog/hello");
+  });
+
   it("keeps basePath and the locale, in their canonical spelling", () => {
     const manifest = {
       config: { basePath: "/shop", i18n: { locales: ["en", "fr"] } },

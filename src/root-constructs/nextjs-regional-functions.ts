@@ -1,7 +1,8 @@
 import { Construct } from "constructs";
 import { routedPatterns } from "../adapter/function-groups";
 import { NextjsType } from "../constants";
-import { NextjsApi, NextjsApiOverrides, NextjsApiProps } from "../nextjs-api";
+import { OptionalNextjsApiProps } from "../generated-structs/OptionalNextjsApiProps";
+import { NextjsApi, NextjsApiOverrides } from "../nextjs-api";
 import {
   NextjsBaseConstruct,
   NextjsBaseProps,
@@ -20,7 +21,7 @@ import {
 } from "../nextjs-post-deploy";
 
 export interface NextjsRegionalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
-  readonly nextjsApiProps?: NextjsApiProps;
+  readonly nextjsApiProps?: OptionalNextjsApiProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 

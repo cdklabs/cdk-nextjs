@@ -37,11 +37,13 @@ changes:
   `.next` sibling inside `.next/standalone/`. It now uses the `repoRoot` and
   project directory the adapter reports. No prop to change — this only matters if
   you were relying on the old layout.
-- **`.env` and `.env.production` are staged explicitly.** `writeStandaloneDirectory`
-  used to copy them; the adapter hook has no equivalent, so cdk-nextjs copies
-  them itself. Same result, but if you were depending on some _other_ env file
-  reaching the server because standalone happened to copy it, it did not — only
-  those two were ever copied.
+- **`.env` and `.env.production` are staged and loaded explicitly.**
+  `writeStandaloneDirectory` used to copy them and `next start` loaded them; the
+  adapter hook has neither, so cdk-nextjs copies them into the package and the
+  runtime loads them at startup with Next.js's own `loadEnvConfig`. Same result:
+  a variable set on the function or task still wins over the files. If you were
+  depending on some _other_ env file reaching the server because standalone
+  happened to copy it, it did not — only those two were ever copied.
 - **The edge runtime fails the build.** That includes a `middleware.ts` with no
   `export const config = { runtime: "nodejs" }`, since Next.js defaults
   `middleware.ts` to edge, and any route with `export const runtime = "edge"`.
@@ -118,6 +120,11 @@ briefly existed behind an env var is removed along with it:
 - `NextjsDistributionProps.imageFunctionUrl`, `NextjsApiProps.imageFunction`,
   `imageIntegrationProps` — removed.
 - `overrides.nextjsImageFunctionProps` — removed.
+- `overrides.nextjsImageFunction` on `NextjsGlobalFunctions` and
+  `NextjsRegionalFunctions`, and the protected
+  `NextjsBaseConstruct.createNextjsImageFunction()` a subclass could override —
+  removed. Setting the key is now a compile error; delete it, and size image
+  requests through `overrides.nextjsFunctions` as below.
 - `NextjsDistributionOverrides.imageFunctionUrlOriginWithOACProps` — removed;
   there is no image function origin any more.
 - `NextjsBuild.imageOptimizationAssetPath` — removed.
@@ -279,7 +286,9 @@ the stage before it deletes removed resources, so the old route kept pointing at
 the deleted function and answered 500. A small function now redeploys the stage
 when the stack update completes, so the gap is a minute or so after the update
 rather than until the next deploy. Turn it off with
-`overrides.nextjsRegionalFunctions.nextjsApiProps.redeployAfterUpdate: false`.
+`overrides.nextjsRegionalFunctions.nextjsApiProps.redeployAfterUpdate: false`
+(`nextjsApiProps` is now the all-optional `OptionalNextjsApiProps`, so it takes
+just that flag).
 The redeploy is triggered by the stack's EventBridge status event, so an
 account bootstrapped with
 [`docs/cdk-nextjs-cfn-exec-policy.json`](./cdk-nextjs-cfn-exec-policy.json)
@@ -299,6 +308,32 @@ literal Next.js build ID, so they change on every deploy unless a
 quota of 75, set with the new `maxCacheBehaviors` prop if your account's quota
 was raised. Behaviors already on a distribution you pass in, or add through
 `overrides.nextjsDistribution.distributionProps`, now count against it.
+
+### Behavior change: CloudFront's own viewer-request function can't be replaced on Global Functions
+
+`NextjsGlobalFunctions` puts a CloudFront Function on viewer-request for the
+dynamic and `_next/image*` behaviors. It overwrites `X-Forwarded-Host` with the
+viewer's `Host`, which the runtime trusts behind the Function URL, and redirects
+repeated slashes. `functionAssociations` in `overrides.dynamicBehaviorOptions`
+or `overrides.imageBehaviorOptions` used to replace it outright, which let a
+viewer's own `X-Forwarded-Host` reach the app (host injection into redirects and
+absolute URLs, cached for other viewers). Now:
+
+- associations on other event types (viewer-response, say) are added next to it;
+- an association on viewer-request throws at synth, since CloudFront allows one
+  function per event type per behavior. Move that logic to viewer-response or
+  into middleware.
+
+The Containers types are unaffected: their origin sees the viewer's `Host`.
+
+### Behavior change: a missing object on the static S3 origin is a 404, not a 403
+
+The bucket policy now grants CloudFront's Origin Access Control principal
+`s3:ListBucket` on the static-assets bucket as well as `s3:GetObject`, so S3
+answers a missing `_next/static` or `public/` object with a 404 instead of a
+403. Nothing is listable through the distribution: CloudFront only ever asks for
+one key. If you configured `errorResponses` (or monitoring) for 403 from the
+static behaviors, change them to 404.
 
 ### Behavior change: a missing `_next/static` file is a plain-text 404
 

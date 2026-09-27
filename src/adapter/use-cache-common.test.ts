@@ -42,6 +42,8 @@ function fakeMarkers(rows = new Map<string, TagMarker>()) {
         }
       }
       rows.set(tag, row);
+      // `ReturnValues: "ALL_NEW"`, as the real table answers.
+      return { ...row };
     },
   );
   return {
@@ -160,6 +162,20 @@ describe("UseCacheTagManifest", () => {
       staleAt: expect.any(Number),
       expiredAt: expect.any(Number),
     });
+  });
+
+  it("tracks the whole row its own write returns, not just what it set", async () => {
+    // Another instance's `updateTag` for a tag this one does not track yet.
+    const createdAt = Date.now() - 1000;
+    const markers = fakeMarkers(
+      new Map([["posts", { revalidatedAt: createdAt + 500 }]]),
+    );
+    const tags = new UseCacheTagManifest({ markers: markers.table });
+
+    await tags.update(["posts"], { expire: 3600 });
+
+    // Older than that `updateTag`, so a blocking render, not stale-while-revalidate.
+    expect(tags.state(["posts"], createdAt)).toBe("expired");
   });
 
   it("marks a profile's revalidation stale until its expire", async () => {

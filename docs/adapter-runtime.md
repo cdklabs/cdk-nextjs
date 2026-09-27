@@ -73,8 +73,9 @@ server.mts                               @next/routing             static file
 - **Static files** (`static-files.ts`) go through Next.js's own `serveStatic`
   (`send`), called as `next start` calls it. `public/` is listed off disk at
   cold start (`public-files.ts`) rather than from the manifest, so files a
-  `postbuild` writes are included. On the Lambda types the directory is absent
-  and dispatch knows no `public/` files.
+  `postbuild` writes are included. On the Lambda types the directory is not in
+  the package: the list comes from `public-files.json`, written at synth, and
+  the files are streamed from the static-assets bucket.
 - **Image optimization** (`image.ts`) runs inside the runtime, after middleware.
   On the Lambda types it reads source images from the static-assets bucket. There
   is no separate image Lambda any more, because middleware never ran for it.

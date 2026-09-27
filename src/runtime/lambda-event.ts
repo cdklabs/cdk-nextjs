@@ -45,7 +45,9 @@ export function toRuntimeRequest(
     remoteAddress: http.sourceIp,
     // Only CloudFront can invoke the URL, and its viewer-request function
     // overwrites `x-forwarded-host` with the viewer's `Host`; see
-    // `RuntimeRequest.trustForwardedHost`.
+    // `RuntimeRequest.trustForwardedHost`. `NextjsDistribution` refuses an
+    // override that would replace that function
+    // (`withDynamicFunctionAssociations`).
     trustForwardedHost: true,
   };
 }

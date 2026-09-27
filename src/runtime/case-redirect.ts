@@ -47,7 +47,9 @@ export function caseCanonicalPath(
 
   const trailingSlash = rest.length > 1 && rest.endsWith("/");
   const requested = segments(rest);
-  const expected = segments(template);
+  const expected = segments(
+    withoutRoutePrefix(template, basePath, i18n?.locales ?? []),
+  );
   const canonical: string[] = [];
   for (let i = 0; i < expected.length; i++) {
     const part = expected[i];
@@ -84,6 +86,28 @@ function finish(
   const path = `${prefix}/${canonical.join("/")}`.replace(/\/+$/, "") || "/";
   const result = trailingSlash && path !== "/" ? `${path}/` : path;
   return result === pathname ? undefined : result;
+}
+
+/**
+ * `template` without its basePath and locale. Manifest keys carry both (the
+ * adapter's pathnames are basePath-prefixed, Pages i18n ones locale-prefixed
+ * too), while the request's own spelling of them is what the redirect keeps —
+ * including a locale other than the template's, or none for the default one.
+ */
+function withoutRoutePrefix(
+  template: string,
+  basePath: string,
+  locales: readonly string[],
+): string {
+  let rest = template;
+  if (basePath && startsWithSegment(rest, basePath)) {
+    rest = rest.slice(basePath.length) || "/";
+  }
+  const first = rest.split("/")[1] ?? "";
+  if (locales.includes(first)) {
+    rest = rest.slice(first.length + 1) || "/";
+  }
+  return rest;
 }
 
 function segments(path: string): string[] {

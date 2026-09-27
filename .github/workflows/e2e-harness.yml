@@ -77,17 +77,46 @@ jobs:
       nextjs-ref: ${{ steps.plan.outputs.nextjs-ref }}
       cache-key: ${{ steps.plan.outputs.cache-key }}
     steps:
+      - name: Resolve the next.js ref to a commit
+        id: resolve
+        env:
+          NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
+        # The cache key and every checkout below use the commit, not the ref: a
+        # moving ref (`canary`, a branch) keyed by name kept restoring the first
+        # build made under that name while the logs said it was testing the
+        # latest. `^{}` peels an annotated tag to the commit it points at.
+        run: |
+          if [[ ! "$NEXTJS_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "nextjs_ref is not a plausible git ref: $NEXTJS_REF" >&2
+            exit 1
+          fi
+          if [[ "$NEXTJS_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            sha="$NEXTJS_REF"
+          else
+            refs=$(git ls-remote --heads --tags https://github.com/vercel/next.js "$NEXTJS_REF")
+            for candidate in "refs/tags/$NEXTJS_REF^{}" "refs/tags/$NEXTJS_REF" "refs/heads/$NEXTJS_REF"; do
+              sha=$(awk -v ref="$candidate" '$2 == ref { print $1; exit }' <<<"$refs")
+              [[ -z "$sha" ]] || break
+            done
+          fi
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Could not resolve vercel/next.js ref $NEXTJS_REF to a commit" >&2
+            exit 1
+          fi
+          echo "Testing vercel/next.js $NEXTJS_REF at $sha"
+          echo "sha=$sha" >>"$GITHUB_OUTPUT"
+
       - name: Plan the shards and the cache key
         id: plan
         env:
           SHARD_TOTAL: ${{ inputs.shard_total || '10' }}
-          NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
+          NEXTJS_REF: ${{ steps.resolve.outputs.sha }}
         # `shard_total` is bounded above because every shard is a CloudFront
         # distribution and a runner of its own: past a couple of dozen the setup
         # cost dominates and the account starts to notice.
         #
         # The cache key pins everything the cached tree was built by and for: the
-        # next.js ref, and the runner image and node major that its node_modules
+        # next.js commit, and the runner image and node major that its node_modules
         # (native addons included) were installed against. Bump `v1` to discard
         # every entry at once.
         run: |
@@ -104,7 +133,7 @@ jobs:
             console.log(`shards=${JSON.stringify(shards)}`);
             console.log(`total=${total}`);
             console.log(`nextjs-ref=${ref}`);
-            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref.replace(/\//g, "_")}`);
+            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref}`);
           ' >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 

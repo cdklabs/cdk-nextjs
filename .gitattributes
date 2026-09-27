@@ -36,6 +36,7 @@
 /src/generated-structs/OptionalEdgeFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalFunctionUrlProps.ts linguist-generated
+/src/generated-structs/OptionalNextjsApiProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsBuildProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsCacheProps.ts linguist-generated
 /src/generated-structs/OptionalNextjsContainersProps.ts linguist-generated

@@ -280,6 +280,50 @@ describe("patch-fetch", () => {
       expect(setRequestHeader).not.toHaveBeenCalled();
     });
 
+    test("hashes the bytes of a typed-array or Blob body, not their JSON", async () => {
+      const bytes = new Uint8Array([1, 2, 3, 250]);
+      for (const body of [bytes, new Blob([bytes])]) {
+        const setRequestHeader = jest.fn();
+        const xhr = new (global as any).window.XMLHttpRequest();
+        xhr.setRequestHeader = setRequestHeader;
+        xhr.open("POST", "https://example.com/api");
+        await xhr.send(body);
+
+        expect(setRequestHeader).toHaveBeenCalledWith(
+          "x-amz-content-sha256",
+          sha256(bytes),
+        );
+      }
+    });
+
+    test("sends a FormData body as the encoding it hashed, with its boundary", async () => {
+      const send = jest.spyOn(FakeXMLHttpRequest.prototype, "send");
+      const setRequestHeader = jest.fn();
+      const form = new FormData();
+      form.append("name", "value");
+      form.append("file", new Blob(["file-bytes"]), "a.txt");
+
+      const xhr = new (global as any).window.XMLHttpRequest();
+      xhr.setRequestHeader = setRequestHeader;
+      xhr.open("POST", "https://example.com/api");
+      await xhr.send(form);
+
+      const sent = send.mock.calls[0][0] as Uint8Array;
+      expect(sent).toBeInstanceOf(Uint8Array);
+      expect(setRequestHeader).toHaveBeenCalledWith(
+        "x-amz-content-sha256",
+        sha256(sent),
+      );
+      const contentType = setRequestHeader.mock.calls.find(
+        ([name]) => name === "content-type",
+      )?.[1];
+      expect(contentType).toMatch(/^multipart\/form-data; boundary=/);
+      expect(Buffer.from(sent).toString()).toContain(
+        contentType.split("boundary=")[1],
+      );
+      send.mockRestore();
+    });
+
     test("does not hash when there is no body", async () => {
       const setRequestHeader = jest.fn();
 

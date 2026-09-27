@@ -150,6 +150,19 @@ export function markerState(
 }
 
 /**
+ * The clock every tag marker is stamped with, and every entry timestamp it is
+ * compared against: the one Next.js stamps `CacheEntry.timestamp` with
+ * (`performance.timeOrigin + performance.now()`, in `use-cache-wrapper.js` and
+ * the default handler), rather than `Date.now()`. Both handlers write the same
+ * marker rows, so both have to use it: two clocks on one row let the last writer
+ * decide which clock the others compare against, and they drift apart for as
+ * long as a Lambda sandbox or Fargate task lives.
+ */
+export function markerClock(): number {
+  return performance.timeOrigin + performance.now();
+}
+
+/**
  * The marker a tag revalidated at `now` gets, as {@link markerUpdate} writes it -
  * for a handler to apply to its own copy without waiting to read it back.
  */
@@ -372,9 +385,9 @@ export interface RevalidationLogRow {
  * handful of busy instances were enough to throttle it.
  *
  * The sort key's timestamp is the writer's wall clock (`Date.now()`), not the
- * performance clock the marker values are stamped with: it only orders rows for
- * readers' cursors, which are on their own wall clocks, and is never compared
- * with an entry's timestamp.
+ * performance clock ({@link markerClock}) the marker values are stamped with by both
+ * handlers: it only orders rows for readers' cursors, which are on their own
+ * wall clocks, and is never compared with an entry's timestamp.
  */
 export class RevalidationLog {
   private readonly pk: string;

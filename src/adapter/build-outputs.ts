@@ -1077,6 +1077,22 @@ async function addRuntimeNextClosure(
     );
     return;
   }
+  // `loadEnvFiles` (runtime `next-modules.ts`) loads the staged env files with
+  // `@next/env`, which is `next`'s dependency, so resolved from `next`'s dir.
+  // An app never requires it, so no output's trace has it either.
+  try {
+    entries.push(
+      createRequire(nextRequire.resolve("next/package.json")).resolve(
+        "@next/env",
+      ),
+    );
+  } catch (cause) {
+    throw new Error(
+      `${LOG_PREFIX} Could not resolve "@next/env" from the app's \`next\`, ` +
+        `which the cdk-nextjs runtime uses to load .env files.`,
+      { cause },
+    );
+  }
 
   let nodeFileTrace: NodeFileTrace;
   try {

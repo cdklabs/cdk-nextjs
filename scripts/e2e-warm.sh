@@ -32,12 +32,12 @@ if [ "${HARNESS_ISOLATED_STACK:-0}" = "1" ]; then
 fi
 
 # The version the harness's own fixtures will build with. Read from this repo so
-# the warm app cannot drift from it.
+# the warm app cannot drift from it: the *installed* version, exact, not the
+# `package.json` range, which would let the warm app resolve a newer release
+# than the one `@next/routing` and the adapter fixtures are pinned to.
 NEXT_VERSION="$(node -e '
-  const pkg = require(process.argv[1] + "/package.json");
-  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-  if (!deps.next) throw new Error("no `next` dependency in " + process.argv[1]);
-  process.stdout.write(deps.next);
+  const path = require.resolve("next/package.json", { paths: [process.argv[1]] });
+  process.stdout.write(require(path).version);
 ' "$ADAPTER_DIR")"
 
 # `e2e-deploy.sh` installs with `corepack pnpm`, and corepack takes the version
