@@ -255,61 +255,6 @@ describe("NextjsApi", () => {
     });
   });
 
-  describe("functionGroups under trailingSlash", () => {
-    function fn(id: string): LambdaFunction {
-      return new LambdaFunction(stack, id, {
-        runtime: Runtime.NODEJS_22_X,
-        handler: "index.handler",
-        code: Code.fromInline("exports.handler = async () => {};"),
-      });
-    }
-
-    function createApiWithGroups(
-      routes: string[],
-      trailingSlash?: boolean,
-    ): NextjsApi {
-      return new NextjsApi(stack, "NextjsApi", {
-        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
-        serverFunction: fn("ServerFn"),
-        publicDirEntries: [],
-        trailingSlash,
-        functionGroups: [{ name: "reports", routes, function: fn("GroupFn") }],
-      });
-    }
-
-    function warnings(api: NextjsApi): string[] {
-      return Annotations.fromStack(stack)
-        .findWarning(`/${api.node.path}`, Match.anyValue())
-        .map((warning) => warning.entry.data as string);
-    }
-
-    it("warns that an exact route's canonical URL cannot be routed", () => {
-      // `trailingSlash: true` links to "/pricing/", and no API Gateway resource
-      // matches a trailing slash: the request reaches the root `{proxy+}` and so
-      // the default function, which does not have the route packaged. The warning
-      // is the fix here, because the resource tree cannot express it.
-      const api = createApiWithGroups(["/pricing", "/reports/**"], true);
-
-      const message = warnings(api).join("\n");
-      expect(message).toContain('"/pricing" (group "reports")');
-      // The subtree pattern is named only as the suggested fix, never as an
-      // affected route.
-      expect(message).not.toContain('"/reports/**" (group');
-    });
-
-    it("does not warn about subtree patterns, which `{proxy+}` already covers", () => {
-      const api = createApiWithGroups(["/reports/**"], true);
-
-      expect(warnings(api)).toEqual([]);
-    });
-
-    it("says nothing without trailingSlash", () => {
-      const api = createApiWithGroups(["/pricing"]);
-
-      expect(warnings(api)).toEqual([]);
-    });
-  });
-
   describe("functionGroups resource tree", () => {
     /** Lambda functions that `ANY` on the resource at `pathPart` invokes. */
     function anyTargets(pathPart: string): string[] {
@@ -551,7 +496,9 @@ describe("NextjsApi", () => {
       createGroupedApi(true);
 
       const permissions = Object.values(
-        Template.fromStack(stack).findResources("AWS::Lambda::Permission"),
+        Template.fromStack(stack).findResources("AWS::Lambda::Permission", {
+          Properties: { Principal: "apigateway.amazonaws.com" },
+        }),
       );
       expect(permissions).toHaveLength(2);
       for (const permission of permissions) {
@@ -621,6 +568,117 @@ describe("NextjsApi", () => {
       expect(message).not.toContain('"favicon.ico"');
       // The expressible one is still served.
       expect(s3IntegrationKeys()).toContain("favicon.ico");
+    });
+  });
+});
+
+describe("NextjsApi redeploy after update", () => {
+  function synth(props: Partial<NextjsApiProps> = {}) {
+    const stack = new Stack(new App(), "TestStack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsApi(stack, "NextjsApi", {
+      staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+      serverFunction: new LambdaFunction(stack, "ServerFn", {
+        runtime: Runtime.NODEJS_22_X,
+        handler: "index.handler",
+        code: Code.fromInline("exports.handler = async () => {};"),
+      }),
+      publicDirEntries: [],
+      ...props,
+    });
+    return Template.fromStack(stack);
+  }
+
+  /** The `Fn::Join` parts of every resource the redeploy role is granted. */
+  function grantedResources(template: Template) {
+    const [policy] = Object.values(
+      template.findResources("AWS::IAM::Policy", {
+        Properties: {
+          PolicyName: Match.stringLikeRegexp("RedeployFn"),
+        },
+      }),
+    );
+    return policy.Properties.PolicyDocument.Statement.map(
+      (statement: { Action: string; Resource: unknown }) => ({
+        action: statement.Action,
+        resources: JSON.stringify(statement.Resource),
+      }),
+    );
+  }
+
+  it("redeploys the stage on this stack's UPDATE_COMPLETE", () => {
+    const template = synth();
+
+    template.hasResourceProperties("AWS::Events::Rule", {
+      EventPattern: {
+        source: ["aws.cloudformation"],
+        "detail-type": ["CloudFormation Stack Status Change"],
+        detail: {
+          "stack-id": [{ Ref: "AWS::StackId" }],
+          "status-details": {
+            status: ["UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"],
+          },
+        },
+      },
+      Targets: [
+        Match.objectLike({
+          Arn: { "Fn::GetAtt": [Match.stringLikeRegexp("RedeployFn"), "Arn"] },
+        }),
+      ],
+    });
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Handler: "index.handler",
+      Environment: {
+        Variables: {
+          REST_API_ID: { Ref: Match.stringLikeRegexp("RestApi") },
+          STAGE_NAME: { Ref: Match.stringLikeRegexp("DeploymentStage") },
+        },
+      },
+    });
+  });
+
+  it("scopes its API Gateway access to this REST API", () => {
+    const statements = grantedResources(synth());
+
+    expect(statements.map((s: { action: string }) => s.action)).toEqual([
+      "apigateway:POST",
+      "apigateway:GET",
+      "apigateway:DELETE",
+    ]);
+    for (const { resources } of statements) {
+      expect(resources).toContain("/restapis/");
+      expect(resources).toMatch(/"Ref":"NextjsApiRestApi[0-9A-F]+"/);
+      expect(resources).not.toMatch(/restapis\/\*/);
+    }
+    expect(statements[0].resources).toContain("/deployments");
+    expect(statements[2].resources).toContain("/deployments/*");
+  });
+
+  it("is off when redeployAfterUpdate is false", () => {
+    const template = synth({ redeployAfterUpdate: false });
+
+    template.resourceCountIs("AWS::Events::Rule", 0);
+  });
+
+  it("is off when the API deploys no stage", () => {
+    const template = synth({
+      overrides: { restApiProps: { deploy: false } },
+    });
+
+    template.resourceCountIs("AWS::Events::Rule", 0);
+  });
+
+  it("takes function overrides", () => {
+    const template = synth({
+      overrides: { redeployFunctionProps: { memorySize: 512 } },
+    });
+
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      MemorySize: 512,
+      Environment: {
+        Variables: { REST_API_ID: Match.anyValue() },
+      },
     });
   });
 });

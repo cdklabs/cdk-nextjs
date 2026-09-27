@@ -41,7 +41,7 @@ export interface OptionalNextjsContainersProps {
    */
   readonly staticAssetsKeyPrefix?: string;
   /**
-   * S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
+   * S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`.
    * @stability stable
    */
   readonly staticAssetsBucket?: aws_s3.IBucket;

@@ -22,9 +22,11 @@ ARG RELATIVE_PROJECT_DIR
 # every built output, keyed by repo-root-relative path, plus cdk-nextjs's own
 # request-handling server under cdk-nextjs-runtime/. Replaces `.next/standalone`.
 COPY --chown=nextjs:nodejs .next/cdk-nextjs-adapter/app ./
-# `.next/static` and `public` are not copied in: they are in S3, CloudFront
-# routes their paths there, and image optimization reads its sources from S3 as
-# well. Like the Lambda types, the server answers as though the app had neither.
+# `.next/static` and `public` are not copied in: they are in S3, and CloudFront
+# routes their paths there. A request that reaches the server for a `public/`
+# file anyway (a rewrite onto it) is read from S3, using the list of `public/`
+# cdk-nextjs staged in cdk-nextjs-runtime/public-files.json. Image optimization
+# reads its sources from S3 as well.
 
 USER nextjs
 

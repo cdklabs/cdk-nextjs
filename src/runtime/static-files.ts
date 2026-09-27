@@ -2,11 +2,17 @@
  * Serving the static files that nothing in front of the compute answers.
  *
  * `NextjsStaticAssets` uploads `<distDir>/static` and `public` to S3, and
- * CloudFront / API Gateway route those prefixes there — except on
- * `NextjsRegionalContainers`, which has nothing in front of it and serves both
- * off disk. Everything else in `manifest.staticFiles` lives under
- * `<distDir>/server` — `404.html`, `500.html`, `favicon.ico.body`, fully-static
- * Pages Router HTML — and reaches us, exactly as it reaches `next start`.
+ * CloudFront / API Gateway route a file's own URL there — except on
+ * `NextjsRegionalContainers`, which has nothing in front of it. What still
+ * reaches the runtime is a file some *other* URL lands on: a `rewrites` entry
+ * or a middleware rewrite onto `/maintenance.html`, `/en-US/robots.txt` in an
+ * i18n app. The `NextjsRegionalContainers` image copies `public` and
+ * `<distDir>/static` in and serves them off disk; the other types carry
+ * neither, so a `public/` file is streamed from the assets bucket instead
+ * ({@link serveS3PublicFile}).
+ * Everything else in `manifest.staticFiles` lives under `<distDir>/server` —
+ * `404.html`, `500.html`, `favicon.ico.body`, fully-static Pages Router HTML —
+ * and reaches us, exactly as it reaches `next start`.
  *
  * Next.js's own `serveStatic` is used rather than a `createReadStream`, because it
  * is `send` underneath and that brings conditional requests (`If-None-Match`,
@@ -14,7 +20,15 @@
  * detection. Reimplementing those is how a "simple" file server ends up
  * disagreeing with `next start` on a 304.
  */
+/* eslint-disable import/no-extraneous-dependencies */
 import { extname } from "node:path";
+import { Readable } from "node:stream";
+import {
+  GetObjectCommand,
+  GetObjectCommandOutput,
+  HeadObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { nextModule } from "./next-modules";
@@ -29,11 +43,11 @@ let serveStaticModule: ServeStaticModule | undefined;
  * Returns `false` when the file is not in the deployment package, which is the
  * caller's cue to fall through to a 404.
  *
- * That happens by design for `<distDir>/static` paths on the Lambda types: they
- * are not staged, being a second copy of bytes already in S3. Reaching this with
- * one of those there means the distribution didn't route it to S3. The container
- * images copy the directory in, so there they are found. (`public/` never gets
- * here unfound: dispatch only knows the `public/` files that are on disk.)
+ * That happens by design on every type but `NextjsRegionalContainers`, for `<distDir>/static` and
+ * `public/` alike: neither is staged, being a second copy of bytes already in
+ * S3. A `public/` file is then served by {@link serveS3PublicFile}; a
+ * `<distDir>/static` one only gets here through a rewrite onto it, and is a 404.
+ * The `NextjsRegionalContainers` image copies both in, so there they are found.
  */
 export async function serveStaticFile(
   req: ShimIncomingMessage,
@@ -139,4 +153,161 @@ function isMissingFile(error: unknown): boolean {
   // ENOENT covers a missing file and `send`'s "No directory access"; ENOTDIR is
   // what a path segment that exists as a file produces.
   return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/** Created on the first S3-served file; most requests never need one. */
+let s3: S3Client | undefined;
+
+/** Where a type without `public/` on disk finds a file it does not carry. */
+export interface S3PublicFile {
+  /** `CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME`. */
+  readonly bucket: string;
+  /**
+   * `NextjsStaticAssets.keyPrefix`, without a leading slash; empty for a
+   * bucket-root deployment. `public/` is uploaded to the root of it.
+   */
+  readonly keyPrefix: string;
+  /** The file's path relative to `public/`, unencoded: its real name. */
+  readonly file: string;
+  readonly etag: boolean;
+}
+
+/**
+ * A `public/` file from the assets bucket, for the types whose deployment
+ * roots list `public/` without carrying it. Returns `false` when the object is not there,
+ * which is the caller's cue to fall through to a 404 as for a file missing from
+ * disk.
+ *
+ * What `send` would have answered, as far as S3 can say it: the object's
+ * `Content-Type`, `Content-Length`, `Last-Modified` and — unless
+ * `generateEtags` is off — `ETag`; a 304 for a matching `If-None-Match`, and a
+ * 206 or 416 for a `Range`, both of which S3 evaluates itself.
+ *
+ * `Cache-Control` is, in order: a `headers()` rule's, the object's own
+ * `CacheControl` metadata — what the edge serves the file's own URL with, so a
+ * rewrite onto it caches the same way — and `send`'s default,
+ * `public, max-age=0`.
+ *
+ * `If-Range` is not evaluated, because S3 has no counterpart: with one present
+ * the `Range` is dropped and the whole file sent with a 200, which RFC 9110
+ * allows (a server may ignore `Range`) and a range client accepts.
+ */
+export async function serveS3PublicFile(
+  req: ShimIncomingMessage,
+  res: ShimServerResponse,
+  file: S3PublicFile,
+): Promise<boolean> {
+  s3 ??= new S3Client({});
+  const prefix = file.keyPrefix.replace(/^\/+|\/+$/g, "");
+  const key = prefix ? `${prefix}/${file.file}` : file.file;
+  const ifNoneMatch = file.etag
+    ? firstValue(req.headers["if-none-match"])
+    : undefined;
+  const range = req.headers["if-range"]
+    ? undefined
+    : firstValue(req.headers.range);
+  let object: Omit<GetObjectCommandOutput, "Body"> & { Body?: unknown };
+  try {
+    object = await s3.send(
+      req.method === "HEAD"
+        ? new HeadObjectCommand({
+            Bucket: file.bucket,
+            Key: key,
+            IfNoneMatch: ifNoneMatch,
+            Range: range,
+          })
+        : new GetObjectCommand({
+            Bucket: file.bucket,
+            Key: key,
+            IfNoneMatch: ifNoneMatch,
+            Range: range,
+          }),
+    );
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } })
+      .$metadata?.httpStatusCode;
+    if (status === 304) {
+      if (!res.getHeader("Cache-Control")) {
+        res.setHeader("Cache-Control", "public, max-age=0");
+      }
+      if (ifNoneMatch) res.setHeader("ETag", ifNoneMatch);
+      res.statusCode = 304;
+      res.end();
+      return true;
+    }
+    if (status === 416) {
+      // S3's `InvalidRange`. `send` adds `Content-Range: bytes */<size>`, which
+      // S3's error does not carry; the status is what a client acts on.
+      res.statusCode = 416;
+      res.setHeader("Accept-Ranges", "bytes");
+      res.end();
+      return true;
+    }
+    const name = (error as { name?: string } | null)?.name;
+    if (status === 404 || name === "NoSuchKey" || name === "NotFound") {
+      return false;
+    }
+    throw error;
+  }
+
+  if (!res.getHeader("Content-Type") && object.ContentType) {
+    res.setHeader("Content-Type", object.ContentType);
+  }
+  if (!res.getHeader("Cache-Control")) {
+    res.setHeader("Cache-Control", object.CacheControl || "public, max-age=0");
+  }
+  if (object.AcceptRanges) res.setHeader("Accept-Ranges", object.AcceptRanges);
+  if (object.ContentRange) {
+    res.statusCode = 206;
+    res.setHeader("Content-Range", object.ContentRange);
+  }
+  if (file.etag && object.ETag) res.setHeader("ETag", object.ETag);
+  if (object.LastModified) {
+    res.setHeader("Last-Modified", object.LastModified.toUTCString());
+  }
+  if (object.ContentLength !== undefined) {
+    res.setHeader("Content-Length", String(object.ContentLength));
+  }
+  const body = object.Body;
+  if (req.method === "HEAD" || !body) {
+    res.end();
+    return true;
+  }
+  const stream =
+    body instanceof Readable
+      ? body
+      : Readable.from(body as AsyncIterable<Uint8Array>);
+  try {
+    for await (const chunk of stream) {
+      if (!res.write(chunk) && !(await drainedOrClosed(res))) {
+        // The client went away; the rest of the object is not wanted.
+        return true;
+      }
+    }
+    res.end();
+  } finally {
+    // A no-op once fully read; otherwise it releases the S3 connection.
+    stream.destroy();
+  }
+  return true;
+}
+
+/** Resolves `true` on `drain`, `false` if the response closes first. */
+function drainedOrClosed(res: ShimServerResponse): Promise<boolean> {
+  if (res.destroyed) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const onDrain = (): void => settle(true);
+    const onClose = (): void => settle(false);
+    const settle = (value: boolean): void => {
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      resolve(value);
+    };
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+  });
+}
+
+function firstValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }

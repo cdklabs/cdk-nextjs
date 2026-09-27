@@ -19,7 +19,7 @@ import { S3CacheHandler } from "../adapter/s3-cache-handler";
 
 const HOOK = Symbol.for("cdk-nextjs.invalidateRevalidatedPage");
 const globals = globalThis as Record<symbol, unknown>;
-type Hook = (route: string, dataRoute: string) => Promise<void>;
+type Hook = (routes: readonly string[]) => Promise<void>;
 
 const cloudFrontSend = jest.fn();
 (CloudFrontClient as jest.Mock).mockImplementation(() => ({
@@ -65,10 +65,10 @@ describe("the revalidated-page hook", () => {
     process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
     process.env.CDK_NEXTJS_BASE_PATH = "base";
     new S3CacheHandler({ context });
-    await (globals[HOOK] as Hook)(
+    await (globals[HOOK] as Hook)([
       "/blog/hello",
       "/_next/data/build-1/blog/hello.json",
-    );
+    ]);
     expect(invalidatedPaths()).toEqual([
       "/base/blog/hello*",
       "/base/_next/data/build-1/blog/hello.json*",
@@ -78,11 +78,28 @@ describe("the revalidated-page hook", () => {
   it("spells out the root rather than invalidating the whole app", async () => {
     process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
     new S3CacheHandler({ context });
-    await (globals[HOOK] as Hook)("/", "/_next/data/build-1/index.json");
+    await (globals[HOOK] as Hook)(["/", "/_next/data/build-1/index.json"]);
     expect(invalidatedPaths()).toEqual([
       "/",
       "/?*",
       "/_next/data/build-1/index.json*",
+    ]);
+  });
+
+  it("sends every path once, in one invalidation", async () => {
+    process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
+    new S3CacheHandler({ context });
+    await (globals[HOOK] as Hook)([
+      "/blog",
+      "/_next/data/build-1/en/blog.json",
+      "/en/blog",
+      "/blog",
+    ]);
+    expect(CreateInvalidationCommand).toHaveBeenCalledTimes(1);
+    expect(invalidatedPaths()).toEqual([
+      "/blog*",
+      "/_next/data/build-1/en/blog.json*",
+      "/en/blog*",
     ]);
   });
 });

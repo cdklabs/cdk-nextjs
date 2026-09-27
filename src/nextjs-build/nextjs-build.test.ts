@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -18,6 +19,7 @@ import {
   NextjsBuild,
   patchClientChunk,
   sharpBinaryDir,
+  writePublicFileList,
 } from "./nextjs-build";
 import { NextjsType } from "../constants";
 
@@ -180,6 +182,31 @@ describe("patchClientChunk", () => {
         "chunk.js",
       ),
     ).toThrow(/Re-run `next build`/);
+  });
+});
+
+describe("writePublicFileList", () => {
+  it("lists public/ the way the runtime lists it off disk", () => {
+    // Written at synth, after the build command, so a `postbuild` file (here
+    // `sitemap.xml`) is listed; a linked directory is followed.
+    const publicDir = join(dir, "public");
+    write(join(publicDir, "sitemap.xml"), "<urlset/>");
+    write(join(publicDir, "images", "logo@2x.png"), "png");
+    write(join(dir, "shared", "hello e2e.txt"), "hi");
+    symlinkSync(join(dir, "shared"), join(publicDir, "static"));
+    const runtimeDir = join(dir, "cdk-nextjs-runtime");
+    mkdirSync(runtimeDir);
+    writePublicFileList(runtimeDir, publicDir);
+    expect(
+      JSON.parse(readFileSync(join(runtimeDir, "public-files.json"), "utf-8")),
+    ).toEqual(["images/logo@2x.png", "sitemap.xml", "static/hello e2e.txt"]);
+  });
+
+  it("writes an empty list for an app without public/", () => {
+    writePublicFileList(dir, join(dir, "public"));
+    expect(
+      JSON.parse(readFileSync(join(dir, "public-files.json"), "utf-8")),
+    ).toEqual([]);
   });
 });
 

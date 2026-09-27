@@ -192,7 +192,8 @@ four-type suite, not the harness):
   decoded path, so `toPathPattern` writes one `?` per UTF-8 byte. A top-level
   `public/` name with no character CloudFront can spell would become a pattern of
   wildcards alone that captures unrelated app routes, so it gets **no behavior**
-  and a synth warning; its files 404. Don't go back to per-encoded-character
+  and a synth warning; its files reach the server, which reads them from S3.
+  Don't go back to per-encoded-character
   patterns: they synthesize, deploy, and never match. The harness's
   `next-image-legacy/unicode` could not catch it — the image optimizer reads S3
   directly — `static-assets.test.ts` did.

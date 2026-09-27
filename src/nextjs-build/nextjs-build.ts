@@ -35,9 +35,11 @@ import {
   ADAPTER_MANIFEST_VERSION,
   AdapterManifest,
   MANIFEST_FILE_NAME,
+  PUBLIC_FILES_FILE_NAME,
   RUNTIME_DIR_NAME,
   groupStagingDirName,
 } from "../runtime/manifest";
+import { readPublicFiles } from "../runtime/public-files";
 import {
   readNextConfigAssetPrefix,
   readNextConfigAssetPrefixPath,
@@ -340,8 +342,19 @@ export class NextjsBuild extends Construct {
     this.deploymentRoots = this.resolveDeploymentRoots(manifest);
     this.deploymentRootPath = this.deploymentRoots[0].path;
 
+    // Only the RegionalContainers image carries `public/`: nothing is in front
+    // of it to answer those paths from S3. Every other type lists it here and
+    // reads a file the edge didn't route to S3 (a rewrite onto it) from there.
+    const publicOnDisk = props.nextjsType === NextjsType.REGIONAL_CONTAINERS;
+    if (publicOnDisk) {
+      // Its generated Dockerfile `COPY`s `public`, which fails the image build
+      // when the app has none. An empty directory is what `next start` sees
+      // for an app without one anyway, and git doesn't track it.
+      mkdirSync(join(props.buildDirectory, "public"), { recursive: true });
+    }
+
     for (const root of this.deploymentRoots) {
-      this.stageRuntime(root.path, isFunctions);
+      this.stageRuntime(root.path, isFunctions, publicOnDisk);
 
       // Strip whatever platform-specific Sharp binaries `next build`'s output
       // file tracing staged, since they're the host's (e.g. macOS/glibc) rather
@@ -527,7 +540,11 @@ export class NextjsBuild extends Construct {
    * knows which routes it owns so it can say so when misrouted, and that comes
    * from {@link FUNCTION_GROUP_ENV_VAR}, not from a per-group manifest.
    */
-  private stageRuntime(deploymentRoot: string, isFunctions: boolean): void {
+  private stageRuntime(
+    deploymentRoot: string,
+    isFunctions: boolean,
+    publicOnDisk: boolean,
+  ): void {
     const shell = isFunctions ? "lambda.mjs" : "server.mjs";
     const source = join(__dirname, "..", "runtime", shell);
     if (!existsSync(source)) {
@@ -547,6 +564,17 @@ export class NextjsBuild extends Construct {
       join(this.dotNextPath, ADAPTER_DIR_NAME, MANIFEST_FILE_NAME),
       join(runtimeDir, MANIFEST_FILE_NAME),
     );
+    if (!publicOnDisk) {
+      // The Lambda zips and the GlobalContainers image don't carry `public/`
+      // (its bytes are in S3), so the runtime can't list it at start the way
+      // the RegionalContainers image does.
+      // Listed here, after the build command, so `postbuild` output is in it:
+      // a rewrite onto a listed file is then served from S3 rather than 404ing.
+      writePublicFileList(
+        runtimeDir,
+        join(this.props.buildDirectory, "public"),
+      );
+    }
     debug(
       `${LOG_PREFIX} Staged ${shell} and ${MANIFEST_FILE_NAME} in ${runtimeDir}`,
     );
@@ -1132,6 +1160,19 @@ export function listTree(root: string): Dirent[] {
     }
   }
   return entries;
+}
+
+/**
+ * Write {@link PUBLIC_FILES_FILE_NAME} into a Lambda root's runtime directory:
+ * every file under `publicDir`, listed the way the runtime would list it off
+ * disk (`readPublicFiles`: symlinks followed, `/`-separated, sorted). An app
+ * without `public/` gets `[]`.
+ */
+export function writePublicFileList(runtimeDir: string, publicDir: string) {
+  writeFileSync(
+    join(runtimeDir, PUBLIC_FILES_FILE_NAME),
+    JSON.stringify(readPublicFiles(publicDir)),
+  );
 }
 
 /**

@@ -164,7 +164,7 @@ export function parseFunctionGroupsEnv(
  *
  * With `i18n` configured, every route template is locale-prefixed
  * (`/en/pricing`, `/de/pricing`), so honoring a `/pricing` group would take one
- * behavior *per locale per pattern* — a budget of 25 behaviors spent in a handful
+ * behavior *per locale per pattern* — a budget of 75 behaviors spent in a handful
  * of routes. The alternative, a `*` in the locale position, matches any first
  * segment and would capture routes belonging to other groups. Neither is
  * something to do silently, so refuse instead.
@@ -952,6 +952,16 @@ function templateRegex(template: string): RegExp {
  * edge never sends a request to a function without its file", and a group
  * pattern can break it by claiming a URL of a file left in the default group as
  * easily as by leaving one behind.
+ *
+ * Only the URLs as Next.js spells them are replayed, and that is a known gap
+ * rather than an oversight: CloudFront path patterns and API Gateway resources
+ * both match case-sensitively, while `@next/routing` matches templates
+ * case-insensitively. `/API/reports/1` therefore misses a `/api/reports/**`
+ * group and reaches the default function, which resolves it to a template it
+ * does not have. Neither edge can be told to fold case, and lowercasing at the
+ * edge would break the case-sensitive S3 keys behind `public/`, so there is
+ * nothing to check here that could pass; the runtime answers such a request
+ * itself (see `ownedRouteError`).
  */
 function assertEdgeReachesEveryFile(
   entries: readonly RouteEntry[],

@@ -70,6 +70,13 @@ describe("toRuntimeRequest, for a Function URL event", () => {
     expect(request.headers["x-forwarded-host"]).toBe("shop.test");
   });
 
+  // Only CloudFront can invoke the URL, and it overwrites the header.
+  it("trusts x-forwarded-host", () => {
+    expect(toRuntimeRequest(functionUrlEvent(), "").trustForwardedHost).toBe(
+      true,
+    );
+  });
+
   it("decodes a base64 body, and leaves an absent one absent", () => {
     const encoded = toRuntimeRequest(
       functionUrlEvent({
@@ -84,6 +91,13 @@ describe("toRuntimeRequest, for a Function URL event", () => {
 });
 
 describe("toRuntimeRequest, for an API Gateway REST event", () => {
+  // API Gateway sets `Host` to its own domain; the header is the client's.
+  it("does not trust x-forwarded-host", () => {
+    expect(
+      toRuntimeRequest(restEvent({}), "").trustForwardedHost,
+    ).toBeUndefined();
+  });
+
   it("rejoins repeated Cookie fields with '; ', not ', '", () => {
     const request = toRuntimeRequest(
       restEvent({

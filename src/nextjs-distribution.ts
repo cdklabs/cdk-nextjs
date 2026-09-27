@@ -780,8 +780,9 @@ export class NextjsDistribution extends Construct {
         `${LOG_PREFIX} These top-level public/ entries have no character a ` +
           "CloudFront path pattern can spell, so their pattern would be " +
           "wildcards alone and would capture every app route of the same " +
-          `length. They get no behavior, and their files will 404: ` +
-          `${unmatchable.join(", ")}. Rename them, or move them into a public/ ` +
+          `length. They get no behavior, so their requests reach the server, ` +
+          `which reads them from S3 instead: ${unmatchable.join(", ")}. To serve ` +
+          "them from S3 directly, rename them, or move them into a public/ " +
           "subdirectory whose name has at least one ASCII letter or digit.",
       );
     }

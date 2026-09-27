@@ -7,7 +7,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readPublicFiles } from "./public-files";
+import {
+  AdapterManifest,
+  PUBLIC_FILES_FILE_NAME,
+  RUNTIME_DIR_NAME,
+} from "./manifest";
+import { readPublicFiles, resolvePublicFiles } from "./public-files";
 
 function tempDir(): string {
   return realpathSync(mkdtempSync(join(tmpdir(), "cdk-nextjs-public-")));
@@ -53,5 +58,52 @@ describe("readPublicFiles", () => {
 
   it("is empty when there is no public/, as on the Lambda types", () => {
     expect(readPublicFiles(join(tempDir(), "public"))).toEqual([]);
+  });
+});
+
+describe("resolvePublicFiles", () => {
+  const manifest = { relativeProjectDir: "apps/web" } as AdapterManifest;
+
+  function writeList(root: string, contents: string): void {
+    mkdirSync(join(root, RUNTIME_DIR_NAME), { recursive: true });
+    writeFileSync(
+      join(root, RUNTIME_DIR_NAME, PUBLIC_FILES_FILE_NAME),
+      contents,
+    );
+  }
+
+  it("lists public/ off disk, on the container types", () => {
+    const root = tempDir();
+    mkdirSync(join(root, "apps/web/public"), { recursive: true });
+    writeFileSync(join(root, "apps/web/public/robots.txt"), "");
+    writeList(root, JSON.stringify(["stale.txt"]));
+    expect(resolvePublicFiles(root, manifest)).toEqual({
+      files: ["robots.txt"],
+      inS3: false,
+    });
+  });
+
+  it("reads the synth-time list when public/ is not staged, on the Lambda types", () => {
+    const root = tempDir();
+    writeList(root, JSON.stringify(["feed.xml", "sitemap.xml"]));
+    expect(resolvePublicFiles(root, manifest)).toEqual({
+      files: ["feed.xml", "sitemap.xml"],
+      inS3: true,
+    });
+  });
+
+  it("is empty for an app with neither", () => {
+    expect(resolvePublicFiles(tempDir(), manifest)).toEqual({
+      files: [],
+      inS3: false,
+    });
+  });
+
+  it("rejects a list that is not an array of paths", () => {
+    const root = tempDir();
+    writeList(root, JSON.stringify({ files: [] }));
+    expect(() => resolvePublicFiles(root, manifest)).toThrow(
+      /is not a JSON array of paths/,
+    );
   });
 });

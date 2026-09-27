@@ -51,10 +51,21 @@ echo "harness: app=$APP_DIR stack=$STACK_NAME"
 # its tags. CI warms every shard before the suite starts; this covers a local run
 # that did not. HARNESS_WARMING is how `e2e-warm.sh`'s own deploy says it is the
 # warm-up.
-if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ] && [ "${HARNESS_WARMING:-0}" != "1" ] &&
-  ! aws cloudformation describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1; then
-  echo "harness: $STACK_NAME does not exist yet; creating it with scripts/e2e-warm.sh first"
-  ADAPTER_DIR="$ADAPTER_DIR" "$ADAPTER_DIR/scripts/e2e-warm.sh"
+#
+# A stack in ROLLBACK_COMPLETE (a failed create) or a DELETE_* state counts as
+# missing too: `cdk deploy` would delete and recreate it from this fixture, which
+# is the create the paragraph above rules out.
+if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ] && [ "${HARNESS_WARMING:-0}" != "1" ]; then
+  if ! SHARED_STATUS="$(harness_stack_status "$STACK_NAME")"; then
+    echo "harness: cannot read $STACK_NAME's status (see above); not guessing whether it exists" >&2
+    exit 1
+  fi
+  case "$SHARED_STATUS" in
+    "" | ROLLBACK_COMPLETE | DELETE_*)
+      echo "harness: $STACK_NAME is ${SHARED_STATUS:-missing}; creating it with scripts/e2e-warm.sh first"
+      ADAPTER_DIR="$ADAPTER_DIR" "$ADAPTER_DIR/scripts/e2e-warm.sh"
+      ;;
+  esac
 fi
 
 # The harness creates the app with `skipInstall`, so there is no node_modules yet.

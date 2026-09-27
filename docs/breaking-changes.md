@@ -74,6 +74,17 @@ them — only the Containers types still build images.
   `DockerImageFunctionProps` with no `FunctionProps` equivalent) are gone; the
   rest — `memorySize`, `timeout`, `environment`, `vpc`, `logGroup` — move across
   unchanged.
+- **The function is replaced on upgrade.** Its logical ID is unchanged, but
+  its package type goes from Image to Zip, which CloudFormation can only do by
+  creating a new function and deleting the old one. With a custom
+  `functionProps.functionName`, the first deploy fails ("cannot update a stack
+  when a custom-named resource requires replacing") and rolls back. For that
+  deploy, set a new name (e.g. `my-app-server-v2`) or remove it. To get the
+  original name back afterwards, deploy again with it: that is a second
+  replacement, which works now the name is free. On `NextjsGlobalFunctions` the
+  Function URL is replaced with it, and the distribution follows.
+- `NextjsFunctions.function` is a `lambda.Function`, not a
+  `DockerImageFunction`.
 - `OptionalDockerImageFunctionProps` is no longer exported.
 - **250 MB unzipped limit.** Zip Lambdas are capped where container images were
   not. cdk-nextjs fails at synth with the group's measured size if a function
@@ -211,18 +222,32 @@ rejects a policy that caches nothing but keys on headers, cookies or query
 strings. What reaches the origin does not change: the origin request policy
 forwards all of those regardless.
 
-### Behavior change: `public/` on `NextjsRegionalContainers` follows `next start`
+### Behavior change: `public/` follows `next start`
 
-The container runtime now serves `public/` the way `next start` does. It lists
-the directory when the task starts, so files a `postbuild` step writes
-(`next-sitemap`'s `sitemap.xml`, for one) are served. A `public/` file wins over
-an app route at the same path (`public/robots.txt` over `app/robots.ts`), and
-only GET and HEAD are answered; other methods get a 405. On
-`NextjsGlobalFunctions` and `NextjsGlobalContainers`, a top-level `public/`
+The runtime now serves `public/` the way `next start` does. A `public/` file
+wins over an app route at the same path (`public/robots.txt` over
+`app/robots.ts`), and only GET and HEAD are answered; other methods get a 405.
+Rewrites onto a `public/` file (`rewrites()`, or a middleware rewrite to
+`/maintenance.html`) serve it on every type, as they did on 0.6.x:
+
+- **`NextjsRegionalContainers`** copies `public/` and `.next/static` into the
+  image, since nothing in front of it answers those paths, and lists `public/`
+  when the task starts, so files a `postbuild` step writes (`next-sitemap`'s
+  `sitemap.xml`, for one) are served.
+- **Every other type** doesn't carry `public/`. cdk-nextjs lists it at synth,
+  after the build command (so `postbuild` output is included), and the runtime
+  streams a rewritten file from the static assets bucket. A file's own URL is
+  still answered by S3 at the edge. A rewritten file keeps the `Cache-Control`
+  its S3 object carries, and `Range` requests are honored.
+
+On `NextjsGlobalFunctions` and `NextjsGlobalContainers`, a top-level `public/`
 entry whose name has no ASCII letter, digit or other character CloudFront can
 match (`public/фото/`) no longer gets a cache behavior, since that behavior
-would have captured every app route of the same length. The synth warns, and the
-entry's files 404. Rename it, or move it under an ASCII-named directory.
+would have captured every app route of the same length. The synth warns, and
+the entry's files are served by the server from S3 rather than by the edge.
+Rename it, or move it under an ASCII-named directory, to serve them directly.
+The same goes for a top-level name an API Gateway resource can't express on
+`NextjsRegionalFunctions` (`public/hello e2e.txt`), which used to 404.
 
 ### New (non-breaking): `functionGroups`
 
@@ -241,6 +266,27 @@ behavior. An optional catch-all's parent (`/blog` for `/blog/[[...slug]]`) is
 routed with `/blog/**` automatically, and listing `/blog` as well is now an
 error. Intercepting routes (`(..)photo`) are packaged with the group that owns
 the URL they intercept. Rewrites made by middleware are not checked.
+
+Edge path matching is case-sensitive and Next.js's isn't, so `/API/reports/1`
+misses a `/api/reports/**` group and reaches the default function. That
+function answers a 308 to the route's own spelling (`/api/reports/1`, the
+dynamic values' case kept) instead of a 500, or a 404 if the URL isn't a case
+variant of the route.
+
+On `NextjsRegionalFunctions`, removing a group (or a top-level `public/` entry)
+used to leave its route in the live API Gateway stage: CloudFormation snapshots
+the stage before it deletes removed resources, so the old route kept pointing at
+the deleted function and answered 500. A small function now redeploys the stage
+when the stack update completes, so the gap is a minute or so after the update
+rather than until the next deploy. Turn it off with
+`overrides.nextjsRegionalFunctions.nextjsApiProps.redeployAfterUpdate: false`.
+The redeploy is triggered by the stack's EventBridge status event, so an
+account bootstrapped with
+[`docs/cdk-nextjs-cfn-exec-policy.json`](./cdk-nextjs-cfn-exec-policy.json)
+needs `events:*` added to its CloudFormation execution policy, or the deploy
+fails creating the rule. The redeploy moves the stage off the deployment
+CloudFormation made, so drift detection reports the stage's `DeploymentId` as
+modified; that is expected.
 
 With groups and Pages Router data routes, the `_next/data` behaviors name the
 literal Next.js build ID, so they change on every deploy unless a

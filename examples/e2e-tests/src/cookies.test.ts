@@ -54,11 +54,12 @@ test.describe("cookies", () => {
   test("reads every cookie the client sent, not just the first", async ({
     request,
   }) => {
-    // The inbound direction, and the reason it needs more than one cookie: the API
-    // Gateway shell rebuilds a single `Cookie` header out of values that arrived
-    // separately, joining them with `"; "`. A `","` join - correct for most
-    // repeated headers - keeps only the *first* cookie readable. That is what broke
-    // draft mode, and a single-cookie request would never have shown it.
+    // The inbound direction: every cookie in one `Cookie` header reaches the app,
+    // not just the first. This sends a single header field, which is what an
+    // HTTP/1.1 client sends, so it does not reach the API Gateway shell's
+    // `"; "` join of *separate* Cookie fields (an HTTP/2 client may split them).
+    // That join, whose `","` predecessor broke draft mode, is covered by
+    // "rejoins repeated Cookie fields" in src/runtime/lambda-event.test.ts.
     // `cdk-nextjs=1` is repeated here because a per-request `cookie` header is not
     // guaranteed to merge with the jar's (`storageState` in playwright.config.ts),
     // and the regional-containers example's ALB rejects a request without it.

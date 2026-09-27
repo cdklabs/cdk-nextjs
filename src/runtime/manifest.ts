@@ -68,6 +68,16 @@ export const MANIFEST_FILE_NAME = "manifest.json";
 export const RUNTIME_DIR_NAME = "cdk-nextjs-runtime";
 
 /**
+ * The file, next to the manifest in {@link RUNTIME_DIR_NAME}, that lists
+ * `public/` on the Lambda types: a JSON array of `/`-separated paths relative
+ * to `public/`, as `readPublicFiles` returns them. Synth writes it after the
+ * build command (so `postbuild` output is listed) because the Lambda zips do
+ * not carry `public/` itself; the runtime serves a listed file from S3. The
+ * container images copy `public/` in and have no such file.
+ */
+export const PUBLIC_FILES_FILE_NAME = "public-files.json";
+
+/**
  * Where the runtime reads {@link AdapterManifest} from, given the deployment
  * root. Synth copies `manifest.json` in next to the bundled shells rather than
  * leaving it at its build-time location (`<distDir>/cdk-nextjs-adapter/`, one

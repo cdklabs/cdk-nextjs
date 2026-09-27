@@ -10,12 +10,19 @@
  * in the image and missing from the list; and every Lambda deployment carried
  * the whole list for files CloudFront or API Gateway always answers from S3.
  *
- * Only the container images copy `public/` in, so on the Lambda types this is
- * normally empty and dispatch behaves as though the app had no `public/`.
+ * Only the `NextjsRegionalContainers` image copies `public/` in. The other
+ * types' deployment roots carry the list instead — {@link PUBLIC_FILES_FILE_NAME}, written at synth after the build
+ * command, so a `postbuild` file is in it — and the runtime streams a listed
+ * file from the assets bucket when a request lands on it. A file's own URL
+ * never gets that far (the edge routes it to S3); a rewrite onto one does.
  */
-import { readdirSync, realpathSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { AdapterManifest } from "./manifest";
+import {
+  AdapterManifest,
+  PUBLIC_FILES_FILE_NAME,
+  RUNTIME_DIR_NAME,
+} from "./manifest";
 
 /** Where `public/` sits in the deployment root, as a POSIX key. */
 export function publicDirKey(manifest: AdapterManifest): string {
@@ -79,4 +86,53 @@ export function readPublicFiles(dir: string): string[] {
     if ((error as { code?: string }).code !== "ENOENT") throw error;
   }
   return files.sort();
+}
+
+/** `public/` as the runtime serves it, and where its bytes are. */
+export interface PublicFiles {
+  readonly files: readonly string[];
+  /**
+   * `true` when `files` came from {@link PUBLIC_FILES_FILE_NAME} because
+   * `public/` is not on disk: every type but `NextjsRegionalContainers`. Their
+   * bytes are in S3.
+   */
+  readonly inS3: boolean;
+}
+
+/**
+ * `public/` off disk when it is there, which is `NextjsRegionalContainers`, and the
+ * synth-time list otherwise. An empty `public/` on disk with no list is an app
+ * without one.
+ */
+export function resolvePublicFiles(
+  deploymentRoot: string,
+  manifest: AdapterManifest,
+): PublicFiles {
+  const onDisk = readPublicFiles(join(deploymentRoot, publicDirKey(manifest)));
+  if (onDisk.length > 0) {
+    return { files: onDisk, inS3: false };
+  }
+  let listed: unknown;
+  try {
+    listed = JSON.parse(
+      readFileSync(
+        join(deploymentRoot, RUNTIME_DIR_NAME, PUBLIC_FILES_FILE_NAME),
+        "utf-8",
+      ),
+    );
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") {
+      return { files: onDisk, inS3: false };
+    }
+    throw error;
+  }
+  if (
+    !Array.isArray(listed) ||
+    !listed.every((file) => typeof file === "string")
+  ) {
+    throw new Error(
+      `${RUNTIME_DIR_NAME}/${PUBLIC_FILES_FILE_NAME} is not a JSON array of paths.`,
+    );
+  }
+  return { files: listed as string[], inS3: true };
 }

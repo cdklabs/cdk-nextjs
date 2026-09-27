@@ -1,8 +1,10 @@
+/* eslint-disable import/no-extraneous-dependencies */
 import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -10,9 +12,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { S3Client } from "@aws-sdk/client-s3";
 import {
   loadRuntime,
   NextjsRuntime,
+  revalidatedPageRoutes,
   RuntimeRequest,
   splitBody,
   withoutInternalHeaders,
@@ -24,7 +28,12 @@ import {
 import { createIncomingMessage } from "./http/request";
 import { ResponseHead } from "./http/response";
 import { ResponseSink } from "./http/sink";
-import { AdapterManifest, deployedManifestPath } from "./manifest";
+import {
+  AdapterManifest,
+  deployedManifestPath,
+  PUBLIC_FILES_FILE_NAME,
+  RUNTIME_DIR_NAME,
+} from "./manifest";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
 
 /**
@@ -101,6 +110,25 @@ exports.handler = async (req, res, ctx) => {
     res.write("first,");
     setTimeout(() => res.end("second"), 10);
     return;
+  }
+  // What Next's \`AfterContext\` does: work registered with \`waitUntil\` after
+  // the response, from inside work that was itself registered with it.
+  if (url.searchParams.has("lateWaitUntil")) {
+    ctx.waitUntil(
+      new Promise((resolve) =>
+        setTimeout(() => {
+          ctx.waitUntil(
+            new Promise((resolveLate) =>
+              setTimeout(() => {
+                writeFileSync(process.env.CDK_NEXTJS_TEST_MARKER, "late");
+                resolveLate();
+              }, 10),
+            ),
+          );
+          resolve();
+        }, 10),
+      ),
+    );
   }
   if (url.searchParams.has("waitUntil")) {
     ctx.waitUntil(
@@ -331,19 +359,34 @@ describe("NextjsRuntime.handle", () => {
     expect(body.cwd).toBe(join(root, "app-playground"));
   });
 
-  it("trusts x-forwarded-host over the host CloudFront rewrote", async () => {
+  it("trusts x-forwarded-host over the host CloudFront rewrote, when the shell says to", async () => {
     const sink = await send({
       url: "/",
       headers: {
         host: "origin.cloudfront.internal",
         "x-forwarded-host": "www.example.test",
       },
+      trustForwardedHost: true,
     });
     expect(stubBody(sink).initURL).toBe("https://www.example.test/");
   });
 
   // Only the CloudFront function in front of *function* compute overwrites this
-  // header, so on Containers and the Regional types it arrives from the client.
+  // header, so on Containers and the Regional types it arrives from the client:
+  // honoring it let `X-Forwarded-Host: evil.example` point every absolute URL
+  // the app built, a password-reset link say, at evil.example.
+  it("ignores x-forwarded-host unless the shell trusts it, like next start", async () => {
+    const sink = await send({
+      url: "/",
+      headers: {
+        host: "shop.example.test",
+        "x-forwarded-host": "evil.example",
+      },
+    });
+    expect(stubBody(sink).initURL).toBe("https://shop.example.test/");
+    expect(stubBody(sink).hostname).toBe("shop.example.test");
+  });
+
   // A value that cannot be a URL authority made `new URL` throw, and on the
   // Lambda shells — whose handlers wrap nothing — that is an invocation error and
   // a 502 rather than a response.
@@ -362,6 +405,7 @@ describe("NextjsRuntime.handle", () => {
           host: "shop.example.test",
           "x-forwarded-host": forwarded,
         },
+        trustForwardedHost: true,
       });
       expect(sink.head?.statusCode).toBe(200);
       expect(stubBody(sink).initURL).toBe("https://shop.example.test/");
@@ -376,6 +420,7 @@ describe("NextjsRuntime.handle", () => {
         host: "origin.cloudfront.internal",
         "x-forwarded-host": "www.example.test, inner.example.test",
       },
+      trustForwardedHost: true,
     });
     expect(stubBody(sink).initURL).toBe("https://www.example.test/");
   });
@@ -516,6 +561,7 @@ describe("NextjsRuntime.handle", () => {
           "x-forwarded-host": "shop.example.test",
           "x-forwarded-proto": "https",
         },
+        trustForwardedHost: true,
       });
       expect(readFileSync(marker, "utf-8")).toBe(
         "https://shop.example.test/?recordOrigin=1",
@@ -544,20 +590,21 @@ describe("NextjsRuntime.handle", () => {
       const hook = jest.fn(async () => {});
       globals[hookKey] = hook;
       await send({ url: "/?revalidate=%2Fisr%2F42" });
-      expect(hook).toHaveBeenCalledWith(
+      expect(hook).toHaveBeenCalledTimes(1);
+      expect(hook).toHaveBeenCalledWith([
         "/isr/42",
         `/_next/data/${runtime.manifest.buildId}/isr/42.json`,
-      );
+      ]);
     });
 
     it("names the root's data route index.json", async () => {
       const hook = jest.fn(async () => {});
       globals[hookKey] = hook;
       await send({ url: "/?revalidate=%2F" });
-      expect(hook).toHaveBeenCalledWith(
+      expect(hook).toHaveBeenCalledWith([
         "/",
         `/_next/data/${runtime.manifest.buildId}/index.json`,
-      );
+      ]);
     });
 
     it("invalidates nothing when the revalidation failed", async () => {
@@ -1309,5 +1356,374 @@ describe("splitBody", () => {
     expect(body.forRequest).toBe(source);
     body.releaseUnread(false);
     expect(source.destroyed).toBe(false);
+  });
+});
+
+describe("waitUntil", () => {
+  it("awaits work registered after the first batch settled", async () => {
+    const marker = join(root, "late-wait-until-marker");
+    process.env.CDK_NEXTJS_TEST_MARKER = marker;
+    try {
+      await send({ url: "/?lateWaitUntil=1" });
+      expect(readFileSync(marker, "utf-8")).toBe("late");
+    } finally {
+      delete process.env.CDK_NEXTJS_TEST_MARKER;
+    }
+  });
+});
+
+describe("a prerendered status page, requested directly", () => {
+  it("answers /404 with a 404, as next start does", async () => {
+    const sink = await send({ url: "/404" });
+    expect(sink.head?.statusCode).toBe(404);
+    expect(sink.body.toString("utf-8")).toBe(NOT_FOUND_HTML);
+  });
+
+  it("answers /500 with a 500", async () => {
+    const sink = await send({ url: "/500" });
+    expect(sink.head?.statusCode).toBe(500);
+    expect(sink.body.toString("utf-8")).toBe(ERROR_HTML);
+  });
+
+  it("still serves them to a POST, which next start does not 405", async () => {
+    const sink = await send({ url: "/404", method: "POST" });
+    expect(sink.head?.statusCode).toBe(404);
+  });
+});
+
+describe("an auto-exported Pages Router page", () => {
+  const ABOUT_HTML = "<html><body>about</body></html>";
+  let pages: NextjsRuntime;
+
+  beforeAll(async () => {
+    let aboutFile = "";
+    const staged = stageDeployment(MIDDLEWARE_STUB, (manifest) => {
+      aboutFile = `${manifest.relativeProjectDir}/.next/server/pages/about.html`;
+      return {
+        ...manifest,
+        staticFiles: { ...manifest.staticFiles, "/about": aboutFile },
+      };
+    });
+    write(join(staged, aboutFile), ABOUT_HTML);
+    pages = await loadRuntime(staged);
+  });
+
+  async function sendTo(method: string): Promise<CollectingSink> {
+    const sink = new CollectingSink();
+    await pages.handle(
+      { method, url: "/about", headers: { host: "shop.example.test" } },
+      sink,
+    );
+    return sink;
+  }
+
+  it("is served to a GET", async () => {
+    const sink = await sendTo("GET");
+    expect(sink.head?.statusCode).toBe(200);
+    expect(sink.body.toString("utf-8")).toBe(ABOUT_HTML);
+  });
+
+  it("answers any other method with a 405, as next start does", async () => {
+    const sink = await sendTo("POST");
+    expect(sink.head?.statusCode).toBe(405);
+    expect(sink.head?.headers.allow).toBe("GET, HEAD");
+  });
+});
+
+describe("a route packaged into another functionGroups group", () => {
+  let grouped: NextjsRuntime;
+
+  beforeAll(async () => {
+    let missing = "";
+    const staged = stageDeployment(MIDDLEWARE_STUB, (manifest) => {
+      missing = manifest.entrypoints["/isr/[id]"].filePath;
+      return {
+        ...manifest,
+        groups: {
+          default: Object.keys(manifest.entrypoints).filter(
+            (template) => template !== "/isr/[id]",
+          ),
+          blog: ["/isr/[id]"],
+        },
+      };
+    });
+    rmSync(join(staged, missing));
+    grouped = await loadRuntime(staged);
+  });
+
+  async function get(url: string): Promise<CollectingSink> {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.CDK_NEXTJS_FUNCTION_GROUP = "default";
+    try {
+      const sink = new CollectingSink();
+      await grouped.handle(
+        { method: "GET", url, headers: { host: "shop.example.test" } },
+        sink,
+      );
+      return sink;
+    } finally {
+      delete process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      warn.mockRestore();
+    }
+  }
+
+  // The edge matches case-sensitively and Next.js doesn't: `/ISR/1` missed the
+  // `blog` group's behavior only because of its case.
+  it("redirects a URL that differs only in case to its canonical spelling", async () => {
+    const sink = await get("/ISR/1?x=1");
+    expect(sink.head?.statusCode).toBe(308);
+    expect(sink.head?.headers.location).toBe("/isr/1?x=1");
+  });
+
+  it("keeps the case of a dynamic segment's value", async () => {
+    const sink = await get("/ISR/AbC");
+    expect(sink.head?.statusCode).toBe(308);
+    expect(sink.head?.headers.location).toBe("/isr/AbC");
+  });
+
+  it("is a 404, not a 500, when case is not the difference", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.CDK_NEXTJS_FUNCTION_GROUP = "default";
+    try {
+      const sink = new CollectingSink();
+      await grouped.handle(
+        {
+          method: "GET",
+          url: "/isr/1",
+          headers: { host: "shop.example.test" },
+        },
+        sink,
+      );
+      expect(sink.head?.statusCode).toBe(404);
+      expect(sink.head?.headers["cache-control"]).toMatch(/no-store/);
+      expect(String(warn.mock.calls[0]?.[0])).toContain('group "blog"');
+    } finally {
+      delete process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("CDK_NEXTJS_IMAGE_CACHE", () => {
+  const imageCacheOf = (loaded: NextjsRuntime): unknown =>
+    (loaded as unknown as { images: { options: { cache?: boolean } } }).images
+      .options.cache;
+
+  it("leaves the image cache on by default", async () => {
+    expect(imageCacheOf(await loadRuntime(root))).toBe(true);
+  });
+
+  it("turns it off for 0", async () => {
+    process.env.CDK_NEXTJS_IMAGE_CACHE = "0";
+    try {
+      expect(imageCacheOf(await loadRuntime(root))).toBe(false);
+    } finally {
+      delete process.env.CDK_NEXTJS_IMAGE_CACHE;
+    }
+  });
+});
+
+describe("public/ on the Lambda types", () => {
+  let lambda: NextjsRuntime;
+  const send$ = jest.spyOn(S3Client.prototype, "send");
+
+  beforeAll(async () => {
+    const staged = stageDeployment();
+    const manifest: AdapterManifest = JSON.parse(
+      readFileSync(deployedManifestPath(staged), "utf-8"),
+    );
+    // What a Lambda zip carries: the list, not the files.
+    rmSync(join(staged, manifest.relativeProjectDir, "public"), {
+      recursive: true,
+    });
+    write(
+      join(staged, RUNTIME_DIR_NAME, PUBLIC_FILES_FILE_NAME),
+      JSON.stringify(["feed.xml", "images/logo@2x.png"]),
+    );
+    lambda = new NextjsRuntime({
+      deploymentRoot: staged,
+      manifest,
+      bucket: "assets",
+      bucketKeyPrefix: "base",
+    });
+  });
+
+  afterEach(() => send$.mockReset());
+  afterAll(() => send$.mockRestore());
+
+  async function get(
+    url: string,
+    headers: Record<string, string> = {},
+  ): Promise<CollectingSink> {
+    const sink = new CollectingSink();
+    await lambda.handle(
+      {
+        method: "GET",
+        url,
+        headers: { host: "shop.example.test", ...headers },
+      },
+      sink,
+    );
+    return sink;
+  }
+
+  it("streams a listed file from the assets bucket, under its key prefix", async () => {
+    send$.mockImplementation((async () => ({
+      Body: Readable.from([Buffer.from("<rss/>")]),
+      ContentType: "application/rss+xml",
+      ContentLength: 6,
+      ETag: '"e1"',
+      LastModified: new Date("2026-01-02T03:04:05Z"),
+    })) as never);
+    const sink = await get("/feed.xml");
+    expect(sink.head?.statusCode).toBe(200);
+    expect(sink.body.toString("utf-8")).toBe("<rss/>");
+    expect(sink.head?.headers["content-type"]).toBe("application/rss+xml");
+    expect(sink.head?.headers.etag).toBe('"e1"');
+    expect(sink.head?.headers["cache-control"]).toBe("public, max-age=0");
+    const command = send$.mock.calls[0][0] as unknown as {
+      input: { Bucket: string; Key: string };
+    };
+    expect(command.input).toMatchObject({
+      Bucket: "assets",
+      Key: "base/feed.xml",
+    });
+  });
+
+  it("uses the file's real name as the key", async () => {
+    send$.mockImplementation((async () => ({
+      Body: Readable.from([Buffer.from("png")]),
+    })) as never);
+    await get("/images/logo@2x.png");
+    const command = send$.mock.calls[0][0] as unknown as {
+      input: { Key: string };
+    };
+    expect(command.input.Key).toBe("base/images/logo@2x.png");
+  });
+
+  it("answers a matching If-None-Match with the 304 S3 gave", async () => {
+    send$.mockImplementation((async () => {
+      throw Object.assign(new Error("Not Modified"), {
+        name: "NotModified",
+        $metadata: { httpStatusCode: 304 },
+      });
+    }) as never);
+    const sink = await get("/feed.xml", { "if-none-match": '"e1"' });
+    expect(sink.head?.statusCode).toBe(304);
+    expect(sink.body.length).toBe(0);
+  });
+
+  it("falls through to the 404 when the object is gone", async () => {
+    send$.mockImplementation((async () => {
+      throw Object.assign(new Error("NoSuchKey"), {
+        name: "NoSuchKey",
+        $metadata: { httpStatusCode: 404 },
+      });
+    }) as never);
+    const sink = await get("/feed.xml");
+    expect(sink.head?.statusCode).toBe(404);
+  });
+
+  it("forwards a Range and answers S3's 206", async () => {
+    send$.mockImplementation((async () => ({
+      Body: Readable.from([Buffer.from("rss")]),
+      ContentLength: 3,
+      ContentRange: "bytes 1-3/6",
+      AcceptRanges: "bytes",
+    })) as never);
+    const sink = await get("/feed.xml", { range: "bytes=1-3" });
+    expect(sink.head?.statusCode).toBe(206);
+    expect(sink.head?.headers["content-range"]).toBe("bytes 1-3/6");
+    expect(sink.head?.headers["accept-ranges"]).toBe("bytes");
+    expect(sink.body.toString("utf-8")).toBe("rss");
+    const command = send$.mock.calls[0][0] as unknown as {
+      input: { Range?: string };
+    };
+    expect(command.input.Range).toBe("bytes=1-3");
+  });
+
+  it("answers an unsatisfiable Range with a 416", async () => {
+    send$.mockImplementation((async () => {
+      throw Object.assign(new Error("InvalidRange"), {
+        name: "InvalidRange",
+        $metadata: { httpStatusCode: 416 },
+      });
+    }) as never);
+    const sink = await get("/feed.xml", { range: "bytes=999-" });
+    expect(sink.head?.statusCode).toBe(416);
+    expect(sink.body.length).toBe(0);
+  });
+
+  // S3 can't evaluate If-Range, and ignoring Range is always allowed.
+  it("drops the Range when If-Range is present", async () => {
+    send$.mockImplementation((async () => ({
+      Body: Readable.from([Buffer.from("<rss/>")]),
+    })) as never);
+    const sink = await get("/feed.xml", {
+      range: "bytes=1-3",
+      "if-range": '"e1"',
+    });
+    expect(sink.head?.statusCode).toBe(200);
+    const command = send$.mock.calls[0][0] as unknown as {
+      input: { Range?: string };
+    };
+    expect(command.input.Range).toBeUndefined();
+  });
+
+  it("uses the object's own Cache-Control, as the edge serves it", async () => {
+    send$.mockImplementation((async () => ({
+      Body: Readable.from([Buffer.from("<rss/>")]),
+      CacheControl: "public, max-age=3600",
+    })) as never);
+    const sink = await get("/feed.xml");
+    expect(sink.head?.headers["cache-control"]).toBe("public, max-age=3600");
+  });
+
+  it("leaves an unlisted path to the app", async () => {
+    await get("/test.txt");
+    expect(send$).not.toHaveBeenCalled();
+  });
+});
+
+describe("revalidatedPageRoutes", () => {
+  const manifest = (i18n: unknown) =>
+    ({ buildId: "b1", config: { i18n } }) as unknown as AdapterManifest;
+  const i18n = { locales: ["en", "fr"], defaultLocale: "en" };
+
+  it("is the route and its data route without i18n", () => {
+    expect(revalidatedPageRoutes("/blog", manifest(null))).toEqual([
+      ["/blog", "/_next/data/b1/blog.json"],
+    ]);
+    expect(revalidatedPageRoutes("/", manifest(null))).toEqual([
+      ["/", "/_next/data/b1/index.json"],
+    ]);
+  });
+
+  // The Next client puts the locale in every data href, the default included.
+  it("puts the default locale in the data route, and invalidates both HTML spellings", () => {
+    expect(revalidatedPageRoutes("/blog", manifest(i18n))).toEqual([
+      ["/blog", "/_next/data/b1/en/blog.json"],
+      ["/en/blog", "/_next/data/b1/en/blog.json"],
+    ]);
+    expect(revalidatedPageRoutes("/en/blog", manifest(i18n))).toEqual([
+      ["/blog", "/_next/data/b1/en/blog.json"],
+      ["/en/blog", "/_next/data/b1/en/blog.json"],
+    ]);
+  });
+
+  it("names the root's data route after the locale", () => {
+    expect(revalidatedPageRoutes("/", manifest(i18n))).toEqual([
+      ["/", "/_next/data/b1/en.json"],
+      ["/en", "/_next/data/b1/en.json"],
+    ]);
+    expect(revalidatedPageRoutes("/fr", manifest(i18n))).toEqual([
+      ["/fr", "/_next/data/b1/fr.json"],
+    ]);
+  });
+
+  it("keeps another locale's page to its own prefix", () => {
+    expect(revalidatedPageRoutes("/fr/blog", manifest(i18n))).toEqual([
+      ["/fr/blog", "/_next/data/b1/fr/blog.json"],
+    ]);
   });
 });

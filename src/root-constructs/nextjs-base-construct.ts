@@ -321,6 +321,13 @@ export abstract class NextjsBaseConstruct extends Construct {
    * declare. Cast for the same reason as {@link functionGroups}.
    */
   private get functionsOverrides(): NextjsFunctionsOverrides | undefined {
+    // `overrides.<type>.nextjsFunctionsProps.overrides`, when set, replaces
+    // `overrides.nextjsFunctions` wholesale in `createNextjsFunctions`, so it
+    // is also what the functions' architecture comes from.
+    const replacing = this.constructOverrides?.nextjsFunctionsProps?.overrides;
+    if (replacing) {
+      return replacing;
+    }
     const overrides = this.baseProps.overrides as
       { nextjsFunctions?: NextjsFunctionsOverrides } | undefined;
     return overrides?.nextjsFunctions;

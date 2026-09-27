@@ -572,6 +572,12 @@ export class TrackedTagMarkers {
    */
   private readonly dueAt = new Map<string, number>();
   private readonly reading = new Map<string, Promise<void>>();
+  /**
+   * Log rows for tags whose first read is in flight, merged by tag: the read
+   * may have been answered before the revalidation, so they are applied to its
+   * result rather than dropped.
+   */
+  private readonly pendingRows = new Map<string, TagMarker>();
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
   private lastRefresh = -Infinity;
@@ -625,11 +631,34 @@ export class TrackedTagMarkers {
   }
 
   /**
-   * Start tracking `tags` without reading them: those of an entry this
-   * instance just stored. Nothing revalidated before it was created can apply
-   * to it, and the log carries anything after.
+   * Note a use of `tags`: those of an entry this instance just stored.
+   *
+   * With the table, a tag not tracked yet is left untracked, to be read by
+   * {@link ensure} the first time an entry needs it. Nothing revalidated before
+   * the new entry was created applies to *it*, but tracking is per tag, not per
+   * entry: tracking the tag with an empty marker would also vouch for every
+   * older entry that carries it - one another instance stored in S3, or one
+   * this instance kept in memory across a {@link forget} - and a revalidation
+   * from before the log's cursor would go unseen until the rolling re-read.
+   *
+   * Without the table every revalidation is this process's own, applied with
+   * {@link set}, so a tag is tracked at once.
    */
   track(tags: readonly string[]): void {
+    if (!this.markers) {
+      this.trackUnread(tags);
+      return;
+    }
+    for (const tag of tags) {
+      this.touch(tag);
+    }
+  }
+
+  /**
+   * Track `tags` as they are known now, without reading them, with an empty
+   * marker for any not tracked yet.
+   */
+  private trackUnread(tags: readonly string[]): void {
     const at = this.clock();
     for (const tag of tags) {
       if (!this.tags.has(tag)) {
@@ -646,7 +675,7 @@ export class TrackedTagMarkers {
    */
   async ensure(tags: readonly string[]): Promise<void> {
     if (!this.markers) {
-      this.track(tags);
+      this.trackUnread(tags);
       return;
     }
     const waits: Promise<void>[] = [];
@@ -752,6 +781,12 @@ export class TrackedTagMarkers {
         // revalidated elsewhere is not a use.
         this.tags.set(row.tag, mergeMarkers(marker, row.marker));
         applied++;
+      } else if (this.reading.has(row.tag)) {
+        this.pendingRows.set(
+          row.tag,
+          mergeMarkers(this.pendingRows.get(row.tag), row.marker),
+        );
+        applied++;
       }
     }
     this.lastLogRead = at;
@@ -833,19 +868,35 @@ export class TrackedTagMarkers {
       const read = await this.markers!.read(tags);
       for (const tag of tags) {
         this.unread.delete(tag);
-        this.remember(tag, mergeMarkers(this.tags.get(tag), read.get(tag)));
+        this.remember(
+          tag,
+          mergeMarkers(
+            mergeMarkers(this.tags.get(tag), read.get(tag)),
+            this.takePendingRows(tag),
+          ),
+        );
         this.known(tag, at);
       }
       this.debug(`read ${tags.length} tag markers (${read.size} set)`);
       return true;
     } catch (error) {
       console.error(`Error reading ${this.label} markers:`, error);
-      this.track(tags);
+      this.trackUnread(tags);
       for (const tag of tags) {
         this.unread.add(tag);
+        const pending = this.takePendingRows(tag);
+        if (pending) {
+          this.remember(tag, mergeMarkers(this.tags.get(tag), pending));
+        }
       }
       return false;
     }
+  }
+
+  private takePendingRows(tag: string): TagMarker | undefined {
+    const pending = this.pendingRows.get(tag);
+    this.pendingRows.delete(tag);
+    return pending;
   }
 
   /** Record that `tag`'s marker was known from the table at `at`. */

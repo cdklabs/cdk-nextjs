@@ -1,5 +1,4 @@
 import { test, expect, Page } from "@playwright/test";
-import { isApiGateway } from "./utils/deployment-type";
 
 /**
  * A `public/` asset whose filename contains a space.
@@ -32,6 +31,16 @@ test.describe("static assets", () => {
     const src = await img.evaluate((el: HTMLImageElement) => el.src);
     return new URL(src);
   }
+
+  // `/e2e/public-rewrite` rewrites to `/test.txt`. The edge routes only the
+  // file's own URL to S3, so this reaches the compute, which has to find the
+  // file: on disk in the container images, in S3 from the Functions types.
+  test("serves a public/ file a rewrite lands on", async ({ request }) => {
+    const response = await request.get("./e2e/public-rewrite");
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toContain("text/plain");
+    expect((await response.text()).trim()).toBe("hi");
+  });
 
   test("serves a public/ asset whose name contains a space", async ({
     request,
@@ -78,29 +87,16 @@ test.describe("static assets", () => {
     expect(response.headers()["content-type"]).toBe("image/webp");
   });
 
-  test("serves a top-level public/ asset with a space, except on API Gateway", async ({
-    request,
-  }) => {
-    // The same filename one directory up, and a completely different problem. A
-    // nested asset rides an existing wildcard behaviour; a top-level one has to be
-    // matched by name, which is where the two Functions-side limitations live:
-    //
-    // - On CloudFront it becomes its own cache behaviour, and a path pattern cannot
-    //   contain a space, so `toPathPattern` has to substitute `?` wildcards.
-    // - On `NextjsRegionalFunctions` it is skipped with a warning, because an API
-    //   Gateway resource path cannot express it at all.
-    //
-    // The 404 is therefore correct on exactly one deployment type. Asserted rather
-    // than skipped, because a skip would also pass if the asset silently stopped
-    // being served everywhere else - and because if that limitation is ever lifted,
-    // this test failing is how anyone finds out.
+  test("serves a top-level public/ asset with a space", async ({ request }) => {
+    // The same filename one directory up, and a different route to it. A nested
+    // asset rides an existing wildcard behavior or `{proxy+}` resource; a
+    // top-level one has to be matched by name. On CloudFront it becomes its own
+    // behavior, and a path pattern cannot contain a space, so `toPathPattern`
+    // substitutes `?` wildcards. On `NextjsRegionalFunctions` an API Gateway
+    // resource path cannot express it at all, so the request reaches the
+    // function, which reads the file from S3 from its synth-time list of
+    // `public/`.
     const response = await request.get("./hello%20e2e.txt");
-
-    if (isApiGateway()) {
-      expect(response.status()).toBe(404);
-      return;
-    }
-
     expect(response.status()).toBe(200);
     expect(response.headers()["content-type"]).toContain("text/plain");
     expect(await response.text()).toContain("hello e2e");

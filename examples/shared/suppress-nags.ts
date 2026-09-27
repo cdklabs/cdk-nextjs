@@ -373,6 +373,23 @@ export function suppressApiNags(stack: Stack) {
       },
     ],
   );
+  // Redeploys the stage after each stack update; see `redeployAfterUpdate`.
+  suppressLambdaExecutionRole(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsApi/RedeployFn/ServiceRole/Resource`,
+    "AWSLambdaBasicExecutionRole is not overly permissive for the stage redeploy",
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsApi/RedeployFn/ServiceRole/DefaultPolicy/Resource`,
+    [
+      {
+        id: "AwsSolutions-IAM5",
+        reason:
+          "Deletes only its own earlier deployments of this REST API; their IDs aren't known in advance",
+      },
+    ],
+  );
   NagSuppressions.addResourceSuppressionsByPath(
     stack,
     `/${stack.stackName}/Nextjs/NextjsApi/RestApi/DeploymentStage.prod/Resource`,

@@ -16,6 +16,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRuntime, NextjsRuntime } from "./core";
 import { deploymentRootOf } from "./deployment-root";
+import { clientAbortSignal } from "./http/abort-signal";
 import { NodeResponseSink } from "./http/node-sink";
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -47,9 +48,6 @@ async function serve(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const aborted = new AbortController();
-  req.once("aborted", () => aborted.abort());
-
   await runtime.handle(
     {
       method: req.method ?? "GET",
@@ -60,7 +58,7 @@ async function serve(
       // TLS terminates at the ALB (Regional) or CloudFront (Global); the hop to
       // this container is plaintext HTTP/1.1.
       encrypted: false,
-      signal: aborted.signal,
+      signal: clientAbortSignal(req, res),
     },
     new NodeResponseSink(res),
   );

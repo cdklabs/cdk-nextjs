@@ -70,6 +70,15 @@ const nextConfig: NextConfig = {
           destination: '/e2e/rewrite/echo?from=/:path',
         },
       ],
+      // Lands on a `public/` file. The edge only routes a public file's own URL
+      // to S3, so the compute has to serve this one itself on every type
+      // (static-assets.test.ts).
+      afterFiles: [
+        {
+          source: '/e2e/public-rewrite',
+          destination: '/test.txt',
+        },
+      ],
     };
   },
   // typedRoutes: true,

@@ -16,6 +16,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import type { ResolveRoutesQuery } from "@next/routing";
+import { caseCanonicalPath } from "./case-redirect";
 import {
   createDispatcher,
   ErrorTarget,
@@ -23,7 +24,11 @@ import {
   outOfBandRouteParams,
   resolveErrorTarget,
 } from "./dispatch";
-import { EntrypointRegistry } from "./entrypoints";
+import {
+  EntrypointHandler,
+  EntrypointRegistry,
+  RouteInOtherGroupError,
+} from "./entrypoints";
 import {
   createIncomingMessage,
   ShimIncomingMessage,
@@ -43,8 +48,8 @@ import {
 } from "./manifest";
 import { createMiddlewareRunner, MiddlewareRunner } from "./middleware";
 import { setupNodeEnvironment, useNextFrom } from "./next-modules";
-import { publicDirKey, readPublicFiles } from "./public-files";
-import { serveStaticFile } from "./static-files";
+import { publicDirKey, resolvePublicFiles } from "./public-files";
+import { serveS3PublicFile, serveStaticFile } from "./static-files";
 
 /** One request, normalized by a shell. */
 export interface RuntimeRequest {
@@ -61,6 +66,16 @@ export interface RuntimeRequest {
    * makes `request.signal.onabort` fire inside route handlers.
    */
   readonly signal?: AbortSignal;
+  /**
+   * Whether `x-forwarded-host` names the host the client asked for. Only the
+   * shell can know: it is `true` for a Lambda Function URL event, which only
+   * CloudFront can send (the URL is `AWS_IAM`, signed by Origin Access Control)
+   * and whose viewer-request function overwrites the header with the viewer's
+   * `Host` — CloudFront has to replace `Host` itself with the Function URL's
+   * domain. Everywhere else the header is whatever the client sent, and it is
+   * ignored, as `next start` ignores it without `experimental.trustHostHeader`.
+   */
+  readonly trustForwardedHost?: boolean;
 }
 
 /**
@@ -85,7 +100,20 @@ export interface NextjsRuntimeOptions {
   readonly bucket?: string;
   /** `CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX`. */
   readonly bucketKeyPrefix?: string;
+  /**
+   * See `ImageOptimizerOptions.cache` in `./image`. `loadRuntime` turns it off
+   * for `CDK_NEXTJS_IMAGE_CACHE=0`.
+   * @default true
+   */
+  readonly imageCache?: boolean;
 }
+
+/**
+ * The requests whose {@link RuntimeRequest.trustForwardedHost} was set, for the
+ * internal requests made on their behalf (`fetchInternal`), which only get the
+ * `IncomingMessage`.
+ */
+const trustsForwardedHost = new WeakSet<ShimIncomingMessage>();
 
 export class NextjsRuntime {
   private readonly entrypoints: EntrypointRegistry;
@@ -96,21 +124,24 @@ export class NextjsRuntime {
    * this answers can happen before one exists.
    */
   private readonly errorTarget: ErrorTarget;
-  /** Listed once, at cold start; see `readPublicFiles`. */
+  /** Listed once, at cold start; see `resolvePublicFiles`. */
   private readonly publicFiles: readonly string[];
+  /** Whether {@link publicFiles} are served from the assets bucket. */
+  private readonly publicFilesInS3: boolean;
 
   public constructor(private readonly options: NextjsRuntimeOptions) {
     const { manifest, deploymentRoot } = options;
     this.entrypoints = new EntrypointRegistry(deploymentRoot, manifest);
-    this.publicFiles = readPublicFiles(
-      join(deploymentRoot, publicDirKey(manifest)),
-    );
+    const publicFiles = resolvePublicFiles(deploymentRoot, manifest);
+    this.publicFiles = publicFiles.files;
+    this.publicFilesInS3 = publicFiles.inS3;
     this.errorTarget = resolveErrorTarget(manifest);
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
       manifest,
       bucket: options.bucket ?? "",
       bucketKeyPrefix: options.bucketKeyPrefix ?? "",
+      cache: options.imageCache ?? true,
       fetchInternal: (href, req) => this.fetchInternal(href, req),
     });
     // The runner is shared — it memoizes the loaded middleware module — while the
@@ -150,6 +181,9 @@ export class NextjsRuntime {
       remoteAddress: request.remoteAddress,
       encrypted: request.encrypted,
     });
+    if (request.trustForwardedHost) {
+      trustsForwardedHost.add(req);
+    }
     const res = new ShimServerResponse();
     // Next.js reads `res.req` in a few error paths.
     res.req = req;
@@ -203,8 +237,18 @@ export class NextjsRuntime {
     // response stream has closed, so client latency is unaffected; billed
     // duration extends, which is the correct trade against a revalidation that
     // never completes.
-    if (pending.length > 0) {
-      const settled = await Promise.allSettled(pending);
+    //
+    // Drained until nothing new arrives, not awaited once: `waitUntil` keeps
+    // being called after the response — Next's `AfterContext` registers its
+    // callback queue on the first `after()`, and an `after(promise)` made from
+    // inside a running callback, or a background regeneration that itself calls
+    // `after()`, registers more. A single `allSettled` snapshots the array and
+    // lets Lambda freeze on that late work.
+    let settledCount = 0;
+    while (settledCount < pending.length) {
+      const batch = pending.slice(settledCount);
+      settledCount = pending.length;
+      const settled = await Promise.allSettled(batch);
       for (const result of settled) {
         if (result.status === "rejected") {
           console.error("A waitUntil() promise rejected:", result.reason);
@@ -253,7 +297,35 @@ export class NextjsRuntime {
 
     switch (result.kind) {
       case "entrypoint": {
-        const handler = await this.entrypoints.load(result.entrypoint);
+        let handler: EntrypointHandler;
+        try {
+          handler = await this.entrypoints.load(result.entrypoint);
+        } catch (error) {
+          if (!(error instanceof RouteInOtherGroupError)) throw error;
+          // A URL the edge sent here only because of its case goes to its
+          // canonical spelling, which the edge routes to the owning group.
+          const canonical = caseCanonicalPath(
+            url.pathname,
+            result.resolvedPathname,
+            this.options.manifest,
+          );
+          if (canonical) {
+            sendRedirect(res, `${canonical}${url.search}`, 308);
+            return;
+          }
+          // Logged, because it is also what a misrouted group looks like; see
+          // `RouteInOtherGroupError` for why it is a 404.
+          console.warn(error.message);
+          await this.sendUnmatched(
+            req,
+            res,
+            waitUntil,
+            { pathname: url.pathname, requestHeaders: result.requestHeaders },
+            dispatcher.notFound,
+            url,
+          );
+          return;
+        }
         // The invocation target, not the requested URL: `resolveRoutes` has
         // applied rewrites, stripped i18n prefixes, and appended the `nxtP`
         // route params as query values. That is exactly the contract Next.js
@@ -360,23 +432,50 @@ export class NextjsRuntime {
       }
 
       case "static-file": {
+        const statusPage =
+          result.source === "server"
+            ? this.statusPageStatus(result.pathname)
+            : undefined;
         // `next start` serves a `public/` or `_next/static` file to GET and
-        // HEAD only, and `send` would serve it to any method.
+        // HEAD only, and `send` would serve it to any method. The same goes for
+        // an auto-exported Pages Router page (`base-server.js`
+        // `renderToResponseWithComponentsImpl`: a string `Component` answers
+        // anything else with a 405), except the 404 and 500 pages.
         if (
-          result.source !== "server" &&
           req.method !== "GET" &&
-          req.method !== "HEAD"
+          req.method !== "HEAD" &&
+          (result.source !== "server" ||
+            (statusPage === undefined && result.filePath.endsWith(".html")))
         ) {
           sendMethodNotAllowed(res);
           return;
         }
-        const served = await serveStaticFile(
-          req,
-          res,
-          this.options.deploymentRoot,
-          result.filePath,
-          { etag: this.options.manifest.config.generateEtags !== false },
-        );
+        // "ensure correct status is set when visiting a status page directly":
+        // `next start` answers `/404` with a 404 and `/500` with a 500, not the
+        // 200 their prerendered HTML would otherwise go out with.
+        if (statusPage !== undefined) {
+          res.statusCode = statusPage;
+        }
+        const etag = this.options.manifest.config.generateEtags !== false;
+        const publicDir = `${publicDirKey(this.options.manifest)}/`;
+        const served =
+          (await serveStaticFile(
+            req,
+            res,
+            this.options.deploymentRoot,
+            result.filePath,
+            { etag },
+          )) ||
+          // Listed but not staged: a Lambda root, whose `public/` is in S3.
+          (result.source === "public" &&
+            this.publicFilesInS3 &&
+            !!this.options.bucket &&
+            (await serveS3PublicFile(req, res, {
+              bucket: this.options.bucket,
+              keyPrefix: this.options.bucketKeyPrefix ?? "",
+              file: result.filePath.slice(publicDir.length),
+              etag,
+            })));
         if (!served) {
           // The routing rule that matched a build asset already set its
           // year-long `immutable` Cache-Control, which `sendUnmatched`
@@ -397,7 +496,7 @@ export class NextjsRuntime {
 
       case "image-optimization":
         req.headers = toIncomingHttpHeaders(result.requestHeaders);
-        await this.images.handle(req, res, result.url);
+        await this.images.handle(req, res, result.url, waitUntil);
         return;
 
       case "redirect":
@@ -427,6 +526,28 @@ export class NextjsRuntime {
         );
         return;
     }
+  }
+
+  /**
+   * 404 or 500 when `pathname` is the prerendered `/404` or `/500` page — under
+   * `basePath` and, in an i18n app, any locale (`/fr/404`) — and `undefined`
+   * otherwise. `next start` matches the page, not the URL, so the locale does
+   * not matter.
+   */
+  private statusPageStatus(pathname: string): number | undefined {
+    const { basePath, i18n } = this.options.manifest.config;
+    let page = withoutPathPrefix(pathname, basePath);
+    const locales = (i18n as { locales?: readonly string[] } | null)?.locales;
+    for (const locale of locales ?? []) {
+      const stripped = withoutPathPrefix(page, `/${locale}`);
+      if (stripped !== page) {
+        page = stripped;
+        break;
+      }
+    }
+    if (page === "/404") return 404;
+    if (page === "/500") return 500;
+    return undefined;
   }
 
   /**
@@ -528,6 +649,7 @@ export class NextjsRuntime {
           ]),
         },
         encrypted: origin.encrypted,
+        trustForwardedHost: origin.trustForwardedHost,
       },
       { keepBody: false },
     );
@@ -572,6 +694,7 @@ export class NextjsRuntime {
         ]),
         encrypted: (req.socket as { encrypted?: boolean } | undefined)
           ?.encrypted,
+        trustForwardedHost: trustsForwardedHost.has(req),
       },
       { keepBody: true },
     );
@@ -876,7 +999,8 @@ const REVALIDATED_PAGE_HOOK = Symbol.for(
   "cdk-nextjs.invalidateRevalidatedPage",
 );
 
-type RevalidatedPageHook = (route: string, dataRoute: string) => Promise<void>;
+/** Every route to invalidate, each once, in one CloudFront invalidation. */
+type RevalidatedPageHook = (routes: readonly string[]) => Promise<void>;
 
 /**
  * Invalidate the CDN copies of a page `res.revalidate()` just regenerated: its
@@ -886,7 +1010,7 @@ type RevalidatedPageHook = (route: string, dataRoute: string) => Promise<void>;
  * `revalidateTag` go through the cache handler's `revalidateTag`, which already
  * invalidates; `res.revalidate()` does not touch it.
  *
- * Both routes are without `basePath`, which the hook prefixes. A no-op outside
+ * Every route is without `basePath`, which the hook prefixes. A no-op outside
  * the Global constructs, where no hook is registered.
  */
 async function invalidateRevalidatedPage(
@@ -903,15 +1027,58 @@ async function invalidateRevalidatedPage(
     urlPath.split("?")[0],
     manifest.config.basePath,
   );
-  const dataRoute = `/_next/data/${manifest.buildId}${
-    route === "/" ? "/index" : route.replace(/\/+$/, "")
-  }.json`;
   try {
-    await hook(route, dataRoute);
+    // One call, deduplicated: the default locale's two pairs share a data
+    // route, and each invalidation path counts against CloudFront's quota.
+    await hook([...new Set(revalidatedPageRoutes(route, manifest).flat())]);
   } catch (error) {
     // The regeneration itself succeeded; the edge catches up at `s-maxage`.
     console.warn(`Could not invalidate the CDN copy of ${urlPath}:`, error);
   }
+}
+
+/**
+ * The `[route, dataRoute]` pairs a revalidated page is cached under at the edge.
+ *
+ * In an i18n app the Next client always puts the locale in a data href, the
+ * default locale included (`/_next/data/<id>/en/blog.json`, and `…/en.json` for
+ * the root), so the unprefixed data route names nothing CloudFront holds. The
+ * page is one locale's — `res.revalidate("/blog")` regenerates the default
+ * locale's, `"/fr/blog"` French — and the default locale's HTML is reachable,
+ * and cached, both with and without its prefix, so its two pairs share a data
+ * route, which the caller sends once.
+ */
+export function revalidatedPageRoutes(
+  route: string,
+  manifest: Pick<AdapterManifest, "buildId" | "config">,
+): Array<[string, string]> {
+  const dataRoute = (page: string) =>
+    `/_next/data/${manifest.buildId}${
+      page === "/" ? "/index" : page.replace(/\/+$/, "")
+    }.json`;
+  const i18n = manifest.config.i18n as {
+    readonly locales?: readonly string[];
+    readonly defaultLocale?: string;
+  } | null;
+  if (!i18n?.defaultLocale) {
+    return [[route, dataRoute(route)]];
+  }
+  const { defaultLocale } = i18n;
+  const segment = route.split("/")[1] ?? "";
+  const locale = (i18n.locales ?? []).includes(segment)
+    ? segment
+    : defaultLocale;
+  const page =
+    locale === segment ? withoutPathPrefix(route, `/${segment}`) : route;
+  const localized = page === "/" ? `/${locale}` : `/${locale}${page}`;
+  // The root's data route is the locale itself, not `/<locale>/index`.
+  const localizedData = `/_next/data/${manifest.buildId}${localized.replace(/\/+$/, "")}.json`;
+  return locale === defaultLocale
+    ? [
+        [page, localizedData],
+        [localized, localizedData],
+      ]
+    : [[localized, localizedData]];
 }
 
 /**
@@ -997,6 +1164,7 @@ export async function loadRuntime(
     manifest,
     bucket: process.env.CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME,
     bucketKeyPrefix: process.env.CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX,
+    imageCache: process.env.CDK_NEXTJS_IMAGE_CACHE !== "0",
   });
 }
 
@@ -1008,19 +1176,14 @@ export async function loadRuntime(
 const HOST_AUTHORITY = /^(?:\[[0-9A-Fa-f:.]+\]|[0-9A-Za-z._-]+)(?::\d{1,5})?$/;
 
 /**
- * The first forwarded value that is actually usable as an authority, or
- * `undefined`.
+ * The first value that is actually usable as an authority, or `undefined`.
  *
- * Both headers can arrive as a list when more than one proxy appends to them,
- * and the value reaches us straight from the client on the deployments whose
- * edge does not overwrite it: the CloudFront function that pins
- * `x-forwarded-host` is only attached for function compute
- * (`NextjsDistribution`), so Containers (`ALL_VIEWER`) and the Regional types
- * forward whatever the viewer sent. Validating is what keeps a header like
- * `X-Forwarded-Host: exa mple.com` from making the `URL` constructor throw —
- * which on the Lambda shells is an invocation error and a 502, not a response.
+ * `x-forwarded-host` can arrive as a list when more than one proxy appends to
+ * it. Validating is what keeps a malformed value from making the `URL`
+ * constructor throw — which on the Lambda shells is an invocation error and a
+ * 502, not a response.
  */
-function forwardedAuthority(
+function validAuthority(
   value: string | string[] | undefined,
 ): string | undefined {
   const candidate = first(value)?.split(",")[0].trim();
@@ -1028,24 +1191,34 @@ function forwardedAuthority(
 }
 
 /**
- * `resolveRoutes` needs an absolute URL. The forwarded headers are trusted
- * because every supported deployment puts CloudFront, an ALB, or API Gateway in
- * front, and all three set them; `x-forwarded-host` wins over `host` because
- * CloudFront rewrites `host` to the origin domain. Only their *syntax* is
- * checked, not their value — an app that must not accept an arbitrary
- * `x-forwarded-host` needs the edge to overwrite it.
+ * `resolveRoutes` needs an absolute URL, and it becomes the origin every
+ * absolute URL the app builds starts with — `req.nextUrl.origin` in middleware,
+ * `initURL` for a route handler — so its host has to be one the client cannot
+ * pick.
+ *
+ * That is `Host` on every deployment but one: CloudFront forwards the viewer's
+ * `Host` to a container origin (`ALL_VIEWER`), an ALB passes it through, and API
+ * Gateway sets its own domain. The exception is a Lambda Function URL, where
+ * CloudFront has to send the URL's own domain as `Host` and puts the viewer's in
+ * `x-forwarded-host`; see {@link RuntimeRequest.trustForwardedHost}. Anywhere
+ * else the header is the client's, and honoring it let a request with
+ * `X-Forwarded-Host: evil.example` point a password-reset link at evil.example —
+ * and, on Global Containers, have CloudFront cache that page, since the header
+ * is not in its cache key.
  */
 function absoluteUrl(request: RuntimeRequest): URL {
   const host =
-    forwardedAuthority(request.headers["x-forwarded-host"]) ??
-    forwardedAuthority(request.headers.host) ??
+    (request.trustForwardedHost
+      ? validAuthority(request.headers["x-forwarded-host"])
+      : undefined) ??
+    validAuthority(request.headers.host) ??
     "localhost";
   const forwardedProto = first(request.headers["x-forwarded-proto"])
     ?.split(",")[0]
     .trim()
     .toLowerCase();
-  // Same reasoning as the authority: client-supplied on the deployments whose
-  // edge does not overwrite it, and anything but these two would not parse.
+  // Client-supplied where no proxy overwrites it, but harmless: the host is
+  // already fixed, and anything but these two would not parse.
   const proto =
     forwardedProto === "http" || forwardedProto === "https"
       ? forwardedProto

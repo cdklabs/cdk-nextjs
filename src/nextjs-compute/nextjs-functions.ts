@@ -21,6 +21,7 @@ import { OptionalFunctionProps } from "../generated-structs/OptionalFunctionProp
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { NextjsDeploymentRoot } from "../nextjs-build/nextjs-build";
 import { RUNTIME_DIR_NAME } from "../runtime/manifest";
+import { staticAssetsObjectsPattern } from "../utils/base-path";
 import { getLambdaArchitecture } from "../utils/get-architecture";
 
 export interface NextjsFunctionsOverrides {
@@ -48,7 +49,7 @@ export interface NextjsFunctionsOverrides {
  * functions. So group by what is heavy, not by what is logically related.
  *
  * Each group becomes one Lambda function and one CloudFront behavior per
- * pattern, out of a per-distribution budget of 25 that `public/` entries also
+ * pattern, out of a per-distribution budget of 75 that `public/` entries also
  * draw on. Routes not matched by any group stay in the implicit `default` group.
  *
  * Patterns are an exact path or a subtree, and nothing else:
@@ -130,6 +131,10 @@ export class NextjsFunctions extends Construct {
   /**
    * The `default` group's function: the one the distribution's default behavior
    * targets, and the only one at all unless `functionGroups` is used.
+   *
+   * A zip-packaged `lambda.Function` since 0.7.0; before that it was a
+   * `DockerImageFunction`. Code that relied on the image-specific type (its
+   * repository, or `DockerImageCode`) has to change.
    */
   function: LambdaFunction;
   /** The `default` group's Function URL. Only for `GLOBAL_FUNCTIONS`. */
@@ -215,12 +220,16 @@ export class NextjsFunctions extends Construct {
     if (requested && requested.name !== architecture.name) {
       // Ignoring it would deploy a function the user didn't ask for; honoring
       // it would deploy one that can't load the `sharp` binaries staged for
-      // the root. The root constructs pass the same value to both, so only a
-      // hand-wired `NextjsBuild` and `NextjsFunctions` can get here.
+      // the root. The root constructs pass the same value to both unless an
+      // override sets `NextjsBuild`'s own (`nextjsBuildProps.architecture` or
+      // its `functionGroups`), or `NextjsBuild` and `NextjsFunctions` are
+      // wired by hand.
       throw new Error(
         `${LOG_PREFIX} functionProps.architecture for function group "${root.name}" is ${requested.name}, ` +
           `but NextjsBuild staged its native dependencies (sharp) for ${architecture.name}. ` +
-          "Pass the same architecture to NextjsBuild (`architecture`, or the group's `architecture`).",
+          "Give NextjsBuild the same architecture: drop a conflicting `nextjsBuildProps.architecture` or " +
+          "`nextjsBuildProps.functionGroups` override, or, wiring the constructs yourself, pass it to " +
+          "NextjsBuild's `architecture` (or the group's).",
       );
     }
     const functionProps: FunctionProps = {
@@ -265,7 +274,12 @@ export class NextjsFunctions extends Construct {
     // Grant cache access permissions
     this.props.cacheBucket.grantReadWrite(fn);
     this.props.revalidationTable.grantReadWriteData(fn);
-    this.props.staticAssetsBucket.grantRead(fn);
+    // Read for image sources and for `public/` files a rewrite lands on, both
+    // of which live only in S3; nothing outside the app's own prefix.
+    this.props.staticAssetsBucket.grantRead(
+      fn,
+      staticAssetsObjectsPattern(this.props.staticAssetsKeyPrefix),
+    );
 
     return fn;
   }

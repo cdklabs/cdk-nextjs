@@ -9,9 +9,11 @@
  * longer a dedicated image optimization Lambda — middleware never ran for it.
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute as isAbsolutePath, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { S3Client } from "@aws-sdk/client-s3";
 import type { NextConfigComplete } from "next/dist/server/config-shared.js";
+import type { CachedRouteKind } from "next/dist/server/response-cache/types.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { fetchFromS3, resolveErrorResponse } from "./image-utils";
@@ -29,6 +31,20 @@ interface NextImageModules {
   readonly optimizer: typeof import("next/dist/server/image-optimizer.js");
   readonly serveStatic: typeof import("next/dist/server/serve-static.js");
 }
+
+/** The modules only the image cache needs, loaded with it. */
+interface NextImageCacheModules {
+  readonly responseCache: typeof import("next/dist/server/response-cache/index.js");
+}
+
+/** A `cacheHandler` class, as `next.config`'s `cacheHandler` module exports it. */
+type CacheHandlerClass = new (
+  options: Record<string, unknown>,
+) => NonNullable<
+  ConstructorParameters<
+    NextImageModules["optimizer"]["ImageOptimizerCache"]
+  >[0]["cacheHandler"]
+>;
 
 export interface ImageOptimizerOptions {
   readonly deploymentRoot: string;
@@ -56,6 +72,24 @@ export interface ImageOptimizerOptions {
     href: string,
     req: ShimIncomingMessage,
   ) => Promise<InternalImageResponse>;
+  /**
+   * Keep optimized images in the app's `cacheHandler` (the S3 cache), the way
+   * `next start` does with `images.customCacheHandler`, which the adapter
+   * turns on. On every type: with no CDN in front (the Regional types) every
+   * request for the same image would otherwise run `sharp` again, and behind
+   * CloudFront each edge miss is an S3 read rather than a re-optimization.
+   * `CDK_NEXTJS_IMAGE_CACHE=0` on the compute turns it off, for an app that
+   * would rather re-run `sharp` on every miss than read and write S3. Off in
+   * tests unless a test turns it on.
+   * @default false
+   */
+  readonly cache?: boolean;
+  /**
+   * Loads the `cacheHandler` module from its file URL. A seam for tests, which
+   * run as CommonJS and cannot `import()` a URL.
+   * @default - `import()`
+   */
+  readonly importModule?: (url: string) => Promise<unknown>;
 }
 
 /** The response {@link ImageOptimizerOptions.fetchInternal} got. */
@@ -73,6 +107,7 @@ interface RequiredServerFiles {
 export class RuntimeImageOptimizer {
   private readonly s3 = new S3Client({});
   private loaded?: ReturnType<typeof loadImageRuntime>;
+  private imageCache?: Promise<ImageCache>;
 
   public constructor(private readonly options: ImageOptimizerOptions) {}
 
@@ -80,6 +115,7 @@ export class RuntimeImageOptimizer {
     req: ShimIncomingMessage,
     res: ShimServerResponse,
     url: URL,
+    waitUntil?: (promise: Promise<unknown>) => void,
   ): Promise<void> {
     // Resolved on the first image request rather than at cold start: an app with
     // no `<Image>` should pay neither the `next` module loads nor the
@@ -108,44 +144,41 @@ export class RuntimeImageOptimizer {
       }
 
       const { href, isAbsolute } = params;
-      const upstream = isAbsolute
-        ? await fetchExternalImage(
-            href,
-            imagesConfig.dangerouslyAllowLocalIP,
-            imagesConfig.maximumResponseBody,
-            imagesConfig.maximumRedirects,
-          )
-        : await this.fetchLocal(req, href, nextConfig, next.optimizer);
+      const optimize = async (previousCacheEntry?: PreviousImageEntry) => {
+        const upstream = isAbsolute
+          ? await fetchExternalImage(
+              href,
+              imagesConfig.dangerouslyAllowLocalIP,
+              imagesConfig.maximumResponseBody,
+              imagesConfig.maximumRedirects,
+            )
+          : await this.fetchLocal(req, href, nextConfig, next.optimizer);
 
-      const {
-        buffer,
-        contentType,
-        maxAge,
-        etag,
-        error: optimizationError,
-      } = await imageOptimizer(
-        upstream,
-        params,
-        {
-          experimental: nextConfig.experimental,
-          images: {
-            dangerouslyAllowSVG: imagesConfig.dangerouslyAllowSVG,
-            minimumCacheTTL: imagesConfig.minimumCacheTTL,
+        const optimized = await imageOptimizer(
+          upstream,
+          params,
+          {
+            experimental: nextConfig.experimental,
+            images: {
+              dangerouslyAllowSVG: imagesConfig.dangerouslyAllowSVG,
+              minimumCacheTTL: imagesConfig.minimumCacheTTL,
+            },
           },
-        },
-        { isDev: false },
-      );
-
-      // `imageOptimizer` reports a failed optimization by returning the untouched
-      // upstream image alongside `error` rather than throwing, so without this a
-      // broken `sharp` install serves full-size originals with a 200 indefinitely
-      // and nothing in the logs says why.
-      if (optimizationError) {
-        console.error(
-          `Failed to optimize ${href}, serving the unoptimized original:`,
-          optimizationError,
+          { isDev: false, previousCacheEntry },
         );
-      }
+
+        // `imageOptimizer` reports a failed optimization by returning the
+        // untouched upstream image alongside `error` rather than throwing, so
+        // without this a broken `sharp` install serves full-size originals with
+        // a 200 indefinitely and nothing in the logs says why.
+        if (optimized.error) {
+          console.error(
+            `Failed to optimize ${href}, serving the unoptimized original:`,
+            optimized.error,
+          );
+        }
+        return optimized;
+      };
 
       // Next's own response writer, rather than a restatement of it, so the
       // headers `next start` sends come with it: the year-long `immutable` for
@@ -154,24 +187,98 @@ export class RuntimeImageOptimizer {
       // that RFC 5987-encodes a filename `writeHead` would reject as
       // non-latin1, `Content-Length`, and no body for HEAD. The restated
       // version had drifted on every one of those.
-      //
-      // `MISS` because there is no image cache here to hit: every request that
-      // reaches the origin is optimized afresh, and CloudFront is the cache.
-      res.statusCode = 200;
-      sendResponse(
-        req as unknown as Parameters<typeof sendResponse>[0],
-        asServerResponse(res),
-        href,
+      const send = (
+        extension: string,
+        buffer: Buffer,
+        etag: string,
+        xCache: "MISS" | "HIT" | "STALE",
+        maxAge: number,
+      ) => {
+        res.statusCode = 200;
+        sendResponse(
+          req as unknown as Parameters<typeof sendResponse>[0],
+          asServerResponse(res),
+          href,
+          extension,
+          buffer,
+          etag,
+          params.isStatic,
+          xCache,
+          imagesConfig,
+          maxAge,
+          false,
+        );
+      };
+
+      if (!this.options.cache) {
+        // `MISS` because there is no image cache here to hit: every request
+        // that reaches the origin is optimized afresh, and CloudFront is the
+        // cache.
+        const { buffer, contentType, maxAge, etag } = await optimize();
         // `null` for a type `mime` doesn't know, which `sendResponse` handles
         // (no `Content-Type`, `image.bin`); its signature just doesn't say so.
-        next.serveStatic.getExtension(contentType) ?? "",
-        buffer,
-        etag,
-        params.isStatic,
-        "MISS",
-        imagesConfig,
-        maxAge,
-        false,
+        send(
+          next.serveStatic.getExtension(contentType) ?? "",
+          buffer,
+          etag,
+          "MISS",
+          maxAge,
+        );
+        return;
+      }
+
+      // `next start`'s `handleNextImageRequest`, step for step: a
+      // `ResponseCache` over an `ImageOptimizerCache` backed by the app's
+      // `cacheHandler`, so a hit skips the fetch and `sharp`, a stale entry is
+      // served while it is regenerated, and concurrent misses for one image
+      // optimize it once.
+      this.imageCache ??= loadImageCache(this.options, this.loaded);
+      const cache = await this.imageCache;
+      const entry = await cache.responses.get(
+        ImageOptimizerCache.getCacheKey(params),
+        async ({ previousCacheEntry }) => {
+          const { buffer, contentType, maxAge, etag, upstreamEtag } =
+            await optimize(previousCacheEntry as PreviousImageEntry);
+          return {
+            value: {
+              kind: IMAGE_KIND,
+              buffer,
+              etag,
+              extension: next.serveStatic.getExtension(contentType) ?? "",
+              upstreamEtag,
+            },
+            cacheControl: { revalidate: maxAge, expire: undefined },
+          };
+        },
+        {
+          routeKind: IMAGE_KIND,
+          incrementalCache: waitUntil
+            ? deferWrites(cache.images, waitUntil)
+            : cache.images,
+          isFallback: false,
+          // A stale entry is served at once and regenerated in the background;
+          // without this, a Lambda could freeze with the regeneration half done.
+          waitUntil,
+        } as unknown as Parameters<ImageCache["responses"]["get"]>[2],
+      );
+      const value = entry?.value as
+        | {
+            kind: string;
+            extension: string;
+            buffer: Buffer;
+            etag: string;
+          }
+        | null
+        | undefined;
+      if (value?.kind !== IMAGE_KIND) {
+        throw new Error("The image cache returned no image entry");
+      }
+      send(
+        value.extension,
+        value.buffer,
+        value.etag,
+        entry!.isMiss ? "MISS" : entry!.isStale ? "STALE" : "HIT",
+        entry!.cacheControl?.revalidate || 0,
       );
     } catch (error) {
       const { statusCode, message } = resolveErrorResponse(error, ImageError);
@@ -224,6 +331,111 @@ export class RuntimeImageOptimizer {
       };
     }
   }
+}
+
+/**
+ * `CachedRouteKind.IMAGE`, which is also `RouteKind.IMAGE`. Restated: the enum is
+ * a runtime value of `next`, which the bundle cannot import.
+ */
+const IMAGE_KIND = "IMAGE" as CachedRouteKind.IMAGE;
+
+/** `imageOptimizer`'s `previousCacheEntry`. */
+type PreviousImageEntry = Parameters<
+  NextImageModules["optimizer"]["imageOptimizer"]
+>[3]["previousCacheEntry"];
+
+interface ImageCache {
+  readonly responses: InstanceType<
+    NextImageCacheModules["responseCache"]["default"]
+  >;
+  readonly images: InstanceType<
+    NextImageModules["optimizer"]["ImageOptimizerCache"]
+  >;
+}
+
+/**
+ * The app's `cacheHandler`, constructed the way `next start` constructs it for
+ * images (`next-server.js`, `handleNextImageRequest`): once, and kept, so its
+ * in-memory layer lasts across requests. Its path in `required-server-files.json`
+ * is relative to the dist dir; see {@link cacheHandlerUrl}.
+ */
+async function loadImageCache(
+  { deploymentRoot, manifest, importModule }: ImageOptimizerOptions,
+  loaded: ReturnType<typeof loadImageRuntime>,
+): Promise<ImageCache> {
+  const { next, nextConfig } = loaded;
+  const modules: NextImageCacheModules = {
+    responseCache: nextModule("next/dist/server/response-cache/index.js"),
+  };
+  const distDir = join(
+    deploymentRoot,
+    manifest.relativeProjectDir,
+    manifest.config.distDir,
+  );
+  let cacheHandler: InstanceType<CacheHandlerClass> | undefined;
+  if (nextConfig.cacheHandler) {
+    const url = cacheHandlerUrl(distDir, nextConfig.cacheHandler);
+    const imported = (await (importModule
+      ? importModule(url)
+      : import(url))) as { default?: CacheHandlerClass } & CacheHandlerClass;
+    const CacheHandler = imported.default ?? imported;
+    cacheHandler = new CacheHandler({
+      dev: false,
+      flushToDisk: nextConfig.experimental.isrFlushToDisk,
+      serverDistDir: join(distDir, "server"),
+      maxMemoryCacheSize: nextConfig.cacheMaxMemorySize,
+      revalidatedTags: [],
+      _requestHeaders: {},
+    });
+  }
+  return {
+    responses: new modules.responseCache.default(false),
+    images: new next.optimizer.ImageOptimizerCache({
+      distDir,
+      nextConfig,
+      cacheHandler,
+    }),
+  };
+}
+
+/**
+ * `formatDynamicImportPath` from `next/dist/lib/format-dynamic-import-path.js`,
+ * restated: `next build` doesn't trace that module into the deployment, so
+ * loading it failed every image request with the cache on.
+ */
+function cacheHandlerUrl(distDir: string, cacheHandler: string): string {
+  const path = cacheHandler.startsWith("file://")
+    ? fileURLToPath(cacheHandler)
+    : cacheHandler;
+  return pathToFileURL(
+    isAbsolutePath(path) ? path : join(distDir, path),
+  ).toString();
+}
+
+/**
+ * `images`, with its `set` moved off the response's critical path.
+ *
+ * `ResponseCache` awaits the write of a freshly optimized image before it hands
+ * the image back, so every miss paid an S3 `PutObject` (~30 ms measured) before
+ * its first byte. The write is registered with `waitUntil` instead, which the
+ * runtime drains before a Lambda invocation returns or a container shuts down,
+ * so it still lands. A failed write is logged; the next request optimizes the
+ * image again, which is what it would have done anyway.
+ */
+function deferWrites(
+  images: ImageCache["images"],
+  waitUntil: (promise: Promise<unknown>) => void,
+): ImageCache["images"] {
+  const deferred = Object.create(images) as ImageCache["images"];
+  deferred.set = (...args: Parameters<ImageCache["images"]["set"]>) => {
+    waitUntil(
+      images.set(...args).catch((error: unknown) => {
+        console.error("Failed to cache an optimized image:", error);
+      }),
+    );
+    return Promise.resolve();
+  };
+  return deferred;
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {

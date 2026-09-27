@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Token } from "aws-cdk-lib";
 import { LOG_PREFIX, NextjsType } from "../constants";
 
 /**
@@ -361,11 +362,22 @@ export function resolveBasePath(
       // Agreeing is not enough here: API Gateway strips the stage (or base path
       // mapping) before matching, so resources under the prop's "prod" are only
       // reached at `/prod/prod/...`, and every link the app emits 403s.
-      throw new Error(
+      const problem =
+        `API Gateway strips "/${normalizeBasePath(apiGateway.strippedPrefix)}" before matching resources, so a prop that repeats it nests every resource under a path no request reaches. ` +
+        "Leave the prop unset: it is derived from your app's `basePath` with that prefix taken off.";
+      if (apiGateway.customDomain) {
+        throw new Error(mismatch + problem);
+      }
+      // On the execute-api endpoint that is certain, but an explicit prop wins:
+      // a domain attached with `addDomainName()`, invisible here, can map the
+      // stage at its root, and then `/prod/...` does reach resources under
+      // "prod".
+      console.warn(
         mismatch +
-          `API Gateway strips "/${normalizeBasePath(apiGateway.strippedPrefix)}" before matching resources, so a prop that repeats it nests every resource under a path no request reaches. ` +
-          "Leave the prop unset: it is derived from your app's `basePath` with that prefix taken off.",
+          problem +
+          " (Ignore this if a domain attached with `addDomainName()` serves the app without stripping that prefix.)",
       );
+      return prop;
     }
     if (nextjsType === NextjsType.REGIONAL_FUNCTIONS && prop) {
       // Agreeing the other way round has the unset case's problem: resources
@@ -419,6 +431,20 @@ export function resolveBasePath(
       ) {
         return prop;
       }
+      // Any tail on a path boundary is also what a domain attached with
+      // `addDomainName({ basePath: "v1" })` needs for an app at "/v1/base":
+      // synth only sees the stage, so it can't tell that setup from a mistake.
+      // An explicit prop wins, so that warns; a custom domain configured in
+      // `restApiProps.domainName` is visible, so there it still throws below.
+      if (!apiGateway.customDomain && config.endsWith(`/${prop}`)) {
+        const leading = config.slice(0, -prop.length - 1);
+        console.warn(
+          `${LOG_PREFIX} the \`basePath\` prop is ${quote(prop)} and your Next.js app's \`basePath\` is ${quote(config)}, ` +
+            `so the app is served at "/${joinPath(normalizeBasePath(apiGateway.strippedPrefix), prop)}" on the execute-api endpoint and links to "/${config}". ` +
+            `That only works through a custom domain whose base path mapping strips "/${leading}" (\`addDomainName({ basePath: "${leading}" })\`); otherwise every request 403s.`,
+        );
+        return prop;
+      }
       // Anything else never works: the prop moves every resource, including the
       // `ANY` catch-all, under a path the app never links to.
       throw new Error(
@@ -432,4 +458,18 @@ export function resolveBasePath(
       // no routing meaning that could disagree with the app.
       return prop || undefined;
   }
+}
+
+/**
+ * The S3 object key pattern covering every static asset uploaded under
+ * `keyPrefix` (`NextjsStaticAssets.keyPrefix`): `"base/*"`, or `"*"` at the
+ * bucket root. For scoping the compute's read grant to the app's own objects
+ * when several apps share one bucket.
+ */
+export function staticAssetsObjectsPattern(keyPrefix?: string): string {
+  if (keyPrefix && Token.isUnresolved(keyPrefix)) {
+    return "*";
+  }
+  const prefix = normalizeBasePath(keyPrefix);
+  return prefix ? `${prefix}/*` : "*";
 }

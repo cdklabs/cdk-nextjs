@@ -175,6 +175,25 @@ harness_stack_output() {
   printf '%s' "$value"
 }
 
+# Print the named stack's StackStatus, or nothing if CloudFormation says it
+# does not exist. Any other failure (AccessDenied, throttling, no credentials)
+# returns non-zero with the CLI's error on stderr, so a caller can't mistake a
+# stack it isn't allowed to read for a stack that is missing.
+harness_stack_status() {
+  local stack="$1"
+  local out
+  if out="$(aws cloudformation describe-stacks --stack-name "$stack" \
+    --query "Stacks[0].StackStatus" --output text 2>&1)"; then
+    printf '%s' "$out"
+    return 0
+  fi
+  case "$out" in
+    *"does not exist"*) return 0 ;;
+  esac
+  printf '%s\n' "$out" >&2
+  return 1
+}
+
 # True when the named stack exists and carries the harness tag. Read-only, and
 # the gate on every delete: nothing else in the account can be removed by these
 # scripts even if a stack name is passed in by hand.

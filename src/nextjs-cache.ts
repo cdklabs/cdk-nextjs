@@ -63,7 +63,11 @@ function sizeOfDirectory(dir: string): number {
     recursive: true,
   })) {
     if (entry.isFile()) {
-      total += statSync(join(entry.parentPath, entry.name)).size;
+      // `parentPath` only exists from Node 20.12; `path` is its deprecated
+      // predecessor, and the only one on 20.9-20.11.
+      const parent =
+        entry.parentPath ?? (entry as unknown as { path: string }).path;
+      total += statSync(join(parent, entry.name)).size;
     }
   }
   return total;

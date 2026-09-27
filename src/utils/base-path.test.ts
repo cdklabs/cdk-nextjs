@@ -509,13 +509,8 @@ describe("resolveBasePath", () => {
 
     // Any other leading prefix is served at `/prod/base/...` while the app
     // links to `/foo/base/...`, so only the stripped prefix itself qualifies.
+    // Behind a custom domain synth can see, that is certain.
     it("only accepts the stripped prefix in front of the prop", () => {
-      expect(() => resolveBasePath(RF, "/base", "/foo/base")).toThrow(
-        /nests every API Gateway resource under that path/,
-      );
-      expect(() => resolveBasePath(RF, "/base", "/prod/x/base")).toThrow(
-        /nests every API Gateway resource under that path/,
-      );
       expect(resolveBasePath(RF, "/docs", "/app/docs", domain("app"))).toBe(
         "docs",
       );
@@ -528,6 +523,21 @@ describe("resolveBasePath", () => {
       );
     });
 
+    // On the execute-api endpoint a domain attached later with
+    // `addDomainName({ basePath: "v1" })` can strip the leading part, and an
+    // explicit prop wins, so any other leading prefix warns instead.
+    it("warns on another leading prefix when only the stage is known", () => {
+      expect(resolveBasePath(RF, "/app", "/v1/app")).toBe("app");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('addDomainName({ basePath: "v1" })'),
+      );
+      warn.mockClear();
+      expect(resolveBasePath(RF, "/base", "/prod/x/base")).toBe("base");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('addDomainName({ basePath: "prod/x" })'),
+      );
+    });
+
     it("falls back to a trailing segment when the stage is a token", () => {
       expect(
         resolveBasePath(RF, "/base", "/foo/base", { customDomain: false }),
@@ -536,15 +546,24 @@ describe("resolveBasePath", () => {
 
     // Agreeing with the app is not enough when the value starts with the stage:
     // resources under "prod" are only reached at "/prod/prod/...".
+    // Certain behind a custom domain synth can see; on the execute-api
+    // endpoint an `addDomainName()` domain mapped at the root makes it right,
+    // so there it only warns.
     it("rejects a prop equal to an app basePath that starts with the stage", () => {
-      expect(() => resolveBasePath(RF, "/prod", "/prod")).toThrow(
-        /strips "\/prod" before matching resources/,
-      );
-      expect(() => resolveBasePath(RF, "/prod/base", "/prod/base")).toThrow(
-        /Leave the prop unset/,
-      );
       expect(() => resolveBasePath(RF, "/app", "/app", domain("app"))).toThrow(
         /strips "\/app"/,
+      );
+      expect(() =>
+        resolveBasePath(RF, "/app/base", "/app/base", domain("app")),
+      ).toThrow(/Leave the prop unset/);
+      expect(resolveBasePath(RF, "/prod", "/prod")).toBe("prod");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('strips "/prod" before matching resources'),
+      );
+      warn.mockClear();
+      expect(resolveBasePath(RF, "/prod/base", "/prod/base")).toBe("prod/base");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("addDomainName()"),
       );
     });
 

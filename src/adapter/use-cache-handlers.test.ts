@@ -342,6 +342,29 @@ describe("cacheHandlers.remote", () => {
   });
 });
 
+describe("cacheHandlers.remote, across a revalidation before an instance started", () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  // A stores K1; C revalidates its tag; B starts after C's log row is behind
+  // its cursor, stores K2 with the same tag, then reads K1 from S3.
+  it("does not serve an older S3 entry as fresh after storing a newer one with its tag", async () => {
+    const a = remoteInstance();
+    await a.set(
+      "k1",
+      Promise.resolve(entry("before", { timestamp: Date.now() - 1000 })),
+    );
+    await remoteInstance().updateTags(["posts"], { expire: 0 });
+
+    const later = Date.now() + 10_000;
+    jest.spyOn(Date, "now").mockReturnValue(later);
+    const b = remoteInstance();
+    await b.set("k2", Promise.resolve(entry("after", { timestamp: later })));
+
+    expect(await read(b, "k1")).toBeUndefined();
+    expect(await read(b, "k2")).toBe("after");
+  });
+});
+
 describe("cacheHandlers.default", () => {
   it("keeps entries in each instance's memory", async () => {
     const a = defaultInstance();
@@ -358,6 +381,8 @@ describe("cacheHandlers.default", () => {
     const created = { timestamp: Date.now() - 1000 };
     await a.set("k", Promise.resolve(entry("a", created)));
     await b.set("k", Promise.resolve(entry("b", created)));
+    // Its first read of its own entry reads the tag's marker, once.
+    expect(await read(b, "k")).toBe("b");
 
     // What Next.js does for `revalidateTag`: `updateTags` on every handler of
     // the instance that ran it - here, `a`.

@@ -26,7 +26,7 @@ const PNG = Buffer.from("optimized-bytes");
 const ETAG = "abc123";
 
 /** Just what `loadImageRuntime` reads: where `required-server-files.json` is. */
-function stage(): string {
+function stage(extraConfig: Record<string, unknown> = {}): string {
   const root = mkdtempSync(join(tmpdir(), "cdk-nextjs-image-"));
   mkdirSync(join(root, ".next"));
   writeFileSync(
@@ -36,6 +36,7 @@ function stage(): string {
         basePath: "",
         experimental: {},
         images: { ...imageConfigDefault, localPatterns: undefined },
+        ...extraConfig,
       },
     }),
   );
@@ -84,6 +85,7 @@ async function request(
     method?: string;
     headers?: Record<string, string>;
     via?: RuntimeImageOptimizer;
+    waitUntil?: (promise: Promise<unknown>) => void;
   } = {},
 ): Promise<Answer> {
   const url = new URL(
@@ -113,7 +115,7 @@ async function request(
     },
     { compress: false },
   );
-  await (init.via ?? optimizer).handle(req, res, url);
+  await (init.via ?? optimizer).handle(req, res, url, init.waitUntil);
   await done;
   return { head: head!, body: Buffer.concat(chunks).toString() };
 }
@@ -264,5 +266,129 @@ describe("RuntimeImageOptimizer sources", () => {
   it("answers 400 for a missing file when there is no route fallback", async () => {
     const { head } = await request("/missing.png", { via: withS3Miss() });
     expect(head.statusCode).toBe(400);
+  });
+});
+
+describe("RuntimeImageOptimizer cache (the Regional types)", () => {
+  /** The app's `cacheHandler`, reduced to a map: what the S3 handler is to it. */
+  class MapCacheHandler {
+    public static readonly entries = new Map<string, unknown>();
+    public static options: Record<string, unknown> | undefined;
+    public constructor(options: Record<string, unknown>) {
+      MapCacheHandler.options = options;
+    }
+    public async get(key: string) {
+      return MapCacheHandler.entries.get(key) ?? null;
+    }
+    public async set(key: string, value: unknown) {
+      MapCacheHandler.entries.set(key, { value, lastModified: Date.now() });
+    }
+  }
+
+  let imported: string | undefined;
+  function cached(cache: boolean): RuntimeImageOptimizer {
+    const root = stage({
+      cacheHandler: "../node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
+      cacheMaxMemorySize: 0,
+    });
+    const via = new RuntimeImageOptimizer({
+      deploymentRoot: root,
+      manifest: {
+        relativeProjectDir: "",
+        config: { distDir: ".next" },
+      } as unknown as AdapterManifest,
+      bucket: "assets",
+      bucketKeyPrefix: "",
+      cache,
+      importModule: async (url) => {
+        imported = url;
+        return { default: MapCacheHandler };
+      },
+    });
+    (via as unknown as { s3: S3Client }).s3 = (
+      optimizer as unknown as { s3: S3Client }
+    ).s3;
+    return via;
+  }
+
+  beforeEach(() => {
+    MapCacheHandler.entries.clear();
+    imported = undefined;
+    (imageOptimizer as jest.Mock).mockClear();
+  });
+
+  it("optimizes once, then answers from the cache handler", async () => {
+    const via = cached(true);
+    const first = await request("/photos/cached.png", { via });
+    expect(first.head.headers["x-nextjs-cache"]).toBe("MISS");
+    expect(first.body).toBe(PNG.toString());
+
+    const second = await request("/photos/cached.png", { via });
+    expect(second.head.statusCode).toBe(200);
+    expect(second.head.headers["x-nextjs-cache"]).toBe("HIT");
+    expect(second.body).toBe(PNG.toString());
+    expect(second.head.headers.etag).toBe(ETAG);
+    expect(imageOptimizer).toHaveBeenCalledTimes(1);
+
+    // The entry `next start` would have written.
+    const [entry] = [...MapCacheHandler.entries.values()] as Array<{
+      value: { kind: string; extension: string };
+    }>;
+    expect(entry.value).toMatchObject({ kind: "IMAGE", extension: "webp" });
+  });
+
+  // Another instance: nothing in memory, so the hit is the cache handler's.
+  it("shares the optimized image across instances", async () => {
+    await request("/photos/shared.png", { via: cached(true) });
+    const other = await request("/photos/shared.png", { via: cached(true) });
+    expect(other.head.headers["x-nextjs-cache"]).toBe("HIT");
+    expect(imageOptimizer).toHaveBeenCalledTimes(1);
+  });
+
+  // `required-server-files.json` names it relative to the dist dir.
+  it("loads the app's cacheHandler from where next start would", async () => {
+    await request("/photos/cached.png", { via: cached(true) });
+    expect(imported).toMatch(
+      /^file:\/\/.*\/node_modules\/cdk-nextjs\/lib\/adapter\/cache-handler\.mjs$/,
+    );
+    expect(MapCacheHandler.options).toMatchObject({ dev: false });
+  });
+
+  // The write of a fresh image goes to `waitUntil`, not in front of the
+  // response: the image is sent before the cache handler has it.
+  it("writes a miss to the cache after answering, through waitUntil", async () => {
+    // A write that can't finish until released: if the response waited on it,
+    // `request` would never return.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const set = MapCacheHandler.prototype.set;
+    MapCacheHandler.prototype.set = async function (key, value) {
+      await gate;
+      return set.call(this, key, value);
+    };
+    try {
+      const pending: Array<Promise<unknown>> = [];
+      const first = await request("/photos/deferred.png", {
+        via: cached(true),
+        waitUntil: (promise) => pending.push(promise),
+      });
+      expect(first.head.headers["x-nextjs-cache"]).toBe("MISS");
+      expect(MapCacheHandler.entries.size).toBe(0);
+
+      release();
+      await Promise.all(pending);
+      expect(MapCacheHandler.entries.size).toBe(1);
+    } finally {
+      MapCacheHandler.prototype.set = set;
+    }
+  });
+
+  it("is off unless asked for: every request is optimized afresh", async () => {
+    const via = cached(false);
+    await request("/photos/cached.png", { via });
+    const second = await request("/photos/cached.png", { via });
+    expect(second.head.headers["x-nextjs-cache"]).toBe("MISS");
+    expect(imageOptimizer).toHaveBeenCalledTimes(2);
+    expect(imported).toBeUndefined();
   });
 });

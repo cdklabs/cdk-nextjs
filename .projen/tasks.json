@@ -77,6 +77,9 @@
           "spawn": "bundle:lambdas/post-deploy/post-deploy.lambda"
         },
         {
+          "spawn": "bundle:lambdas/redeploy-stage/redeploy-stage.lambda"
+        },
+        {
           "exec": "mkdir -p lib/nextjs-build"
         },
         {
@@ -213,6 +216,24 @@
       "steps": [
         {
           "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/* --watch"
+        }
+      ]
+    },
+    "bundle:lambdas/redeploy-stage/redeploy-stage.lambda": {
+      "name": "bundle:lambdas/redeploy-stage/redeploy-stage.lambda",
+      "description": "Create a JavaScript bundle from src/lambdas/redeploy-stage/redeploy-stage.lambda.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/redeploy-stage/redeploy-stage.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/redeploy-stage/redeploy-stage.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/*"
+        }
+      ]
+    },
+    "bundle:lambdas/redeploy-stage/redeploy-stage.lambda:watch": {
+      "name": "bundle:lambdas/redeploy-stage/redeploy-stage.lambda:watch",
+      "description": "Continuously update the JavaScript bundle from src/lambdas/redeploy-stage/redeploy-stage.lambda.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/redeploy-stage/redeploy-stage.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/redeploy-stage/redeploy-stage.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/* --watch"
         }
       ]
     },
@@ -626,7 +647,7 @@
             "--peer",
             "--no-deprecated",
             "--dep=dev",
-            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/client-ssm,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,aws-cdk,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-api-gateway,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/client-ssm,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,aws-cdk,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
           ]
         },
         {
@@ -637,6 +658,7 @@
             "pnpm",
             "update",
             "@aws-crypto/sha256-js",
+            "@aws-sdk/client-api-gateway",
             "@aws-sdk/client-cloudfront",
             "@aws-sdk/client-dynamodb",
             "@aws-sdk/client-s3",

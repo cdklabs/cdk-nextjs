@@ -58,8 +58,10 @@ Next.js uses multiple caching layers. Those the incremental cache stores each ha
 - **Revalidation**: Time-based or on-demand revalidation
 
 This applies on every `NextjsType`: `_next/image` is handled inside cdk-nextjs's
-runtime, which calls Next.js's own image optimizer, so the cache entry is written
-the same way it would be on any other host.
+runtime, which runs Next.js's own image optimizer and image cache over the cache
+handler, so a variant is optimized once and then served with
+`X-Nextjs-Cache: HIT`. Behind CloudFront (the Global types) that makes an edge
+miss an S3 read rather than a second optimization.
 
 ### 5. Redirect Cache (REDIRECT)
 

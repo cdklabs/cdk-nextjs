@@ -38,7 +38,12 @@ fi
 # `delete-stack` on a stack that is already gone succeeds, so the idempotency
 # that matters is not deleting something that was never ours: a name collision,
 # or a hand-run of this script in the wrong directory. Nothing without the
-# harness tag is touched.
+# harness tag is touched. A stack we can't read is neither: fail, so the leak is
+# visible, rather than report "nothing to delete".
+if ! harness_stack_status "$STACK_NAME" >/dev/null; then
+  echo "cleanup: cannot read $STACK_NAME (see above); not deleting, and it may be left behind" >&2
+  exit 1
+fi
 if ! harness_stack_is_ours "$STACK_NAME"; then
   echo "cleanup: $STACK_NAME is not a harness stack (absent, or missing ${HARNESS_TAG_KEY}=${HARNESS_TAG_VALUE}); nothing to delete"
   exit 0

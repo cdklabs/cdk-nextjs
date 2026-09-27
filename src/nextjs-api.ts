@@ -1,4 +1,5 @@
-import { Annotations, Size, Stack } from "aws-cdk-lib";
+import { join } from "node:path";
+import { Annotations, Duration, Size, Stack } from "aws-cdk-lib";
 import {
   RestApi,
   LambdaIntegration,
@@ -13,16 +14,26 @@ import {
   ResponseTransferMode,
 } from "aws-cdk-lib/aws-apigateway";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
+import { Rule } from "aws-cdk-lib/aws-events";
+import { LambdaFunction as LambdaFunctionTarget } from "aws-cdk-lib/aws-events-targets";
 import {
   Role,
   ServicePrincipal,
   PolicyStatement,
   IRole,
 } from "aws-cdk-lib/aws-iam";
-import { IFunction } from "aws-cdk-lib/aws-lambda";
+import {
+  Architecture,
+  Code,
+  Function as LambdaFunction,
+  IFunction,
+  Runtime,
+  RuntimeFamily,
+} from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
+import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
 import { joinPath, normalizeBasePath } from "./utils/base-path";
 
@@ -37,6 +48,12 @@ export interface NextjsApiOverrides {
   readonly staticIntegrationProps?: AwsIntegrationProps;
   readonly s3MethodOptions?: MethodOptions;
   readonly dynamicIntegrationProps?: LambdaIntegrationOptions;
+  /**
+   * Props for the function that deploys the stage again after each stack
+   * update.
+   * @see NextjsApiProps.redeployAfterUpdate
+   */
+  readonly redeployFunctionProps?: OptionalFunctionProps;
 }
 
 export interface NextjsApiProps {
@@ -90,13 +107,21 @@ export interface NextjsApiProps {
    */
   readonly hasDataRoutes?: boolean;
   /**
-   * The app's `next.config` `trailingSlash`. Only used to warn, because an API
-   * Gateway resource path cannot express the canonical URL it produces.
-   * Ignored without {@link functionGroups}.
-   * @default false
-   * @see NextjsApi.warnOnTrailingSlashGroups
+   * Deploy the stage again once each stack update has finished, so it serves
+   * the API as it is after the update.
+   *
+   * CloudFormation snapshots the API into a new deployment while resources
+   * removed from the template still exist — it deletes them only during
+   * cleanup — so the stage keeps serving them. After removing a function
+   * group, its routes then point at a deleted Lambda and answer 500 until the
+   * next deployment. An EventBridge rule on this stack's `UPDATE_COMPLETE`
+   * (and `UPDATE_ROLLBACK_COMPLETE`) invokes a small function that deploys the
+   * stage from the live API and deletes the deployments its earlier runs made.
+   *
+   * Ignored when `overrides.restApiProps.deploy` is `false`: there is no stage.
+   * @default true
    */
-  readonly trailingSlash?: boolean;
+  readonly redeployAfterUpdate?: boolean;
 }
 
 /** A non-default function group and the Lambda its routes must reach. */
@@ -141,6 +166,17 @@ export class NextjsApi extends Construct {
     return joinPath(origin, prefix, this.props.basePath);
   }
 
+  /**
+   * Deploys the stage again after each stack update.
+   * @see NextjsApiProps.redeployAfterUpdate
+   */
+  public readonly redeployFunction?: LambdaFunction;
+  /**
+   * Matches this stack's `UPDATE_COMPLETE` and `UPDATE_ROLLBACK_COMPLETE` and
+   * invokes {@link redeployFunction}.
+   */
+  public readonly redeployRule?: Rule;
+
   private readonly baseResource: IResource;
   private readonly nextResource: IResource;
   /**
@@ -175,6 +211,81 @@ export class NextjsApi extends Construct {
     } else if (props.vpc) {
       // [Future] create integration with ECS via VPC Link and ECS Service Discovery
     }
+    if (
+      props.redeployAfterUpdate !== false &&
+      props.overrides?.restApiProps?.deploy !== false
+    ) {
+      [this.redeployFunction, this.redeployRule] = this.createRedeploy();
+    }
+  }
+
+  /** @see NextjsApiProps.redeployAfterUpdate */
+  private createRedeploy(): [LambdaFunction, Rule] {
+    const stack = Stack.of(this);
+    const { restApiId } = this.api;
+    const { stageName } = this.api.deploymentStage;
+    const fn = new LambdaFunction(this, "RedeployFn", {
+      // Plain bundled JS with no native dependencies: always arm64.
+      architecture: Architecture.ARM_64,
+      code: Code.fromAsset(
+        join(
+          __dirname,
+          "../assets/lambdas/redeploy-stage/redeploy-stage.lambda",
+        ),
+      ),
+      handler: "index.handler",
+      memorySize: 256,
+      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
+      timeout: Duration.minutes(1),
+      ...this.props.overrides?.redeployFunctionProps,
+      environment: {
+        ...this.props.overrides?.redeployFunctionProps?.environment,
+        REST_API_ID: restApiId,
+        STAGE_NAME: stageName,
+      },
+    });
+    // API Gateway authorizes its management API by HTTP verb on the resource
+    // path; these are the four calls `redeployStage` makes, on this API only.
+    const restApi = `arn:${stack.partition}:apigateway:${stack.region}::/restapis/${restApiId}`;
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["apigateway:POST"],
+        resources: [`${restApi}/deployments`],
+      }),
+    );
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["apigateway:GET"],
+        resources: [`${restApi}/deployments`, `${restApi}/stages`],
+      }),
+    );
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["apigateway:DELETE"],
+        resources: [`${restApi}/deployments/*`],
+      }),
+    );
+    // CloudFormation sends every stack status change to the default event bus
+    // ("Monitoring CloudFormation ... events with EventBridge" in the
+    // CloudFormation User Guide). `UPDATE_COMPLETE` comes after
+    // `UPDATE_COMPLETE_CLEANUP_IN_PROGRESS`, so removed resources are gone by
+    // then. A rollback restores the stage to the pre-update deployment, which
+    // can carry the same staleness from an earlier update, so it redeploys too.
+    const rule = new Rule(this, "RedeployRule", {
+      description: `Redeploys ${stack.stackName}'s REST API stage after a stack update`,
+      eventPattern: {
+        source: ["aws.cloudformation"],
+        detailType: ["CloudFormation Stack Status Change"],
+        detail: {
+          "stack-id": [stack.stackId],
+          "status-details": {
+            status: ["UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"],
+          },
+        },
+      },
+      targets: [new LambdaFunctionTarget(fn, { retryAttempts: 2 })],
+    });
+    return [fn, rule];
   }
 
   private validateProps(props: NextjsApiProps) {
@@ -283,8 +394,9 @@ export class NextjsApi extends Construct {
     if (unroutable.length > 0) {
       Annotations.of(this).addWarning(
         `${LOG_PREFIX} An API Gateway resource path part only allows ` +
-          "[a-zA-Z0-9:._-$], so these top-level public/ entries cannot be served " +
-          `and will 404: ${unroutable.join(", ")}. Rename them, move them into a ` +
+          "[a-zA-Z0-9:._-$], so these top-level public/ entries get no resource of " +
+          "their own; their requests reach the server function, which reads them " +
+          `from S3 instead: ${unroutable.join(", ")}. To serve them directly, rename them, move them into a ` +
           "public/ subdirectory whose own name is expressible, or use " +
           "NextjsGlobalFunctions or NextjsGlobalContainers, whose CloudFront " +
           "behaviors can match them.",
@@ -416,7 +528,6 @@ export class NextjsApi extends Construct {
     if (!groups?.length) {
       return;
     }
-    this.warnOnTrailingSlashGroups(groups);
     for (const group of groups) {
       const integration = new LambdaIntegration(group.function, {
         responseTransferMode: ResponseTransferMode.STREAM,
@@ -490,44 +601,6 @@ export class NextjsApi extends Construct {
         `resource path, so one of the two would never be reached. Move those ` +
         `public/ files under a directory no route uses, or group a different ` +
         `path.`,
-    );
-  }
-
-  /**
-   * An exact group route in a `trailingSlash` app cannot be routed here, so say so
-   * at synth rather than at the first request.
-   *
-   * `trailingSlash: true` makes `/pricing/` the canonical URL, and API Gateway
-   * matches a request path literally: `/pricing/` does not reach the `/pricing`
-   * resource, it reaches the root `{proxy+}` and so the default function. There is
-   * no resource that would catch it either — a path part cannot be empty, and a
-   * `{proxy+}` child would claim every route *under* `/pricing` as well, packaging
-   * routes into a group the edge never sends there. `NextjsDistribution` adds a
-   * `pricing/` behavior instead, which is why only this construct warns.
-   *
-   * Subtree patterns are unaffected: `/reports/**` becomes
-   * `/reports/{proxy+}`, which matches the slash-suffixed URLs beneath it.
-   */
-  private warnOnTrailingSlashGroups(groups: NextjsApiFunctionGroup[]) {
-    if (!this.props.trailingSlash) {
-      return;
-    }
-    const exact = groups.flatMap((group) =>
-      group.routes
-        .filter((route) => !route.endsWith("/**"))
-        .map((route) => `"${route}" (group "${group.name}")`),
-    );
-    if (exact.length === 0) {
-      return;
-    }
-    Annotations.of(this).addWarning(
-      `${LOG_PREFIX} Your app sets \`trailingSlash: true\`, so it links to ` +
-        `"/pricing/" rather than "/pricing", and an API Gateway resource path ` +
-        `cannot match a trailing slash. These \`functionGroups\` patterns will ` +
-        `only take effect for the slash-less URL, with the canonical one falling ` +
-        `through to the default function: ${exact.join(", ")}. Write them as ` +
-        `subtree patterns (e.g. "/reports/**") where that suits the app, or use ` +
-        `NextjsGlobalFunctions, whose CloudFront behaviors cover both spellings.`,
     );
   }
 

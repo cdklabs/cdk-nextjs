@@ -145,38 +145,41 @@ test.describe("ppr", () => {
     expect(clothingHtml).toContain("App Router");
   });
 
-  test("keeps the cached part cached across requests", async ({
+  // `app/patterns/ppr-cached/page.tsx` renders two timestamps on resume: one
+  // inside `'use cache: remote'` keyed by `key`, one not. Timestamps, not
+  // timing: a hit and a miss differ in value, so contention can't fake a pass.
+  test("keeps the cached part cached and re-renders the dynamic one", async ({
     request,
-    baseURL,
   }) => {
-    test.skip(baseURL?.includes("localhost") === true);
-
-    // The subcategory tabs come from `getCategories()` behind a `'use cache'`, so
-    // the second request must not go back to the upstream API for them. There is
-    // no header that proves that from outside, so this asserts the observable
-    // consequence: identical content, and a response fast enough that a cold
-    // upstream fetch is implausible.
-    const first = await request.get("./layouts/electronics");
-    expect(first.status()).toBe(200);
-    const firstHtml = await first.text();
-
+    const key = `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const startedAt = Date.now();
-    const second = await request.get("./layouts/electronics");
-    const elapsedMs = Date.now() - startedAt;
 
-    expect(second.status()).toBe(200);
-    const secondHtml = await second.text();
-
-    for (const subcategory of ["Phones", "Tablets", "Laptops"]) {
-      expect(firstHtml).toContain(subcategory);
-      expect(secondHtml).toContain(subcategory);
+    async function load() {
+      const response = await request.get(
+        `./patterns/ppr-cached?key=${encodeURIComponent(key)}`,
+      );
+      expect(response.status()).toBe(200);
+      const html = await response.text();
+      const read = (testId: string) => {
+        const match = html.match(
+          new RegExp(`data-testid="${testId}"[^>]*>([^<]+)<`),
+        );
+        expect(match, `${testId} in the response`).not.toBeNull();
+        return match?.[1] ?? "";
+      };
+      return { cached: read("ppr-cached-at"), dynamic: read("ppr-dynamic-at") };
     }
 
-    console.log(`Second request for a warm PPR route took ${elapsedMs}ms`);
-    // Generous on purpose: the suite runs 4 workers, so this request competes for
-    // the runner's network and for the same warm Lambda/task as three others. The
-    // claim being made is "not a cold upstream fetch", which a 10s ceiling still
-    // supports - tightening it measures contention instead.
-    expect(elapsedMs).toBeLessThan(10_000);
+    const first = await load();
+    // Rendered at request time for this run's key, not at build time.
+    const [cachedKey, cachedAt] = first.cached.split(":");
+    expect(cachedKey).toBe(key);
+    expect(Number(cachedAt)).toBeGreaterThanOrEqual(startedAt - 60_000);
+
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const second = await load();
+
+    expect(second.cached).toBe(first.cached);
+    expect(second.dynamic).not.toBe(first.dynamic);
   });
 });

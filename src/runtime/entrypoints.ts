@@ -84,13 +84,19 @@ async function loadEntrypointHandler(
   try {
     exports = await loadBuiltModule(absolute);
   } catch (error) {
-    throw new Error(
+    const message =
       `Could not load the entrypoint for "${entrypoint.id}" from ` +
-        `"${absolute}" (manifest filePath "${entrypoint.filePath}", type ` +
-        `"${entrypoint.type}"). The deployment package is incomplete.` +
-        ownedRouteError(entrypoint, manifest),
-      { cause: error },
-    );
+      `"${absolute}" (manifest filePath "${entrypoint.filePath}", type ` +
+      `"${entrypoint.type}"). The deployment package is incomplete.`;
+    const owner = owningGroup(entrypoint, manifest);
+    if (owner) {
+      throw new RouteInOtherGroupError(
+        message + ownedRouteError(owner.self, owner.owner),
+        owner.owner,
+        { cause: error },
+      );
+    }
+    throw new Error(message, { cause: error });
   }
   return requireFunctionExport<EntrypointHandler>(
     exports,
@@ -100,23 +106,47 @@ async function loadEntrypointHandler(
 }
 
 /**
+ * A request for a route packaged into another `functionGroups` group.
+ *
+ * The runtime answers it with a 308 to the URL's canonical spelling when case
+ * is the only difference (`caseCanonicalPath`), and a 404 otherwise, not a 500. The usual way here is a URL the
+ * edge matches differently from Next.js: CloudFront behaviors and API Gateway
+ * resources are case-sensitive and Next.js's route matching is not, so
+ * `/API/reports/1` misses the `api/reports/*` behavior, reaches the default
+ * group, and matches `/api/reports/[id]` there. At the edge that is a different
+ * URL, one no group serves, and a 404 says so; a 500 blamed the deployment.
+ */
+export class RouteInOtherGroupError extends Error {
+  public constructor(
+    message: string,
+    /** The group whose package has the route. */
+    public readonly owner: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "RouteInOtherGroupError";
+  }
+}
+
+/**
  * The one thing splitting can break that nothing else can: a request arriving at
  * a function whose package does not contain the route.
  *
  * Every group ships the same manifest, so the function knows the route exists and
  * which group owns it; what it does not have is the file. Without this the
  * symptom is a module-not-found on a path nobody wrote, and the cause — a
- * CloudFront behavior or API Gateway resource pointing at the wrong function — is
- * several layers away. With it, the error names both groups.
+ * CloudFront behavior or API Gateway resource pointing at the wrong function, or
+ * a URL whose case the edge did not match — is several layers away. With it, the
+ * log names both groups.
  */
-function ownedRouteError(
+function owningGroup(
   entrypoint: AdapterEntrypoint,
   manifest?: AdapterManifest,
-): string {
+): { readonly self: string; readonly owner: string } | undefined {
   const groups = manifest?.groups;
   const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
   if (!groups || !self) {
-    return "";
+    return undefined;
   }
   const templates = Object.entries(manifest?.entrypoints ?? {})
     .filter(([, candidate]) => candidate.id === entrypoint.id)
@@ -124,15 +154,18 @@ function ownedRouteError(
   const owner = Object.entries(groups).find(([, owned]) =>
     owned.some((template) => templates.includes(template)),
   )?.[0];
-  if (!owner || owner === self) {
-    return "";
-  }
+  return owner && owner !== self ? { self, owner } : undefined;
+}
+
+function ownedRouteError(self: string, owner: string): string {
   return (
     ` This function is \`functionGroups\` group "${self}", but this route was ` +
     `packaged into group "${owner}" — so the request reached the wrong function. ` +
     `Check that the route pattern in group "${owner}" covers the URL that was ` +
     `requested: a pattern can be too narrow at the edge while still claiming the ` +
     `route at build time (for example "/reports/**" claims "/reports/[id]" but ` +
-    `the CloudFront behavior it becomes, "reports/*", does not match "/reports").`
+    `the CloudFront behavior it becomes, "reports/*", does not match "/reports"), ` +
+    `and the edge matches case-sensitively where Next.js does not ("/API/x" ` +
+    `misses an "api/*" behavior).`
   );
 }

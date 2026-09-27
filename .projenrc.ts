@@ -28,6 +28,7 @@ const project = new CdklabsConstructLibrary({
   projenVersion: "^0.101.6",
   devDeps: [
     "@aws-crypto/sha256-js",
+    "@aws-sdk/client-api-gateway",
     "@aws-sdk/client-cloudfront",
     "@aws-sdk/client-dynamodb",
     "@aws-sdk/client-s3",

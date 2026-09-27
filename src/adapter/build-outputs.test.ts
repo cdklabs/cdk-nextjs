@@ -7,7 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import appPlaygroundBasePath from "./__fixtures__/app-playground-base-path.json";
 import appPlayground from "./__fixtures__/app-playground.json";
 import pagesI18n from "./__fixtures__/pages-i18n.json";
@@ -817,6 +817,99 @@ describe("writeBuildOutputs", () => {
         "utf8",
       ),
     ).resolves.toContain("helpers");
+  });
+
+  it("hoists a dependency a hoisted package can't reach through a logical path", async () => {
+    // A pnpm monorepo: the app depends on `semver` directly, so it has a
+    // logical path under `apps/web`, while `sharp` is store-only and gets
+    // hoisted to the deployment root. From there Node walks up to
+    // `node_modules/semver` and never sees `apps/web/node_modules/semver`.
+    const repoRoot = await mkdtemp(join(tmpdir(), "cdk-nextjs-hoist-"));
+    const projectDir = join(repoRoot, "apps", "web");
+    const distDir = join(projectDir, ".next");
+    const entry = join(distDir, "server", "app", "page.js");
+    const pnpm = join(repoRoot, "node_modules", ".pnpm");
+    const sharp = join(pnpm, "sharp@0.34.5", "node_modules", "sharp");
+    const semver = join(pnpm, "semver@7.7.2", "node_modules", "semver");
+    const leftPad = join(pnpm, "left-pad@1.3.0", "node_modules", "left-pad");
+    await mkdir(join(distDir, "server", "app"), { recursive: true });
+    await writeFile(join(distDir, "required-server-files.json"), "{}\n");
+    await writeFile(entry, "module.exports = {};\n");
+    for (const [dir, manifest] of [
+      [sharp, { name: "sharp", dependencies: { semver: "^7" } }],
+      [semver, { name: "semver" }],
+      [leftPad, { name: "left-pad" }],
+    ] as const) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "package.json"), JSON.stringify(manifest));
+      await writeFile(join(dir, "index.js"), `// ${manifest.name}\n`);
+    }
+    await mkdir(join(projectDir, "node_modules"), { recursive: true });
+    const semverLink = join(projectDir, "node_modules", "semver");
+    const leftPadLink = join(projectDir, "node_modules", "left-pad");
+    await symlink(relative(dirname(semverLink), semver), semverLink);
+    await symlink(relative(dirname(leftPadLink), leftPad), leftPadLink);
+
+    const storeKey = (dir: string, file: string) =>
+      relative(repoRoot, join(dir, file)).split(sep).join("/");
+    const ctx = {
+      repoRoot,
+      projectDir,
+      distDir,
+      buildId: "test-build",
+      nextVersion: "16.3.5",
+      config: {
+        basePath: "",
+        trailingSlash: false,
+        assetPrefix: "",
+        i18n: null,
+      },
+      routing: { dynamicRoutes: [] },
+      outputs: {
+        pages: [],
+        pagesApi: [],
+        appPages: [
+          {
+            id: "/",
+            pathname: "/",
+            sourcePage: "/page",
+            filePath: entry,
+            runtime: "nodejs",
+            config: {},
+            assets: Object.fromEntries([
+              ["apps/web/node_modules/semver", semverLink],
+              ["apps/web/node_modules/left-pad", leftPadLink],
+              ...[sharp, semver, leftPad].flatMap((dir) =>
+                ["package.json", "index.js"].map((file) => [
+                  storeKey(dir, file),
+                  join(dir, file),
+                ]),
+              ),
+            ]),
+            assetsHashes: {},
+          },
+        ],
+        appRoutes: [],
+        prerenders: [],
+        staticFiles: [],
+        middleware: undefined,
+      },
+    } as unknown as BuildCompleteContext;
+
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await write(ctx);
+    const staged = (...parts: string[]) => join(soleRoot(result), ...parts);
+    await expect(
+      readFile(staged("node_modules", "sharp", "index.js"), "utf8"),
+    ).resolves.toContain("sharp");
+    await expect(
+      readFile(staged("node_modules", "semver", "index.js"), "utf8"),
+    ).resolves.toContain("semver");
+    // Nothing hoisted depends on `left-pad`, and its logical path serves the
+    // app, so hoisting it would only add bytes.
+    await expect(lstat(staged("node_modules", "left-pad"))).rejects.toThrow(
+      /ENOENT/,
+    );
   });
 
   it("stages the next closure the runtime's image optimizer requires", async () => {

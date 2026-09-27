@@ -482,13 +482,13 @@ export class S3CacheHandler implements CacheHandler {
     // Every instance registers the same thing, so the latest one winning is fine.
     if (this.cloudFrontConfig.distributionIdParameterName) {
       (globalThis as Record<symbol, unknown>)[REVALIDATED_PAGE_HOOK] = (
-        route: string,
-        dataRoute: string,
+        routes: readonly string[],
       ): Promise<void> => {
         const { basePath } = this.cloudFrontConfig;
         return this.invalidateCloudFrontPaths([
-          ...cdnInvalidationPaths(route, basePath),
-          ...cdnInvalidationPaths(dataRoute, basePath),
+          ...new Set(
+            routes.flatMap((route) => cdnInvalidationPaths(route, basePath)),
+          ),
         ]);
       };
     }

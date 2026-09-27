@@ -385,3 +385,96 @@ describe("NextjsRegionalContainers", () => {
     expectTableScopedDynamoGrants(template, taskRoleId(template));
   });
 });
+
+describe("static assets read grant", () => {
+  /** The static assets bucket objects `s3:GetObject*` reaches, per role. */
+  function staticReadObjects(template: Template, roleId: string): string[] {
+    return Object.values(template.findResources("AWS::IAM::Policy"))
+      .filter((policy) =>
+        policy.Properties.Roles.some((role: any) => role.Ref === roleId),
+      )
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement: any) =>
+        [statement.Action].flat().includes("s3:GetObject*"),
+      )
+      .flatMap((statement: any) => [statement.Resource].flat())
+      .filter(
+        (resource: any) =>
+          resource["Fn::Join"] &&
+          JSON.stringify(resource).includes("NextjsStaticAssetsBucket"),
+      )
+      .map((resource: any) => resource["Fn::Join"][1][1]);
+  }
+
+  // Several apps can share one bucket under different basePaths; each reads
+  // only its own objects.
+  it("is scoped to the app's key prefix on every group", () => {
+    nextConfigBasePath = "base";
+    const stack = new Stack(new App(), "Stack");
+    new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups,
+    });
+    const template = Template.fromStack(stack);
+    const resources = template.toJSON().Resources;
+    const groups = appFunctions(template);
+    expect(Object.keys(groups)).toHaveLength(2);
+    for (const logicalId of Object.values(groups)) {
+      const roleId = resources[logicalId].Properties.Role["Fn::GetAtt"][0];
+      expect(staticReadObjects(template, roleId)).toEqual(["/base/*"]);
+    }
+  });
+});
+
+describe("architecture through nextjsFunctionsProps.overrides", () => {
+  // That override replaces `overrides.nextjsFunctions` wholesale, so the build
+  // has to stage `sharp` for the architecture it names.
+  it("is forwarded to NextjsBuild instead of throwing", () => {
+    const other = process.arch.startsWith("arm")
+      ? Architecture.X86_64
+      : Architecture.ARM_64;
+    const stack = new Stack(new App(), "Stack");
+    new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      overrides: {
+        nextjsGlobalFunctions: {
+          nextjsFunctionsProps: {
+            overrides: { functionProps: { architecture: other } },
+          } as any,
+        },
+      },
+    });
+    const template = Template.fromStack(stack);
+    const resources = template.toJSON().Resources;
+    expect(
+      resources[appFunctions(template).default].Properties.Architectures,
+    ).toEqual([other.name]);
+  });
+});
+
+describe("REST API stage redeploy", () => {
+  it("NextjsRegionalFunctions redeploys its stage after each stack update", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsRegionalFunctions(stack, "App", { buildDirectory: buildDir });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs("AWS::Events::Rule", 1);
+    template.hasResourceProperties("AWS::Events::Rule", {
+      EventPattern: Match.objectLike({ source: ["aws.cloudformation"] }),
+    });
+  });
+
+  it("can be turned off through nextjsApiProps", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsRegionalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      overrides: {
+        nextjsRegionalFunctions: {
+          nextjsApiProps: { redeployAfterUpdate: false },
+        },
+      },
+    });
+
+    Template.fromStack(stack).resourceCountIs("AWS::Events::Rule", 0);
+  });
+});

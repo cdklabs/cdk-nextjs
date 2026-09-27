@@ -43,6 +43,10 @@ export function toRuntimeRequest(
     headers: functionUrlHeaders(event),
     body,
     remoteAddress: http.sourceIp,
+    // Only CloudFront can invoke the URL, and its viewer-request function
+    // overwrites `x-forwarded-host` with the viewer's `Host`; see
+    // `RuntimeRequest.trustForwardedHost`.
+    trustForwardedHost: true,
   };
 }
 

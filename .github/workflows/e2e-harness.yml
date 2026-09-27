@@ -288,7 +288,10 @@ jobs:
         # round-robin over that list, which is deterministic and near enough:
         # per-file cost here is dominated by build-and-deploy, not by the tests.
         # See `harness_stack_name` in scripts/e2e-harness/common.sh.
-        run: node run-tests.js --timings -c 1 --type e2e -g ${{ matrix.shard }}/${{ needs.plan.outputs.total }}
+        # `--retries 1` explicitly: `run-tests.js` defaults to 2, and every retry
+        # is a full build and deploy, so a consistently failing slow file would
+        # otherwise take three of them out of the job's time budget.
+        run: node run-tests.js --timings -c 1 --retries 1 --type e2e -g ${{ matrix.shard }}/${{ needs.plan.outputs.total }}
 
       # Re-assumed rather than relied on: this is the step that deletes a stack
       # holding a CloudFront distribution, and it runs under `always()` - after a

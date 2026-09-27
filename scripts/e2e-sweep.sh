@@ -114,14 +114,24 @@ CANDIDATES="$(
 # Milliseconds since the epoch of the most recent sign that a stack is in use:
 # its CloudFormation timestamps (from the listing) or its server function's
 # `LastModified`, which hotswaps update and CloudFormation does not. Read-only.
-# A function that is gone or unreadable (a DELETE_FAILED stack, say) contributes
-# nothing rather than failing the sweep.
+# A function that is gone (a DELETE_FAILED stack, say) contributes nothing. Any
+# other read failure (throttling, AccessDenied) returns non-zero instead, and
+# the caller keeps the stack: without the function's timestamp, the floor can't
+# tell an abandoned stack from one being hotswapped into right now.
 last_activity_ms() {
   local stack_ms="$1" function_name="$2"
   local modified=""
   if [ "$function_name" != "-" ]; then
-    modified="$(aws lambda get-function-configuration --function-name "$function_name" \
-      --query LastModified --output text 2>/dev/null)" || modified=""
+    if ! modified="$(aws lambda get-function-configuration --function-name "$function_name" \
+      --query LastModified --output text 2>&1)"; then
+      case "$modified" in
+        *ResourceNotFoundException*) modified="" ;;
+        *)
+          echo "sweep: cannot read $function_name's LastModified: $modified" >&2
+          return 1
+          ;;
+      esac
+    fi
   fi
   node -e '
     const [stackMs, modified] = process.argv.slice(1);
@@ -148,7 +158,10 @@ age_hours() {
 if [ -n "$CANDIDATES" ] && [ "$MAX_AGE_HOURS" != "0" ]; then
   FILTERED=""
   while IFS=$'\t' read -r name status stack_ms function_name <&4; do
-    activity="$(last_activity_ms "$stack_ms" "$function_name")"
+    if ! activity="$(last_activity_ms "$stack_ms" "$function_name")"; then
+      echo "sweep: keeping $name - could not confirm it is unused"
+      continue
+    fi
     if ! old_enough "$activity"; then
       echo "sweep: keeping $name - in use $(age_hours "$activity")h ago"
       continue
@@ -202,7 +215,11 @@ while IFS=$'\t' read -r name _status _activity function_name <&4; do
         )));
       });
     ')"
-    if ! old_enough "$(last_activity_ms "$stack_ms" "$function_name")"; then
+    if ! activity="$(last_activity_ms "$stack_ms" "$function_name")"; then
+      echo "sweep: skipping $name - could not confirm it is unused"
+      continue
+    fi
+    if ! old_enough "$activity"; then
       echo "sweep: skipping $name - deployed into since it was listed"
       continue
     fi

@@ -133,7 +133,7 @@ describe("UseCacheTagManifest", () => {
       refreshIntervalMs: 0,
     });
     const createdAt = Date.now() - 1000;
-    here.track(["posts"]);
+    await here.ensure(["posts"]);
 
     await there.update(["posts"], undefined);
     // Not yet: `here` has not read since.
@@ -296,14 +296,15 @@ describe("UseCacheTagManifest with the revalidation log", () => {
       });
       return { markers, log, tags };
     };
-    return { clock, logRows, a: instance(), b: instance() };
+    return { clock, logRows, instance, a: instance(), b: instance() };
   }
 
   const createdAt = () => now() - 1000;
 
   it("reaches another instance within one interval, in one Query and no BatchGetItem", async () => {
     const { clock, a, b } = instances();
-    b.tags.track(["posts"]);
+    await b.tags.ensure(["posts"]);
+    b.markers.read.mockClear();
 
     await a.tags.update(["posts"], undefined);
     expect(a.log.put).toHaveBeenCalledWith(
@@ -326,7 +327,9 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     await b.tags.refresh();
     expect(b.log.query).not.toHaveBeenCalled();
 
-    b.tags.track(["posts"]);
+    await b.tags.ensure(["posts"]);
+
+    b.markers.read.mockClear();
     // That refresh still counts: what is tracked since was read, or is new.
     await b.tags.refresh();
     expect(b.log.query).not.toHaveBeenCalled();
@@ -347,7 +350,8 @@ describe("UseCacheTagManifest with the revalidation log", () => {
 
   it("applies a row read again inside the lookback only once", async () => {
     const { clock, logRows, b } = instances();
-    b.tags.track(["posts"]);
+    await b.tags.ensure(["posts"]);
+    b.markers.read.mockClear();
     let reads = 0;
     const row: RevalidationLogRow = {
       sk: `${clock.at}#posts`,
@@ -374,7 +378,8 @@ describe("UseCacheTagManifest with the revalidation log", () => {
   // after a query that should have seen it, with a sort key before it.
   it("still sees a row that appears up to the lookback late", async () => {
     const { clock, logRows, b } = instances();
-    b.tags.track(["late", "too-late"]);
+    await b.tags.ensure(["late", "too-late"]);
+    b.markers.read.mockClear();
     clock.at += INTERVAL;
     const firstQuery = clock.at;
     await b.tags.refresh();
@@ -418,7 +423,8 @@ describe("UseCacheTagManifest with the revalidation log", () => {
   // than the one partition serves in a second.
   it("re-reads each tracked marker once per resync interval, at most 100 a refresh", async () => {
     const { clock, b } = instances({ resyncIntervalMs: 10 * INTERVAL });
-    b.tags.track(Array.from({ length: 250 }, (_, i) => `t${i}`));
+    await b.tags.ensure(Array.from({ length: 250 }, (_, i) => `t${i}`));
+    b.markers.read.mockClear();
     const sizes: number[] = [];
     for (let i = 1; i <= 14; i++) {
       clock.at += INTERVAL;
@@ -441,7 +447,8 @@ describe("UseCacheTagManifest with the revalidation log", () => {
       resyncIntervalMs: 10 * INTERVAL,
       random: () => randoms.shift() ?? 0,
     });
-    b.tags.track(["late", "middle", "early"]);
+    await b.tags.ensure(["late", "middle", "early"]);
+    b.markers.read.mockClear();
     const readAt: Record<string, number> = {};
     for (let i = 1; i <= 10; i++) {
       clock.at += INTERVAL;
@@ -493,6 +500,56 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     expect(b.markers.read).toHaveBeenCalledTimes(2);
   });
 
+  // Tracking is per tag, not per entry: storing a new entry must not vouch for
+  // an older one with the same tag. B's log cursor starts after C's
+  // revalidation, so only reading the marker shows it.
+  it("still reads a tag's marker after storing an entry with it", async () => {
+    const { clock, instance, a: c } = instances();
+    const k1CreatedAt = createdAt();
+    await c.tags.update(["posts"], undefined);
+    clock.at += 10_000;
+    // Started after the revalidation: its log cursor is past C's row.
+    const b = instance();
+    b.tags.track(["posts"]);
+    await b.tags.ensure(["posts"]);
+    expect(b.markers.read).toHaveBeenCalledWith(["posts"]);
+    expect(b.tags.state(["posts"], k1CreatedAt)).toBe("expired");
+  });
+
+  it("still reads a tag's marker after storing an entry with it following a forget", async () => {
+    const { clock, a, b } = instances();
+    await b.tags.ensure(["posts"]);
+    const k1CreatedAt = createdAt();
+    // Revalidated while `b` was frozen past what the log covers.
+    clock.at += MAX_REVALIDATION_LOG_GAP_MS + 1;
+    a.log.put.mockRejectedValueOnce(new Error("lost"));
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    await a.tags.update(["posts"], undefined);
+    error.mockRestore();
+    await b.tags.refresh();
+    b.tags.track(["posts"]);
+    await b.tags.ensure(["posts"]);
+    expect(b.tags.state(["posts"], k1CreatedAt)).toBe("expired");
+  });
+
+  it("applies a log row that lands while the tag's first read is in flight", async () => {
+    const { clock, a, b } = instances();
+    // Something tracked, so the refresh queries the log.
+    await b.tags.ensure(["other"]);
+    let answer!: (read: Map<string, TagMarker>) => void;
+    // Answered before the revalidation below, as a read racing it can be.
+    b.markers.read.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve)),
+    );
+    const first = b.tags.ensure(["posts"]);
+    await a.tags.update(["posts"], undefined);
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    answer(new Map());
+    await first;
+    expect(b.tags.state(["posts"], createdAt())).toBe("expired");
+  });
+
   it("is visible at once on the instance that ran updateTag", async () => {
     const { a } = instances();
     a.tags.track(["posts"]);
@@ -505,7 +562,8 @@ describe("UseCacheTagManifest with the revalidation log", () => {
   it("keeps its tags through a failed query and asks again next interval", async () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     const { clock, a, b } = instances();
-    b.tags.track(["posts"]);
+    await b.tags.ensure(["posts"]);
+    b.markers.read.mockClear();
     await a.tags.update(["posts"], undefined);
     b.log.query.mockRejectedValueOnce(new Error("throttled"));
 
