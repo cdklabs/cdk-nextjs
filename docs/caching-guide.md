@@ -8,7 +8,7 @@ Next.js uses multiple caching layers to improve performance and reduce costs. cd
 
 ## Next.js Caching Mechanisms
 
-Next.js uses multiple caching layers, each with a specific `CachedRouteKind` that determines how cdk-nextjs organizes them in S3:
+Next.js uses multiple caching layers. Those the incremental cache stores each have a `CachedRouteKind`, recorded in the entry itself:
 
 ### 1. Request Memoization
 
@@ -25,7 +25,7 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Kind**: `FETCH`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
+- **Storage**: S3 bucket at `{buildId}/{cache-key}.json`
 - **Custom Cache Handler**: S3CacheHandler manages read/write operations
 - **Revalidation**: DynamoDB table tracks tag-based revalidation metadata
 
@@ -39,7 +39,8 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 - `APP_PAGE` - App Router pages
 - `APP_ROUTE` - App Router API routes
 - `PAGES` - Pages Router pages
-  **cdk-nextjs Implementation**:
+
+**cdk-nextjs Implementation**:
 
 - **ISR Support**: Files updated during Incremental Static Regeneration
 - **Revalidation**: Tag-based invalidation via DynamoDB tracking
@@ -52,7 +53,7 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Kind**: `IMAGE`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
+- **Storage**: S3 bucket at `{buildId}/{cache-key}.json`
 - **Optimization**: Cached resized, format-converted images
 - **Revalidation**: Time-based or on-demand revalidation
 
@@ -68,7 +69,7 @@ the same way it would be on any other host.
 **Kind**: `REDIRECT`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
+- **Storage**: S3 bucket at `{buildId}/{cache-key}.json`
 - **Configuration**: Cached redirect rules and destinations
 
 ### 6. Router Cache (Client-side)
@@ -87,13 +88,23 @@ the same way it would be on any other host.
 
 ### S3 Cache Storage
 
-cdk-nextjs uses a dedicated S3 bucket for cache storage with BUILD_ID and kind prefixing for deployment isolation and organization:
+cdk-nextjs uses a dedicated S3 bucket for cache storage, with every key under the build's ID so deployments never read each other's entries:
 
 ```
 Cache Bucket Structure:
-/{buildId}/
-└── {cache-key}.json             # All cache entries (FETCH, IMAGE, APP_PAGE, APP_ROUTE, PAGES, REDIRECT)
+{buildId}/
+├── {cache-key}.json             # Incremental cache entries (FETCH, IMAGE, APP_PAGE, APP_ROUTE, PAGES, REDIRECT)
+└── _use-cache/{sha256}.entry    # 'use cache: remote' entries, keyed by a hash of the cache key
 ```
+
+Each instance also keeps an in-memory copy of the entries it read or wrote, in
+front of S3, for `CDK_NEXTJS_MEMORY_CACHE_TTL_MS` (1 hour by default; see the
+[README](../README.md#cdk_nextjs_memory_cache_ttl_ms)). A memory hit is still
+checked against its tags' revalidation markers, so a `revalidateTag` on any
+instance expires it. `'use cache'` and `'use cache: remote'` have their own
+handlers, described in the
+[README](../README.md#use-cache-and-use-cache-remote); they read the same
+revalidation markers.
 
 #### Examples
 
@@ -256,7 +267,7 @@ Cache Bucket Structure:
 
 **Key Features**:
 
-- **BUILD_ID Isolation**: All cache keys prefixed with `/{buildId}/`
+- **BUILD_ID Isolation**: All cache keys prefixed with `{buildId}/`
 - **Next.js Cache Key Passthrough**: Preserves Next.js internal cache key structure
 - **Cache Kind Metadata**: Cache type stored within each cache entry's metadata
 - **Binary Payloads as base64**: RSC payloads and image bodies are `Buffer`s, written as
@@ -337,22 +348,25 @@ PK: "METADATA"            SK: "CURRENT_BUILD"                               buil
 
 ### Custom Cache Handler
 
-The S3CacheHandler implements Next.js's cache interface with comprehensive tag-based revalidation:
+The `cacheHandler` the adapter registers (`src/adapter/cache-handler.ts`) writes local files at build time and, at runtime, puts an in-memory handler in front of `S3CacheHandler`, which implements Next.js's incremental cache interface:
 
 ```typescript
 export class S3CacheHandler {
   async get(
     cacheKey: string,
-    ctx: { kind: CachedRouteKind },
+    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null>;
 
   async set(
     cacheKey: string,
-    data: IncrementalCacheValue,
-    ctx: { tags: string[] },
+    data: IncrementalCacheValue | null,
+    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void>;
 
-  async revalidateTag(tag: string): Promise<void>;
+  async revalidateTag(
+    tag: string | string[],
+    durations?: { expire?: number },
+  ): Promise<void>;
 }
 ```
 
@@ -391,7 +405,6 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 - **Tag Storage**: Tags stored with cache entries for revalidation checking
 - **Timestamp Validation**: Prevents serving stale data after tag revalidation
 - **Graceful Error Handling**: Logs errors and returns cache miss on failures
-- **Bulletproof Consistency**: Even if S3 deletions fail, stale data won't be served
 
 ## Static Assets vs Cache Assets
 
@@ -403,13 +416,17 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 
 - `public/` folder contents
 - `.next/static/` build artifacts (JS, CSS, images)
-- BUILD_ID metadata for pruning
+- A `BUILD_ID` object metadata entry on each file, for pruning
 
-**CloudFront Integration**:
+**Serving** (Global constructs):
 
 - Requests to `/_next/static/*` → S3 bucket
-- Requests to `/public/*` → S3 bucket
-- Long-term caching headers for performance
+- Requests for `public/` files, at their own paths (one CloudFront behavior per top-level entry, e.g. `/favicon.ico`, `/images/*`) → S3 bucket
+- Cached at the edge with CloudFront's `CachingOptimized` policy
+
+On the Regional constructs there is no CDN: `NextjsRegionalFunctions` serves
+them through API Gateway's S3 integration, and `NextjsRegionalContainers` from
+the tasks.
 
 ### Cache Assets (S3CacheHandler)
 
@@ -447,27 +464,34 @@ No S3 object is deleted: the next `get()` of an entry the tag is on compares the
 
 For routes with time-based revalidation (e.g., `revalidate: 3600`):
 
-- Next.js checks cache age before serving
-- Triggers background regeneration when expired
-- Updates cache files in S3 automatically
+- Next.js checks the entry's age before serving
+- Past `revalidate`, serves the stale entry and regenerates it in the background
+- The regenerated entry is written to S3 (and memory) as usual
 
 **On Lambda, background regeneration completes before the environment freezes.** Next.js hands this work to the runtime through the adapter API's `waitUntil`. The runtime awaits it after the response stream has closed, so it adds billed duration but no latency, and the function's timeout bounds it. The Containers constructs' server does the same. This is unrelated to the CloudFront edge-cache invalidation described below, which only fires for explicit tag or path revalidation, not time-based expiry.
 
 ### Tag-based Revalidation
 
 ```typescript
-// In your API route or Server Action
-import { revalidateTag } from "next/cache";
+"use server";
+// In a Server Action
+import { revalidateTag, updateTag } from "next/cache";
 
 export async function updateUser(userId: string) {
-  // Update user data
   await updateUserInDatabase(userId);
 
-  // Invalidate all cache entries tagged with this user
-  revalidateTag(`user-${userId}`);
-  revalidateTag("user-list");
+  // Expire at once, so this user sees their own change on the next render
+  updateTag(`user-${userId}`);
+  // Serve stale while every page listing users regenerates in the background
+  revalidateTag("user-list", "max");
 }
 ```
+
+`updateTag` (Server Actions only) sets the marker's `revalidatedAt`: entries
+expire immediately. `revalidateTag(tag, profile)` sets `staleAt`, and `expiredAt`
+from the profile's `expire`: entries are served stale while they regenerate,
+until that runs out (with `{ expire: 0 }`, at once). Route handlers can use
+`revalidateTag` but not `updateTag`.
 
 ## Performance Characteristics
 
@@ -497,7 +521,7 @@ export async function updateUser(userId: string) {
 
 ### Cache Not Working
 
-1. Check environment variables are set correctly
+1. Check the compute's environment has `CDK_NEXTJS_CACHE_BUCKET_NAME`, `CDK_NEXTJS_REVALIDATION_TABLE_NAME` and `CDK_NEXTJS_BUILD_ID` (the constructs set them)
 2. Verify S3 bucket and DynamoDB table exist
 3. Check Lambda/container permissions
 4. Review CloudWatch logs for errors
