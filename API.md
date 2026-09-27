@@ -6662,7 +6662,7 @@ const nextjsRegionalFunctionsConstructOverrides: NextjsRegionalFunctionsConstruc
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionsProps">NextjsFunctionsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsApiProps">nextjsApiProps</a></code> | <code><a href="#cdk-nextjs.NextjsApiProps">NextjsApiProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsApiProps">nextjsApiProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsApiProps">OptionalNextjsApiProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
 
 ---
@@ -6710,10 +6710,10 @@ public readonly nextjsFunctionsProps: NextjsFunctionsProps;
 ##### `nextjsApiProps`<sup>Optional</sup> <a name="nextjsApiProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsApiProps"></a>
 
 ```typescript
-public readonly nextjsApiProps: NextjsApiProps;
+public readonly nextjsApiProps: OptionalNextjsApiProps;
 ```
 
-- *Type:* <a href="#cdk-nextjs.NextjsApiProps">NextjsApiProps</a>
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsApiProps">OptionalNextjsApiProps</a>
 
 ---
 
@@ -10450,6 +10450,161 @@ public readonly invokeMode: InvokeMode;
 - *Default:* InvokeMode.BUFFERED
 
 The type of invocation mode that your Lambda function uses.
+
+---
+
+### OptionalNextjsApiProps <a name="OptionalNextjsApiProps" id="cdk-nextjs.OptionalNextjsApiProps"></a>
+
+OptionalNextjsApiProps.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalNextjsApiProps.Initializer"></a>
+
+```typescript
+import { OptionalNextjsApiProps } from 'cdk-nextjs'
+
+const optionalNextjsApiProps: OptionalNextjsApiProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.basePath">basePath</a></code> | <code>string</code> | Optional base path for the application. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsApiFunctionGroup">NextjsApiFunctionGroup</a>[]</code> | The non-`default` function groups, each needing its own resources so the routes it was packaged with reach it rather than {@link serverFunction}. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add resources to API Gateway REST API for public directory to go directly to S3. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.redeployAfterUpdate">redeployAfterUpdate</a></code> | <code>boolean</code> | Deploy the stage again once each stack update has finished, so it serves the API as it is after the update. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | The S3 bucket containing static assets. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. Independent of `basePath` above: that one is the URL prefix the REST API serves the app at (commonly the API Gateway stage), while this one is where the objects live in the bucket. `_next/static` and public directory requests are mapped to S3 keys directly, so they 404 unless this prefix is applied. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `NextjsRegionalContainers`. |
+
+---
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.OptionalNextjsApiProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Optional base path for the application.
+
+---
+
+##### `functionGroups`<sup>Optional</sup> <a name="functionGroups" id="cdk-nextjs.OptionalNextjsApiProps.property.functionGroups"></a>
+
+```typescript
+public readonly functionGroups: NextjsApiFunctionGroup[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsApiFunctionGroup">NextjsApiFunctionGroup</a>[]
+- *Default:* no splitting; `{proxy+}` serves every dynamic route
+
+The non-`default` function groups, each needing its own resources so the routes it was packaged with reach it rather than {@link serverFunction}.
+
+---
+
+##### `hasDataRoutes`<sup>Optional</sup> <a name="hasDataRoutes" id="cdk-nextjs.OptionalNextjsApiProps.property.hasDataRoutes"></a>
+
+```typescript
+public readonly hasDataRoutes: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one.
+
+Ignored without {@link functionGroups}.
+
+---
+
+##### `publicDirEntries`<sup>Optional</sup> <a name="publicDirEntries" id="cdk-nextjs.OptionalNextjsApiProps.property.publicDirEntries"></a>
+
+```typescript
+public readonly publicDirEntries: PublicDirEntry[];
+```
+
+- *Type:* <a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]
+
+Path to directory of Next.js app's public directory. Used to add resources to API Gateway REST API for public directory to go directly to S3.
+
+---
+
+##### `redeployAfterUpdate`<sup>Optional</sup> <a name="redeployAfterUpdate" id="cdk-nextjs.OptionalNextjsApiProps.property.redeployAfterUpdate"></a>
+
+```typescript
+public readonly redeployAfterUpdate: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Deploy the stage again once each stack update has finished, so it serves the API as it is after the update.
+
+CloudFormation snapshots the API into a new deployment while resources
+removed from the template still exist — it deletes them only during
+cleanup — so the stage keeps serving them. After removing a function
+group, its routes then point at a deleted Lambda and answer 500 until the
+next deployment. An EventBridge rule on this stack's `UPDATE_COMPLETE`
+(and `UPDATE_ROLLBACK_COMPLETE`) invokes a small function that deploys the
+stage from the live API and deletes the deployments its earlier runs made.
+
+Ignored when `overrides.restApiProps.deploy` is `false`: there is no stage.
+
+---
+
+##### `serverFunction`<sup>Optional</sup> <a name="serverFunction" id="cdk-nextjs.OptionalNextjsApiProps.property.serverFunction"></a>
+
+```typescript
+public readonly serverFunction: IFunction;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IFunction
+
+Required if `NextjsRegionalFunctions`.
+
+The Lambda function for server-side rendering
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.OptionalNextjsApiProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+The S3 bucket containing static assets.
+
+---
+
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.OptionalNextjsApiProps.property.staticAssetsKeyPrefix"></a>
+
+```typescript
+public readonly staticAssetsKeyPrefix: string;
+```
+
+- *Type:* string
+
+S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. Independent of `basePath` above: that one is the URL prefix the REST API serves the app at (commonly the API Gateway stage), while this one is where the objects live in the bucket. `_next/static` and public directory requests are mapped to S3 keys directly, so they 404 unless this prefix is applied.
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.OptionalNextjsApiProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+[Future] Required if `NextjsRegionalContainers`.
+
+VPC to create VPC Link and ECS Service Discovery
 
 ---
 
