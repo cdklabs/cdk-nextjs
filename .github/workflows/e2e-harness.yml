@@ -302,7 +302,15 @@ jobs:
         # fails wholesale, and only passes on retry. Pay it once, here, where
         # nothing is timing us. Once per shard, but all in parallel, so the wall
         # clock is the same ~4 minutes however many shards there are.
-        run: ./scripts/e2e-warm.sh
+        #
+        # Staggered, and retried once. Ten shards creating a distribution in the
+        # same minute trip CloudFront's API rate limit (`CreateFunction`: "Rate
+        # exceeded"), and a failed create rolls back, so that shard runs nothing.
+        # A retry redeploys over the ROLLBACK_COMPLETE stack, which `cdk deploy`
+        # deletes and recreates.
+        run: |
+          sleep $(( (${{ matrix.shard }} - 1) * 20 ))
+          ./scripts/e2e-warm.sh || { echo "::warning::warming failed once; retrying"; sleep 60; ./scripts/e2e-warm.sh; }
         env:
           ADAPTER_DIR: ${{ github.workspace }}
 

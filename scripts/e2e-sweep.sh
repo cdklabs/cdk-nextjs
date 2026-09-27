@@ -80,8 +80,33 @@ export HARNESS_TAG_KEY HARNESS_TAG_VALUE HARNESS_STACK_PREFIX MAX_AGE_HOURS ONLY
 # and a hotswap never goes through CloudFormation, so neither timestamp moves.
 # What does move is the server function's `LastModified`, which every test file's
 # hotswap rewrites. `last_activity_ms` folds that in before anything is deleted.
+# One stack by name is described by name. Listing every stack needs
+# `cloudformation:ListStacks`, which CI's GitHubActionRole does not have, and
+# without this a shard's own cleanup (`--shared`) failed on AccessDenied and
+# left its stack behind. A named stack that is already gone is simply not a
+# candidate.
+list_stacks() {
+  if [ -z "$ONLY_STACK" ]; then
+    aws cloudformation describe-stacks --output json
+    return
+  fi
+  local out
+  if out="$(aws cloudformation describe-stacks --stack-name "$ONLY_STACK" --output json 2>&1)"; then
+    printf '%s' "$out"
+    return
+  fi
+  case "$out" in
+    *"does not exist"*) printf '{"Stacks":[]}' ;;
+    *)
+      printf '%s\n' "$out" >&2
+      return 1
+      ;;
+  esac
+}
+
+LISTING="$(list_stacks)"
 CANDIDATES="$(
-  aws cloudformation describe-stacks --output json | node -e '
+  printf '%s' "$LISTING" | node -e '
     const { HARNESS_TAG_KEY, HARNESS_TAG_VALUE, HARNESS_STACK_PREFIX, MAX_AGE_HOURS, ONLY_STACK } = process.env;
     const maxAgeMs = Number(MAX_AGE_HOURS) * 60 * 60 * 1000;
     let raw = "";
