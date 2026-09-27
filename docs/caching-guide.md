@@ -268,40 +268,72 @@ Cache Bucket Structure:
 
 ### DynamoDB Revalidation Tracking
 
-A DynamoDB table tracks tag-to-S3-key mappings for efficient revalidation:
+The revalidation table holds four kinds of item. Everything a build writes is
+under its `buildId`, so pruning a previous build is a query of its partitions,
+not a scan.
 
 ```typescript
-interface RevalidationItem {
-  pk: string; // Partition Key: buildId (e.g., "build-abc123")
-  sk: string; // Sort Key: "{tag}#{s3Key}" (e.g., "user-profile#build-abc123/fetch/api-users-123")
-  createdAt: number; // Creation timestamp
-  revalidatedAt: number; // Last revalidation timestamp
+// When a tag was last revalidated, and how. What every revalidation check
+// reads, and the source of truth.
+interface TagMarkerItem {
+  pk: string; // buildId, e.g. "build-abc123"
+  sk: string; // the tag, e.g. "user-profile"
+  revalidatedAt?: number; // expired outright: updateTag, or revalidateTag with no profile
+  staleAt?: number; // stale from here: revalidateTag(tag, profile)
+  expiredAt?: number; // when that profile's expire runs out
+}
+
+// One row per revalidation of a tag, so an instance can ask "what changed
+// since I last looked?" in one Query instead of re-reading every tag it keeps.
+interface RevalidationLogItem {
+  pk: string; // "{buildId}#log"
+  sk: string; // "{epoch ms, zero-padded to 15 digits}#{tag}": sorts by time
+  revalidatedAt?: number; // the same fields the marker got
+  staleAt?: number;
+  expiredAt?: number;
+  ttl: number; // epoch seconds, 15 minutes out; DynamoDB deletes it after
+}
+
+// Which cached pages a tag appears on, so revalidateTag can name their
+// CloudFront paths. Only written on the Global constructs.
+interface TagMappingItem {
+  pk: string; // buildId
+  sk: string; // "{tag}#{s3Key}"
+  createdAt: number;
 }
 
 interface MetadataItem {
-  pk: "METADATA"; // Special partition key for metadata
-  sk: "CURRENT_BUILD"; // Special sort key for tracking current build
-  buildId: string; // Current BUILD_ID for efficient pruning
-  updatedAt: number; // Last update timestamp
+  pk: "METADATA";
+  sk: "CURRENT_BUILD";
+  buildId: string; // the current build, so the next deploy knows what to prune
+  updatedAt: number;
 }
 ```
 
-**Example Data**:
+**Example Data**, after `revalidateTag("user-profile")`:
 
 ```
-PK: "build-abc123"    SK: "user-profile#build-abc123/api-users-123"
-PK: "build-abc123"    SK: "user-profile#build-abc123/users-profile"
-PK: "build-abc123"    SK: "product-data#build-abc123/products-electronics"
-PK: "build-abc123"    SK: "product-images#build-abc123/product-123-thumb"
-PK: "METADATA"        SK: "CURRENT_BUILD"    buildId: "build-abc123"
+PK: "build-abc123"        SK: "user-profile"                                revalidatedAt: 1790467483203
+PK: "build-abc123#log"    SK: "001790467483193#user-profile"                revalidatedAt: 1790467483193, ttl: 1790468384
+PK: "build-abc123"        SK: "user-profile#build-abc123/users-profile.json"  createdAt: 1790467248586
+PK: "build-abc123"        SK: "product-data#build-abc123/products.json"       createdAt: 1790467248586
+PK: "METADATA"            SK: "CURRENT_BUILD"                               buildId: "build-abc123"
 ```
 
 **Key Features**:
 
-- **Efficient Pruning**: Query previous build's partition to delete old entries (no table scan)
-- **Metadata Tracking**: Stores current BUILD_ID for identifying previous build during pruning
-- **Full S3 Key Storage**: Sort key contains complete S3 path for direct deletion
-- **Efficient Revalidation**: Query by buildId + tag prefix returns all related cache entries
+- **Checks read markers, not mappings**: an instance reads a tag's marker the
+  first time it needs it, then learns of other instances' revalidations from
+  one log `Query` per second (see
+  [On-Demand Revalidation](#on-demand-revalidation)).
+- **Log rows sort by time**: the sort key's timestamp is what makes "every
+  revalidation since my last query" one key range. Rows older than the query's
+  range are never read, so DynamoDB deleting expired rows late costs only
+  storage.
+- **Mapping rows name CloudFront paths**: `revalidateTag` queries
+  `begins_with(sk, "{tag}#")` for the S3 keys, and so the paths, to invalidate.
+- **Efficient pruning**: the post-deploy step queries the previous build's
+  partition and deletes it. Log rows expire through TTL instead.
 
 ### Custom Cache Handler
 
@@ -348,9 +380,9 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 **Cache Retrieval Process**:
 
 1. **Fetch from S3**: Retrieve cache entry with embedded tags
-2. **Revalidation Check**: Query DynamoDB to check if any tag has been revalidated since cache creation
-3. **Timestamp Comparison**: Compare `revalidatedAt` with cache entry's `lastModified`
-4. **Invalidation**: If any tag was revalidated after cache creation, delete S3 entry and return cache miss
+2. **Revalidation Check**: Look up each tag's marker (see [On-Demand Revalidation](#on-demand-revalidation) for where it comes from)
+3. **Timestamp Comparison**: Compare the marker's `revalidatedAt`/`staleAt`/`expiredAt` with the entry's `lastModified`
+4. **Invalidation**: If a tag was revalidated after the entry was created, a `fetch` entry reads as a miss and a page entry comes back expired, so Next.js refetches or re-renders it. The S3 object is left for that write to replace.
 5. **Return**: If valid, return cached data without tags
 
 **Key Features**:
@@ -395,20 +427,19 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 
 When `revalidateTag("user-profile")` is called:
 
-1. **Query DynamoDB**: Find all cache keys tagged with `pk = {buildId} and sk starts_with user-profile`
-2. **Update Timestamps**: Mark revalidation time in DynamoDB for each cache entry
-3. **Delete S3 Objects**: Remove corresponding cache files from S3
+1. **Write the marker**: Set `revalidatedAt` (or `staleAt`/`expiredAt` for a profile) on the tag's marker row, `pk = {buildId}, sk = user-profile`
+2. **Log it**: Put a revalidation log row, `pk = {buildId}#log, sk = {epoch ms}#user-profile`, for other instances to find
+3. **Find the pages** (Global constructs only): Query the mapping rows, `pk = {buildId} and begins_with(sk, "user-profile#")`, for the S3 keys, and so the paths, the tag appears on
 4. **Invalidate CloudFront** (`NextjsGlobalFunctions`/`NextjsGlobalContainers` only): Evict the corresponding paths from the CDN edge cache too, so the origin's now-fresh state isn't masked by a still-cached edge response. This is best-effort and asynchronous (`cloudfront:CreateInvalidation` has no bounded completion SLA), so a client may briefly still observe stale content immediately after revalidation.
 
-**Revalidation Safety**: Even if S3 deletions fail due to network issues or race conditions, the cache handler will detect stale data during the next `get()` operation by comparing timestamps and automatically remove invalid entries.
+No S3 object is deleted: the next `get()` of an entry the tag is on compares the marker with the entry's `lastModified` and treats it as revalidated, and the refetch or re-render that follows overwrites it.
 
 **Cache Retrieval After Revalidation**:
 
 1. **Fetch Cache Entry**: Retrieve from S3 with embedded tags
-2. **Check Revalidation**: Query DynamoDB for each tag's `revalidatedAt` timestamp
-3. **Compare Timestamps**: If any `revalidatedAt` > cache `lastModified`, cache is invalid
-4. **Auto-cleanup**: Delete stale S3 entry and return cache miss
-5. **Fresh Data**: Next request will fetch fresh data and create new cache entry
+2. **Check Revalidation**: Look up each tag's marker
+3. **Compare Timestamps**: If any `revalidatedAt` (or a past `expiredAt`) > the entry's `lastModified`, it is expired; a later `staleAt` alone makes it stale, served while it regenerates
+4. **Fresh Data**: The refetch or re-render writes a new entry over the old one
 
 **Marker reads are kept per instance, and caught up from a log.** Every cache hit checks its tags, in-memory hits included, and every marker of a deployment shares one partition key. So each instance reads a tag's marker the first time it needs it and keeps it. Once a second it sends one `Query` to the revalidation log (`pk = <buildId>#log`, one row per revalidated tag, expiring after 15 minutes) for what other instances revalidated since, instead of re-reading its tags. Concurrent checks share that query. It still re-reads each marker it keeps every 7.5 to 10 minutes (a random point per tag, so tags first read together don't come due together), since the marker rows are the source of truth, but at most 100 per second rather than all at once. An instance keeps up to 10,000 tags. The instance that calls `revalidateTag` sees it immediately; other instances see it up to 1 s later, which is within what CloudFront's invalidation already takes. Set `CDK_NEXTJS_TAG_MARKER_TTL_MS` on the functions or tasks (through `overrides`) to change the interval, or to `0` to read the markers from DynamoDB on every check.
 
@@ -474,11 +505,11 @@ export async function updateUser(userId: string) {
 ### Revalidation Issues
 
 1. Verify tags are set correctly in fetch requests
-2. Check DynamoDB for tag-to-cache-key mappings
+2. Check the tag's marker row in DynamoDB (`pk = {buildId}, sk = {tag}`) and its log rows (`pk = {buildId}#log`)
 3. Ensure revalidateTag() calls are working
-4. Monitor S3 object deletions
-5. Check CloudWatch logs for "CACHE INVALIDATED BY TAG" messages
-6. Verify timestamp comparisons in DynamoDB revalidation entries
+4. On the Global constructs, check the tag's mapping rows (`sk` beginning `{tag}#`), which name the CloudFront paths to invalidate
+5. With `DEBUG=cdk-nextjs:*`, check CloudWatch logs for "CACHE INVALIDATED BY TAG" messages
+6. Compare the marker's timestamps with the entry's `lastModified`
 
 ### Performance Problems
 
