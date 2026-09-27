@@ -301,9 +301,14 @@ log (`pk = <buildId>#log`, `sk = <epoch-ms>#<tag>`), and each instance sends one
 `Query` per `CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS` (`'use cache'`) and per
 `CDK_NEXTJS_TAG_MARKER_TTL_MS` (ISR and the data cache) for the rows it hasn't
 seen. The marker rows stay the source of truth: an instance still reads a tag's
-marker the first time it needs it, re-reads the markers it keeps every 7.5 to
-10 minutes (at a random point, so instances started together don't re-read
-together), and after any gap the log may not cover.
+marker the first time it needs it, and re-reads each one it keeps every 10
+minutes, at most 100 a second. After a gap the log may not cover, it forgets
+them and reads each again when it's next needed.
+
+- An instance now keeps up to 10,000 tags' markers, up from 1,000 for
+  `'use cache'`. Every path is a tag of its own (`_N_T_/<path>`), so an app with
+  1,000 tagged pages needs 2,000, and at 1,000 it kept evicting and re-reading
+  them.
 
 - The table `NextjsCache` creates now has TTL on the `ttl` attribute, which the
   log rows set 15 minutes out. Enabling it is an in-place update.

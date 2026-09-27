@@ -467,40 +467,42 @@ function logSkPrefix(at: number): string {
 export const REVALIDATION_LOG_LOOKBACK_MS = 5000;
 
 /**
- * The longest {@link TrackedTagMarkers} goes on the log alone before re-reading
- * every tracked tag's marker row anyway. The log is the fast path, but the
- * marker rows are the source of truth: a log row whose write failed would
- * otherwise be missed for as long as the tag stays tracked. At 1000 tracked
- * tags a re-read is ~500 RCU, next to the ~500 RCU a second re-reading every
- * second cost.
+ * The longest {@link TrackedTagMarkers} trusts the log alone for a tag before
+ * reading its marker row again. The log is the fast path, but the marker rows
+ * are the source of truth: a log row whose write failed would otherwise be
+ * missed for as long as the tag stays tracked.
  *
- * Each instance waits a random 75-100% of this between re-reads, so instances
- * that started together - a deploy, a scale-out - do not all re-read in the
- * same minute. Measured without that, a fleet of Lambda instances started by
- * one load test re-read ~12,800 RCU of markers in one minute, and throttled.
+ * Rolling, not all at once: each refresh re-reads at most
+ * {@link BATCH_GET_MAX_KEYS} of the tags due, oldest first. Re-reading them all
+ * together cost ~500 RCU at 1000 tags - a fleet started by one load test did it
+ * in the same minute, 12,800 RCU, and throttled - and would be ~5,000 RCU at
+ * {@link DEFAULT_MAX_TRACKED_TAGS}, past what the one partition serves in a
+ * second. Spread out, 10,000 tracked tags cost ~8 RCU a second per instance.
  */
 export const DEFAULT_TAG_RESYNC_MS = 10 * 60 * 1000;
-
-/** The fraction of {@link DEFAULT_TAG_RESYNC_MS} a re-read may come early by. */
-const TAG_RESYNC_JITTER = 0.25;
 
 /**
  * How long since the last successful log query the log can still be trusted to
  * hold every row not read yet: its TTL less a margin for writers' clocks. Past
  * it - a Lambda frozen between invocations, a run of failed queries - the
- * tracked markers are re-read instead, once, and the log is followed from
- * there.
+ * tracked markers are forgotten, to be read again as they are needed, and the
+ * log is followed from there.
  */
 export const MAX_REVALIDATION_LOG_GAP_MS =
   REVALIDATION_LOG_TTL_MS - 5 * 60 * 1000;
 
 /**
  * The most tags one instance tracks. Past it the least recently used is
- * forgotten, which costs only a read the next time it is needed: an untracked
- * tag is read before it is trusted. Bounds a full re-read at
- * `ceil(1000 / 100)` `BatchGetItem`s.
+ * forgotten, which costs a read the next time it is needed: an untracked tag
+ * is read before it is trusted.
+ *
+ * A tracked tag costs memory (~2 MB at this bound) and its share of the rolling
+ * re-read, not a read every refresh, so the bound is set by how many tags an
+ * instance really uses. Every path is a tag of its own (`_N_T_/<path>`), and at
+ * 1000 an app of 1000 tagged pages kept evicting what it was about to need:
+ * half its requests re-read a marker.
  */
-export const DEFAULT_MAX_TRACKED_TAGS = 1000;
+export const DEFAULT_MAX_TRACKED_TAGS = 10_000;
 
 /** How {@link TrackedTagMarkers} is built. */
 export interface TrackedTagMarkersOptions {
@@ -518,8 +520,6 @@ export interface TrackedTagMarkersOptions {
   resyncIntervalMs?: number;
   /** The wall clock the log's cursor and the intervals are kept on. */
   clock?: () => number;
-  /** `Math.random`, for the resync's jitter. */
-  random?: () => number;
   debug?: (message: string) => void;
   /** Names the markers in error logs, e.g. `'use cache' tag`. */
   label?: string;
@@ -536,9 +536,9 @@ export interface TrackedTagMarkersOptions {
  *   per request.
  * - {@link refresh}, at most once per `refreshIntervalMs`, sends one `Query`
  *   for the log rows written since the last one, and applies those of tags
- *   this instance tracks. Concurrent callers share it. About every
- *   {@link DEFAULT_TAG_RESYNC_MS}, or after a gap the log may no longer cover,
- *   it re-reads every tracked marker instead.
+ *   this instance tracks. Concurrent callers share it. Alongside, it re-reads
+ *   the markers of up to {@link BATCH_GET_MAX_KEYS} tags not read for
+ *   {@link DEFAULT_TAG_RESYNC_MS}, in one `BatchGetItem`.
  * A revalidation on another instance is therefore seen within
  * `refreshIntervalMs` (plus the query itself). The instance that ran it applies
  * it itself, at once, with {@link set}.
@@ -550,11 +550,15 @@ export class TrackedTagMarkers {
   private readonly maxTrackedTags: number;
   private readonly resyncIntervalMs: number;
   private readonly clock: () => number;
-  private readonly random: () => number;
   private readonly debug: (message: string) => void;
   private readonly label: string;
   /** By tag, least recently used first. */
   private readonly tags = new Map<string, TagMarker>();
+  /**
+   * When each tracked tag's marker was last known from the table - read,
+   * written here, or new - least recent first, for the rolling re-read.
+   */
+  private readonly knownAt = new Map<string, number>();
   private readonly reading = new Map<string, Promise<void>>();
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
@@ -565,10 +569,8 @@ export class TrackedTagMarkers {
    * start, less {@link REVALIDATION_LOG_LOOKBACK_MS}.
    */
   private cursor: number;
-  /** When the last successful log query, or full re-read, started. */
+  /** When the last successful log query started, or the log was first read. */
   private lastLogRead: number;
-  /** When the next full re-read is due. */
-  private nextResyncAt = 0;
   /** Log rows at or after the cursor already applied, by sort key. */
   private readonly applied = new Map<string, number>();
 
@@ -581,7 +583,6 @@ export class TrackedTagMarkers {
     // Looked up on each call rather than bound here, so a test's `Date.now`
     // spy applies.
     this.clock = options.clock ?? (() => Date.now());
-    this.random = options.random ?? Math.random;
     this.debug = options.debug ?? (() => {});
     this.label = options.label ?? "tag";
     // Nothing is tracked yet, so nothing before this can be missed: every tag
@@ -589,7 +590,6 @@ export class TrackedTagMarkers {
     const at = this.clock();
     this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
     this.lastLogRead = at;
-    this.scheduleResync(at);
   }
 
   /** Whether markers are read from the revalidation table. */
@@ -608,6 +608,7 @@ export class TrackedTagMarkers {
    */
   set(tag: string, marker: TagMarker): void {
     this.remember(tag, marker);
+    this.known(tag, this.clock());
   }
 
   /**
@@ -616,7 +617,11 @@ export class TrackedTagMarkers {
    * to it, and the log carries anything after.
    */
   track(tags: readonly string[]): void {
+    const at = this.clock();
     for (const tag of tags) {
+      if (!this.tags.has(tag)) {
+        this.known(tag, at);
+      }
       this.remember(tag, this.tags.get(tag) ?? {});
     }
   }
@@ -686,36 +691,41 @@ export class TrackedTagMarkers {
   }
 
   /**
-   * One refresh started at `at`: the log rows since the cursor, or every
-   * tracked marker when the log alone is not enough (no log, the periodic
-   * resync, a gap the log may not cover, more rows than one query reads).
+   * One refresh started at `at`: the log rows since the cursor, and the next
+   * slice of the rolling re-read.
    *
    * A failed query changes nothing but the log: the tags stay tracked as they
    * were, and the next refresh asks again from the same cursor.
    */
   private async sync(at: number): Promise<void> {
     const log = this.log;
-    if (
-      !log ||
-      at >= this.nextResyncAt ||
-      at - this.lastLogRead > MAX_REVALIDATION_LOG_GAP_MS
-    ) {
-      return this.readAll(at);
+    if (!log) {
+      await this.readInto(Array.from(this.tags.keys()));
+      return;
     }
-    const retry = Array.from(this.unread).filter((tag) => this.tags.has(tag));
+    if (at - this.lastLogRead > MAX_REVALIDATION_LOG_GAP_MS) {
+      this.forget(
+        at,
+        "the revalidation log may not cover the gap since it was last read",
+      );
+      return;
+    }
     const [result] = await Promise.all([
       log.query(this.cursor).catch((error) => {
         console.error(`Error reading ${this.label} revalidation log:`, error);
         return undefined;
       }),
-      this.readInto(retry),
+      this.readInto(this.due(at)),
     ]);
     if (!result) {
       return;
     }
     if (result.truncated) {
-      this.debug("revalidation log has more rows than one query reads");
-      return this.readAll(at);
+      this.forget(
+        at,
+        "the revalidation log has more rows than one query reads",
+      );
+      return;
     }
     let applied = 0;
     for (const row of result.rows) {
@@ -738,20 +748,44 @@ export class TrackedTagMarkers {
     );
   }
 
-  /** Re-read every tracked tag's marker, and move the log's cursor past it. */
-  private async readAll(at: number): Promise<void> {
-    if (await this.readInto(Array.from(this.tags.keys()))) {
-      this.lastLogRead = at;
-      this.scheduleResync(at);
-      // A revalidation the (eventually consistent) read missed is still in the
-      // log from here on.
-      this.advance(at - REVALIDATION_LOG_LOOKBACK_MS);
+  /**
+   * The tags to read on this refresh, at most one `BatchGetItem`'s worth:
+   * those whose read failed, then those not read for `resyncIntervalMs`,
+   * longest first.
+   */
+  private due(at: number): string[] {
+    const due: string[] = [];
+    for (const tag of this.unread) {
+      if (due.length >= BATCH_GET_MAX_KEYS) return due;
+      due.push(tag);
     }
+    for (const [tag, knownAt] of this.knownAt) {
+      if (
+        due.length >= BATCH_GET_MAX_KEYS ||
+        at - knownAt < this.resyncIntervalMs
+      ) {
+        break;
+      }
+      if (!this.unread.has(tag)) {
+        due.push(tag);
+      }
+    }
+    return due;
   }
 
-  private scheduleResync(at: number): void {
-    this.nextResyncAt =
-      at + this.resyncIntervalMs * (1 - TAG_RESYNC_JITTER * this.random());
+  /**
+   * Forget every tracked marker, and follow the log from `at`: what is needed
+   * next is read from its marker as it is needed, spread over the requests
+   * that need it, rather than every tracked tag re-read at once.
+   */
+  private forget(at: number, why: string): void {
+    this.debug(`forgetting ${this.tags.size} tracked tags: ${why}`);
+    this.tags.clear();
+    this.knownAt.clear();
+    this.unread.clear();
+    this.applied.clear();
+    this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
+    this.lastLogRead = at;
   }
 
   /**
@@ -781,11 +815,13 @@ export class TrackedTagMarkers {
     if (tags.length === 0) {
       return true;
     }
+    const at = this.clock();
     try {
       const read = await this.markers!.read(tags);
       for (const tag of tags) {
         this.unread.delete(tag);
         this.remember(tag, mergeMarkers(this.tags.get(tag), read.get(tag)));
+        this.known(tag, at);
       }
       this.debug(`read ${tags.length} tag markers (${read.size} set)`);
       return true;
@@ -799,6 +835,12 @@ export class TrackedTagMarkers {
     }
   }
 
+  /** Record that `tag`'s marker was known from the table at `at`. */
+  private known(tag: string, at: number): void {
+    this.knownAt.delete(tag);
+    this.knownAt.set(tag, at);
+  }
+
   private remember(tag: string, marker: TagMarker): void {
     this.tags.delete(tag);
     this.tags.set(tag, marker);
@@ -807,6 +849,7 @@ export class TrackedTagMarkers {
         break;
       }
       this.tags.delete(oldest);
+      this.knownAt.delete(oldest);
       this.unread.delete(oldest);
     }
   }

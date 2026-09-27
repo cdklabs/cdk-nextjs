@@ -3,7 +3,6 @@ jest.mock("@aws-sdk/client-dynamodb");
 
 import type { CacheEntry } from "next/dist/server/lib/cache-handlers/types";
 import {
-  DEFAULT_TAG_RESYNC_MS,
   MAX_REVALIDATION_LOG_GAP_MS,
   RevalidationLog,
   RevalidationLogRow,
@@ -248,6 +247,21 @@ describe("UseCacheTagManifest", () => {
     expect(markers.read).toHaveBeenCalledWith(["b"]);
   });
 
+  // Every path is a tag of its own, so an app of 1000 tagged pages needs 2000:
+  // tracked 1000 at most, half its requests re-read an evicted marker.
+  it("keeps 2000 tags a page each tracked, without reading them again", async () => {
+    const markers = fakeMarkers();
+    const tags = new UseCacheTagManifest({ markers: markers.table });
+    const pages = Array.from({ length: 1000 }, (_, n) => [
+      `item-${n}`,
+      `_N_T_/use-cache/${n}`,
+    ]);
+    for (const page of pages) await tags.ensure(page);
+    markers.read.mockClear();
+    for (const page of pages) await tags.ensure(page);
+    expect(markers.read).not.toHaveBeenCalled();
+  });
+
   it("keeps tags local to the process without a table", async () => {
     const tags = new UseCacheTagManifest({ markers: undefined });
     expect(tags.isShared).toBe(false);
@@ -262,9 +276,7 @@ describe("UseCacheTagManifest with the revalidation log", () => {
   const INTERVAL = 1000;
 
   /** Two instances, `a` and `b`, over one table and one clock. */
-  function instances(
-    options: { resyncIntervalMs?: number; random?: () => number } = {},
-  ) {
+  function instances(options: { resyncIntervalMs?: number } = {}) {
     const markerRows = new Map<string, TagMarker>();
     const logRows: RevalidationLogRow[] = [];
     const clock = fakeClock();
@@ -276,8 +288,6 @@ describe("UseCacheTagManifest with the revalidation log", () => {
         log: log.log,
         refreshIntervalMs: INTERVAL,
         clock: clock.now,
-        // No jitter unless a test asks: the resync lands on its interval.
-        random: () => 0,
         ...options,
       });
       return { markers, log, tags };
@@ -378,61 +388,55 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     expect(b.tags.state(["too-late"], createdAt())).toBe("fresh");
   });
 
-  it("re-reads every tracked marker once after a gap the log may not cover", async () => {
+  it("forgets its tracked markers after a gap the log may not cover, and reads each as it is needed", async () => {
     const { clock, a, b } = instances();
-    b.tags.track(["posts", "other"]);
+    await b.tags.ensure(["posts", "other"]);
     await a.tags.update(["posts"], undefined);
 
     clock.at += MAX_REVALIDATION_LOG_GAP_MS + 1;
+    const gapEnd = clock.at;
     await b.tags.refresh();
+    // No burst of re-reads, and no query of a log that may have lost rows.
     expect(b.markers.read).toHaveBeenCalledTimes(1);
-    expect(b.markers.read).toHaveBeenCalledWith(["posts", "other"]);
     expect(b.log.query).not.toHaveBeenCalled();
+
+    await b.tags.ensure(["posts"]);
+    expect(b.markers.read).toHaveBeenLastCalledWith(["posts"]);
     expect(b.tags.state(["posts"], createdAt())).toBe("expired");
 
-    // Then back on the log, from just before the re-read.
-    const reread = clock.at;
+    // Then back on the log, from just before the gap ended.
     clock.at += INTERVAL;
     await b.tags.refresh();
-    expect(b.markers.read).toHaveBeenCalledTimes(1);
-    expect(b.log.query).toHaveBeenCalledWith(reread - 5000);
+    expect(b.log.query).toHaveBeenCalledWith(gapEnd - 5000);
   });
 
-  it("re-reads every tracked marker once per resync interval regardless", async () => {
+  // Re-reading every tracked marker at once is ~5,000 RCU at 10,000 tags: more
+  // than the one partition serves in a second.
+  it("re-reads each tracked marker once per resync interval, at most 100 a refresh", async () => {
     const { clock, b } = instances({ resyncIntervalMs: 10 * INTERVAL });
-    b.tags.track(["posts"]);
-    for (let i = 0; i < 10; i++) {
+    b.tags.track(Array.from({ length: 250 }, (_, i) => `t${i}`));
+    const sizes: number[] = [];
+    for (let i = 1; i <= 14; i++) {
       clock.at += INTERVAL;
+      b.markers.read.mockClear();
       await b.tags.refresh();
+      sizes.push(b.markers.read.mock.calls[0]?.[0].length ?? 0);
     }
-    expect(b.log.query).toHaveBeenCalledTimes(9);
-    expect(b.markers.read).toHaveBeenCalledTimes(1);
-    expect(DEFAULT_TAG_RESYNC_MS).toBeLessThanOrEqual(
-      MAX_REVALIDATION_LOG_GAP_MS,
-    );
+    expect(b.log.query).toHaveBeenCalledTimes(14);
+    // Due at 10 intervals, oldest first, 100 per refresh; then not again.
+    expect(sizes).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 100, 50, 0, 0]);
+    expect(b.markers.read).not.toHaveBeenCalled();
   });
 
-  // Instances started together must not all re-read at once.
-  it("spreads the resync over the last quarter of its interval", async () => {
-    for (const [random, due] of [
-      [0, 10],
-      [0.5, 9],
-      [1, 8],
-    ] as const) {
-      const { clock, b } = instances({
-        resyncIntervalMs: 10 * INTERVAL,
-        random: () => random,
-      });
-      b.tags.track(["posts"]);
-      let resyncAt = 0;
-      for (let i = 1; i <= 10 && !resyncAt; i++) {
-        clock.at += INTERVAL;
-        await b.tags.refresh();
-        if (b.markers.read.mock.calls.length > 0) resyncAt = i;
-      }
-      // 100%, 87.5% and 75% of the interval, at the next refresh after it.
-      expect([random, resyncAt]).toEqual([random, due]);
-    }
+  it("re-reads a marker it learned of from its own write only once that is due", async () => {
+    const { clock, a } = instances({ resyncIntervalMs: 10 * INTERVAL });
+    await a.tags.ensure(["posts"]);
+    clock.at += 9 * INTERVAL;
+    await a.tags.update(["posts"], undefined);
+    clock.at += 2 * INTERVAL;
+    await a.tags.refresh();
+    // Read 11 intervals ago, but written - so known - 2 intervals ago.
+    expect(a.markers.read).toHaveBeenCalledTimes(1);
   });
 
   it("reads a tag whose first read failed again on the next refresh", async () => {
@@ -452,13 +456,15 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     error.mockRestore();
   });
 
-  it("re-reads the markers when the log has more rows than one query reads", async () => {
+  it("forgets its tracked markers when the log has more rows than one query reads", async () => {
     const { clock, b } = instances();
-    b.tags.track(["posts"]);
+    await b.tags.ensure(["posts"]);
     b.log.query.mockResolvedValueOnce({ rows: [], truncated: true });
     clock.at += INTERVAL;
     await b.tags.refresh();
-    expect(b.markers.read).toHaveBeenCalledWith(["posts"]);
+    expect(b.markers.read).toHaveBeenCalledTimes(1);
+    await b.tags.ensure(["posts"]);
+    expect(b.markers.read).toHaveBeenCalledTimes(2);
   });
 
   it("is visible at once on the instance that ran updateTag", async () => {

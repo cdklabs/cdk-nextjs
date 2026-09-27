@@ -713,13 +713,11 @@ describe("S3DynamoCacheHandler", () => {
     it("re-reads its tracked markers at the periodic resync", async () => {
       const now = Date.now();
       const clock = jest.spyOn(Date, "now").mockReturnValue(now);
-      // The earliest a resync comes: 75% of the interval.
-      jest.spyOn(Math, "random").mockReturnValue(1);
       handler = new S3CacheHandler({ context: mockContext });
       await handler.get("page", getCtx);
       dynamoResponses(revalidatedAfterStore);
 
-      clock.mockReturnValue(now + 0.75 * 10 * 60 * 1000);
+      clock.mockReturnValue(now + 10 * 60 * 1000);
       expect(await handler.get("page", getCtx)).toMatchObject(expired);
       expect(markerReads()).toBe(2);
     });
