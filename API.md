@@ -125,6 +125,8 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsApi.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsApi.property.api">api</a></code> | <code>aws-cdk-lib.aws_apigateway.RestApi</code> | The API Gateway REST API. |
 | <code><a href="#cdk-nextjs.NextjsApi.property.url">url</a></code> | <code>string</code> | Public URL of the app, including every path segment the API nests it under. |
+| <code><a href="#cdk-nextjs.NextjsApi.property.redeployFunction">redeployFunction</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | Deploys the stage again after each stack update. |
+| <code><a href="#cdk-nextjs.NextjsApi.property.redeployRule">redeployRule</a></code> | <code>aws-cdk-lib.aws_events.Rule</code> | Matches this stack's `UPDATE_COMPLETE` and `UPDATE_ROLLBACK_COMPLETE` and invokes {@link redeployFunction}. |
 
 ---
 
@@ -168,6 +170,32 @@ over the execute-api endpoint.
 A domain attached after this construct is created (`api.addDomainName()`) is
 still used for the host, but CDK keeps its base path mappings private, so a
 mapping added that way won't show up here.
+
+---
+
+##### `redeployFunction`<sup>Optional</sup> <a name="redeployFunction" id="cdk-nextjs.NextjsApi.property.redeployFunction"></a>
+
+```typescript
+public readonly redeployFunction: Function;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Function
+
+Deploys the stage again after each stack update.
+
+> [NextjsApiProps.redeployAfterUpdate](NextjsApiProps.redeployAfterUpdate)
+
+---
+
+##### `redeployRule`<sup>Optional</sup> <a name="redeployRule" id="cdk-nextjs.NextjsApi.property.redeployRule"></a>
+
+```typescript
+public readonly redeployRule: Rule;
+```
+
+- *Type:* aws-cdk-lib.aws_events.Rule
+
+Matches this stack's `UPDATE_COMPLETE` and `UPDATE_ROLLBACK_COMPLETE` and invokes {@link redeployFunction}.
 
 ---
 
@@ -1421,6 +1449,10 @@ public readonly function: Function;
 - *Type:* aws-cdk-lib.aws_lambda.Function
 
 The `default` group's function: the one the distribution's default behavior targets, and the only one at all unless `functionGroups` is used.
+
+A zip-packaged `lambda.Function` since 0.7.0; before that it was a
+`DockerImageFunction`. Code that relied on the image-specific type (its
+repository, or `DockerImageCode`) has to change.
 
 ---
 
@@ -2727,6 +2759,7 @@ const nextjsApiOverrides: NextjsApiOverrides = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsApiOverrides.property.dynamicIntegrationProps">dynamicIntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.LambdaIntegrationOptions</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsApiOverrides.property.redeployFunctionProps">redeployFunctionProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a></code> | Props for the function that deploys the stage again after each stack update. |
 | <code><a href="#cdk-nextjs.NextjsApiOverrides.property.restApiProps">restApiProps</a></code> | <code>aws-cdk-lib.aws_apigateway.RestApiProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsApiOverrides.property.s3MethodOptions">s3MethodOptions</a></code> | <code>aws-cdk-lib.aws_apigateway.MethodOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsApiOverrides.property.staticIntegrationProps">staticIntegrationProps</a></code> | <code>aws-cdk-lib.aws_apigateway.AwsIntegrationProps</code> | *No description.* |
@@ -2740,6 +2773,20 @@ public readonly dynamicIntegrationProps: LambdaIntegrationOptions;
 ```
 
 - *Type:* aws-cdk-lib.aws_apigateway.LambdaIntegrationOptions
+
+---
+
+##### `redeployFunctionProps`<sup>Optional</sup> <a name="redeployFunctionProps" id="cdk-nextjs.NextjsApiOverrides.property.redeployFunctionProps"></a>
+
+```typescript
+public readonly redeployFunctionProps: OptionalFunctionProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a>
+
+Props for the function that deploys the stage again after each stack update.
+
+> [NextjsApiProps.redeployAfterUpdate](NextjsApiProps.redeployAfterUpdate)
 
 ---
 
@@ -2793,9 +2840,9 @@ const nextjsApiProps: NextjsApiProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsApiFunctionGroup">NextjsApiFunctionGroup</a>[]</code> | The non-`default` function groups, each needing its own resources so the routes it was packaged with reach it rather than {@link serverFunction}. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.hasDataRoutes">hasDataRoutes</a></code> | <code>boolean</code> | Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a></code> | Override props for every construct. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.redeployAfterUpdate">redeployAfterUpdate</a></code> | <code>boolean</code> | Deploy the stage again once each stack update has finished, so it serves the API as it is after the update. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. |
-| <code><a href="#cdk-nextjs.NextjsApiProps.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. Only used to warn, because an API Gateway resource path cannot express the canonical URL it produces. Ignored without {@link functionGroups}. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `NextjsRegionalContainers`. |
 
 ---
@@ -2876,6 +2923,29 @@ Override props for every construct.
 
 ---
 
+##### `redeployAfterUpdate`<sup>Optional</sup> <a name="redeployAfterUpdate" id="cdk-nextjs.NextjsApiProps.property.redeployAfterUpdate"></a>
+
+```typescript
+public readonly redeployAfterUpdate: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Deploy the stage again once each stack update has finished, so it serves the API as it is after the update.
+
+CloudFormation snapshots the API into a new deployment while resources
+removed from the template still exist — it deletes them only during
+cleanup — so the stage keeps serving them. After removing a function
+group, its routes then point at a deleted Lambda and answer 500 until the
+next deployment. An EventBridge rule on this stack's `UPDATE_COMPLETE`
+(and `UPDATE_ROLLBACK_COMPLETE`) invokes a small function that deploys the
+stage from the live API and deletes the deployments its earlier runs made.
+
+Ignored when `overrides.restApiProps.deploy` is `false`: there is no stage.
+
+---
+
 ##### `serverFunction`<sup>Optional</sup> <a name="serverFunction" id="cdk-nextjs.NextjsApiProps.property.serverFunction"></a>
 
 ```typescript
@@ -2905,21 +2975,6 @@ serves the app at (commonly the API Gateway stage), while this one is where
 the objects live in the bucket. `_next/static` and public directory
 requests are mapped to S3 keys directly, so they 404 unless this prefix is
 applied.
-
----
-
-##### `trailingSlash`<sup>Optional</sup> <a name="trailingSlash" id="cdk-nextjs.NextjsApiProps.property.trailingSlash"></a>
-
-```typescript
-public readonly trailingSlash: boolean;
-```
-
-- *Type:* boolean
-- *Default:* false
-
-The app's `next.config` `trailingSlash`. Only used to warn, because an API Gateway resource path cannot express the canonical URL it produces. Ignored without {@link functionGroups}.
-
-> [NextjsApi.warnOnTrailingSlashGroups](NextjsApi.warnOnTrailingSlashGroups)
 
 ---
 
@@ -3685,7 +3740,7 @@ const nextjsComputeBaseProps: NextjsComputeBaseProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package. |
+| <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`. |
 | <code><a href="#cdk-nextjs.NextjsComputeBaseProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys. |
 
 ---
@@ -3784,7 +3839,7 @@ public readonly staticAssetsBucket: IBucket;
 
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
-S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
+S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`.
 
 ---
 
@@ -3884,7 +3939,7 @@ const nextjsContainersProps: NextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.NextjsContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package. |
+| <code><a href="#cdk-nextjs.NextjsContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check. |
 | <code><a href="#cdk-nextjs.NextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
@@ -3988,7 +4043,7 @@ public readonly staticAssetsBucket: IBucket;
 
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
-S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
+S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`.
 
 ---
 
@@ -4620,7 +4675,7 @@ only moves route-local code (and whatever it pulls in) out of the other
 functions. So group by what is heavy, not by what is logically related.
 
 Each group becomes one Lambda function and one CloudFront behavior per
-pattern, out of a per-distribution budget of 25 that `public/` entries also
+pattern, out of a per-distribution budget of 75 that `public/` entries also
 draw on. Routes not matched by any group stay in the implicit `default` group.
 
 Patterns are an exact path or a subtree, and nothing else:
@@ -4975,7 +5030,7 @@ const nextjsFunctionsProps: NextjsFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package. |
+| <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.deploymentRoots">deploymentRoots</a></code> | <code><a href="#cdk-nextjs.NextjsDeploymentRoot">NextjsDeploymentRoot</a>[]</code> | The staged deployment roots, one per function group. |
 | <code><a href="#cdk-nextjs.NextjsFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroup">NextjsFunctionGroup</a>[]</code> | Per-group configuration, keyed by name against {@link deploymentRoots}. |
@@ -5077,7 +5132,7 @@ public readonly staticAssetsBucket: IBucket;
 
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
-S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
+S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`.
 
 ---
 
@@ -10602,7 +10657,7 @@ const optionalNextjsContainersProps: OptionalNextjsContainersProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeEntrypointPath">relativeEntrypointPath</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` at the repo root. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package. |
+| <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsContainersProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys. |
 
 ---
@@ -10756,7 +10811,7 @@ public readonly staticAssetsBucket: IBucket;
 
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
-S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package.
+S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`.
 
 ---
 
