@@ -478,8 +478,16 @@ export const REVALIDATION_LOG_LOOKBACK_MS = 5000;
  * in the same minute, 12,800 RCU, and throttled - and would be ~5,000 RCU at
  * {@link DEFAULT_MAX_TRACKED_TAGS}, past what the one partition serves in a
  * second. Spread out, 10,000 tracked tags cost ~8 RCU a second per instance.
+ *
+ * Each tag is due at a random 75-100% of this after it was last read, so tags
+ * first read together - an instance warming up - do not all come due together
+ * again every interval: the load test that measured the rolling re-read saw
+ * its warm-up's reads return as a 30-36 RCU/s bump ten minutes later.
  */
 export const DEFAULT_TAG_RESYNC_MS = 10 * 60 * 1000;
+
+/** The fraction of {@link DEFAULT_TAG_RESYNC_MS} a tag may come due early by. */
+const TAG_RESYNC_JITTER = 0.25;
 
 /**
  * How long since the last successful log query the log can still be trusted to
@@ -520,6 +528,8 @@ export interface TrackedTagMarkersOptions {
   resyncIntervalMs?: number;
   /** The wall clock the log's cursor and the intervals are kept on. */
   clock?: () => number;
+  /** `Math.random`, for when each tag's re-read comes due. */
+  random?: () => number;
   debug?: (message: string) => void;
   /** Names the markers in error logs, e.g. `'use cache' tag`. */
   label?: string;
@@ -550,15 +560,17 @@ export class TrackedTagMarkers {
   private readonly maxTrackedTags: number;
   private readonly resyncIntervalMs: number;
   private readonly clock: () => number;
+  private readonly random: () => number;
   private readonly debug: (message: string) => void;
   private readonly label: string;
   /** By tag, least recently used first. */
   private readonly tags = new Map<string, TagMarker>();
   /**
-   * When each tracked tag's marker was last known from the table - read,
-   * written here, or new - least recent first, for the rolling re-read.
+   * When each tracked tag's marker is due to be read again: a random 75-100%
+   * of `resyncIntervalMs` after it was last known from the table - read,
+   * written here, or new. In the order they became known, least recent first.
    */
-  private readonly knownAt = new Map<string, number>();
+  private readonly dueAt = new Map<string, number>();
   private readonly reading = new Map<string, Promise<void>>();
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
@@ -583,6 +595,7 @@ export class TrackedTagMarkers {
     // Looked up on each call rather than bound here, so a test's `Date.now`
     // spy applies.
     this.clock = options.clock ?? (() => Date.now());
+    this.random = options.random ?? Math.random;
     this.debug = options.debug ?? (() => {});
     this.label = options.label ?? "tag";
     // Nothing is tracked yet, so nothing before this can be missed: every tag
@@ -750,8 +763,8 @@ export class TrackedTagMarkers {
 
   /**
    * The tags to read on this refresh, at most one `BatchGetItem`'s worth:
-   * those whose read failed, then those not read for `resyncIntervalMs`,
-   * longest first.
+   * those whose read failed, then those whose re-read has come due, in the
+   * order they were last read.
    */
   private due(at: number): string[] {
     const due: string[] = [];
@@ -759,14 +772,14 @@ export class TrackedTagMarkers {
       if (due.length >= BATCH_GET_MAX_KEYS) return due;
       due.push(tag);
     }
-    for (const [tag, knownAt] of this.knownAt) {
-      if (
-        due.length >= BATCH_GET_MAX_KEYS ||
-        at - knownAt < this.resyncIntervalMs
-      ) {
+    // Known in time order, and each due at most `jitter` earlier than the
+    // tags after it: past a tag due more than that from now, none is due.
+    const jitter = this.resyncIntervalMs * TAG_RESYNC_JITTER;
+    for (const [tag, dueAt] of this.dueAt) {
+      if (due.length >= BATCH_GET_MAX_KEYS || dueAt - jitter > at) {
         break;
       }
-      if (!this.unread.has(tag)) {
+      if (dueAt <= at && !this.unread.has(tag)) {
         due.push(tag);
       }
     }
@@ -781,7 +794,7 @@ export class TrackedTagMarkers {
   private forget(at: number, why: string): void {
     this.debug(`forgetting ${this.tags.size} tracked tags: ${why}`);
     this.tags.clear();
-    this.knownAt.clear();
+    this.dueAt.clear();
     this.unread.clear();
     this.applied.clear();
     this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
@@ -837,8 +850,11 @@ export class TrackedTagMarkers {
 
   /** Record that `tag`'s marker was known from the table at `at`. */
   private known(tag: string, at: number): void {
-    this.knownAt.delete(tag);
-    this.knownAt.set(tag, at);
+    this.dueAt.delete(tag);
+    this.dueAt.set(
+      tag,
+      at + this.resyncIntervalMs * (1 - TAG_RESYNC_JITTER * this.random()),
+    );
   }
 
   private remember(tag: string, marker: TagMarker): void {
@@ -849,7 +865,7 @@ export class TrackedTagMarkers {
         break;
       }
       this.tags.delete(oldest);
-      this.knownAt.delete(oldest);
+      this.dueAt.delete(oldest);
       this.unread.delete(oldest);
     }
   }

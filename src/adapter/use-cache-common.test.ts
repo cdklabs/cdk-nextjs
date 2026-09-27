@@ -276,7 +276,9 @@ describe("UseCacheTagManifest with the revalidation log", () => {
   const INTERVAL = 1000;
 
   /** Two instances, `a` and `b`, over one table and one clock. */
-  function instances(options: { resyncIntervalMs?: number } = {}) {
+  function instances(
+    options: { resyncIntervalMs?: number; random?: () => number } = {},
+  ) {
     const markerRows = new Map<string, TagMarker>();
     const logRows: RevalidationLogRow[] = [];
     const clock = fakeClock();
@@ -288,6 +290,8 @@ describe("UseCacheTagManifest with the revalidation log", () => {
         log: log.log,
         refreshIntervalMs: INTERVAL,
         clock: clock.now,
+        // Due at the full interval unless a test asks otherwise.
+        random: () => 0,
         ...options,
       });
       return { markers, log, tags };
@@ -426,6 +430,28 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     // Due at 10 intervals, oldest first, 100 per refresh; then not again.
     expect(sizes).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 100, 50, 0, 0]);
     expect(b.markers.read).not.toHaveBeenCalled();
+  });
+
+  // Tags first read together must not come due together every interval.
+  it("spreads when each tag comes due over the last quarter of the interval", async () => {
+    // Due at 10, 8.75 and 7.5 intervals, known in that order: the one due
+    // first is last, behind two that are not due yet.
+    const randoms = [0, 0.5, 1];
+    const { clock, b } = instances({
+      resyncIntervalMs: 10 * INTERVAL,
+      random: () => randoms.shift() ?? 0,
+    });
+    b.tags.track(["late", "middle", "early"]);
+    const readAt: Record<string, number> = {};
+    for (let i = 1; i <= 10; i++) {
+      clock.at += INTERVAL;
+      b.markers.read.mockClear();
+      await b.tags.refresh();
+      for (const tag of b.markers.read.mock.calls[0]?.[0] ?? []) {
+        readAt[tag] ??= i;
+      }
+    }
+    expect(readAt).toEqual({ early: 8, middle: 9, late: 10 });
   });
 
   it("re-reads a marker it learned of from its own write only once that is due", async () => {

@@ -301,8 +301,8 @@ log (`pk = <buildId>#log`, `sk = <epoch-ms>#<tag>`), and each instance sends one
 `Query` per `CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS` (`'use cache'`) and per
 `CDK_NEXTJS_TAG_MARKER_TTL_MS` (ISR and the data cache) for the rows it hasn't
 seen. The marker rows stay the source of truth: an instance still reads a tag's
-marker the first time it needs it, and re-reads each one it keeps every 10
-minutes, at most 100 a second. After a gap the log may not cover, it forgets
+marker the first time it needs it, and re-reads each one it keeps every 7.5
+to 10 minutes, at most 100 a second. After a gap the log may not cover, it forgets
 them and reads each again when it's next needed.
 
 - An instance now keeps up to 10,000 tags' markers, up from 1,000 for

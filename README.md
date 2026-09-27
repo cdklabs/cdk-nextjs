@@ -204,7 +204,7 @@ one and applies those for tags it tracks. So a revalidation on another instance
 is honored within that window (1 second by default), and on the instance that ran
 it immediately. An idle instance's query costs 0.5 RCU a second, where
 re-reading up to 1000 tracked tags cost about 500. Each tag's marker is still
-re-read every 10 minutes, a few each second rather than all at once (about 8
+re-read every 7.5 to 10 minutes, a few each second rather than all at once (about 8
 RCU a second at the most an instance tracks, 10,000 tags). After a gap the log
 may no longer cover (a Lambda frozen between invocations, a run of failed
 queries), an instance forgets its tracked markers and reads each again as it's
