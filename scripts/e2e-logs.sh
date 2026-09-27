@@ -55,11 +55,18 @@ fi
 
 # Runtime logs: a deployment that came up but answers wrongly leaves its
 # evidence in CloudWatch, not in either log above.
+# The Containers types name their log group outright; the Functions types' is
+# derived from the function name.
 if [ -f "$HARNESS_STACK_FILE" ]; then
-  FUNCTION_NAME="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$(cat "$HARNESS_STACK_FILE")" ServerFunctionName)"
-  if [ -n "$FUNCTION_NAME" ]; then
-    echo "=== /aws/lambda/$FUNCTION_NAME (last ${HARNESS_LOG_SINCE:-30m}) ==="
-    aws logs tail "/aws/lambda/$FUNCTION_NAME" \
+  STACK_NAME="$(cat "$HARNESS_STACK_FILE")"
+  LOG_GROUP="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" ServerLogGroupName)"
+  if [ -z "$LOG_GROUP" ]; then
+    FUNCTION_NAME="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" ServerFunctionName)"
+    [ -n "$FUNCTION_NAME" ] && LOG_GROUP="/aws/lambda/$FUNCTION_NAME"
+  fi
+  if [ -n "$LOG_GROUP" ]; then
+    echo "=== $LOG_GROUP (last ${HARNESS_LOG_SINCE:-30m}) ==="
+    aws logs tail "$LOG_GROUP" \
       --since "${HARNESS_LOG_SINCE:-30m}" \
       --format short 2>&1 | tail -n "$LOG_LINES" || true
   fi

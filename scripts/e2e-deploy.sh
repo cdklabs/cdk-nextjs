@@ -191,11 +191,34 @@ echo "harness: deploying $STACK_NAME"
 # `--output` inside the app directory: a shared cdk.out would have concurrent
 # test files overwrite each other's assembly. (The shared stack requires `-c 1`
 # anyway, but `HARNESS_ISOLATED_STACK=1` does not.)
+#
+# The container types hotswap too - a new image and a changed environment are
+# both task-definition changes - but a hotswap into ECS is a rolling deployment,
+# and by default it keeps the old task serving until the new one is healthy.
+# Minimum 0% lets ECS stop the previous fixture's task without waiting for that.
+# Maximum stays at 200%: 100% would force stop-then-start, but the service has
+# Availability Zone Rebalancing on, which rejects any maximum <= 100% with an
+# `InvalidParameterException`. The overlap that leaves is covered twice: the
+# hotswap blocks until the service is stable (one deployment left, running the
+# desired count), and the target-group wait below until only the new task is
+# registered. Bounded, because a fixture whose server never comes up would
+# otherwise hold the shard until the job's timeout; the test file fails either
+# way.
+HOTSWAP_ARGS=(--hotswap-fallback)
+case "$(harness_nextjs_type)" in
+  *-containers)
+    HOTSWAP_ARGS+=(
+      --hotswap-ecs-minimum-healthy-percent 0
+      --hotswap-ecs-maximum-healthy-percent 200
+      --hotswap-ecs-stabilization-timeout-seconds "${HARNESS_ECS_STABILIZATION_TIMEOUT:-600}"
+    )
+    ;;
+esac
 "$CDK_BIN" deploy "$STACK_NAME" \
   --app "node $HARNESS_DIR/app.js" \
   --output "$APP_DIR/$HARNESS_CDK_OUT" \
   --outputs-file "$APP_DIR/$HARNESS_OUTPUTS_FILE" \
-  --hotswap-fallback \
+  "${HOTSWAP_ARGS[@]}" \
   --require-approval never \
   --ci 2>&1 | tee "$HARNESS_DEPLOY_LOG"
 
@@ -205,7 +228,39 @@ if [ -z "$URL" ]; then
   exit 1
 fi
 
-if [ "$(harness_nextjs_type)" = "regional-functions" ]; then
+NEXTJS_TYPE="$(harness_nextjs_type)"
+case "$NEXTJS_TYPE" in
+  *-containers)
+    # A hotswap into ECS returns once `runningCount` reaches `desiredCount`, which
+    # is before the load balancer routes to the new task: it is still in the
+    # target group's `initial` health check, and the ALB answers 503 until it
+    # passes. A full CloudFormation update waits for that, but leaves the old task
+    # `draining` behind it, still answering. So wait here, either way, until the
+    # target group holds exactly one target and it is `healthy`.
+    TARGET_GROUP_ARN="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" TargetGroupArn)"
+    if [ -z "$TARGET_GROUP_ARN" ]; then
+      echo "harness: $STACK_NAME has no TargetGroupArn output; cannot wait for the new task" >&2
+      exit 1
+    fi
+    TARGETS=""
+    for _ in $(seq 1 60); do
+      TARGETS="$(aws elbv2 describe-target-health --target-group-arn "$TARGET_GROUP_ARN" \
+        --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)"
+      [ "$TARGETS" = "healthy" ] && break
+      sleep 5
+    done
+    if [ "$TARGETS" != "healthy" ]; then
+      echo "harness: $TARGET_GROUP_ARN never settled on one healthy target (last: ${TARGETS:-none})" >&2
+      exit 1
+    fi
+    echo "harness: new task healthy in $TARGET_GROUP_ARN"
+    ;;
+esac
+
+if [ "$NEXTJS_TYPE" = "regional-containers" ]; then
+  # Nothing more to do: no distribution to invalidate, and no stage to put back.
+  :
+elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   # No distribution to invalidate - API Gateway caches nothing unless told to.
   # What there is instead is the stage in `$URL`, which the harness would strip
   # from every request (see stage-proxy.mjs), so the suite is pointed at a

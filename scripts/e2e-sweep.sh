@@ -104,24 +104,47 @@ CANDIDATES="$(
           stack.LastUpdatedTime ? new Date(stack.LastUpdatedTime).getTime() : 0,
         );
         if (Date.now() - lastChange < maxAgeMs) continue;
-        const fn = (stack.Outputs || []).find((o) => o.OutputKey === "ServerFunctionName");
-        console.log([stack.StackName, status, lastChange, fn ? fn.OutputValue : "-"].join("\t"));
+        // What a hotswap moves: the server function for the Functions types, the
+        // ECS service (as `ecs:<cluster>/<service>`) for the Containers types.
+        const output = (key) => ((stack.Outputs || []).find((o) => o.OutputKey === key) || {}).OutputValue;
+        const fn = output("ServerFunctionName");
+        const cluster = output("EcsClusterName");
+        const service = output("EcsServiceName");
+        const probe = fn || (cluster && service ? `ecs:${cluster}/${service}` : "-");
+        console.log([stack.StackName, status, lastChange, probe].join("\t"));
       }
     });
   '
 )"
 
 # Milliseconds since the epoch of the most recent sign that a stack is in use:
-# its CloudFormation timestamps (from the listing) or its server function's
-# `LastModified`, which hotswaps update and CloudFormation does not. Read-only.
-# A function that is gone (a DELETE_FAILED stack, say) contributes nothing. Any
-# other read failure (throttling, AccessDenied) returns non-zero instead, and
-# the caller keeps the stack: without the function's timestamp, the floor can't
-# tell an abandoned stack from one being hotswapped into right now.
+# its CloudFormation timestamps (from the listing) or what hotswaps update and
+# CloudFormation does not - its server function's `LastModified`, or for a
+# Containers stack (`ecs:<cluster>/<service>`) its ECS service's latest
+# deployment. Read-only. A function or service that is gone (a DELETE_FAILED
+# stack, say) contributes nothing. Any other read failure (throttling,
+# AccessDenied) returns non-zero instead, and the caller keeps the stack: without
+# that timestamp, the floor can't tell an abandoned stack from one being
+# hotswapped into right now.
 last_activity_ms() {
   local stack_ms="$1" function_name="$2"
   local modified=""
-  if [ "$function_name" != "-" ]; then
+  if [ "${function_name#ecs:}" != "$function_name" ]; then
+    local cluster service
+    cluster="${function_name#ecs:}"
+    service="${cluster#*/}"
+    cluster="${cluster%%/*}"
+    if ! modified="$(aws ecs describe-services --cluster "$cluster" --services "$service" \
+      --query 'max_by(services[0].deployments, &updatedAt).updatedAt' --output text 2>&1)"; then
+      case "$modified" in
+        *ClusterNotFoundException*) modified="" ;;
+        *)
+          echo "sweep: cannot read $function_name's deployments: $modified" >&2
+          return 1
+          ;;
+      esac
+    fi
+  elif [ "$function_name" != "-" ]; then
     if ! modified="$(aws lambda get-function-configuration --function-name "$function_name" \
       --query LastModified --output text 2>&1)"; then
       case "$modified" in
@@ -135,7 +158,11 @@ last_activity_ms() {
   fi
   node -e '
     const [stackMs, modified] = process.argv.slice(1);
-    const fnMs = modified && modified !== "None" ? new Date(modified).getTime() : NaN;
+    // An ISO timestamp from Lambda, and from ECS either that or epoch seconds,
+    // depending on the CLI'"'"'s `cli_timestamp_format`.
+    const fnMs = !modified || modified === "None" ? NaN
+      : /^[\d.]+$/.test(modified) ? Number(modified) * 1000
+      : new Date(modified).getTime();
     process.stdout.write(String(Math.max(Number(stackMs), Number.isNaN(fnMs) ? 0 : fnMs)));
   ' "$stack_ms" "$modified"
 }

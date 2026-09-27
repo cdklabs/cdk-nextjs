@@ -67,10 +67,11 @@ harness_app_id() {
 # when debugging one file - at the cost of a distribution create and delete per
 # file.
 #
-# A `regional-functions` run (HARNESS_NEXTJS_TYPE) gets `rf-` after the prefix,
-# so it can never deploy into a Global run's shared stack - a different root
-# construct in the same stack would be a replacement of nearly everything in it.
-# The prefix is unchanged, so `e2e-sweep.sh` finds both.
+# Every type but `global-functions` (HARNESS_NEXTJS_TYPE) gets its own infix
+# after the prefix - `rf-`, `gc-`, `rc-` - so a run can never deploy into another
+# type's shared stack: a different root construct in the same stack would be a
+# replacement of nearly everything in it. The prefix is unchanged, so
+# `e2e-sweep.sh` finds them all.
 harness_stack_name() {
   local dir="$1"
   local prefix="$HARNESS_STACK_PREFIX"
@@ -78,9 +79,11 @@ harness_stack_name() {
   # Assigned on its own line so a rejected type fails this function instead of
   # comparing as "" and quietly naming a Global stack.
   type="$(harness_nextjs_type)" || return 1
-  if [ "$type" = "regional-functions" ]; then
-    prefix="${prefix}rf-"
-  fi
+  case "$type" in
+    regional-functions) prefix="${prefix}rf-" ;;
+    global-containers) prefix="${prefix}gc-" ;;
+    regional-containers) prefix="${prefix}rc-" ;;
+  esac
   if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ]; then
     printf '%s%s' "$prefix" "${HARNESS_SHARED_STACK_SUFFIX:-shared}"
     return 0
@@ -88,9 +91,10 @@ harness_stack_name() {
   printf '%s%s' "$prefix" "$(harness_app_id "$dir")"
 }
 
-# Which root construct `app.js` deploys: `global-functions` (the default) or
-# `regional-functions`. Exits on anything else, rather than quietly deploying the
-# default under a name that says otherwise.
+# Which root construct `app.js` deploys: `global-functions` (the default),
+# `regional-functions`, `global-containers` or `regional-containers`. Exits on
+# anything else, rather than quietly deploying the default under a name that says
+# otherwise.
 #
 # When called as `$(harness_nextjs_type)`, that `exit` only ends the command
 # substitution's subshell, which is why this file also runs it once at the top
@@ -98,9 +102,11 @@ harness_stack_name() {
 harness_nextjs_type() {
   local type="${HARNESS_NEXTJS_TYPE:-global-functions}"
   case "$type" in
-    global-functions | regional-functions) printf '%s' "$type" ;;
+    global-functions | regional-functions | global-containers | regional-containers)
+      printf '%s' "$type"
+      ;;
     *)
-      echo "harness: HARNESS_NEXTJS_TYPE=$type is not global-functions or regional-functions" >&2
+      echo "harness: HARNESS_NEXTJS_TYPE=$type is not global-functions, regional-functions, global-containers or regional-containers" >&2
       exit 1
       ;;
   esac

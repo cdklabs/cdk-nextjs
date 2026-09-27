@@ -8,17 +8,29 @@
  *
  * @see scripts/e2e-harness/README.md
  */
-const { App, CfnOutput, Stack } = require("aws-cdk-lib");
-const { NextjsGlobalFunctions, NextjsRegionalFunctions } = require("../../lib");
+const { App, CfnOutput, Duration, Stack } = require("aws-cdk-lib");
+const { Vpc } = require("aws-cdk-lib/aws-ec2");
+const {
+  NextjsGlobalContainers,
+  NextjsGlobalFunctions,
+  NextjsRegionalContainers,
+  NextjsRegionalFunctions,
+} = require("../../lib");
 
 const appDir = required("HARNESS_APP_DIR");
 const stackName = required("HARNESS_STACK_NAME");
-// `global-functions` (the default) or `regional-functions`; see common.sh's
-// `harness_nextjs_type`, which validates it and keeps the two stack names apart.
+// One of the four `NextjsType`s, `global-functions` by default; see common.sh's
+// `harness_nextjs_type`, which validates it and keeps the stack names apart.
+const NEXTJS_TYPES = [
+  "global-functions",
+  "regional-functions",
+  "global-containers",
+  "regional-containers",
+];
 const nextjsType = process.env["HARNESS_NEXTJS_TYPE"] || "global-functions";
-if (nextjsType !== "global-functions" && nextjsType !== "regional-functions") {
+if (!NEXTJS_TYPES.includes(nextjsType)) {
   throw new Error(
-    `HARNESS_NEXTJS_TYPE=${nextjsType} is not global-functions or regional-functions`,
+    `HARNESS_NEXTJS_TYPE=${nextjsType} is not one of ${NEXTJS_TYPES.join(", ")}`,
   );
 }
 
@@ -192,9 +204,160 @@ class HarnessStack extends Stack {
   }
 }
 
+/**
+ * A path no fixture routes, for the container health checks.
+ *
+ * Both container types require a `healthCheckPath` that answers 200, and the
+ * harness's fixtures - written for Vercel - have no such route. Adding one to
+ * every fixture would change the app under test (a pages-only fixture would grow
+ * an `app/` directory), so instead both checks are pointed at a path the app
+ * 404s and told that any answer means the server is up. They exist to tell a
+ * running task from one that is not listening, and a 404 tells them that.
+ */
+const HEALTH_CHECK_PATH = "/__cdk-nextjs-harness-health";
+
+/**
+ * The container types' own VPC, with one NAT gateway rather than the default of
+ * one per AZ. A sharded run creates a stack per shard, and every NAT gateway
+ * holds an Elastic IP out of a per-region quota the account's other stacks share.
+ */
+function harnessVpc(scope) {
+  return new Vpc(scope, "Vpc", { maxAzs: 2, natGateways: 1 });
+}
+
+/**
+ * Loosens both container health checks to "the server answered" (see
+ * HEALTH_CHECK_PATH), keeping the construct's timings.
+ */
+function acceptAnyAnswer(nextjsContainers, basePath) {
+  const path = `${basePath || ""}${HEALTH_CHECK_PATH}`;
+  const { albFargateService } = nextjsContainers;
+  // `configureHealthCheck` replaces the whole health check, so the construct's
+  // timings are restated (src/nextjs-compute/nextjs-containers.ts).
+  albFargateService.targetGroup.configureHealthCheck({
+    path,
+    healthyHttpCodes: "200-499",
+    healthyThresholdCount: 2,
+    interval: Duration.seconds(10),
+    timeout: Duration.seconds(5),
+  });
+  // The construct sets this the same way, through the container's props; there
+  // is no public setter. `wget --spider` fails on a 404, so ask node instead,
+  // which resolves `fetch` for any HTTP answer and rejects only when nothing is
+  // listening.
+  albFargateService.taskDefinition.defaultContainer.props.healthCheck = {
+    command: [
+      "CMD-SHELL",
+      `node -e "fetch('http://localhost:3000${path}').then(() => process.exit(0), () => process.exit(1))"`,
+    ],
+  };
+}
+
+/**
+ * Keeps the harness's own files out of the image's build context, which is the
+ * fixture directory. `.adapter-cdk-out` is where this very synth writes its
+ * assembly - left in, the asset would try to stage a copy of itself - and
+ * `node_modules` and `.next/cache` are large and unused: the Dockerfile copies
+ * only the staged deployment root, `.next/static` and `public`.
+ */
+const CONTAINER_OVERRIDES = {
+  dockerImageAssetProps: {
+    exclude: ["cdk.out", ".adapter-*", "node_modules", ".next/cache"],
+  },
+};
+
+function containerOutputs(scope, nextjsContainers) {
+  const { albFargateService } = nextjsContainers;
+  new CfnOutput(scope, "EcsClusterName", {
+    key: "EcsClusterName",
+    value: albFargateService.cluster.clusterName,
+  });
+  new CfnOutput(scope, "EcsServiceName", {
+    key: "EcsServiceName",
+    value: albFargateService.service.serviceName,
+  });
+  // Read by `e2e-deploy.sh`, which waits on it: a hotswap into ECS returns once
+  // the task is RUNNING, which is before the load balancer will route to it.
+  new CfnOutput(scope, "TargetGroupArn", {
+    key: "TargetGroupArn",
+    value: albFargateService.targetGroup.targetGroupArn,
+  });
+  const logDriver = albFargateService.taskDefinition.defaultContainer.logDriverConfig;
+  new CfnOutput(scope, "ServerLogGroupName", {
+    key: "ServerLogGroupName",
+    value: logDriver.options["awslogs-group"],
+  });
+}
+
+/**
+ * `NextjsGlobalContainers`: CloudFront + ALB + Fargate. Served at the
+ * distribution's origin root, like `HarnessStack`, and invalidated the same way
+ * by `e2e-deploy.sh`.
+ */
+class GlobalContainersHarnessStack extends Stack {
+  constructor(scope, id, props) {
+    super(scope, id, props);
+    const nextjs = new NextjsGlobalContainers(this, "Nextjs", {
+      ...COMMON_PROPS,
+      healthCheckPath: HEALTH_CHECK_PATH,
+      vpc: harnessVpc(this),
+      overrides: {
+        nextjsContainers: CONTAINER_OVERRIDES,
+        nextjsPostDeploy: PINNED_POST_DEPLOY,
+      },
+    });
+    acceptAnyAnswer(nextjs.nextjsContainers, fixtureBasePath(appDir));
+    new CfnOutput(this, "HarnessUrl", {
+      key: "HarnessUrl",
+      // The bare origin, for the reasons given in `HarnessStack`.
+      value: `https://${nextjs.nextjsDistribution.distribution.domainName}`,
+    });
+    new CfnOutput(this, "DistributionId", {
+      key: "DistributionId",
+      value: nextjs.nextjsDistribution.distribution.distributionId,
+    });
+    containerOutputs(this, nextjs.nextjsContainers);
+  }
+}
+
+/**
+ * `NextjsRegionalContainers`: a public ALB + Fargate, no CloudFront. The ALB
+ * forwards every path unchanged, so - unlike `NextjsRegionalFunctions` - its URL
+ * has no stage and needs no proxy. Plain HTTP, which is what the construct
+ * deploys without a certificate.
+ */
+class RegionalContainersHarnessStack extends Stack {
+  constructor(scope, id, props) {
+    super(scope, id, props);
+    const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
+      ...COMMON_PROPS,
+      healthCheckPath: HEALTH_CHECK_PATH,
+      vpc: harnessVpc(this),
+      overrides: {
+        nextjsContainers: CONTAINER_OVERRIDES,
+        nextjsPostDeploy: PINNED_POST_DEPLOY,
+      },
+    });
+    acceptAnyAnswer(nextjs.nextjsContainers, fixtureBasePath(appDir));
+    new CfnOutput(this, "HarnessUrl", {
+      key: "HarnessUrl",
+      // The ALB's bare origin - not `nextjs.url`, which appends the fixture's
+      // `basePath`, for the reasons given in `HarnessStack`.
+      value: nextjs.nextjsContainers.url,
+    });
+    containerOutputs(this, nextjs.nextjsContainers);
+  }
+}
+
+const STACK_CLASSES = {
+  "global-functions": HarnessStack,
+  "regional-functions": RegionalHarnessStack,
+  "global-containers": GlobalContainersHarnessStack,
+  "regional-containers": RegionalContainersHarnessStack,
+};
+
 const app = new App();
-const StackClass =
-  nextjsType === "regional-functions" ? RegionalHarnessStack : HarnessStack;
+const StackClass = STACK_CLASSES[nextjsType];
 new StackClass(app, stackName, {
   stackName,
   env: {

@@ -6,7 +6,9 @@ write, because the tests were written by the people who define the behavior.
 
 `examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
 is the scheduled one — every sixth day of the month at 14:00 UTC, so the day of
-the week drifts — on `NextjsGlobalFunctions` only.
+the week drifts — on `NextjsGlobalFunctions` only. The other three run by
+`workflow_dispatch` (its `nextjs_type` input) or by hand; see "Running on the
+other `NextjsType`s".
 
 What has actually been run, what failed, and whether each failure is a bug or
 acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
@@ -302,9 +304,57 @@ Two caveats worth knowing before reading a failure as a regression:
   limitation documented at `src/nextjs-distribution.ts`. A test that varies on a
   header outside that list can be served a wrong cached response. That is a real
   product limitation, not a harness artifact — and not a regression either.
-- `NextjsGlobalContainers` and `NextjsRegionalContainers` are not covered here
-  at all, and `NextjsRegionalFunctions` only by hand (see "Running on
-  `NextjsRegionalFunctions`"). `examples/e2e-tests` is the gate on all three.
+- The other three types are not on the schedule; see "Running on the other
+  `NextjsType`s". `examples/e2e-tests` is the per-commit gate on all three.
+
+## Running on the other `NextjsType`s
+
+`HARNESS_NEXTJS_TYPE` picks the root construct: `global-functions` (the default),
+`regional-functions`, `global-containers` or `regional-containers`. Each type but
+the default gets a stack infix of its own — `hrns-rf-*`, `hrns-gc-*`,
+`hrns-rc-*` — so no run can deploy into another type's stack, and runs of two
+types can overlap. The workflow's `nextjs_type` input sets it for every shard.
+
+```bash
+ADAPTER_DIR=$PWD HARNESS_NEXTJS_TYPE=global-containers ./scripts/e2e-warm.sh
+# ...then the usual run from the next.js checkout, with the same
+# HARNESS_NEXTJS_TYPE exported, and afterwards:
+HARNESS_NEXTJS_TYPE=global-containers ./scripts/e2e-sweep.sh --apply --shared
+```
+
+### The Containers types
+
+Both deploy through the same `--hotswap-fallback` path. A new image and a
+changed environment are task-definition changes, which CDK hotswaps into the ECS
+service, so every file still reuses its shard's distribution, load balancer and
+VPC. What the harness does differently:
+
+- **The health check accepts any answer.** Both types require a
+  `healthCheckPath` that answers 200, and no fixture has one. Rather than add a
+  route to the app under test, `app.js` points both checks at a path nothing
+  routes and accepts 200–499 (ALB) or any HTTP answer (the container's own
+  check). They only need to tell a listening server from one that is not.
+- **The old task may be stopped at once** (`--hotswap-ecs-minimum-healthy-percent
+  0`). The default rolling deployment keeps the previous fixture's task serving
+  until the new one is healthy. The maximum has to stay above 100% — the service
+  has Availability Zone Rebalancing on, which rejects anything lower — so the two
+  can still overlap; the waits below are what keep the suite off the old one.
+- **It waits for the target group, not just the service.** A hotswap returns
+  when the task is RUNNING, which is before the ALB routes to it (503 until its
+  health check passes), and a full CloudFormation update returns with the old
+  task still draining. `e2e-deploy.sh` waits until the target group holds exactly
+  one target and it is `healthy`. `NextjsGlobalContainers` is then invalidated
+  like `NextjsGlobalFunctions`.
+- **One NAT gateway per stack**, not the default of one per AZ. Every shard has a
+  VPC of its own, and NAT gateways hold Elastic IPs out of a per-region quota.
+- **`NEXT_E2E_TEST_TIMEOUT` is 480000 in the workflow**, not 240000. An image
+  build, a push and an ECS rollout are added to every file's deploy, all inside
+  `beforeAll`.
+
+`NextjsRegionalContainers` is served over plain HTTP at its ALB's origin — no
+stage, so no proxy — which is what the construct deploys without a certificate.
+A test that depends on HTTPS (a `Secure` cookie, say) fails there for that
+reason alone.
 
 ## Running on `NextjsRegionalFunctions`
 
@@ -616,7 +666,8 @@ the account.
 | `ADAPTER_DIR`                       | _required_                           | This checkout. All three scripts resolve everything from it.                                           |
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
 | `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` once cdk-nextjs opts into `config.supportsImmutableAssets`. |
-| `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions`: deploy `NextjsRegionalFunctions` behind `stage-proxy.mjs`, into `hrns-rf-*` stacks. See "Running on `NextjsRegionalFunctions`". |
+| `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
+| `HARNESS_ECS_STABILIZATION_TIMEOUT` | `600`                                | Seconds a Containers hotswap waits for the service to stabilize before the deploy fails.               |
 | `HARNESS_PROXY_PORT`                | _derived from the stack name_        | Port `stage-proxy.mjs` listens on. Regional only.                                                      |
 | `HARNESS_ISOLATED_STACK`            | `0`                                  | One stack per test file instead of one shared one. Re-enables `e2e-cleanup.sh`.                        |
 | `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per concurrent local suite.            |

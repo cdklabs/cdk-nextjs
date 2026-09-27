@@ -31,6 +31,15 @@ on:
         description: "How many parallel shards to split the test files across (one stack each). 1 reproduces the old serial run."
         default: "10"
         type: string
+      nextjs_type:
+        description: "Which root construct to deploy the fixtures with. The schedule always runs global-functions."
+        default: global-functions
+        type: choice
+        options:
+          - global-functions
+          - regional-functions
+          - global-containers
+          - regional-containers
   schedule:
     # Every sixth day of the month at 14:00 UTC — morning on both US coasts, and
     # the run's ceiling leaves the result the same day. Not daily, because a run
@@ -55,9 +64,11 @@ on:
     - cron: "0 14 */6 * *"
 
 concurrency:
-  # Never two runs at once. Shards within a run get a stack each, but two runs
-  # would reuse the same shard names and each would deploy over the other's app.
-  group: ${{ github.workflow }}
+  # Never two runs of one type at once. Shards within a run get a stack each, but
+  # two runs would reuse the same shard names and each would deploy over the
+  # other's app. Two types can overlap: every type but global-functions has a
+  # stack infix of its own (`harness_stack_name` in scripts/e2e-harness/common.sh).
+  group: ${{ github.workflow }}-${{ inputs.nextjs_type || 'global-functions' }}
   cancel-in-progress: false
 
 permissions:
@@ -213,6 +224,13 @@ jobs:
         shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
       TEST_FILTERS: ${{ inputs.test_filters || '../test/deploy-tests-manifest.json' }}
+      # Read by every harness script, through common.sh. Job-wide, so that warm,
+      # deploy and sweep all resolve the same type's stack name.
+      HARNESS_NEXTJS_TYPE: ${{ inputs.nextjs_type || 'global-functions' }}
+      # The per-file budget `createNext` - build, deploy and all - runs inside. The
+      # Containers types add an image build and push and an ECS rollout to every
+      # deploy, which the Functions types' 240s does not fit.
+      NEXT_E2E_TEST_TIMEOUT: ${{ endsWith(inputs.nextjs_type || 'global-functions', '-containers') && '480000' || '240000' }}
       # The stack this shard owns, read by `harness_stack_name` in
       # scripts/e2e-harness/common.sh. Every step below that touches AWS - warm,
       # deploy, sweep - resolves the same name from it, which is the whole of what
@@ -280,7 +298,7 @@ jobs:
       - name: Warm this shard's stack
         # Creating the CloudFront distribution takes ~240s, and the harness
         # runs `createNext` inside jest's `beforeAll` - so without this the first
-        # test file is charged that wait against NEXT_E2E_TEST_TIMEOUT below,
+        # test file is charged that wait against NEXT_E2E_TEST_TIMEOUT above,
         # fails wholesale, and only passes on retry. Pay it once, here, where
         # nothing is timing us. Once per shard, but all in parallel, so the wall
         # clock is the same ~4 minutes however many shards there are.
@@ -292,7 +310,6 @@ jobs:
         working-directory: nextjs
         env:
           NEXT_TEST_MODE: deploy
-          NEXT_E2E_TEST_TIMEOUT: 240000
           NEXT_EXTERNAL_TESTS_FILTERS: ${{ env.TEST_FILTERS }}
           IS_TURBOPACK_TEST: 1
           # cdk-nextjs *is* an adapter deployment, and next.js's suite asks. Ten
