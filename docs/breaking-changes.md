@@ -78,12 +78,18 @@ them — only the Containers types still build images.
 - **250 MB unzipped limit.** Zip Lambdas are capped where container images were
   not. cdk-nextjs fails at synth with the group's measured size if a function
   exceeds it; the fix is the new `functionGroups` prop (below).
-- **`functionProps.architecture` must match the synth machine.** 0.6.x honored
-  `dockerImageFunctionProps.architecture`. The function's architecture now
-  always matches the machine that runs synth, because `sharp` is staged for it,
-  and a conflicting `functionProps.architecture` (construct-wide or per group)
-  fails synth with a message. To deploy ARM64, synth on an ARM64 machine or CI
-  runner.
+- **`functionProps.architecture` is honored.** The Functions types still
+  default to the architecture of the machine running synth, as in 0.6.x, so any
+  native dependency `next build` traced from it runs as built. Setting
+  `overrides.nextjsFunctions.functionProps.architecture`, or a function group's
+  `overrides.functionProps.architecture`, now deploys that architecture, with
+  `sharp` staged for it. An x86 CI runner can deploy arm64 functions. Only
+  `sharp` is staged for the target. Any other native dependency in your app is
+  still traced from the build machine, so build on the architecture you deploy
+  if you have one.
+- **The post-deploy Lambda is always arm64.** It has no native dependencies,
+  so it no longer follows the synth machine. The first deploy after upgrading
+  from an x86 machine updates it in place.
 
 ### The dedicated image optimization Lambda is gone
 

@@ -316,6 +316,16 @@ export abstract class NextjsBaseConstruct extends Construct {
    * subclasses, so nothing weaker than a cast can see it. Adding it to
    * `NextjsBaseProps` would offer it to Containers, where it does nothing.
    */
+  /**
+   * `overrides.nextjsFunctions`, which only the two Functions root constructs
+   * declare. Cast for the same reason as {@link functionGroups}.
+   */
+  private get functionsOverrides(): NextjsFunctionsOverrides | undefined {
+    const overrides = this.baseProps.overrides as
+      { nextjsFunctions?: NextjsFunctionsOverrides } | undefined;
+    return overrides?.nextjsFunctions;
+  }
+
   protected get functionGroups(): NextjsFunctionGroup[] | undefined {
     const props = this.baseProps as { functionGroups?: NextjsFunctionGroup[] };
     return props.functionGroups;
@@ -385,7 +395,13 @@ export abstract class NextjsBaseConstruct extends Construct {
       skipBuild: this.baseProps.skipBuild,
       // The build resolves the split, since only it knows the route templates;
       // the constructs read the result back off the manifest.
-      functionGroups: this.functionGroups,
+      functionGroups: this.functionGroups?.map((group) => ({
+        name: group.name,
+        routes: group.routes,
+        architecture: group.overrides?.functionProps?.architecture,
+      })),
+      // What each Lambda will run decides the `sharp` binaries staged for it.
+      architecture: this.functionsOverrides?.functionProps?.architecture,
       ...this.constructOverrides?.nextjsBuildProps,
     });
   }

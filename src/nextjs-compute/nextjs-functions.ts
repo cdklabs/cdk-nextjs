@@ -152,6 +152,11 @@ export class NextjsFunctions extends Construct {
         name: DEFAULT_FUNCTION_GROUP,
         path: props.deploymentRootPath,
         routes: [],
+        // Only a hand-built `NextjsFunctions` gets here, and its caller staged
+        // the root: assume it did so for the architecture it asks for.
+        architecture:
+          props.overrides?.functionProps?.architecture ??
+          getLambdaArchitecture(),
       },
     ];
 
@@ -203,18 +208,19 @@ export class NextjsFunctions extends Construct {
     root: NextjsDeploymentRoot,
     groupOverrides: NextjsFunctionsOverrides | undefined,
   ) {
-    const architecture = getLambdaArchitecture();
+    const architecture = root.architecture;
     const requested =
       groupOverrides?.functionProps?.architecture ??
       this.props.overrides?.functionProps?.architecture;
     if (requested && requested.name !== architecture.name) {
       // Ignoring it would deploy a function the user didn't ask for; honoring
       // it would deploy one that can't load the `sharp` binaries staged for
-      // this machine. Neither is something to find out after a deploy.
+      // the root. The root constructs pass the same value to both, so only a
+      // hand-wired `NextjsBuild` and `NextjsFunctions` can get here.
       throw new Error(
-        `${LOG_PREFIX} functionProps.architecture is ${requested.name}, but this machine is ${architecture.name}. ` +
-          "NextjsBuild stages native dependencies (sharp) for the architecture it runs on, so the function must match it. " +
-          `Drop the override, or synth on a ${requested.name} machine (or CI runner).`,
+        `${LOG_PREFIX} functionProps.architecture for function group "${root.name}" is ${requested.name}, ` +
+          `but NextjsBuild staged its native dependencies (sharp) for ${architecture.name}. ` +
+          "Pass the same architecture to NextjsBuild (`architecture`, or the group's `architecture`).",
       );
     }
     const functionProps: FunctionProps = {
@@ -225,10 +231,8 @@ export class NextjsFunctions extends Construct {
       timeout: Duration.seconds(30),
       ...this.sharedFunctionProps(root.name),
       ...groupOverrides?.functionProps,
-      // Must not be overridable: `NextjsBuild` stages `sharp` binaries matching
-      // the synth machine's architecture, so the deployed function's
-      // architecture must always match what was staged. A conflicting override
-      // throws above rather than being dropped here.
+      // After the overrides: the function must run what `NextjsBuild` staged.
+      // An override that disagrees throws above rather than being dropped here.
       architecture,
       environment: {
         // Cache configuration environment variables

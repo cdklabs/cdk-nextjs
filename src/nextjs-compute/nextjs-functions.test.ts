@@ -9,7 +9,6 @@ import { Architecture, Code } from "aws-cdk-lib/aws-lambda";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { NextjsFunctions, NextjsFunctionsOverrides } from "./nextjs-functions";
 import { NextjsType } from "../constants";
-import { getLambdaArchitecture } from "../utils/get-architecture";
 
 describe("NextjsFunctions overrides", () => {
   let dir: string;
@@ -31,6 +30,7 @@ describe("NextjsFunctions overrides", () => {
   function synth(
     overrides: NextjsFunctionsOverrides,
     groupOverrides?: NextjsFunctionsOverrides,
+    staged: Architecture = Architecture.X86_64,
   ) {
     const stack = new Stack(new App(), "TestStack");
     new NextjsFunctions(stack, "Functions", {
@@ -45,8 +45,18 @@ describe("NextjsFunctions overrides", () => {
       deploymentRootPath: join(dir, "default"),
       relativeProjectDir: "",
       deploymentRoots: [
-        { name: "default", path: join(dir, "default"), routes: [] },
-        { name: "reports", path: join(dir, "reports"), routes: ["/reports"] },
+        {
+          name: "default",
+          path: join(dir, "default"),
+          routes: [],
+          architecture: staged,
+        },
+        {
+          name: "reports",
+          path: join(dir, "reports"),
+          routes: ["/reports"],
+          architecture: staged,
+        },
       ],
       functionGroups: [
         { name: "reports", routes: ["/reports"], overrides: groupOverrides },
@@ -99,27 +109,31 @@ describe("NextjsFunctions overrides", () => {
   });
 
   describe("architecture", () => {
-    const host = getLambdaArchitecture();
-    const other =
-      host.name === Architecture.ARM_64.name
-        ? Architecture.X86_64
-        : Architecture.ARM_64;
-
-    it("accepts an override that matches the staged binaries", () => {
-      const functions = synth({ functionProps: { architecture: host } });
-      expect(functions.default.Architectures).toEqual([host.name]);
+    it("deploys what the root was staged for, whatever this machine is", () => {
+      expect(synth({}).default.Architectures).toEqual(["x86_64"]);
+      const arm = synth({}, undefined, Architecture.ARM_64);
+      expect(arm.default.Architectures).toEqual(["arm64"]);
+      expect(arm.reports.Architectures).toEqual(["arm64"]);
     });
 
-    // `sharp` is staged for the synth machine, so the function can't run on
-    // anything else — and silently deploying the host's architecture instead
-    // of the one asked for is how this used to fail.
-    it("throws on an override the staged binaries can't run on", () => {
-      expect(() => synth({ functionProps: { architecture: other } })).toThrow(
-        /functionProps\.architecture is/,
+    it("accepts an override that matches the staged binaries", () => {
+      const functions = synth(
+        { functionProps: { architecture: Architecture.ARM_64 } },
+        undefined,
+        Architecture.ARM_64,
       );
+      expect(functions.default.Architectures).toEqual(["arm64"]);
+    });
+
+    // Silently deploying the staged architecture instead of the one asked for
+    // is how this used to fail.
+    it("throws on an override the staged binaries can't run on", () => {
       expect(() =>
-        synth({}, { functionProps: { architecture: other } }),
-      ).toThrow(/functionProps\.architecture is/);
+        synth({ functionProps: { architecture: Architecture.ARM_64 } }),
+      ).toThrow(/staged its native dependencies \(sharp\) for x86_64/);
+      expect(() =>
+        synth({}, { functionProps: { architecture: Architecture.ARM_64 } }),
+      ).toThrow(/function group "reports" is arm64/);
     });
   });
 });

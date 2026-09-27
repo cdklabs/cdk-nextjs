@@ -3,6 +3,7 @@ import { CustomResource, Duration } from "aws-cdk-lib";
 import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import {
+  Architecture,
   Code,
   Function as LambdaFunction,
   Runtime,
@@ -13,7 +14,6 @@ import { Construct } from "constructs";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
-import { getLambdaArchitecture } from "./utils/get-architecture";
 
 export interface NextjsPostDeployOverrides {
   readonly functionProps?: OptionalFunctionProps;
@@ -134,7 +134,9 @@ export class NextjsPostDeploy extends Construct {
 
   private createFunction() {
     const fn = new LambdaFunction(this, "Fn", {
-      architecture: getLambdaArchitecture(),
+      // Plain bundled JS with no native dependencies, so nothing ties it to the
+      // synth machine: always arm64, the cheaper of the two.
+      architecture: Architecture.ARM_64,
       code: Code.fromAsset(
         join(__dirname, "../assets/lambdas/post-deploy/post-deploy.lambda"),
       ),

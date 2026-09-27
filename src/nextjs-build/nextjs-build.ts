@@ -18,6 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { join as joinPosix } from "node:path/posix";
+import { Architecture } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
@@ -42,7 +43,10 @@ import {
   readNextConfigAssetPrefixPath,
   readNextConfigBasePath,
 } from "../utils/base-path";
-import { getNodeArchitecture } from "../utils/get-architecture";
+import {
+  getLambdaArchitecture,
+  toNodeArchitecture,
+} from "../utils/get-architecture";
 
 /**
  * Lambda's hard limit on the unzipped size of a function's code, which
@@ -83,6 +87,14 @@ export interface NextjsBuildProps {
    * Functions `NextjsType`s pass this; see `NextjsFunctionGroup`.
    */
   readonly functionGroups?: NextjsFunctionGroupRoutes[];
+  /**
+   * Lambda architecture the Functions types deploy, which decides the `sharp`
+   * binaries staged into each deployment root. A group's own
+   * {@link NextjsFunctionGroupRoutes.architecture} wins for that group. Ignored
+   * by the Containers types, whose image is built for the synth machine.
+   * @default - the architecture of the machine running synth
+   */
+  readonly architecture?: Architecture;
 }
 
 /**
@@ -92,6 +104,12 @@ export interface NextjsBuildProps {
 export interface NextjsFunctionGroupRoutes {
   readonly name: string;
   readonly routes: string[];
+  /**
+   * This group's Lambda architecture, when it differs from
+   * {@link NextjsBuildProps.architecture}.
+   * @default NextjsBuildProps.architecture
+   */
+  readonly architecture?: Architecture;
 }
 
 /** One staged deployment root, and the function group it belongs to. */
@@ -109,6 +127,33 @@ export interface NextjsDeploymentRoot {
    * files the runtime reads off disk, and anything the catch-all routes to it.
    */
   readonly routes: string[];
+  /**
+   * The architecture this root's native dependencies (`sharp`) were staged for.
+   * The Lambda deploying it must use the same one.
+   */
+  readonly architecture: Architecture;
+}
+
+/**
+ * What a group's deployment root is staged for: the group's `architecture`,
+ * else the build's, else the synth machine's. Containers ignore both: Docker
+ * builds their image natively, so it can only match the synth machine.
+ */
+export function deploymentRootArchitecture(
+  props: NextjsBuildProps,
+  group: string,
+): Architecture {
+  if (
+    props.nextjsType !== NextjsType.GLOBAL_FUNCTIONS &&
+    props.nextjsType !== NextjsType.REGIONAL_FUNCTIONS
+  ) {
+    return getLambdaArchitecture();
+  }
+  return (
+    props.functionGroups?.find((g) => g.name === group)?.architecture ??
+    props.architecture ??
+    getLambdaArchitecture()
+  );
 }
 
 export interface PublicDirEntry {
@@ -304,14 +349,15 @@ export class NextjsBuild extends Construct {
       // is silent: `imageOptimizer` catches the load failure internally and
       // returns the unoptimized original with an HTTP 200.
       //
-      // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc);
+      // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc),
+      // for the architecture their Lambda deploys, whatever this machine is;
       // Containers run on node:24-alpine (musl). Every group optimizes images,
       // so every root gets the binaries.
       const sharpSource = this.removeExistingSharpBinaries(root.path);
       this.installSharpBinariesForTarget(
         root.path,
         sharpSource,
-        isFunctions ? "linux" : "linuxmusl",
+        `${isFunctions ? "linux" : "linuxmusl"}-${toNodeArchitecture(root.architecture)}`,
       );
 
       if (isFunctions) {
@@ -366,6 +412,7 @@ export class NextjsBuild extends Construct {
         ...groupStagingDirName(staged ? name : undefined).split("/"),
       ),
       routes: staged?.[name] ?? [],
+      architecture: deploymentRootArchitecture(this.props, name),
     }));
 
     // `default` first, so `deploymentRootPath` and any other "the root" caller
@@ -829,13 +876,14 @@ export class NextjsBuild extends Construct {
    * @param root the deployment root.
    * @param sharpSource the staged `sharp` package, whose manifest pins the
    * binary versions.
-   * @param libc `"linux"` (glibc, the Lambda managed runtime) or `"linuxmusl"`
-   * (Alpine, the container images).
+   * @param platform `linux-<arch>` (glibc, the Lambda managed runtime) or
+   * `linuxmusl-<arch>` (Alpine, the container images), as Sharp's
+   * `@img/sharp-<platform>` packages spell it.
    */
   private installSharpBinariesForTarget(
     root: string,
     sharpSource: string | undefined,
-    libc: "linux" | "linuxmusl",
+    platform: string,
   ): void {
     if (!sharpSource) {
       console.warn(
@@ -846,10 +894,7 @@ export class NextjsBuild extends Construct {
 
     this.installSharpPackages(
       sharpBinaryDir(root),
-      this.getSharpBinaryPackages(
-        sharpSource,
-        `${libc}-${getNodeArchitecture()}`,
-      ),
+      this.getSharpBinaryPackages(sharpSource, platform),
     );
   }
 

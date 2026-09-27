@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, Stack } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import { Architecture } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
   NextjsGlobalContainers,
@@ -40,16 +41,23 @@ jest.mock("../src/nextjs-build/nextjs-build", () => {
       name: string;
       path: string;
       routes: string[];
+      architecture: unknown;
     }[];
     readonly deploymentRootPath: string;
     constructor(scope: Construct, id: string, props: any) {
       super(scope, id);
       this.deploymentRoots = [
-        { name: "default", path: join(buildDir, "root-default"), routes: [] },
+        {
+          name: "default",
+          path: join(buildDir, "root-default"),
+          routes: [],
+          architecture: actual.deploymentRootArchitecture(props, "default"),
+        },
         ...(props.functionGroups ?? []).map((group: any) => ({
           name: group.name,
           path: join(buildDir, `root-${group.name}`),
           routes: group.routes,
+          architecture: actual.deploymentRootArchitecture(props, group.name),
         })),
       ];
       this.deploymentRootPath = this.deploymentRoots[0].path;
@@ -214,6 +222,60 @@ describe("NextjsGlobalFunctions", () => {
         OriginAccessControlOriginType: "lambda",
         SigningBehavior: "always",
       }),
+    });
+  });
+
+  describe("architecture", () => {
+    function architectures(props: object) {
+      const stack = new Stack(new App(), "Stack");
+      new NextjsGlobalFunctions(stack, "App", {
+        buildDirectory: buildDir,
+        ...props,
+      });
+      const template = Template.fromStack(stack);
+      const resources = template.toJSON().Resources;
+      return Object.fromEntries(
+        Object.entries(appFunctions(template)).map(([group, logicalId]) => [
+          group,
+          resources[logicalId].Properties.Architectures,
+        ]),
+      );
+    }
+
+    const host = process.arch.startsWith("arm") ? "arm64" : "x86_64";
+    const other = host === "arm64" ? Architecture.X86_64 : Architecture.ARM_64;
+
+    // So any native dependency `next build` traced from this machine runs.
+    it("defaults to the synth machine's architecture on every group", () => {
+      expect(architectures({ functionGroups })).toEqual({
+        default: [host],
+        reports: [host],
+      });
+    });
+
+    it("honors functionProps.architecture, construct-wide and per group", () => {
+      expect(
+        architectures({
+          functionGroups,
+          overrides: {
+            nextjsFunctions: {
+              functionProps: { architecture: other },
+            },
+          },
+        }),
+      ).toEqual({ default: [other.name], reports: [other.name] });
+      expect(
+        architectures({
+          functionGroups: [
+            {
+              ...functionGroups[0],
+              overrides: {
+                functionProps: { architecture: other },
+              },
+            },
+          ],
+        }),
+      ).toEqual({ default: [host], reports: [other.name] });
     });
   });
 

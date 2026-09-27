@@ -10,10 +10,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, Stack } from "aws-cdk-lib";
+import { Architecture } from "aws-cdk-lib/aws-lambda";
 import {
-  NextjsBuild,
+  deploymentRootArchitecture,
   dereferencedSize,
   listTree,
+  NextjsBuild,
   patchClientChunk,
   sharpBinaryDir,
 } from "./nextjs-build";
@@ -194,5 +196,52 @@ describe("NextjsBuild with skipBuild and no build output", () => {
           skipBuild: true,
         }),
     ).toThrow(/cdk-nextjs adapter manifest not found/);
+  });
+});
+
+describe("deploymentRootArchitecture", () => {
+  const base = { buildCommand: "", buildDirectory: "" };
+  const functions = { ...base, nextjsType: NextjsType.GLOBAL_FUNCTIONS };
+
+  const host = process.arch.startsWith("arm") ? "arm64" : "x86_64";
+
+  it("stages the Functions types for the synth machine unless told otherwise", () => {
+    expect(deploymentRootArchitecture(functions, "default").name).toBe(host);
+  });
+
+  // The point of honoring the prop: `sharp` for another architecture is only
+  // a download, so the build no longer has to run where the function will.
+  it("stages for the architecture asked for, not the synth machine's", () => {
+    const other = host === "arm64" ? Architecture.X86_64 : Architecture.ARM_64;
+    expect(
+      deploymentRootArchitecture(
+        { ...functions, architecture: other },
+        "default",
+      ),
+    ).toBe(other);
+  });
+
+  it("prefers the group's architecture over the build's", () => {
+    const props = {
+      ...functions,
+      architecture: Architecture.ARM_64,
+      functionGroups: [
+        { name: "api", routes: ["/api/**"], architecture: Architecture.X86_64 },
+      ],
+    };
+    expect(deploymentRootArchitecture(props, "default")).toBe(
+      Architecture.ARM_64,
+    );
+    expect(deploymentRootArchitecture(props, "api")).toBe(Architecture.X86_64);
+  });
+
+  it("follows the synth machine for the Containers types", () => {
+    const props = {
+      ...base,
+      nextjsType: NextjsType.REGIONAL_CONTAINERS,
+      architecture:
+        host === "arm64" ? Architecture.X86_64 : Architecture.ARM_64,
+    };
+    expect(deploymentRootArchitecture(props, "default").name).toBe(host);
   });
 });
