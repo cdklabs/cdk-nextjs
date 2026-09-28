@@ -1288,7 +1288,10 @@ export function splitBody(
 ): SplitBody {
   const releaseNothing = (): void => {};
   if (body === undefined) {
-    return { forDispatch: new Blob([]).stream(), releaseUnread: releaseNothing };
+    return {
+      forDispatch: new Blob([]).stream(),
+      releaseUnread: releaseNothing,
+    };
   }
   if (!hasMiddleware) {
     return {

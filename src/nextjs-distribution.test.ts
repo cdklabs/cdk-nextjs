@@ -803,7 +803,7 @@ describe("NextjsDistribution function group behaviors", () => {
           functionGroups,
           functionGroupBehaviors,
         }),
-    ).toThrow(/NextjsDistributionProps.loadBalancer/);
+    ).toThrow(/only supported by NextjsGlobalFunctions/);
   });
 });
 

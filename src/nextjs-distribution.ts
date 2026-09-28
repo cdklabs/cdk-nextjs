@@ -213,6 +213,7 @@ export class NextjsDistribution extends Construct {
     this.assetPrefix = this.resolveAssetPrefix();
     this.staticOrigin = this.createStaticOrigin();
     this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
+    this.validateFunctionGroupProps();
     this.dynamicOrigin = this.createDynamicOrigin();
     this.dynamicOriginResponsePolicy = this.createDynamicOriginRequestPolicy();
     this.dynamicCloudFrontFunctionAssociations =
@@ -572,6 +573,24 @@ export class NextjsDistribution extends Construct {
       );
     } else {
       // if no base path, then default behavior will handle all other paths
+    }
+  }
+  /**
+   * Before any behavior is computed: the budget and the `public/` checks both
+   * generate the group patterns, and would otherwise fail first with a less
+   * useful message.
+   */
+  private validateFunctionGroupProps() {
+    if (
+      !this.props.functionGroups?.length &&
+      !this.props.functionGroupBehaviors?.length
+    ) {
+      return;
+    }
+    if (!this.isFunctionCompute) {
+      throw new Error(
+        "`functionGroups` is only supported by NextjsGlobalFunctions.",
+      );
     }
   }
   /**

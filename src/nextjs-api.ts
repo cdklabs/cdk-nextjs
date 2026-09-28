@@ -537,6 +537,15 @@ export class NextjsApi extends Construct {
   private createFunctionGroupIntegrations() {
     const groups = this.props.functionGroups ?? [];
     const behaviors = this.props.functionGroupBehaviors ?? [];
+    const unknown = behaviors.find(
+      (behavior) => !groups.some((group) => group.name === behavior.group),
+    );
+    if (unknown) {
+      throw new Error(
+        `${LOG_PREFIX} \`functionGroupBehaviors\` routes to function group ` +
+          `"${unknown.group}", which is not in \`functionGroups\`.`,
+      );
+    }
     const routeResources = new Set<IResource>();
     /** Each subtree's base path and the integration its `{proxy+}` got. */
     const subtrees: [string[], LambdaIntegration][] = [];
