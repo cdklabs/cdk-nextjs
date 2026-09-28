@@ -84,15 +84,6 @@ type, 17 green, no cdk-nextjs defect. The failures are what to expect on a re-ru
 | `app-dir/redirect-rewrite-dynamic-basepath`         | 1 / 2   | Same, surfacing as a 500 from the runtime's error path.                                                             |
 | `invalid-static-asset-404-{app,pages}-asset-prefix` | fail    | Nothing serves `assetPrefix` on the regional types; cdk-nextjs warns at synth (`isAssetPrefixUnserved`).            |
 
-Harness-side requirements for that type: pass the fixture's `basePath` as the
-construct's `basePath` prop (only to silence the synth warning now that
-`resolveBasePath` derives it from the app's `basePath` minus the stage or base
-path mapping), send `x-forwarded-host` from the proxy (without it every server
-action fails Next.js's CSRF check), and wait for the stage to settle after a
-resource-tree change — the replaced tree was measured still answering, unevenly,
-~90s after `UPDATE_COMPLETE`, which made `basepath/trailing-slash` and the
-`-base-path` variants pass only on retry.
-
 ## Passing — in `rules.include`
 
 The list is the manifest's `rules.include`; it is not duplicated here. Notes worth

@@ -50,13 +50,7 @@ import {
 } from "./next-modules";
 import { publicDirKey, resolvePublicFiles } from "./public-files";
 import { serveS3PublicFile, serveStaticFile } from "./static-files";
-import {
-  drained,
-  emptyStream,
-  firstValue,
-  toSearch,
-  withoutPathPrefix,
-} from "./util";
+import { drained, firstValue, toSearch, withoutPathPrefix } from "./util";
 
 /** One request, normalized by a shell. */
 export interface RuntimeRequest {
@@ -646,7 +640,7 @@ export class NextjsRuntime {
         encrypted: origin.encrypted,
         trustForwardedHost: origin.trustForwardedHost,
       },
-      { keepBody: false },
+      {},
     );
 
     const status = head?.statusCode ?? 500;
@@ -705,7 +699,7 @@ export class NextjsRuntime {
     };
     const { head, body, otherGroup, tooLarge } = await this.handleInternally(
       request,
-      { keepBody: true, maximumBody },
+      { maximumBody },
     );
     if (tooLarge) {
       return { statusCode: 0, headers: {}, body: Buffer.alloc(0), tooLarge };
@@ -735,12 +729,13 @@ export class NextjsRuntime {
    * request's `waitUntil` work too, so whatever the render wrote is committed by
    * the time this resolves.
    *
-   * A kept body past `maximumBody` fails the response stream, which stops the
-   * route writing, and comes back as `tooLarge` rather than held in memory.
+   * The body is kept only when `maximumBody` is set. One past it fails the
+   * response stream, which stops the route writing, and comes back as
+   * `tooLarge` rather than held in memory.
    */
   private async handleInternally(
     request: RuntimeRequest,
-    options: { readonly keepBody: boolean; readonly maximumBody?: number },
+    options: { readonly maximumBody?: number },
   ): Promise<{
     head?: ResponseHead;
     body: Buffer;
@@ -762,9 +757,9 @@ export class NextjsRuntime {
           head = responseHead;
           return new Writable({
             write(chunk: Buffer, _encoding, callback) {
-              if (!options.keepBody) return callback();
+              if (options.maximumBody === undefined) return callback();
               size += chunk.byteLength;
-              if (size > (options.maximumBody ?? Infinity)) {
+              if (size > options.maximumBody) {
                 tooLarge = true;
                 return callback(new Error("Over images.maximumResponseBody"));
               }
@@ -1293,12 +1288,12 @@ export function splitBody(
 ): SplitBody {
   const releaseNothing = (): void => {};
   if (body === undefined) {
-    return { forDispatch: emptyStream(), releaseUnread: releaseNothing };
+    return { forDispatch: new Blob([]).stream(), releaseUnread: releaseNothing };
   }
   if (!hasMiddleware) {
     return {
       forRequest: body,
-      forDispatch: emptyStream(),
+      forDispatch: new Blob([]).stream(),
       releaseUnread: releaseNothing,
     };
   }
@@ -1306,7 +1301,7 @@ export function splitBody(
     // Already fully in memory, so "teeing" is just reading it twice.
     return {
       forRequest: body,
-      forDispatch: bufferStream(body),
+      forDispatch: new Blob([body]).stream(),
       releaseUnread: releaseNothing,
     };
   }
@@ -1327,15 +1322,6 @@ export function splitBody(
       }
     },
   };
-}
-
-function bufferStream(body: Buffer): ReadableStream {
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(body);
-      controller.close();
-    },
-  });
 }
 
 /** `IncomingHttpHeaders` → the flat entries a `Headers` constructor accepts. */

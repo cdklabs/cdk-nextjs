@@ -111,13 +111,8 @@ harness_nextjs_type() {
 # The localhost port `stage-proxy.mjs` listens on for a stack. Derived from the
 # stack name, so every script - and every shard - computes the same port for the
 # same stack with no handoff file, and two shards' proxies do not collide.
-# HARNESS_PROXY_PORT overrides it.
 harness_proxy_port() {
   local stack="$1"
-  if [ -n "${HARNESS_PROXY_PORT:-}" ]; then
-    printf '%s' "$HARNESS_PROXY_PORT"
-    return 0
-  fi
   node -e '
     const hash = require("node:crypto").createHash("sha1").update(process.argv[1]).digest();
     process.stdout.write(String(40000 + (hash.readUInt16BE(0) % 10000)));

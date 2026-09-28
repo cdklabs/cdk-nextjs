@@ -17,7 +17,7 @@ import {
   QueryCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
-import { S3Client, DeleteObjectCommand, NoSuchKey } from "@aws-sdk/client-s3";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 import getDebug from "debug";
 import {
@@ -89,25 +89,18 @@ function entryTags(stored: { tags?: string[]; value?: unknown }): string[] {
 const EXPIRED_LAST_MODIFIED = -1;
 
 /**
- * Whether a `get` is for the `fetch` cache rather than for a route's response.
+ * Whether a `get` is for the `fetch` cache rather than for a route's response,
+ * as a narrowing predicate so that `ctx.tags` and `ctx.softTags` — which only
+ * {@link GetIncrementalFetchCacheContext} has — are reachable without a cast.
  *
  * `IncrementalCacheKind.FETCH`, compared as its own string value so this file
  * keeps importing no Next.js internals (the enum is `const`, so it has no
  * runtime representation to import anyway).
  */
-function isFetchCacheKind(kind: string | undefined): boolean {
-  return kind === "FETCH";
-}
-
-/**
- * {@link isFetchCacheKind} as a narrowing predicate, so that `ctx.tags` and
- * `ctx.softTags` — which only {@link GetIncrementalFetchCacheContext} has — are
- * reachable without a cast.
- */
 function isFetchCacheGet(
   ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
 ): ctx is GetIncrementalFetchCacheContext {
-  return isFetchCacheKind(ctx.kind);
+  return ctx.kind === "FETCH";
 }
 
 /** `NEXT_CACHE_IMPLICIT_TAG_ID`, inlined so this file imports no Next.js internals. */
@@ -453,11 +446,9 @@ export class S3CacheHandler implements CacheHandler {
         routes: readonly string[],
       ): Promise<void> => {
         const { basePath } = this.cloudFrontConfig;
-        return this.invalidateCloudFrontPaths([
-          ...new Set(
-            routes.flatMap((route) => cdnInvalidationPaths(route, basePath)),
-          ),
-        ]);
+        return this.invalidateCloudFrontPaths(
+          routes.flatMap((route) => cdnInvalidationPaths(route, basePath)),
+        );
       };
     }
 
@@ -478,11 +469,6 @@ export class S3CacheHandler implements CacheHandler {
         "CDK_NEXTJS_BUILD_ID environment variable not set, cache isolation may not work correctly",
       );
     }
-
-    // Log the options for debugging (optional usage to avoid unused parameter warning)
-    if (options.context.dev) {
-      this.debug("S3DynamoCacheHandler initialized in development mode");
-    }
   }
 
   async get(
@@ -490,13 +476,6 @@ export class S3CacheHandler implements CacheHandler {
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null> {
     try {
-      // Log context for debugging (optional usage to avoid unused parameter warning)
-      if (ctx.kind) {
-        this.debug(
-          `S3 cache get operation for ${cacheKey} with kind: ${ctx.kind}`,
-        );
-      }
-
       if (!this.config.bucketName) {
         return null;
       }
@@ -512,7 +491,7 @@ export class S3CacheHandler implements CacheHandler {
 
       // Every object is JSON (`putJson`, and the seeded `.json` files); one
       // that does not parse is a miss, through the `catch` below.
-      const parsedValue = parseCacheValue(response.body);
+      const parsedValue = parseCacheValue(response);
 
       if (await this.isRevalidated(parsedValue, ctx, cacheKey)) {
         this.debug(`S3 CACHE INVALIDATED BY TAG: ${cacheKey}`);
@@ -528,7 +507,7 @@ export class S3CacheHandler implements CacheHandler {
         // concurrent request's fresh entry could be the one removed. Keeping
         // a response entry also means a render that fails is answered from
         // the last good copy rather than from a shell.
-        return isFetchCacheKind(ctx.kind)
+        return isFetchCacheGet(ctx)
           ? null
           : { lastModified: EXPIRED_LAST_MODIFIED, value: parsedValue.value };
       }
@@ -576,7 +555,7 @@ export class S3CacheHandler implements CacheHandler {
   async isRevalidated(
     entry: { lastModified?: number; tags?: string[]; value?: unknown },
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
-    cacheKey?: string,
+    cacheKey: string,
   ): Promise<boolean> {
     if (!this.config.tableName) {
       return false;
@@ -591,7 +570,7 @@ export class S3CacheHandler implements CacheHandler {
       entry.lastModified ?? 0,
       checkTags,
     );
-    if (state === "stale" && cacheKey !== undefined && !isFetchCacheGet(ctx)) {
+    if (state === "stale" && !isFetchCacheGet(ctx)) {
       this.noteSoftRevalidated(cacheKey);
     }
     return state === "expired";
@@ -642,18 +621,13 @@ export class S3CacheHandler implements CacheHandler {
         // cannot be queried from the key side. See `storedEntryTags`.
         const tags = await this.storedEntryTags(s3Key, ctx);
 
-        try {
-          const deleteCommand = new DeleteObjectCommand({
+        await this.s3Client.send(
+          new DeleteObjectCommand({
             Bucket: this.config.bucketName,
             Key: s3Key,
-          });
-          await this.s3Client.send(deleteCommand);
-          this.debug(`S3 CACHE DELETED: ${s3Key}`);
-        } catch (error) {
-          if (error instanceof NoSuchKey) {
-            this.debug(`Failed to delete S3 key ${s3Key}:`, error);
-          }
-        }
+          }),
+        );
+        this.debug(`S3 CACHE DELETED: ${s3Key}`);
 
         await this.deleteDynamoDBTagMappings(s3Key, tags);
         return;
@@ -674,12 +648,6 @@ export class S3CacheHandler implements CacheHandler {
         `S3 CACHE SET: Key: ${cacheKey}, tags: ${tags.length ? tags : "none"}`,
       );
 
-      // Note: ctx.tags are available but revalidation is handled separately in revalidateTag method
-      // Log tags for debugging if present (only in SetIncrementalFetchCacheContext)
-      if (tags && tags.length > 0) {
-        this.debug(`S3 cache entry for ${cacheKey} has tags:`, tags);
-      }
-
       if (!this.config.bucketName) {
         return;
       }
@@ -696,7 +664,7 @@ export class S3CacheHandler implements CacheHandler {
       // Store tags with the cache entry for revalidation checking
       const cacheEntryWithTags = {
         ...cacheHandlerValue,
-        tags: tags || [],
+        tags,
       };
 
       // Serialize with custom handling for Map and Buffer objects
@@ -869,9 +837,7 @@ export class S3CacheHandler implements CacheHandler {
     this.buildTags ??= this.bucket
       .get(`${this.config.buildId}/${INIT_CACHE_TAG_MANIFEST}`)
       // None is normal: only tagged prerenders write one.
-      .then(
-        (object) => new Map(Object.entries(JSON.parse(object?.body ?? "{}"))),
-      );
+      .then((object) => new Map(Object.entries(JSON.parse(object ?? "{}"))));
     return this.buildTags.catch((error) => {
       this.buildTags = undefined;
       console.warn("Could not read the build's tag manifest:", error);
@@ -1193,7 +1159,7 @@ export class S3CacheHandler implements CacheHandler {
     if (ctxTags?.length) {
       return ctxTags;
     }
-    if (!this.config.bucketName || !this.mapsTagsToPaths) {
+    if (!this.mapsTagsToPaths) {
       return [];
     }
     try {
@@ -1201,7 +1167,7 @@ export class S3CacheHandler implements CacheHandler {
       if (!response) {
         return [];
       }
-      return entryTags(parseCacheValue(response.body));
+      return entryTags(parseCacheValue(response));
     } catch (error) {
       console.warn(`Failed to read tags of ${s3Key} before deleting:`, error);
       return [];
@@ -1229,43 +1195,37 @@ export class S3CacheHandler implements CacheHandler {
     cacheLastModified: number,
     tags: string[],
   ): Promise<RevalidationState> {
-    try {
-      await this.tags.refresh();
-      await this.tags.ensure(tags);
-      const state = this.tags.state(tags, cacheLastModified);
-      if (state !== "stale") {
-        if (state === "expired") {
-          this.debug(
-            `Tags [${tags}] expired entry created at ${cacheLastModified}`,
-          );
-        }
-        return state;
-      }
-
-      const manifest = nextTagsManifest();
-      if (!manifest) {
+    await this.tags.refresh();
+    await this.tags.ensure(tags);
+    const state = this.tags.state(tags, cacheLastModified);
+    if (state !== "stale") {
+      if (state === "expired") {
         this.debug(
-          `Tags [${tags}] are stale and Next.js's tag manifest is ` +
-            `unreachable, expiring the entry instead`,
+          `Tags [${tags}] expired entry created at ${cacheLastModified}`,
         );
-        return "expired";
       }
-      for (const tag of tags) {
-        const staleAt = this.tags.get(tag)?.staleAt;
-        const existing = manifest.get(tag);
-        if (
-          staleAt !== undefined &&
-          staleAt > cacheLastModified &&
-          (existing?.stale ?? 0) < staleAt
-        ) {
-          manifest.set(tag, { ...existing, stale: staleAt });
-        }
-      }
-      return "stale";
-    } catch (error) {
-      console.error("Error checking cache revalidation:", error);
-      // On error, assume cache is valid to avoid unnecessary cache misses
-      return "fresh";
+      return state;
     }
+
+    const manifest = nextTagsManifest();
+    if (!manifest) {
+      this.debug(
+        `Tags [${tags}] are stale and Next.js's tag manifest is ` +
+          `unreachable, expiring the entry instead`,
+      );
+      return "expired";
+    }
+    for (const tag of tags) {
+      const staleAt = this.tags.get(tag)?.staleAt;
+      const existing = manifest.get(tag);
+      if (
+        staleAt !== undefined &&
+        staleAt > cacheLastModified &&
+        (existing?.stale ?? 0) < staleAt
+      ) {
+        manifest.set(tag, { ...existing, stale: staleAt });
+      }
+    }
+    return "stale";
   }
 }

@@ -123,7 +123,6 @@ export class NextjsCache extends Construct {
   readonly buildId: string;
   readonly bucketDeployment?: BucketDeployment;
   private props: NextjsCacheProps;
-  private stagingDir?: string;
 
   constructor(scope: Construct, id: string, props: NextjsCacheProps) {
     super(scope, id);
@@ -193,7 +192,7 @@ export class NextjsCache extends Construct {
       `${LOG_PREFIX} Deploying init cache from ${this.props.initCacheDir}`,
     );
 
-    this.stagingDir = this.createStagingDirectory();
+    const stagingDir = this.createStagingDirectory();
 
     try {
       // Use standard BucketDeployment for regular S3 buckets
@@ -201,7 +200,7 @@ export class NextjsCache extends Construct {
         this,
         "InitCacheDeployment",
         {
-          sources: [Source.asset(this.stagingDir)],
+          sources: [Source.asset(stagingDir)],
           destinationBucket: this.cacheBucket,
           prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
           ...this.sizeDeploymentLambda(),
@@ -222,25 +221,9 @@ export class NextjsCache extends Construct {
       // asset manifest points at this directory itself, and removing it fails
       // the publish that follows the synth with ENOENT.
       if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
-        this.removeStagingDirectory();
+        rmSync(stagingDir, { recursive: true, force: true });
       }
     }
-  }
-
-  /** Best-effort: a leftover temp directory is not worth failing a synth over. */
-  private removeStagingDirectory(): void {
-    if (!this.stagingDir) {
-      return;
-    }
-    try {
-      rmSync(this.stagingDir, { recursive: true, force: true });
-    } catch (error) {
-      console.warn(
-        `${LOG_PREFIX} Could not remove the init cache staging directory ` +
-          `${this.stagingDir}: ${error}`,
-      );
-    }
-    this.stagingDir = undefined;
   }
 
   /**
@@ -322,20 +305,9 @@ export class NextjsCache extends Construct {
    */
   private createStagingDirectory(): string {
     const stagingDir = mkdtempSync(join(tmpdir(), "nextjs-init-cache-"));
-    try {
-      cpSync(this.props.initCacheDir, join(stagingDir, this.props.buildId), {
-        recursive: true,
-      });
-      return stagingDir;
-    } catch (error) {
-      try {
-        rmSync(stagingDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw new Error(
-        `${LOG_PREFIX} Failed to stage the init cache from ${this.props.initCacheDir}: ${error}`,
-      );
-    }
+    cpSync(this.props.initCacheDir, join(stagingDir, this.props.buildId), {
+      recursive: true,
+    });
+    return stagingDir;
   }
 }

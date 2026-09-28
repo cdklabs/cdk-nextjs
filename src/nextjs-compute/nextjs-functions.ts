@@ -17,15 +17,12 @@ import {
   NextjsComputeBaseProps,
   runtimeEnvironment,
 } from "./nextjs-compute-base-props";
-import {
-  DEFAULT_FUNCTION_GROUP,
-  FUNCTION_GROUP_ENV_VAR,
-} from "../adapter/function-groups";
+import { DEFAULT_FUNCTION_GROUP } from "../adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalFunctionProps } from "../generated-structs/OptionalFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { NextjsDeploymentRoot } from "../nextjs-build/nextjs-build";
-import { RUNTIME_DIR_NAME } from "../runtime/manifest";
+import { FUNCTION_GROUP_ENV_VAR, RUNTIME_DIR_NAME } from "../runtime/manifest";
 import { getLambdaArchitecture } from "../utils/get-architecture";
 import { zipDirectory } from "../utils/zip-directory";
 

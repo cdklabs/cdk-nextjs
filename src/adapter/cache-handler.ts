@@ -62,7 +62,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       this.s3DynamoHandler = CdkNextjsCacheHandler.sharedS3DynamoHandler ??=
         new S3CacheHandler({ context: options });
       this.memoryHandler = CdkNextjsCacheHandler.sharedMemoryHandler ??=
-        new MemoryCacheHandler({ context: options });
+        new MemoryCacheHandler();
     }
   }
 
@@ -82,7 +82,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
     }
 
     // Runtime: try memory first
-    const memoryResult = await this.memoryHandler.get(cacheKey, ctx);
+    const memoryResult = await this.memoryHandler.get(cacheKey);
     // A memory hit is checked against the same tag markers an S3 read is.
     // `revalidateTag` can only clear the memory of the instance that ran it,
     // so skipping the check left every other instance answering from memory

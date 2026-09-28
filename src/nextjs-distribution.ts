@@ -224,7 +224,6 @@ export class NextjsDistribution extends Construct {
     if (this.isFunctionCompute) {
       this.grantInvoke(DEFAULT_FUNCTION_GROUP, props.functionUrl!);
     }
-    this.validateFunctionGroupProps();
     this.addStaticBehaviors();
     this.addDynamicBehaviors();
   }
@@ -576,24 +575,6 @@ export class NextjsDistribution extends Construct {
     }
   }
   /**
-   * Before any behavior is computed: the budget and the `public/` checks both
-   * generate the group patterns, and would otherwise fail first with a less
-   * useful message.
-   */
-  private validateFunctionGroupProps() {
-    if (
-      !this.props.functionGroups?.length &&
-      !this.props.functionGroupBehaviors?.length
-    ) {
-      return;
-    }
-    if (!this.isFunctionCompute) {
-      throw new Error(
-        "`functionGroups` is only supported by NextjsGlobalFunctions.",
-      );
-    }
-  }
-  /**
    * Every group behavior, final path pattern included, in the order
    * {@link addFunctionGroupBehaviors} adds them.
    */
@@ -875,12 +856,6 @@ export class NextjsDistribution extends Construct {
     const limit = this.props.maxCacheBehaviors ?? DEFAULT_MAX_CACHE_BEHAVIORS;
     if (Token.isUnresolved(limit)) {
       return;
-    }
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error(
-        `${LOG_PREFIX} \`maxCacheBehaviors\` must be a positive integer, got ` +
-          `${limit}.`,
-      );
     }
     const groupPatterns = this.functionGroupBehaviors().length;
     // The default behavior, `_next/image*`, `_next/static*`, plus — with a

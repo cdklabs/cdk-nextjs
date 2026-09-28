@@ -187,7 +187,7 @@ export async function pruneS3(props: PruneS3Props) {
 /**
  * Process objects in batches to avoid overwhelming the system
  */
-async function processBatch<T, R>(
+export async function processBatch<T, R>(
   items: T[],
   batchSize: number,
   processFn: (item: T) => Promise<R>,

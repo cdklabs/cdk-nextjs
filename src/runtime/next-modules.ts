@@ -93,12 +93,21 @@ export function loadEnvFiles(projectDir: string): void {
 }
 
 function nextModuleResolve(specifier: string): string {
+  return nextRequireOrThrow(specifier).resolve(specifier);
+}
+
+function nextRequireOrThrow(
+  specifier: string,
+): ReturnType<typeof createRequire> {
   if (!nextRequire) {
     throw new Error(
-      `Cannot resolve "${specifier}": \`useNextFrom\` has not run yet.`,
+      `Cannot load "${specifier}": \`next\` resolution has not been pointed at ` +
+        `the staged app yet. \`useNextFrom\` runs in \`loadRuntime\`, so this ` +
+        `means runtime code loaded a \`next\` module before the runtime was ` +
+        `loaded.`,
     );
   }
-  return nextRequire.resolve(specifier);
+  return nextRequire;
 }
 
 /**
@@ -108,16 +117,9 @@ function nextModuleResolve(specifier: string): string {
  * so the call is as type-checked as a static import would be.
  */
 export function nextModule<T>(specifier: string): T {
-  if (!nextRequire) {
-    throw new Error(
-      `Cannot load "${specifier}": \`next\` resolution has not been pointed at ` +
-        `the staged app yet. \`useNextFrom\` runs in \`loadRuntime\`, so this ` +
-        `means runtime code loaded a \`next\` module before the runtime was ` +
-        `loaded.`,
-    );
-  }
+  const load = nextRequireOrThrow(specifier);
   try {
-    return nextRequire(specifier) as T;
+    return load(specifier) as T;
   } catch (cause) {
     throw new Error(
       `Could not resolve "${specifier}" from the deployed Next.js project. The ` +

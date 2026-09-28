@@ -355,7 +355,7 @@ describe("CacheBucket", () => {
       Body: { transformToString: jest.fn().mockResolvedValue("{}") },
       ContentType: "application/json",
     });
-    expect(await bucket.get("k")).toEqual({ body: "{}" });
+    expect(await bucket.get("k")).toBe("{}");
     expect(commandInput(send.mock.calls[0][0], GetObjectCommand)).toEqual({
       Bucket: "bkt",
       Key: "k",

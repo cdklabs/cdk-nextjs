@@ -1,22 +1,15 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
 import {
   IncrementalCacheValue,
   CachedRouteKind,
-  IncrementalCacheKind,
 } from "next/dist/server/response-cache";
 import { MemoryCacheHandler } from "./memory-cache-handler";
 
 describe("MemoryCacheHandler", () => {
   let handler: MemoryCacheHandler;
-  let mockContext: CacheHandlerContext;
 
   beforeEach(() => {
-    mockContext = { dev: false } as CacheHandlerContext;
-
-    handler = new MemoryCacheHandler({
-      context: mockContext,
-    });
+    handler = new MemoryCacheHandler();
   });
 
   afterEach(() => {
@@ -25,10 +18,7 @@ describe("MemoryCacheHandler", () => {
 
   describe("get", () => {
     it("should return null for non-existent cache key", async () => {
-      const result = await handler.get("non-existent", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
+      const result = await handler.get("non-existent");
       expect(result).toBeNull();
     });
 
@@ -44,10 +34,7 @@ describe("MemoryCacheHandler", () => {
       };
 
       await handler.set("test-key", testData);
-      const result = await handler.get("test-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
+      const result = await handler.get("test-key");
 
       expect(result).not.toBeNull();
       expect(result?.value).toEqual(testData);
@@ -70,10 +57,7 @@ describe("MemoryCacheHandler", () => {
 
       expect(handler.getCacheSize()).toBe(1);
 
-      const result = await handler.get("set-key", {
-        kind: IncrementalCacheKind.APP_PAGE,
-        isFallback: false,
-      });
+      const result = await handler.get("set-key");
       expect(result?.value).toEqual(testData);
     });
 
@@ -93,12 +77,10 @@ describe("MemoryCacheHandler", () => {
 
       await handler.set("promoted", testData, renderedAt);
 
-      expect(
-        await handler.get("promoted", {
-          kind: IncrementalCacheKind.APP_PAGE,
-          isFallback: false,
-        }),
-      ).toEqual({ lastModified: renderedAt, value: testData });
+      expect(await handler.get("promoted")).toEqual({
+        lastModified: renderedAt,
+        value: testData,
+      });
     });
 
     it("stamps a fresh render on the tag markers' clock, not Date.now()", async () => {
@@ -122,10 +104,7 @@ describe("MemoryCacheHandler", () => {
           status: undefined,
         });
 
-        const entry = await handler.get("fresh", {
-          kind: IncrementalCacheKind.APP_PAGE,
-          isFallback: false,
-        });
+        const entry = await handler.get("fresh");
         expect(entry?.lastModified).toBe(performance.timeOrigin + markerNow);
       } finally {
         jest.restoreAllMocks();
@@ -143,10 +122,6 @@ describe("MemoryCacheHandler", () => {
       segmentData: undefined,
       status: undefined,
     });
-    const getCtx = {
-      kind: IncrementalCacheKind.APP_PAGE,
-      isFallback: false,
-    } as const;
     const env = process.env;
 
     beforeEach(() => {
@@ -160,20 +135,20 @@ describe("MemoryCacheHandler", () => {
     it("drops an entry past its TTL on read", async () => {
       process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS = "1000";
       const clock = jest.spyOn(Date, "now").mockReturnValue(1_000_000);
-      handler = new MemoryCacheHandler({ context: mockContext });
+      handler = new MemoryCacheHandler();
       await handler.set("a", page("a"));
 
       clock.mockReturnValue(1_001_000);
-      expect(await handler.get("a", getCtx)).not.toBeNull();
+      expect(await handler.get("a")).not.toBeNull();
       clock.mockReturnValue(1_001_001);
-      expect(await handler.get("a", getCtx)).toBeNull();
+      expect(await handler.get("a")).toBeNull();
       expect(handler.getCacheSize()).toBe(0);
     });
 
     it("clears every expired entry on the next write", async () => {
       process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS = "1000";
       const clock = jest.spyOn(Date, "now").mockReturnValue(1_000_000);
-      handler = new MemoryCacheHandler({ context: mockContext });
+      handler = new MemoryCacheHandler();
       await handler.set("a", page("a"));
       await handler.set("b", page("b"));
 
@@ -184,17 +159,17 @@ describe("MemoryCacheHandler", () => {
 
     it("evicts the least recently used entry at the limit", async () => {
       process.env.CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES = "2";
-      handler = new MemoryCacheHandler({ context: mockContext });
+      handler = new MemoryCacheHandler();
       await handler.set("a", page("a"));
       await handler.set("b", page("b"));
       // A read makes `a` the most recently used.
-      await handler.get("a", getCtx);
+      await handler.get("a");
       await handler.set("c", page("c"));
 
       expect(handler.getCacheSize()).toBe(2);
-      expect(await handler.get("b", getCtx)).toBeNull();
-      expect(await handler.get("a", getCtx)).not.toBeNull();
-      expect(await handler.get("c", getCtx)).not.toBeNull();
+      expect(await handler.get("b")).toBeNull();
+      expect(await handler.get("a")).not.toBeNull();
+      expect(await handler.get("c")).not.toBeNull();
     });
 
     it("falls back to the defaults for values that are not numbers", async () => {
@@ -202,14 +177,14 @@ describe("MemoryCacheHandler", () => {
       process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS = "abc";
       process.env.CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES = "abc";
       const clock = jest.spyOn(Date, "now").mockReturnValue(1_000_000);
-      handler = new MemoryCacheHandler({ context: mockContext });
+      handler = new MemoryCacheHandler();
       for (let i = 0; i <= 1000; i++) {
         await handler.set(`k${i}`, page("x"));
       }
       expect(handler.getCacheSize()).toBe(1000);
 
       clock.mockReturnValue(1_000_000 + 60 * 60 * 1000 + 1);
-      expect(await handler.get("k1000", getCtx)).toBeNull();
+      expect(await handler.get("k1000")).toBeNull();
     });
   });
 });

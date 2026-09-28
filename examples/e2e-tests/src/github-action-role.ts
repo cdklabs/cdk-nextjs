@@ -114,21 +114,6 @@ class AwsGitHubActionRole extends Stack {
         conditions: harnessTag,
       }),
     );
-    // CloudFormation names a function `<stack name>-<logical id>-<suffix>`, so
-    // the prefix scopes it to harness stacks.
-    role.addToPrincipalPolicy(
-      new PolicyStatement({
-        actions: ["lambda:GetFunctionConfiguration"],
-        resources: [
-          this.formatArn({
-            service: "lambda",
-            resource: "function",
-            resourceName: `${HARNESS_STACK_PREFIX}*`,
-            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
-          }),
-        ],
-      }),
-    );
     // `cdk deploy --hotswap-fallback`, which every harness file after the first
     // takes. Unlike a CloudFormation deployment, a hotswap makes its SDK calls
     // with the CLI's own credentials - this role - rather than the bootstrap
@@ -159,6 +144,7 @@ class AwsGitHubActionRole extends Stack {
       new PolicyStatement({
         actions: [
           "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration",
           "lambda:UpdateFunctionCode",
           "lambda:UpdateFunctionConfiguration",
           "lambda:PublishVersion",

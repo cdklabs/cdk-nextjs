@@ -121,10 +121,6 @@ jobs:
           if [ -z "$NEXTJS_REF" ]; then
             NEXTJS_REF="v$(node -p 'require("./package.json").devDependencies["@next/routing"]')"
           fi
-          if [[ ! "$NEXTJS_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-            echo "nextjs_ref is not a plausible git ref: $NEXTJS_REF" >&2
-            exit 1
-          fi
           if [[ "$NEXTJS_REF" =~ ^[0-9a-f]{40}$ ]]; then
             sha="$NEXTJS_REF"
           else
@@ -214,14 +210,6 @@ jobs:
         uses: ./.github/actions/build-nextjs
         with:
           ref: ${{ needs.plan.outputs.nextjs-ref }}
-
-      - name: Report what is about to be cached
-        if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
-        # A repository gets 10 GB of cache in total, evicted least-recently-used,
-        # so an entry this size is capable of displacing every other workflow's.
-        # Printed rather than asserted, because the number to compare against is
-        # whatever the other workflows are using at the time.
-        run: du -sh nextjs ~/.cache/ms-playwright
 
       - name: Save the next.js build
         if: ${{ steps.lookup.outputs.cache-hit != 'true' }}

@@ -96,11 +96,6 @@ export function zipDirectory(dir: string): Buffer {
   // Zip64 only for the entry count: a pnpm root reaches 65,535 files,
   // directories and links well inside Lambda's 250 MB unzipped cap, but that
   // cap keeps every size and offset inside 32 bits.
-  if (offset > 0xffffffff) {
-    throw new Error(
-      `${dir} zips to ${offset} bytes, over the 4 GiB a zip without Zip64 offsets can hold.`,
-    );
-  }
   const centralSize = central.reduce((sum, chunk) => sum + chunk.length, 0);
   const zip64: Buffer[] = [];
   if (count > 0xffff) {

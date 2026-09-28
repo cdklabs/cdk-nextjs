@@ -10,7 +10,7 @@
  * would have told the client a URL `next start` serves does not exist.
  */
 import { AdapterManifest } from "./manifest";
-import { withoutPathPrefix } from "./util";
+import { safeDecode, withoutPathPrefix } from "./util";
 import { hasPathPrefix } from "../utils/base-path";
 
 /**
@@ -56,7 +56,7 @@ export function caseCanonicalPath(
       canonical.push(value);
       continue;
     }
-    if (safeDecode(value)?.toLowerCase() !== part.toLowerCase()) {
+    if (safeDecode(value).toLowerCase() !== part.toLowerCase()) {
       return undefined;
     }
     canonical.push(encodeURIComponent(part));
@@ -80,12 +80,4 @@ function finish(
 
 function segments(path: string): string[] {
   return path.split("/").filter(Boolean);
-}
-
-function safeDecode(segment: string): string | undefined {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return undefined;
-  }
 }

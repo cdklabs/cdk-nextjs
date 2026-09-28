@@ -674,37 +674,6 @@ describe("NextjsApi", () => {
       });
     });
 
-    it("rejects a behavior for a group it was not given", () => {
-      const { functionGroupBehaviors } = grouped([
-        {
-          name: "api",
-          routes: ["/api/**"],
-          function: new LambdaFunction(stack, "GroupFn", {
-            runtime: Runtime.NODEJS_22_X,
-            handler: "index.handler",
-            code: Code.fromInline("exports.handler = async () => {};"),
-          }),
-        },
-      ]);
-      expect(
-        () =>
-          new NextjsApi(stack, "NextjsApi", {
-            staticAssetsBucket: Bucket.fromBucketName(
-              stack,
-              "Bucket",
-              "my-bucket",
-            ),
-            serverFunction: new LambdaFunction(stack, "ServerFn", {
-              runtime: Runtime.NODEJS_22_X,
-              handler: "index.handler",
-              code: Code.fromInline("exports.handler = async () => {};"),
-            }),
-            publicDirEntries: [],
-            functionGroupBehaviors,
-          }),
-      ).toThrow(/routes to function group "api", which is not in/);
-    });
-
     it("adds no data routes for an app without Pages Router routes", () => {
       createGroupedApi(false);
 

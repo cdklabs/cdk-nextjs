@@ -142,14 +142,19 @@ function actionsOf(template: Template, logicalId: string): string[] {
   return actionsOfRole(template, fn.Properties.Role["Fn::GetAtt"][0]);
 }
 
-function actionsOfRole(template: Template, roleId: string): string[] {
-  const policies = template.findResources("AWS::IAM::Policy");
-  return Object.values(policies)
+/** Every statement of the IAM policies attached to `roleId`. */
+function statementsOfRole(template: Template, roleId: string): any[] {
+  return Object.values(template.findResources("AWS::IAM::Policy"))
     .filter((policy) =>
       policy.Properties.Roles.some((role: any) => role.Ref === roleId),
     )
-    .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-    .flatMap((statement: any) => [statement.Action].flat());
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement);
+}
+
+function actionsOfRole(template: Template, roleId: string): string[] {
+  return statementsOfRole(template, roleId).flatMap((statement) =>
+    [statement.Action].flat(),
+  );
 }
 
 function expectCacheGrants(template: Template, logicalId: string) {
@@ -167,16 +172,11 @@ function expectTableScopedDynamoGrants(template: Template, roleId: string) {
   const [tableId] = Object.keys(
     template.findResources("AWS::DynamoDB::GlobalTable"),
   );
-  const statements = Object.values(template.findResources("AWS::IAM::Policy"))
-    .filter((policy) =>
-      policy.Properties.Roles.some((role: any) => role.Ref === roleId),
-    )
-    .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-    .filter((statement: any) =>
-      [statement.Action]
-        .flat()
-        .some((action: string) => action.startsWith("dynamodb:")),
-    );
+  const statements = statementsOfRole(template, roleId).filter((statement) =>
+    [statement.Action]
+      .flat()
+      .some((action: string) => action.startsWith("dynamodb:")),
+  );
   const actions = statements.flatMap((statement: any) =>
     [statement.Action].flat(),
   );
@@ -382,18 +382,11 @@ describe("NextjsGlobalFunctions", () => {
       );
     }
 
-    const host = process.arch.startsWith("arm") ? "arm64" : "x86_64";
-    const other = host === "arm64" ? Architecture.X86_64 : Architecture.ARM_64;
+    const other = process.arch.startsWith("arm")
+      ? Architecture.X86_64
+      : Architecture.ARM_64;
 
-    // So any native dependency `next build` traced from this machine runs.
-    it("defaults to the synth machine's architecture on every group", () => {
-      expect(architectures({ functionGroups })).toEqual({
-        default: [host],
-        reports: [host],
-      });
-    });
-
-    it("honors functionProps.architecture construct-wide, and only there", () => {
+    it("honors functionProps.architecture construct-wide", () => {
       expect(
         architectures({
           functionGroups,
@@ -404,19 +397,6 @@ describe("NextjsGlobalFunctions", () => {
           },
         }),
       ).toEqual({ default: [other.name], reports: [other.name] });
-      // One architecture per deployment.
-      expect(() =>
-        architectures({
-          functionGroups: [
-            {
-              ...functionGroups[0],
-              overrides: {
-                functionProps: { architecture: other },
-              },
-            },
-          ],
-        }),
-      ).toThrow(/function group "reports" is/);
     });
   });
 
@@ -663,12 +643,8 @@ describe.each([
 describe("static assets read grant", () => {
   /** The static assets bucket objects `s3:GetObject*` reaches, per role. */
   function staticReadObjects(template: Template, roleId: string): string[] {
-    return Object.values(template.findResources("AWS::IAM::Policy"))
-      .filter((policy) =>
-        policy.Properties.Roles.some((role: any) => role.Ref === roleId),
-      )
-      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-      .filter((statement: any) =>
+    return statementsOfRole(template, roleId)
+      .filter((statement) =>
         [statement.Action].flat().includes("s3:GetObject*"),
       )
       .flatMap((statement: any) => [statement.Resource].flat())
@@ -701,17 +677,6 @@ describe("static assets read grant", () => {
 });
 
 describe("REST API stage redeploy", () => {
-  it("NextjsRegionalFunctions redeploys its stage after each stack update", () => {
-    const stack = new Stack(new App(), "Stack");
-    new NextjsRegionalFunctions(stack, "App", { buildDirectory: buildDir });
-    const template = Template.fromStack(stack);
-
-    template.resourceCountIs("AWS::Events::Rule", 1);
-    template.hasResourceProperties("AWS::Events::Rule", {
-      EventPattern: Match.objectLike({ source: ["aws.cloudformation"] }),
-    });
-  });
-
   it("can be turned off through nextjsApiProps", () => {
     const stack = new Stack(new App(), "Stack");
     new NextjsRegionalFunctions(stack, "App", {

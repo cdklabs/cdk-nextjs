@@ -43,17 +43,10 @@ PACKAGE_MANAGER="$(node -e '
 ' "$ADAPTER_DIR")"
 
 WARM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hrns-warm-XXXXXX")"
-# Deleted on every exit unless WARM_KEEP=1, which is for poking at the build
-# locally. Nothing is lost on a failure: `e2e-deploy.sh` tees its build and
-# deploy output to stderr, so the job log already has what the files hold.
-cleanup() {
-  if [ "${WARM_KEEP:-0}" = "1" ]; then
-    echo "warm: leaving $WARM_DIR in place"
-    return
-  fi
-  rm -rf "$WARM_DIR"
-}
-trap cleanup EXIT
+# Deleted on every exit. Nothing is lost on a failure: `e2e-deploy.sh` tees its
+# build and deploy output to stderr, so the job log already has what the files
+# hold.
+trap 'rm -rf "$WARM_DIR"' EXIT
 
 echo "warm: building a throwaway app in $WARM_DIR (next@$NEXT_VERSION)"
 

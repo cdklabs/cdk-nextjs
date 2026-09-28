@@ -92,16 +92,7 @@ async function signedFetch(input, init) {
     return originalFetch(input, init);
   }
 
-  let url;
-  if (typeof input === "string") {
-    url = new URL(input, location.href);
-  } else if (input instanceof URL) {
-    url = input;
-  } else if (input instanceof Request) {
-    url = new URL(input.url, location.href);
-  } else {
-    url = new URL(String(input), location.href);
-  }
+  const url = new URL(request ? request.url : String(input), location.href);
   if (url.hostname !== location.hostname) {
     return originalFetch(input, init);
   }

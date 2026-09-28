@@ -33,8 +33,6 @@ import {
 export interface DefaultUseCacheHandlerOptions {
   /** Tag state; the process-wide one from the environment by default. */
   tags?: TrackedTagMarkers;
-  /** Memory bound in bytes; `CDK_NEXTJS_USE_CACHE_MEMORY_BYTES` or 50 MB. */
-  maxMemoryBytes?: number;
 }
 
 /**
@@ -57,8 +55,7 @@ export function createDefaultUseCacheHandler(
 ): CacheHandler {
   const tags = options.tags ?? sharedTagManifest();
   const memory = new EntryLru(
-    options.maxMemoryBytes ??
-      numberFromEnv("CDK_NEXTJS_USE_CACHE_MEMORY_BYTES", DEFAULT_MEMORY_BYTES),
+    numberFromEnv("CDK_NEXTJS_USE_CACHE_MEMORY_BYTES", DEFAULT_MEMORY_BYTES),
   );
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
@@ -69,12 +66,6 @@ export function createDefaultUseCacheHandler(
       const stored = memory.get(cacheKey);
       if (!stored) {
         debug(`MISS ${cacheKey}`);
-        return undefined;
-      }
-      // The built-in handler's eviction sentinel. Only its dev-only tiered
-      // handler writes one, but it costs nothing to honor.
-      if (stored.expire < 0) {
-        memory.delete(cacheKey);
         return undefined;
       }
       if (now() > stored.timestamp + stored.revalidate * 1000) {

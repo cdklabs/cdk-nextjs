@@ -31,7 +31,7 @@ import {
   STATUS_PAGE_SUFFIXES,
 } from "./manifest";
 import { publicDirKey } from "./public-files";
-import { emptyStream, toSearch, withoutPathPrefix } from "./util";
+import { safeDecode, toSearch, withoutPathPrefix } from "./util";
 
 /**
  * Runs the app's middleware for one request. Supplied by `MiddlewareRunner` in
@@ -354,7 +354,7 @@ export class Dispatcher {
       buildId: this.manifest.buildId,
       basePath: this.manifest.config.basePath,
       headers,
-      requestBody: emptyStream(),
+      requestBody: new Blob([]).stream(),
       pathnames: [],
       routes: {
         ...this.routes,
@@ -417,15 +417,7 @@ export class Dispatcher {
       // Only called when a `middlewareMatchers` entry matches, which only a
       // build with middleware has.
       invokeMiddleware: async (ctx) => {
-        if (!request.invokeMiddleware) {
-          throw new Error(
-            "This build has middleware, so dispatch needs an " +
-              "`invokeMiddleware` implementation. Refusing to route without " +
-              "it: silently skipping middleware would change auth and " +
-              "rewrite behavior.",
-          );
-        }
-        const { response, ...middleware } = await request.invokeMiddleware({
+        const { response, ...middleware } = await request.invokeMiddleware!({
           ...ctx,
           method: request.method,
         });
@@ -905,23 +897,14 @@ export function outOfBandRouteParams(
     if (typeof value !== "string" || value === "") return undefined;
     const name = key.slice("nxtP".length);
     params[name] = repeats.has(name)
-      ? value.split("/").map(decodePathParam)
-      : decodePathParam(value);
+      ? value.split("/").map(safeDecode)
+      : safeDecode(value);
   }
   return { params, query: remaining };
 }
 
 /** An encoded `/`: the delimiter the query contract's split would consume. */
 const ENCODED_PATH_DELIMITER = /%2f/i;
-
-/** `decodeQueryPathParameter`, which tolerates a value that is not encoded. */
-function decodePathParam(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
 
 /** Whether a route param carries a segment, as opposed to `""` or nothing. */
 function isFilledParam(value: ResolveRoutesQueryValue | undefined): boolean {

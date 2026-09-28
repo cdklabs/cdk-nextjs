@@ -398,13 +398,6 @@ trip, and some fixtures do it themselves. Such a case fails here with
 `ECONNREFUSED 127.0.0.1` in the function's log. That's the harness, not
 cdk-nextjs: a real deployment's origin is its own public URL.
 
-First run, 22 files (the 12 picked plus the manifest's `suites` for them), on
-2026-09-24: **17 green**. Of the other 5, 3 are the self-fetch limitation above
-(`actions-streaming`; 3 of `app-basepath`'s 13 cases; 1 of
-`redirect-rewrite-dynamic-basepath`'s 2), and 2 are the `assetPrefix` variants of
-`invalid-static-asset-404-*`, which the regional types do not serve (cdk-nextjs
-warns at synth). Full record in `docs/harness-coverage.md`.
-
 ```bash
 ADAPTER_DIR=$PWD HARNESS_NEXTJS_TYPE=regional-functions ./scripts/e2e-warm.sh
 # ...then the usual run from the next.js checkout, with the same
@@ -564,7 +557,7 @@ export NEXT_E2E_TEST_TIMEOUT=240000
 node run-tests.js --timings -c 1 --retries 1 --type e2e
 
 # back in cdk-nextjs: the shared stack is still up by design. Look, then delete.
-./scripts/e2e-sweep.sh --dry-run
+./scripts/e2e-sweep.sh
 ./scripts/e2e-sweep.sh --apply --shared
 ```
 
@@ -672,16 +665,10 @@ the account.
 | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `ADAPTER_DIR`                       | _required_                           | This checkout. Every harness script resolves everything from it.                                        |
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
-| `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` once cdk-nextjs opts into `config.supportsImmutableAssets`. |
 | `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
-| `HARNESS_ECS_STABILIZATION_TIMEOUT` | `600`                                | Seconds a Containers hotswap waits for the service to stabilize before the deploy fails.               |
-| `HARNESS_PROXY_PORT`                | _derived from the stack name_        | Port `stage-proxy.mjs` listens on. Regional only.                                                      |
 | `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per local session (`dev-$USER`).       |
-| `HARNESS_LOG_LINES`                 | `400`                                | Tail length per log section.                                                                           |
-| `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
 | `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |
-| `WARM_KEEP`                         | `0`                                  | Keep `e2e-warm.sh`'s throwaway app directory, which is otherwise deleted on every exit, failure included. |
 | `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. Use `240000`.   |
 
 [harness]: https://nextjs.org/docs/app/api-reference/adapters/testing-adapters

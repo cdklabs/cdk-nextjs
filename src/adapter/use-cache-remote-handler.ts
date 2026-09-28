@@ -50,8 +50,6 @@ export interface RemoteUseCacheHandlerOptions {
   buildId?: string;
   /** Tag state; the process-wide one from the environment by default. */
   tags?: TrackedTagMarkers;
-  /** Memory tier bound in bytes; `CDK_NEXTJS_USE_CACHE_MEMORY_BYTES` or 50 MB. */
-  maxMemoryBytes?: number;
 }
 
 /** What is written to S3 for one entry. */
@@ -105,8 +103,7 @@ export function createRemoteUseCacheHandler(
   const buildId = options.buildId ?? resolveAwsCacheConfig().buildId;
   const tags = options.tags ?? sharedTagManifest();
   const memory = new EntryLru(
-    options.maxMemoryBytes ??
-      numberFromEnv("CDK_NEXTJS_USE_CACHE_MEMORY_BYTES", DEFAULT_MEMORY_BYTES),
+    numberFromEnv("CDK_NEXTJS_USE_CACHE_MEMORY_BYTES", DEFAULT_MEMORY_BYTES),
   );
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:remote");
@@ -127,7 +124,7 @@ export function createRemoteUseCacheHandler(
         debug(`S3 MISS ${cacheKey}`);
         return undefined;
       }
-      const parsed = parseCacheValue(object.body) as SerializedEntry;
+      const parsed = parseCacheValue(object) as SerializedEntry;
       if (parsed.key !== cacheKey) {
         // A hash collision, or an object that is not ours: never serve it.
         console.warn(`'use cache: remote' entry ${key} is for another key`);
@@ -205,7 +202,7 @@ export function createRemoteUseCacheHandler(
         debug(`MISS ${cacheKey}`);
         return undefined;
       }
-      if (stored.expire < 0 || isPastExpire(stored, at)) {
+      if (isPastExpire(stored, at)) {
         debug(`EXPIRED ${cacheKey}`);
         memory.delete(cacheKey);
         return undefined;

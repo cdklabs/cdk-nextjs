@@ -81,7 +81,6 @@ export class ShimServerResponse extends Transform {
     string,
     { name: string; value: HeaderValue }
   >();
-  private head?: ResponseHead;
 
   public constructor() {
     super();
@@ -185,13 +184,7 @@ export class ShimServerResponse extends Transform {
       return;
     }
     this.headersSent = true;
-    this.head = this.buildHead();
-    this.emit("head", this.head);
-  }
-
-  /** The emitted head, once `headersSent` is true. */
-  public get responseHead(): ResponseHead | undefined {
-    return this.head;
+    this.emit("head", this.buildHead());
   }
 
   /** Deprecated on `ServerResponse`, but `NodeNextResponse.sent` reads it. */

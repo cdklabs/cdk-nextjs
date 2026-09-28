@@ -1161,11 +1161,6 @@ function maxDefined(a: number | undefined, b: number | undefined) {
   return Math.max(a, b);
 }
 
-/** An object read back from the cache bucket. */
-export interface CacheObject {
-  body: string;
-}
-
 /**
  * The cache bucket, as the handlers use it: whole objects read and written as
  * UTF-8 text under the keys above.
@@ -1173,15 +1168,15 @@ export interface CacheObject {
 export class CacheBucket {
   constructor(
     private readonly client: S3Client,
-    readonly bucketName: string,
+    private readonly bucketName: string,
   ) {}
 
   /**
-   * The object at `key`, or `undefined` when there is none (`NoSuchKey`, or an
+   * The body of the object at `key`, or `undefined` when there is none (`NoSuchKey`, or an
    * empty response body). Any other error is thrown: the handlers disagree on
    * whether one is worth logging.
    */
-  async get(key: string): Promise<CacheObject | undefined> {
+  async get(key: string): Promise<string | undefined> {
     try {
       const response = await this.client.send(
         new GetObjectCommand({ Bucket: this.bucketName, Key: key }),
@@ -1189,9 +1184,7 @@ export class CacheBucket {
       if (!response.Body) {
         return undefined;
       }
-      return {
-        body: await response.Body.transformToString("utf-8"),
-      };
+      return await response.Body.transformToString("utf-8");
     } catch (error) {
       if (error instanceof NoSuchKey) {
         return undefined;

@@ -184,8 +184,10 @@ describe("setCookieList", () => {
     const res = new ShimServerResponse();
     const cookie = "token=x; expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/";
     res.setHeader("Set-Cookie", cookie);
+    let head: ResponseHead | undefined;
+    res.on("head", (h: ResponseHead) => (head = h));
     res.flushHeaders();
-    expect(res.responseHead?.cookies).toEqual([cookie]);
+    expect(head?.cookies).toEqual([cookie]);
   });
 });
 

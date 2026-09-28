@@ -31,7 +31,7 @@ source "$ADAPTER_DIR/scripts/e2e-harness/common.sh"
 # the actual reason it asked for logs.
 trap 'exit 0' ERR
 
-LOG_LINES="${HARNESS_LOG_LINES:-400}"
+LOG_LINES=400
 
 # Markers first: `parseIdsFromCliOutput` takes the first match of each.
 [ -f "$HARNESS_MARKERS_FILE" ] && cat "$HARNESS_MARKERS_FILE"
@@ -65,9 +65,9 @@ if [ -f "$HARNESS_STACK_FILE" ]; then
     [ -n "$FUNCTION_NAME" ] && LOG_GROUP="/aws/lambda/$FUNCTION_NAME"
   fi
   if [ -n "$LOG_GROUP" ]; then
-    echo "=== $LOG_GROUP (last ${HARNESS_LOG_SINCE:-30m}) ==="
+    echo "=== $LOG_GROUP (last 30m) ==="
     aws logs tail "$LOG_GROUP" \
-      --since "${HARNESS_LOG_SINCE:-30m}" \
+      --since 30m \
       --format short 2>&1 | tail -n "$LOG_LINES" || true
   fi
 fi

@@ -3,25 +3,14 @@
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
-import {
-  CacheHandlerValue,
-  CacheHandlerContext,
-} from "next/dist/server/lib/incremental-cache";
-import {
-  IncrementalCacheValue,
-  GetIncrementalFetchCacheContext,
-  GetIncrementalResponseCacheContext,
-} from "next/dist/server/response-cache";
+import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
+import { IncrementalCacheValue } from "next/dist/server/response-cache";
 import { markerClock } from "./aws-cache-store";
 import { numberFromEnv } from "./use-cache-common";
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
   expiresAt: number; // Timestamp in milliseconds
-}
-
-export interface MemoryCacheHandlerOptions {
-  context: CacheHandlerContext;
 }
 
 /**
@@ -91,7 +80,7 @@ export class MemoryCacheHandler {
    */
   private readonly maxEntries: number;
 
-  constructor(options: MemoryCacheHandlerOptions) {
+  constructor() {
     // Default to 1 hour TTL and 1000 max entries. A value that is not a
     // number falls back too: as NaN, nothing would ever expire or be evicted.
     this.ttlMs = numberFromEnv(
@@ -103,24 +92,10 @@ export class MemoryCacheHandler {
       1000,
     );
 
-    // Log the options for debugging (optional usage to avoid unused parameter warning)
-    if (options.context.dev) {
-      this.debug("MemoryCacheHandler initialized in development mode");
-    }
     this.debug(`TTL: ${this.ttlMs / 1000}s, Max entries: ${this.maxEntries}`);
   }
 
-  async get(
-    cacheKey: string,
-    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
-  ): Promise<CacheHandlerValue | null> {
-    // Log context for debugging (optional usage to avoid unused parameter warning)
-    if (ctx.kind) {
-      this.debug(
-        `Memory cache get operation for ${cacheKey} with kind: ${ctx.kind}`,
-      );
-    }
-
+  async get(cacheKey: string): Promise<CacheHandlerValue | null> {
     // Check in-memory cache
     const memoryEntry = this.inMemoryCache.get(cacheKey);
     if (memoryEntry) {

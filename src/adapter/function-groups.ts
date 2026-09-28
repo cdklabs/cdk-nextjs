@@ -15,6 +15,7 @@
  * which adds per-group `overrides`) is in `src/nextjs-compute/nextjs-functions.ts`
  * and is structurally assignable to {@link FunctionGroupSpec}.
  */
+import { LOG_PREFIX } from "../constants";
 import { ERROR_PAGE_SUFFIXES } from "../runtime/manifest";
 import { basePathPrefix, hasPathPrefix } from "../utils/base-path";
 
@@ -30,8 +31,6 @@ export const DEFAULT_FUNCTION_GROUP = "default";
  * it runs inside `next build`. `CDK_NEXTJS_INIT_CACHE_DIR` is the precedent.
  */
 export const FUNCTION_GROUPS_ENV_VAR = "CDK_NEXTJS_FUNCTION_GROUPS";
-
-export { FUNCTION_GROUP_ENV_VAR } from "../runtime/manifest";
 
 /** The part of a group the build side needs. */
 export interface FunctionGroupSpec {
@@ -127,6 +126,7 @@ export interface RoutingRules {
   }[];
 }
 
+const ERROR_PREFIX = `${LOG_PREFIX} \`functionGroups\`: `;
 const NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
 const SUBTREE_SUFFIX = "/**";
 /**
@@ -147,39 +147,7 @@ export const PATH_PATTERN_LITERAL = /[a-zA-Z0-9_\-.$/~"'@:+&]/;
 export function parseFunctionGroupsEnv(
   value: string | undefined,
 ): FunctionGroupSpec[] | undefined {
-  if (!value) {
-    return undefined;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch (error) {
-    throw new Error(
-      `${errorPrefix()}${FUNCTION_GROUPS_ENV_VAR} is not valid JSON: ${error}. ` +
-        `It is set by cdk-nextjs itself, so this means something else in the ` +
-        `build environment overwrote it.`,
-    );
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error(
-      `${errorPrefix()}${FUNCTION_GROUPS_ENV_VAR} must be a JSON array of ` +
-        `{ name, routes } objects.`,
-    );
-  }
-  return parsed.map((entry) => {
-    const group = entry as Partial<FunctionGroupSpec>;
-    if (
-      typeof group.name !== "string" ||
-      !Array.isArray(group.routes) ||
-      !group.routes.every((route) => typeof route === "string")
-    ) {
-      throw new Error(
-        `${errorPrefix()}${FUNCTION_GROUPS_ENV_VAR} entry ` +
-          `${JSON.stringify(entry)} is not a { name, routes } object.`,
-      );
-    }
-    return { name: group.name, routes: group.routes };
-  });
+  return value ? JSON.parse(value) : undefined;
 }
 
 /**
@@ -198,7 +166,7 @@ export function assertNoI18nSplitting(i18n: unknown): void {
     return;
   }
   throw new Error(
-    `${errorPrefix()}\`functionGroups\` cannot be combined with \`i18n\`. ` +
+    `${ERROR_PREFIX}\`functionGroups\` cannot be combined with \`i18n\`. ` +
       `With i18n every route is locale-prefixed, so routing a group at the edge ` +
       `would need one CloudFront behavior per locale per pattern, against a ` +
       `quota of 75 for the whole distribution. Deploy one function for every ` +
@@ -216,7 +184,7 @@ export function validateFunctionGroups(
 ): void {
   if (groups.length === 0) {
     throw new Error(
-      `${errorPrefix()}\`functionGroups\` is an empty array. Omit the prop ` +
+      `${ERROR_PREFIX}\`functionGroups\` is an empty array. Omit the prop ` +
         `entirely to deploy one function for every route, which is the default.`,
     );
   }
@@ -227,27 +195,27 @@ export function validateFunctionGroups(
   for (const group of groups) {
     if (group.name === DEFAULT_FUNCTION_GROUP) {
       throw new Error(
-        `${errorPrefix()}"${DEFAULT_FUNCTION_GROUP}" is a reserved group name: ` +
+        `${ERROR_PREFIX}"${DEFAULT_FUNCTION_GROUP}" is a reserved group name: ` +
           `it is the implicit group every unassigned route falls into.`,
       );
     }
     if (!NAME_PATTERN.test(group.name)) {
       throw new Error(
-        `${errorPrefix()}Group name "${group.name}" must match ` +
+        `${ERROR_PREFIX}Group name "${group.name}" must match ` +
           `${NAME_PATTERN} — it becomes a construct id and part of a Lambda ` +
           `function name.`,
       );
     }
     if (seenNames.has(group.name)) {
       throw new Error(
-        `${errorPrefix()}Two groups are both named "${group.name}".`,
+        `${ERROR_PREFIX}Two groups are both named "${group.name}".`,
       );
     }
     seenNames.add(group.name);
 
     if (group.routes.length === 0) {
       throw new Error(
-        `${errorPrefix()}Group "${group.name}" owns no routes. Every group is a ` +
+        `${ERROR_PREFIX}Group "${group.name}" owns no routes. Every group is a ` +
           `Lambda function, so an empty one would deploy and never be reached.`,
       );
     }
@@ -256,7 +224,7 @@ export function validateFunctionGroups(
       const owner = patternOwner.get(route);
       if (owner !== undefined) {
         throw new Error(
-          `${errorPrefix()}Pattern "${route}" appears in both group "${owner}" ` +
+          `${ERROR_PREFIX}Pattern "${route}" appears in both group "${owner}" ` +
             `and group "${group.name}". A route can only be packaged into one ` +
             `function. (Overlapping-but-different patterns are fine: "/api/**" ` +
             `in one group and "/api/reports/**" in another resolves ` +
@@ -293,7 +261,7 @@ function validateRoutePattern(route: string, groupName: string): void {
   const where = `Group "${groupName}" pattern "${route}"`;
   if (!route.startsWith("/")) {
     throw new Error(
-      `${errorPrefix()}${where} must start with "/". Patterns are URL paths as ` +
+      `${ERROR_PREFIX}${where} must start with "/". Patterns are URL paths as ` +
         `the browser requests them.`,
     );
   }
@@ -306,7 +274,7 @@ function validateRoutePattern(route: string, groupName: string): void {
   // (`assertEdgeReachesEveryFile`) rejects the second.
   if (route === "/") {
     throw new Error(
-      `${errorPrefix()}${where} cannot be routed. CloudFront has no path ` +
+      `${ERROR_PREFIX}${where} cannot be routed. CloudFront has no path ` +
         `pattern that matches only "/" — the default behavior serves it — so the ` +
         `home page always belongs to the "${DEFAULT_FUNCTION_GROUP}" group. ` +
         `Group the routes around it instead.`,
@@ -318,7 +286,7 @@ function validateRoutePattern(route: string, groupName: string): void {
   // would compete with the static-asset and image ones for everything else.
   if (route === "/_next" || route.startsWith("/_next/")) {
     throw new Error(
-      `${errorPrefix()}${where} is under "/_next", which Next.js reserves for ` +
+      `${ERROR_PREFIX}${where} is under "/_next", which Next.js reserves for ` +
         `build assets, image optimization and data routes. A Pages Router ` +
         `page's "/_next/data/…" route follows the page into its group, so ` +
         `group the page itself instead.`,
@@ -326,14 +294,14 @@ function validateRoutePattern(route: string, groupName: string): void {
   }
   if (route === SUBTREE_SUFFIX) {
     throw new Error(
-      `${errorPrefix()}${where} would own every route, leaving the default ` +
+      `${ERROR_PREFIX}${where} would own every route, leaving the default ` +
         `group empty. Splitting exists to divide routes between functions; ` +
         `omit \`functionGroups\` to deploy them all in one.`,
     );
   }
   if (/[[\]]/.test(route)) {
     throw new Error(
-      `${errorPrefix()}${where} contains a dynamic segment. Patterns become ` +
+      `${ERROR_PREFIX}${where} contains a dynamic segment. Patterns become ` +
         `CloudFront behavior path patterns, which support only "*" and "?", so ` +
         `"${route}" could only deploy as a wildcard that also captures its ` +
         `siblings. Use a subtree instead: "/blog/**" owns "/blog/[slug]".`,
@@ -341,7 +309,7 @@ function validateRoutePattern(route: string, groupName: string): void {
   }
   if (/\((.*)\)/.test(route)) {
     throw new Error(
-      `${errorPrefix()}${where} contains a route group segment. Route groups ` +
+      `${ERROR_PREFIX}${where} contains a route group segment. Route groups ` +
         `like "(marketing)" organize files and never appear in a URL, so they ` +
         `cannot be routed on. Use the URL path the route is served at.`,
     );
@@ -351,13 +319,13 @@ function validateRoutePattern(route: string, groupName: string): void {
     : route;
   if (/[*?]/.test(withoutSubtree)) {
     throw new Error(
-      `${errorPrefix()}${where} contains a wildcard somewhere other than a ` +
+      `${ERROR_PREFIX}${where} contains a wildcard somewhere other than a ` +
         `trailing "/**". The only two forms are an exact path ("/pricing") and ` +
         `a subtree ("/api/reports/**").`,
     );
   }
   if (route.includes("//")) {
-    throw new Error(`${errorPrefix()}${where} contains an empty path segment.`);
+    throw new Error(`${ERROR_PREFIX}${where} contains an empty path segment.`);
   }
   // A route Next.js serves can still hold a character no path pattern can:
   // `app/über/page.tsx`, `app/a b/page.tsx`, `app/a,b/page.tsx` all build, and
@@ -373,7 +341,7 @@ function validateRoutePattern(route: string, groupName: string): void {
   );
   if (invalid.length > 0) {
     throw new Error(
-      `${errorPrefix()}${where} contains ` +
+      `${ERROR_PREFIX}${where} contains ` +
         `${invalid.map((char) => JSON.stringify(char)).join(", ")}, which a ` +
         `CloudFront behavior path pattern cannot contain (allowed: A-Z a-z 0-9 ` +
         `_ - . $ / ~ " ' @ : + &). Escaping it with "?" would also match other ` +
@@ -483,7 +451,7 @@ export function assignRoutesToGroups(
     for (const route of group.routes) {
       if (!matchedPatterns.has(`${group.name}\u0000${route}`)) {
         throw new Error(
-          `${errorPrefix()}Group "${group.name}" pattern "${route}" matches no ` +
+          `${ERROR_PREFIX}Group "${group.name}" pattern "${route}" matches no ` +
             `route in this build. ` +
             optionalCatchAllParentHint(route, entries, basePath) +
             `Patterns match route templates as Next.js declares them (e.g. ` +
@@ -677,7 +645,7 @@ function behaviorSpecificity(pattern: string): number {
 function dataBuildId(buildId: string | undefined): string {
   if (!buildId) {
     throw new Error(
-      `${errorPrefix()}Routing a Pages Router app's "/_next/data/<buildId>/…" ` +
+      `${ERROR_PREFIX}Routing a Pages Router app's "/_next/data/<buildId>/…" ` +
         `URLs needs its build ID, and none was passed. This is a cdk-nextjs ` +
         `bug: the build ID comes from the adapter manifest.`,
     );
@@ -687,7 +655,7 @@ function dataBuildId(buildId: string | undefined): string {
   );
   if (invalid.length > 0) {
     throw new Error(
-      `${errorPrefix()}The build ID "${buildId}" contains ` +
+      `${ERROR_PREFIX}The build ID "${buildId}" contains ` +
         `${invalid.map((char) => JSON.stringify(char)).join(", ")}, which a ` +
         `CloudFront path pattern cannot hold, so its "/_next/data" URLs cannot ` +
         `be routed to a group. Make \`generateBuildId\` return only A-Z a-z ` +
@@ -929,7 +897,7 @@ function reassignInterceptingFiles(
     );
     if (split) {
       throw new Error(
-        `${errorPrefix()}"${entry.entrypointId}" is the interception route ` +
+        `${ERROR_PREFIX}"${entry.entrypointId}" is the interception route ` +
           `"${entry.template}", which Next.js reaches by rewriting a request for ` +
           `"${url}" inside whichever function CloudFront sent it to — so it is ` +
           `packaged with the group that owns "${url}". That URL space is split, ` +
@@ -954,14 +922,14 @@ function templateRegex(template: string): RegExp {
   const source = template
     .split("/")
     .filter(Boolean)
-    .map((segment) =>
-      OPTIONAL_CATCH_ALL_SEGMENT.test(segment)
-        ? "(?:/.+)?"
-        : /^\[\.\.\.[^\]]+\]$/.test(segment)
-          ? "/.+"
-          : /^\[[^\]]+\]$/.test(segment)
-            ? "/[^/]+"
-            : `/${segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+    .map(
+      (segment) =>
+        [
+          `/${segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+          "/[^/]+",
+          "/.+",
+          "(?:/.+)?",
+        ][segmentKind(segment)],
     )
     .join("");
   return new RegExp(`^${source || "/"}$`);
@@ -1160,14 +1128,8 @@ function capturedDynamicUrls(
     }
   };
   for (const sample of samples) {
-    const url = withBasePath(sample, edge.basePath);
-    check(url, url);
-    if (edge.trailingSlash && sample !== "/") {
-      check(`${url}/`, url);
-    }
-    if (entry.type === "page" && edge.buildId) {
-      const data = `${edge.basePath}/_next/data/${edge.buildId}${sample === "/" ? "/index" : sample}.json`;
-      check(data, data);
+    for (const { url, resolved } of urlVariants(sample, entry.type, edge)) {
+      check(url, resolved);
     }
   }
   return misrouted;
@@ -1256,20 +1218,30 @@ function servedUrls(
   if (optional) {
     paths.push(optional[1] || "/");
   }
-  const urls: string[] = [];
-  for (const it of paths) {
-    const url = withBasePath(it, edge.basePath);
-    urls.push(url);
-    if (edge.trailingSlash && it !== "/") {
-      urls.push(`${url}/`);
-    }
-    if (type === "page" && edge.buildId) {
-      urls.push(
-        `${edge.basePath}/_next/data/${edge.buildId}${it === "/" ? "/index" : it}.json`,
-      );
-    }
+  return paths.flatMap((it) =>
+    urlVariants(it, type, edge).map(({ url }) => url),
+  );
+}
+
+/**
+ * A path's URL, its `trailingSlash` form and a Pages Router page's data URL,
+ * each with `resolved`: the URL as Next.js matches it, without the trailing slash.
+ */
+function urlVariants(
+  path: string,
+  type: string | undefined,
+  edge: EdgeOptions,
+): { url: string; resolved: string }[] {
+  const url = withBasePath(path, edge.basePath);
+  const variants = [{ url, resolved: url }];
+  if (edge.trailingSlash && path !== "/") {
+    variants.push({ url: `${url}/`, resolved: url });
   }
-  return urls;
+  if (type === "page" && edge.buildId) {
+    const data = `${edge.basePath}/_next/data/${edge.buildId}${path === "/" ? "/index" : path}.json`;
+    variants.push({ url: data, resolved: data });
+  }
+  return variants;
 }
 
 function misroutedFileMessage(
@@ -1286,7 +1258,7 @@ function misroutedFileMessage(
     )
     .join(", ");
   const head =
-    `${errorPrefix()}"${file}" is packaged into ${groupLabel(owner)}, but ` +
+    `${ERROR_PREFIX}"${file}" is packaged into ${groupLabel(owner)}, but ` +
     `CloudFront would send ${where}, whose function does not have it: a 404 on ` +
     `every such request. Every URL one file serves has to reach the group that ` +
     `holds the file.`;
@@ -1405,7 +1377,7 @@ function assertRewritesStayInGroup(
           continue;
         }
         throw new Error(
-          `${errorPrefix()}The next.config rewrite from "${rule.source}" to ` +
+          `${ERROR_PREFIX}The next.config rewrite from "${rule.source}" to ` +
             `"${rule.destination}" crosses groups: CloudFront sends "${url}" to ` +
             `${groupLabel(group)}` +
             (behavior ? ` (its pattern "${behavior.route}")` : "") +
@@ -1464,13 +1436,7 @@ function resolveFile(
     return exact;
   }
   for (const route of routing.dynamicRoutes ?? []) {
-    let matches: boolean;
-    try {
-      matches = new RegExp(route.sourceRegex, "i").test(pathname);
-    } catch {
-      continue;
-    }
-    if (matches) {
+    if (new RegExp(route.sourceRegex, "i").test(pathname)) {
       const template = route.destination?.split("?")[0];
       return template === undefined ? undefined : files.get(template);
     }
@@ -1526,13 +1492,4 @@ function stripBasePath(template: string, basePath: string): string | undefined {
 
 function withBasePath(path: string, basePath: string): string {
   return path === "/" ? basePath || "/" : `${basePath}${path}`;
-}
-
-/**
- * `LOG_PREFIX` lives in `src/constants.ts`, which the adapter bundle already
- * pulls in — but this file is imported by the constructs too, and the message
- * shape is identical on both sides, so it is inlined rather than shared.
- */
-function errorPrefix(): string {
-  return "[cdk-nextjs] `functionGroups`: ";
 }

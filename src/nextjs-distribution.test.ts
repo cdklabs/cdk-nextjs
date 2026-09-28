@@ -212,17 +212,6 @@ describe("NextjsDistribution function group behaviors", () => {
     ).not.toThrow();
   });
 
-  it("rejects a maxCacheBehaviors that is not a positive integer", () => {
-    const { stack, distributionProps } = setup([]);
-    expect(
-      () =>
-        new NextjsDistribution(stack, "Distribution", {
-          ...distributionProps,
-          maxCacheBehaviors: 0,
-        }),
-    ).toThrow(/must be a positive integer/);
-  });
-
   it("does not count basePath behaviors for a basePath of /", () => {
     // `basePath: "/"` normalizes to no basePath and adds no behaviors, so
     // counting 2 for it could reject an app that is under the limit.

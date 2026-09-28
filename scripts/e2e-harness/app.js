@@ -341,13 +341,7 @@ const STACK_CLASSES = {
 };
 
 const app = new App();
-const StackClass = STACK_CLASSES[nextjsType];
-if (!StackClass) {
-  throw new Error(
-    `HARNESS_NEXTJS_TYPE=${nextjsType} is not one of ${Object.keys(STACK_CLASSES).join(", ")}`,
-  );
-}
-new StackClass(app, stackName, {
+new STACK_CLASSES[nextjsType](app, stackName, {
   stackName,
   env: {
     account: process.env["CDK_DEFAULT_ACCOUNT"],

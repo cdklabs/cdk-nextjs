@@ -41,13 +41,17 @@ export function toSearch(
   return search.toString();
 }
 
-/** An already-closed stream: a request body with nothing in it. */
-export function emptyStream(): ReadableStream {
-  return new ReadableStream({
-    start(controller) {
-      controller.close();
-    },
-  });
+/**
+ * `decodeURIComponent`, or `value` as given when it isn't valid
+ * percent-encoding, which is what a literal `%` in a path segment or filename
+ * looks like (`/100%.png`).
+ */
+export function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /** Resolves `true` on `drain`, `false` if the response closes first. */

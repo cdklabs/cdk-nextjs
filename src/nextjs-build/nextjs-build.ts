@@ -546,12 +546,6 @@ export class NextjsBuild extends Construct {
   ): void {
     const shell = isFunctions ? "lambda.mjs" : "server.mjs";
     const source = join(__dirname, "..", "runtime", shell);
-    if (!existsSync(source)) {
-      throw new Error(
-        `cdk-nextjs's bundled runtime shell not found at ${source}. Ensure the ` +
-          `cdk-nextjs package is properly built.`,
-      );
-    }
 
     const runtimeDir = join(deploymentRoot, RUNTIME_DIR_NAME);
     // Removed rather than merged: a stale shell from the other deployment type
@@ -702,10 +696,6 @@ export class NextjsBuild extends Construct {
 
     // Read the patch-fetch.js content
     const patchFetchPath = join(__dirname, "patch-fetch.js");
-    if (!existsSync(patchFetchPath)) {
-      throw new Error("patch-fetch.js not found");
-    }
-
     const patchFetchContent = readFileSync(patchFetchPath, "utf-8");
 
     // Prepend patch-fetch logic to each entrypoint, once. Now that this runs
@@ -736,17 +726,10 @@ export class NextjsBuild extends Construct {
       return [];
     }
 
-    try {
-      return readdirSync(publicDirPath, { withFileTypes: true }).map(
-        (entry: any) => ({
-          name: entry.name,
-          isDirectory: entry.isDirectory(),
-        }),
-      );
-    } catch (error) {
-      console.warn(`${LOG_PREFIX} Failed to read public directory: ${error}`);
-      return [];
-    }
+    return readdirSync(publicDirPath, { withFileTypes: true }).map((entry) => ({
+      name: entry.name,
+      isDirectory: entry.isDirectory(),
+    }));
   }
 
   /**
@@ -767,9 +750,18 @@ export class NextjsBuild extends Construct {
     platform: string,
   ) {
     const sharpSource = this.removeExistingSharpBinaries(root.path, projectDir);
-    if (sharpSource || root.name === DEFAULT_FUNCTION_GROUP) {
-      this.installSharpBinariesForTarget(root.path, sharpSource, platform);
+    if (!sharpSource) {
+      if (root.name === DEFAULT_FUNCTION_GROUP) {
+        console.warn(
+          `${LOG_PREFIX} "sharp" not found in the staged build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
+        );
+      }
+      return;
     }
+    this.installSharpPackages(
+      sharpBinaryDir(root.path),
+      this.getSharpBinaryPackages(sharpSource, platform),
+    );
   }
 
   /**
@@ -844,35 +836,6 @@ export class NextjsBuild extends Construct {
   }
 
   /**
-   * Install the `sharp` platform binaries the deployment target needs into the
-   * staged tree, at {@link sharpBinaryDir}.
-   *
-   * @param root the deployment root.
-   * @param sharpSource the staged `sharp` package, whose manifest pins the
-   * binary versions.
-   * @param platform `linux-<arch>` (glibc, the Lambda managed runtime) or
-   * `linuxmusl-<arch>` (Alpine, the container images), as Sharp's
-   * `@img/sharp-<platform>` packages spell it.
-   */
-  private installSharpBinariesForTarget(
-    root: string,
-    sharpSource: string | undefined,
-    platform: string,
-  ): void {
-    if (!sharpSource) {
-      console.warn(
-        `${LOG_PREFIX} "sharp" not found in the staged build output. Add "sharp" as a dependency of your Next.js app to enable image optimization.`,
-      );
-      return;
-    }
-
-    this.installSharpPackages(
-      sharpBinaryDir(root),
-      this.getSharpBinaryPackages(sharpSource, platform),
-    );
-  }
-
-  /**
    * Resolve the `@img/sharp-<platform>` and `@img/sharp-libvips-<platform>`
    * versions to install for a given platform.
    *
@@ -919,89 +882,80 @@ export class NextjsBuild extends Construct {
     packages: { name: string; version: string }[],
   ): void {
     const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
-    if (!existsSync(cacheDir)) {
-      mkdirSync(cacheDir, { recursive: true });
-    }
+    mkdirSync(cacheDir, { recursive: true });
 
     for (const pkg of packages) {
-      try {
-        const targetDir = join(imgPath, pkg.name);
-        const url = `https://registry.npmjs.org/@img/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`;
+      const targetDir = join(imgPath, pkg.name);
+      const url = `https://registry.npmjs.org/@img/${pkg.name}/-/${pkg.name}-${pkg.version}.tgz`;
 
-        // Create a consistent filename based on package name and version
-        const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
-        const cachedFile = join(cacheDir, cacheFileName);
+      // Create a consistent filename based on package name and version
+      const cacheFileName = `${pkg.name}-${pkg.version}.tgz`;
+      const cachedFile = join(cacheDir, cacheFileName);
 
-        // Check if we already have a valid package cached; re-download if
-        // a previous run left behind a truncated/corrupt download
-        if (existsSync(cachedFile) && this.isCachedFileValid(cachedFile)) {
-          debug(
-            `${LOG_PREFIX} Using cached ${pkg.name}@${pkg.version} from ${cachedFile}`,
+      // Check if we already have a valid package cached; re-download if
+      // a previous run left behind a truncated/corrupt download
+      if (existsSync(cachedFile) && this.isCachedFileValid(cachedFile)) {
+        debug(
+          `${LOG_PREFIX} Using cached ${pkg.name}@${pkg.version} from ${cachedFile}`,
+        );
+      } else {
+        debug(`${LOG_PREFIX} Downloading ${pkg.name}@${pkg.version}...`);
+
+        // Download to a process-unique temp file in the same directory,
+        // then atomically rename it onto the shared cache path. Concurrent
+        // synth processes (e.g. Turborepo running multiple `cdk` commands)
+        // share this cache dir, so writing directly to `cachedFile` risks
+        // another process extracting a half-written file. Renaming within
+        // the same filesystem is atomic, so readers only ever see a
+        // complete file, whichever process wins the race.
+        const tempFile = join(
+          cacheDir,
+          `${cacheFileName}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`,
+        );
+        try {
+          // --fail makes curl exit non-zero on HTTP errors and --retry
+          // handles transient connection drops so a partial transfer
+          // isn't cached as valid.
+          execFileSync(
+            "curl",
+            [
+              "-L",
+              "--fail",
+              "--retry",
+              "3",
+              "--retry-delay",
+              "1",
+              "-o",
+              tempFile,
+              url,
+            ],
+            { stdio: "pipe" },
           );
-        } else {
-          debug(`${LOG_PREFIX} Downloading ${pkg.name}@${pkg.version}...`);
 
-          // Download to a process-unique temp file in the same directory,
-          // then atomically rename it onto the shared cache path. Concurrent
-          // synth processes (e.g. Turborepo running multiple `cdk` commands)
-          // share this cache dir, so writing directly to `cachedFile` risks
-          // another process extracting a half-written file. Renaming within
-          // the same filesystem is atomic, so readers only ever see a
-          // complete file, whichever process wins the race.
-          const tempFile = join(
-            cacheDir,
-            `${cacheFileName}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`,
-          );
-          try {
-            // --fail makes curl exit non-zero on HTTP errors and --retry
-            // handles transient connection drops so a partial transfer
-            // isn't cached as valid.
-            execFileSync(
-              "curl",
-              [
-                "-L",
-                "--fail",
-                "--retry",
-                "3",
-                "--retry-delay",
-                "1",
-                "-o",
-                tempFile,
-                url,
-              ],
-              { stdio: "pipe" },
+          if (!this.isCachedFileValid(tempFile)) {
+            throw new Error(
+              `Downloaded file for ${pkg.name}@${pkg.version} is empty or missing: ${tempFile}`,
             );
-
-            if (!this.isCachedFileValid(tempFile)) {
-              throw new Error(
-                `Downloaded file for ${pkg.name}@${pkg.version} is empty or missing: ${tempFile}`,
-              );
-            }
-
-            renameSync(tempFile, cachedFile);
-          } finally {
-            if (existsSync(tempFile)) {
-              rmSync(tempFile, { force: true });
-            }
           }
 
-          debug(
-            `${LOG_PREFIX} Cached ${pkg.name}@${pkg.version} to ${cachedFile}`,
-          );
+          renameSync(tempFile, cachedFile);
+        } finally {
+          rmSync(tempFile, { force: true });
         }
 
-        mkdirSync(targetDir, { recursive: true });
-        execFileSync(
-          "tar",
-          ["-xzf", cachedFile, "-C", targetDir, "--strip-components=1"],
-          { stdio: "pipe" },
+        debug(
+          `${LOG_PREFIX} Cached ${pkg.name}@${pkg.version} to ${cachedFile}`,
         );
-
-        debug(`${LOG_PREFIX} Installed ${pkg.name}@${pkg.version}`);
-      } catch (error) {
-        console.error(`${LOG_PREFIX} Failed to install ${pkg.name}: ${error}`);
-        throw error;
       }
+
+      mkdirSync(targetDir, { recursive: true });
+      execFileSync(
+        "tar",
+        ["-xzf", cachedFile, "-C", targetDir, "--strip-components=1"],
+        { stdio: "pipe" },
+      );
+
+      debug(`${LOG_PREFIX} Installed ${pkg.name}@${pkg.version}`);
     }
   }
 

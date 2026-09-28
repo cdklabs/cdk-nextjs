@@ -9,7 +9,7 @@
  * it through `./next-modules` instead.
  */
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { withoutPathPrefix } from "./util";
+import { safeDecode, withoutPathPrefix } from "./util";
 
 /** Where the app is served versus where its assets were uploaded. */
 export interface S3AssetLocation {
@@ -80,7 +80,9 @@ export async function fetchFromS3(
   // and the alternative costs an S3 round trip per request to detect it.
   const assetPath = withoutPathPrefix(path, urlBasePath).replace(/^\/+/, "");
   const prefix = keyPrefix.replace(/^\/+|\/+$/g, "");
-  const decoded = decodePath(assetPath);
+  // A malformed encoding that isn't a literal `%` just misses the key and gets
+  // the 400 an absent file gets.
+  const decoded = safeDecode(assetPath);
   const key = prefix ? `${prefix}/${decoded}` : decoded;
 
   const response = await s3.send(
@@ -129,23 +131,6 @@ function withoutAssetPrefix(path: string, location: S3AssetLocation): string {
   return path.startsWith(`${assetPrefix}/_next/`)
     ? path.slice(assetPrefix.length)
     : path;
-}
-
-/**
- * Percent-decodes a URL path into the name the file actually has on disk, or in
- * S3. Falls back to the path as given when it isn't valid percent-encoding, which
- * is what a literal `%` in a filename looks like: `public/100%.png` is requested
- * as `/100%.png` (a `%` in a path is legal and browsers don't escape it), and
- * `decodeURIComponent` throws `URIError` on it. The undecoded name is the right
- * answer there, and a genuinely malformed request just misses the key and gets
- * the same 400 an absent file gets.
- */
-function decodePath(path: string): string {
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    return path;
-  }
 }
 
 /** A source over `images.maximumResponseBody`; see {@link fetchFromS3}. */

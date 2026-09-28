@@ -176,7 +176,7 @@ BUILD_ID="$(cat .next/BUILD_ID)"
   echo "DEPLOYMENT_ID: $NEXT_DEPLOYMENT_ID"
   # Flip to 1 once cdk-nextjs opts into `config.supportsImmutableAssets`; until
   # then static assets are re-uploaded per deploy under the same keys.
-  echo "NEXT_SUPPORTS_IMMUTABLE_ASSETS: ${HARNESS_SUPPORTS_IMMUTABLE_ASSETS:-0}"
+  echo "NEXT_SUPPORTS_IMMUTABLE_ASSETS: 0"
 } >"$HARNESS_MARKERS_FILE"
 
 export HARNESS_APP_DIR="$APP_DIR"
@@ -212,7 +212,7 @@ case "$(harness_nextjs_type)" in
     HOTSWAP_ARGS+=(
       --hotswap-ecs-minimum-healthy-percent 0
       --hotswap-ecs-maximum-healthy-percent 200
-      --hotswap-ecs-stabilization-timeout-seconds "${HARNESS_ECS_STABILIZATION_TIMEOUT:-600}"
+      --hotswap-ecs-stabilization-timeout-seconds 600
     )
     ;;
 esac

@@ -221,11 +221,6 @@ describe("Sharp staging for the deployment target", () => {
       root: string,
       projectDir: string,
     ): string | undefined;
-    installSharpBinariesForTarget(
-      root: string,
-      sharpSource: string | undefined,
-      platform: string,
-    ): void;
     stageSharpForTarget(
       root: { name: string; path: string },
       projectDir: string,
@@ -317,7 +312,11 @@ describe("Sharp staging for the deployment target", () => {
         join(root, "apps/web"),
       );
       expect(source).toBe(store);
-      build.installSharpBinariesForTarget(root, source, platform);
+      build.stageSharpForTarget(
+        { name: "default", path: root },
+        join(root, "apps/web"),
+        platform,
+      );
 
       expect(readdirSync(sharpBinaryDir(root)).sort()).toEqual(
         [`sharp-${platform}`, `sharp-libvips-${platform}`].sort(),
@@ -349,7 +348,11 @@ describe("Sharp staging for the deployment target", () => {
       join(root, "apps/web"),
     );
     expect(source).toBeUndefined();
-    build.installSharpBinariesForTarget(root, source, "linux-arm64");
+    build.stageSharpForTarget(
+      { name: "default", path: root },
+      join(root, "apps/web"),
+      "linux-arm64",
+    );
     expect(existsSync(sharpBinaryDir(root))).toBe(false);
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('"sharp" not found'),

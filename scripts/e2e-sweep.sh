@@ -41,7 +41,6 @@ WAIT=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
   --apply) APPLY=1 ;;
-  --dry-run) APPLY=0 ;;
   --wait) WAIT=1 ;;
   --shared) ONLY_STACK="$(harness_stack_name)" ;;
   --stack)
@@ -53,7 +52,7 @@ while [ "$#" -gt 0 ]; do
     shift
     ;;
   *)
-    echo "usage: $0 [--apply|--dry-run] [--shared|--stack NAME] [--wait]" >&2
+    echo "usage: $0 [--apply] [--shared|--stack NAME] [--wait]" >&2
     exit 2
     ;;
   esac
@@ -68,7 +67,7 @@ if [ -n "$ONLY_STACK" ]; then
 else
   MAX_AGE_HOURS="${HARNESS_SWEEP_MAX_AGE_HOURS:-6}"
 fi
-export HARNESS_STACK_PREFIX ONLY_STACK
+export HARNESS_STACK_PREFIX
 
 # An age floor, not just a tag match: a concurrent run's stacks carry the same
 # tag, and deleting one out from under a running test would look like an adapter
@@ -112,13 +111,12 @@ list_stacks() {
 LISTING="$(list_stacks)"
 CANDIDATES="$(
   printf '%s' "$LISTING" | node -e '
-    const { HARNESS_TAG_KEY, HARNESS_TAG_VALUE, HARNESS_STACK_PREFIX, ONLY_STACK } = process.env;
+    const { HARNESS_TAG_KEY, HARNESS_TAG_VALUE, HARNESS_STACK_PREFIX } = process.env;
     let raw = "";
     process.stdin.on("data", (chunk) => (raw += chunk));
     process.stdin.on("end", () => {
       for (const stack of JSON.parse(raw).Stacks || []) {
         if (!stack.StackName.startsWith(HARNESS_STACK_PREFIX)) continue;
-        if (ONLY_STACK && stack.StackName !== ONLY_STACK) continue;
         if (["DELETE_IN_PROGRESS", "DELETE_COMPLETE"].includes(stack.StackStatus)) continue;
         const tagged = (stack.Tags || []).some(
           (tag) => tag.Key === HARNESS_TAG_KEY && tag.Value === HARNESS_TAG_VALUE,

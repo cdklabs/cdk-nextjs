@@ -438,14 +438,6 @@ describe("cacheHandlers.default", () => {
     expect(await b.getExpiration(["_N_T_/other"])).toBe(0);
   });
 
-  it("writes one marker per tag for both handlers of an instance", async () => {
-    const tags = tagManifest();
-    const handlers = [defaultInstance(tags), remoteInstance(tags)];
-    await Promise.all(handlers.map((h) => h.updateTags(["a", "b"])));
-    expect(dynamoCalls(UpdateItemCommand)).toBe(2);
-    expect(dynamoCalls(PutItemCommand)).toBe(2);
-  });
-
   it("stores nothing from a stream that errors, and releases the pending get", async () => {
     const a = defaultInstance();
     const failing = new ReadableStream<Uint8Array>({

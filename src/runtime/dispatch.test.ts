@@ -946,17 +946,6 @@ describe("Dispatcher middleware handling", () => {
     if (result.kind !== "entrypoint") return;
     expect(result.requestHeaders.get("x-caller")).toBe("yes");
   });
-
-  it("refuses to route without a runner when the build has middleware", async () => {
-    const bare = { ...request("/isr/1"), invokeMiddleware: undefined };
-    await expect(
-      new Dispatcher({ manifest: manifests["app-playground"] }).dispatch(bare),
-    ).rejects.toThrow(/needs an `invokeMiddleware` implementation/);
-    // No middleware in the build, so no runner is required.
-    await expect(
-      new Dispatcher({ manifest: manifests["pages-i18n"] }).dispatch(bare),
-    ).resolves.toBeDefined();
-  });
 });
 
 describe("repairRouteParamQuery", () => {

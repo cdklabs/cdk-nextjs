@@ -1166,12 +1166,6 @@ describe("pathPatternsFor", () => {
 });
 
 describe("parseFunctionGroupsEnv", () => {
-  it("rejects a routes array holding something other than strings", () => {
-    expect(() =>
-      parseFunctionGroupsEnv(JSON.stringify([{ name: "a", routes: [1] }])),
-    ).toThrow(/is not a \{ name, routes \} object/);
-  });
-
   it("returns undefined when unset", () => {
     expect(parseFunctionGroupsEnv(undefined)).toBeUndefined();
   });

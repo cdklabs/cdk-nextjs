@@ -62,11 +62,6 @@ export function getDeploymentType(
   return fromEnv() ?? fromBaseUrl(baseUrl);
 }
 
-/** `NextjsRegionalFunctions`: API Gateway REST in front of a streaming Lambda. */
-export function isApiGateway(baseUrl?: string): boolean {
-  return getDeploymentType(baseUrl) === "regional-functions";
-}
-
 /** `NextjsGlobalFunctions`: CloudFront in front of a signed Lambda Function URL. */
 export function isGlobalFunctions(baseUrl?: string): boolean {
   return getDeploymentType(baseUrl) === "global-functions";

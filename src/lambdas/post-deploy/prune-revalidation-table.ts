@@ -8,6 +8,7 @@ import {
 } from "@aws-sdk/client-dynamodb";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
+import { processBatch } from "./prune-s3";
 
 const debug = getDebug("cdk-nextjs:post-deploy:prune-revalidation-table");
 
@@ -170,23 +171,4 @@ async function updateMetadata(
 
   await dynamoClient.send(putCommand);
   debug(`Updated metadata with current build ID: ${currentBuildId}`);
-}
-
-/**
- * Process items in batches to avoid overwhelming the system
- */
-async function processBatch<T, R>(
-  items: T[],
-  batchSize: number,
-  processFn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = [];
-
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(processFn));
-    results.push(...batchResults);
-  }
-
-  return results;
 }
