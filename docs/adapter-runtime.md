@@ -110,6 +110,20 @@ server.mts                               @next/routing             static file
   so per-request state (the middleware invoker, with its `waitUntil` and
   `signal`) travels in the `DispatchRequest`, never on the Dispatcher.
 
+### Why `functionGroups` exists
+
+It's the largest feature here, and it's deliberate. One heavy dependency (a
+PDF renderer, a headless browser) can push a zip Lambda past 250 MB, and it
+makes every route pay its cold start. Splitting that route into its own
+function fixes both and gives it its own memory and timeout, as Vercel and
+OpenNext do. A container-image Lambda fixes only the size, and makes every
+cold start slower, so it isn't a replacement.
+
+Keep the cost in one place: the adapter decides the group edge (CloudFront
+behaviors, API Gateway resources) once, checks it reaches every file, and
+writes it to the manifest. The constructs read that list rather than
+recomputing it.
+
 ## Where it differs from `next start`, knowingly
 
 | Behavior                                                     | `next start`                           | cdk-nextjs                                             | Why                                                                                                                                                                                                                                     |

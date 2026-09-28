@@ -510,7 +510,7 @@ The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Pl
 
 ## Design Principles
 
-- Treat Next.js as black box. Minimize reliance on Next.js internal APIs to reduce chance of incompatibility between this construct and future versions of Next.js.
+- Integrate through Next.js's official interfaces. Build on the [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters) API and [`@next/routing`](https://www.npmjs.com/package/@next/routing) rather than Next.js internals, so new Next.js versions rarely break this construct.
 - Security first.
 - One architecture does not fit all.
 - Enable customization everywhere.
@@ -866,8 +866,8 @@ This project uses Projen, so make sure to not edit [Projen](https://projen.io/) 
 
 ## FAQ
 
-Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs)?<br/>
-A: cdk-nextjs-standalone relies on [OpenNext](https://github.com/sst/open-next). OpenNext injects custom code to interact with private Next.js APIs. While OpenNext is able to make some optimizations that are great for serverless environments, this comes at an increase maintenance cost and increased chances for breaking changes. A goal of cdk-nextjs is to customize Next.js as little as possible to reduce the maintenance burden and decrease chances of breaking changes.
+Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs) or [OpenNext](https://opennext.js.org)?<br/>
+A: cdk-nextjs builds on Next.js's official [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters) API and runs requests through [`@next/routing`](https://www.npmjs.com/package/@next/routing), the routing library Next.js publishes for platform adapters. Next.js tells cdk-nextjs what it built, and routing follows the same rules as `next start`. Nothing re-implements Next.js's router or patches its server. The few Next.js internals cdk-nextjs does load (the image optimizer and static file server) are loaded as they are, not modified. This keeps upgrades cheap and breaking changes rare. cdk-nextjs is tested against Next.js's own end-to-end test suite; [harness-coverage.md](docs/harness-coverage.md) lists the cases that differ and why.
 
 Q: Why does cdk-nextjs depend upon Next.js v16.3 or higher?
 A: cdk-nextjs builds through the public [Adapter API](https://nextjs.org/docs/app/api-reference/config/next-config-js/adapterPath), and 16.3 is the first version whose build output carries everything it reads (middleware matchers and per-file asset hashes). 16.2 also added the [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching) it relies on. The runtime bundles `@next/routing` at the version it was tested against (see `package.json`), and newer Next.js 16 releases are expected to work.
@@ -889,7 +889,7 @@ A: See [docs/cdk-nextjs-cfn-exec-policy.json](./docs/cdk-nextjs-cfn-exec-policy.
 
 ## Acknowledgements
 
-This construct was built on the shoulders of giants. Thank you to the contributors of [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs) and [open-next](https://github.com/sst/open-next).
+This construct was built on the shoulders of giants. Thank you to the contributors of [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs) and [OpenNext](https://opennext.js.org).
 
 ## 🥂 Thanks Contributors
 
