@@ -201,6 +201,10 @@ project.synth();
 /**
  * Shims the CJS globals (`require`, `__dirname`, `__filename`) that bundled CJS
  * dependencies reference as bare identifiers but that don't exist in ESM scope.
+ * The runtime shells need `__dirname`: `@next/routing`'s prebuilt dist reads it
+ * at module load. The adapter bundles keep `createRequireBanner` instead:
+ * they never use `__dirname`, and `fileURLToPath(import.meta.url)` is unsafe
+ * inside a user's webpack/Turbopack build, which rewrites `import.meta.url`.
  *
  * esbuild treats a banner as opaque text, so it cannot rename a source module's
  * imports out of the way of a name the banner declares: importing
