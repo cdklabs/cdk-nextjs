@@ -173,6 +173,15 @@ class AwsGitHubActionRole extends Stack {
         ],
       }),
     );
+    // `UpdateFunctionCode` with an S3 location reads the object as the caller,
+    // and the code is in the bootstrap's assets bucket. Measured: without it,
+    // every Lambda hotswap failed with "Your access has been denied by S3".
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [`arn:${this.partition}:s3:::cdk-*-assets-${this.account}-${this.region}/*`],
+      }),
+    );
     // The Containers types: a new task definition, then the service pointed at
     // it. `RegisterTaskDefinition` has no resource-level scoping.
     role.addToPrincipalPolicy(
