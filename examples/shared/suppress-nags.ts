@@ -28,33 +28,19 @@ function suppressS3WildcardPermissions(
   path: string,
   reason: string,
   options: {
-    includeAbort?: boolean;
-    includeDelete?: boolean;
     includeStaticAssets?: boolean;
     includeCdkAssets?: boolean;
-    additionalResources?: Array<string | { regex: string }>;
   } = {},
 ) {
-  const {
-    includeAbort = true,
-    includeDelete = true,
-    includeStaticAssets = false,
-    includeCdkAssets = false,
-    additionalResources = [],
-  } = options;
+  const { includeStaticAssets = false, includeCdkAssets = false } = options;
 
   const actions: string[] = [
     "Action::s3:GetBucket*",
     "Action::s3:GetObject*",
     "Action::s3:List*",
+    "Action::s3:Abort*",
+    "Action::s3:DeleteObject*",
   ];
-
-  if (includeAbort) {
-    actions.push("Action::s3:Abort*");
-  }
-  if (includeDelete) {
-    actions.push("Action::s3:DeleteObject*");
-  }
 
   const resources: Array<string | { regex: string }> = [
     {
@@ -75,8 +61,6 @@ function suppressS3WildcardPermissions(
       "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
     );
   }
-
-  resources.push(...additionalResources);
 
   NagSuppressions.addResourceSuppressionsByPath(stack, path, [
     {
@@ -245,17 +229,6 @@ export function suppressContainerNags(stack: Stack) {
       {
         id: "AwsSolutions-ECS2",
         reason: "Environment variables do not contain sensitive information",
-      },
-    ],
-  );
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/ExecutionRole/DefaultPolicy/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM5",
-        // TODO: lock down to cdk hnb5 one?
-        reason: "ECS Task Execution Role can access any ECR repository",
       },
     ],
   );

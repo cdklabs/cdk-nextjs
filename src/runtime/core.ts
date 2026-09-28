@@ -713,18 +713,7 @@ export class NextjsRuntime {
     if (otherGroup) {
       // The edge sends every `/_next/image` request to the default group, and
       // the source is rendered in process, so a route packaged into another
-      // group is out of reach. Its 404 page would otherwise be handed to the
-      // optimizer as the image, and fail as "not a valid image" with nothing
-      // saying why.
-      const self = process.env[FUNCTION_GROUP_ENV_VAR];
-      console.warn(
-        `Image source "${href}" is served by a route in \`functionGroups\` ` +
-          `group "${otherGroup.owner}", but /_next/image runs in group ` +
-          `"${self}" and fetches a source that is not a file by running its ` +
-          `route in process, which only works for routes in its own group. ` +
-          `Leave the route that serves images in group "${self}", or serve ` +
-          `the image as a file (public/ or a static import).`,
-      );
+      // group is out of reach: the optimizer answers (and logs) a 502.
       return {
         statusCode: 0,
         headers: {},
@@ -1511,21 +1500,11 @@ async function sendWebResponse(
   if (response.statusText) {
     res.statusMessage = response.statusText;
   }
-  response.headers.forEach((value, name) => {
-    // `forEach` yields `set-cookie` once per cookie, each one whole; appended
-    // once, below, for the reason `applyHeaders` gives. Nothing splits them on
-    // commas — the one inside every `Expires=` date is indistinguishable.
-    if (name === "set-cookie") {
-      return;
-    }
-    if (STALE_FRAMING_HEADERS.has(name)) {
-      return;
-    }
-    res.setHeader(name, value);
-  });
-  for (const cookie of response.headers.getSetCookie()) {
-    res.appendHeader("set-cookie", cookie);
+  const headers = new Headers(response.headers);
+  for (const name of STALE_FRAMING_HEADERS) {
+    headers.delete(name);
   }
+  applyHeaders(res, headers);
   if (!response.body) {
     res.end();
     return;

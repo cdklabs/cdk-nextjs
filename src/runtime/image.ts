@@ -352,12 +352,13 @@ export class RuntimeImageOptimizer {
     // What `fetchInternalImage` checks, and throws, for the same response.
     const response = await fetchInternal(href, req, maximumResponseBody);
     if (response.otherGroup !== undefined) {
-      // A deployment problem, not a bad `url`: see `NextjsRuntime.fetchInternal`,
-      // which logs the details.
+      // A deployment problem, not a bad `url`: leave the route in the default
+      // group, or serve the image as a file (public/ or a static import).
       throw new optimizer.ImageError(
         502,
         '"url" parameter is valid but its source is a route in another ' +
-          "functionGroups group, which the image optimizer cannot fetch",
+          `functionGroups group ("${response.otherGroup}"), which the image ` +
+          "optimizer cannot fetch",
       );
     }
     if (response.tooLarge) {

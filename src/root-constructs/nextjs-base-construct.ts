@@ -1,4 +1,5 @@
 import { Token } from "aws-cdk-lib";
+import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { IBucket } from "aws-cdk-lib/aws-s3";
@@ -6,6 +7,7 @@ import { Construct } from "constructs";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import { NextjsApiOverrides } from "../nextjs-api";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
@@ -15,6 +17,10 @@ import {
   NextjsFunctions,
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
+import {
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
 import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
@@ -33,6 +39,7 @@ import {
 export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsCacheProps?: OptionalNextjsCacheProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
 }
 
@@ -41,6 +48,7 @@ export interface NextjsBaseConstructOverrides {
  */
 export interface NextjsBaseOverrides {
   readonly nextjsCache?: NextjsCacheOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
 
@@ -371,17 +379,29 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * Run the post-deploy custom resource after the init cache upload.
-   *
-   * Invalidating the CDN before the new cache is in place would only re-cache
-   * the responses the invalidation was meant to drop. CloudFormation infers no
-   * ordering between the two custom resources on its own.
+   * Runs after the init cache upload: invalidating the CDN before the new
+   * cache is in place would only re-cache the responses the invalidation was
+   * meant to drop, and CloudFormation infers no ordering between the two
+   * custom resources on its own.
    */
-  protected orderAfterInitCache(postDeploy: Construct): void {
-    const initCacheDeployment = this.nextjsCache.bucketDeployment;
-    if (initCacheDeployment) {
-      postDeploy.node.addDependency(initCacheDeployment);
+  protected createNextjsPostDeploy(
+    distribution?: IDistribution,
+  ): NextjsPostDeploy {
+    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      basePath: this.resolvedBasePath,
+      buildId: this.nextjsBuild.buildId,
+      distribution,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
+      overrides: this.baseProps.overrides?.nextjsPostDeploy,
+      ...this.constructOverrides?.nextjsPostDeployProps,
+    });
+    if (this.nextjsCache.bucketDeployment) {
+      postDeploy.node.addDependency(this.nextjsCache.bucketDeployment);
     }
+    return postDeploy;
   }
 
   private createNextjsBuild(): NextjsBuild {
@@ -450,31 +470,4 @@ export abstract class NextjsBaseConstruct extends Construct {
       },
     });
   }
-}
-
-/**
- * The non-`default` function groups, joined by name with what was deployed for
- * each — the input both `NextjsDistribution` and `NextjsApi` take, beside the
- * build's `functionGroupBehaviors`. A module function rather than a protected
- * method so its return type stays out of the jsii API.
- */
-export function deployedFunctionGroups(
-  groups: NextjsFunctionGroup[] | undefined,
-  functions: NextjsFunctions,
-) {
-  return groups?.map((group) => {
-    const deployed = functions.functionGroups.find(
-      (it) => it.name === group.name,
-    );
-    if (!deployed || (functions.functionUrl && !deployed.functionUrl)) {
-      throw new Error(
-        `Function group "${group.name}" was not deployed as a function.`,
-      );
-    }
-    return {
-      name: group.name,
-      function: deployed.function,
-      functionUrl: deployed.functionUrl,
-    };
-  });
 }

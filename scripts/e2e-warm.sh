@@ -115,27 +115,7 @@ printf 'harness warm-up\n' >"$WARM_DIR/public/warm.txt"
 # stack a warm-up was for is otherwise only inferable from the job name.
 STACK_NAME="$(harness_stack_name)"
 
-# A stack still being deleted - by the previous run's cleanup, if that run was
-# cut off before its own wait finished - cannot be deployed into, and CloudFront
-# makes that wait 15+ minutes. Wait it out here, where it costs no test file.
-#
-# ROLLBACK_COMPLETE needs nothing here: `cdk deploy` deletes and recreates it,
-# and this is the app that should do the create. Nor does REVIEW_IN_PROGRESS (a
-# change set that was never executed), which `cdk deploy` creates over. DELETE_FAILED can't be deployed
-# into at all, and deleting it is `e2e-sweep.sh`'s job, behind its tag gate.
-STATUS="$(harness_stack_status "$STACK_NAME")"
-case "$STATUS" in
-  DELETE_IN_PROGRESS)
-    echo "warm: $STACK_NAME is still being deleted; waiting for that to finish"
-    aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
-    ;;
-  DELETE_FAILED)
-    echo "warm: $STACK_NAME is DELETE_FAILED; run \`scripts/e2e-sweep.sh --apply --stack $STACK_NAME --wait\` first" >&2
-    exit 1
-    ;;
-esac
-
 echo "warm: deploying $STACK_NAME"
 cd "$WARM_DIR"
-URL="$(HARNESS_WARMING=1 "$ADAPTER_DIR/scripts/e2e-deploy.sh")"
+URL="$("$ADAPTER_DIR/scripts/e2e-deploy.sh")"
 echo "warm: shared stack ready at $URL"

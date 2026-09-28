@@ -368,16 +368,6 @@ describe("resolveErrorResponse", () => {
     });
   });
 
-  it("maps a missing S3 object to the same 400 Next.js's own local-image fetch produces", () => {
-    const error = new Error("NoSuchKey: does not exist");
-    error.name = "NoSuchKey";
-
-    expect(resolveErrorResponse(error, ImageError)).toEqual({
-      statusCode: 400,
-      message: "The requested resource isn't a valid image.",
-    });
-  });
-
   it("maps a source over images.maximumResponseBody to next start's 413", () => {
     expect(
       resolveErrorResponse(new ImageTooLargeError("big.png"), ImageError),

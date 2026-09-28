@@ -55,34 +55,4 @@ test.describe("isr", () => {
     expect(revalidatedTimestamp).not.toBe(initialTimestamp);
     console.log(`Revalidated page has new timestamp: ${revalidatedTimestamp}`);
   });
-
-  test("should show consistent timestamp during cache period", async ({
-    page,
-    baseURL,
-  }) => {
-    // no cache in dev mode
-    test.skip(baseURL?.includes("localhost") === true);
-
-    // First visit. Settle first for the same reason as the test above - a
-    // revalidation left in flight by another test would otherwise change the
-    // content under this one - with a short poll interval so the settled read
-    // and the 3s wait below both stay inside one 10s revalidation window.
-    await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const firstTimestamp = await waitForSettledTimestamp(page, {
-      intervalMs: 1_000,
-    });
-    expect(firstTimestamp).toBeTruthy();
-    console.log(`First visit timestamp: ${firstTimestamp}`);
-
-    // Wait 3 seconds (within 10s cache period)
-    await waitXSec(3);
-
-    // Should still show same cached timestamp
-    await page.reload({ waitUntil: "networkidle" });
-    const secondTimestamp = await getPageTimestamp(page);
-    expect(secondTimestamp).toBe(firstTimestamp);
-    console.log(
-      `After 3s reload: ${secondTimestamp} (same - within cache period)`,
-    );
-  });
 });

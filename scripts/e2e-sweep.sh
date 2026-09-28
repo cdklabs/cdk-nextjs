@@ -105,7 +105,8 @@ list_stacks() {
   esac
 }
 
-# The names of the tagged `hrns-*` stacks that are not already being deleted.
+# The tagged `hrns-*` stacks that are not already being deleted, one per line as
+# `name status created updated probe`, tab-separated.
 # DELETE_IN_PROGRESS is already going; DELETE_COMPLETE is gone. A DELETE_FAILED
 # stack is exactly what needs another attempt.
 LISTING="$(list_stacks)"
@@ -122,33 +123,21 @@ CANDIDATES="$(
         const tagged = (stack.Tags || []).some(
           (tag) => tag.Key === HARNESS_TAG_KEY && tag.Value === HARNESS_TAG_VALUE,
         );
-        if (tagged) console.log(stack.StackName);
+        if (!tagged) continue;
+        // What a hotswap moves: the server function for the Functions types,
+        // the ECS service (as `ecs:<cluster>/<service>`) for the Containers types.
+        const output = (key) => ((stack.Outputs || []).find((o) => o.OutputKey === key) || {}).OutputValue;
+        const fn = output("ServerFunctionName");
+        const cluster = output("EcsClusterName");
+        const service = output("EcsServiceName");
+        const probe = fn || (cluster && service ? `ecs:${cluster}/${service}` : "-");
+        console.log(
+          [stack.StackName, stack.StackStatus, stack.CreationTime, stack.LastUpdatedTime || "-", probe].join("\t"),
+        );
       }
     });
   '
 )"
-
-# One stack's status, CloudFormation timestamps and what a hotswap moves - the
-# server function for the Functions types, the ECS service (as
-# `ecs:<cluster>/<service>`) for the Containers types - tab-separated, read
-# fresh rather than from the listing.
-stack_facts() {
-  local json
-  json="$(aws cloudformation describe-stacks --stack-name "$1" --output json)" || return 1
-  printf '%s' "$json" | node -e '
-    let raw = "";
-    process.stdin.on("data", (c) => (raw += c));
-    process.stdin.on("end", () => {
-      const [s] = JSON.parse(raw).Stacks;
-      const output = (key) => ((s.Outputs || []).find((o) => o.OutputKey === key) || {}).OutputValue;
-      const fn = output("ServerFunctionName");
-      const cluster = output("EcsClusterName");
-      const service = output("EcsServiceName");
-      const probe = fn || (cluster && service ? `ecs:${cluster}/${service}` : "-");
-      console.log([s.StackStatus, s.CreationTime, s.LastUpdatedTime || "-", probe].join("\t"));
-    });
-  '
-}
 
 # Hours, rounded down to 0.1, since the most recent of a stack's CloudFormation
 # timestamps and its probe's last hotswap. Read-only. A function or service that
@@ -230,13 +219,8 @@ FOUND=0
 DELETED=()
 # On fd 4 rather than stdin, so that nothing the loop body runs can read the list
 # out from under it.
-while IFS= read -r name <&4; do
+while IFS=$'\t' read -r name status created updated probe <&4; do
   [ -n "$name" ] || continue
-  if ! facts="$(stack_facts "$name")"; then
-    echo "sweep: skipping $name - could not re-read it"
-    continue
-  fi
-  IFS=$'\t' read -r status created updated probe <<<"$facts"
   # An operation in flight is someone using the stack. An account-wide sweep
   # leaves it to the next sweep; a named one waits for it below. (A change set
   # that was never executed, REVIEW_IN_PROGRESS, never settles by itself.)
@@ -280,6 +264,24 @@ while IFS= read -r name <&4; do
       *_IN_PROGRESS)
         echo "sweep: $name is still $status after 20 minutes; not deleting it" >&2
         exit 1
+        ;;
+    esac
+  else
+    # The listing's status can be minutes old by now; a deploy that started
+    # since is someone using the stack.
+    if ! status="$(harness_stack_status "$name")"; then
+      echo "sweep: keeping $name - could not re-read its status"
+      continue
+    fi
+    case "$status" in
+      "")
+        echo "sweep: $name is already gone"
+        continue
+        ;;
+      REVIEW_IN_PROGRESS) ;;
+      *_IN_PROGRESS)
+        echo "sweep: keeping $name - $status"
+        continue
         ;;
     esac
   fi

@@ -792,68 +792,50 @@ export class NextjsBuild extends Construct {
   ): string | undefined {
     const sharpCandidates: string[] = [];
 
-    try {
-      // Links are listed, not followed: every link in a staged root points
-      // inside it (`stageFiles` copies the ones that don't), so its target is
-      // walked at its own path anyway, and following them is what let a
-      // workspace cycle hang the synth.
-      const allEntries = listTree(root);
+    // Links are listed, not followed: every link in a staged root points
+    // inside it (`stageFiles` copies the ones that don't), so its target is
+    // walked at its own path anyway, and following them is what let a
+    // workspace cycle hang the synth.
+    const allEntries = listTree(root);
 
-      // Symlinks are unlinked, not `rmSync`ed, and they go first. pnpm points
-      // several links at one store directory, and `rmSync(…, { recursive: true,
-      // force: true })` *silently no-ops* on a symlink whose target is already
-      // gone — `force` swallows the ENOENT its `rmdir` gets. Removing a store
-      // directory before its links therefore left dangling
-      // `@img/sharp-darwin-arm64` entries in the asset, which is a latent ENOENT
-      // in whatever next follows them (`sharp` does, when it looks for binaries).
-      const symlinks: string[] = [];
-      const directories: string[] = [];
+    // Symlinks are unlinked, not `rmSync`ed, and they go first. pnpm points
+    // several links at one store directory, and `rmSync(…, { recursive: true,
+    // force: true })` *silently no-ops* on a symlink whose target is already
+    // gone — `force` swallows the ENOENT its `rmdir` gets. Removing a store
+    // directory before its links therefore left dangling
+    // `@img/sharp-darwin-arm64` entries in the asset, which is a latent ENOENT
+    // in whatever next follows them (`sharp` does, when it looks for binaries).
+    const symlinks: string[] = [];
+    const directories: string[] = [];
 
-      for (const entry of allEntries) {
-        if (entry.isDirectory() && entry.name === "sharp") {
-          const path = join(entry.parentPath, entry.name);
-          if (existsSync(join(path, "package.json"))) {
-            sharpCandidates.push(path);
-          }
-          continue;
+    for (const entry of allEntries) {
+      if (entry.isDirectory() && entry.name === "sharp") {
+        const path = join(entry.parentPath, entry.name);
+        if (existsSync(join(path, "package.json"))) {
+          sharpCandidates.push(path);
         }
-        if (!isSharpBinaryPackage(entry.parentPath, entry.name)) continue;
-        const fullPath = join(entry.parentPath, entry.name);
-        if (entry.isSymbolicLink()) {
-          symlinks.push(fullPath);
-        } else if (entry.isDirectory()) {
-          directories.push(fullPath);
-        }
+        continue;
       }
-
-      debug(
-        `${LOG_PREFIX} Removing ${symlinks.length} Sharp binary symlinks and ${directories.length} directories`,
-      );
-
-      for (const path of symlinks) {
-        try {
-          unlinkSync(path);
-          debug(`${LOG_PREFIX} Unlinked: ${path}`);
-        } catch (error) {
-          console.warn(
-            `${LOG_PREFIX} Warning: Could not unlink ${path}: ${error}`,
-          );
-        }
+      if (!isSharpBinaryPackage(entry.parentPath, entry.name)) continue;
+      const fullPath = join(entry.parentPath, entry.name);
+      if (entry.isSymbolicLink()) {
+        symlinks.push(fullPath);
+      } else if (entry.isDirectory()) {
+        directories.push(fullPath);
       }
-      for (const path of directories) {
-        try {
-          rmSync(path, { recursive: true, force: true });
-          debug(`${LOG_PREFIX} Removed: ${path}`);
-        } catch (error) {
-          console.warn(
-            `${LOG_PREFIX} Warning: Could not remove ${path}: ${error}`,
-          );
-        }
-      }
-    } catch (error) {
-      console.warn(
-        `${LOG_PREFIX} Warning: Could not read node_modules directory: ${error}`,
-      );
+    }
+
+    debug(
+      `${LOG_PREFIX} Removing ${symlinks.length} Sharp binary symlinks and ${directories.length} directories`,
+    );
+
+    for (const path of symlinks) {
+      unlinkSync(path);
+      debug(`${LOG_PREFIX} Unlinked: ${path}`);
+    }
+    for (const path of directories) {
+      rmSync(path, { recursive: true, force: true });
+      debug(`${LOG_PREFIX} Removed: ${path}`);
     }
     return pickStagedSharpPackage(
       sharpCandidates,

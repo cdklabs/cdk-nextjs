@@ -109,4 +109,26 @@ describe("pruneCacheBucket", () => {
     ).toEqual(["/", "old/"]);
     expect(deletedKeys()).toEqual(["old/a.json"]);
   });
+
+  // A huge old build must not run the Lambda into its timeout, which would
+  // leave CloudFormation waiting on the custom resource.
+  it("stops at its time budget and leaves the rest for the next deploy", async () => {
+    stubBucket(["old/a.json", "old/b.json", "old/c.json"], 1);
+    let clock = 0;
+    const nowSpy = jest.spyOn(Date, "now").mockImplementation(() => clock);
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    holder.send.mockImplementation(
+      ((stub) => (command: unknown) => {
+        if (command instanceof DeleteObjectsCommand) clock += 2 * 60_000;
+        return stub(command);
+      })(holder.send.getMockImplementation()!),
+    );
+
+    await pruneCacheBucket({ bucketName: "cache", currentBuildId: "current" });
+
+    expect(deletedKeys()).toEqual(["old/a.json", "old/b.json"]);
+    expect(warnSpy).toHaveBeenCalled();
+    nowSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
 });

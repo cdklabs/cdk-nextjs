@@ -180,23 +180,16 @@ export function createRemoteUseCacheHandler(
       let stored = memory.get(cacheKey);
       if (stored) {
         await tags.ensure(stored.tags);
-        if (
-          stored.expire < 0 ||
-          isPastExpire(stored, at) ||
-          tags.state(stored.tags, stored.timestamp) === "expired"
-        ) {
-          memory.delete(cacheKey);
-          stored = undefined;
-        }
       }
 
-      // Past `revalidate`, or stale by tag: another instance may already have
-      // written the regenerated entry, and serving that beats regenerating it
-      // here too.
+      // Past `revalidate`, or stale or expired by tag: another instance may
+      // already have written the regenerated entry, and serving that beats
+      // regenerating it here too. An expired entry S3 has nothing newer for is
+      // dropped below.
       if (
         !stored ||
         isPastRevalidate(stored, at) ||
-        tags.state(stored.tags, stored.timestamp) === "stale"
+        tags.state(stored.tags, stored.timestamp) !== "fresh"
       ) {
         const fromS3 = await readFromS3(cacheKey);
         if (fromS3 && (!stored || fromS3.timestamp > stored.timestamp)) {

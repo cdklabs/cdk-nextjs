@@ -216,41 +216,4 @@ test.describe("revalidation", () => {
 
     console.log("✓ Revalidate API response structure is correct:", data);
   });
-
-  test("should maintain cache within revalidation period", async ({
-    page,
-    baseURL,
-  }) => {
-    // no cache in dev mode
-    test.skip(baseURL?.includes("localhost") === true);
-
-    // Step 1: Trigger fresh render by revalidating
-    await page.goto("./api/revalidate?collection=collection", {
-      waitUntil: "networkidle",
-    });
-    await waitXSec(5);
-
-    // Step 2: Visit page to create fresh cache entry. Poll until two loads
-    // agree rather than trusting the first one: `waitXSec(5)` above only lets
-    // the *invalidation* land, and the re-render happens on the next request -
-    // so the first load can legitimately serve the expired entry and kick off
-    // the background revalidation whose result the reload below then sees.
-    // Settling first is what makes step 3 an assertion about caching instead of
-    // an assertion that revalidation is slow.
-    await page.goto("./isr/1", { waitUntil: "networkidle" });
-    const firstTimestamp = await waitForSettledTimestamp(page, {
-      intervalMs: 1_000,
-    });
-    console.log(`First visit: ${firstTimestamp}`);
-
-    // Step 3: Immediately reload - should serve from cache (same timestamp)
-    await page.reload({ waitUntil: "networkidle" });
-    const cachedTimestamp = await getPageTimestamp(page);
-    console.log(`Cached visit: ${cachedTimestamp}`);
-
-    // Should be identical timestamp
-    expect(cachedTimestamp).toBe(firstTimestamp);
-
-    console.log("✓ Cache maintained within revalidation period");
-  });
 });

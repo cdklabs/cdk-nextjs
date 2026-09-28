@@ -13,6 +13,8 @@ const debug = getDebug("cdk-nextjs:post-deploy:prune-cache-bucket");
 
 const s3Client = new S3Client();
 
+const PRUNE_BUDGET_MS = 3 * 60_000;
+
 interface PruneCacheBucketProps {
   bucketName: string;
   currentBuildId: string;
@@ -29,6 +31,7 @@ interface PruneCacheBucketProps {
  */
 export async function pruneCacheBucket(props: PruneCacheBucketProps) {
   const { bucketName, currentBuildId } = props;
+  const deadline = Date.now() + PRUNE_BUDGET_MS;
 
   const oldPrefixes: string[] = [];
   let deleted = 0;
@@ -50,9 +53,15 @@ export async function pruneCacheBucket(props: PruneCacheBucketProps) {
 
   debug(`Found ${oldPrefixes.length} old build prefixes to delete`);
 
-  for (const prefix of oldPrefixes) {
+  for (const [i, prefix] of oldPrefixes.entries()) {
     continuationToken = undefined;
     do {
+      if (Date.now() > deadline) {
+        console.warn(
+          `Cache bucket pruning stopped at its time budget after deleting ${deleted} objects; ${oldPrefixes.length - i} old build prefixes are left for the next deploy`,
+        );
+        return;
+      }
       const page: ListObjectsV2CommandOutput = await s3Client.send(
         new ListObjectsV2Command({
           Bucket: bucketName,

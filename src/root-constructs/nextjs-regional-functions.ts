@@ -1,28 +1,23 @@
 import { Construct } from "constructs";
+import { DEFAULT_FUNCTION_GROUP } from "../adapter/function-groups";
 import { NextjsType } from "../constants";
 import { OptionalNextjsApiProps } from "../generated-structs/OptionalNextjsApiProps";
 import { NextjsApi, NextjsApiOverrides } from "../nextjs-api";
 import {
-  deployedFunctionGroups,
   NextjsBaseConstruct,
   NextjsBaseProps,
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
 } from "./nextjs-base-construct";
-import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
-import {
-  NextjsPostDeploy,
-  NextjsPostDeployOverrides,
-} from "../nextjs-post-deploy";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 
 export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsApiProps?: OptionalNextjsApiProps;
-  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -34,7 +29,6 @@ export interface NextjsRegionalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalFunctions?: NextjsRegionalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsApi?: NextjsApiOverrides;
-  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsRegionalFunctionsProps extends NextjsBaseProps {
@@ -96,26 +90,11 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       // `serverFunction` above is the default group's, which the `{proxy+}`
       // catch-all reaches; the rest get resources of their own.
-      functionGroups: deployedFunctionGroups(
-        this.props.functionGroups,
-        this.nextjsFunctions,
+      functionGroups: this.nextjsFunctions.functionGroups.filter(
+        (group) => group.name !== DEFAULT_FUNCTION_GROUP,
       ),
       functionGroupBehaviors: this.nextjsBuild.functionGroupBehaviors,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
     });
-  }
-
-  private createNextjsPostDeploy(): NextjsPostDeploy {
-    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
-      buildId: this.nextjsBuild.buildId,
-      cacheBucket: this.nextjsCache.cacheBucket,
-      revalidationTable: this.nextjsCache.revalidationTable,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
-      overrides: this.props.overrides?.nextjsPostDeploy,
-      ...this.props.overrides?.nextjsRegionalFunctions?.nextjsPostDeployProps,
-    });
-    this.orderAfterInitCache(postDeploy);
-    return postDeploy;
   }
 }

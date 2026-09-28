@@ -163,13 +163,7 @@ export type ImageErrorClass =
 /**
  * Maps an error thrown while processing an image request to the HTTP
  * status/message it should produce, preserving the status Next.js's own
- * `ImageError`/`fetchExternalImage` attach. A missing S3 object is mapped to
- * the same 400 Next.js's own local-image fetch path (`fetchInternalImage` in
- * image-optimizer.js) produces for a missing file: it never inspects the
- * internal request's status code, so a 404 there just flows into the normal
- * "not a valid image" content-type check as if it were malformed image
- * bytes. This mirrors that behavior instead of surfacing a 404, so Functions
- * and Containers deployments respond identically for this case. A source over
+ * `ImageError`/`fetchExternalImage` attach. A source over
  * `images.maximumResponseBody` is the 413 `fetchInternalImage` answers.
  */
 export function resolveErrorResponse(
@@ -186,12 +180,6 @@ export function resolveErrorResponse(
     return {
       statusCode: 413,
       message: '"url" parameter is valid but internal response is invalid',
-    };
-  }
-  if (error instanceof Error && error.name === "NoSuchKey") {
-    return {
-      statusCode: 400,
-      message: "The requested resource isn't a valid image.",
     };
   }
   return { statusCode: 500, message: "Internal Server Error" };

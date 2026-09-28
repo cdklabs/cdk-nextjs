@@ -1882,10 +1882,6 @@ describe("a route packaged into another functionGroups group", () => {
       );
       expect(response).toMatchObject({ otherGroup: "blog" });
       expect(response.body.length).toBe(0);
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(String(warn.mock.calls[0][0])).toMatch(
-        /Image source "\/isr\/1" is served by a route in `functionGroups` group "blog"/,
-      );
     } finally {
       delete process.env.CDK_NEXTJS_FUNCTION_GROUP;
       warn.mockRestore();

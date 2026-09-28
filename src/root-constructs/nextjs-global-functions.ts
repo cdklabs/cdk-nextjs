@@ -4,16 +4,15 @@ import { Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Function as LambdaFunction } from "aws-cdk-lib/aws-lambda";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
+import { DEFAULT_FUNCTION_GROUP } from "../adapter/function-groups";
 import { NextjsType } from "../constants";
 import {
-  deployedFunctionGroups,
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
-import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsFunctionGroup,
   NextjsFunctions,
@@ -23,15 +22,11 @@ import {
   NextjsDistribution,
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
-import {
-  NextjsPostDeploy,
-  NextjsPostDeployOverrides,
-} from "../nextjs-post-deploy";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { joinPath } from "../utils/base-path";
 
 export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
-  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -43,7 +38,6 @@ export interface NextjsGlobalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
-  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
@@ -107,7 +101,9 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       (group) => group.function,
     );
     this.wireCloudFrontInvalidation(functions);
-    this.nextjsPostDeploy = this.createNextjsPostDeploy();
+    this.nextjsPostDeploy = this.createNextjsPostDeploy(
+      this.nextjsDistribution.distribution,
+    );
   }
 
   /**
@@ -166,28 +162,14 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       // The default group backs the default behavior, so only the rest need
       // behaviors of their own.
-      functionGroups: deployedFunctionGroups(
-        this.props.functionGroups,
-        this.nextjsFunctions,
-      )?.map((group) => ({ ...group, functionUrl: group.functionUrl! })),
+      functionGroups: this.nextjsFunctions.functionGroups
+        .filter((group) => group.name !== DEFAULT_FUNCTION_GROUP)
+        .map((group) => ({
+          name: group.name,
+          functionUrl: group.functionUrl!,
+        })),
       functionGroupBehaviors: this.nextjsBuild.functionGroupBehaviors,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsDistributionProps,
     });
-  }
-
-  private createNextjsPostDeploy(): NextjsPostDeploy {
-    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
-      basePath: this.resolvedBasePath,
-      buildId: this.nextjsBuild.buildId,
-      distribution: this.nextjsDistribution.distribution,
-      cacheBucket: this.nextjsCache.cacheBucket,
-      revalidationTable: this.nextjsCache.revalidationTable,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
-      overrides: this.props.overrides?.nextjsPostDeploy,
-      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsPostDeployProps,
-    });
-    this.orderAfterInitCache(postDeploy);
-    return postDeploy;
   }
 }

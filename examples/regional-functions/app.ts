@@ -86,7 +86,10 @@ const stack = new RegionalFunctionsStack(app, getStackName("rgnl-fns"), {
 });
 
 suppressCommonNags(stack);
-suppressLambdaNags(stack);
+suppressLambdaNags(
+  stack,
+  functionGroups.map((group) => group.name),
+);
 suppressApiNags(stack);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
