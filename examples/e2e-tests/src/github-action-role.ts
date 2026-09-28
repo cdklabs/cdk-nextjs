@@ -127,6 +127,98 @@ class AwsGitHubActionRole extends Stack {
         ],
       }),
     );
+    // `cdk deploy --hotswap-fallback`, which every harness file after the first
+    // takes. Unlike a CloudFormation deployment, a hotswap makes its SDK calls
+    // with the CLI's own credentials - this role - rather than the bootstrap
+    // deploy role (`hotswapDeployment` in aws-cdk: `sdkProvider.forEnvironment(
+    // env, ForWriting)`). Without these, every deploy after `e2e-warm.sh`'s create
+    // failed on AccessDenied (`cloudformation:GetTemplate`). CloudFormation names
+    // every physical resource `<stack name>-...`, so `hrns-*` scopes each one.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: [
+          "cloudformation:GetTemplate",
+          "cloudformation:ListStackResources",
+        ],
+        resources: [stackArn],
+      }),
+    );
+    // Resolving `Fn::ImportValue` while evaluating the template. Read-only, and
+    // cannot be scoped to a resource.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["cloudformation:ListExports"],
+        resources: ["*"],
+      }),
+    );
+    // Function code and environment, and the BucketDeployment provider that
+    // hotswapping a `Custom::CDKBucketDeployment` invokes.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: [
+          "lambda:GetFunction",
+          "lambda:UpdateFunctionCode",
+          "lambda:UpdateFunctionConfiguration",
+          "lambda:PublishVersion",
+          "lambda:UpdateAlias",
+          "lambda:InvokeFunction",
+        ],
+        resources: [
+          this.formatArn({
+            service: "lambda",
+            resource: "function",
+            resourceName: `${HARNESS_STACK_PREFIX}*`,
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          }),
+        ],
+      }),
+    );
+    // The Containers types: a new task definition, then the service pointed at
+    // it. `RegisterTaskDefinition` has no resource-level scoping.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["ecs:RegisterTaskDefinition"],
+        resources: ["*"],
+      }),
+    );
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["ecs:UpdateService", "ecs:DescribeServices"],
+        resources: [
+          this.formatArn({
+            service: "ecs",
+            resource: "service",
+            resourceName: `${HARNESS_STACK_PREFIX}*/${HARNESS_STACK_PREFIX}*`,
+          }),
+        ],
+      }),
+    );
+    // A task definition names its task and execution roles, and registering one
+    // checks the caller may pass them.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["iam:PassRole"],
+        resources: [
+          this.formatArn({
+            service: "iam",
+            region: "",
+            resource: "role",
+            resourceName: `${HARNESS_STACK_PREFIX}*`,
+          }),
+        ],
+        conditions: {
+          StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
+        },
+      }),
+    );
+    // `e2e-deploy.sh` waits for the new task to be the target group's only
+    // healthy target. Read-only, and cannot be scoped to a resource.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["elasticloadbalancing:DescribeTargetHealth"],
+        resources: ["*"],
+      }),
+    );
     role.addToPrincipalPolicy(
       new PolicyStatement({
         actions: ["logs:FilterLogEvents", "logs:DescribeLogGroups"],
@@ -141,6 +233,19 @@ class AwsGitHubActionRole extends Stack {
             service: "logs",
             resource: "log-group",
             resourceName: `/aws/lambda/${HARNESS_STACK_PREFIX}*:*`,
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          }),
+          // The Containers types' task log groups, named after the stack.
+          this.formatArn({
+            service: "logs",
+            resource: "log-group",
+            resourceName: `${HARNESS_STACK_PREFIX}*`,
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          }),
+          this.formatArn({
+            service: "logs",
+            resource: "log-group",
+            resourceName: `${HARNESS_STACK_PREFIX}*:*`,
             arnFormat: ArnFormat.COLON_RESOURCE_NAME,
           }),
         ],
