@@ -787,20 +787,31 @@ export class TrackedTagMarkers {
       if (this.applied.has(row.sk)) {
         continue;
       }
-      this.applied.set(row.sk, row.at);
       const marker = this.tags.get(row.tag);
       if (marker) {
         // `set` on a key already there keeps its place in the LRU order: being
         // revalidated elsewhere is not a use.
         this.tags.set(row.tag, mergeMarkers(marker, row.marker));
-        applied++;
       } else if (this.reading.has(row.tag)) {
         this.pendingRows.set(
           row.tag,
           mergeMarkers(this.pendingRows.get(row.tag), row.marker),
         );
-        applied++;
+      } else {
+        // A tag this instance does not track is read from its marker when it
+        // is next needed - but not yet marked applied, because that read may
+        // miss this very revalidation: the writer puts the log row and the
+        // marker at the same time, and the read is an eventually consistent
+        // `BatchGetItem` that can land milliseconds after the row showed here.
+        // Marked applied, the row was skipped by every query the lookback
+        // returned it to, and the pre-revalidation marker stood until the
+        // rolling re-read. Left unmarked, the next refresh applies it to
+        // whatever that read found; it costs no read, only the row being
+        // looked at again while it is inside the lookback.
+        continue;
       }
+      this.applied.set(row.sk, row.at);
+      applied++;
     }
     this.lastLogRead = at;
     this.advance(at - REVALIDATION_LOG_LOOKBACK_MS);

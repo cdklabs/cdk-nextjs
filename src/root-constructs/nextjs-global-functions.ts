@@ -185,6 +185,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       assetsBucket: this.nextjsStaticAssets.bucket,
       assetPrefix: this.nextjsBuild.nextConfigAssetPrefixPath,
       basePath: this.resolvedBasePath,
+      distribution: this.props.distribution,
       functionUrl: this.nextjsFunctions.functionUrl,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,

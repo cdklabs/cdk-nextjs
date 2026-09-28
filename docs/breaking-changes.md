@@ -19,6 +19,10 @@ wins, because Next.js reads the variable only as that option's default. You stil
 need it when cdk-nextjs is not running your build, i.e. `skipBuild: true`. What
 changes:
 
+- **Next.js 16.3 or higher is required** (was 16.2). The build reads adapter
+  outputs 16.3 added (`routing.middlewareMatchers`, `assetsHashes`), and the
+  runtime bundles `@next/routing` 16.3.5. `next build` on an older version now
+  fails at once with a message naming the version.
 - **If you set `output: "standalone"` yourself, remove it.** Standalone and the
   adapter are alternatives, not layers — `next build` says so, and a future
   Next.js release may reject the combination outright.
@@ -187,8 +191,7 @@ a custom domain mapped at the root, sees exactly what it saw before.
   attached with `addDomainName()` is invisible at synth, so set the prop in that
   case; `basePath: "/"` mounts at the root, for a domain whose base path mapping
   strips the app's whole `basePath`. A `stageName` set through
-  `overrides.nextjsRegionalFunctions.nextjsApiProps.overrides.restApiProps` is
-  honored when deriving.
+  `overrides.nextjsApi.restApiProps.deployOptions` is honored when deriving.
 
 ### Lower-level constructs: new and renamed props
 
@@ -274,6 +277,16 @@ routed with `/blog/**` automatically, and listing `/blog` as well is now an
 error. Intercepting routes (`(..)photo`) are packaged with the group that owns
 the URL they intercept. Rewrites made by middleware are not checked.
 
+Two things only work within a group, because they run a route in-process in the
+function that received the request. A Pages Router `res.revalidate()` can only
+revalidate pages in its own group (the error names the owning group). And the
+image optimizer (`/_next/image`) always runs in the `default` group, so an
+`<Image>` whose local `src` is served by a route in another group
+(`/api/avatar/42` under `/api/**`) can't be fetched and fails instead of being
+optimized. `public/` and `_next/static` sources are read from S3 and are
+unaffected. Put image-serving routes in `default`, or use a static or remote
+source.
+
 Edge path matching is case-sensitive and Next.js's isn't, so `/API/reports/1`
 misses a `/api/reports/**` group and reaches the default function. That
 function answers a 308 to the route's own spelling (`/api/reports/1`, the
@@ -330,8 +343,7 @@ The Containers types are unaffected: their origin sees the viewer's `Host`.
 
 The bucket policy now grants CloudFront's Origin Access Control principal
 `s3:ListBucket` on the static-assets bucket as well as `s3:GetObject`, so S3
-answers a missing `_next/static` or `public/` object with a 404 instead of a
-403. Nothing is listable through the distribution: CloudFront only ever asks for
+answers a missing `_next/static` or `public/` object with a 404 instead of a 403. Nothing is listable through the distribution: CloudFront only ever asks for
 one key. If you configured `errorResponses` (or monitoring) for 403 from the
 static behaviors, change them to 404.
 
@@ -402,6 +414,36 @@ them and reads each again when it's next needed.
 - For ISR and the data cache, a marker read that fails is retried on the next
   refresh (up to `CDK_NEXTJS_TAG_MARKER_TTL_MS` later) rather than on the very
   next check. The entry is treated as valid in between, as before.
+
+### Sharing a `cacheBucket` or `revalidationTable` between deployments is not supported
+
+Earlier docs said several deployments (branches, stages, apps) could safely
+share one `cacheBucket` and one `revalidationTable` because entries are keyed
+by `buildId`. They can't, and couldn't in earlier versions either: every
+deploy's post-deploy step deletes every cache object under a `<buildId>/`
+prefix other than its own, and the revalidation entries of the build it last
+recorded in the table's `METADATA` row, which with a shared table is whichever
+deployment deployed last. So deploying one deployment wiped the others' caches.
+The docs now say what the code does: bring-your-own `cacheBucket` and
+`revalidationTable` are still supported, but each must be dedicated to one
+deployment.
+
+`staticAssetsBucket` can still be shared between deployments with different
+`basePath`s (different S3 key prefixes), since pruning is scoped to
+`<basePath>/_next/`. Two deployments under the same prefix, such as subdomain
+previews all served at the root, overwrite each other's `public/` files and
+prune each other's `_next/` assets once they are past the prune TTL (30 days by
+default), so give those their own buckets too.
+
+- **Migration:** if deployments share a cache bucket or revalidation table, give
+  each its own. Either remove the `cacheBucket`/`revalidationTable` props and let
+  cdk-nextjs create them in each stack (removed with the stack), or create a
+  dedicated bucket (and a table with `pk`/`sk` String keys and TTL on `ttl`) per
+  deployment and point that deployment's props at it. Nothing needs copying: the
+  cache is re-seeded from the build on the next deploy. Delete the old shared
+  bucket and table once nothing points at them.
+  [examples/bring-your-own](../examples/bring-your-own) now shares only the VPC,
+  ECS cluster, and ALB between branches.
 
 ### Performance compared with 0.6.2
 

@@ -738,6 +738,135 @@ describe("what the edge routes, checked against what was packaged", () => {
     });
   });
 
+  describe("a dynamic route's URL space (E)", () => {
+    it("rejects a subtree capturing URLs a default-group catch-all serves", () => {
+      // `/blog/[slug]` only matches one segment, so `/blog/a/b` reaches the
+      // blog function via `blog/*` and resolves there to `/[...slug]`, which
+      // the blog zip lacks. The template text itself never matched `blog/*`.
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          routes("/", "/[...slug]", "/blog/[slug]"),
+        ),
+      ).toThrow(
+        /"\/\[\.\.\.slug\]" is packaged into the "default" group, but CloudFront would send "\/blog\/_\/_" to group "blog" \(its pattern "\/blog\/\*\*"\).*dynamic route "\/\[\.\.\.slug\]"/s,
+      );
+    });
+
+    it("checks under a basePath too", () => {
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          routes("/base", "/base/[...slug]", "/base/blog/[slug]"),
+          "/base",
+        ),
+      ).toThrow(/CloudFront would send "\/base\/blog\/_\/_" to group "blog"/);
+    });
+
+    it("accepts the capture when the group's own routes shadow every URL of it", () => {
+      // A more specific route in the capturing group wins inside Next.js, so
+      // with `/blog/[...rest]` there nothing under `/blog/` resolves to the
+      // root catch-all.
+      const assigned = assign(
+        [{ name: "blog", routes: ["/blog/**"] }],
+        routes("/", "/[...slug]", "/blog/[slug]", "/blog/[...rest]"),
+      );
+      expect(assigned[DEFAULT_FUNCTION_GROUP]).toEqual(["/", "/[...slug]"]);
+      expect(assigned.blog).toEqual(["/blog/[...rest]", "/blog/[slug]"]);
+    });
+
+    it("accepts a single-segment root param, which never reaches under a subtree", () => {
+      const assigned = assign(
+        [{ name: "blog", routes: ["/blog/**"] }],
+        routes("/", "/[slug]", "/blog/[slug]"),
+      );
+      expect(assigned[DEFAULT_FUNCTION_GROUP]).toEqual(["/", "/[slug]"]);
+    });
+
+    it("rejects the trailingSlash form of a subtree's base that a root param serves", () => {
+      // `/blog/` matches `blog/*`, and with no `/blog` page Next.js serves it
+      // with `/[slug]`.
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          routes("/", "/[slug]", "/blog/[slug]"),
+          "",
+          { trailingSlash: true },
+        ),
+      ).toThrow(/CloudFront would send "\/blog\/" to group "blog"/);
+    });
+
+    it("lets a static first segment in the group outrank a param in a later one", () => {
+      // `/blog/settings` reaches the blog function; `/blog/[slug]` beats
+      // `/[team]/settings` there, static first segment before dynamic.
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          routes("/", "/[team]/settings", "/blog/[slug]"),
+        ),
+      ).not.toThrow();
+      // Without it, `/[team]/settings` is what Next.js resolves it to.
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          routes("/", "/[team]/settings", "/blog/x"),
+        ),
+      ).toThrow(/"\/blog\/settings" to group "blog"/);
+    });
+
+    it("checks a root optional catch-all against subtree and exact patterns", () => {
+      expect(() =>
+        assign(
+          [{ name: "docs", routes: ["/docs/**"] }],
+          routes("/[[...slug]]", "/docs/[page]"),
+        ),
+      ).toThrow(/"\/docs\/_\/_" to group "docs"/);
+      // An exact pattern owns a static route, which Next.js prefers.
+      expect(
+        assign(
+          [{ name: "about", routes: ["/about"] }],
+          routes("/[[...slug]]", "/about"),
+        ).about,
+      ).toEqual(["/about"]);
+    });
+
+    it("checks a grouped catch-all against a narrower group's subtree", () => {
+      // `/api/reports/1/2` reaches the reports function, which only has
+      // `/api/reports/[id]`; Next.js resolves it to `/api/[...rest]`.
+      expect(() =>
+        assign(
+          [
+            { name: "api", routes: ["/api/**"] },
+            { name: "reports", routes: ["/api/reports/**"] },
+          ],
+          routes("/api/[...rest]", "/api/reports/[id]"),
+        ),
+      ).toThrow(
+        /"\/api\/\[\.\.\.rest\]" is packaged into group "api", but CloudFront would send "\/api\/reports\/_\/_" to group "reports"/,
+      );
+    });
+
+    it("checks a Pages Router catch-all's data URLs", () => {
+      const page = (template: string, file: string): RouteEntry[] => [
+        { template, entrypointId: file, type: "page" },
+        {
+          template: `/_next/data/${BUILD_ID}${template}.json`,
+          entrypointId: file,
+          type: "page",
+        },
+      ];
+      expect(() =>
+        assign(
+          [{ name: "blog", routes: ["/blog/**"] }],
+          [
+            ...page("/[...slug]", "pages/[...slug].js"),
+            ...page("/blog/[slug]", "pages/blog/[slug].js"),
+          ],
+        ),
+      ).toThrow(/"\/_next\/data\/abc123\/blog\/_\/_\.json" to group "blog"/);
+    });
+  });
+
   describe("/index (G)", () => {
     it("groups an App Router /index, a route of its own", () => {
       const assigned = assign(

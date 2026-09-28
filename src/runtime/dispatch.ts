@@ -178,9 +178,9 @@ export type DispatchResult =
   | DispatchNotFoundResult;
 
 /**
- * How to produce a 404 body. Resolved once from the manifest; picking between
- * locale variants and honoring `notFound()` from a route is the runtime core's
- * job, not dispatch's.
+ * How to produce a 404 body. Resolved once per locale from the manifest (see
+ * {@link Dispatcher.notFoundFor}); honoring `notFound()` from a route is the
+ * runtime core's job, not dispatch's.
  */
 export type NotFoundTarget =
   | {
@@ -218,7 +218,10 @@ function asI18n(i18n: unknown | null): ResolveRoutesParams["i18n"] | undefined {
 }
 
 export class Dispatcher {
-  /** Resolved once at construction; see {@link NotFoundTarget}. */
+  /**
+   * Resolved once at construction; see {@link NotFoundTarget}. The default
+   * locale's in an i18n app — {@link notFoundFor} picks the request's.
+   */
   public readonly notFound: NotFoundTarget;
 
   private readonly routes: ResolveRoutesParams["routes"];
@@ -227,6 +230,8 @@ export class Dispatcher {
   private readonly imagePathname: string;
   private readonly invokeMiddleware: MiddlewareInvoker;
   private readonly trailingSlash: boolean;
+  /** {@link notFound}, per configured locale. Empty without i18n. */
+  private readonly notFoundByLocale: ReadonlyMap<string, NotFoundTarget>;
 
   public constructor(private readonly options: DispatcherOptions) {
     const { manifest } = options;
@@ -235,7 +240,13 @@ export class Dispatcher {
     this.trailingSlash = manifest.config.trailingSlash;
     this.table = routingTableFor(manifest, options.publicFiles ?? NO_FILES);
     this.imagePathname = `${manifest.config.basePath}/_next/image`;
-    this.notFound = resolveNotFoundTarget(manifest);
+    this.notFound = resolveNotFoundTarget(manifest, this.i18n?.defaultLocale);
+    this.notFoundByLocale = new Map(
+      (this.i18n?.locales ?? []).map((locale) => [
+        locale,
+        resolveNotFoundTarget(manifest, locale),
+      ]),
+    );
 
     if (manifest.middleware && !options.invokeMiddleware) {
       throw new Error(
@@ -265,6 +276,20 @@ export class Dispatcher {
       : pathname;
   }
 
+  /**
+   * The 404 to render for a request to `url`: in an i18n app, the prerendered
+   * 404 of the locale the URL is in (`/fr/nope` gets `/fr/404`), and otherwise
+   * of the domain's default locale — which is how `next start` picks the
+   * locale it renders its 404 in. Without i18n, always {@link notFound}.
+   */
+  public notFoundFor(url: URL): NotFoundTarget {
+    const locale = requestLocale(this.manifest, url);
+    return (
+      (locale !== undefined && this.notFoundByLocale.get(locale)) ||
+      this.notFound
+    );
+  }
+
   /** The request path with `basePath` removed, which is what i18n applies to. */
   private withoutBasePath(pathname: string): string {
     const { basePath } = this.manifest.config;
@@ -286,6 +311,10 @@ export class Dispatcher {
    * `test/e2e/i18n-support-catchall`, where `/` answers 200. Next.js's own router
    * special-cases exactly this (`resolve-routes.ts`: `pathname === '/' ?
    * `/${defaultLocale}` : …`).
+   *
+   * With `trailingSlash`, the prefixed root keeps its slash (`/en-US/`): the
+   * slash-*adding* 308 that build compiles instead matches `/en-US` the same
+   * way, and `/en-US/` is the canonical URL `next start` serves with a 200.
    *
    * Only the root, and only when no redirect is owed: a request whose detected
    * locale is *not* the default has to reach `resolveRoutes`, which answers it
@@ -311,7 +340,9 @@ export class Dispatcher {
     if (detected.locale !== defaultLocale) return url;
 
     const prefixed = new URL(url.toString());
-    prefixed.pathname = `${this.manifest.config.basePath}/${defaultLocale}`;
+    prefixed.pathname = `${this.manifest.config.basePath}/${defaultLocale}${
+      this.trailingSlash ? "/" : ""
+    }`;
     return prefixed;
   }
 
@@ -585,7 +616,7 @@ export class Dispatcher {
     return {
       kind: "not-found",
       pathname: resolvedPathname ?? resolvedUrl.pathname,
-      notFound: this.notFound,
+      notFound: this.notFoundFor(request.url),
       requestHeaders: forwardedHeaders,
       responseHeaders,
     };
@@ -1003,37 +1034,110 @@ function isFilledParam(value: ResolveRoutesQueryValue | undefined): boolean {
  * The order next itself uses, in `base-server.ts`'s `renderErrorToResponse`:
  * App Router's `/_not-found`, then Pages Router's `/404`, then `/_error`. `/404`
  * has to come before `/_error` — it is the app's *custom* 404, and `/_error` is
- * the built-in "404: This page could not be found". A `pages/404.js` is usually
- * prerendered to HTML, so it reaches us as a static file rather than an
- * entrypoint; it stays invocable when something forces a per-request render,
- * which `pages/_app.js` having `getInitialProps` does. Measured against
+ * the built-in "404: This page could not be found". Measured against
  * `test/e2e/404-page-app`, where every URL got the built-in page.
  *
- * Apps with none of the three fall back to the prerendered `/404` HTML, then to
- * nothing.
+ * `/404` is almost always prerendered: `next build` emits `404.html` whenever
+ * `pages/_app` has no `getInitialProps` (`useStaticPages404`), from the app's
+ * `pages/404.js` or else from `_error`, and `next start` serves it through
+ * `hasPage('/404')` ahead of `/_error`. So it reaches us as a static file —
+ * under i18n one per locale (`/en-US/404`), and never a bare `/404` — and that
+ * file is what has to come before `/_error`, which every Pages build has. It is
+ * an entrypoint only when something forces a per-request render, which a
+ * `getInitialProps` in `_app` does.
+ *
+ * Apps with none of these get nothing.
  */
-function resolveNotFoundTarget(manifest: AdapterManifest): NotFoundTarget {
+function resolveNotFoundTarget(
+  manifest: AdapterManifest,
+  /** Which locale's prerendered 404 to look for, in an i18n app. */
+  locale: string | undefined,
+): NotFoundTarget {
   const { basePath } = manifest.config;
-  for (const suffix of ["/_not-found", "/404", "/_error"]) {
+  for (const suffix of ["/_not-found", "/404"]) {
     const pathname = `${basePath}${suffix}`;
     const entrypoint = manifest.entrypoints[pathname];
     if (entrypoint) {
       return { kind: "entrypoint", pathname, entrypoint };
     }
   }
-  const staticNotFound = `${basePath}/404`;
+  const staticNotFound = `${basePath}${locale ? `/${locale}` : ""}/404`;
   const filePath = manifest.staticFiles[staticNotFound];
   if (filePath !== undefined) {
     return { kind: "static-file", pathname: staticNotFound, filePath };
+  }
+  const errorPathname = `${basePath}/_error`;
+  const errorEntrypoint = manifest.entrypoints[errorPathname];
+  if (errorEntrypoint) {
+    return {
+      kind: "entrypoint",
+      pathname: errorPathname,
+      entrypoint: errorEntrypoint,
+    };
   }
   return { kind: "none" };
 }
 
 /**
+ * The locale a request's status page renders in, the way `next start` picks it:
+ * the locale the URL's first segment names (case-insensitively, as
+ * `normalizeLocalePath` matches it), and otherwise the domain's default locale,
+ * then the app's. `undefined` without i18n.
+ */
+function requestLocale(
+  manifest: AdapterManifest,
+  url: URL,
+): string | undefined {
+  const i18n = asI18n(manifest.config.i18n);
+  if (!i18n) return undefined;
+  const { basePath } = manifest.config;
+  const pathname =
+    basePath &&
+    (url.pathname === basePath || url.pathname.startsWith(`${basePath}/`))
+      ? url.pathname.slice(basePath.length)
+      : url.pathname;
+  const segment = (pathname.split("/")[1] ?? "").toLowerCase();
+  return (
+    i18n.locales.find((candidate) => candidate.toLowerCase() === segment) ??
+    detectDomainLocale(i18n.domains, url.hostname)?.defaultLocale ??
+    i18n.defaultLocale
+  );
+}
+
+/**
  * How to produce a 500 body. Same shapes as {@link NotFoundTarget}, and resolved
- * the same way — once, from the manifest.
+ * the same way — once per locale, from the manifest.
  */
 export type ErrorTarget = NotFoundTarget;
+
+/**
+ * The 500 to render for a request, per locale; see {@link createErrorTargets}.
+ * Takes `undefined` for a request whose URL could not be parsed, which gets the
+ * default locale's.
+ */
+export type ErrorTargetResolver = (url: URL | undefined) => ErrorTarget;
+
+/**
+ * {@link resolveErrorTarget} for every locale, resolved once: in an i18n app the
+ * prerendered 500 exists only per locale (`/en-US/500`, never a bare `/500`),
+ * so without the locale it was never found and `/_error` rendered instead.
+ */
+export function createErrorTargets(
+  manifest: AdapterManifest,
+): ErrorTargetResolver {
+  const fallback = resolveErrorTarget(manifest);
+  const i18n = asI18n(manifest.config.i18n);
+  const byLocale = new Map(
+    (i18n?.locales ?? []).map((locale) => [
+      locale,
+      resolveErrorTarget(manifest, locale),
+    ]),
+  );
+  return (url) => {
+    const locale = url ? requestLocale(manifest, url) : undefined;
+    return (locale !== undefined && byLocale.get(locale)) || fallback;
+  };
+}
 
 /**
  * The order next itself uses, in `base-server.ts`'s `renderErrorToResponse`:
@@ -1049,7 +1153,14 @@ export type ErrorTarget = NotFoundTarget;
  * measured against `test/e2e/async-modules`, whose `/make-error` throws in
  * `getServerSideProps` and expects the app's `pages/_error`.
  */
-export function resolveErrorTarget(manifest: AdapterManifest): ErrorTarget {
+export function resolveErrorTarget(
+  manifest: AdapterManifest,
+  /**
+   * Which locale's prerendered 500 to look for. Defaults to the app's default
+   * locale in an i18n app, whose prerenders are all locale-prefixed.
+   */
+  locale: string | undefined = asI18n(manifest.config.i18n)?.defaultLocale,
+): ErrorTarget {
   const { basePath } = manifest.config;
   const error500 = `${basePath}/500`;
   const entrypoint500 = manifest.entrypoints[error500];
@@ -1060,9 +1171,10 @@ export function resolveErrorTarget(manifest: AdapterManifest): ErrorTarget {
       entrypoint: entrypoint500,
     };
   }
-  const filePath = manifest.staticFiles[error500];
+  const static500 = `${basePath}${locale ? `/${locale}` : ""}/500`;
+  const filePath = manifest.staticFiles[static500];
   if (filePath !== undefined) {
-    return { kind: "static-file", pathname: error500, filePath };
+    return { kind: "static-file", pathname: static500, filePath };
   }
   const errorPathname = `${basePath}/_error`;
   const errorEntrypoint = manifest.entrypoints[errorPathname];

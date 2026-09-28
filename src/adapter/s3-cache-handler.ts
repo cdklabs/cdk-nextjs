@@ -218,7 +218,57 @@ function cdnInvalidationPaths(route: string, basePath: string): string[] {
       ? [basePath, `${basePath}?*`, `${basePath}/`, `${basePath}/?*`]
       : ["/", "/?*"];
   }
-  return [`${basePath}${trimmed}*`];
+  return [`${basePath}${encodeInvalidationRoute(trimmed)}*`];
+}
+
+/**
+ * Invalidation paths covering every URI of the app: what an oversized batch, a
+ * retry after a quota error, and a tag whose routes could not all be named fall
+ * back to.
+ *
+ * `/*` is the whole app only without a `basePath`. `/base/*` matches neither the
+ * app's root, `/base`, nor its RSC payload, `/base?_rsc=…` - the same root the
+ * `revalidatePath("/")` that overflowed may have named - so those are spelled
+ * out. `/base*` would cover them for one wildcard, but also every sibling
+ * prefix (`/base2`, `/basement`), which may be another app on the same
+ * distribution.
+ */
+function wholeAppInvalidationPaths(basePath: string): string[] {
+  return basePath ? [basePath, `${basePath}?*`, `${basePath}/*`] : ["/*"];
+}
+
+/**
+ * `route` as the URI a browser requests it under, which is what CloudFront
+ * caches it by.
+ *
+ * Next.js builds cache keys from the *decoded* pathname (`decodePathParams` in
+ * `route-module.js`), so `/blog/héllo` or `/blog/hello world` reach here raw,
+ * while CloudFront holds `/blog/h%C3%A9llo`, and an invalidation path matches
+ * the encoded form only - AWS requires non-ASCII and unsafe characters to be
+ * percent-encoded, and nothing else. Each segment is encoded the way
+ * `encodeURI` does, which leaves the characters a browser sends raw in a path
+ * (`@`, `:`, `,`, `;`, ...) alone. A `%` that already starts an escape is kept:
+ * `decodePathParams` re-escapes path delimiters (`%2F`, `%3F`, `%23`, `%5C`),
+ * and a `revalidatePath` tag may name the encoded path itself. `?` and `#` can
+ * only be in a decoded segment as data, so they are encoded too.
+ */
+function encodeInvalidationRoute(route: string): string {
+  return route
+    .split("/")
+    .map((segment) =>
+      segment
+        .split(/(%[0-9A-Fa-f]{2})/)
+        .map((part, i) =>
+          i % 2 === 1
+            ? part
+            : encodeURI(part).replace(
+                /[?#]/g,
+                (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+              ),
+        )
+        .join(""),
+    )
+    .join("/");
 }
 
 /**
@@ -248,7 +298,8 @@ function isWildcardPath(path: string): boolean {
  * (`TooManyInvalidationsInProgress`, or a throttle under the newer rate-based
  * quotas) - and a rejected request is a page that stays stale at the edge. So
  * everything goes out as one request, and a set that would not fit in one is
- * answered with `/*` instead: a worse hit rate, and a strictly correct answer.
+ * answered with the whole app (`/*`, see `wholeAppInvalidationPaths`) instead:
+ * a worse hit rate, and a strictly correct answer.
  * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-invalidations
  */
 const MAX_WILDCARD_PATHS_PER_INVALIDATION = 15;
@@ -817,7 +868,7 @@ export class S3CacheHandler implements CacheHandler {
       const { basePath } = this.cloudFrontConfig;
       await this.invalidateCloudFrontPaths(
         wholeApp
-          ? [`${basePath}/*`]
+          ? wholeAppInvalidationPaths(basePath)
           : routes.flatMap((route) => cdnInvalidationPaths(route, basePath)),
       );
     }
@@ -969,8 +1020,9 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
-   * Invalidate `paths` in a single request, or the whole app with one wildcard
-   * when they would not fit in one. See {@link MAX_WILDCARD_PATHS_PER_INVALIDATION}.
+   * Invalidate `paths` in a single request, or the whole app
+   * ({@link wholeAppInvalidationPaths}) when they would not fit in one. See
+   * {@link MAX_WILDCARD_PATHS_PER_INVALIDATION}.
    */
   private async invalidateCloudFrontPaths(paths: string[]): Promise<void> {
     let batch = Array.from(new Set(paths));
@@ -991,12 +1043,15 @@ export class S3CacheHandler implements CacheHandler {
       wildcards > MAX_WILDCARD_PATHS_PER_INVALIDATION ||
       batch.length > MAX_PATHS_PER_INVALIDATION
     ) {
-      const wholeApp = `${this.cloudFrontConfig.basePath}/*`;
+      const wholeApp = wholeAppInvalidationPaths(
+        this.cloudFrontConfig.basePath,
+      );
       this.debug(
         `CLOUDFRONT INVALIDATION: ${batch.length} paths (${wildcards} ` +
-          `wildcards) do not fit one request, collapsing to ${wholeApp}`,
+          `wildcards) do not fit one request, collapsing to ` +
+          `[${wholeApp.join(", ")}]`,
       );
-      batch = [wholeApp];
+      batch = wholeApp;
     }
 
     for (let attempt = 0; ; attempt++) {
@@ -1020,7 +1075,7 @@ export class S3CacheHandler implements CacheHandler {
       } catch (error) {
         if (isInvalidationQuotaError(error) && attempt < INVALIDATION_RETRIES) {
           // See `INVALIDATION_RETRIES`.
-          batch = [`${this.cloudFrontConfig.basePath}/*`];
+          batch = wholeAppInvalidationPaths(this.cloudFrontConfig.basePath);
           await new Promise((resolve) =>
             setTimeout(resolve, INVALIDATION_RETRY_DELAY_MS * 2 ** attempt),
           );

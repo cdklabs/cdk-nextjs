@@ -15,6 +15,7 @@ import {
   SetIncrementalResponseCacheContext,
   SetIncrementalFetchCacheContext,
 } from "next/dist/server/response-cache";
+import { markerClock } from "./aws-cache-store";
 import { getTags } from "./cache-utils";
 
 interface MemoryCacheEntry {
@@ -143,7 +144,12 @@ export class MemoryCacheHandler implements CacheHandler {
 
   /**
    * `lastModified` is the time the entry was rendered, for an entry copied in
-   * from a slower layer; a fresh render leaves it out and is stamped now.
+   * from a slower layer; a fresh render leaves it out and is stamped now - on
+   * {@link markerClock}, like the S3 copy of the same render. A memory hit is
+   * checked against the tag markers, which are stamped on that clock, and
+   * `Date.now()` drifts from it for as long as the process lives: an entry
+   * stamped ahead of it looked newer than a `revalidateTag` run within the
+   * drift, and was served for the whole memory TTL.
    */
   async set(
     cacheKey: string,
@@ -163,7 +169,7 @@ export class MemoryCacheHandler implements CacheHandler {
 
     // Store in memory cache with proper CacheHandlerValue structure
     const cacheHandlerValue: CacheHandlerValue = {
-      lastModified: lastModified ?? Date.now(),
+      lastModified: lastModified ?? markerClock(),
       value: data,
     };
 

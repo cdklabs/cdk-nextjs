@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { MiddlewareResult } from "@next/routing";
 import {
   createDispatcher,
+  createErrorTargets,
   DispatchRequest,
   Dispatcher,
   outOfBandRouteParams,
@@ -542,6 +543,44 @@ describe("Dispatcher non-entrypoint outcomes", () => {
     });
   });
 
+  it("serves the root of a `trailingSlash` i18n app with no redirect", async () => {
+    // With `trailingSlash: true`, `next build` compiles the slash-*adding* 308
+    // (`load-custom-routes`' `/:notfile(...)` → `/:notfile/`, `locale: false`)
+    // in place of the stripping one, and prefixing the root as `/en-US` made
+    // that rule answer `GET /` with a 308 to `/en-US/`, where `next start`
+    // answers 200.
+    const withSlash = structuredClone(
+      pagesI18n as unknown,
+    ) as BuildCompleteContext;
+    (withSlash.config as { trailingSlash: boolean }).trailingSlash = true;
+    const routing = withSlash.routing as {
+      beforeMiddleware: Record<string, unknown>[];
+    };
+    routing.beforeMiddleware = [
+      {
+        source: "/:notfile((?!\\.well-known(?:/.*)?)(?:[^/]+/)*[^/\\.]+)",
+        sourceRegex:
+          "^(?:\\/((?!\\.well-known(?:\\/.*)?)(?:[^\\/]+\\/)*[^\\/\\.]+))$",
+        headers: { Location: "/$1/" },
+        status: 308,
+        priority: true,
+      },
+      ...routing.beforeMiddleware.filter((route) => route.status !== 308),
+    ];
+    const dispatcher = createDispatcher({ manifest: manifestOf(withSlash) });
+
+    expect(await dispatcher.dispatch(request("/"))).toMatchObject({
+      kind: "static-file",
+      pathname: "/en-US",
+    });
+    // The rule itself is live: the slashless locale root still gets it.
+    expect(await dispatcher.dispatch(request("/en-US"))).toMatchObject({
+      kind: "redirect",
+      status: 308,
+      location: "/en-US/",
+    });
+  });
+
   it("still strips a trailing slash the request itself carried", async () => {
     const result = await dispatcherFor("pages-i18n").dispatch(
       request("/nl-NL/"),
@@ -594,11 +633,55 @@ describe("Dispatcher non-entrypoint outcomes", () => {
       kind: "entrypoint",
       pathname: "/prod/_not-found",
     });
-    // Pages Router has no `/_not-found`; `_error` is the invocable equivalent.
-    expect(dispatcherFor("pages-i18n").notFound).toMatchObject({
-      kind: "entrypoint",
-      pathname: "/_error",
+    // Pages Router has no `/_not-found`, and `next build` prerenders its 404 —
+    // one per locale — which `next start` serves ahead of `/_error`.
+    expect(dispatcherFor("pages-i18n").notFound).toEqual({
+      kind: "static-file",
+      pathname: "/en-US/404",
+      filePath: manifests["pages-i18n"].staticFiles["/en-US/404"],
     });
+  });
+
+  it("serves the prerendered 404 of the request's locale", () => {
+    // Every Pages build has `/_error`, so checking it first made the
+    // prerendered 404 — the app's `pages/404.js` — dead code; and under i18n
+    // the prerender is only ever keyed by locale, never as a bare `/404`.
+    const dispatcher = dispatcherFor("pages-i18n");
+    const { staticFiles } = manifests["pages-i18n"];
+    const at = (url: string) => dispatcher.notFoundFor(new URL(url, ORIGIN));
+
+    expect(at("/fr/nope")).toMatchObject({ filePath: staticFiles["/fr/404"] });
+    expect(at("/NL-nl/nope")).toMatchObject({
+      filePath: staticFiles["/nl-NL/404"],
+    });
+    expect(at("/nope")).toMatchObject({ filePath: staticFiles["/en-US/404"] });
+    // No locale in the path: the domain's default, as `next start` renders it.
+    expect(at("https://example.fr/nope")).toMatchObject({
+      filePath: staticFiles["/fr/404"],
+    });
+  });
+
+  it("reports the request's locale's 404 with a not-found result", async () => {
+    const result = await dispatcherFor("pages-i18n").dispatch(
+      request("/fr/definitely-not-a-route"),
+    );
+    expect(result).toMatchObject({
+      kind: "not-found",
+      notFound: { kind: "static-file", pathname: "/fr/404" },
+    });
+  });
+
+  it("falls back to /_error when no 404 was prerendered", () => {
+    // What a `pages/_app.js` with `getInitialProps` builds without a
+    // `pages/404.js`: `next build` then prerenders no 404 at all.
+    const base = manifests["pages-i18n"];
+    const without404 = Object.fromEntries(
+      Object.entries(base.staticFiles).filter(([key]) => !key.endsWith("/404")),
+    );
+    expect(
+      createDispatcher({ manifest: { ...base, staticFiles: without404 } })
+        .notFound,
+    ).toMatchObject({ kind: "entrypoint", pathname: "/_error" });
   });
 
   it("prefers an invocable custom /404 over /_error", () => {
@@ -692,6 +775,30 @@ describe("resolveErrorTarget", () => {
     expect(
       resolveErrorTarget({ ...base, staticFiles: {}, entrypoints: {} }),
     ).toEqual({ kind: "none" });
+  });
+
+  it("serves the prerendered 500 of the request's locale", () => {
+    // Under i18n the prerendered 500 is keyed only by locale, never as a bare
+    // `/500`, so looking up `/500` alone always fell through to `/_error`.
+    const base = manifests["pages-i18n"];
+    const errorTargetFor = createErrorTargets(base);
+    const at = (url: string) => errorTargetFor(new URL(url, ORIGIN));
+
+    expect(at("/fr/ssr")).toEqual({
+      kind: "static-file",
+      pathname: "/fr/500",
+      filePath: base.staticFiles["/fr/500"],
+    });
+    expect(at("/ssr")).toMatchObject({ pathname: "/en-US/500" });
+    // No locale in the path: the domain's default, as `next start` renders it.
+    expect(at("https://example.fr/ssr")).toMatchObject({
+      pathname: "/fr/500",
+    });
+    // A request whose URL could not be parsed gets the default locale's.
+    expect(errorTargetFor(undefined)).toMatchObject({
+      pathname: "/en-US/500",
+    });
+    expect(resolveErrorTarget(base)).toMatchObject({ pathname: "/en-US/500" });
   });
 
   it("looks for the error page under the app's basePath", () => {

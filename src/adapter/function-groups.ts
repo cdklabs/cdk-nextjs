@@ -384,7 +384,7 @@ function validateRoutePattern(route: string, groupName: string): void {
  * replayed through the same behaviors `NextjsDistribution` deploys
  * ({@link assertEdgeReachesEveryFile}, {@link assertRewritesStayInGroup}). A URL
  * that would reach a function without its file throws here, during `next build`,
- * rather than answering 500 once deployed.
+ * rather than answering 404 once deployed.
  */
 export function assignRoutesToGroups(
   groups: readonly FunctionGroupSpec[],
@@ -951,7 +951,10 @@ function templateRegex(template: string): RegExp {
  * Checked for every file, the default group's included: the invariant is "the
  * edge never sends a request to a function without its file", and a group
  * pattern can break it by claiming a URL of a file left in the default group as
- * easily as by leaving one behind.
+ * easily as by leaving one behind. A dynamic template stands for a URL space,
+ * not one URL, so it is also checked against the part of that space other
+ * groups' patterns capture ({@link capturedDynamicUrls}): a `/[...slug]` left in
+ * the default group answers `/blog/a/b` too, which `/blog/**` sends elsewhere.
  *
  * Only the URLs as Next.js spells them are replayed, and that is a known gap
  * rather than an oversight: CloudFront path patterns and API Gateway resources
@@ -975,6 +978,7 @@ function assertEdgeReachesEveryFile(
     list.push(entry);
     files.set(entry.entrypointId, list);
   }
+  const routable = routableTemplates(entries, edge);
   for (const [file, fileEntries] of files) {
     const owner = groupOfEntrypoint.get(file) ?? DEFAULT_FUNCTION_GROUP;
     const misrouted: Misroute[] = [];
@@ -984,6 +988,17 @@ function assertEdgeReachesEveryFile(
         const group = behavior?.group ?? DEFAULT_FUNCTION_GROUP;
         if (group !== owner && !misrouted.some((it) => it.url === url)) {
           misrouted.push({ url, group, route: behavior?.route });
+        }
+      }
+      for (const it of capturedDynamicUrls(
+        entry,
+        owner,
+        routable,
+        behaviors,
+        edge,
+      )) {
+        if (!misrouted.some((known) => known.url === it.url)) {
+          misrouted.push(it);
         }
       }
     }
@@ -999,6 +1014,250 @@ interface Misroute {
   readonly group: string;
   /** The pattern that sent it there, `undefined` for the default behavior. */
   readonly route?: string;
+  /**
+   * Set when `url` is a sample of a dynamic template's URL space rather than
+   * a URL the template spells: the template Next.js resolves it to there.
+   */
+  readonly servedAs?: string;
+}
+
+/**
+ * Stands in for "any value" of a dynamic segment in a sample URL. A literal
+ * template of that exact name would shadow it, which can only hide a misroute,
+ * never invent one.
+ */
+const ANY_SEGMENT = "_";
+
+/** A template Next.js may resolve a request to, basePath stripped. */
+interface RoutableTemplate {
+  readonly template: string;
+  readonly segments: readonly string[];
+  readonly regex: RegExp;
+  readonly file: string;
+  readonly isPage: boolean;
+}
+
+/**
+ * The templates the router of *every* group resolves requests against — each
+ * group ships the whole manifest — less the ones no request resolves to
+ * directly: RSC and segment rewrites, interception routes, and the data-URL
+ * aliases (a data URL resolves to the page it names).
+ */
+function routableTemplates(
+  entries: readonly RouteEntry[],
+  edge: EdgeOptions,
+): RoutableTemplate[] {
+  const result: RoutableTemplate[] = [];
+  for (const entry of entries) {
+    const path = stripBasePath(entry.template, edge.basePath);
+    if (
+      path === undefined ||
+      isInternalTemplate(path) ||
+      isInterceptionTemplate(path) ||
+      path.startsWith("/_next/data/")
+    ) {
+      continue;
+    }
+    result.push({
+      template: entry.template,
+      segments: path.split("/").filter(Boolean),
+      regex: templateRegex(path),
+      file: entry.entrypointId,
+      isPage: entry.type === "page",
+    });
+  }
+  return result;
+}
+
+/** 0 static, 1 `[param]`, 2 `[...catchAll]`, 3 `[[...optional]]`. */
+function segmentKind(segment: string): number {
+  if (OPTIONAL_CATCH_ALL_SEGMENT.test(segment)) {
+    return 3;
+  }
+  if (/^\[\.\.\.[^\]]+\]$/.test(segment)) {
+    return 2;
+  }
+  return /^\[[^\]]+\]$/.test(segment) ? 1 : 0;
+}
+
+/**
+ * The template Next.js serves `path` with: of the ones matching it, the most
+ * specific, compared segment by segment — static before `[param]` before
+ * `[...catchAll]` before `[[...optional]]`, the order `getSortedRoutes` in
+ * `next/dist/shared/lib/router/utils/sorted-routes.js` gives them. Two matches
+ * can only tie on kinds all the way down if one is a prefix of the other, and
+ * then the shorter is the page at that path.
+ */
+function resolveTemplate(
+  templates: readonly RoutableTemplate[],
+  path: string,
+  pagesOnly: boolean,
+): RoutableTemplate | undefined {
+  let best: RoutableTemplate | undefined;
+  for (const candidate of templates) {
+    if ((pagesOnly && !candidate.isPage) || !candidate.regex.test(path)) {
+      continue;
+    }
+    if (best === undefined || compareSpecificity(candidate, best) < 0) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+function compareSpecificity(a: RoutableTemplate, b: RoutableTemplate): number {
+  const depth = Math.min(a.segments.length, b.segments.length);
+  for (let i = 0; i < depth; i++) {
+    const diff = segmentKind(a.segments[i]) - segmentKind(b.segments[i]);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return a.segments.length - b.segments.length;
+}
+
+/**
+ * The URLs of a *dynamic* template's space that another group's behavior
+ * captures, and that Next.js — running in that group's function — still
+ * resolves to this template's file.
+ *
+ * `servedUrls` replays the template as spelled, which is exact for a static
+ * route but not for `/[...slug]`: the text `/[...slug]` never matches `blog/*`,
+ * yet `/blog/a/b` does, reaches the blog function, and resolves there to
+ * `/[...slug]`, which the blog zip lacks. So each other group's behavior is
+ * intersected with the template's URL space, one sample URL per shape
+ * ({@link sampleTemplatePaths}), and each sample is resolved against every
+ * template. A more specific template in the capturing group legitimately
+ * shadows the sample (`/blog/[slug]` answers `/blog/_`, so only `/blog/_/_`
+ * is a misroute); anything it does not shadow is flagged.
+ */
+function capturedDynamicUrls(
+  entry: RouteEntry,
+  owner: string,
+  routable: readonly RoutableTemplate[],
+  behaviors: readonly EdgeBehavior[],
+  edge: EdgeOptions,
+): Misroute[] {
+  const path = stripBasePath(entry.template, edge.basePath);
+  if (
+    path === undefined ||
+    !path.includes("[") ||
+    ERROR_PAGE_SUFFIXES.includes(path) ||
+    isInternalTemplate(path) ||
+    isInterceptionTemplate(path) ||
+    path.startsWith("/_next/data/")
+  ) {
+    return [];
+  }
+  const segments = path.split("/").filter(Boolean);
+  // Deep enough to get past every template a capturing group could shadow
+  // the sample with.
+  const deepest = Math.max(0, ...routable.map((it) => it.segments.length)) + 1;
+  const samples = new Set<string>();
+  for (const behavior of behaviors) {
+    if (
+      behavior.group === owner ||
+      behavior.pattern.startsWith("_next/data/")
+    ) {
+      continue;
+    }
+    const bare = behavior.pattern.replace(/\/$/, "");
+    const isSubtree = bare.endsWith("/*");
+    const prefix = (isSubtree ? bare.slice(0, -2) : bare)
+      .split("/")
+      .filter(Boolean);
+    for (const sample of sampleTemplatePaths(
+      segments,
+      prefix,
+      isSubtree,
+      Math.max(deepest, prefix.length + 1),
+    )) {
+      samples.add(sample);
+    }
+  }
+  const misrouted: Misroute[] = [];
+  const check = (url: string, samplePath: string, pagesOnly: boolean) => {
+    const behavior = edgeBehaviorFor(behaviors, url);
+    const group = behavior?.group ?? DEFAULT_FUNCTION_GROUP;
+    if (group === owner || misrouted.some((it) => it.url === url)) {
+      return;
+    }
+    const served = resolveTemplate(routable, samplePath, pagesOnly);
+    if (served?.file === entry.entrypointId) {
+      misrouted.push({
+        url,
+        group,
+        route: behavior?.route,
+        servedAs: entry.template,
+      });
+    }
+  };
+  for (const sample of samples) {
+    const url = withBasePath(sample, edge.basePath);
+    check(url, sample, false);
+    if (edge.trailingSlash && sample !== "/") {
+      check(`${url}/`, sample, false);
+    }
+    if (entry.type === "page" && edge.buildId) {
+      check(
+        `${edge.basePath}/_next/data/${edge.buildId}${sample === "/" ? "/index" : sample}.json`,
+        sample,
+        true,
+      );
+    }
+  }
+  return misrouted;
+}
+
+/**
+ * Sample paths in both a template's URL space and a behavior's: for a subtree
+ * `prefix/*`, every way the template's segments can line up with `prefix` and
+ * continue past it, one sample per resulting length up to `maxDepth`, with
+ * {@link ANY_SEGMENT} for each dynamic value beyond the prefix. For an exact
+ * pattern, the pattern's own path if the template matches it.
+ */
+function sampleTemplatePaths(
+  template: readonly string[],
+  prefix: readonly string[],
+  isSubtree: boolean,
+  maxDepth: number,
+): string[] {
+  if (!isSubtree) {
+    const path = `/${prefix.join("/")}`;
+    return templateRegex(`/${template.join("/")}`).test(path) ? [path] : [];
+  }
+  const valueAt = (at: number) =>
+    at < prefix.length ? prefix[at] : ANY_SEGMENT;
+  const results: string[] = [];
+  const walk = (index: number, acc: readonly string[]): void => {
+    if (index === template.length) {
+      // Exactly the prefix is kept too: `prefix/*` matches its trailing-slash
+      // form, which `check` adds for a `trailingSlash` app.
+      if (acc.length >= prefix.length) {
+        results.push(`/${acc.join("/")}`);
+      }
+      return;
+    }
+    const segment = template[index];
+    const at = acc.length;
+    const kind = segmentKind(segment);
+    if (kind === 0) {
+      if (at >= prefix.length || prefix[at] === segment) {
+        walk(index + 1, [...acc, segment]);
+      }
+      return;
+    }
+    if (kind === 1) {
+      walk(index + 1, [...acc, valueAt(at)]);
+      return;
+    }
+    for (let count = kind === 2 ? 1 : 0; at + count <= maxDepth; count++) {
+      const taken = Array.from({ length: count }, (_, i) => valueAt(at + i));
+      walk(index + 1, [...acc, ...taken]);
+    }
+  };
+  walk(0, []);
+  return results;
 }
 
 /**
@@ -1064,9 +1323,21 @@ function misroutedFileMessage(
     .join(", ");
   const head =
     `${errorPrefix()}"${file}" is packaged into ${groupLabel(owner)}, but ` +
-    `CloudFront would send ${where}, whose function does not have it: a 500 on ` +
+    `CloudFront would send ${where}, whose function does not have it: a 404 on ` +
     `every such request. Every URL one file serves has to reach the group that ` +
     `holds the file.`;
+  const captured = misrouted.filter((it) => it.servedAs !== undefined);
+  if (captured.length > 0) {
+    const templates = [...new Set(captured.map((it) => `"${it.servedAs}"`))];
+    return (
+      `${head} Those URLs are part of the dynamic route ` +
+      `${templates.join(", ")} ("${ANY_SEGMENT}" stands for any segment ` +
+      `value): the pattern captures them at the edge, and no route packaged ` +
+      `into the capturing group is more specific, so Next.js still resolves ` +
+      `them to this file. Give that group a route that answers them (a ` +
+      `catch-all under its pattern, say), or narrow the pattern.`
+    );
+  }
   if (owner === DEFAULT_FUNCTION_GROUP) {
     return (
       `${head} A pattern claims a URL of a file that no pattern moved: narrow ` +

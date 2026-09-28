@@ -97,6 +97,12 @@ export interface InternalImageResponse {
   readonly statusCode: number;
   readonly headers: Readonly<Record<string, string | string[] | undefined>>;
   readonly body: Buffer;
+  /**
+   * The `functionGroups` group whose package has the route that serves the
+   * source, when it is not this function's: there is no response to use, and
+   * the optimizer answers an explicit 502 rather than a "not a valid image".
+   */
+  readonly otherGroup?: string;
 }
 
 /** What `required-server-files.json` is read for. */
@@ -327,6 +333,15 @@ export class RuntimeImageOptimizer {
 
       // What `fetchInternalImage` checks, and throws, for the same response.
       const response = await fetchInternal(href, req);
+      if (response.otherGroup !== undefined) {
+        // A deployment problem, not a bad `url`: see `NextjsRuntime.fetchInternal`,
+        // which logs the details.
+        throw new optimizer.ImageError(
+          502,
+          '"url" parameter is valid but its source is a route in another ' +
+            "functionGroups group, which the image optimizer cannot fetch",
+        );
+      }
       if (!response.statusCode || response.body.length === 0) {
         throw new optimizer.ImageError(
           400,

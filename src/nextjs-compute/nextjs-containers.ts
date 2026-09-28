@@ -126,6 +126,10 @@ export class NextjsContainers extends Construct {
     return new DockerImageAsset(this, "DockerImageAsset", {
       directory: buildContext,
       file: dockerfileName,
+      exclude: ["cdk.out"], // for common case where cdk deploy is run in same directory as nextjs app
+      ...this.props.overrides?.dockerImageAssetProps,
+      // After the overrides spread, so a user's `buildArgs` adds to the
+      // required ones instead of replacing them.
       buildArgs: {
         // Where `.next/static` and `public` go inside the image: the staged tree
         // is keyed by repo-root-relative path, so in a monorepo the project dir
@@ -134,8 +138,6 @@ export class NextjsContainers extends Construct {
         RELATIVE_PROJECT_DIR: this.props.relativeProjectDir || ".",
         ...this.props.overrides?.dockerImageAssetProps?.buildArgs,
       },
-      exclude: ["cdk.out"], // for common case where cdk deploy is run in same directory as nextjs app
-      ...this.props.overrides?.dockerImageAssetProps,
     });
   }
 

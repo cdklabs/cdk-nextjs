@@ -101,16 +101,23 @@ export interface NextjsBaseProps {
   readonly buildDirectory: string;
   /**
    * Bring your own S3 bucket for cache storage. When provided, cdk-nextjs
-   * will use this bucket instead of creating a new one. Cache objects are
-   * prefixed with `buildId` so multiple deployments can safely share one bucket.
+   * will use this bucket instead of creating a new one.
+   *
+   * The bucket must be dedicated to this one deployment. Don't share it with
+   * another deployment (another branch, stage, or app): every deploy's
+   * post-deploy step deletes every object under a top-level prefix other than
+   * the current `buildId/`, which includes every other deployment's cache.
    */
   readonly cacheBucket?: IBucket;
   /**
    * Bring your own DynamoDB table for revalidation metadata. When provided,
    * cdk-nextjs will use this table instead of creating a new one. The table
    * must have `pk` (String) as partition key and `sk` (String) as sort key.
-   * Entries are partitioned by `buildId` so multiple deployments can safely
-   * share one table.
+   *
+   * The table must be dedicated to this one deployment. Don't share it with
+   * another deployment (another branch, stage, or app): every deploy's
+   * post-deploy step deletes the entries of the build it last recorded in the
+   * table, which with a shared table is another deployment's live build.
    */
   readonly revalidationTable?: ITableV2;
   /**
@@ -122,7 +129,13 @@ export interface NextjsBaseProps {
   /**
    * Bring your own S3 bucket for static assets. When provided, cdk-nextjs
    * will deploy static assets to this bucket instead of creating a new one.
-   * Use with `basePath` to isolate assets per branch when sharing a bucket.
+   *
+   * Unlike `cacheBucket`, this one can be shared, but only between deployments
+   * with different `basePath`s (so different S3 key prefixes). Pruning only
+   * touches `<basePath>/_next/`, so it leaves the others' assets alone. Two
+   * deployments under the same prefix overwrite each other's `public/` files
+   * and prune each other's `_next/` assets once they are past the prune
+   * TTL (30 days by default).
    */
   readonly staticAssetsBucket?: IBucket;
   /**
@@ -262,17 +275,12 @@ export abstract class NextjsBaseConstruct extends Construct {
    * same limitation `NextjsApi.url` documents.
    */
   private apiGatewayPrefix(): ApiGatewayPrefix {
-    // `nextjsRegionalFunctions.nextjsApiProps` is spread over `NextjsApi`'s
-    // props last, so an `overrides` there replaces `overrides.nextjsApi`
-    // wholesale and is the one the `RestApi` is built from.
-    const constructOverrides = this.constructOverrides as
-      { nextjsApiProps?: { overrides?: NextjsApiOverrides } } | undefined;
-    const apiOverrides =
-      constructOverrides?.nextjsApiProps?.overrides ??
-      (
-        this.baseProps.overrides as
-          { nextjsApi?: NextjsApiOverrides } | undefined
-      )?.nextjsApi;
+    // `overrides.nextjsApi` is the only typed way to reach the `RestApi`'s
+    // props: `nextjsRegionalFunctions.nextjsApiProps` is
+    // `OptionalNextjsApiProps`, which has no `overrides`.
+    const apiOverrides = (
+      this.baseProps.overrides as { nextjsApi?: NextjsApiOverrides } | undefined
+    )?.nextjsApi;
     const restApiProps = apiOverrides?.restApiProps;
     const domainName = restApiProps?.domainName;
     const strippedPrefix = domainName

@@ -1,9 +1,17 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, Stack } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Architecture } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
@@ -22,6 +30,7 @@ import {
  */
 let buildDir: string;
 let nextConfigBasePath = "";
+let relativeProjectDir = "";
 
 jest.mock("../src/nextjs-build/nextjs-build", () => {
   const actual = jest.requireActual("../src/nextjs-build/nextjs-build");
@@ -32,7 +41,7 @@ jest.mock("../src/nextjs-build/nextjs-build", () => {
     readonly nextConfigBasePath = nextConfigBasePath;
     readonly nextConfigAssetPrefix = "";
     readonly nextConfigAssetPrefixPath = "";
-    readonly relativeProjectDir = "";
+    readonly relativeProjectDir = relativeProjectDir;
     readonly relativePathToEntrypoint = "cdk-nextjs-runtime/server.mjs";
     readonly hasDataRoutes = false;
     readonly trailingSlash = false;
@@ -86,6 +95,7 @@ afterAll(() => {
 
 beforeEach(() => {
   nextConfigBasePath = "";
+  relativeProjectDir = "";
 });
 
 const functionGroups = [{ name: "reports", routes: ["/reports"] }];
@@ -279,6 +289,28 @@ describe("NextjsGlobalFunctions", () => {
     });
   });
 
+  it("adds its behaviors to a distribution passed in instead of creating one", () => {
+    nextConfigBasePath = "shop";
+    const stack = new Stack(new App(), "Stack");
+    const distribution = new Distribution(stack, "Shared", {
+      defaultBehavior: { origin: new HttpOrigin("example.com") },
+    });
+    const app = new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      distribution,
+    });
+    expect(app.nextjsDistribution.distribution).toBe(distribution);
+    const template = Template.fromStack(stack);
+    template.resourceCountIs("AWS::CloudFront::Distribution", 1);
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({ PathPattern: "/shop/*" }),
+        ]),
+      }),
+    });
+  });
+
   it("never creates a Function URL with authType NONE", () => {
     const stack = new Stack(new App(), "Stack");
     new NextjsGlobalFunctions(stack, "App", { buildDirectory: buildDir });
@@ -307,19 +339,15 @@ describe("NextjsRegionalFunctions", () => {
     }
   });
 
-  it("derives basePath from a stage name set through nextjsApiProps.overrides", () => {
-    // `nextjsApiProps` is spread over NextjsApi's props last, so its
-    // `overrides` is the one the RestApi is built from: an app at the "v1"
-    // stage has to mount at the root, not under "v1".
+  it("derives basePath from a stage name set through overrides.nextjsApi", () => {
+    // An app at the "v1" stage has to mount at the root, not under "v1".
     nextConfigBasePath = "v1";
     const stack = new Stack(new App(), "Stack");
     const app = new NextjsRegionalFunctions(stack, "App", {
       buildDirectory: buildDir,
       overrides: {
-        nextjsRegionalFunctions: {
-          nextjsApiProps: {
-            overrides: { restApiProps: { deployOptions: { stageName: "v1" } } },
-          } as any,
+        nextjsApi: {
+          restApiProps: { deployOptions: { stageName: "v1" } },
         },
       },
     });
@@ -383,6 +411,33 @@ describe("NextjsRegionalContainers", () => {
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
     expectCacheActions(taskRoleActions(template));
     expectTableScopedDynamoGrants(template, taskRoleId(template));
+  });
+  // The regional Dockerfile copies `.next/static` and `public` under
+  // RELATIVE_PROJECT_DIR; losing it puts them at the image root, and a monorepo
+  // app's assets 404.
+  it("keeps RELATIVE_PROJECT_DIR when overrides add buildArgs", () => {
+    relativeProjectDir = "apps/web";
+    const app = new App();
+    const stack = new Stack(app, "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsRegionalContainers(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+      overrides: {
+        nextjsContainers: {
+          dockerImageAssetProps: { buildArgs: { FOO: "bar" } },
+        },
+      },
+    });
+    const images = Object.values(
+      JSON.parse(
+        readFileSync(join(app.synth().directory, "Stack.assets.json"), "utf8"),
+      ).dockerImages,
+    ) as { source: { dockerBuildArgs?: Record<string, string> } }[];
+    expect(images.map((image) => image.source.dockerBuildArgs)).toEqual([
+      { RELATIVE_PROJECT_DIR: "apps/web", FOO: "bar" },
+    ]);
   });
 });
 

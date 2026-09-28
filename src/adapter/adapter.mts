@@ -11,8 +11,9 @@ const debug = getDebug("cdk-nextjs:adapter");
 
 const adapter: NextAdapter = {
   name: "cdk-nextjs-adapter",
-  async modifyConfig(config, { phase }) {
+  async modifyConfig(config, { phase, nextVersion }) {
     if (phase === "phase-production-build") {
+      assertSupportedNextVersion(nextVersion);
       return {
         ...config,
         // No `output: "standalone"`. `onBuildComplete` stages the deployment
@@ -73,6 +74,28 @@ const adapter: NextAdapter = {
 };
 
 export default adapter;
+
+/**
+ * The oldest Next.js whose adapter API has what the build reads: 16.3 added
+ * `routing.middlewareMatchers` and `outputs.*.assetsHashes`. On 16.2 the build
+ * dies with a `TypeError` deep in `onBuildComplete` instead of saying why.
+ */
+const MIN_NEXT_VERSION = [16, 3] as const;
+
+function assertSupportedNextVersion(nextVersion: string | undefined): void {
+  const match = /^(\d+)\.(\d+)\./.exec(nextVersion ?? "");
+  if (!match) {
+    return;
+  }
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  const [minMajor, minMinor] = MIN_NEXT_VERSION;
+  if (major < minMajor || (major === minMajor && minor < minMinor)) {
+    throw new Error(
+      `${LOG_PREFIX} Next.js ${nextVersion} is not supported: cdk-nextjs needs ` +
+        `Next.js ${minMajor}.${minMinor} or higher.`,
+    );
+  }
+}
 
 /**
  * `cacheHandlers` with cdk-nextjs's handlers for the two names Next.js defines -

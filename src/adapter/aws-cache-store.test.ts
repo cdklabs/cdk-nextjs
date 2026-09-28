@@ -25,7 +25,10 @@ import {
   REVALIDATION_LOG_MAX_PAGES,
   REVALIDATION_LOG_TTL_MS,
   RevalidationLog,
+  RevalidationLogRow,
+  TagMarker,
   TagMarkerTable,
+  TrackedTagMarkers,
   useCacheS3Key,
 } from "./aws-cache-store";
 
@@ -336,5 +339,50 @@ describe("CacheBucket", () => {
       Body: "{}",
       ContentType: "application/json; charset=utf-8",
     });
+  });
+});
+
+describe("TrackedTagMarkers", () => {
+  it("does not skip a row for an untracked tag that its first read missed", async () => {
+    // The writer puts the log row and the marker at the same time, and the
+    // marker read is eventually consistent: `refresh` can see the row, then
+    // `ensure` read the marker from before it. Marked applied while the tag
+    // was untracked, the row was skipped by every query the lookback returned
+    // it to, and the instance served the stale entry until the rolling re-read.
+    let clock = 1_000_000;
+    const revalidatedAt = 999_000;
+    const row: RevalidationLogRow = {
+      sk: `${String(clock).padStart(15, "0")}#posts`,
+      at: clock,
+      tag: "posts",
+      marker: { revalidatedAt },
+    };
+    const query = jest.fn(async (since: number) => ({
+      rows: [row].filter((r) => r.at >= since),
+      truncated: false,
+    }));
+    // A replica that has not seen the write yet.
+    const read = jest.fn(async () => new Map<string, TagMarker>());
+    const markers = new TrackedTagMarkers({
+      markers: { read } as unknown as TagMarkerTable,
+      log: { query } as unknown as RevalidationLog,
+      refreshIntervalMs: 1000,
+      clock: () => clock,
+      random: () => 0,
+    });
+    // Something tracked, so the refresh queries the log.
+    await markers.ensure(["other"]);
+
+    clock += 1000;
+    await markers.refresh();
+    await markers.ensure(["posts"]);
+    expect(markers.get("posts")).toEqual({});
+
+    clock += 1000;
+    await markers.refresh();
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(markers.get("posts")).toEqual({ revalidatedAt });
+    // Only the one read each tag's first use costs.
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });

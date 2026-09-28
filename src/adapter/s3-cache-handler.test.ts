@@ -1522,6 +1522,53 @@ describe("S3DynamoCacheHandler", () => {
       expect(invalidations()).toEqual([["/*"]]);
     });
 
+    it("collapses to the whole app under a basePath, its root included", async () => {
+      // Not `/base*`, which would also invalidate a sibling app at `/base2`.
+      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      await withDistribution(pages("test-tag", 16)).revalidateTag("test-tag");
+
+      expect(invalidations()).toEqual([["/base", "/base?*", "/base/*"]]);
+    });
+
+    it("invalidates the whole app under a basePath when a tag's rows cannot be read", async () => {
+      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      jest.spyOn(console, "error").mockImplementation();
+      const cdnHandler = withDistribution({ Items: [] });
+      mockDynamoSend.mockImplementation((command: unknown) =>
+        command instanceof QueryCommand
+          ? Promise.reject(new Error("ProvisionedThroughputExceeded"))
+          : Promise.resolve({}),
+      );
+
+      await cdnHandler.revalidateTag("posts");
+
+      expect(invalidations()).toEqual([["/base", "/base?*", "/base/*"]]);
+    });
+
+    it("percent-encodes the routes it invalidates", async () => {
+      // Cache keys are decoded pathnames, while CloudFront caches - and
+      // invalidation paths match - the encoded URI the browser sent.
+      await withDistribution({
+        Items: [
+          { sk: { S: "test-tag#test-build-id/blog/héllo.json" } },
+          { sk: { S: "test-tag#test-build-id/blog/hello world.json" } },
+          // Path delimiters Next.js re-escaped in the key stay as they are.
+          { sk: { S: "test-tag#test-build-id/files/a%2Fb.json" } },
+          { sk: { S: "test-tag#test-build-id/@user/50%.json" } },
+        ],
+      }).revalidateTag(["test-tag", "_N_T_/tags/c#?"]);
+
+      expect(invalidations()).toEqual([
+        [
+          "/blog/h%C3%A9llo*",
+          "/blog/hello%20world*",
+          "/files/a%2Fb*",
+          "/@user/50%25*",
+          "/tags/c%23%3F*",
+        ],
+      ]);
+    });
+
     it("invalidates every tag of one call in a single request", async () => {
       // `revalidateTag` hands the handler every tag a request revalidated at
       // once; a request per tag competes for the same quota.
@@ -1644,6 +1691,22 @@ describe("S3DynamoCacheHandler", () => {
         await cdnHandler.revalidateTag("test-tag");
 
         expect(invalidations()).toEqual([["/isr/0*"]]);
+      });
+
+      it("retries the app's root under a basePath too", async () => {
+        // `/base/*` matches neither `/base` nor `/base?_rsc=…`: retrying
+        // `revalidatePath("/")` as that left the home page stale at the edge.
+        process.env.CDK_NEXTJS_BASE_PATH = "base";
+        const cdnHandler = withDistribution({ Items: [] });
+        mockCloudFrontSend
+          .mockRejectedValueOnce(quotaError())
+          .mockResolvedValueOnce({});
+
+        const done = cdnHandler.revalidateTag("_N_T_/");
+        await jest.advanceTimersByTimeAsync(1000);
+        await done;
+
+        expect(invalidations()[1]).toEqual(["/base", "/base?*", "/base/*"]);
       });
     });
 

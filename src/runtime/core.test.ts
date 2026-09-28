@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { constants as zlibConstants, gunzipSync, gzipSync } from "node:zlib";
 import { S3Client } from "@aws-sdk/client-s3";
 import {
   loadRuntime,
@@ -1226,6 +1226,120 @@ exports.handler = async () =>
   });
 });
 
+describe("a streamed external rewrite", () => {
+  const EXTERNAL_REWRITE_MIDDLEWARE = `
+exports.handler = async () =>
+  new Response(null, {
+    headers: { "x-middleware-rewrite": "https://upstream.test/events" },
+  });
+`;
+
+  let proxying: NextjsRuntime;
+
+  beforeAll(async () => {
+    proxying = await loadRuntime(stageDeployment(EXTERNAL_REWRITE_MIDDLEWARE));
+  });
+
+  // Server-sent events through a rewrite, gzipped because `text/event-stream`
+  // is `text/*`: without a flush per chunk, the first event sat in zlib's
+  // buffer until the origin closed the stream.
+  it("flushes each chunk through the compressor as it arrives", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode("data: first\n\n"));
+            await held;
+            controller.enqueue(new TextEncoder().encode("data: second\n\n"));
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+    try {
+      const sink = new CollectingSink();
+      const handled = proxying.handle(
+        {
+          method: "GET",
+          url: "/events",
+          headers: { host: "shop.example.test", "accept-encoding": "gzip" },
+        },
+        sink,
+      );
+      // Poll rather than sleep a fixed time: the first event has to reach the
+      // sink while the origin is still holding the stream open.
+      const soFar = (): string =>
+        gunzipSync(sink.body, {
+          finishFlush: zlibConstants.Z_SYNC_FLUSH,
+        }).toString("utf-8");
+      for (let i = 0; i < 50 && !soFar(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(sink.head?.headers["content-encoding"]).toBe("gzip");
+      expect(soFar()).toBe("data: first\n\n");
+      release();
+      await handled;
+      expect(gunzipSync(sink.body).toString("utf-8")).toBe(
+        "data: first\n\ndata: second\n\n",
+      );
+    } finally {
+      release();
+      fetchMock.mockRestore();
+    }
+  });
+});
+
+describe("a Response middleware answers with itself", () => {
+  const MIDDLEWARE_BODY = "<html>from middleware</html>";
+
+  /**
+   * `return fetch(upstream)` from `proxy.ts`, as the runtime sees it: middleware
+   * runs in process, so its `fetch` is undici, which decoded a gzip upstream
+   * and kept the upstream's `content-encoding` and encoded `content-length`.
+   */
+  const FETCHED_RESPONSE_MIDDLEWARE = `
+const { gzipSync } = require("node:zlib");
+const body = ${JSON.stringify(MIDDLEWARE_BODY)};
+exports.handler = async () =>
+  new Response(body, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "content-encoding": "gzip",
+      "content-length": String(gzipSync(body).byteLength),
+      "transfer-encoding": "chunked",
+      "x-from-upstream": "yes",
+    },
+  });
+`;
+
+  let responding: NextjsRuntime;
+
+  beforeAll(async () => {
+    responding = await loadRuntime(
+      stageDeployment(FETCHED_RESPONSE_MIDDLEWARE),
+    );
+  });
+
+  // What `next start` does too: the sandbox deletes these three
+  // (`FORBIDDEN_HEADERS`) from every middleware response.
+  it("drops the framing headers that described the upstream's bytes", async () => {
+    const sink = new CollectingSink();
+    await responding.handle(
+      { method: "GET", url: "/", headers: { host: "shop.example.test" } },
+      sink,
+    );
+
+    expect(sink.head?.headers["content-encoding"]).toBeUndefined();
+    expect(sink.head?.headers["content-length"]).toBeUndefined();
+    expect(sink.head?.headers["transfer-encoding"]).toBeUndefined();
+    expect(sink.head?.headers["x-from-upstream"]).toBe("yes");
+    expect(sink.body.toString("utf-8")).toBe(MIDDLEWARE_BODY);
+  });
+});
+
 /**
  * Last in the file, because `loadRuntime` chdirs: the tests above assert on the
  * cwd the shared deployment set.
@@ -1495,6 +1609,45 @@ describe("a route packaged into another functionGroups group", () => {
     const sink = await get("/ISR/AbC");
     expect(sink.head?.statusCode).toBe(308);
     expect(sink.head?.headers.location).toBe("/isr/AbC");
+  });
+
+  // `/_next/image` runs in the default group and renders a source that is not
+  // a file in process: for one served by another group, that rendered the 404
+  // page and handed its HTML to the optimizer as the image.
+  it("reports an image source in another group rather than fetching its 404 page", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.CDK_NEXTJS_FUNCTION_GROUP = "default";
+    try {
+      const fetchInternal = (
+        grouped as unknown as {
+          fetchInternal: (
+            href: string,
+            req: unknown,
+          ) => Promise<{
+            statusCode: number;
+            body: Buffer;
+            otherGroup?: string;
+          }>;
+        }
+      ).fetchInternal.bind(grouped);
+      const response = await fetchInternal(
+        "/isr/1",
+        createIncomingMessage({
+          method: "GET",
+          url: "/_next/image?url=%2Fisr%2F1&w=64&q=75",
+          headers: { host: "shop.example.test" },
+        }),
+      );
+      expect(response).toMatchObject({ otherGroup: "blog" });
+      expect(response.body.length).toBe(0);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toMatch(
+        /Image source "\/isr\/1" is served by a route in `functionGroups` group "blog"/,
+      );
+    } finally {
+      delete process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      warn.mockRestore();
+    }
   });
 
   it("is a 404, not a 500, when case is not the difference", async () => {

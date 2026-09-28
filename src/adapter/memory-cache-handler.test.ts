@@ -181,6 +181,41 @@ describe("MemoryCacheHandler", () => {
         }),
       ).toEqual({ lastModified: renderedAt, value: testData });
     });
+
+    it("stamps a fresh render on the tag markers' clock, not Date.now()", async () => {
+      // A memory hit is judged against tag markers stamped with `markerClock`.
+      // With `Date.now()` running ahead of it, a `revalidateTag` inside the
+      // drift left the entry looking newer than the marker, and it was served
+      // for the whole memory TTL.
+      const markerNow = 1_000_000;
+      jest.spyOn(performance, "now").mockReturnValue(markerNow);
+      jest
+        .spyOn(Date, "now")
+        .mockReturnValue(performance.timeOrigin + 5 * 60_000 + markerNow);
+      try {
+        await handler.set(
+          "fresh",
+          {
+            kind: CachedRouteKind.APP_PAGE,
+            html: "<html>fresh</html>",
+            rscData: undefined,
+            headers: undefined,
+            postponed: undefined,
+            segmentData: undefined,
+            status: undefined,
+          },
+          { fetchCache: true as const },
+        );
+
+        const entry = await handler.get("fresh", {
+          kind: IncrementalCacheKind.APP_PAGE,
+          isFallback: false,
+        });
+        expect(entry?.lastModified).toBe(performance.timeOrigin + markerNow);
+      } finally {
+        jest.restoreAllMocks();
+      }
+    });
   });
 
   describe("resetRequestCache", () => {

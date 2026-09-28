@@ -2,17 +2,17 @@
  * Bring Your Own Resources — Deployable Example
  *
  * Two stacks:
- *   1. SharedInfra  — VPC, ECS Cluster, ALB + HTTP Listener, S3 buckets,
- *                     DynamoDB table. Deploy once.
- *   2. branch-<name> — NextjsRegionalContainers using the shared resources.
- *                      Deploy per branch. Host-header routing on the ALB
- *                      sends traffic to the correct target group.
+ *   1. SharedInfra  — VPC, ECS Cluster, ALB + HTTP Listener. Deploy once.
+ *   2. branch-<name> — NextjsRegionalContainers using the shared resources,
+ *                      plus its own cache bucket, revalidation table, and
+ *                      static assets bucket. Deploy per branch. Host-header
+ *                      routing on the ALB sends traffic to the correct target
+ *                      group.
  *
  * Resource identifiers flow through SSM Parameter Store so there are no
  * cross-stack CfnOutput dependencies.
  */
 import { App, CfnOutput, Stack, StackProps } from "aws-cdk-lib";
-import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
 import { Cluster } from "aws-cdk-lib/aws-ecs";
 import {
@@ -21,7 +21,6 @@ import {
   ListenerAction,
   ListenerCondition,
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { Bucket } from "aws-cdk-lib/aws-s3";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { NextjsRegionalContainers } from "cdk-nextjs";
 import { Construct } from "constructs";
@@ -90,24 +89,6 @@ class BranchStack extends Stack {
       listenerArn: ssm(this, "ListenerArn"),
     });
 
-    const cacheBucket = Bucket.fromBucketName(
-      this,
-      "CacheBucket",
-      ssm(this, "CacheBucketName"),
-    );
-
-    const staticAssetsBucket = Bucket.fromBucketName(
-      this,
-      "StaticAssetsBucket",
-      ssm(this, "StaticAssetsBucketName"),
-    );
-
-    const revalidationTable = TableV2.fromTableName(
-      this,
-      "RevalidationTable",
-      ssm(this, "RevalidationTableName"),
-    );
-
     // --- Deploy Next.js ---
     const nextjs = new NextjsRegionalContainers(this, "Nextjs", {
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
@@ -115,9 +96,13 @@ class BranchStack extends Stack {
       vpc,
       alb,
       ecsCluster,
-      cacheBucket,
-      revalidationTable,
-      staticAssetsBucket,
+      // No `cacheBucket`, `revalidationTable`, or `staticAssetsBucket`: each
+      // branch needs its own, because post-deploy prunes every cache object and
+      // revalidation entry not from this branch's current build (and every
+      // branch serves the same build at the root, so they'd also collide in one
+      // static assets bucket). Left unset, cdk-nextjs creates them in this stack
+      // and deletes them with it. To bring your own, create them in this stack,
+      // not in SharedInfra.
     });
 
     // The shared ALB already owns the listener — remove the auto-created one

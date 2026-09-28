@@ -38,7 +38,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 
 ## Prerequisites
 
-- Next.js app running v16.2 or higher. If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
+- Next.js app running v16.3 or higher (`next build` fails on older versions). If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
 - [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos.
 - A Docker compatible container engine, but **only** for `NextjsGlobalContainers` and `NextjsRegionalContainers` - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby). The two Functions types deploy zip Lambdas and need no container engine.
 - [Node.js](https://nodejs.org/en) v24 (or LTS)
@@ -348,8 +348,9 @@ derives these without extra patterns:
   behavior carries the literal build ID, so it changes on every deploy; a
   client still on the previous build falls through to the `default` function,
   which answers 404, and the Next.js client reloads the page.
-- The `trailingSlash` form of an exact pattern (`/pricing/`). API Gateway cannot
-  express it; `NextjsRegionalFunctions` warns instead.
+- The `trailingSlash` form of an exact pattern (`/pricing/`). CloudFront gets a
+  behavior for it; on `NextjsRegionalFunctions` none is needed, because API
+  Gateway already routes `/pricing/` to the `/pricing` resource.
 - The parent of an optional catch-all. `/shop/**` moving
   `app/shop/[[...slug]]/page.tsx` also routes `/shop`, which the same file
   serves. Do not add `/shop` yourself: it matches no route and is rejected.
@@ -387,7 +388,12 @@ that overlaps a group's literal path (`/[section]/intro` against `/docs/**`).
 Likewise **a Pages Router `res.revalidate()`** renders the page in the function
 that called it, so it can only revalidate pages in its own group; the error
 names the group that owns the page. Use `revalidatePath()` or `revalidateTag()`
-across groups.
+across groups. And **an `<Image>` whose `src` is a route in another group**
+(`/api/avatar/42` under an `/api/**` group) can't be optimized: `/_next/image`
+runs in the `default` function, which fetches a local source that isn't a
+`public/` or `_next/static` file by running its route in-process, and it doesn't
+carry that route, so the image request fails. Keep image-serving routes in
+`default`, or point `src` at a `public/` file or a remote URL.
 
 **What splitting does and does not save.** Every function ships the same `next`
 runtime closure, so splitting only moves route-_local_ code and its dependencies.
@@ -519,7 +525,7 @@ The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Pl
 
 ## Bring Your Own Resources
 
-cdk-nextjs supports importing existing AWS resources instead of creating new ones. This is especially useful for per-branch (MR/PR) environments where you deploy shared infrastructure once and spin up lightweight branch stacks that reuse it.
+cdk-nextjs supports importing existing AWS resources instead of creating new ones. This is especially useful for per-branch (MR/PR) environments where you deploy shared infrastructure (VPC, ECS cluster, ALB) once and spin up lightweight branch stacks that reuse it.
 
 ### Supported Resources
 
@@ -534,8 +540,8 @@ cdk-nextjs supports importing existing AWS resources instead of creating new one
 
 ### Resource Isolation
 
-- **Cache bucket and DynamoDB table** are isolated by `buildId` prefix. Multiple branches safely share one bucket/table with no conflicts.
-- **Static assets bucket** — Next.js includes content hashes in static asset filenames, so different branches deploying the same file will produce identical content. It's safe for branches to overwrite each other. If you're already using `basePath` for routing, assets will naturally be prefixed by it — `NextjsGlobalFunctions` and `NextjsGlobalContainers` read the `basePath` out of your Next.js build and use it as the S3 key prefix, since CloudFront serves assets from S3 by request path and the two can't differ. Set the `basePath` prop only if you want to be explicit about it; a value that disagrees with your app's fails at synth.
+- **Cache bucket and DynamoDB table** must be dedicated to one deployment. Sharing either between deployments (branches, stages, apps) is not supported: each deploy's post-deploy step prunes every cache object and revalidation entry that isn't from its own current build, so deploying one branch wipes the others' caches. Buckets and tables are cheap, so give each deployment its own, or leave `cacheBucket`/`revalidationTable` unset and let cdk-nextjs create them (they are removed with the stack).
+- **Static assets bucket** can be shared, but only between deployments with different `basePath`s, which become their S3 key prefixes. Pruning only looks at `<basePath>/_next/`, so it never touches another prefix. Two deployments under the same prefix (for example two subdomain previews both at the root) overwrite each other's `public/` files and prune each other's `_next/` assets once they are past the prune TTL (30 days by default), so give those their own buckets. `NextjsGlobalFunctions` and `NextjsGlobalContainers` read the `basePath` out of your Next.js build and use it as the S3 key prefix, since CloudFront serves assets from S3 by request path and the two can't differ. Set the `basePath` prop only if you want to be explicit about it; a value that disagrees with your app's fails at synth.
 
 ### Shared ALB and `removeAutoCreatedListener()`
 
@@ -552,13 +558,15 @@ nextjs.nextjsContainers.removeAutoCreatedListener();
 
 ### Examples
 
-See [examples/bring-your-own/](./examples/bring-your-own/) for a complete deployable example with shared infrastructure and per-branch host-header routing.
+See [examples/bring-your-own/](./examples/bring-your-own/) for a complete deployable example with a shared VPC, ECS cluster, and ALB, per-branch host-header routing, and a cache bucket, revalidation table, and static assets bucket per branch.
 
 ## Preview Environments (Per-Branch Deployments)
 
 cdk-nextjs can deploy ephemeral preview environments per merge request (MR) or pull request (PR). The recommended approach uses subdomain-based routing (`pr-123.app.example.com`) so each preview environment runs the same Next.js build as production — no `basePath` configuration or separate builds required.
 
-See [examples/bring-your-own/](./examples/bring-your-own/) for a fully deployable example using `NextjsRegionalContainers` with a shared ALB, ECS Cluster, S3 buckets, and DynamoDB table — connected via SSM Parameter Store.
+See [examples/bring-your-own/](./examples/bring-your-own/) for a fully deployable example using `NextjsRegionalContainers` with a shared VPC, ALB, and ECS Cluster (connected via SSM Parameter Store), and S3 buckets and a DynamoDB table owned by each branch stack.
+
+Each preview environment needs its own cache bucket and revalidation table (see [Resource Isolation](#resource-isolation)). Since every preview serves the same build at the root, give each its own static assets bucket too. Leaving `cacheBucket`, `revalidationTable`, and `staticAssetsBucket` unset does this: cdk-nextjs creates them in the branch stack and deletes them when it's torn down.
 
 ### Prerequisites
 
@@ -577,19 +585,17 @@ See [examples/bring-your-own/](./examples/bring-your-own/) for the full implemen
 
 Subdomain routing via API Gateway custom domain mappings.
 
-1. Deploy shared infrastructure once: S3 buckets, DynamoDB table
-2. Per branch, deploy a cdk-nextjs stack that imports shared resources and creates its own API Gateway
-3. Create an API Gateway custom domain (`pr-123.app.example.com`) mapped to the branch's API stage
-4. Tear down the branch stack on MR close
+1. Per branch, deploy a cdk-nextjs stack that creates its own API Gateway, Lambda function, S3 buckets, and DynamoDB table
+2. Create an API Gateway custom domain (`pr-123.app.example.com`) mapped to the branch's API stage
+3. Tear down the branch stack on MR close
 
 #### `NextjsGlobalFunctions` (Lambda + CloudFront)
 
 Requires a separate cdk-nextjs stack per branch, each with its own CloudFront distribution. CloudFront cannot route to different Lambda Function URL origins based on the `Host` header — origin selection is determined by cache behavior path patterns, not request headers.
 
-1. Deploy shared infrastructure once: S3 buckets, DynamoDB table
-2. Per branch, deploy a full cdk-nextjs stack that imports shared resources (`cacheBucket`, `revalidationTable`, `staticAssetsBucket`) but creates its own CloudFront distribution and Lambda function
-3. Point `pr-123.app.example.com` DNS to the branch's CloudFront distribution
-4. Tear down the branch stack on MR close
+1. Per branch, deploy a full cdk-nextjs stack that creates its own CloudFront distribution, Lambda function, S3 buckets, and DynamoDB table
+2. Point `pr-123.app.example.com` DNS to the branch's CloudFront distribution
+3. Tear down the branch stack on MR close
 
 Note: CloudFront distributions take several minutes to create/update, so this architecture has the slowest preview environment spin-up time.
 
@@ -871,8 +877,8 @@ This project uses Projen, so make sure to not edit [Projen](https://projen.io/) 
 Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs)?<br/>
 A: cdk-nextjs-standalone relies on [OpenNext](https://github.com/sst/open-next). OpenNext injects custom code to interact with private Next.js APIs. While OpenNext is able to make some optimizations that are great for serverless environments, this comes at an increase maintenance cost and increased chances for breaking changes. A goal of cdk-nextjs is to customize Next.js as little as possible to reduce the maintenance burden and decrease chances of breaking changes.
 
-Q: Why does cdk-nextjs depend upon Next.js v16.2 or higher?
-A: This version is required for [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching) so that cdk-nextjs can depend upon public Next.js API.
+Q: Why does cdk-nextjs depend upon Next.js v16.3 or higher?
+A: cdk-nextjs builds through the public [Adapter API](https://nextjs.org/docs/app/api-reference/config/next-config-js/adapterPath), and 16.3 is the first version whose build output carries everything it reads (middleware matchers and per-file asset hashes). 16.2 also added the [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching) it relies on. The runtime bundles `@next/routing` at the version it was tested against (see `package.json`), and newer Next.js 16 releases are expected to work.
 
 Q: How does cdk-nextjs support caching in Next.js?<br/>
 A: See [Caching Guide](./docs/caching-guide.md)

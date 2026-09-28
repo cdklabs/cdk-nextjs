@@ -19,10 +19,10 @@ import type { ResolveRoutesQuery } from "@next/routing";
 import { caseCanonicalPath } from "./case-redirect";
 import {
   createDispatcher,
-  ErrorTarget,
+  createErrorTargets,
+  ErrorTargetResolver,
   NotFoundTarget,
   outOfBandRouteParams,
-  resolveErrorTarget,
 } from "./dispatch";
 import {
   EntrypointHandler,
@@ -119,6 +119,18 @@ export interface NextjsRuntimeOptions {
  */
 const trustsForwardedHost = new WeakSet<ShimIncomingMessage>();
 
+/**
+ * The in-process requests {@link NextjsRuntime.fetchInternal} makes for an image
+ * source, each mapped to the `RouteInOtherGroupError` its route threw, if it
+ * did. Registered before the request runs, so that `route` knows to record the
+ * error here instead of logging the misrouted-request warning, which describes
+ * a CloudFront or API Gateway problem this is not.
+ */
+const imageSourceFetches = new WeakMap<
+  RuntimeRequest,
+  RouteInOtherGroupError | undefined
+>();
+
 export class NextjsRuntime {
   private readonly entrypoints: EntrypointRegistry;
   private readonly middleware?: MiddlewareRunner;
@@ -127,7 +139,7 @@ export class NextjsRuntime {
    * Resolved here rather than on the Dispatcher, which is per request: the throw
    * this answers can happen before one exists.
    */
-  private readonly errorTarget: ErrorTarget;
+  private readonly errorTargetFor: ErrorTargetResolver;
   /** Listed once, at cold start; see `resolvePublicFiles`. */
   private readonly publicFiles: readonly string[];
   /** Whether {@link publicFiles} are served from the assets bucket. */
@@ -139,7 +151,7 @@ export class NextjsRuntime {
     const publicFiles = resolvePublicFiles(deploymentRoot, manifest);
     this.publicFiles = publicFiles.files;
     this.publicFilesInS3 = publicFiles.inS3;
-    this.errorTarget = resolveErrorTarget(manifest);
+    this.errorTargetFor = createErrorTargets(manifest);
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
       manifest,
@@ -213,6 +225,8 @@ export class NextjsRuntime {
       console.error("The response stream did not complete:", error);
     });
 
+    // For the error page's locale; unset when the throw is `absoluteUrl`'s.
+    let url: URL | undefined;
     try {
       // Before anything parses the target, including `absoluteUrl` - `new URL`
       // reads a leading `//` as protocol-relative and would take the first path
@@ -226,11 +240,11 @@ export class NextjsRuntime {
         // ladder like any other. Outside it, on the Lambda shells — whose
         // handlers wrap nothing — the same throw is an invocation error and a
         // 502.
-        const url = absoluteUrl(request);
+        url = absoluteUrl(request);
         await this.route(req, res, url, body, waitUntil, request);
       }
     } catch (error) {
-      await this.sendError(req, res, waitUntil, error);
+      await this.sendError(req, res, waitUntil, error, url);
     }
 
     await finished;
@@ -317,15 +331,20 @@ export class NextjsRuntime {
             sendRedirect(res, `${canonical}${url.search}`, 308);
             return;
           }
-          // Logged, because it is also what a misrouted group looks like; see
-          // `RouteInOtherGroupError` for why it is a 404.
-          console.warn(error.message);
+          if (imageSourceFetches.has(request)) {
+            // Explained by `fetchInternal`, which knows why it happened.
+            imageSourceFetches.set(request, error);
+          } else {
+            // Logged, because it is also what a misrouted group looks like; see
+            // `RouteInOtherGroupError` for why it is a 404.
+            console.warn(error.message);
+          }
           await this.sendUnmatched(
             req,
             res,
             waitUntil,
             { pathname: url.pathname, requestHeaders: result.requestHeaders },
-            dispatcher.notFound,
+            dispatcher.notFoundFor(url),
             url,
           );
           return;
@@ -395,7 +414,12 @@ export class NextjsRuntime {
             // handed in just above, so the captured pair is used instead of
             // re-deriving them.
             render404: async () => {
-              await this.sendNotFound(req, res, waitUntil, dispatcher.notFound);
+              await this.sendNotFound(
+                req,
+                res,
+                waitUntil,
+                dispatcher.notFoundFor(url),
+              );
             },
             // `res.revalidate()` from a Pages API route. Without it, Next.js
             // falls back to `fetch('https://' + req.headers.host + urlPath)` —
@@ -491,7 +515,7 @@ export class NextjsRuntime {
             res,
             waitUntil,
             result,
-            dispatcher.notFound,
+            dispatcher.notFoundFor(url),
             url,
           );
         }
@@ -505,7 +529,7 @@ export class NextjsRuntime {
             res,
             waitUntil,
             { pathname: url.pathname, requestHeaders: result.requestHeaders },
-            dispatcher.notFound,
+            dispatcher.notFoundFor(url),
             url,
           );
           return;
@@ -698,21 +722,44 @@ export class NextjsRuntime {
     href: string,
     req: ShimIncomingMessage,
   ): Promise<InternalImageResponse> {
-    const { head, body } = await this.handleInternally(
-      {
-        method: "GET",
-        url: href,
-        headers: pickDefined(req.headers, [
-          "host",
-          "x-forwarded-host",
-          "x-forwarded-proto",
-        ]),
-        encrypted: (req.socket as { encrypted?: boolean } | undefined)
-          ?.encrypted,
-        trustForwardedHost: trustsForwardedHost.has(req),
-      },
-      { keepBody: true },
-    );
+    const request: RuntimeRequest = {
+      method: "GET",
+      url: href,
+      headers: pickDefined(req.headers, [
+        "host",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+      ]),
+      encrypted: (req.socket as { encrypted?: boolean } | undefined)?.encrypted,
+      trustForwardedHost: trustsForwardedHost.has(req),
+    };
+    imageSourceFetches.set(request, undefined);
+    const { head, body } = await this.handleInternally(request, {
+      keepBody: true,
+    });
+    const otherGroup = imageSourceFetches.get(request);
+    if (otherGroup) {
+      // The edge sends every `/_next/image` request to the default group, and
+      // the source is rendered in process, so a route packaged into another
+      // group is out of reach. Its 404 page would otherwise be handed to the
+      // optimizer as the image, and fail as "not a valid image" with nothing
+      // saying why.
+      const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      console.warn(
+        `Image source "${href}" is served by a route in \`functionGroups\` ` +
+          `group "${otherGroup.owner}", but /_next/image runs in group ` +
+          `"${self}" and fetches a source that is not a file by running its ` +
+          `route in process, which only works for routes in its own group. ` +
+          `Leave the route that serves images in group "${self}", or serve ` +
+          `the image as a file (public/ or a static import).`,
+      );
+      return {
+        statusCode: 0,
+        headers: {},
+        body: Buffer.alloc(0),
+        otherGroup: otherGroup.owner,
+      };
+    }
     return {
       statusCode: head?.statusCode ?? 0,
       headers: head?.headers ?? {},
@@ -782,9 +829,10 @@ export class NextjsRuntime {
   }
 
   /**
-   * App Router builds an invocable `/_not-found`, Pages Router `/_error`, and an
-   * app with neither may still have prerendered `404.html`. The ladder is
-   * resolved once at construction by the Dispatcher.
+   * App Router builds an invocable `/_not-found`, Pages Router a prerendered
+   * `404.html` (per locale under i18n) or else `/_error`. The ladder is resolved
+   * once at construction by the Dispatcher, and the locale per request by
+   * `Dispatcher.notFoundFor`.
    */
   private async sendNotFound(
     req: ShimIncomingMessage,
@@ -848,6 +896,8 @@ export class NextjsRuntime {
     res: ShimServerResponse,
     waitUntil: (promise: Promise<unknown>) => void,
     error: unknown,
+    /** The request, as received: which locale's prerendered 500 to send. */
+    url: URL | undefined,
   ): Promise<void> {
     console.error("Unhandled error while handling the request:", error);
     if (res.headersSent) {
@@ -865,7 +915,7 @@ export class NextjsRuntime {
     // render's `s-maxage` (or a `headers()` rule's) rides along and CloudFront
     // caches the 500. `next start` sets it before rendering the error page too.
     res.setHeader("Cache-Control", NO_STORE);
-    const target = this.errorTarget;
+    const target = this.errorTargetFor(url);
 
     if (target.kind === "entrypoint") {
       try {
@@ -1485,32 +1535,38 @@ async function proxyExternal(
     redirect: "manual",
     ...(hasBody ? { duplex: "half" } : {}),
   } as RequestInit);
-  await sendWebResponse(res, upstream, { bodyWasDecoded: true });
+  await sendWebResponse(res, upstream);
 }
 
-interface SendWebResponseOptions {
-  /**
-   * The body no longer matches the `content-encoding` and `content-length` the
-   * upstream sent, so both are dropped.
-   *
-   * True for anything that came back from `fetch`: undici decodes the body —
-   * gzip, deflate, br, zstd — and leaves those two headers in place describing
-   * the encoded bytes it already threw away. Forwarding them emits plaintext
-   * labelled `gzip` (the browser fails the whole response with
-   * `ERR_CONTENT_DECODING_FAILED`) under a `Content-Length` that is too short,
-   * and `shouldGzip` then declines to compress it because `content-encoding` is
-   * already set, so nothing downstream repairs it. Not true for middleware's own
-   * `Response`, whose body is whatever the app produced: middleware that encodes
-   * its own body and labels it means it.
-   */
-  readonly bodyWasDecoded?: boolean;
-}
+/**
+ * Headers describing the framing of a body that is no longer the body being
+ * sent, dropped from every `Response` {@link sendWebResponse} forwards.
+ *
+ * A proxied origin's `Response` came back from `fetch`, and so, often, did
+ * middleware's own (`return fetch(upstream)` in `proxy.ts`, since middleware
+ * runs in process and its `fetch` is undici). undici decodes the body — gzip,
+ * deflate, br, zstd — and leaves `content-encoding` and `content-length`
+ * describing the encoded bytes it already threw away. Forwarding them emits
+ * plaintext labelled `gzip` (the browser fails the whole response with
+ * `ERR_CONTENT_DECODING_FAILED`) under a `Content-Length` that is too short,
+ * and `shouldGzip` then declines to compress it because `content-encoding` is
+ * already set, so nothing downstream repairs it. `transfer-encoding` is
+ * hop-by-hop: it described the upstream connection, not this one.
+ *
+ * Stock Next.js drops the same three from every middleware response
+ * (`FORBIDDEN_HEADERS` in `next/dist/server/web/sandbox/sandbox.js`), so
+ * middleware cannot label a body it encoded itself there either.
+ */
+const STALE_FRAMING_HEADERS: ReadonlySet<string> = new Set([
+  "content-encoding",
+  "content-length",
+  "transfer-encoding",
+]);
 
 /** Stream a `Response` — middleware's own, or a proxied origin's — into `res`. */
 async function sendWebResponse(
   res: ShimServerResponse,
   response: Response | undefined,
-  options: SendWebResponseOptions = {},
 ): Promise<void> {
   if (!response) {
     // `resolveRoutes` said middleware responded but the runner never saw a
@@ -1532,11 +1588,7 @@ async function sendWebResponse(
     if (name === "set-cookie") {
       return;
     }
-    if (
-      options.bodyWasDecoded &&
-      (name === "content-encoding" || name === "content-length")
-    ) {
-      // See `SendWebResponseOptions.bodyWasDecoded`.
+    if (STALE_FRAMING_HEADERS.has(name)) {
       return;
     }
     res.setHeader(name, value);
@@ -1556,7 +1608,13 @@ async function sendWebResponse(
     }
     // Paced by the client: without waiting for `drain`, a large proxied body
     // headed for a slow client is buffered whole in memory.
-    if (!res.write(chunk) && !(await drained(res))) {
+    const accepted = res.write(chunk);
+    // Set by the sink when it compresses. Without it the chunk sits in zlib's
+    // buffer, and a streamed body — server-sent events through a rewrite, a
+    // middleware `ReadableStream` — reaches the client all at once, at the end.
+    // Next.js flushes after every chunk for the same reason (`pipe-readable`).
+    res.flush?.();
+    if (!accepted && !(await drained(res))) {
       return;
     }
   }

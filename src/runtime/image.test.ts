@@ -287,6 +287,26 @@ describe("RuntimeImageOptimizer sources", () => {
     expect(head.statusCode).toBe(400);
   });
 
+  it("answers an explicit 502 for a source served by another functionGroups group", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      (imageOptimizer as jest.Mock).mockClear();
+      const { head, body } = await request("/api/avatar?id=42", {
+        via: withS3Miss(async () => ({
+          statusCode: 0,
+          headers: {},
+          body: Buffer.alloc(0),
+          otherGroup: "avatars",
+        })),
+      });
+      expect(head.statusCode).toBe(502);
+      expect(body).toMatch(/another functionGroups group/);
+      expect(imageOptimizer).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("answers 400 for a missing file when there is no route fallback", async () => {
     const { head } = await request("/missing.png", { via: withS3Miss() });
     expect(head.statusCode).toBe(400);

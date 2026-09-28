@@ -1,6 +1,6 @@
 # Bring Your Own Resources
 
-Demonstrates sharing infrastructure across multiple Next.js branch deployments using `NextjsRegionalContainers`.
+Demonstrates sharing infrastructure (VPC, ECS cluster, ALB) across multiple Next.js branch deployments using `NextjsRegionalContainers`.
 
 ## Architecture
 
@@ -9,17 +9,23 @@ SharedInfra stack (deploy once)
 ├── VPC + Gateway Endpoints (S3, DynamoDB)
 ├── ECS Cluster
 ├── ALB + HTTP Listener (default 404)
-├── S3 Cache Bucket
-├── S3 Static Assets Bucket
-├── DynamoDB Revalidation Table
 └── SSM Parameters (resource IDs)
 
 branch-<name> stack (deploy per branch)
-├── NextjsRegionalContainers (Fargate service only)
+├── NextjsRegionalContainers
+│   ├── Fargate service
+│   ├── S3 Cache Bucket
+│   ├── S3 Static Assets Bucket
+│   └── DynamoDB Revalidation Table
 └── ALB Listener Rule (host-header routing → target group)
 ```
 
-Each branch gets its own Fargate service and ALB listener rule. The ALB routes
+Each branch gets its own Fargate service, ALB listener rule, cache bucket,
+revalidation table, and static assets bucket. The cache bucket and revalidation
+table can't be shared between deployments: each deploy prunes everything in them
+that isn't from its own current build. Every branch serves the same build at
+the root, so they'd also overwrite and prune each other's static assets in one
+bucket. The ALB routes
 traffic based on the `Host` header (`<branch>.app.example.com`).
 
 For `NextjsGlobalContainers`, CloudFront forwards the `Host` header to the ALB
@@ -66,11 +72,13 @@ host-header routing works. Each branch is reachable at
 
 ## How It Works
 
-1. `SharedInfraStack` creates all long-lived resources and writes their IDs to
-   SSM Parameter Store under `/cdk-nextjs/bring-your-own/*`.
+1. `SharedInfraStack` creates the long-lived shared resources (VPC, ECS cluster,
+   ALB and listener) and writes their IDs to SSM Parameter Store under
+   `/cdk-nextjs/bring-your-own/*`.
 2. `BranchStack` reads those SSM parameters at synth time, imports the resources
-   via `fromLookup` / `fromBucketName` / `fromTableName`, and passes them to
-   `NextjsRegionalContainers`.
+   via `fromLookup` / `fromClusterAttributes`, and passes them to
+   `NextjsRegionalContainers`, which creates the branch's own buckets and table
+   (removed when the branch stack is destroyed).
 3. `removeAutoCreatedListener()` prevents the Fargate service from creating a
    duplicate listener on the shared ALB.
 4. A host-header listener rule routes `<branch>.app.example.com` to the branch's

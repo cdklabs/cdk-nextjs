@@ -34,7 +34,10 @@ export interface NextjsStaticAssetsProps {
   /**
    * Bring your own S3 bucket for static assets. When provided, cdk-nextjs
    * will skip creating a new bucket and deploy assets to this bucket instead.
-   * Use with `basePath` to isolate assets per branch when sharing a bucket.
+   * Can be shared only between deployments with different `basePath`s (S3 key
+   * prefixes): pruning is scoped to `<basePath>/_next/`, but two deployments
+   * under the same prefix overwrite each other's `public/` files and prune each
+   * other's older `_next/` assets.
    */
   readonly bucket?: IBucket;
   /**
