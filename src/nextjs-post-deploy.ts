@@ -14,6 +14,7 @@ import { Construct } from "constructs";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
+import { staticAssetsObjectsPattern } from "./nextjs-static-assets";
 import { wholeAppInvalidationPaths } from "./utils/base-path";
 
 export interface NextjsPostDeployOverrides {
@@ -157,7 +158,12 @@ export class NextjsPostDeploy extends Construct {
     if (this.props.debug !== false) {
       fn.addEnvironment("DEBUG", "1");
     }
-    this.props.staticAssetsBucket?.grantReadWrite(fn);
+    // Only this app's prefix: pruning stays inside it, and a shared bucket's
+    // other apps are out of reach.
+    this.props.staticAssetsBucket?.grantReadWrite(
+      fn,
+      staticAssetsObjectsPattern(this.props.staticAssetsKeyPrefix),
+    );
     this.props.cacheBucket?.grantReadWrite(fn);
     this.props.revalidationTable?.grantReadWriteData(fn);
     return fn;

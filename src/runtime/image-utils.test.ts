@@ -3,7 +3,11 @@ jest.mock("@aws-sdk/client-s3");
 
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ImageError } from "next/dist/server/image-optimizer.js";
-import { fetchFromS3, resolveErrorResponse } from "./image-utils";
+import {
+  fetchFromS3,
+  ImageTooLargeError,
+  resolveErrorResponse,
+} from "./image-utils";
 
 function asyncIterableFrom(chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
   return {
@@ -43,10 +47,16 @@ describe("fetchFromS3", () => {
   it("strips the leading slash when the assets sit at the bucket root", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/static/foo.png", {
-      urlBasePath: "",
-      keyPrefix: "",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/static/foo.png",
+      {
+        urlBasePath: "",
+        keyPrefix: "",
+      },
+      Infinity,
+    );
 
     expect((GetObjectCommand as unknown as jest.Mock).mock.calls[0][0]).toEqual(
       { Bucket: "my-bucket", Key: "static/foo.png" },
@@ -56,10 +66,16 @@ describe("fetchFromS3", () => {
   it("applies the bucket key prefix", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", {
-      urlBasePath: "/base",
-      keyPrefix: "base",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/static/foo.jpg",
+      {
+        urlBasePath: "/base",
+        keyPrefix: "base",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("base/static/foo.jpg");
   });
@@ -69,10 +85,16 @@ describe("fetchFromS3", () => {
 
     // next-image-loader bakes `basePath` into the href of a statically imported
     // image, unlike a plain string path.
-    await fetchFromS3(s3, "my-bucket", "/base/_next/static/media/a.png", {
-      urlBasePath: "/base",
-      keyPrefix: "base",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/base/_next/static/media/a.png",
+      {
+        urlBasePath: "/base",
+        keyPrefix: "base",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("base/_next/static/media/a.png");
   });
@@ -86,10 +108,16 @@ describe("fetchFromS3", () => {
   it("strips a basePath that is not part of the key", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/prod/_next/static/media/a.png", {
-      urlBasePath: "/prod",
-      keyPrefix: "",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/prod/_next/static/media/a.png",
+      {
+        urlBasePath: "/prod",
+        keyPrefix: "",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("_next/static/media/a.png");
   });
@@ -97,10 +125,16 @@ describe("fetchFromS3", () => {
   it("leaves a url without basePath alone when there is no key prefix", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", {
-      urlBasePath: "/prod",
-      keyPrefix: "",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/static/foo.jpg",
+      {
+        urlBasePath: "/prod",
+        keyPrefix: "",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("static/foo.jpg");
   });
@@ -110,11 +144,17 @@ describe("fetchFromS3", () => {
   it("strips a path assetPrefix in front of /_next/", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/cdn/_next/static/media/a.png", {
-      urlBasePath: "/base",
-      keyPrefix: "",
-      assetPrefix: "/cdn/",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/cdn/_next/static/media/a.png",
+      {
+        urlBasePath: "/base",
+        keyPrefix: "",
+        assetPrefix: "/cdn/",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("_next/static/media/a.png");
   });
@@ -122,11 +162,17 @@ describe("fetchFromS3", () => {
   it("leaves a public/ file under a directory named like the assetPrefix alone", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/cdn/logo.png", {
-      urlBasePath: "",
-      keyPrefix: "",
-      assetPrefix: "/cdn",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/cdn/logo.png",
+      {
+        urlBasePath: "",
+        keyPrefix: "",
+        assetPrefix: "/cdn",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("cdn/logo.png");
   });
@@ -134,11 +180,17 @@ describe("fetchFromS3", () => {
   it("ignores an absolute assetPrefix", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/_next/static/media/a.png", {
-      urlBasePath: "",
-      keyPrefix: "",
-      assetPrefix: "https://cdn.example.test",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/_next/static/media/a.png",
+      {
+        urlBasePath: "",
+        keyPrefix: "",
+        assetPrefix: "https://cdn.example.test",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("_next/static/media/a.png");
   });
@@ -146,10 +198,16 @@ describe("fetchFromS3", () => {
   it("only matches basePath on a path boundary", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/basement/logo.png", {
-      urlBasePath: "/base",
-      keyPrefix: "base",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/basement/logo.png",
+      {
+        urlBasePath: "/base",
+        keyPrefix: "base",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("base/basement/logo.png");
   });
@@ -159,10 +217,16 @@ describe("fetchFromS3", () => {
   it("doesn't double the separator when the key prefix has a trailing slash", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/static/foo.jpg", {
-      urlBasePath: "",
-      keyPrefix: "base/",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/static/foo.jpg",
+      {
+        urlBasePath: "",
+        keyPrefix: "base/",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe("base/static/foo.jpg");
   });
@@ -176,7 +240,7 @@ describe("fetchFromS3", () => {
   ])("decodes %s into the object's real name", async (url, key) => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", url, ROOT);
+    await fetchFromS3(s3, "my-bucket", url, ROOT, Infinity);
 
     expect(keyOf()).toBe(key);
   });
@@ -193,10 +257,16 @@ describe("fetchFromS3", () => {
   ])("keys %s by its path alone", async (url, key) => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", url, {
-      urlBasePath: "/base",
-      keyPrefix: "",
-    });
+    await fetchFromS3(
+      s3,
+      "my-bucket",
+      url,
+      {
+        urlBasePath: "/base",
+        keyPrefix: "",
+      },
+      Infinity,
+    );
 
     expect(keyOf()).toBe(key);
   });
@@ -204,7 +274,7 @@ describe("fetchFromS3", () => {
   it("leaves a name that isn't valid percent-encoding alone", async () => {
     ok();
 
-    await fetchFromS3(s3, "my-bucket", "/100%.png", ROOT);
+    await fetchFromS3(s3, "my-bucket", "/100%.png", ROOT, Infinity);
 
     expect(keyOf()).toBe("100%.png");
   });
@@ -216,7 +286,13 @@ describe("fetchFromS3", () => {
       ETag: '"the-etag"',
     });
 
-    const result = await fetchFromS3(s3, "my-bucket", "/foo.jpg", ROOT);
+    const result = await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/foo.jpg",
+      ROOT,
+      Infinity,
+    );
 
     expect(result.buffer.toString()).toBe("hello");
     expect(result.contentType).toBe("image/jpeg");
@@ -230,17 +306,54 @@ describe("fetchFromS3", () => {
       ETag: undefined,
     });
 
-    const result = await fetchFromS3(s3, "my-bucket", "/foo.png", ROOT);
+    const result = await fetchFromS3(
+      s3,
+      "my-bucket",
+      "/foo.png",
+      ROOT,
+      Infinity,
+    );
 
     expect(result.etag).toBe("");
     expect(result.contentType).toBeNull();
+  });
+
+  // `images.maximumResponseBody`, which `next start` enforces on local sources.
+  it("refuses an object whose ContentLength is over the limit, unread", async () => {
+    const destroy = jest.fn();
+    mockSend.mockResolvedValue({
+      Body: { ...asyncIterableFrom([Buffer.from("never read")]), destroy },
+      ContentLength: 11,
+    });
+
+    await expect(
+      fetchFromS3(s3, "my-bucket", "/big.png", ROOT, 10),
+    ).rejects.toBeInstanceOf(ImageTooLargeError);
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it("stops reading once the bytes read pass the limit", async () => {
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("hel"), Buffer.from("lo")]),
+    });
+
+    await expect(
+      fetchFromS3(s3, "my-bucket", "/big.png", ROOT, 4),
+    ).rejects.toBeInstanceOf(ImageTooLargeError);
+    // At the limit exactly is fine.
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("hel"), Buffer.from("lo")]),
+      ContentLength: 5,
+    });
+    const result = await fetchFromS3(s3, "my-bucket", "/ok.png", ROOT, 5);
+    expect(result.buffer.toString()).toBe("hello");
   });
 
   it("throws when S3 returns no body", async () => {
     mockSend.mockResolvedValue({ Body: undefined });
 
     await expect(
-      fetchFromS3(s3, "my-bucket", "/missing.png", ROOT),
+      fetchFromS3(s3, "my-bucket", "/missing.png", ROOT, Infinity),
     ).rejects.toThrow(/Empty response from S3/);
   });
 });
@@ -262,6 +375,15 @@ describe("resolveErrorResponse", () => {
     expect(resolveErrorResponse(error, ImageError)).toEqual({
       statusCode: 400,
       message: "The requested resource isn't a valid image.",
+    });
+  });
+
+  it("maps a source over images.maximumResponseBody to next start's 413", () => {
+    expect(
+      resolveErrorResponse(new ImageTooLargeError("big.png"), ImageError),
+    ).toEqual({
+      statusCode: 413,
+      message: '"url" parameter is valid but internal response is invalid',
     });
   });
 

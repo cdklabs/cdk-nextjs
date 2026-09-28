@@ -4,12 +4,14 @@ import { defineConfig, devices } from "@playwright/test";
  * The two specs that mutate shared cache state, and so cannot run alongside each
  * other or alongside a second copy of themselves.
  *
- * `cacheTag('collection')` exists in exactly one route - `app/isr/[id]/page.tsx` -
- * and `/api/revalidate` only ever touches that tag plus
- * `revalidatePath('/isr/[id]')`. `app/ssg/[id]`'s `'use cache: remote'` carries no
- * tag, and `use-cache.test.ts` revalidates only tags of its own per-run key, so
- * nothing else in the app is reachable from a revalidation these two trigger. That
- * is why the serial lane is these two files and not the whole suite.
+ * They are the only callers of `/api/revalidate`, and between them pass it the
+ * tags `collection` (only `app/isr/[id]`), `on-demand` (only
+ * `app/isr-on-demand/[id]`) and `unused-by-any-route`, and the paths
+ * `/isr/[id]` (the default) and `/isr-on-demand/[id]`. `app/ssg/[id]`'s
+ * `'use cache: remote'` carries no tag, and `use-cache.test.ts` revalidates only
+ * tags of its own per-run key, so nothing another spec reads is reachable from a
+ * revalidation these two trigger. That is why the serial lane is these two files
+ * and not the whole suite.
  */
 const SERIAL_SPECS = /(isr|revalidation)\.test\.ts/;
 

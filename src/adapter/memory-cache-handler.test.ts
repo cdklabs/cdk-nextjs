@@ -76,9 +76,7 @@ describe("MemoryCacheHandler", () => {
       });
       expect(result?.value).toEqual(testData);
     });
-  });
 
-  describe("set", () => {
     it("keeps the lastModified an entry copied from a slower layer was rendered at", async () => {
       // Stamping the time of the copy made an entry due for regeneration, or
       // one a soft `revalidateTag` had made stale, look freshly rendered.
@@ -135,28 +133,83 @@ describe("MemoryCacheHandler", () => {
     });
   });
 
-  describe("resetRequestCache", () => {
-    it("keeps the shared cache across requests", async () => {
-      // Next.js calls this at the start of every request, and its own
-      // `FileSystemCache` makes it a no-op; clearing here meant no entry ever
-      // survived to a second request.
-      const testData: IncrementalCacheValue = {
-        kind: CachedRouteKind.APP_PAGE,
-        html: "<html>reset test</html>",
-        rscData: undefined,
-        headers: undefined,
-        postponed: undefined,
-        segmentData: undefined,
-        status: undefined,
-      };
+  describe("bounds", () => {
+    const page = (html: string): IncrementalCacheValue => ({
+      kind: CachedRouteKind.APP_PAGE,
+      html,
+      rscData: undefined,
+      headers: undefined,
+      postponed: undefined,
+      segmentData: undefined,
+      status: undefined,
+    });
+    const getCtx = {
+      kind: IncrementalCacheKind.APP_PAGE,
+      isFallback: false,
+    } as const;
+    const env = process.env;
 
-      await handler.set("reset-key", testData);
+    beforeEach(() => {
+      process.env = { ...env };
+    });
+    afterEach(() => {
+      process.env = env;
+      jest.restoreAllMocks();
+    });
 
+    it("drops an entry past its TTL on read", async () => {
+      process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS = "1000";
+      const clock = jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+      handler = new MemoryCacheHandler({ context: mockContext });
+      await handler.set("a", page("a"));
+
+      clock.mockReturnValue(1_001_000);
+      expect(await handler.get("a", getCtx)).not.toBeNull();
+      clock.mockReturnValue(1_001_001);
+      expect(await handler.get("a", getCtx)).toBeNull();
+      expect(handler.getCacheSize()).toBe(0);
+    });
+
+    it("clears every expired entry on the next write", async () => {
+      process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS = "1000";
+      const clock = jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+      handler = new MemoryCacheHandler({ context: mockContext });
+      await handler.set("a", page("a"));
+      await handler.set("b", page("b"));
+
+      clock.mockReturnValue(1_002_000);
+      await handler.set("c", page("c"));
       expect(handler.getCacheSize()).toBe(1);
+    });
 
-      await handler.resetRequestCache();
+    it("evicts the least recently used entry at the limit", async () => {
+      process.env.CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES = "2";
+      handler = new MemoryCacheHandler({ context: mockContext });
+      await handler.set("a", page("a"));
+      await handler.set("b", page("b"));
+      // A read makes `a` the most recently used.
+      await handler.get("a", getCtx);
+      await handler.set("c", page("c"));
 
-      expect(handler.getCacheSize()).toBe(1);
+      expect(handler.getCacheSize()).toBe(2);
+      expect(await handler.get("b", getCtx)).toBeNull();
+      expect(await handler.get("a", getCtx)).not.toBeNull();
+      expect(await handler.get("c", getCtx)).not.toBeNull();
+    });
+
+    it("falls back to the defaults for values that are not numbers", async () => {
+      // As NaN, nothing expired and nothing was evicted: an unbounded map.
+      process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS = "abc";
+      process.env.CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES = "abc";
+      const clock = jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+      handler = new MemoryCacheHandler({ context: mockContext });
+      for (let i = 0; i <= 1000; i++) {
+        await handler.set(`k${i}`, page("x"));
+      }
+      expect(handler.getCacheSize()).toBe(1000);
+
+      clock.mockReturnValue(1_000_000 + 60 * 60 * 1000 + 1);
+      expect(await handler.get("k1000", getCtx)).toBeNull();
     });
   });
 });

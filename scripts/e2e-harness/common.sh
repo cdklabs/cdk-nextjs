@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Shared by scripts/e2e-deploy.sh, e2e-logs.sh, e2e-cleanup.sh and e2e-sweep.sh.
+# Shared by scripts/e2e-deploy.sh, e2e-logs.sh, e2e-warm.sh and e2e-sweep.sh.
 # Sourced, not executed.
 
-# Files the three lifecycle scripts hand to each other. They run as separate
+# Files the two lifecycle scripts hand to each other. They run as separate
 # processes with `cwd` set to the harness's temporary app, so everything one
 # needs from another has to be on disk in that directory.
 # See https://nextjs.org/docs/app/api-reference/adapters/testing-adapters
@@ -12,12 +12,13 @@ readonly HARNESS_DEPLOY_LOG=".adapter-deploy.log"
 readonly HARNESS_STACK_FILE=".adapter-stack.txt"
 readonly HARNESS_CDK_OUT=".adapter-cdk-out"
 
-# Every stack the harness creates carries these, and `e2e-cleanup.sh` /
-# `e2e-sweep.sh` refuse to delete a stack that does not. A CloudFormation stack
-# is the only record that survives the temporary app directory, so the tag is
-# what makes an orphan identifiable later.
+# Every stack the harness creates carries these, and `e2e-sweep.sh` refuses to
+# delete a stack that does not. A CloudFormation stack is the only record that
+# survives the temporary app directory, so the tag is what makes an orphan
+# identifiable later. Exported because `app.js` writes the tag from them.
 readonly HARNESS_TAG_KEY="cdk-nextjs:harness"
 readonly HARNESS_TAG_VALUE="1"
+export HARNESS_TAG_KEY HARNESS_TAG_VALUE
 readonly HARNESS_STACK_PREFIX="hrns-"
 
 # A stable identifier for one harness app directory.
@@ -48,8 +49,9 @@ harness_app_id() {
 #   - Test files must be serialized (`run-tests.js -c 1`). Two concurrent
 #     deploys into one stack would race, and the second would see the first's
 #     app.
-#   - `e2e-cleanup.sh` must not delete the stack between files; the sweeper
-#     deletes it once at the end of the run. See both scripts.
+#   - Nothing may delete the stack between files, which is why the harness gets
+#     no NEXT_TEST_CLEANUP_SCRIPT_PATH; `e2e-sweep.sh --apply --shared` deletes
+#     it once at the end of the run.
 #   - Nothing may leak between files. Server cache entries are keyed by
 #     `CDK_NEXTJS_BUILD_ID` (src/adapter/s3-cache-handler.ts), which differs per
 #     file and hotswaps with the function, and `e2e-deploy.sh` invalidates the
@@ -172,16 +174,30 @@ harness_stack_is_ours() {
   [ "$tags" = "$HARNESS_TAG_VALUE" ]
 }
 
+# The pid in a stack's proxy state file, if that process is still running and is
+# still `stage-proxy.mjs`. A pid file outlives its proxy (a crash, a reboot), and
+# the pid can by then belong to anything else of the user's, so nothing may
+# signal or reuse it on the file's word alone.
+harness_proxy_pid() {
+  local state pid
+  state="$(harness_proxy_state "$1")"
+  pid="$(cat "$state.pid" 2>/dev/null)" || return 1
+  case "$(ps -p "$pid" -o command= 2>/dev/null)" in
+    *stage-proxy.mjs*) printf '%s' "$pid" ;;
+    *) return 1 ;;
+  esac
+}
+
 # Stop a stack's `stage-proxy.mjs`, if one is running here. Called next to every
 # stack delete, so a proxy never outlives the API it forwards to. A no-op for a
 # Global stack, which never has one.
 harness_stop_proxy() {
-  local state
+  local state pid
   state="$(harness_proxy_state "$1")"
-  if [ -f "$state.pid" ]; then
-    kill "$(cat "$state.pid")" 2>/dev/null || true
-    rm -f "$state.pid" "$state.target"
+  if pid="$(harness_proxy_pid "$1")"; then
+    kill "$pid" 2>/dev/null || true
   fi
+  rm -f "$state.pid" "$state.target"
 }
 
 # Validate HARNESS_NEXTJS_TYPE as soon as any harness script sources this file.

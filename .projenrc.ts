@@ -555,7 +555,9 @@ function generateStructs() {
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsBuildProps"))
     // `functionGroups` is the root constructs' prop: set here, it would split
     // the build without the behaviors or API routes that reach the groups.
-    .omit("overrides", "functionGroups")
+    // `architecture` is set through
+    // `overrides.nextjsFunctions.functionProps.architecture`, which the build reads.
+    .omit("overrides", "functionGroups", "architecture")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsCacheProps",
@@ -569,14 +571,17 @@ function generateStructs() {
     filePath: getFilePath("OptionalNextjsDistributionProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsDistributionProps"))
-    .omit("overrides")
+    // Build-derived routing: set here, the deployed behaviors would differ from
+    // the ones the build checked every route against.
+    .omit("overrides", "functionGroups", "nextBuildId", "trailingSlash")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsApiProps",
     filePath: getFilePath("OptionalNextjsApiProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsApiProps"))
-    .omit("overrides")
+    // Same reason as `OptionalNextjsDistributionProps`.
+    .omit("overrides", "functionGroups")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsContainersProps",
@@ -584,18 +589,6 @@ function generateStructs() {
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsContainersProps"))
     .omit("overrides")
-    .allOptional();
-  new ProjenStruct(project, {
-    name: "OptionalNextjsFunctionsProps",
-    filePath: getFilePath("OptionalNextjsFunctionsProps"),
-  })
-    .mixin(Struct.fromFqn("cdk-nextjs.NextjsFunctionsProps"))
-    // `functionGroups`: same reason as `OptionalNextjsBuildProps`.
-    // `architecture` and `deploymentRoots` are what the build staged: set here,
-    // the Lambdas would run a root built for something else (sharp for the
-    // wrong CPU, say). The architecture is set through
-    // `overrides.nextjsFunctions.functionProps.architecture`, which the build reads.
-    .omit("overrides", "functionGroups", "architecture", "deploymentRoots")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalApplicationLoadBalancedTaskImageOptions",

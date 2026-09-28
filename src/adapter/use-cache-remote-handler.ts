@@ -16,7 +16,6 @@ import getDebug from "debug";
 import type {
   CacheEntry,
   CacheHandler,
-  Timestamp,
 } from "next/dist/server/lib/cache-handlers/types";
 import {
   CacheBucket,
@@ -37,6 +36,7 @@ import {
   sharedTagManifest,
   StoredEntry,
   storedEntryOf,
+  tagMethods,
   UseCacheTagManifest,
 } from "./use-cache-common";
 
@@ -256,21 +256,7 @@ export function createRemoteUseCacheHandler(
       await writeToS3(cacheKey, stored);
     },
 
-    async refreshTags(): Promise<void> {
-      await tags.refresh();
-    },
-
-    async getExpiration(implicitTags: string[]): Promise<Timestamp> {
-      await tags.ensure(implicitTags);
-      return tags.expiration(implicitTags);
-    },
-
-    async updateTags(
-      revalidatedTags: string[],
-      durations?: { expire?: number },
-    ): Promise<void> {
-      await tags.update(revalidatedTags, durations);
-    },
+    ...tagMethods(tags),
   };
 }
 

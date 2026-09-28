@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Deletes orphaned compatibility-harness stacks - the ones `scripts/e2e-cleanup.sh`
-# never got to run for, because a shard was cancelled, timed out, or died.
+# Deletes compatibility-harness stacks: a shard's own shared stack after its run
+# (`--shared`), and orphans a cancelled, timed-out or dead shard left behind.
 #
 # Dry run by default: prints what it would delete and exits 0. Pass `--apply`
-# (or set HARNESS_SWEEP_APPLY=1) to actually delete. Only stacks that are named
+# to actually delete. Only stacks that are named
 # `hrns-*` *and* tagged `cdk-nextjs:harness=1` *and* older than
 # HARNESS_SWEEP_MAX_AGE_HOURS (default 6) are ever considered. "Older" is
 # measured from the stack's last sign of use, not its creation: see
@@ -35,8 +35,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/e2e-harness/common.sh
 source "$SCRIPT_DIR/e2e-harness/common.sh"
 
-APPLY="${HARNESS_SWEEP_APPLY:-0}"
-ONLY_STACK="${HARNESS_SWEEP_STACK:-}"
+APPLY=0
+ONLY_STACK=""
 WAIT=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -68,7 +68,7 @@ if [ -n "$ONLY_STACK" ]; then
 else
   MAX_AGE_HOURS="${HARNESS_SWEEP_MAX_AGE_HOURS:-6}"
 fi
-export HARNESS_TAG_KEY HARNESS_TAG_VALUE HARNESS_STACK_PREFIX ONLY_STACK
+export HARNESS_STACK_PREFIX ONLY_STACK
 
 # An age floor, not just a tag match: a concurrent run's stacks carry the same
 # tag, and deleting one out from under a running test would look like an adapter

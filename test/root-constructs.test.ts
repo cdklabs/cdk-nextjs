@@ -264,6 +264,8 @@ describe("NextjsGlobalFunctions", () => {
     expect(invokers).toHaveLength(2);
     for (const permission of invokers) {
       expect(permission.Properties.Principal).toBe("cloudfront.amazonaws.com");
+      // Through the Function URL only, not the plain Invoke API.
+      expect(permission.Properties.InvokedViaFunctionUrl).toBe(true);
       expect(JSON.stringify(permission.Properties.SourceArn)).toContain(
         distributionId,
       );
@@ -710,13 +712,27 @@ describe("deploy-time invalidation", () => {
     // A variable, so Functions takes the Containers-only prop without complaint.
     const props = { buildDirectory: buildDir, healthCheckPath: "/api/health" };
     new Root(stack, "App", props);
+    const template = Template.fromStack(stack);
     const [resource] = Object.values(
-      Template.fromStack(stack).findResources("Custom::NextjsPostDeploy"),
+      template.findResources("Custom::NextjsPostDeploy"),
     );
     // `/*` would flush every other app on a shared distribution too.
     expect(
       resource.Properties.createInvalidationCommandInput.invalidationBatch.paths
         .items,
     ).toEqual(["/base", "/base?*", "/base/*"]);
+    // The post-deploy prune can't reach another app sharing the bucket.
+    const [assetsBucket] = Object.keys(
+      template.findResources("AWS::S3::Bucket"),
+    ).filter((id) => id.includes("NextjsStaticAssets"));
+    const grants = Object.entries(template.findResources("AWS::IAM::Policy"))
+      .filter(([id]) => id.includes("NextjsPostDeployFn"))
+      .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement: any) =>
+        JSON.stringify(statement.Resource).includes(assetsBucket),
+      );
+    expect(grants).toHaveLength(1);
+    expect(JSON.stringify(grants[0].Resource)).toContain('"/base/*"');
+    expect(JSON.stringify(grants[0].Resource)).not.toContain('"/*"');
   });
 });

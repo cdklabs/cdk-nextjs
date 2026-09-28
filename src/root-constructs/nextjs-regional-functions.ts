@@ -6,7 +6,7 @@ import {
   deployedFunctionGroups,
   NextjsBaseConstruct,
   NextjsBaseProps,
-  NextjsFunctionsConstructOverrides,
+  NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
 } from "./nextjs-base-construct";
 import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
@@ -20,7 +20,7 @@ import {
   NextjsPostDeployOverrides,
 } from "../nextjs-post-deploy";
 
-export interface NextjsRegionalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
+export interface NextjsRegionalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsApiProps?: OptionalNextjsApiProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
@@ -81,9 +81,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
     super(scope, id, props, NextjsType.REGIONAL_FUNCTIONS);
     this.props = props;
 
-    this.nextjsFunctions = this.createNextjsFunctions(
-      this.props.overrides?.nextjsFunctions,
-    );
+    this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsApi = this.createNextjsApi();
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }

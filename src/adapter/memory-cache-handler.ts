@@ -13,6 +13,7 @@ import {
   GetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import { markerClock } from "./aws-cache-store";
+import { numberFromEnv } from "./use-cache-common";
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
@@ -91,15 +92,16 @@ export class MemoryCacheHandler {
   private readonly maxEntries: number;
 
   constructor(options: MemoryCacheHandlerOptions) {
-    // Read configuration from environment variables with fallback defaults
-    const ttlFromEnv = process.env.CDK_NEXTJS_MEMORY_CACHE_TTL_MS;
-    const maxEntriesFromEnv = process.env.CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES;
-
-    // Default to 1 hour TTL and 1000 max entries
-    this.ttlMs = ttlFromEnv ? parseInt(ttlFromEnv, 10) : 60 * 60 * 1000; // 1 hour
-    this.maxEntries = maxEntriesFromEnv
-      ? parseInt(maxEntriesFromEnv, 10)
-      : 1000;
+    // Default to 1 hour TTL and 1000 max entries. A value that is not a
+    // number falls back too: as NaN, nothing would ever expire or be evicted.
+    this.ttlMs = numberFromEnv(
+      "CDK_NEXTJS_MEMORY_CACHE_TTL_MS",
+      60 * 60 * 1000,
+    );
+    this.maxEntries = numberFromEnv(
+      "CDK_NEXTJS_MEMORY_CACHE_MAX_ENTRIES",
+      1000,
+    );
 
     // Log the options for debugging (optional usage to avoid unused parameter warning)
     if (options.context.dev) {
@@ -189,16 +191,6 @@ export class MemoryCacheHandler {
 
     this.debug(`Cache entries: ${this.inMemoryCache.size}/${this.maxEntries}`);
   }
-
-  /**
-   * Deliberately a no-op. Next.js calls `resetRequestCache` at the start of
-   * every request (`base-server`, `app-page`, `app-route`), and its own
-   * `FileSystemCache` - whose LRU is shared across requests the same way this
-   * one is - leaves it empty: the hook is for state scoped to one request, and
-   * nothing here is. Clearing the map in it meant no entry ever survived to a
-   * second request, so every read went to S3.
-   */
-  async resetRequestCache(): Promise<void> {}
 
   /**
    * Remove all expired cache entries

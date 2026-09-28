@@ -9,10 +9,6 @@ inputs:
   ref:
     description: "vercel/next.js ref to check out"
     required: true
-  path:
-    description: "Directory to check out into, relative to the workspace. Must match the cached path."
-    required: false
-    default: nextjs
 
 runs:
   using: composite
@@ -22,11 +18,12 @@ runs:
       with:
         repository: vercel/next.js
         ref: ${{ inputs.ref }}
-        path: ${{ inputs.path }}
+        # Must match the path e2e-harness.yml caches and runs from.
+        path: nextjs
         fetch-depth: 1
 
     - name: Install and build next.js
-      working-directory: ${{ inputs.path }}
+      working-directory: nextjs
       shell: bash
       # The harness runs out of a next.js checkout: `run-tests.js` and the
       # `test/lib` helpers are repo files, not published ones. The second
@@ -39,7 +36,7 @@ runs:
         pnpm install
 
     - name: Install the Playwright browser
-      working-directory: ${{ inputs.path }}
+      working-directory: nextjs
       shell: bash
       # Downloads into ~/.cache/ms-playwright, which the workflow caches
       # alongside the checkout. Deliberately without `--with-deps`: the system

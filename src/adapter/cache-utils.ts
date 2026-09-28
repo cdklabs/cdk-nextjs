@@ -5,6 +5,7 @@ import type {
   SetIncrementalFetchCacheContext,
   SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
+import { hasPathPrefix } from "../utils/base-path";
 
 /**
  * Pre-process value to convert Buffers and Maps before JSON.stringify
@@ -123,10 +124,11 @@ export function prerenderPathToCacheKey(
 ): string {
   // Matching on a path boundary so a sibling route like `/production` is not
   // read as basePath `/prod` plus `uction`.
-  const hasBasePath =
-    !!basePath &&
-    (pathname === basePath || pathname.startsWith(`${basePath}/`));
-  const route = (hasBasePath ? pathname.slice(basePath.length) : pathname)
+  const route = (
+    hasPathPrefix(pathname, basePath)
+      ? pathname.slice(basePath.length)
+      : pathname
+  )
     // Leading slashes would make an S3 key with an empty first segment.
     .replace(/^\/+/, "");
   return route === "" ? "index" : route;

@@ -15,9 +15,14 @@ afterAll(() => send$.mockRestore());
 
 const FILE = { bucket: "assets", keyPrefix: "", file: "big.bin", etag: true };
 
-function serve(method: string, res = new ShimServerResponse()) {
-  const req = new ShimIncomingMessage({ method, url: "/big.bin", headers: {} });
-  return { res, served: serveS3PublicFile(req, res, FILE) };
+function serve(
+  method: string,
+  res = new ShimServerResponse(),
+  headers: Record<string, string> = {},
+  file = FILE,
+) {
+  const req = new ShimIncomingMessage({ method, url: "/big.bin", headers });
+  return { res, served: serveS3PublicFile(req, res, file) };
 }
 
 /** Chunks bigger than the response's buffer, so every write is refused. */
@@ -39,6 +44,39 @@ describe("serveS3PublicFile", () => {
     expect(res.getHeader("ETag")).toBe('"e1"');
     expect(res.writableEnded).toBe(true);
     expect(Buffer.concat(chunks).length).toBe(0);
+  });
+
+  // `generateEtags: false`: no ETag to revalidate with, only Last-Modified.
+  it("answers If-Modified-Since with a 304, as send does", async () => {
+    send$.mockImplementation((async () => {
+      throw Object.assign(new Error("Not Modified"), {
+        $metadata: { httpStatusCode: 304 },
+      });
+    }) as never);
+    const since = "Wed, 21 Oct 2015 07:28:00 GMT";
+    const { res, served } = serve(
+      "GET",
+      undefined,
+      { "if-modified-since": since },
+      { ...FILE, etag: false },
+    );
+    expect(await served).toBe(true);
+    expect(res.statusCode).toBe(304);
+    const input = (send$.mock.calls[0][0] as GetObjectCommand).input;
+    expect(input.IfModifiedSince).toEqual(new Date(since));
+    expect(input.IfNoneMatch).toBeUndefined();
+  });
+
+  // `fresh` ignores If-Modified-Since next to an If-None-Match.
+  it("leaves If-Modified-Since out next to an If-None-Match", async () => {
+    send$.mockImplementation((async () => ({})) as never);
+    await serve("HEAD", undefined, {
+      "if-none-match": '"e1"',
+      "if-modified-since": "Wed, 21 Oct 2015 07:28:00 GMT",
+    }).served;
+    const input = (send$.mock.calls[0][0] as HeadObjectCommand).input;
+    expect(input.IfNoneMatch).toBe('"e1"');
+    expect(input.IfModifiedSince).toBeUndefined();
   });
 
   it("rethrows an S3 error that is not a missing object", async () => {

@@ -144,11 +144,14 @@ export class NextjsContainers extends Construct {
       // After the overrides spread, so a user's `buildArgs` adds to the
       // required ones instead of replacing them.
       buildArgs: {
-        // Where `.next/static` and `public` go inside the image: the staged tree
-        // is keyed by repo-root-relative path, so in a monorepo the project dir
-        // is not the image's WORKDIR. "." keeps the `COPY` destinations valid
-        // when the app is at the repo root.
-        RELATIVE_PROJECT_DIR: this.props.relativeProjectDir || ".",
+        // Where the regional image puts `.next/static` and `public` (the global
+        // one serves them from S3): the staged tree is keyed by
+        // repo-root-relative path, so in a monorepo the project dir is not the
+        // image's WORKDIR. "." keeps the `COPY` destinations valid when the app
+        // is at the repo root.
+        ...(this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+          ? {}
+          : { RELATIVE_PROJECT_DIR: this.props.relativeProjectDir || "." }),
         ...this.props.overrides?.dockerImageAssetProps?.buildArgs,
       },
     });

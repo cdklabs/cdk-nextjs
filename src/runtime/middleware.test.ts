@@ -114,20 +114,16 @@ describe("MiddlewareRunner request construction", () => {
     }
   });
 
-  it("passes waitUntil and requestMeta straight through", async () => {
+  it("passes waitUntil straight through", async () => {
     const waited: Promise<unknown>[] = [];
-    const requestMeta = { relativeProjectDir: "app-playground" };
-    let received: MiddlewarePerRequest | undefined;
     await dispatchThrough(
       async (_incoming, ctx) => {
-        received = ctx;
         ctx.waitUntil?.(Promise.resolve("logged"));
         return next();
       },
       request("/isr/1"),
-      { waitUntil: (promise) => waited.push(promise), requestMeta },
+      { waitUntil: (promise) => waited.push(promise) },
     );
-    expect(received?.requestMeta).toBe(requestMeta);
     expect(waited).toHaveLength(1);
   });
 

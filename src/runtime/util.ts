@@ -2,6 +2,7 @@
 /** Small helpers more than one runtime module needs. */
 import { S3Client } from "@aws-sdk/client-s3";
 import type { ShimServerResponse } from "./http/response";
+import { hasPathPrefix } from "../utils/base-path";
 
 /** The first of a repeated header, or the header. */
 export function firstValue(
@@ -17,7 +18,7 @@ export function firstValue(
  * there, as it is in Next.
  */
 export function withoutPathPrefix(pathname: string, prefix: string): string {
-  if (!prefix || !(pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+  if (!hasPathPrefix(pathname, prefix)) {
     return pathname;
   }
   return pathname.slice(prefix.length) || "/";

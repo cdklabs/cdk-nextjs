@@ -360,7 +360,8 @@ jobs:
           ADAPTER_DIR: ${{ github.workspace }}
           NEXT_TEST_DEPLOY_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-deploy.sh
           NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-logs.sh
-          NEXT_TEST_CLEANUP_SCRIPT_PATH: ${{ github.workspace }}/scripts/e2e-cleanup.sh
+          # No NEXT_TEST_CLEANUP_SCRIPT_PATH, on purpose: it is optional, and the
+          # stack has to outlive each test file. The step below deletes it.
         # `-c 1` is mandatory, not a tuning choice: every test file in this shard
         # deploys into this shard's one stack, so two at once would race.
         # Parallelism comes from `-g`, which splits the file list across shards
@@ -389,8 +390,8 @@ jobs:
 
       - name: Delete this shard's stack
         if: ${{ always() }}
-        # `e2e-cleanup.sh` keeps the stack alive between test files on purpose, so
-        # this is the step that actually deletes it - not a backstop. `--shared`
+        # Nothing deletes the stack between test files, on purpose, so this is
+        # the step that actually deletes it - not a backstop. `--shared`
         # resolves HARNESS_SHARED_STACK_SUFFIX, so each shard deletes only its
         # own, which is what lets the age floor go: dropping the floor
         # account-wide instead would also delete the other shards' stacks, and a

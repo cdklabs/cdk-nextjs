@@ -675,16 +675,6 @@ describe("Dispatcher non-entrypoint outcomes", () => {
     });
   });
 
-  it("reports the request's locale's 404 with a not-found result", async () => {
-    const result = await dispatcherFor("pages-i18n").dispatch(
-      request("/fr/definitely-not-a-route"),
-    );
-    expect(result).toMatchObject({
-      kind: "not-found",
-      notFound: { kind: "static-file", pathname: "/fr/404" },
-    });
-  });
-
   it("falls back to /_error when no 404 was prerendered", () => {
     // What a `pages/_app.js` with `getInitialProps` builds without a
     // `pages/404.js`: `next build` then prerenders no 404 at all.

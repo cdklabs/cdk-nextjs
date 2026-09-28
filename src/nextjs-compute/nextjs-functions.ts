@@ -219,16 +219,15 @@ export class NextjsFunctions extends Construct {
     if (requested && requested.name !== architecture.name) {
       // Ignoring it would deploy a function the user didn't ask for; honoring
       // it would deploy one that can't load the `sharp` binaries staged for
-      // the root. The root constructs pass the same value to both unless
-      // `nextjsBuildProps.architecture` overrides `NextjsBuild`'s, a group's
-      // own override asks for another (one architecture per deployment), or
-      // `NextjsBuild` and `NextjsFunctions` are wired by hand.
+      // the root. The root constructs pass the same value to both unless a
+      // group's own override asks for another (one architecture per
+      // deployment), or `NextjsBuild` and `NextjsFunctions` are wired by hand.
       throw new Error(
         `${LOG_PREFIX} functionProps.architecture for function group "${root.name}" is ${requested.name}, ` +
           `but NextjsBuild staged its native dependencies (sharp) for ${architecture.name}. ` +
           "Every function group deploys one architecture: set it construct-wide in " +
-          "`overrides.nextjsFunctions.functionProps`, drop a conflicting `nextjsBuildProps.architecture` " +
-          "override, or, wiring the constructs yourself, pass NextjsBuild's `architecture` to NextjsFunctions.",
+          "`overrides.nextjsFunctions.functionProps` or, wiring the constructs yourself, pass " +
+          "NextjsBuild's `architecture` to NextjsFunctions.",
       );
     }
     // Zipped here rather than by `cdk-assets`, which would dereference the

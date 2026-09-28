@@ -120,14 +120,15 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     this.nextjsContainers = this.createNextjsContainers();
     this.nextjsDistribution = this.createNextjsDistribution();
     const { taskDefinition } = this.nextjsContainers.albFargateService;
-    const environment = this.wireCloudFrontInvalidation(
-      [taskDefinition.taskRole],
-      this.nextjsDistribution.distribution,
-      false,
+    // Lets on-demand revalidation evict stale responses from the CDN edge, not
+    // just the origin's cache. The origin is the ALB, which the task doesn't
+    // depend on, so naming the distribution here makes no dependency cycle.
+    const { distribution } = this.nextjsDistribution;
+    distribution.grantCreateInvalidation(taskDefinition.taskRole);
+    taskDefinition.defaultContainer?.addEnvironment(
+      "CDK_NEXTJS_DISTRIBUTION_ID",
+      distribution.distributionId,
     );
-    for (const [name, value] of Object.entries(environment)) {
-      taskDefinition.defaultContainer?.addEnvironment(name, value);
-    }
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 

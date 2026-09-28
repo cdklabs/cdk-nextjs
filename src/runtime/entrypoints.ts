@@ -15,7 +15,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { loadBuiltModule, requireFunctionExport } from "./load-module";
-import { AdapterEntrypoint, AdapterManifest } from "./manifest";
+import {
+  AdapterEntrypoint,
+  AdapterManifest,
+  FUNCTION_GROUP_ENV_VAR,
+} from "./manifest";
 
 /**
  * Per-request context, the third argument of every entrypoint `handler`.
@@ -44,7 +48,7 @@ export class EntrypointRegistry {
    */
   public constructor(
     private readonly root: string,
-    private readonly manifest?: AdapterManifest,
+    private readonly manifest: AdapterManifest,
   ) {}
 
   public load(entrypoint: AdapterEntrypoint): Promise<EntrypointHandler> {
@@ -72,7 +76,7 @@ export class EntrypointRegistry {
 async function loadEntrypointHandler(
   root: string,
   entrypoint: AdapterEntrypoint,
-  manifest?: AdapterManifest,
+  manifest: AdapterManifest,
 ): Promise<EntrypointHandler> {
   const absolute = join(root, entrypoint.filePath);
   let exports: unknown;
@@ -136,14 +140,14 @@ export class RouteInOtherGroupError extends Error {
  */
 function owningGroup(
   entrypoint: AdapterEntrypoint,
-  manifest?: AdapterManifest,
+  manifest: AdapterManifest,
 ): { readonly self: string; readonly owner: string } | undefined {
-  const groups = manifest?.groups;
-  const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
+  const groups = manifest.groups;
+  const self = process.env[FUNCTION_GROUP_ENV_VAR];
   if (!groups || !self) {
     return undefined;
   }
-  const templates = Object.entries(manifest?.entrypoints ?? {})
+  const templates = Object.entries(manifest.entrypoints)
     .filter(([, candidate]) => candidate.id === entrypoint.id)
     .map(([template]) => template);
   const owner = Object.entries(groups).find(([, owned]) =>

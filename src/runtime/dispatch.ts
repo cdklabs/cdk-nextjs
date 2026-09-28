@@ -161,7 +161,6 @@ export interface DispatchNotFoundResult extends DispatchResultBase {
   readonly kind: "not-found";
   /** What failed to resolve. For logging. */
   readonly pathname: string;
-  readonly notFound: StatusTarget;
   readonly requestHeaders: Headers;
 }
 
@@ -565,7 +564,6 @@ export class Dispatcher {
     return {
       kind: "not-found",
       pathname: resolvedPathname ?? resolvedUrl.pathname,
-      notFound: this.notFoundFor(request.url),
       requestHeaders: forwardedHeaders,
       responseHeaders,
     };

@@ -43,6 +43,7 @@ import {
 } from "next/dist/server/response-cache";
 import { S3CacheHandler } from "./s3-cache-handler";
 import { sharedTagManifest } from "./use-cache-common";
+import { REVALIDATED_PAGE_HOOK } from "../runtime/manifest";
 
 const mockS3Send = jest.fn();
 const mockDynamoSend = jest.fn();
@@ -1834,6 +1835,83 @@ describe("S3DynamoCacheHandler", () => {
       expect(Number(input.ExpressionAttributeValues[":expiredAt"].N)).toBe(
         staleAt + 60_000,
       );
+    });
+  });
+
+  /**
+   * The cache handler's half of `res.revalidate()`'s CDN invalidation: the hook
+   * it registers for `invalidateRevalidatedPage` in `runtime/core.ts`. The
+   * runtime's half is in `core.test.ts`.
+   */
+  describe("the revalidated-page hook", () => {
+    const HOOK = REVALIDATED_PAGE_HOOK;
+    const globals = globalThis as Record<symbol, unknown>;
+    type Hook = (routes: readonly string[]) => Promise<void>;
+
+    beforeEach(() => {
+      delete globals[HOOK];
+      mockSsmSend.mockResolvedValue({ Parameter: { Value: "EDISTRIBUTION" } });
+      mockCloudFrontSend.mockResolvedValue({});
+      (CreateInvalidationCommand as unknown as jest.Mock).mockClear();
+    });
+
+    function invalidatedPaths(): string[] {
+      const [input] = (CreateInvalidationCommand as unknown as jest.Mock).mock
+        .calls[0];
+      return input.InvalidationBatch.Paths.Items;
+    }
+
+    it("is registered only behind a distribution", () => {
+      new S3CacheHandler({ context: mockContext });
+      expect(globals[HOOK]).toBeUndefined();
+
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
+      new S3CacheHandler({ context: mockContext });
+      expect(typeof globals[HOOK]).toBe("function");
+    });
+
+    it("invalidates the page and its data route under basePath", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
+      new S3CacheHandler({ context: mockContext, basePath: "base" });
+      await (globals[HOOK] as Hook)([
+        "/blog/hello",
+        "/_next/data/test-build-id/blog/hello.json",
+      ]);
+      expect(invalidatedPaths()).toEqual([
+        "/base/blog/hello*",
+        "/base/_next/data/test-build-id/blog/hello.json*",
+      ]);
+    });
+
+    it("spells out the root rather than invalidating the whole app", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
+      new S3CacheHandler({ context: mockContext });
+      await (globals[HOOK] as Hook)([
+        "/",
+        "/_next/data/test-build-id/index.json",
+      ]);
+      expect(invalidatedPaths()).toEqual([
+        "/",
+        "/?*",
+        "/_next/data/test-build-id/index.json*",
+      ]);
+    });
+
+    it("sends every path once, in one invalidation", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
+      new S3CacheHandler({ context: mockContext });
+      await (globals[HOOK] as Hook)([
+        "/blog",
+        "/_next/data/test-build-id/en/blog.json",
+        "/en/blog",
+        "/blog",
+      ]);
+      expect(CreateInvalidationCommand).toHaveBeenCalledTimes(1);
+      expect(invalidatedPaths()).toEqual([
+        "/blog*",
+        "/_next/data/test-build-id/en/blog.json*",
+        "/en/blog*",
+      ]);
     });
   });
 

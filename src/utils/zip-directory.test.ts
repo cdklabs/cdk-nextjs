@@ -72,4 +72,19 @@ describe("zipDirectory", () => {
     // The same tree built somewhere else, at another time.
     expect(zipDirectory(makeTree()).equals(first)).toBe(true);
   });
+
+  it("writes a Zip64 end record past 65,535 entries", () => {
+    const root = mkdtempSync(join(tmpdir(), "cdk-nextjs-zip64-"));
+    // Links are the cheapest entries to make.
+    for (let i = 0; i < 0x10000 + 10; i++) {
+      symlinkSync("t", join(root, `l${i}`));
+    }
+    const out = mkdtempSync(join(tmpdir(), "cdk-nextjs-unzip64-"));
+    writeFileSync(join(out, "root.zip"), zipDirectory(root));
+    const listing = execFileSync("unzip", ["-l", "root.zip"], {
+      cwd: out,
+      maxBuffer: 64 * 1024 * 1024,
+    }).toString();
+    expect(listing.trim().split("\n").pop()).toMatch(/\b65546 files$/);
+  }, 60_000);
 });

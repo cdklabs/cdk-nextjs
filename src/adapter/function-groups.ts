@@ -14,7 +14,7 @@
  * and is structurally assignable to {@link FunctionGroupSpec}.
  */
 import { ERROR_PAGE_SUFFIXES } from "../runtime/manifest";
-import { basePathPrefix } from "../utils/base-path";
+import { basePathPrefix, hasPathPrefix } from "../utils/base-path";
 
 /**
  * The implicit group every unassigned route falls into. Reserved as a group
@@ -29,11 +29,7 @@ export const DEFAULT_FUNCTION_GROUP = "default";
  */
 export const FUNCTION_GROUPS_ENV_VAR = "CDK_NEXTJS_FUNCTION_GROUPS";
 
-/**
- * Which group the running function *is*. Set per Lambda at synth, read by the
- * runtime only to make a misroute say so; see `ownedRouteError`.
- */
-export const FUNCTION_GROUP_ENV_VAR = "CDK_NEXTJS_FUNCTION_GROUP";
+export { FUNCTION_GROUP_ENV_VAR } from "../runtime/manifest";
 
 /** The part of a group the build side needs. */
 export interface FunctionGroupSpec {
@@ -56,6 +52,18 @@ export interface RouteEntry {
    * so that URL has to reach the page's group too.
    */
   readonly type?: string;
+}
+
+/** What {@link assignRoutesToGroups} decided. */
+export interface GroupAssignment {
+  /** Group name → the templates packaged into it, `default` included. */
+  readonly templates: Record<string, string[]>;
+  /**
+   * The groups owning a Pages Router page, whose `/_next/data` URLs the edge
+   * routes to them too. Recorded rather than recomputed at synth, so the
+   * behaviors deployed are the ones this assignment was checked against.
+   */
+  readonly dataRouteGroups: string[];
 }
 
 /** What {@link assignRoutesToGroups} needs to know besides the routes. */
@@ -101,13 +109,12 @@ const SUBTREE_SUFFIX = "/**";
 /**
  * The literal characters a CloudFront path pattern may contain: its alphabet
  * (`A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and `&`) less the two wildcards, which
- * `validateRoutePattern` only accepts as a trailing `/**`. The same set as
- * `PATH_PATTERN_CHAR` in `nextjs-distribution.ts`, restated here because this
- * file is bundled into the adapter and cannot import the construct.
+ * `validateRoutePattern` only accepts as a trailing `/**`. `nextjs-distribution.ts`
+ * adds the wildcards back to encode `public/` names.
  *
  * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern
  */
-const PATH_PATTERN_LITERAL = /[a-zA-Z0-9_\-.$/~"'@:+&]/;
+export const PATH_PATTERN_LITERAL = /[a-zA-Z0-9_\-.$/~"'@:+&]/;
 
 /**
  * Read {@link FUNCTION_GROUPS_ENV_VAR}. `undefined` — not the empty array — when
@@ -358,8 +365,8 @@ function validateRoutePattern(route: string, groupName: string): void {
  * then prove that the edge routes every URL each file serves to the group that
  * file was packaged into.
  *
- * Returns a record keyed by group name and always containing
- * {@link DEFAULT_FUNCTION_GROUP}, so callers can iterate it as the complete set
+ * Its `templates` are keyed by group name and always contain
+ * {@link DEFAULT_FUNCTION_GROUP}, so callers can iterate them as the complete set
  * of functions to deploy. The default group is allowed to be empty of *templates*
  * — it still serves `/_next/image`, any static file, and anything the
  * distribution's catch-all behavior sends it.
@@ -384,22 +391,25 @@ export function assignRoutesToGroups(
   groups: readonly FunctionGroupSpec[],
   entries: readonly RouteEntry[],
   options: AssignRoutesOptions,
-): Record<string, string[]> {
+): GroupAssignment {
   validateFunctionGroups(groups);
   const basePath = basePathPrefix(options.basePath);
 
-  // Most specific first, so the first match is the winner and "longest wins"
-  // needs no second pass. Segment count before string length: "/a/b" is more
-  // specific than "/along", and only the segment count is meaningful in a URL.
-  const patterns = groups
-    .flatMap((group) =>
-      group.routes.map((route) => ({
-        group: group.name,
-        route,
-        match: prefixBasePath(route, basePath),
-      })),
-    )
-    .sort((a, b) => specificity(b.match) - specificity(a.match));
+  // Matched with the very behaviors `NextjsDistribution` deploys for the
+  // declared patterns, most specific first, so packaging and the edge share one
+  // routing model and the first match is the winner. Data routes are left out:
+  // no template is under `/_next`, and which groups have them is decided by
+  // this assignment.
+  const edgeBase = {
+    basePath,
+    buildId: options.buildId,
+    trailingSlash: options.trailingSlash ?? false,
+  };
+  const patterns = edgeBehaviors(
+    groups,
+    {},
+    { ...edgeBase, dataRouteGroups: new Set() },
+  );
 
   const matchedPatterns = new Set<string>();
   // An entrypoint is a *file*; two templates can share one (a Pages Router page
@@ -418,7 +428,7 @@ export function assignRoutesToGroups(
   for (const entry of entries) {
     let winner: number | undefined;
     for (const [index, pattern] of patterns.entries()) {
-      if (!matchesPattern(pattern.match, entry.template)) {
+      if (!pattern.regex.test(entry.template)) {
         continue;
       }
       // Every match is recorded, not only the winning one. A pattern fully
@@ -462,9 +472,7 @@ export function assignRoutesToGroups(
   }
 
   const edge: EdgeOptions = {
-    basePath,
-    buildId: options.buildId,
-    trailingSlash: options.trailingSlash ?? false,
+    ...edgeBase,
     // Only a group that owns a Pages Router page has data URLs to route. Read
     // before interception moves files: those are App Router, never pages.
     dataRouteGroups: new Set(
@@ -501,7 +509,10 @@ export function assignRoutesToGroups(
   for (const key of Object.keys(assigned)) {
     assigned[key] = [...assigned[key]].sort();
   }
-  return assigned;
+  return {
+    templates: assigned,
+    dataRouteGroups: [...edge.dataRouteGroups].sort(),
+  };
 }
 
 /**
@@ -656,33 +667,6 @@ function dataBuildId(buildId: string | undefined): string {
     );
   }
   return buildId;
-}
-
-/** Sort key for "longest matching pattern wins". */
-function specificity(pattern: string): number {
-  const base = pattern.endsWith(SUBTREE_SUFFIX)
-    ? pattern.slice(0, -SUBTREE_SUFFIX.length)
-    : pattern;
-  // Segments dominate; length only breaks ties between equal-depth patterns.
-  return segmentCount(base) * 10000 + base.length;
-}
-
-function segmentCount(path: string): number {
-  return path.split("/").filter(Boolean).length;
-}
-
-/**
- * A subtree owns what is *under* it, not the path itself: `/api/reports/**`
- * becomes CloudFront `api/reports/*`, which does not match `/api/reports`.
- * Claiming the parent too would package a route into a group the edge never
- * routes there. The one exception, an optional catch-all's parent, is routed
- * by {@link routedPatterns} instead of matched here.
- */
-function matchesPattern(pattern: string, template: string): boolean {
-  if (pattern.endsWith(SUBTREE_SUFFIX)) {
-    return template.startsWith(pattern.slice(0, -SUBTREE_SUFFIX.length) + "/");
-  }
-  return template === pattern;
 }
 
 /**
@@ -1584,11 +1568,8 @@ function stripBasePath(template: string, basePath: string): string | undefined {
   if (!basePath) {
     return template;
   }
-  if (template === basePath) {
-    return "/";
-  }
-  return template.startsWith(`${basePath}/`)
-    ? template.slice(basePath.length)
+  return hasPathPrefix(template, basePath)
+    ? template.slice(basePath.length) || "/"
     : undefined;
 }
 

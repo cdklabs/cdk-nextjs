@@ -1014,4 +1014,20 @@ describe("the viewer-request CloudFront Function", () => {
     // build every absolute URL against the Function URL's hostname.
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
   });
+
+  it("overwrites a client-supplied x-forwarded-host", () => {
+    // The runtime trusts this header behind the Function URL, so a viewer's
+    // own value must not survive to build redirects or origin checks.
+    const result = handler({
+      request: {
+        uri: "/a",
+        querystring: {},
+        headers: {
+          host: { value: "a.test" },
+          "x-forwarded-host": { value: "evil.test" },
+        },
+      },
+    }) as FunctionRequest;
+    expect(result.headers["x-forwarded-host"].value).toBe("a.test");
+  });
 });

@@ -148,6 +148,69 @@ describe("UseCacheTagManifest", () => {
     });
   });
 
+  it("gives a later revalidation its own marker while the first is still writing", async () => {
+    const markers = fakeMarkers();
+    let release = () => {};
+    markers.write.mockImplementationOnce(
+      (_tag, at) =>
+        new Promise((resolve) => {
+          release = () => resolve({ revalidatedAt: at });
+        }),
+    );
+    const tags = new UseCacheTagManifest({
+      markers: markers.table,
+      log: fakeLog().log,
+    });
+
+    const first = tags.update(["x"], undefined);
+    // Another request's `revalidateTag('x')`, a turn later.
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = tags.update(["x"], undefined);
+    release();
+    await Promise.all([first, second]);
+
+    expect(markers.write).toHaveBeenCalledTimes(2);
+    const [[, firstAt], [, secondAt]] = markers.write.mock.calls;
+    expect(secondAt).toBeGreaterThan(firstAt);
+  });
+
+  it("puts a slow log row again under a fresh timestamp, so readers see it", async () => {
+    const clock = fakeClock();
+    const log = fakeLog();
+    log.put.mockImplementationOnce(async () => {
+      // Readers' cursors have moved past the row by the time it shows.
+      clock.at += 10_000;
+    });
+    const tags = new UseCacheTagManifest({
+      markers: fakeMarkers().table,
+      log: log.log,
+      clock: clock.now,
+    });
+
+    expect(await tags.update(["x"], undefined)).toBe(true);
+    expect(log.put.mock.calls.map(([, at]) => at)).toEqual([
+      1_000_000, 1_010_000,
+    ]);
+  });
+
+  it("reports a log row slow twice as not recorded", async () => {
+    const clock = fakeClock();
+    const log = fakeLog();
+    log.put.mockImplementation(async () => {
+      clock.at += 10_000;
+    });
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    const tags = new UseCacheTagManifest({
+      markers: fakeMarkers().table,
+      log: log.log,
+      clock: clock.now,
+    });
+
+    expect(await tags.update(["x"], undefined)).toBe(false);
+    expect(log.put).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
+
   it("tracks the whole row its own write returns, not just what it set", async () => {
     // Another instance's `updateTag` for a tag this one does not track yet.
     const createdAt = Date.now() - 1000;

@@ -142,6 +142,8 @@ verdict below.
 `#` labels a row for the rest of this doc. **23**, **37** and **38** were found by
 the four-type suite (`examples/e2e-tests`) rather than the harness: 23 is under
 "Stale-while-revalidate after a tag revalidation", 37 and 38 follow the table.
+There is no **28**: the number was skipped, not withdrawn. So 34 of the 37 fixed
+defects came from the harness and 3 from the four-type suite.
 
 "4-type spec" names the `examples/e2e-tests/src/*.test.ts` file guarding it on all
 four deployment types; `—` means harness or unit tests only.
@@ -161,7 +163,7 @@ four deployment types; `—` means harness or unit tests only.
 | 11  | Unmatched optional catchall renders a segment `"undefined"`                                                  | `@next/routing` reports an unfilled param as a present key with value `undefined`                                                   | `repairRouteParamQuery` second pass; `dispatch.test.ts`                                                               | `routing-params`                                               |
 | 12  | `robots.txt`, `sitemap.xml`, `manifest.webmanifest` served as `application/octet-stream`                     | Static metadata staged as `<route>.body`; `send` types by extension                                                                 | `setBodyFileContentType`, `src/runtime/static-files.ts`                                                               | `metadata-routes`                                              |
 | 13  | Root-params app (no `app/layout.tsx`) 404s at every URL                                                      | next gates the `dynamicRoutes` rule on draft cookies; concrete prerenders were not registered                                       | `addPrerenderPathnames`, `src/adapter/build-outputs.ts`                                                               | `draft-mode`, `cookies` (cookie half only)                     |
-| 14  | PPR fallback shell rendered per request (`(runtime)` where `(buildtime)` expected)                           | Seeding loop skipped every prerender group whose pathname contains `[`                                                              | Prerender-group loop in `src/adapter/adapter.mts` (no jest; verified with `e2e-offline.sh`)                           | —                                                              |
+| 14  | PPR fallback shell rendered per request (`(runtime)` where `(buildtime)` expected)                           | Seeding loop skipped every prerender group whose pathname contains `[`                                                              | Prerender-group loop in `writeInitCache`, `src/adapter/init-cache.ts`; `init-cache.test.ts`                           | —                                                              |
 | 15  | Custom `pages/404` replaced by the built-in 404                                                              | `statusTarget` tried `/_error` before an invocable `/404`                                                                           | `statusTarget`; `dispatch.test.ts` "prefers an invocable custom /404 over /\_error"                                   | —                                                              |
 | 16  | Path-style `assetPrefix` — every bundle 404s                                                                 | No CloudFront behavior for `<prefix>/_next/static*`; Next applies `assetPrefix` on top of `basePath`                                | `relativeAssetPrefix`, `NextjsDistribution.addAssetPrefixBehavior` (CF function); regional types warn at synth        | —                                                              |
 | 17  | Pages Router home page `/` 404s (many unrelated-looking symptoms)                                            | `normalizePagePath("/")` is `/index`; nothing registered `/`                                                                        | `routablePathnames`, `src/adapter/build-outputs.ts`                                                                   | —                                                              |
@@ -177,7 +179,7 @@ four deployment types; `—` means harness or unit tests only.
 | 29  | A `beforeFiles` rewrite that matches its own output is applied twice                                         | `RouteModule.prepare` re-runs `handleRewrites` on the already-rewritten `req.url`                                                   | `src/runtime/core.ts` hands `requestMeta.query` the resolved query                                                    | `config-routing`                                               |
 | 30  | `//` → 500, `/api//json` → 404, instead of a 308                                                             | `resolveRoutes` does not collapse repeated slashes; `new URL("//")` reads a host                                                    | Collapse + 308 in `src/runtime/core.ts`, ahead of any parsing                                                         | `url-normalization`                                            |
 | 31  | On Global Functions, `//` paths → `403 InvalidSignatureException`                                            | OAC signs the raw path, the Function URL canonicalizes before verifying                                                             | Viewer-request function, `createDynamicCloudFrontFunctionAssociations`                                                | `url-normalization` (`FunctionGeneratedResponse`)              |
-| 32  | Build-time `notFound: true` served as `200` with the 404 body                                                | Seeded a `PAGES` entry holding `404.html`; the Pages HIT path ignores `value.status`                                                | `adapter.mts` skips a `PAGES` prerender whose `initialStatus` ≠ 200                                                   | `status-codes` (App Router half)                               |
+| 32  | Build-time `notFound: true` served as `200` with the 404 body                                                | Seeded a `PAGES` entry holding `404.html`; the Pages HIT path ignores `value.status`                                                | `writeInitCache` skips a `PAGES` prerender whose `initialStatus` ≠ 200; `init-cache.test.ts`                          | `status-codes` (App Router half)                               |
 | 33  | `res.revalidate()` fails (`{revalidated:false}`), reason reports `stale`                                     | No `routerServerContext.revalidate` supplied: "missing internal router-server-methods"                                              | `requestMeta.revalidate` in `src/runtime/core.ts`; `core.test.ts`                                                     | —                                                              |
 | 34  | Untagged `force-cache` fetch is never evicted by `revalidatePath`/`revalidateTag`                            | Fetch entries were checked against their stored tags, not the request's `ctx.tags` + `ctx.softTags`                                 | `isFetchCacheGet` split in `S3CacheHandler.get`                                                                       | —                                                              |
 | 35  | Catch-all capture containing `%2F` → 500 ("Requested and resolved page mismatch")                            | The `nxtP` query contract decodes twice and splits on `/`                                                                           | `outOfBandRouteParams` (dispatch.ts) passes `requestMeta.params`. Verified offline; the file is upstream              | —                                                              |
@@ -326,6 +328,15 @@ Making them pass would mean blocking every revalidation on an invalidation.
 attempt, on a case with no prerender to invalidate. That was defect 34 — the
 `dynamic page` case of `revalidate-path-with-rewrites` had passed once by luck.
 
+### A test's `env` reaches `next build`, not the deployed app
+
+Per-test `env` from `nextTestSetup({ env })` is set for `next build`, so values
+inlined at build time work, but not on the deployed function or task: a
+request-time read of a non-inlined `process.env` value returns `undefined`.
+next-deploy.ts hands the deploy script the test's `env` merged into the runner's
+whole environment, so the script can't tell them apart, and forwarding it all
+would also forward the runner's AWS credentials. No file in the manifest hits this.
+
 ## CDN-inherent — excluded, acceptable
 
 ### CloudFront rejects unencoded `[` and `]` in a path
@@ -462,7 +473,7 @@ verdicts were settled this way. Limits:
 - The runtime cache reads S3 only, so a fully-prerendered route answers
   `invariant: cache entry required but not generated` offline. Read the seed
   directory (`.next/cdk-nextjs-init-cache`) instead — it is how defect 14's missing
-  shells were found (`adapter.mts` has no jest coverage).
+  shells were found (the seeding loop had no jest coverage then).
 - **Offline agreement only rules out the request path, not the deploy.** Seeding
   happens in the `BucketDeployment`, so an offline app has no seeded cache. Defect
   32 agreed offline (both 404) and was a seeding bug.

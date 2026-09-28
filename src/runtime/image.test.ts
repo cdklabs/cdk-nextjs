@@ -73,6 +73,7 @@ function optimizerFor(
   options: {
     images?: Record<string, unknown>;
     fetchInternal?: ImageOptimizerOptions["fetchInternal"];
+    importModule?: ImageOptimizerOptions["importModule"];
     s3?: S3Client;
     bucket?: string;
   } = {},
@@ -97,11 +98,17 @@ function optimizerFor(
     } as unknown as AdapterManifest,
     bucket: options.bucket ?? "assets",
     bucketKeyPrefix: "",
-    fetchInternal: options.fetchInternal,
-    importModule: async (url) => {
-      imported = url;
-      return { default: MapCacheHandler };
-    },
+    fetchInternal:
+      options.fetchInternal ??
+      (async () => {
+        throw new Error("Unexpected fetchInternal");
+      }),
+    importModule:
+      options.importModule ??
+      (async (url) => {
+        imported = url;
+        return { default: MapCacheHandler };
+      }),
   });
   (via as unknown as { s3: S3Client }).s3 = options.s3 ?? s3Hit;
   return via;
@@ -167,8 +174,16 @@ async function request(
     },
     { compress: false },
   );
-  await (init.via ?? optimizer).handle(req, res, url, init.waitUntil);
+  const pending: Array<Promise<unknown>> = [];
+  await (init.via ?? optimizer).handle(
+    req,
+    res,
+    url,
+    init.waitUntil ?? ((promise) => pending.push(promise)),
+  );
   await done;
+  // Settled, not awaited: the runtime logs a rejection rather than failing on it.
+  await Promise.allSettled(pending);
   return { head: head!, body: Buffer.concat(chunks).toString() };
 }
 
@@ -301,6 +316,7 @@ describe("RuntimeImageOptimizer sources", () => {
     expect(fetchInternal).toHaveBeenCalledWith(
       "/api/avatar?id=42",
       expect.anything(),
+      imageConfigDefault.maximumResponseBody,
     );
     expect((imageOptimizer as jest.Mock).mock.lastCall[0]).toMatchObject({
       buffer: Buffer.from("route-bytes"),
@@ -327,7 +343,11 @@ describe("RuntimeImageOptimizer sources", () => {
     });
     expect(head.statusCode).toBe(200);
     expect(send).not.toHaveBeenCalled();
-    expect(fetchInternal).toHaveBeenCalledWith("/logo.png", expect.anything());
+    expect(fetchInternal).toHaveBeenCalledWith(
+      "/logo.png",
+      expect.anything(),
+      imageConfigDefault.maximumResponseBody,
+    );
   });
 
   it("answers 400 when the route sends no body", async () => {
@@ -360,9 +380,35 @@ describe("RuntimeImageOptimizer sources", () => {
     }
   });
 
-  it("answers 400 for a missing file when there is no route fallback", async () => {
-    const { head } = await request("/missing.png", { via: withS3Miss() });
-    expect(head.statusCode).toBe(400);
+  // `images.maximumResponseBody`, which `next start` enforces on local
+  // sources too: past it, the source is not read into memory.
+  it("answers 413 for a route response over maximumResponseBody", async () => {
+    const { head } = await request("/api/export", {
+      via: withS3Miss(async () => ({
+        statusCode: 0,
+        headers: {},
+        body: Buffer.alloc(0),
+        tooLarge: true,
+      })),
+    });
+    expect(head.statusCode).toBe(413);
+    expect(imageOptimizer).not.toHaveBeenCalled();
+  });
+
+  it("answers 413 for an S3 object over maximumResponseBody", async () => {
+    const { head } = await request("/video.mp4", {
+      via: optimizerFor({
+        images: { maximumResponseBody: 10 },
+        s3: {
+          send: async () => ({
+            Body: [Buffer.from("never read")],
+            ContentLength: 11,
+          }),
+        } as unknown as S3Client,
+      }),
+    });
+    expect(head.statusCode).toBe(413);
+    expect(imageOptimizer).not.toHaveBeenCalled();
   });
 });
 
@@ -402,6 +448,28 @@ describe("RuntimeImageOptimizer cache", () => {
       /^file:\/\/.*\/node_modules\/cdk-nextjs\/lib\/adapter\/cache-handler\.mjs$/,
     );
     expect(MapCacheHandler.options).toMatchObject({ dev: false });
+  });
+
+  // A transient failure loading the cacheHandler (EMFILE in a cold-start
+  // burst) must not fail every later image request on the instance.
+  it("retries loading the cacheHandler after a failed load", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const importModule = jest
+        .fn()
+        .mockRejectedValueOnce(new Error("EMFILE"))
+        .mockResolvedValue({ default: MapCacheHandler });
+      const via = optimizerFor({ importModule });
+      expect(
+        (await request("/photos/retry.png", { via })).head.statusCode,
+      ).toBe(500);
+      expect(
+        (await request("/photos/retry.png", { via })).head.statusCode,
+      ).toBe(200);
+      expect(importModule).toHaveBeenCalledTimes(2);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   // The write of a fresh image goes to `waitUntil`, not in front of the

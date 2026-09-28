@@ -177,8 +177,9 @@ export interface S3PublicFile {
  *
  * What `send` would have answered, as far as S3 can say it: the object's
  * `Content-Type`, `Content-Length`, `Last-Modified` and — unless
- * `generateEtags` is off — `ETag`; a 304 for a matching `If-None-Match`, and a
- * 206 or 416 for a `Range`, both of which S3 evaluates itself.
+ * `generateEtags` is off — `ETag`; a 304 for a matching `If-None-Match` or, as
+ * `fresh` has it, an `If-Modified-Since` without one; and a 206 or 416 for a
+ * `Range`. S3 evaluates all of them itself.
  *
  * `Cache-Control` is, in order: a `headers()` rule's, the object's own
  * `CacheControl` metadata — what the edge serves the file's own URL with, so a
@@ -199,6 +200,11 @@ export async function serveS3PublicFile(
   const ifNoneMatch = file.etag
     ? firstValue(req.headers["if-none-match"])
     : undefined;
+  // `fresh` ignores it next to an `If-None-Match`, even one it cannot match
+  // because `generateEtags` is off.
+  const ifModifiedSince = req.headers["if-none-match"]
+    ? undefined
+    : httpDate(firstValue(req.headers["if-modified-since"]));
   const range = req.headers["if-range"]
     ? undefined
     : firstValue(req.headers.range);
@@ -210,12 +216,14 @@ export async function serveS3PublicFile(
             Bucket: file.bucket,
             Key: key,
             IfNoneMatch: ifNoneMatch,
+            IfModifiedSince: ifModifiedSince,
             Range: range,
           })
         : new GetObjectCommand({
             Bucket: file.bucket,
             Key: key,
             IfNoneMatch: ifNoneMatch,
+            IfModifiedSince: ifModifiedSince,
             Range: range,
           }),
     );
@@ -286,4 +294,10 @@ export async function serveS3PublicFile(
     stream.destroy();
   }
   return true;
+}
+
+/** An HTTP date, or `undefined` for one that does not parse, as `fresh` treats it. */
+function httpDate(value: string | undefined): Date | undefined {
+  const date = value ? new Date(value) : undefined;
+  return date && !Number.isNaN(date.getTime()) ? date : undefined;
 }

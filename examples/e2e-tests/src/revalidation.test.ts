@@ -46,9 +46,13 @@ test.describe("revalidation", () => {
     // no cache in dev mode
     test.skip(baseURL?.includes("localhost") === true);
 
-    // Step 1: Visit ISR page and record initial timestamp
+    // Step 1: Visit ISR page and record its settled timestamp - settled for the
+    // same reason as the tests below: an earlier revalidation (a retry's, say)
+    // may still be landing, and would otherwise pass this test on its own.
     await page.goto(`${ON_DEMAND}/1`, { waitUntil: "networkidle" });
-    const initialTimestamp = await getPageTimestamp(page);
+    const initialTimestamp = await waitForSettledTimestamp(page, {
+      intervalMs: 1_000,
+    });
     expect(initialTimestamp).toBeTruthy();
     console.log(`Initial ISR page timestamp: ${initialTimestamp}`);
 
@@ -149,9 +153,14 @@ test.describe("revalidation", () => {
     // no cache in dev mode
     test.skip(baseURL?.includes("localhost") === true);
 
-    // Visit a specific ISR page
+    // Visit a specific ISR page and let it settle: the previous test just
+    // revalidated this page's tag, and that landing late would otherwise pass
+    // this test even if `revalidatePath` did nothing.
     await page.goto(`${ON_DEMAND}/2`, { waitUntil: "networkidle" });
-    const initialTimestamp = await getPageTimestamp(page);
+    const initialTimestamp = await waitForSettledTimestamp(page, {
+      intervalMs: 1_000,
+    });
+    expect(initialTimestamp).toBeTruthy();
     console.log(`Initial: ${initialTimestamp}`);
 
     await waitXSec(2);

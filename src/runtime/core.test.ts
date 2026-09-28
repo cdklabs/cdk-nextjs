@@ -32,6 +32,7 @@ import {
   AdapterManifest,
   deployedManifestPath,
   PUBLIC_FILES_FILE_NAME,
+  REVALIDATED_PAGE_HOOK,
   RUNTIME_DIR_NAME,
 } from "./manifest";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
@@ -596,7 +597,7 @@ describe("NextjsRuntime.handle", () => {
   });
 
   describe("invalidating the CDN copy of a revalidated page", () => {
-    const hookKey = Symbol.for("cdk-nextjs.invalidateRevalidatedPage");
+    const hookKey = REVALIDATED_PAGE_HOOK;
     const globals = globalThis as Record<symbol, unknown>;
     afterEach(() => {
       delete globals[hookKey];
@@ -656,31 +657,36 @@ describe("NextjsRuntime.handle", () => {
     });
   });
 
-  it("fetches an image source from a route handler, in process and without cookies", async () => {
-    const images = (
+  const images = () =>
+    (
       runtime as unknown as {
         images: {
           options: {
             fetchInternal: (
               href: string,
               req: ShimIncomingMessage,
+              maximumBody: number,
             ) => Promise<{
               statusCode: number;
               headers: Record<string, unknown>;
               body: Buffer;
+              tooLarge?: boolean;
             }>;
           };
         };
       }
     ).images;
+
+  it("fetches an image source from a route handler, in process and without cookies", async () => {
     const viewer = new ShimIncomingMessage({
       method: "GET",
       url: "/_next/image?url=%2Fapi%2Fhealth%3Favatar%3D42&w=64&q=75",
       headers: { host: "shop.example.test", cookie: "session=secret" },
     });
-    const response = await images.options.fetchInternal(
+    const response = await images().options.fetchInternal(
       "/api/health?avatar=42",
       viewer,
+      Infinity,
     );
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body.toString("utf-8"));
@@ -688,6 +694,27 @@ describe("NextjsRuntime.handle", () => {
     expect(body.url).toBe("/api/health?avatar=42");
     expect(body.initURL).toBe("https://shop.example.test/api/health?avatar=42");
     expect(body.cookie).toBeNull();
+  });
+
+  // `images.maximumResponseBody`: a route streaming a large body must not be
+  // buffered whole, as `next start`'s `fetchInternalImage` does not.
+  it("stops reading an image source route past maximumResponseBody", async () => {
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await images().options.fetchInternal(
+        "/api/health?avatar=42",
+        new ShimIncomingMessage({
+          method: "GET",
+          url: "/_next/image?url=%2Fapi%2Fhealth%3Favatar%3D42&w=64&q=75",
+          headers: { host: "shop.example.test" },
+        }),
+        10,
+      );
+      expect(response.tooLarge).toBe(true);
+      expect(response.body.length).toBe(0);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("redirects a trailing slash, with the Refresh fallback for a 308", async () => {

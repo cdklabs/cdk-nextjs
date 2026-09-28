@@ -1,16 +1,12 @@
-import { Stack, Token } from "aws-cdk-lib";
-import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
+import { Token } from "aws-cdk-lib";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
-import { IRole, Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { IBucket } from "aws-cdk-lib/aws-s3";
-import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { routedPatterns } from "../adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
-import { OptionalNextjsFunctionsProps } from "../generated-structs/OptionalNextjsFunctionsProps";
 import { NextjsApiOverrides } from "../nextjs-api";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
@@ -39,15 +35,6 @@ export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsCacheProps?: OptionalNextjsCacheProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
-}
-
-/**
- * Adds the overrides that only apply to the two Functions `NextjsType`s. The
- * Containers types have no Lambda functions to configure, so they would silently
- * ignore these.
- */
-export interface NextjsFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
-  readonly nextjsFunctionsProps?: OptionalNextjsFunctionsProps;
 }
 
 /**
@@ -178,7 +165,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   protected readonly baseProps: NextjsBaseConstructProps;
   // Widest shape of the per-`NextjsType` overrides. The public interface each
   // root construct accepts is what actually gates which keys are settable.
-  protected readonly constructOverrides?: NextjsFunctionsConstructOverrides;
+  protected readonly constructOverrides?: NextjsBaseConstructOverrides;
   /**
    * The `basePath` everything downstream is built from: the `basePath` prop when
    * set, otherwise the app's own `basePath` for the `NextjsType`s where the two
@@ -315,7 +302,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     const overrides = this.baseProps.overrides as
       Record<string, unknown> | undefined;
     if (overrides && key in overrides) {
-      return overrides[key] as NextjsFunctionsConstructOverrides;
+      return overrides[key] as NextjsBaseConstructOverrides;
     }
     return;
   }
@@ -385,57 +372,6 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * Lets `roles` invalidate `distribution`, so on-demand revalidation
-   * (revalidateTag/revalidatePath) can evict stale responses from the CDN edge
-   * cache, not just the origin's S3/DynamoDB cache. Returns the environment
-   * the cache handler finds the distribution through.
-   *
-   * With `viaSsmParameter` (`NextjsGlobalFunctions`), the distribution's origin
-   * is the function's URL, so the function naming the distribution back —
-   * in its environment, or in its role's default policy, which a function
-   * depends on — would be a circular CloudFormation dependency. So the ID is
-   * published to an SSM Parameter whose *name* is static, and the grants go in
-   * a separate policy that depends on the distribution while no function
-   * depends on it. The Containers' origin is the ALB, which the task doesn't
-   * depend on, so they get the ID itself.
-   */
-  protected wireCloudFrontInvalidation(
-    roles: IRole[],
-    distribution: IDistribution,
-    viaSsmParameter: boolean,
-  ): Record<string, string> {
-    if (!viaSsmParameter) {
-      roles.forEach((role) => distribution.grantCreateInvalidation(role));
-      return { CDK_NEXTJS_DISTRIBUTION_ID: distribution.distributionId };
-    }
-    const parameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
-    new StringParameter(this, "DistributionIdParameter", {
-      parameterName,
-      stringValue: distribution.distributionId,
-    });
-    new Policy(this, "InvalidationPolicy", {
-      roles,
-      statements: [
-        new PolicyStatement({
-          actions: ["ssm:GetParameter"],
-          resources: [
-            Stack.of(this).formatArn({
-              service: "ssm",
-              resource: "parameter",
-              resourceName: parameterName,
-            }),
-          ],
-        }),
-        new PolicyStatement({
-          actions: ["cloudfront:CreateInvalidation"],
-          resources: [distribution.distributionArn],
-        }),
-      ],
-    });
-    return { CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME: parameterName };
-  }
-
-  /**
    * Run the post-deploy custom resource after the init cache upload.
    *
    * Invalidating the CDN before the new cache is in place would only re-cache
@@ -492,9 +428,10 @@ export abstract class NextjsBaseConstruct extends Construct {
   /**
    * Shared by `NextjsGlobalFunctions` and `NextjsRegionalFunctions`.
    */
-  protected createNextjsFunctions(
-    overrides?: NextjsFunctionsOverrides,
-  ): NextjsFunctions {
+  protected createNextjsFunctions(): NextjsFunctions {
+    // The getter, not a parameter, so the build and the functions read the
+    // same `architecture`.
+    const overrides = this.functionsOverrides;
     return new NextjsFunctions(this, "NextjsFunctions", {
       ...this.computeBaseProps(),
       deploymentRoots: this.nextjsBuild.deploymentRoots,
@@ -512,7 +449,6 @@ export abstract class NextjsBaseConstruct extends Construct {
           ...(this.baseProps.vpc ? { vpc: this.baseProps.vpc } : {}),
         },
       },
-      ...this.constructOverrides?.nextjsFunctionsProps,
     });
   }
 }

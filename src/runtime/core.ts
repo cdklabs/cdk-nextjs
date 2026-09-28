@@ -38,7 +38,9 @@ import { InternalImageResponse, RuntimeImageOptimizer } from "./image";
 import {
   AdapterManifest,
   deployedManifestPath,
+  FUNCTION_GROUP_ENV_VAR,
   MANIFEST_FILE_NAME,
+  REVALIDATED_PAGE_HOOK,
 } from "./manifest";
 import { MiddlewareRunner } from "./middleware";
 import {
@@ -121,8 +123,8 @@ export class NextjsRuntime {
   private readonly images: RuntimeImageOptimizer;
   /** The 500 ladder; see `statusTargets`. */
   private readonly errorTargetFor: (url: URL | undefined) => StatusTarget;
-  /** Whether `public/` files are served from the assets bucket. */
-  private readonly publicFilesInS3: boolean;
+  /** The assets bucket, when `public/` files are served from it. */
+  private readonly publicBucket?: string;
 
   public constructor(private readonly options: NextjsRuntimeOptions) {
     const { manifest, deploymentRoot } = options;
@@ -133,15 +135,16 @@ export class NextjsRuntime {
       manifest,
       publicFiles: publicFiles.files,
     });
-    this.publicFilesInS3 = publicFiles.inS3;
+    // On disk otherwise, with `.next/static`.
+    this.publicBucket = publicFiles.inS3 ? options.bucket : undefined;
     this.errorTargetFor = statusTargets(manifest, 500);
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
       manifest,
-      // On disk otherwise, with `.next/static`; see `ImageOptimizerOptions.bucket`.
-      bucket: this.publicFilesInS3 ? (options.bucket ?? "") : "",
+      bucket: this.publicBucket ?? "",
       bucketKeyPrefix: options.bucketKeyPrefix ?? "",
-      fetchInternal: (href, req) => this.fetchInternal(href, req),
+      fetchInternal: (href, req, maximumBody) =>
+        this.fetchInternal(href, req, maximumBody),
     });
     // The runner is shared — it memoizes the loaded middleware module — while the
     // `invokeMiddleware` callback it produces is per request.
@@ -313,7 +316,6 @@ export class NextjsRuntime {
             res,
             waitUntil,
             { pathname: url.pathname, requestHeaders: result.requestHeaders },
-            this.dispatcher.notFoundFor(url),
             url,
           );
           return;
@@ -464,10 +466,9 @@ export class NextjsRuntime {
           )) ||
           // Listed but not staged: a Lambda root, whose `public/` is in S3.
           (result.source === "public" &&
-            this.publicFilesInS3 &&
-            !!this.options.bucket &&
+            !!this.publicBucket &&
             (await serveS3PublicFile(req, res, {
-              bucket: this.options.bucket,
+              bucket: this.publicBucket,
               keyPrefix: this.options.bucketKeyPrefix ?? "",
               file: result.filePath.slice(publicDir.length),
               etag,
@@ -478,14 +479,7 @@ export class NextjsRuntime {
           // replaces: under it the 404 would be cached at the edge and in
           // browsers for that long, and a chunk that shows up on the next
           // deploy would stay missing.
-          await this.sendUnmatched(
-            req,
-            res,
-            waitUntil,
-            result,
-            this.dispatcher.notFoundFor(url),
-            url,
-          );
+          await this.sendUnmatched(req, res, waitUntil, result, url);
         }
         return;
       }
@@ -497,7 +491,6 @@ export class NextjsRuntime {
             res,
             waitUntil,
             { pathname: url.pathname, requestHeaders: result.requestHeaders },
-            this.dispatcher.notFoundFor(url),
             url,
           );
           return;
@@ -523,14 +516,7 @@ export class NextjsRuntime {
         return;
 
       case "not-found":
-        await this.sendUnmatched(
-          req,
-          res,
-          waitUntil,
-          result,
-          result.notFound,
-          url,
-        );
+        await this.sendUnmatched(req, res, waitUntil, result, url);
         return;
     }
   }
@@ -586,7 +572,6 @@ export class NextjsRuntime {
     res: ShimServerResponse,
     waitUntil: (promise: Promise<unknown>) => void,
     result: { readonly pathname: string; readonly requestHeaders: Headers },
-    target: StatusTarget,
     url: URL,
   ): Promise<void> {
     res.setHeader("Cache-Control", NO_STORE);
@@ -612,7 +597,7 @@ export class NextjsRuntime {
       req,
       res,
       waitUntil,
-      target,
+      this.dispatcher.notFoundFor(url),
       `${result.pathname}${url.search}`,
     );
   }
@@ -667,7 +652,7 @@ export class NextjsRuntime {
       status !== 200 &&
       !(status === 404 && config.opts.unstable_onlyGenerated)
     ) {
-      const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      const self = process.env[FUNCTION_GROUP_ENV_VAR];
       // A page packaged into another `functionGroups` group: it is rendered in
       // process, and this function does not have the page's code.
       throw new Error(
@@ -699,6 +684,7 @@ export class NextjsRuntime {
   private async fetchInternal(
     href: string,
     req: ShimIncomingMessage,
+    maximumBody: number,
   ): Promise<InternalImageResponse> {
     const request: RuntimeRequest = {
       method: "GET",
@@ -711,16 +697,20 @@ export class NextjsRuntime {
       encrypted: (req.socket as { encrypted?: boolean } | undefined)?.encrypted,
       trustForwardedHost: req.trustForwardedHost,
     };
-    const { head, body, otherGroup } = await this.handleInternally(request, {
-      keepBody: true,
-    });
+    const { head, body, otherGroup, tooLarge } = await this.handleInternally(
+      request,
+      { keepBody: true, maximumBody },
+    );
+    if (tooLarge) {
+      return { statusCode: 0, headers: {}, body: Buffer.alloc(0), tooLarge };
+    }
     if (otherGroup) {
       // The edge sends every `/_next/image` request to the default group, and
       // the source is rendered in process, so a route packaged into another
       // group is out of reach. Its 404 page would otherwise be handed to the
       // optimizer as the image, and fail as "not a valid image" with nothing
       // saying why.
-      const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      const self = process.env[FUNCTION_GROUP_ENV_VAR];
       console.warn(
         `Image source "${href}" is served by a route in \`functionGroups\` ` +
           `group "${otherGroup.owner}", but /_next/image runs in group ` +
@@ -749,17 +739,23 @@ export class NextjsRuntime {
    * is packaged into another `functionGroups` group. `handle` awaits the
    * request's `waitUntil` work too, so whatever the render wrote is committed by
    * the time this resolves.
+   *
+   * A kept body past `maximumBody` fails the response stream, which stops the
+   * route writing, and comes back as `tooLarge` rather than held in memory.
    */
   private async handleInternally(
     request: RuntimeRequest,
-    options: { readonly keepBody: boolean },
+    options: { readonly keepBody: boolean; readonly maximumBody?: number },
   ): Promise<{
     head?: ResponseHead;
     body: Buffer;
     otherGroup?: RouteInOtherGroupError;
+    tooLarge: boolean;
   }> {
     let head: ResponseHead | undefined;
     const chunks: Buffer[] = [];
+    let size = 0;
+    let tooLarge = false;
     let otherGroup: RouteInOtherGroupError | undefined;
     const onRouteInOtherGroup = (error: RouteInOtherGroupError) => {
       otherGroup = error;
@@ -770,10 +766,14 @@ export class NextjsRuntime {
         begin(responseHead) {
           head = responseHead;
           return new Writable({
-            write(chunk, _encoding, callback) {
-              if (options.keepBody) {
-                chunks.push(Buffer.from(chunk));
+            write(chunk: Buffer, _encoding, callback) {
+              if (!options.keepBody) return callback();
+              size += chunk.byteLength;
+              if (size > (options.maximumBody ?? Infinity)) {
+                tooLarge = true;
+                return callback(new Error("Over images.maximumResponseBody"));
               }
+              chunks.push(Buffer.from(chunk));
               callback();
             },
           });
@@ -782,8 +782,9 @@ export class NextjsRuntime {
     );
     return {
       head,
-      body: Buffer.concat(chunks),
+      body: tooLarge ? Buffer.alloc(0) : Buffer.concat(chunks),
       otherGroup,
+      tooLarge,
     };
   }
 
@@ -815,19 +816,11 @@ export class NextjsRuntime {
       return;
     }
 
-    if (target.kind === "static-file") {
-      // Read rather than `serveStatic`: `send` owns the status code and would
-      // answer 200 for the 404 body.
-      try {
-        const html = await readFile(
-          join(this.options.deploymentRoot, target.filePath),
-        );
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.end(html);
-        return;
-      } catch {
-        // Fall through to the plain-text 404.
-      }
+    if (
+      target.kind === "static-file" &&
+      (await this.sendHtmlFile(res, target))
+    ) {
+      return;
     }
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -897,18 +890,11 @@ export class NextjsRuntime {
       }
     }
 
-    if (target.kind === "static-file") {
-      try {
-        const html = await readFile(
-          join(this.options.deploymentRoot, target.filePath),
-        );
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.setHeader("Cache-Control", NO_STORE);
-        res.end(html);
-        return;
-      } catch {
-        // Fall through to the plain-text 500.
-      }
+    if (
+      target.kind === "static-file" &&
+      (await this.sendHtmlFile(res, target))
+    ) {
+      return;
     }
 
     // Again: an error page that threw may have described its own body too.
@@ -918,6 +904,28 @@ export class NextjsRuntime {
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Cache-Control", NO_STORE);
     res.end("Internal Server Error");
+  }
+
+  /**
+   * A prerendered 404 or 500 page, or `false` when it cannot be read and the
+   * caller's plain-text fallback should answer. Read rather than `serveStatic`,
+   * which keeps the status already set but would answer a `Range` request with
+   * a 206 of the error page, and add `ETag`, `Last-Modified` and, where none is
+   * set yet, a public `Cache-Control` to it.
+   */
+  private async sendHtmlFile(
+    res: ShimServerResponse,
+    target: { readonly filePath: string },
+  ): Promise<boolean> {
+    let html: Buffer;
+    try {
+      html = await readFile(join(this.options.deploymentRoot, target.filePath));
+    } catch {
+      return false;
+    }
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.end(html);
+    return true;
   }
 }
 
@@ -1002,16 +1010,6 @@ export function withoutInternalHeaders(
   }
   return filtered;
 }
-
-/**
- * The hook the cache handler registers (`s3-cache-handler.ts`) when it has a
- * CloudFront distribution to invalidate. A global rather than an import, because
- * the cache handler is a separate bundle that Next.js loads itself: the runtime
- * and it share a process, not a module graph.
- */
-const REVALIDATED_PAGE_HOOK = Symbol.for(
-  "cdk-nextjs.invalidateRevalidatedPage",
-);
 
 /** Every route to invalidate, each once, in one CloudFront invalidation. */
 type RevalidatedPageHook = (routes: readonly string[]) => Promise<void>;

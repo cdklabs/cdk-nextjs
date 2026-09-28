@@ -44,6 +44,7 @@ import {
   cloudFrontPatternRegex,
   DEFAULT_FUNCTION_GROUP,
   groupBehaviors,
+  PATH_PATTERN_LITERAL,
 } from "./adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
@@ -662,7 +663,8 @@ export class NextjsDistribution extends Construct {
   /**
    * `lambda:InvokeFunction` for CloudFront, which a Function URL behind OAC
    * needs besides the `lambda:InvokeFunctionUrl` `FunctionUrlOrigin` grants,
-   * and scoped the same way: to this distribution.
+   * and scoped the same way: to this distribution, and to calls that come
+   * through the Function URL.
    */
   private grantInvoke(group: string, functionUrl: IFunctionUrl) {
     new CfnPermission(this, `InvokeFunction-${group}`, {
@@ -670,6 +672,7 @@ export class NextjsDistribution extends Construct {
       principal: "cloudfront.amazonaws.com",
       functionName: functionUrl.functionArn,
       sourceArn: this.distribution.distributionArn,
+      invokedViaFunctionUrl: true,
     });
   }
   /**
@@ -1034,12 +1037,12 @@ const DISABLED_CACHE_KEY: CacheKeyProps = {
 const DEFAULT_MAX_CACHE_BEHAVIORS = 75;
 
 /**
- * CloudFront's path pattern alphabet: `A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and
- * `&`, plus the `?` wildcard. No space, no `%`, nothing non-ASCII.
- *
- * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern
+ * Whether `char` is in CloudFront's path pattern alphabet: the literals, plus the
+ * `*` and `?` wildcards. No space, no `%`, nothing non-ASCII.
  */
-const PATH_PATTERN_CHAR = /^[a-zA-Z0-9_\-.*$/~"'@:+?&]$/;
+function isPathPatternChar(char: string): boolean {
+  return char === "*" || char === "?" || PATH_PATTERN_LITERAL.test(char);
+}
 /** CloudFront's path pattern length limit. */
 const MAX_PATH_PATTERN_LENGTH = 255;
 
@@ -1064,7 +1067,7 @@ const MAX_PATH_PATTERN_LENGTH = 255;
 function toPathPattern(name: string): string {
   return [...name]
     .map((char) =>
-      PATH_PATTERN_CHAR.test(char)
+      isPathPatternChar(char)
         ? char
         : "?".repeat(Buffer.byteLength(char, "utf8")),
     )

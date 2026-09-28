@@ -11,9 +11,11 @@ import {
   mkdirSync,
   cpSync,
   renameSync,
+  realpathSync,
   statSync,
   unlinkSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { join as joinPosix } from "node:path/posix";
@@ -340,7 +342,10 @@ export class NextjsBuild extends Construct {
       // for the architecture their Lambda deploys, whatever this machine is;
       // Containers run on node:24-alpine (musl). Every group optimizes images,
       // so every root gets the binaries.
-      const sharpSource = this.removeExistingSharpBinaries(root.path);
+      const sharpSource = this.removeExistingSharpBinaries(
+        root.path,
+        join(root.path, this.relativeProjectDir),
+      );
       this.installSharpBinariesForTarget(
         root.path,
         sharpSource,
@@ -405,9 +410,13 @@ export class NextjsBuild extends Construct {
         ...groupStagingDirName(staged ? name : undefined).split("/"),
       ),
       routes: staged?.[name] ?? [],
-      hasDataRoutes: (staged?.[name] ?? Object.keys(manifest.entrypoints)).some(
-        (template) => manifest.entrypoints[template]?.type === "page",
-      ),
+      // The adapter's answer, which its edge replay was checked against. An
+      // unsplit build has no group behaviors, so nothing routes on it there.
+      hasDataRoutes: staged
+        ? manifest.dataRouteGroups?.includes(name) === true
+        : Object.values(manifest.entrypoints).some(
+            (entrypoint) => entrypoint.type === "page",
+          ),
     }));
 
     // `default` first, so any "the root" caller gets the group that owns
@@ -487,7 +496,8 @@ export class NextjsBuild extends Construct {
           `or a cached build that did not re-run), or \`skipBuild: true\` and ` +
           `the build happened outside CDK. For the latter, set ` +
           `\`adapterPath: require.resolve("cdk-nextjs/adapter")\` in ` +
-          `next.config.`,
+          `next.config. A custom \`distDir\` is not supported either: ` +
+          `cdk-nextjs reads the build from \`.next\`.`,
       );
     }
     const manifest: AdapterManifest = JSON.parse(
@@ -796,13 +806,15 @@ export class NextjsBuild extends Construct {
    * what keeps that from reaching the app's own output — the staged root holds
    * the compiled `.next` as well as the dependencies.
    *
+   * @param projectDir the app's directory inside `root`, which `next` is
+   * resolved from.
    * @returns the staged `sharp` JS wrapper to install next to, found in the same
    * walk: a root can be hundreds of megabytes, and each group has one.
    */
-  private removeExistingSharpBinaries(root: string): string | undefined {
-    if (!existsSync(root)) {
-      return undefined;
-    }
+  private removeExistingSharpBinaries(
+    root: string,
+    projectDir: string,
+  ): string | undefined {
     const sharpCandidates: string[] = [];
 
     try {
@@ -868,7 +880,10 @@ export class NextjsBuild extends Construct {
         `${LOG_PREFIX} Warning: Could not read node_modules directory: ${error}`,
       );
     }
-    return pickStagedSharpPackage(sharpCandidates);
+    return pickStagedSharpPackage(
+      sharpCandidates,
+      resolveNextSharp(projectDir),
+    );
   }
 
   /**
@@ -911,17 +926,14 @@ export class NextjsBuild extends Construct {
    * `optionalDependencies`, so that manifest is the authoritative source.
    */
   private getSharpBinaryPackages(
-    sharpSource: string | undefined,
+    sharpSource: string,
     platform: string,
   ): { name: string; version: string }[] {
+    // Only for a binary the staged `sharp` does not pin.
     const fallback = [
       { name: `sharp-libvips-${platform}`, version: "1.2.4" },
       { name: `sharp-${platform}`, version: "0.34.5" },
     ];
-
-    if (!sharpSource) {
-      return fallback;
-    }
 
     const manifest = JSON.parse(
       readFileSync(join(sharpSource, "package.json"), "utf-8"),
@@ -1074,13 +1086,26 @@ function sortedGroupSpecs(
  *
  * Unlike a standalone build there is no single `node_modules` to look in: the
  * tree mirrors repo-root-relative paths, so the search is by directory name.
- * Sorted for determinism: an app could have two `sharp` copies at different
- * versions, and which one the *server's* `next` resolves is not knowable from
- * here. Shortest path wins as the closest to a hoisted install.
+ *
+ * An app can have two `sharp` copies at different versions (its own, hoisted,
+ * and next's, nested under `next/node_modules`), and every binary goes into the
+ * one root `@img`, so the copy pinning them has to be the one `next`'s image
+ * optimizer loads: `nextSharp`, when {@link resolveNextSharp} found it. Otherwise
+ * shortest path wins as the closest to a hoisted install, sorted for
+ * determinism.
  */
 export function pickStagedSharpPackage(
   candidates: string[],
+  nextSharp?: string,
 ): string | undefined {
+  const used =
+    nextSharp &&
+    candidates.find((candidate) =>
+      nextSharp.startsWith(realpathSync(candidate) + sep),
+    );
+  if (used) {
+    return used;
+  }
   candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
   if (candidates.length > 1) {
     debug(
@@ -1088,6 +1113,22 @@ export function pickStagedSharpPackage(
     );
   }
   return candidates[0];
+}
+
+/**
+ * The real path of the `sharp` entry point the staged `next` resolves from
+ * `projectDir`, `undefined` when either does not resolve.
+ */
+export function resolveNextSharp(projectDir: string): string | undefined {
+  try {
+    // The anchor file needn't exist; `createRequire` only reads its directory.
+    const nextPackage = createRequire(
+      join(projectDir, "cdk-nextjs-next-resolver.cjs"),
+    ).resolve("next/package.json");
+    return createRequire(nextPackage).resolve("sharp");
+  } catch {
+    return undefined;
+  }
 }
 
 /**

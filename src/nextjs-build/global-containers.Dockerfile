@@ -17,7 +17,6 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-ARG RELATIVE_PROJECT_DIR
 # The deployment root cdk-nextjs staged during `next build`: the traced assets of
 # every built output, keyed by repo-root-relative path, plus cdk-nextjs's own
 # request-handling server under cdk-nextjs-runtime/. Replaces `.next/standalone`.

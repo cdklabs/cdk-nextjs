@@ -7,7 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import appPlaygroundBasePath from "./__fixtures__/app-playground-base-path.json";
 import appPlayground from "./__fixtures__/app-playground.json";
 import pagesI18n from "./__fixtures__/pages-i18n.json";
@@ -556,8 +556,49 @@ describe("writeBuildOutputs", () => {
    * real is next's job, not ours; what is under test is that the closure is
    * resolved from the project dir and staged under repo-root-relative keys.
    */
-  async function installFakeNext(repoRoot: string) {
-    const nextRoot = join(repoRoot, "node_modules", "next");
+  async function installFakeNext(
+    repoRoot: string,
+    options: { pnpm?: boolean } = {},
+  ) {
+    // Under pnpm, `next` lives in the virtual store behind a link, and its own
+    // dependencies are links beside it.
+    const storeModules = join(
+      repoRoot,
+      "node_modules",
+      ".pnpm",
+      "next@1.0.0",
+      "node_modules",
+    );
+    const nextRoot = options.pnpm
+      ? join(storeModules, "next")
+      : join(repoRoot, "node_modules", "next");
+    if (options.pnpm) {
+      const nextEnv = join(
+        repoRoot,
+        "node_modules",
+        ".pnpm",
+        "@next+env@1.0.0",
+        "node_modules",
+        "@next",
+        "env",
+      );
+      await mkdir(nextEnv, { recursive: true });
+      await writeFile(join(nextEnv, "index.js"), "// @next/env\n");
+      await writeFile(
+        join(nextEnv, "package.json"),
+        JSON.stringify({ name: "@next/env", main: "index.js" }),
+      );
+      await mkdir(join(storeModules, "@next"), { recursive: true });
+      await symlink(
+        "../../../@next+env@1.0.0/node_modules/@next/env",
+        join(storeModules, "@next", "env"),
+      );
+      await mkdir(nextRoot, { recursive: true });
+      await symlink(
+        ".pnpm/next@1.0.0/node_modules/next",
+        join(repoRoot, "node_modules", "next"),
+      );
+    }
     const files = [
       "dist/server/config-shared.js",
       "dist/shared/lib/image-config.js",
@@ -588,16 +629,27 @@ describe("writeBuildOutputs", () => {
       `const files = ${JSON.stringify(files)};\n` +
         // Real nft returns paths relative to `base`; these are already relative
         // to the repo root, which is the `base` the adapter passes.
-        "exports.nodeFileTrace = async () => ({\n" +
-        "  fileList: new Set(files.map((f) => `node_modules/next/${f}`)),\n" +
+        `const prefix = ${JSON.stringify(relative(repoRoot, nextRoot).split(sep).join("/"))};\n` +
+        // Like real nft, the entries themselves are in the list.
+        "const { realpathSync } = require('node:fs');\n" +
+        "const { relative } = require('node:path');\n" +
+        "exports.nodeFileTrace = async (entries, { base }) => ({\n" +
+        "  fileList: new Set([\n" +
+        "    ...files.map((f) => `${prefix}/${f}`),\n" +
+        "    ...entries\n" +
+        "      .map((e) => relative(realpathSync(base), e))\n" +
+        "      .filter((e) => !e.startsWith('..')),\n" +
+        "  ]),\n" +
         "});\n",
     );
   }
 
-  async function makeRepo(options: { withNext?: boolean } = {}) {
+  async function makeRepo(
+    options: { withNext?: boolean; pnpmNext?: boolean } = {},
+  ) {
     const repoRoot = await mkdtemp(join(tmpdir(), "cdk-nextjs-staging-"));
-    if (options.withNext) {
-      await installFakeNext(repoRoot);
+    if (options.withNext || options.pnpmNext) {
+      await installFakeNext(repoRoot, { pnpm: options.pnpmNext });
     }
     const projectDir = join(repoRoot, "app");
     const distDir = join(projectDir, ".next");
@@ -829,6 +881,27 @@ describe("writeBuildOutputs", () => {
         "utf8",
       ),
     ).resolves.toContain("match-remote-pattern");
+  });
+
+  it("stages the link next resolves @next/env through under pnpm", async () => {
+    // The trace starts at `@next/env`'s real path and so never records the
+    // link beside `next`; without it every cold start threw "Cannot find
+    // module '@next/env'".
+    const { ctx } = await makeRepo({ pnpmNext: true });
+    const result = await write(ctx);
+    const link = join(
+      soleRoot(result),
+      "node_modules",
+      ".pnpm",
+      "next@1.0.0",
+      "node_modules",
+      "@next",
+      "env",
+    );
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    await expect(readFile(join(link, "index.js"), "utf8")).resolves.toContain(
+      "@next/env",
+    );
   });
 
   it("warns instead of failing when next cannot be resolved for tracing", async () => {

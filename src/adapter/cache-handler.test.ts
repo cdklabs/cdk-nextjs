@@ -43,13 +43,6 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
     (CdkNextjsCacheHandler as any).sharedS3DynamoHandler = null;
   });
 
-  describe("Orchestrator Pattern & Initialization", () => {
-    it("should initialize as orchestrator with runtime handlers", () => {
-      expect(cacheHandler).toBeDefined();
-      // Runtime mode - memory and S3/DynamoDB handlers should be available
-    });
-  });
-
   describe("Orchestrator: Memory + S3/DynamoDB", () => {
     it("should write to both memory and S3/DynamoDB on set", async () => {
       const testData: IncrementalCacheValue = {
@@ -350,21 +343,6 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
   });
 
   describe("Build-time behavior", () => {
-    it("should initialize local file cache handler during build", () => {
-      // Set build-time environment
-      process.env.NEXT_PHASE = "phase-production-build";
-      process.env.CDK_NEXTJS_BUILD_ID = "test-build-123";
-
-      const mockContext = createMockContext();
-      const buildHandler = new CdkNextjsCacheHandler(mockContext);
-
-      expect(buildHandler).toBeDefined();
-
-      // Clean up
-      delete process.env.NEXT_PHASE;
-      delete process.env.CDK_NEXTJS_BUILD_ID;
-    });
-
     it("reads back a fetch entry it wrote, from memory and from disk", async () => {
       // `cacheComponents` prerenders each page twice: the first pass runs the
       // `fetch` and `set`s it, the second must find it already cached or Next.js
@@ -419,16 +397,6 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
         delete process.env.NEXT_PHASE;
         delete process.env.CDK_NEXTJS_INIT_CACHE_DIR;
       }
-    });
-
-    it("should initialize runtime handlers when not in build mode", () => {
-      // Runtime environment (NEXT_PHASE not set or different value)
-      delete process.env.NEXT_PHASE;
-
-      const mockContext = createMockContext();
-      const runtimeHandler = new CdkNextjsCacheHandler(mockContext);
-
-      expect(runtimeHandler).toBeDefined();
     });
   });
 });

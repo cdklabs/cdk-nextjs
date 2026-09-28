@@ -15,6 +15,15 @@ export function normalizeBasePath(basePath?: string): string {
 }
 
 /**
+ * Whether `path` is `prefix` or under it on a segment boundary, so `/docsearch`
+ * is not under `/docs`. An empty `prefix` matches nothing. Both sides must be in
+ * the same form (both with or both without the leading `/`).
+ */
+export function hasPathPrefix(path: string, prefix: string): boolean {
+  return !!prefix && (path === prefix || path.startsWith(`${prefix}/`));
+}
+
+/**
  * A `basePath` as Next.js spells it and URLs start with it: one leading slash,
  * no trailing one ("/base"), `""` for none. Accepts any spelling
  * {@link normalizeBasePath} does.
@@ -216,7 +225,7 @@ function deriveApiGatewayBasePath(
     return undefined;
   }
   const stripped = normalizeBasePath(strippedPrefix);
-  if (stripped && (config === stripped || config.startsWith(`${stripped}/`))) {
+  if (hasPathPrefix(config, stripped)) {
     return config.slice(stripped.length + 1) || undefined;
   }
   warnUnstrippedBasePath(config, { strippedPrefix, customDomain });
@@ -267,11 +276,7 @@ function startsWithStrippedPrefix(
   { strippedPrefix }: ApiGatewayPrefix,
 ): boolean {
   const stripped = normalizeBasePath(strippedPrefix);
-  return (
-    !!basePath &&
-    !!stripped &&
-    (basePath === stripped || basePath.startsWith(`${stripped}/`))
-  );
+  return !!basePath && hasPathPrefix(basePath, stripped);
 }
 
 function quote(basePath: string): string {

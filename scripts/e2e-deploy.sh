@@ -63,16 +63,14 @@ for _ in $(seq 1 120); do
   sleep 15
 done
 
-# The shared stack has to be created by `e2e-warm.sh`'s throwaway app, never by
-# a fixture: `app.js` pins the post-deploy `buildId` so test files can hotswap,
-# and the one deploy that runs the custom resource anyway - the create - would
-# then prune this fixture's `<buildId>/` cache. CI warms every shard before the suite starts; this covers a local run
-# that did not. HARNESS_WARMING is how `e2e-warm.sh`'s own deploy says it is the
-# warm-up.
+# Create the shared stack with `e2e-warm.sh`'s throwaway app rather than with
+# this fixture, so the ~4-minute CloudFront create is not charged against this
+# file's NEXT_E2E_TEST_TIMEOUT. CI warms every shard before the suite starts;
+# this covers a local run that did not. HARNESS_WARMING is how `e2e-warm.sh`'s
+# own deploy says it is the warm-up.
 #
 # A stack in ROLLBACK_COMPLETE (a failed create) or a DELETE_* state counts as
-# missing too: `cdk deploy` would delete and recreate it from this fixture, which
-# is the create the paragraph above rules out.
+# missing too: `cdk deploy` would delete and recreate it from this fixture.
 if [ "${HARNESS_WARMING:-0}" != "1" ]; then
   if ! SHARED_STATUS="$(harness_stack_status "$STACK_NAME")"; then
     echo "harness: cannot read $STACK_NAME's status (see above); not guessing whether it exists" >&2
@@ -137,7 +135,15 @@ echo "harness: package manager $PM (${PM_CMD[*]})"
 # packageManager assertion, not resolution or the lockfile. Exported for the
 # `next build` below, which is what runs the chained script.
 export npm_config_package_manager_strict=false
-"${PM_CMD[@]}" install "${INSTALL_ARGS[@]}"
+# Without AWS credentials: this is where third-party install scripts run, and
+# nothing in an install needs AWS. In a subshell so the deploy below keeps them.
+# The config and credentials files are pointed away too, for a local run whose
+# credentials live there rather than in the environment.
+(
+  while IFS= read -r var; do unset "$var"; done < <(compgen -e | grep '^AWS_')
+  export AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null
+  "${PM_CMD[@]}" install "${INSTALL_ARGS[@]}"
+)
 
 # Make the adapter resolvable as a package rather than a loose file: the adapter
 # resolves its own cache handler with
@@ -148,7 +154,9 @@ export npm_config_package_manager_strict=false
 LOCAL_PKG="node_modules/cdk-nextjs"
 mkdir -p "$LOCAL_PKG/lib/adapter"
 cp "$ADAPTER_DIR/package.json" "$LOCAL_PKG/package.json"
-cp "$ADAPTER_ENTRY" "$CACHE_HANDLER_ENTRY" "${USE_CACHE_HANDLER_ENTRIES[@]}" "$LOCAL_PKG/lib/adapter/"
+# Every bundle, not the list checked above, so a new `exports` entry is copied
+# without anyone remembering to add it here.
+cp "$ADAPTER_DIR"/lib/adapter/*.mjs "$LOCAL_PKG/lib/adapter/"
 # `next build` reads this into `config.adapterPath`
 # (next/dist/server/config-shared.js), which is how the harness's fixtures - who
 # know nothing about cdk-nextjs - get built through our adapter.
@@ -288,13 +296,11 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   # recreated).
   PROXY_PORT="$(harness_proxy_port "$STACK_NAME")"
   PROXY_STATE="$(harness_proxy_state "$STACK_NAME")"
-  if [ -f "$PROXY_STATE.pid" ] && kill -0 "$(cat "$PROXY_STATE.pid")" 2>/dev/null \
+  if PROXY_PID="$(harness_proxy_pid "$STACK_NAME")" \
     && [ "$(cat "$PROXY_STATE.target" 2>/dev/null)" = "$URL" ]; then
-    echo "harness: reusing stage proxy $(cat "$PROXY_STATE.pid") on :$PROXY_PORT"
+    echo "harness: reusing stage proxy $PROXY_PID on :$PROXY_PORT"
   else
-    if [ -f "$PROXY_STATE.pid" ]; then
-      kill "$(cat "$PROXY_STATE.pid")" 2>/dev/null || true
-    fi
+    harness_stop_proxy "$STACK_NAME"
     # Detached, and with none of this script's descriptors: the harness reads
     # the URL from our stdout until EOF, so a child still holding fd 3 (or the
     # stderr pipe) would hang it.

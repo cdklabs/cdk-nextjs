@@ -57,13 +57,10 @@ printf '{ "name": "%s", "private": true }\n' "$APP_NAME" >"$APP_DIR/package.json
 
 mkdir -p "$APP_DIR/node_modules/cdk-nextjs/lib/adapter"
 cp "$ADAPTER_DIR/package.json" "$APP_DIR/node_modules/cdk-nextjs/package.json"
-# Everything the adapter points `next build` at: the adapter itself, the
-# `cacheHandler`, and the two `cacheHandlers` it resolves through the package's
-# `cache-handlers/*` exports.
-cp "$ADAPTER_DIR/lib/adapter/adapter.mjs" "$ADAPTER_DIR/lib/adapter/cache-handler.mjs" \
-  "$ADAPTER_DIR/lib/adapter/use-cache-default-handler.mjs" \
-  "$ADAPTER_DIR/lib/adapter/use-cache-remote-handler.mjs" \
-  "$APP_DIR/node_modules/cdk-nextjs/lib/adapter/"
+# Every bundle the package's `exports` map points at: the adapter, the
+# `cacheHandler`, and the `cache-handlers/*` it resolves. A glob rather than the
+# list checked above, so a new export is copied without being added here.
+cp "$ADAPTER_DIR"/lib/adapter/*.mjs "$APP_DIR/node_modules/cdk-nextjs/lib/adapter/"
 
 cd "$APP_DIR"
 echo "e2e-offline: building $APP_NAME" >&2

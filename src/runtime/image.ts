@@ -68,12 +68,13 @@ export interface ImageOptimizerOptions {
    *
    * Given the request being optimized, for its authority; like `next start`,
    * the viewer's cookies and other headers are not the implementation's to
-   * forward.
-   * @default - S3 only: a source that is not a file is a 400
+   * forward. And given `images.maximumResponseBody`, past which it stops
+   * reading and answers {@link InternalImageResponse.tooLarge}.
    */
-  readonly fetchInternal?: (
+  readonly fetchInternal: (
     href: string,
     req: ShimIncomingMessage,
+    maximumResponseBody: number,
   ) => Promise<InternalImageResponse>;
   /**
    * Loads the `cacheHandler` module from its file URL. A seam for tests, which
@@ -94,6 +95,11 @@ export interface InternalImageResponse {
    * the optimizer answers an explicit 502 rather than a "not a valid image".
    */
   readonly otherGroup?: string;
+  /**
+   * The body passed `images.maximumResponseBody`, so it was cut off: a 413, as
+   * `next start` answers.
+   */
+  readonly tooLarge?: boolean;
 }
 
 /** What `required-server-files.json` is read for. */
@@ -125,7 +131,7 @@ export class RuntimeImageOptimizer {
     req: ShimIncomingMessage,
     res: ShimServerResponse,
     url: URL,
-    waitUntil?: (promise: Promise<unknown>) => void,
+    waitUntil: (promise: Promise<unknown>) => void,
   ): Promise<void> {
     // Resolved on the first image request rather than at cold start: an app with
     // no `<Image>` should pay neither the `next` module loads nor the
@@ -162,7 +168,13 @@ export class RuntimeImageOptimizer {
               imagesConfig.maximumResponseBody,
               imagesConfig.maximumRedirects,
             )
-          : await this.fetchLocal(req, href, nextConfig, next.optimizer);
+          : await this.fetchLocal(
+              req,
+              href,
+              nextConfig,
+              imagesConfig.maximumResponseBody,
+              next.optimizer,
+            );
 
         const optimized = await imageOptimizer(
           upstream,
@@ -228,8 +240,7 @@ export class RuntimeImageOptimizer {
       // adapter turns on with `images.customCacheHandler`: with no CDN in front
       // (the Regional types) every request would otherwise run `sharp` again,
       // and behind CloudFront each edge miss is an S3 read instead.
-      this.imageCache ??= loadImageCache(this.options, this.loaded);
-      const cache = await this.imageCache;
+      const cache = await this.loadCache(this.loaded);
       const entry = await cache.responses.get(
         ImageOptimizerCache.getCacheKey(params),
         async ({ previousCacheEntry }) => {
@@ -248,9 +259,7 @@ export class RuntimeImageOptimizer {
         },
         {
           routeKind: IMAGE_KIND,
-          incrementalCache: waitUntil
-            ? deferWrites(cache.images, waitUntil)
-            : cache.images,
+          incrementalCache: deferWrites(cache.images, waitUntil),
           isFallback: false,
           // A stale entry is served at once and regenerated in the background;
           // without this, a Lambda could freeze with the regeneration half done.
@@ -285,22 +294,49 @@ export class RuntimeImageOptimizer {
     }
   }
 
+  /**
+   * Evicted on failure, as `EntrypointRegistry.load` evicts a failed module load:
+   * a transient failure importing the `cacheHandler` (EMFILE under a cold-start
+   * burst) would otherwise 500 every image request until the sandbox recycles.
+   */
+  private loadCache(
+    loaded: ReturnType<typeof loadImageRuntime>,
+  ): Promise<ImageCache> {
+    if (!this.imageCache) {
+      const cache = loadImageCache(this.options, loaded);
+      this.imageCache = cache;
+      cache.catch(() => {
+        if (this.imageCache === cache) {
+          this.imageCache = undefined;
+        }
+      });
+    }
+    return this.imageCache;
+  }
+
   private async fetchLocal(
     req: ShimIncomingMessage,
     href: string,
     nextConfig: ReturnType<typeof loadImageRuntime>["nextConfig"],
+    maximumResponseBody: number,
     optimizer: NextImageModules["optimizer"],
   ) {
     const { bucket, fetchInternal } = this.options;
     // No bucket when the sources are on disk (`NextjsRegionalContainers`), and
     // the routes serve those as they serve anything S3 has no file for.
-    if (bucket || !fetchInternal) {
+    if (bucket) {
       try {
-        const result = await fetchFromS3(this.s3, bucket, href, {
-          urlBasePath: nextConfig.basePath,
-          keyPrefix: this.options.bucketKeyPrefix,
-          assetPrefix: nextConfig.assetPrefix,
-        });
+        const result = await fetchFromS3(
+          this.s3,
+          bucket,
+          href,
+          {
+            urlBasePath: nextConfig.basePath,
+            keyPrefix: this.options.bucketKeyPrefix,
+            assetPrefix: nextConfig.assetPrefix,
+          },
+          maximumResponseBody,
+        );
         return {
           buffer: result.buffer,
           contentType: result.contentType,
@@ -309,12 +345,12 @@ export class RuntimeImageOptimizer {
         };
       } catch (error) {
         const missing = error instanceof Error && error.name === "NoSuchKey";
-        if (!fetchInternal || !missing) throw error;
+        if (!missing) throw error;
       }
     }
 
     // What `fetchInternalImage` checks, and throws, for the same response.
-    const response = await fetchInternal!(href, req);
+    const response = await fetchInternal(href, req, maximumResponseBody);
     if (response.otherGroup !== undefined) {
       // A deployment problem, not a bad `url`: see `NextjsRuntime.fetchInternal`,
       // which logs the details.
@@ -322,6 +358,12 @@ export class RuntimeImageOptimizer {
         502,
         '"url" parameter is valid but its source is a route in another ' +
           "functionGroups group, which the image optimizer cannot fetch",
+      );
+    }
+    if (response.tooLarge) {
+      throw new optimizer.ImageError(
+        413,
+        '"url" parameter is valid but internal response is invalid',
       );
     }
     if (!response.statusCode || response.body.length === 0) {

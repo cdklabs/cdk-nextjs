@@ -38,7 +38,7 @@ function context(
     config: { basePath },
     outputs: {
       pages: [{ id: "/blog/[slug]" }, { id: "/gone" }],
-      appPages: [{ id: "/shop" }],
+      appPages: [{ id: "/shop" }, { id: "/isr/[id]" }],
       appRoutes: [{ id: "/feed.xml" }],
       pagesApi: [],
       prerenders,
@@ -104,6 +104,32 @@ describe("writeInitCache", () => {
     // `FileSystemCache` hands a PAGES entry back without headers; seeding
     // `initialHeaders` would label its JSON data responses text/html.
     expect(hello.value.headers).toBeUndefined();
+  });
+
+  it("seeds a dynamic route's template under its own key, with the PPR shell's postponed state", async () => {
+    // With PPR the template is the route's fallback shell, looked up under the
+    // literal template key; the Pages Router looks up an ISR fallback the same
+    // way. Unseeded, every such lookup missed and the shell rendered per request.
+    const ctx = context([
+      await prerender("/isr/[id]", "/isr/[id]", "<html>shell</html>", {
+        initialStatus: 200,
+        postponedState: "postponed-state",
+      }),
+      await prerender("/isr/[id].rsc", "/isr/[id]", "flight"),
+      await prerender("/blog/[slug]", "/blog/[slug]", "<html>fallback</html>", {
+        initialStatus: 200,
+      }),
+    ]);
+    await writeInitCache(ctx, cacheDir);
+
+    const shell = await readEntry("isr/[id]");
+    expect(shell.value.kind).toBe("APP_PAGE");
+    expect(shell.value.html).toBe("<html>shell</html>");
+    expect(shell.value.postponed).toBe("postponed-state");
+
+    const fallback = await readEntry("blog/[slug]");
+    expect(fallback.value.kind).toBe("PAGES");
+    expect(fallback.value.html).toBe("<html>fallback</html>");
   });
 
   it("skips a Pages Router route prerendered with a non-200 status", async () => {

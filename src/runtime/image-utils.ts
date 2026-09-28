@@ -54,12 +54,17 @@ export interface S3AssetLocation {
  * filesystem; skipping it here 400'd that file
  * (`next-image-legacy/unicode`). Unicode needs nothing: `äöüščří.png` survives
  * the query decode as itself and is already the object's name.
+ *
+ * Throws {@link ImageTooLargeError} rather than read past `maximumBody`
+ * (`images.maximumResponseBody`), which `next start` enforces on local sources
+ * too: a large `public/` file would otherwise be read into memory whole.
  */
 export async function fetchFromS3(
   s3: S3Client,
   bucket: string,
   url: string,
   location: S3AssetLocation,
+  maximumBody: number,
 ): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
   const { urlBasePath, keyPrefix } = location;
   // The key is the path alone. `/logo.png?v=2` is a cache-buster on a file
@@ -90,8 +95,19 @@ export async function fetchFromS3(
     throw new Error(`Empty response from S3 for key: ${key}`);
   }
 
+  if ((response.ContentLength ?? 0) > maximumBody) {
+    (body as { destroy?: () => void }).destroy?.();
+    throw new ImageTooLargeError(key);
+  }
   const chunks: Buffer[] = [];
+  let size = 0;
+  // Counted as well, for an object without a `ContentLength`. Throwing out of
+  // the loop destroys the stream.
   for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    size += chunk.byteLength;
+    if (size > maximumBody) {
+      throw new ImageTooLargeError(key);
+    }
     chunks.push(Buffer.from(chunk));
   }
 
@@ -132,6 +148,14 @@ function decodePath(path: string): string {
   }
 }
 
+/** A source over `images.maximumResponseBody`; see {@link fetchFromS3}. */
+export class ImageTooLargeError extends Error {
+  public constructor(key: string) {
+    super(`S3 object ${key} is over images.maximumResponseBody`);
+    this.name = "ImageTooLargeError";
+  }
+}
+
 /** `ImageError` from `next/dist/server/image-optimizer.js`. */
 export type ImageErrorClass =
   (typeof import("next/dist/server/image-optimizer.js"))["ImageError"];
@@ -145,7 +169,8 @@ export type ImageErrorClass =
  * internal request's status code, so a 404 there just flows into the normal
  * "not a valid image" content-type check as if it were malformed image
  * bytes. This mirrors that behavior instead of surfacing a 404, so Functions
- * and Containers deployments respond identically for this case.
+ * and Containers deployments respond identically for this case. A source over
+ * `images.maximumResponseBody` is the 413 `fetchInternalImage` answers.
  */
 export function resolveErrorResponse(
   error: unknown,
@@ -156,6 +181,12 @@ export function resolveErrorResponse(
 } {
   if (error instanceof ImageError) {
     return { statusCode: error.statusCode, message: error.message };
+  }
+  if (error instanceof ImageTooLargeError) {
+    return {
+      statusCode: 413,
+      message: '"url" parameter is valid but internal response is invalid',
+    };
   }
   if (error instanceof Error && error.name === "NoSuchKey") {
     return {

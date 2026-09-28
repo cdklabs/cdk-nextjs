@@ -8,7 +8,6 @@ export {
 
 export {
   NextjsBaseConstructOverrides,
-  NextjsFunctionsConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
@@ -84,7 +83,6 @@ export {
 export { OptionalNextjsApiProps } from "./generated-structs/OptionalNextjsApiProps";
 export { OptionalNextjsBuildProps } from "./generated-structs/OptionalNextjsBuildProps";
 export { OptionalNextjsContainersProps } from "./generated-structs/OptionalNextjsContainersProps";
-export { OptionalNextjsFunctionsProps } from "./generated-structs/OptionalNextjsFunctionsProps";
 export { OptionalNextjsDistributionProps } from "./generated-structs/OptionalNextjsDistributionProps";
 export { OptionalNextjsCacheProps } from "./generated-structs/OptionalNextjsCacheProps";
 export { OptionalApplicationLoadBalancedTaskImageOptions } from "./generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";

@@ -30,7 +30,7 @@ const assign = (
     basePath,
     buildId: BUILD_ID,
     ...options,
-  });
+  }).templates;
 
 /**
  * A captured `onBuildComplete` fixture's routes, exactly as `buildAdapterManifest`
@@ -436,7 +436,7 @@ describe("what the edge routes, checked against what was packaged", () => {
       const unlocalized = entries.filter(
         (entry) => !locale.test(entry.template),
       );
-      const assigned = assignRoutesToGroups(
+      const { templates, dataRouteGroups } = assignRoutesToGroups(
         [
           { name: "blog", routes: ["/blog/**"] },
           { name: "ssr", routes: ["/ssr"] },
@@ -444,11 +444,12 @@ describe("what the edge routes, checked against what was packaged", () => {
         unlocalized,
         options,
       );
-      expect(assigned.blog).toEqual(["/blog/[slug]"]);
-      expect(assigned.ssr).toEqual([
+      expect(templates.blog).toEqual(["/blog/[slug]"]);
+      expect(templates.ssr).toEqual([
         `/_next/data/${options.buildId}/ssr.json`,
         "/ssr",
       ]);
+      expect(dataRouteGroups).toEqual(["blog", "default", "ssr"]);
     });
   });
 
@@ -456,7 +457,7 @@ describe("what the edge routes, checked against what was packaged", () => {
     it("routes the parent URL with the subtree that moved the file", () => {
       const { entries, options } = fixtureRoutes(appPlayground);
       const groups = [{ name: "params", routes: ["/params/optional/**"] }];
-      const assigned = assignRoutesToGroups(groups, entries, options);
+      const assigned = assignRoutesToGroups(groups, entries, options).templates;
       expect(assigned.params).toContain("/params/optional/[[...rest]]");
       // `params/optional/*` does not match `/params/optional`, which the same
       // file serves: the constructs add the exact behavior from this.
@@ -719,7 +720,7 @@ describe("what the edge routes, checked against what was packaged", () => {
           [{ name: "e2e", routes: ["/e2e/rewrite/**"] }],
           entries,
           options,
-        ).e2e,
+        ).templates.e2e,
       ).toContain("/e2e/rewrite/echo");
     });
 

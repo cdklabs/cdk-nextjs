@@ -1,3 +1,5 @@
+import { hasPathPrefix } from "../utils/base-path";
+
 /**
  * The path to hand Next.js for an API Gateway REST event.
  *
@@ -31,11 +33,7 @@ export function apiGatewayRequestPath(
   basePath: string,
 ): string {
   const unstripped = event.requestContext.path;
-  if (
-    basePath &&
-    unstripped &&
-    (unstripped === basePath || unstripped.startsWith(`${basePath}/`))
-  ) {
+  if (unstripped && hasPathPrefix(unstripped, basePath)) {
     return unstripped;
   }
   return event.path;

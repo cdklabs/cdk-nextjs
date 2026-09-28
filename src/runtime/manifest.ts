@@ -48,6 +48,22 @@ export const STAGING_DIR_NAME = "app";
 export const GROUPS_DIR_NAME = "groups";
 
 /**
+ * Which group the running function *is*. Set per Lambda at synth, read by the
+ * runtime only to make a misroute say so; see `ownedRouteError`.
+ */
+export const FUNCTION_GROUP_ENV_VAR = "CDK_NEXTJS_FUNCTION_GROUP";
+
+/**
+ * The global the cache handler (`src/adapter/s3-cache-handler.ts`) registers its
+ * CloudFront invalidation hook under, and the runtime (`core.ts`) calls. A global
+ * rather than an import, because the cache handler is a separate bundle that
+ * Next.js loads itself: the two share a process, not a module graph.
+ */
+export const REVALIDATED_PAGE_HOOK = Symbol.for(
+  "cdk-nextjs.invalidateRevalidatedPage",
+);
+
+/**
  * Directory inside {@link ADAPTER_DIR_NAME} holding one deployment root, relative
  * and POSIX. `undefined` means "not splitting", which is its own layout rather
  * than a group named `default`.
@@ -172,6 +188,13 @@ export interface AdapterManifest {
    * rather than crash on a missing file. This field is what lets it say so.
    */
   readonly groups?: Record<string, string[]>;
+  /**
+   * The {@link groups} owning a Pages Router page, whose
+   * `/_next/data/<buildId>/…` URLs the edge routes to them as well. Present
+   * exactly when {@link groups} is. Recorded by the assignment rather than
+   * recomputed at synth, so the behaviors deployed are the ones it checked.
+   */
+  readonly dataRouteGroups?: string[];
   /**
    * The `functionGroups` the build was split by (name and routes, as passed in
    * `CDK_NEXTJS_FUNCTION_GROUPS`), present exactly when {@link groups} is. Synth

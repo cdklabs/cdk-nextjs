@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -21,6 +22,7 @@ import {
   NextjsBuild,
   patchClientChunk,
   pickStagedSharpPackage,
+  resolveNextSharp,
   sharpBinaryDir,
   storedSize,
   writePublicFileList,
@@ -162,6 +164,32 @@ describe("pickStagedSharpPackage", () => {
     expect(pickStagedSharpPackage([b, a])).toBe(a);
     expect(pickStagedSharpPackage([a, b])).toBe(a);
   });
+
+  // npm nests next's own `sharp` when the app's hoisted one is another version;
+  // the binaries have to match the copy the image optimizer loads.
+  it("picks the copy the staged next resolves, over a shorter one", () => {
+    const root = join(dir, "staged");
+    const hoisted = join(root, "node_modules/sharp");
+    const nested = join(root, "node_modules/next/node_modules/sharp");
+    for (const sharp of [hoisted, nested]) {
+      write(
+        join(sharp, "package.json"),
+        JSON.stringify({ name: "sharp", main: "index.js" }),
+      );
+      write(join(sharp, "index.js"), "");
+    }
+    write(
+      join(root, "node_modules/next/package.json"),
+      JSON.stringify({ name: "next" }),
+    );
+    const nextSharp = resolveNextSharp(join(root, "apps/web"));
+    expect(nextSharp).toBe(join(realpathSync(nested), "index.js"));
+    expect(pickStagedSharpPackage([hoisted, nested], nextSharp)).toBe(nested);
+  });
+
+  it("resolves nothing when the staged tree has no next", () => {
+    expect(resolveNextSharp(join(dir, "apps/web"))).toBeUndefined();
+  });
 });
 
 describe("Sharp staging for the deployment target", () => {
@@ -188,7 +216,10 @@ describe("Sharp staging for the deployment target", () => {
   // Private: the methods `NextjsBuild` runs per deployment root, which only
   // touch the filesystem, so they run here without a construct.
   const build = NextjsBuild.prototype as unknown as {
-    removeExistingSharpBinaries(root: string): string | undefined;
+    removeExistingSharpBinaries(
+      root: string,
+      projectDir: string,
+    ): string | undefined;
     installSharpBinariesForTarget(
       root: string,
       sharpSource: string | undefined,
@@ -253,7 +284,10 @@ describe("Sharp staging for the deployment target", () => {
         seedCache(name);
       }
 
-      const source = build.removeExistingSharpBinaries(root);
+      const source = build.removeExistingSharpBinaries(
+        root,
+        join(root, "apps/web"),
+      );
       expect(source).toBe(store);
       build.installSharpBinariesForTarget(root, source, platform);
 
@@ -282,7 +316,10 @@ describe("Sharp staging for the deployment target", () => {
     const root = join(dir, "staged");
     write(join(root, "apps/web/server.js"), "");
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-    const source = build.removeExistingSharpBinaries(root);
+    const source = build.removeExistingSharpBinaries(
+      root,
+      join(root, "apps/web"),
+    );
     expect(source).toBeUndefined();
     build.installSharpBinariesForTarget(root, source, "linux-arm64");
     expect(existsSync(sharpBinaryDir(root))).toBe(false);

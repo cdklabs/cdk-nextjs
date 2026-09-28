@@ -1,5 +1,5 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import {
   copyFile,
   cp,
@@ -316,7 +316,8 @@ export function buildAdapterManifest(
     staticFiles,
     ...(assignment
       ? {
-          groups: assignment,
+          groups: assignment.templates,
+          dataRouteGroups: assignment.dataRouteGroups,
           functionGroups: functionGroups!.map(({ name, routes }) => ({
             name,
             routes,
@@ -326,7 +327,7 @@ export function buildAdapterManifest(
   };
 
   const groups: StagedGroup[] = assignment
-    ? Object.entries(assignment).map(([name, templates]) => ({
+    ? Object.entries(assignment.templates).map(([name, templates]) => ({
         name,
         dirName: groupStagingDirName(name),
         staging: collectGroupStagingPlan(
@@ -1046,12 +1047,9 @@ async function addRuntimeNextClosure(
   // `loadEnvFiles` (runtime `next-modules.ts`) loads the staged env files with
   // `@next/env`, which is `next`'s dependency, so resolved from `next`'s dir.
   // An app never requires it, so no output's trace has it either.
+  const nextPackage = nextRequire.resolve("next/package.json");
   try {
-    entries.push(
-      createRequire(nextRequire.resolve("next/package.json")).resolve(
-        "@next/env",
-      ),
-    );
+    entries.push(createRequire(nextPackage).resolve("@next/env"));
   } catch (cause) {
     throw new Error(
       `${LOG_PREFIX} Could not resolve "@next/env" from the app's \`next\`, ` +
@@ -1073,6 +1071,15 @@ async function addRuntimeNextClosure(
   }
 
   const { fileList } = await nodeFileTrace(entries, { base: ctx.repoRoot });
+  // The trace starts from `@next/env`'s real path, so under pnpm it never
+  // passes through the `.pnpm/next@…/node_modules/@next/env` link that `next`
+  // resolves it by. Without the link, every request fails at cold start with
+  // "Cannot find module '@next/env'".
+  const nextEnvLink = join(dirname(nextPackage), "..", "@next", "env");
+  if (lstatSync(nextEnvLink, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    // `resolve` returns real paths, so relative to the real repo root.
+    fileList.add(relative(realpathSync(ctx.repoRoot), nextEnvLink));
+  }
   for (const traced of fileList) {
     const key = toPosix(traced);
     if (staging.has(key)) {

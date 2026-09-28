@@ -36,7 +36,6 @@ import {
   AwsCacheConfig,
   buildS3Key,
   CacheBucket,
-  markerState,
   markerClock,
   resolveAwsCacheConfig,
   RevalidateDurations,
@@ -50,6 +49,7 @@ import {
   INIT_CACHE_TAG_MANIFEST,
 } from "./cache-utils";
 import { sharedTagManifest, UseCacheTagManifest } from "./use-cache-common";
+import { REVALIDATED_PAGE_HOOK } from "../runtime/manifest";
 import { basePathPrefix, wholeAppInvalidationPaths } from "../utils/base-path";
 
 /**
@@ -272,10 +272,6 @@ function isWildcardPath(path: string): boolean {
  */
 const MAX_WILDCARD_PATHS_PER_INVALIDATION = 15;
 
-/** Must match `REVALIDATED_PAGE_HOOK` in `src/runtime/core.ts`. */
-const REVALIDATED_PAGE_HOOK = Symbol.for(
-  "cdk-nextjs.invalidateRevalidatedPage",
-);
 const MAX_PATHS_PER_INVALIDATION = 3000;
 
 /**
@@ -513,50 +509,36 @@ export class S3CacheHandler implements CacheHandler {
         return null;
       }
 
-      // Handle different content types appropriately for documented formats
-      let cacheValue: CacheHandlerValue;
-      const contentType = response.contentType || "application/json";
+      // Every object is JSON (`putJson`, and the seeded `.json` files); one
+      // that does not parse is a miss, through the `catch` below.
+      const parsedValue = parseCacheValue(response.body);
 
-      // Handle text-based data (JSON, HTML, plain text) - all documented formats are text-based
-      const bodyString = response.body;
-
-      if (contentType.includes("application/json")) {
-        // Parse the stored CacheHandlerValue directly
-        const parsedValue = parseCacheValue(bodyString);
-
-        // Extract the actual CacheHandlerValue (without tags) for return
-        cacheValue = {
-          lastModified: parsedValue.lastModified,
-          value: parsedValue.value,
-        };
-
-        if (await this.isRevalidated(parsedValue, ctx, cacheKey)) {
-          this.debug(`S3 CACHE INVALIDATED BY TAG: ${cacheKey}`);
-          // A revalidated `fetch` entry has to read as a miss so the request
-          // refetches instead of reusing the body - the same thing Next.js's
-          // own `FileSystemCache` does with `revalidatedTags`. Only a
-          // *response* entry gets handed back expired, because for those a
-          // miss is worse than stale: see `EXPIRED_LAST_MODIFIED`.
-          //
-          // Neither is deleted. The refetch or re-render this provokes
-          // overwrites the object through `set`, with a `lastModified` past the
-          // tag's marker; deleting it here as well raced that write, and a
-          // concurrent request's fresh entry could be the one removed. Keeping
-          // a response entry also means a render that fails is answered from
-          // the last good copy rather than from a shell.
-          return isFetchCacheKind(ctx.kind)
-            ? null
-            : { lastModified: EXPIRED_LAST_MODIFIED, value: cacheValue.value };
-        }
-      } else {
-        console.log(`Invalid content type: ${contentType}`);
-        // This shouldn't happen since we always store as JSON now
-        return null;
+      if (await this.isRevalidated(parsedValue, ctx, cacheKey)) {
+        this.debug(`S3 CACHE INVALIDATED BY TAG: ${cacheKey}`);
+        // A revalidated `fetch` entry has to read as a miss so the request
+        // refetches instead of reusing the body - the same thing Next.js's
+        // own `FileSystemCache` does with `revalidatedTags`. Only a
+        // *response* entry gets handed back expired, because for those a
+        // miss is worse than stale: see `EXPIRED_LAST_MODIFIED`.
+        //
+        // Neither is deleted. The refetch or re-render this provokes
+        // overwrites the object through `set`, with a `lastModified` past the
+        // tag's marker; deleting it here as well raced that write, and a
+        // concurrent request's fresh entry could be the one removed. Keeping
+        // a response entry also means a render that fails is answered from
+        // the last good copy rather than from a shell.
+        return isFetchCacheKind(ctx.kind)
+          ? null
+          : { lastModified: EXPIRED_LAST_MODIFIED, value: parsedValue.value };
       }
 
       this.debug(`S3 CACHE HIT: ${cacheKey} (${s3Key})`);
 
-      return cacheValue;
+      // Without the stored tags.
+      return {
+        lastModified: parsedValue.lastModified,
+        value: parsedValue.value,
+      };
     } catch (error) {
       // Log actual errors (a cache miss is not one: see `CacheBucket.get`)
       console.error(`Error retrieving cache from S3:`, error);
@@ -1249,40 +1231,32 @@ export class S3CacheHandler implements CacheHandler {
     try {
       await this.tags.refresh();
       await this.tags.ensure(tags);
-      const at = markerClock();
-      const staleTags: [string, number][] = [];
-
-      for (const tag of new Set(tags)) {
-        const marker = this.tags.get(tag);
-        if (!marker) {
-          continue;
-        }
-        const state = markerState(marker, cacheLastModified, at);
+      const state = this.tags.state(tags, cacheLastModified);
+      if (state !== "stale") {
         if (state === "expired") {
           this.debug(
-            `Tag ${tag} expired entry created at ${cacheLastModified}`,
+            `Tags [${tags}] expired entry created at ${cacheLastModified}`,
           );
-          return "expired";
         }
-        if (state === "stale" && marker.staleAt !== undefined) {
-          staleTags.push([tag, marker.staleAt]);
-        }
+        return state;
       }
 
-      if (staleTags.length === 0) {
-        return "fresh";
-      }
       const manifest = nextTagsManifest();
       if (!manifest) {
         this.debug(
-          `Tags [${staleTags.map(([tag]) => tag)}] are stale and Next.js's tag ` +
-            `manifest is unreachable, expiring the entry instead`,
+          `Tags [${tags}] are stale and Next.js's tag manifest is ` +
+            `unreachable, expiring the entry instead`,
         );
         return "expired";
       }
-      for (const [tag, staleAt] of staleTags) {
+      for (const tag of tags) {
+        const staleAt = this.tags.get(tag)?.staleAt;
         const existing = manifest.get(tag);
-        if ((existing?.stale ?? 0) < staleAt) {
+        if (
+          staleAt !== undefined &&
+          staleAt > cacheLastModified &&
+          (existing?.stale ?? 0) < staleAt
+        ) {
           manifest.set(tag, { ...existing, stale: staleAt });
         }
       }

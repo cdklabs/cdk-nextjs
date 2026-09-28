@@ -19,7 +19,6 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
 | `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and the build log — and, under `HARNESS_VERBOSE_LOGS=1`, the deploy log and the Lambda's CloudWatch tail. |
-| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A deliberate no-op: the shared stack outlives each file.                         |
 | `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.              |
 | `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                        |
 | `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
@@ -106,9 +105,10 @@ What the shared stack is paid for in:
 - **Test files must be serialized within a stack** (`run-tests.js -c 1`). Two
   concurrent deploys into one stack would race. Parallelism comes from more
   stacks — see "Sharding" below.
-- **`e2e-cleanup.sh` must not delete the stack**, or the next file pays the
-  create again. It doesn't; `e2e-sweep.sh --apply --shared` deletes it once,
-  after the run. The workflow does this in an `always()` step; a local run has to
+- **Nothing may delete the stack between files**, or the next file pays the
+  create again. So the harness gets no `NEXT_TEST_CLEANUP_SCRIPT_PATH` (it is
+  optional); `e2e-sweep.sh --apply --shared` deletes the stack once, after the
+  run. The workflow does this in an `always()` step; a local run has to
   do it by hand.
 - **Nothing may leak between files.** Server cache entries are keyed by
   `CDK_NEXTJS_BUILD_ID` (`src/adapter/s3-cache-handler.ts`), which differs per
@@ -119,11 +119,11 @@ What the shared stack is paid for in:
   properties for the same reason: its default `buildId` and invalidation caller
   reference change on every synth, and a changed custom-resource property is not
   hotswappable, so either one alone would drag the deploy back through
-  CloudFormation. The pin is only safe because a shared stack is always
-  _created_ by `e2e-warm.sh`'s throwaway app: the create does run the custom
-  resource, and with `buildId: "harness"` it would prune the creating app's own
-  `<buildId>/` cache. So `e2e-deploy.sh` runs `e2e-warm.sh` itself when a shared
-  stack does not exist yet.
+  CloudFormation. The pin also drops the bucket and table names and the
+  `basePath`-derived key prefix, which makes the resource a no-op: a basePath
+  fixture following one without still forces a CloudFormation update, and an
+  Update that could prune would delete every `<buildId>/` prefix but
+  `"harness"` - the cache the fixture just seeded.
 
 `test/deploy-tests-manifest.json` still lists test files explicitly rather than
 taking next.js's `test/e2e/**` include rule, and this still runs on a schedule
@@ -546,7 +546,6 @@ export NEXT_TEST_MODE=deploy
 export NEXT_EXTERNAL_TESTS_FILTERS="$ADAPTER_DIR/test/deploy-tests-manifest.json"
 export NEXT_TEST_DEPLOY_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-deploy.sh"
 export NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-logs.sh"
-export NEXT_TEST_CLEANUP_SCRIPT_PATH="$ADAPTER_DIR/scripts/e2e-cleanup.sh"
 export IS_TURBOPACK_TEST=1 NEXT_TELEMETRY_DISABLED=1
 # Not optional either. cdk-nextjs is an adapter deployment and ten e2e files ask,
 # most of them as `skipDeployment: !isAdapterTest` - left unset they report a pass
@@ -569,14 +568,13 @@ node run-tests.js --timings -c 1 --retries 1 --type e2e
 ./scripts/e2e-sweep.sh --apply --shared
 ```
 
-To exercise just the deploy/logs/cleanup contract without the next.js suite,
+To exercise just the deploy/logs contract without the next.js suite,
 point them at any built Next.js app:
 
 ```bash
 cd /path/to/some/nextjs/app
 ADAPTER_DIR=/path/to/cdk-nextjs /path/to/cdk-nextjs/scripts/e2e-deploy.sh
 ADAPTER_DIR=/path/to/cdk-nextjs /path/to/cdk-nextjs/scripts/e2e-logs.sh
-ADAPTER_DIR=/path/to/cdk-nextjs /path/to/cdk-nextjs/scripts/e2e-cleanup.sh
 ```
 
 ## Debugging one failing file without deploying
@@ -636,8 +634,8 @@ A CloudFront distribution that outlives its run is the thing to avoid, so there
 are two layers:
 
 1. `e2e-sweep.sh --apply --shared` deletes the shared stack after a run — the
-   workflow's `always()` step, or by hand locally. (`e2e-cleanup.sh`, which runs
-   after every test file, deliberately keeps it.)
+   workflow's `always()` step, or by hand locally. Nothing deletes it between
+   test files: the harness is deliberately given no cleanup script.
 2. An account-wide `e2e-sweep.sh --apply` deletes any leftovers a cancelled or
    timed-out shard left behind.
 
@@ -672,7 +670,7 @@ the account.
 
 | Variable                            | Default                              | Effect                                                                                                 |
 | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `ADAPTER_DIR`                       | _required_                           | This checkout. All three scripts resolve everything from it.                                           |
+| `ADAPTER_DIR`                       | _required_                           | This checkout. Every harness script resolves everything from it.                                        |
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
 | `HARNESS_SUPPORTS_IMMUTABLE_ASSETS` | `0`                                  | The `NEXT_SUPPORTS_IMMUTABLE_ASSETS` marker. Flip to `1` once cdk-nextjs opts into `config.supportsImmutableAssets`. |
 | `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
@@ -683,9 +681,7 @@ the account.
 | `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
 | `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |
-| `HARNESS_SWEEP_STACK`               | _unset_                              | Same as passing `--stack NAME`: sweep only that stack, at any age.                                     |
-| `HARNESS_SWEEP_APPLY`               | `0`                                  | Same as passing `--apply`.                                                                             |
-| `WARM_KEEP`                         | `0`                                  | Keep `e2e-warm.sh`'s throwaway app directory, whose deploy log says why warming failed.                |
+| `WARM_KEEP`                         | `0`                                  | Keep `e2e-warm.sh`'s throwaway app directory, which is otherwise deleted on every exit, failure included. |
 | `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. Use `240000`.   |
 
 [harness]: https://nextjs.org/docs/app/api-reference/adapters/testing-adapters

@@ -20,6 +20,7 @@ import {
   mergeMarkers,
   resolveAwsCacheConfig,
   RevalidateDurations,
+  REVALIDATION_LOG_LOOKBACK_MS,
   RevalidationLog,
   RevalidationState,
   TagMarker,
@@ -274,10 +275,13 @@ export class UseCacheTagManifest {
    * table for every other instance - the marker row plus a log row per tag.
    *
    * Next.js calls `revalidateTag` on the incremental cache and `updateTags` on
-   * every distinct `cacheHandlers` entry, and all of them share this manifest,
-   * so an identical call while the first is in flight joins it instead of
-   * writing the rows again. Never rejects: resolves `false` when a row failed
-   * to write (the error is logged), so other instances may not see it.
+   * every distinct `cacheHandlers` entry, all in one synchronous loop
+   * (`revalidation-utils`), and all of them share this manifest. So an
+   * identical call in the same turn joins the first instead of writing the
+   * rows again. One in a later turn is a revalidation of its own, even while
+   * the first one's writes are in flight, and gets its own, later, marker.
+   * Never rejects: resolves `false` when a row failed to write (the error is
+   * logged), so other instances may not see it.
    */
   async update(
     tags: readonly string[],
@@ -288,10 +292,10 @@ export class UseCacheTagManifest {
     if (inFlight) {
       return inFlight;
     }
-    const update = this.write(tags, durations).finally(() => {
-      this.updating.delete(key);
-    });
+    const update = this.write(tags, durations);
     this.updating.set(key, update);
+    // Forgotten as soon as the current turn's calls have been made.
+    void Promise.resolve().then(() => this.updating.delete(key));
     return update;
   }
 
@@ -359,9 +363,6 @@ export class UseCacheTagManifest {
     if (!markers) {
       return true;
     }
-    // The log row's sort key is on the wall clock, the marker values on
-    // Next.js's: see `RevalidationLog`.
-    const loggedAt = this.clock();
     const writes: [string, Promise<unknown>][] = [];
     for (const tag of new Set(tags)) {
       writes.push([
@@ -378,7 +379,7 @@ export class UseCacheTagManifest {
       ]);
       writes.push([
         "Error writing tag revalidation log row:",
-        log.put(tag, loggedAt, marker),
+        this.putLogRow(log, tag, marker),
       ]);
     }
     const results = await Promise.allSettled(writes.map(([, write]) => write));
@@ -389,6 +390,59 @@ export class UseCacheTagManifest {
     });
     return results.every((result) => result.status === "fulfilled");
   }
+
+  /**
+   * Put `tag`'s log row, stamped on the wall clock (the marker values are on
+   * Next.js's: see `RevalidationLog`).
+   *
+   * Readers only look {@link REVALIDATION_LOG_LOOKBACK_MS} behind their last
+   * query, so a row that shows up much later than its timestamp - a slow
+   * connection, retries under throttling - is behind every cursor and never
+   * read. A slow put is therefore made again under a fresh timestamp, which
+   * readers will see; one slow twice is reported as a failure.
+   */
+  private async putLogRow(
+    log: RevalidationLog,
+    tag: string,
+    marker: TagMarker,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const at = this.clock();
+      await log.put(tag, at, marker);
+      if (this.clock() - at <= MAX_LOG_PUT_MS) {
+        return;
+      }
+    }
+    throw new Error(
+      `The revalidation log row for ${tag} took longer than readers look back`,
+    );
+  }
+}
+
+/**
+ * The longest a log row's put may take and still be seen by every reader: half
+ * the lookback, leaving the rest for writers' clocks and eventually consistent
+ * queries.
+ */
+const MAX_LOG_PUT_MS = REVALIDATION_LOG_LOOKBACK_MS / 2;
+
+/**
+ * The `cacheHandlers` methods that only go through `tags`, the same for the
+ * `default` and `remote` handlers.
+ */
+export function tagMethods(
+  tags: UseCacheTagManifest,
+): Pick<CacheHandler, "refreshTags" | "getExpiration" | "updateTags"> {
+  return {
+    refreshTags: () => tags.refresh(),
+    async getExpiration(implicitTags) {
+      await tags.ensure(implicitTags);
+      return tags.expiration(implicitTags);
+    },
+    async updateTags(revalidatedTags, durations) {
+      await tags.update(revalidatedTags, durations);
+    },
+  };
 }
 
 /**

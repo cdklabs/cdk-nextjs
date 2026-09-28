@@ -21,18 +21,7 @@ const appDir = required("HARNESS_APP_DIR");
 const stackName = required("HARNESS_STACK_NAME");
 // One of the four `NextjsType`s, `global-functions` by default; see common.sh's
 // `harness_nextjs_type`, which validates it and keeps the stack names apart.
-const NEXTJS_TYPES = [
-  "global-functions",
-  "regional-functions",
-  "global-containers",
-  "regional-containers",
-];
 const nextjsType = process.env["HARNESS_NEXTJS_TYPE"] || "global-functions";
-if (!NEXTJS_TYPES.includes(nextjsType)) {
-  throw new Error(
-    `HARNESS_NEXTJS_TYPE=${nextjsType} is not one of ${NEXTJS_TYPES.join(", ")}`,
-  );
-}
 
 function required(name) {
   const value = process.env[name];
@@ -46,36 +35,39 @@ function required(name) {
 }
 
 /**
- * Pins the post-deploy custom resource's properties so it is never what stops a
- * deploy from hotswapping. Shared by every type.
+ * Pins every post-deploy custom resource property that can differ between two
+ * fixtures, so the resource never changes and never does anything. Shared by
+ * every type.
  *
- * Both defaults change on every synth - `buildId` is the real build ID, and
- * `createInvalidationCommandInput` carries a `new Date().toISOString()` caller
- * reference - and a changed custom-resource property is not hotswappable, so
- * either one alone would guarantee a CloudFormation deployment for every test
- * file.
+ * - `buildId` is the real build ID and `createInvalidationCommandInput` carries
+ *   a `new Date().toISOString()` caller reference, so either one alone would
+ *   make every synth a non-hotswappable change, and every test file a
+ *   CloudFormation deployment.
+ * - `staticAssetsKeyPrefix` follows the fixture's `basePath`, so switching
+ *   between a basePath fixture and one without would still force an Update -
+ *   and an Update with the bucket and table names set prunes every
+ *   `<buildId>/` prefix but `"harness"`, i.e. the cache the fixture just
+ *   seeded. Dropping the names turns off every prune branch in
+ *   `post-deploy.lambda.ts`, so the Create and any Update are both no-ops.
  *
- * What that gives up is the post-deploy pass itself: no cache-bucket pruning of
- * superseded build IDs, and no invalidation between test files. Neither is
- * missed. Cache isolation between files comes from `CDK_NEXTJS_BUILD_ID`
- * (src/adapter/s3-cache-handler.ts), which *is* hotswappable, and
- * `scripts/e2e-deploy.sh` invalidates the distribution itself - it has to, since
- * a hotswap never runs CloudFormation and so never runs a custom resource at all.
+ * What that gives up is the post-deploy pass itself: no pruning and no
+ * invalidation. Neither is missed. Cache isolation between files comes from
+ * `CDK_NEXTJS_BUILD_ID` (src/adapter/s3-cache-handler.ts), which *is*
+ * hotswappable, and `scripts/e2e-deploy.sh` invalidates the distribution itself
+ * - it has to, since a hotswap never runs a custom resource at all. The stack
+ * is deleted after every run, so nothing accumulates.
  *
- * The pin only holds up if the stack is *created* by an app whose cache it does
- * not matter to lose: on a create the custom resource does run, and with
- * `buildId: "harness"` it prunes every other `<buildId>/` prefix from the cache
- * bucket - which is the app just deployed. That app is the throwaway one
- * `scripts/e2e-warm.sh` deploys, and `e2e-deploy.sh` runs it first when the
- * stack does not exist yet.
+ * `undefined` rather than fixed values: CDK strips undefined properties, and the
+ * handler guards on each being absent.
  */
 const PINNED_POST_DEPLOY = {
   customResourceProperties: {
     buildId: "harness",
-    // Dropped, not pinned to a fixed caller reference: CDK strips undefined
-    // properties, and `post-deploy.lambda.ts` guards on this being absent (it
-    // already is for the Regional types, which have no distribution).
     createInvalidationCommandInput: undefined,
+    cacheBucketName: undefined,
+    revalidationTableName: undefined,
+    staticAssetsBucketName: undefined,
+    staticAssetsKeyPrefix: undefined,
   },
 };
 
@@ -350,6 +342,11 @@ const STACK_CLASSES = {
 
 const app = new App();
 const StackClass = STACK_CLASSES[nextjsType];
+if (!StackClass) {
+  throw new Error(
+    `HARNESS_NEXTJS_TYPE=${nextjsType} is not one of ${Object.keys(STACK_CLASSES).join(", ")}`,
+  );
+}
 new StackClass(app, stackName, {
   stackName,
   env: {
@@ -357,11 +354,13 @@ new StackClass(app, stackName, {
     region: process.env["CDK_DEFAULT_REGION"],
   },
   // A stack tag, so an orphaned stack is identifiable from CloudFormation alone
-  // long after the temporary app directory is gone. `e2e-cleanup.sh` and
-  // `e2e-sweep.sh` both refuse to delete a stack without it. Deliberately a
-  // constant: a tag whose value changed per deploy (a timestamp, say) would be
-  // a stack-level diff on every run and so a CloudFormation update, which is
-  // the one thing the hotswap path is trying to avoid. The sweeper ages stacks
-  // off their server function's (or ECS service's) last hotswap instead.
-  tags: { "cdk-nextjs:harness": "1" },
+  // long after the temporary app directory is gone. `e2e-sweep.sh` refuses to
+  // delete a stack without it. The key and value come from common.sh, which
+  // exports them, so the tag written here and the tag checked there cannot
+  // drift. Deliberately a constant: a tag whose value changed per deploy (a
+  // timestamp, say) would be a stack-level diff on every run and so a
+  // CloudFormation update, which is the one thing the hotswap path is trying to
+  // avoid. The sweeper ages stacks off their server function's (or ECS
+  // service's) last hotswap instead.
+  tags: { [required("HARNESS_TAG_KEY")]: required("HARNESS_TAG_VALUE") },
 });

@@ -295,12 +295,8 @@ export class TagMarkerTable {
    * request path. A tag with no row is absent from the result.
    */
   async read(tags: string[]): Promise<Map<string, TagMarker>> {
-    return this.fetch(Array.from(new Set(tags)));
-  }
-
-  /** {@link read}, straight from DynamoDB. */
-  private async fetch(unique: string[]): Promise<Map<string, TagMarker>> {
     const { tableName, buildId } = this;
+    const unique = Array.from(new Set(tags));
     const markers = new Map<string, TagMarker>();
 
     for (let i = 0; i < unique.length; i += BATCH_GET_MAX_KEYS) {
@@ -349,6 +345,9 @@ export const REVALIDATION_LOG_TTL_MS = 15 * 60 * 1000;
 /** The most `Query` pages one {@link RevalidationLog.query} reads. */
 export const REVALIDATION_LOG_MAX_PAGES = 5;
 
+/** How many sort keys {@link RevalidationLog.put} tries before giving up. */
+const LOG_PUT_ATTEMPTS = 5;
+
 /** Digits a log row's timestamp is zero-padded to, so sort keys sort by time. */
 const LOG_SK_DIGITS = 15;
 
@@ -390,22 +389,47 @@ export class RevalidationLog {
     this.pk = `${buildId}#log`;
   }
 
-  /** Record that `tag` was revalidated at `at` (`Date.now()`), setting `marker`. */
+  /**
+   * Record that `tag` was revalidated at `at` (`Date.now()`), setting `marker`.
+   *
+   * Two revalidations of `tag` in the same millisecond would share a sort key,
+   * and the second would overwrite the first. So the row is only written where
+   * its key is free, and on a collision it moves to the next millisecond, up
+   * to {@link LOG_PUT_ATTEMPTS} times.
+   */
   async put(tag: string, at: number, marker: TagMarker): Promise<void> {
-    const item: Record<string, AttributeValue> = {
-      pk: { S: this.pk },
-      sk: { S: `${logSkPrefix(at)}#${tag}` },
-      ttl: { N: String(Math.ceil((at + REVALIDATION_LOG_TTL_MS) / 1000)) },
-    };
-    for (const field of MARKER_FIELDS) {
-      const value = marker[field];
-      if (value !== undefined) {
-        item[field] = { N: String(value) };
+    for (let attempt = 1; ; attempt++) {
+      const item: Record<string, AttributeValue> = {
+        pk: { S: this.pk },
+        sk: { S: `${logSkPrefix(at)}#${tag}` },
+        ttl: { N: String(Math.ceil((at + REVALIDATION_LOG_TTL_MS) / 1000)) },
+      };
+      for (const field of MARKER_FIELDS) {
+        const value = marker[field];
+        if (value !== undefined) {
+          item[field] = { N: String(value) };
+        }
+      }
+      try {
+        await this.client.send(
+          new PutItemCommand({
+            TableName: this.tableName,
+            Item: item,
+            ConditionExpression: "attribute_not_exists(sk)",
+          }),
+        );
+        return;
+      } catch (error) {
+        if (
+          (error as Error | undefined)?.name !==
+            "ConditionalCheckFailedException" ||
+          attempt >= LOG_PUT_ATTEMPTS
+        ) {
+          throw error;
+        }
+        at = Math.floor(at) + 1;
       }
     }
-    await this.client.send(
-      new PutItemCommand({ TableName: this.tableName, Item: item }),
-    );
   }
 
   /**
@@ -973,7 +997,6 @@ function maxDefined(a: number | undefined, b: number | undefined) {
 /** An object read back from the cache bucket. */
 export interface CacheObject {
   body: string;
-  contentType: string | undefined;
 }
 
 /**
@@ -1001,7 +1024,6 @@ export class CacheBucket {
       }
       return {
         body: await response.Body.transformToString("utf-8"),
-        contentType: response.ContentType,
       };
     } catch (error) {
       if (error instanceof NoSuchKey) {

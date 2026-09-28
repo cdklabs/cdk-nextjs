@@ -42,7 +42,6 @@ export type MiddlewareHandler = (
 export interface MiddlewarePerRequest {
   readonly waitUntil?: (promise: Promise<unknown>) => void;
   readonly signal?: AbortSignal;
-  readonly requestMeta?: unknown;
 }
 
 export interface MiddlewareRunnerOptions {
@@ -74,7 +73,7 @@ export class MiddlewareRunner {
 
   /**
    * The `invokeMiddleware` callback for one request. Created per request because
-   * `waitUntil` / `signal` / `requestMeta` are per-request while the loaded
+   * `waitUntil` / `signal` are per-request while the loaded
    * handler is not.
    */
   public invokerFor(perRequest: MiddlewarePerRequest = {}): MiddlewareInvoker {

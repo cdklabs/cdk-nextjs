@@ -1,9 +1,13 @@
+import { Stack } from "aws-cdk-lib";
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import { Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { Function as LambdaFunction } from "aws-cdk-lib/aws-lambda";
+import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import {
   deployedFunctionGroups,
-  NextjsFunctionsConstructOverrides,
+  NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
@@ -25,7 +29,7 @@ import {
 } from "../nextjs-post-deploy";
 import { joinPath } from "../utils/base-path";
 
-export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
+export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
   readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
@@ -95,25 +99,59 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     super(scope, id, props, NextjsType.GLOBAL_FUNCTIONS);
     this.props = props;
 
-    this.nextjsFunctions = this.createNextjsFunctions(
-      this.props.overrides?.nextjsFunctions,
-    );
+    this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsDistribution = this.createNextjsDistribution();
     // Every group, not just the default one: `revalidateTag`/`revalidatePath` can
     // be called from any route handler, so any function may need to invalidate.
     const functions = this.nextjsFunctions.functionGroups.map(
       (group) => group.function,
     );
-    const environment = this.wireCloudFrontInvalidation(
-      // A `new Function` always has a role; only imported ones lack it.
-      functions.map((fn) => fn.role!),
-      this.nextjsDistribution.distribution,
-      true,
-    );
-    for (const [name, value] of Object.entries(environment)) {
-      functions.forEach((fn) => fn.addEnvironment(name, value));
-    }
+    this.wireCloudFrontInvalidation(functions);
     this.nextjsPostDeploy = this.createNextjsPostDeploy();
+  }
+
+  /**
+   * Lets `functions` invalidate the distribution, so on-demand revalidation
+   * (revalidateTag/revalidatePath) can evict stale responses from the CDN edge
+   * cache, not just the origin's S3/DynamoDB cache.
+   *
+   * The distribution's origin is the functions' URL, so a function naming the
+   * distribution back — in its environment, or in its role's default policy,
+   * which a function depends on — would be a circular CloudFormation
+   * dependency. So the ID is published to an SSM Parameter whose *name* is
+   * static, and the grants go in a separate policy that depends on the
+   * distribution while no function depends on it.
+   */
+  private wireCloudFrontInvalidation(functions: LambdaFunction[]) {
+    const { distribution } = this.nextjsDistribution;
+    const parameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
+    new StringParameter(this, "DistributionIdParameter", {
+      parameterName,
+      stringValue: distribution.distributionId,
+    });
+    new Policy(this, "InvalidationPolicy", {
+      // A `new Function` always has a role; only imported ones lack it.
+      roles: functions.map((fn) => fn.role!),
+      statements: [
+        new PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [
+            Stack.of(this).formatArn({
+              service: "ssm",
+              resource: "parameter",
+              resourceName: parameterName,
+            }),
+          ],
+        }),
+        new PolicyStatement({
+          actions: ["cloudfront:CreateInvalidation"],
+          resources: [distribution.distributionArn],
+        }),
+      ],
+    });
+    functions.forEach((fn) =>
+      fn.addEnvironment("CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME", parameterName),
+    );
   }
 
   private createNextjsDistribution() {

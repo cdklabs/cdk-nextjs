@@ -11,6 +11,7 @@
  */
 import { AdapterManifest } from "./manifest";
 import { withoutPathPrefix } from "./util";
+import { hasPathPrefix } from "../utils/base-path";
 
 /**
  * `pathname` (as requested, percent-encoded) respelled with the static segments
@@ -30,7 +31,7 @@ export function caseCanonicalPath(
   let rest = pathname;
   let prefix = "";
   if (basePath) {
-    if (!startsWithSegment(rest.toLowerCase(), basePath.toLowerCase())) {
+    if (!hasPathPrefix(rest.toLowerCase(), basePath.toLowerCase())) {
       return undefined;
     }
     prefix = basePath;
@@ -79,10 +80,6 @@ function finish(
 
 function segments(path: string): string[] {
   return path.split("/").filter(Boolean);
-}
-
-function startsWithSegment(path: string, prefix: string): boolean {
-  return path === prefix || path.startsWith(`${prefix}/`);
 }
 
 function safeDecode(segment: string): string | undefined {

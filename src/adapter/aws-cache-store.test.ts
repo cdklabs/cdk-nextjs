@@ -254,7 +254,37 @@ describe("RevalidationLog", () => {
         staleAt: { N: "5" },
         expiredAt: { N: "6" },
       },
+      ConditionExpression: "attribute_not_exists(sk)",
     });
+  });
+
+  it("moves a row to the next millisecond rather than overwrite another revalidation", async () => {
+    // `updateTag('x')` and `revalidateTag('x', 'max')` in one millisecond.
+    const taken = Object.assign(new Error("taken"), {
+      name: "ConditionalCheckFailedException",
+    });
+    send.mockRejectedValueOnce(taken).mockResolvedValueOnce({});
+    await log.put("x", 1000.5, { revalidatedAt: 5 });
+    expect(
+      send.mock.calls.map(
+        ([command]) => commandInput(command, PutItemCommand).Item.sk.S,
+      ),
+    ).toEqual(["000000000001000#x", "000000000001001#x"]);
+  });
+
+  it("gives up after a bounded number of collisions, and on other errors at once", async () => {
+    const taken = Object.assign(new Error("taken"), {
+      name: "ConditionalCheckFailedException",
+    });
+    send.mockRejectedValue(taken);
+    await expect(log.put("x", 1000, {})).rejects.toBe(taken);
+    expect(send).toHaveBeenCalledTimes(5);
+
+    send.mockReset();
+    const throttled = new Error("throttled");
+    send.mockRejectedValue(throttled);
+    await expect(log.put("x", 1000, {})).rejects.toBe(throttled);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("queries from a zero-padded cursor and parses the tag after it", async () => {
@@ -325,10 +355,7 @@ describe("CacheBucket", () => {
       Body: { transformToString: jest.fn().mockResolvedValue("{}") },
       ContentType: "application/json",
     });
-    expect(await bucket.get("k")).toEqual({
-      body: "{}",
-      contentType: "application/json",
-    });
+    expect(await bucket.get("k")).toEqual({ body: "{}" });
     expect(commandInput(send.mock.calls[0][0], GetObjectCommand)).toEqual({
       Bucket: "bkt",
       Key: "k",

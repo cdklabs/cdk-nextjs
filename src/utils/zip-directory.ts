@@ -93,19 +93,38 @@ export function zipDirectory(dir: string): Buffer {
   };
   walk("");
 
-  // No Zip64: Lambda's 250 MB unzipped cap keeps a deployment root well
-  // inside both of these, so hitting one means something else went wrong.
-  if (count > 0xffff || offset > 0xffffffff) {
+  // Zip64 only for the entry count: a pnpm root reaches 65,535 files,
+  // directories and links well inside Lambda's 250 MB unzipped cap, but that
+  // cap keeps every size and offset inside 32 bits.
+  if (offset > 0xffffffff) {
     throw new Error(
-      `${dir} has ${count} entries totalling ${offset} bytes, too many to zip without Zip64.`,
+      `${dir} zips to ${offset} bytes, over the 4 GiB a zip without Zip64 offsets can hold.`,
     );
   }
   const centralSize = central.reduce((sum, chunk) => sum + chunk.length, 0);
+  const zip64: Buffer[] = [];
+  if (count > 0xffff) {
+    const record = Buffer.alloc(56);
+    record.writeUInt32LE(0x06064b50, 0);
+    record.writeBigUInt64LE(BigInt(44), 4);
+    record.writeUInt16LE(0x032d, 12);
+    record.writeUInt16LE(45, 14);
+    record.writeBigUInt64LE(BigInt(count), 24);
+    record.writeBigUInt64LE(BigInt(count), 32);
+    record.writeBigUInt64LE(BigInt(centralSize), 40);
+    record.writeBigUInt64LE(BigInt(offset), 48);
+    const locator = Buffer.alloc(20);
+    locator.writeUInt32LE(0x07064b50, 0);
+    locator.writeBigUInt64LE(BigInt(offset + centralSize), 8);
+    locator.writeUInt32LE(1, 16);
+    zip64.push(record, locator);
+  }
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(count, 8);
-  end.writeUInt16LE(count, 10);
+  // 0xffff defers to the Zip64 record.
+  end.writeUInt16LE(Math.min(count, 0xffff), 8);
+  end.writeUInt16LE(Math.min(count, 0xffff), 10);
   end.writeUInt32LE(centralSize, 12);
   end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...chunks, ...central, end]);
+  return Buffer.concat([...chunks, ...central, ...zip64, end]);
 }
