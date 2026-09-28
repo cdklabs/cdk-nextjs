@@ -4834,73 +4834,6 @@ public readonly routes: string[];
 
 ---
 
-### NextjsFunctionsConstructOverrides <a name="NextjsFunctionsConstructOverrides" id="cdk-nextjs.NextjsFunctionsConstructOverrides"></a>
-
-Adds the overrides that only apply to the two Functions `NextjsType`s.
-
-The
-Containers types have no Lambda functions to configure, so they would silently
-ignore these.
-
-#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsFunctionsConstructOverrides.Initializer"></a>
-
-```typescript
-import { NextjsFunctionsConstructOverrides } from 'cdk-nextjs'
-
-const nextjsFunctionsConstructOverrides: NextjsFunctionsConstructOverrides = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps">OptionalNextjsFunctionsProps</a></code> | *No description.* |
-
----
-
-##### `nextjsBuildProps`<sup>Optional</sup> <a name="nextjsBuildProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsBuildProps"></a>
-
-```typescript
-public readonly nextjsBuildProps: OptionalNextjsBuildProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a>
-
----
-
-##### `nextjsCacheProps`<sup>Optional</sup> <a name="nextjsCacheProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsCacheProps"></a>
-
-```typescript
-public readonly nextjsCacheProps: OptionalNextjsCacheProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a>
-
----
-
-##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
-
-```typescript
-public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
-
----
-
-##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
-
-```typescript
-public readonly nextjsFunctionsProps: OptionalNextjsFunctionsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalNextjsFunctionsProps">OptionalNextjsFunctionsProps</a>
-
----
-
 ### NextjsFunctionsOverrides <a name="NextjsFunctionsOverrides" id="cdk-nextjs.NextjsFunctionsOverrides"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsFunctionsOverrides.Initializer"></a>
@@ -5590,7 +5523,6 @@ const nextjsGlobalFunctionsConstructOverrides: NextjsGlobalFunctionsConstructOve
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps">OptionalNextjsFunctionsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
 
@@ -5623,16 +5555,6 @@ public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
-
----
-
-##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
-
-```typescript
-public readonly nextjsFunctionsProps: OptionalNextjsFunctionsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalNextjsFunctionsProps">OptionalNextjsFunctionsProps</a>
 
 ---
 
@@ -6639,7 +6561,6 @@ const nextjsRegionalFunctionsConstructOverrides: NextjsRegionalFunctionsConstruc
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFunctionsProps">nextjsFunctionsProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps">OptionalNextjsFunctionsProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsApiProps">nextjsApiProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsApiProps">OptionalNextjsApiProps</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
 
@@ -6672,16 +6593,6 @@ public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
 ```
 
 - *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
-
----
-
-##### `nextjsFunctionsProps`<sup>Optional</sup> <a name="nextjsFunctionsProps" id="cdk-nextjs.NextjsRegionalFunctionsConstructOverrides.property.nextjsFunctionsProps"></a>
-
-```typescript
-public readonly nextjsFunctionsProps: OptionalNextjsFunctionsProps;
-```
-
-- *Type:* <a href="#cdk-nextjs.OptionalNextjsFunctionsProps">OptionalNextjsFunctionsProps</a>
 
 ---
 
@@ -10467,7 +10378,6 @@ const optionalNextjsApiProps: OptionalNextjsApiProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.basePath">basePath</a></code> | <code>string</code> | Optional base path for the application. |
-| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsApiFunctionGroup">NextjsApiFunctionGroup</a>[]</code> | The non-`default` function groups, each needing its own resources so the routes it was packaged with reach it rather than {@link serverFunction}. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add resources to API Gateway REST API for public directory to go directly to S3. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.redeployAfterUpdate">redeployAfterUpdate</a></code> | <code>boolean</code> | Deploy the stage again once each stack update has finished, so it serves the API as it is after the update. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
@@ -10486,19 +10396,6 @@ public readonly basePath: string;
 - *Type:* string
 
 Optional base path for the application.
-
----
-
-##### `functionGroups`<sup>Optional</sup> <a name="functionGroups" id="cdk-nextjs.OptionalNextjsApiProps.property.functionGroups"></a>
-
-```typescript
-public readonly functionGroups: NextjsApiFunctionGroup[];
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsApiFunctionGroup">NextjsApiFunctionGroup</a>[]
-- *Default:* no splitting; `{proxy+}` serves every dynamic route
-
-The non-`default` function groups, each needing its own resources so the routes it was packaged with reach it rather than {@link serverFunction}.
 
 ---
 
@@ -10605,27 +10502,10 @@ const optionalNextjsBuildProps: OptionalNextjsBuildProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into every deployment root. |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | *No description.* |
-
----
-
-##### `architecture`<sup>Optional</sup> <a name="architecture" id="cdk-nextjs.OptionalNextjsBuildProps.property.architecture"></a>
-
-```typescript
-public readonly architecture: Architecture;
-```
-
-- *Type:* aws-cdk-lib.aws_lambda.Architecture
-- *Default:* the architecture of the machine running synth
-
-Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into every deployment root.
-
-Ignored by the Containers
-types, whose image is built for the synth machine.
 
 ---
 
@@ -10963,14 +10843,11 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionFunctionGroup">NextjsDistributionFunctionGroup</a>[]</code> | The non-`default` function groups, each needing its own behaviors so the routes it was packaged with reach it rather than the default function. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextBuildId">nextBuildId</a></code> | <code>string</code> | The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required when a function group sets `hasDataRoutes`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
-| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.trailingSlash">trailingSlash</a></code> | <code>boolean</code> | The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}. |
 
 ---
 
@@ -11053,19 +10930,6 @@ public readonly distribution: Distribution;
 
 ---
 
-##### `functionGroups`<sup>Optional</sup> <a name="functionGroups" id="cdk-nextjs.OptionalNextjsDistributionProps.property.functionGroups"></a>
-
-```typescript
-public readonly functionGroups: NextjsDistributionFunctionGroup[];
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsDistributionFunctionGroup">NextjsDistributionFunctionGroup</a>[]
-- *Default:* no splitting; the default behavior serves every dynamic route
-
-The non-`default` function groups, each needing its own behaviors so the routes it was packaged with reach it rather than the default function.
-
----
-
 ##### `functionUrl`<sup>Optional</sup> <a name="functionUrl" id="cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl"></a>
 
 ```typescript
@@ -11110,19 +10974,6 @@ your account. Lower it by the behaviors a supplied {@link distribution}
 
 ---
 
-##### `nextBuildId`<sup>Optional</sup> <a name="nextBuildId" id="cdk-nextjs.OptionalNextjsDistributionProps.property.nextBuildId"></a>
-
-```typescript
-public readonly nextBuildId: string;
-```
-
-- *Type:* string
-- *Default:* none; only needed for a split Pages Router app
-
-The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required when a function group sets `hasDataRoutes`.
-
----
-
 ##### `nextjsType`<sup>Optional</sup> <a name="nextjsType" id="cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType"></a>
 
 ```typescript
@@ -11142,114 +10993,6 @@ public readonly publicDirEntries: PublicDirEntry[];
 - *Type:* <a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]
 
 Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
-
----
-
-##### `trailingSlash`<sup>Optional</sup> <a name="trailingSlash" id="cdk-nextjs.OptionalNextjsDistributionProps.property.trailingSlash"></a>
-
-```typescript
-public readonly trailingSlash: boolean;
-```
-
-- *Type:* boolean
-- *Default:* false
-
-The app's `next.config` `trailingSlash`. A `trailingSlash` app links to `/pricing/`, which an exact group pattern of `pricing` does not match, so each one needs a slash variant. Ignored without {@link functionGroups}.
-
----
-
-### OptionalNextjsFunctionsProps <a name="OptionalNextjsFunctionsProps" id="cdk-nextjs.OptionalNextjsFunctionsProps"></a>
-
-OptionalNextjsFunctionsProps.
-
-#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalNextjsFunctionsProps.Initializer"></a>
-
-```typescript
-import { OptionalNextjsFunctionsProps } from 'cdk-nextjs'
-
-const optionalNextjsFunctionsProps: OptionalNextjsFunctionsProps = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
-| <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
-| <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
-| <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
-| <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`. |
-| <code><a href="#cdk-nextjs.OptionalNextjsFunctionsProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys. |
-
----
-
-##### `buildId`<sup>Optional</sup> <a name="buildId" id="cdk-nextjs.OptionalNextjsFunctionsProps.property.buildId"></a>
-
-```typescript
-public readonly buildId: string;
-```
-
-- *Type:* string
-
-Build ID for cache key prefixing.
-
----
-
-##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.OptionalNextjsFunctionsProps.property.cacheBucket"></a>
-
-```typescript
-public readonly cacheBucket: IBucket;
-```
-
-- *Type:* aws-cdk-lib.aws_s3.IBucket
-
-S3 bucket for cache storage.
-
----
-
-##### `nextjsType`<sup>Optional</sup> <a name="nextjsType" id="cdk-nextjs.OptionalNextjsFunctionsProps.property.nextjsType"></a>
-
-```typescript
-public readonly nextjsType: NextjsType;
-```
-
-- *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
-
----
-
-##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.OptionalNextjsFunctionsProps.property.revalidationTable"></a>
-
-```typescript
-public readonly revalidationTable: ITableV2;
-```
-
-- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
-
-DynamoDB table for revalidation metadata.
-
----
-
-##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.OptionalNextjsFunctionsProps.property.staticAssetsBucket"></a>
-
-```typescript
-public readonly staticAssetsBucket: IBucket;
-```
-
-- *Type:* aws-cdk-lib.aws_s3.IBucket
-
-S3 bucket holding `.next/static` and `public`. Both deployment styles need it: the runtime's image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and on every type but `NextjsRegionalContainers` so does a rewrite that lands on a `public/` file. Read access is scoped to `staticAssetsKeyPrefix`.
-
----
-
-##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.OptionalNextjsFunctionsProps.property.staticAssetsKeyPrefix"></a>
-
-```typescript
-public readonly staticAssetsKeyPrefix: string;
-```
-
-- *Type:* string
-
-Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys.
 
 ---
 
