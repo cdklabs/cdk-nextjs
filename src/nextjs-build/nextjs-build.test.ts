@@ -254,6 +254,39 @@ describe("NextjsBuild with a build split by other functionGroups", () => {
         }),
     ).toThrow(/build output is\s+stale/);
   });
+
+  it("accepts a build whose groups and routes were only listed in another order", () => {
+    // Only the stale check is under test: past it, the unstaged roots throw.
+    write(join(dir, ".next", "BUILD_ID"), "b1");
+    write(
+      join(dir, ".next", "cdk-nextjs-adapter", "manifest.json"),
+      JSON.stringify({
+        version: 1,
+        buildId: "b1",
+        relativeProjectDir: "",
+        config: { basePath: "", assetPrefix: "", trailingSlash: false },
+        entrypoints: {},
+        groups: { default: [], api: [], docs: [] },
+        functionGroups: [
+          { name: "api", routes: ["/api/**", "/reports/**"] },
+          { name: "docs", routes: ["/docs/**"] },
+        ],
+      }),
+    );
+    expect(
+      () =>
+        new NextjsBuild(new Stack(new App(), "Stack"), "Build", {
+          buildCommand: "true",
+          buildDirectory: dir,
+          nextjsType: NextjsType.REGIONAL_FUNCTIONS,
+          skipBuild: true,
+          functionGroups: [
+            { name: "docs", routes: ["/docs/**"] },
+            { name: "api", routes: ["/reports/**", "/api/**"] },
+          ],
+        }),
+    ).not.toThrow(/stale/);
+  });
 });
 
 describe("deploymentArchitecture", () => {

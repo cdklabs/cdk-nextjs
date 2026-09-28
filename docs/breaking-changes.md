@@ -348,9 +348,13 @@ The Containers types are unaffected: their origin sees the viewer's `Host`.
   `CDK_NEXTJS_DISTRIBUTION_ID`, and its `cloudfront:CreateInvalidation` grant
   names that distribution instead of `distribution/*`. The
   `cdk-nextjs-distribution-id-*` SSM parameter and the task's
-  `ssm:GetParameter` grant are gone. `NextjsGlobalFunctions` keeps both: its
-  distribution depends on the function, so the function can't name it back.
-- **`NextjsGlobalFunctions`**: CloudFront's `lambda:InvokeFunction` permission
+  `ssm:GetParameter` grant are gone.
+- **`NextjsGlobalFunctions`**: its `cloudfront:CreateInvalidation` grant also
+  names the distribution instead of `distribution/*`. It keeps the SSM
+  parameter, since the distribution depends on the function and the function
+  can't name it back; both statements moved from each function role's default
+  policy into one `InvalidationPolicy` (`AWS::IAM::Policy`) attached to every
+  group's role. CloudFront's `lambda:InvokeFunction` permission
   on each function now has the distribution as its `SourceArn`, and moved from
   `NextjsFunctions` to `NextjsDistribution`. Wiring the two by hand, the
   distribution now adds it.

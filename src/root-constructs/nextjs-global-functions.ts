@@ -105,7 +105,8 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       (group) => group.function,
     );
     const environment = this.wireCloudFrontInvalidation(
-      functions,
+      // A `new Function` always has a role; only imported ones lack it.
+      functions.map((fn) => fn.role!),
       this.nextjsDistribution.distribution,
       true,
     );

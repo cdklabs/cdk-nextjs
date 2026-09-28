@@ -1,4 +1,6 @@
 /* eslint-disable import/no-extraneous-dependencies */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 // What `require.cache` holds in a running server. Jest's `createRequire` hands
 // out a cache of its own that nothing is ever loaded into, so the handler's
@@ -66,6 +68,17 @@ const mockSsmSend = jest.fn();
 describe("S3DynamoCacheHandler", () => {
   let handler: S3CacheHandler;
   let mockContext: CacheHandlerContext;
+  let distDir: string | undefined;
+
+  /** Stage `required-server-files.json` for an app with `basePath: "/base"`. */
+  const useBasePath = () => {
+    distDir = mkdtempSync(join(tmpdir(), "s3-cache-handler-"));
+    writeFileSync(
+      join(distDir, "required-server-files.json"),
+      JSON.stringify({ config: { basePath: "/base" } }),
+    );
+    mockContext.serverDistDir = join(distDir, "server");
+  };
 
   // Helper to create set context with tags
   const createSetContext = (tags: string[]) => ({
@@ -157,7 +170,10 @@ describe("S3DynamoCacheHandler", () => {
     delete process.env.AWS_REGION;
     delete process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME;
     delete process.env.CDK_NEXTJS_DISTRIBUTION_ID;
-    delete process.env.CDK_NEXTJS_BASE_PATH;
+    if (distDir) {
+      rmSync(distDir, { recursive: true, force: true });
+      distDir = undefined;
+    }
 
     // Restore console.warn
     jest.restoreAllMocks();
@@ -1264,9 +1280,7 @@ describe("S3DynamoCacheHandler", () => {
       // matches nothing at the edge, so the stale page survives until
       // `s-maxage` expires.
       process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
-      // The bare segment the constructs pass, to pin that the runtime adds the
-      // leading slash rather than requiring one.
-      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      useBasePath();
       const handlerWithBasePath = new S3CacheHandler({
         context: mockContext,
       });
@@ -1308,7 +1322,7 @@ describe("S3DynamoCacheHandler", () => {
 
     it("adds the basePath to a revalidatePath tag's path too", async () => {
       process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
-      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      useBasePath();
       const handlerWithBasePath = new S3CacheHandler({
         context: mockContext,
       });
@@ -1558,14 +1572,14 @@ describe("S3DynamoCacheHandler", () => {
 
     it("collapses to the whole app under a basePath, its root included", async () => {
       // Not `/base*`, which would also invalidate a sibling app at `/base2`.
-      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      useBasePath();
       await withDistribution(pages("test-tag", 16)).revalidateTag("test-tag");
 
       expect(invalidations()).toEqual([["/base", "/base?*", "/base/*"]]);
     });
 
     it("invalidates the whole app under a basePath when a tag's rows cannot be read", async () => {
-      process.env.CDK_NEXTJS_BASE_PATH = "base";
+      useBasePath();
       jest.spyOn(console, "error").mockImplementation();
       const cdnHandler = withDistribution({ Items: [] });
       mockDynamoSend.mockImplementation((command: unknown) =>
@@ -1792,7 +1806,7 @@ describe("S3DynamoCacheHandler", () => {
       it("retries the app's root under a basePath too", async () => {
         // `/base/*` matches neither `/base` nor `/base?_rsc=…`: retrying
         // `revalidatePath("/")` as that left the home page stale at the edge.
-        process.env.CDK_NEXTJS_BASE_PATH = "base";
+        useBasePath();
         const cdnHandler = withDistribution({ Items: [] });
         mockCloudFrontSend
           .mockRejectedValueOnce(quotaError())

@@ -45,15 +45,21 @@ printf '%s\n' "$STACK_NAME" >"$HARNESS_STACK_FILE"
 echo "harness: app=$APP_DIR stack=$STACK_NAME"
 
 # A previous file's deploy that outran its per-file timeout was killed here, but
-# its CloudFormation operation keeps going server-side. Deploying over it would
-# fail or interleave two fixtures, so wait for it to settle first. Bounded at 30
-# minutes; the status checks below and `cdk deploy` itself report what is left.
+# its `cdk deploy` can outlive it (a hotswap runs in that process, invisible to
+# CloudFormation), and a full update keeps going server-side. Deploying over
+# either would fail or interleave two fixtures, so wait for both to settle.
+# Bounded at 30 minutes; the status checks below and `cdk deploy` itself report
+# what is left.
 for _ in $(seq 1 120); do
-  STACK_STATUS="$(harness_stack_status "$STACK_NAME")" || break
-  case "$STACK_STATUS" in
-    *_IN_PROGRESS) echo "harness: $STACK_NAME is $STACK_STATUS; waiting" ;;
-    *) break ;;
-  esac
+  if pgrep -f -- "deploy $STACK_NAME --app" >/dev/null; then
+    echo "harness: an earlier cdk deploy of $STACK_NAME is still running; waiting"
+  else
+    STACK_STATUS="$(harness_stack_status "$STACK_NAME")" || break
+    case "$STACK_STATUS" in
+      *_IN_PROGRESS) echo "harness: $STACK_NAME is $STACK_STATUS; waiting" ;;
+      *) break ;;
+    esac
+  fi
   sleep 15
 done
 

@@ -269,8 +269,10 @@ function stageDeployment(
   write(join(root, manifest.middleware!.filePath), middlewareSource);
 
   write(join(root, manifest.staticFiles["/favicon.ico"]), FAVICON);
-  write(join(root, manifest.staticFiles["/404"]), NOT_FOUND_HTML);
-  // Absent in the deployment the error-page ladder tests stage.
+  // Absent in the deployments the Pages 404 and error-page ladder tests stage.
+  if (manifest.staticFiles["/404"]) {
+    write(join(root, manifest.staticFiles["/404"]), NOT_FOUND_HTML);
+  }
   if (manifest.staticFiles["/500"]) {
     write(join(root, manifest.staticFiles["/500"]), ERROR_HTML);
   }
@@ -1134,6 +1136,119 @@ describe("the error page ladder", () => {
     expect(sink.head?.statusCode).toBe(500);
     expect(sink.body.toString("utf-8")).toBe("Internal Server Error");
     error.mockRestore();
+  });
+});
+
+describe("a Pages Router 404", () => {
+  /** The fixture is App Router: without `/_not-found`, a 404 is the Pages one. */
+  const withoutNotFound = (manifest: AdapterManifest): AdapterManifest => {
+    const { "/_not-found": _appRouter, ...entrypoints } = manifest.entrypoints;
+    return { ...manifest, entrypoints };
+  };
+
+  async function sendTo(
+    pages: NextjsRuntime,
+    url: string,
+  ): Promise<CollectingSink> {
+    const sink = new CollectingSink();
+    await pages.handle(
+      { method: "GET", url, headers: { host: "shop.example.test" } },
+      sink,
+    );
+    return sink;
+  }
+
+  it("serves the prerendered 404.html for an unknown path and for render404()", async () => {
+    const pages = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, withoutNotFound),
+    );
+    for (const url of ["/nope", "/?render404=1"]) {
+      const sink = await sendTo(pages, url);
+      expect(sink.head?.statusCode).toBe(404);
+      expect(sink.head?.headers["content-type"]).toBe(
+        "text/html; charset=utf-8",
+      );
+      expect(sink.body.toString("utf-8")).toBe(NOT_FOUND_HTML);
+    }
+  });
+
+  it("renders a pages/404 entrypoint for the path that was asked for", async () => {
+    // What a `getInitialProps` in `pages/_app` makes of `pages/404.js`.
+    const pages = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, (manifest) => {
+        const withoutApp = withoutNotFound(manifest);
+        return {
+          ...withoutApp,
+          entrypoints: {
+            ...withoutApp.entrypoints,
+            "/404": {
+              ...manifest.entrypoints["/_not-found"],
+              id: "/404",
+              filePath: join(
+                manifest.relativeProjectDir,
+                ".next/server/pages/404.js",
+              ),
+            },
+          },
+        };
+      }),
+    );
+    const sink = await sendTo(pages, "/nope?q=1");
+    expect(sink.head?.statusCode).toBe(404);
+    expect(stubBody(sink).file).toContain("pages/404.js");
+    expect(stubBody(sink).url).toBe("/nope?q=1");
+  });
+
+  it("answers plain text when the app has no 404 page at all", async () => {
+    const bare = await loadRuntime(
+      stageDeployment(MIDDLEWARE_STUB, (manifest) => {
+        const { "/404": _prerendered, ...staticFiles } = manifest.staticFiles;
+        return { ...withoutNotFound(manifest), staticFiles };
+      }),
+    );
+    const sink = await sendTo(bare, "/?render404=1");
+    expect(sink.head?.statusCode).toBe(404);
+    expect(sink.body.toString("utf-8")).toBe("This page could not be found.");
+  });
+});
+
+describe("/_next/image with images turned off", () => {
+  it("answers the app's 404, no-store, instead of optimizing", async () => {
+    // `images.unoptimized`, as `next start` reads it from
+    // `required-server-files.json`.
+    const staged = stageDeployment();
+    const manifest: AdapterManifest = JSON.parse(
+      readFileSync(deployedManifestPath(staged), "utf-8"),
+    );
+    write(
+      join(
+        staged,
+        manifest.relativeProjectDir,
+        ".next/required-server-files.json",
+      ),
+      JSON.stringify({
+        version: 1,
+        config: { experimental: {}, images: { unoptimized: true } },
+      }),
+    );
+    const unoptimized = await loadRuntime(staged);
+    const sink = new CollectingSink();
+    await unoptimized.handle(
+      {
+        method: "GET",
+        url: "/_next/image?url=%2Ffavicon.ico&w=64&q=75",
+        headers: { host: "shop.example.test" },
+      },
+      sink,
+    );
+    expect(sink.head?.statusCode).toBe(404);
+    expect(sink.head?.headers["cache-control"]).toBe(
+      "private, no-cache, no-store, max-age=0, must-revalidate",
+    );
+    expect(stubBody(sink).file).toContain("_not-found/page.js");
+    expect(stubBody(sink).url).toBe(
+      "/_next/image?url=%2Ffavicon.ico&w=64&q=75",
+    );
   });
 });
 

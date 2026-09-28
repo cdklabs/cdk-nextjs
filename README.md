@@ -239,8 +239,7 @@ entries are evicted first.
 
 ### Infrastructure Configuration
 
-The construct sets these itself (`CDK_NEXTJS_BASE_PATH` only where noted) and they
-typically don't need to be modified:
+The construct sets these itself and they typically don't need to be modified:
 
 #### `CDK_NEXTJS_BUILD_ID`
 
@@ -253,14 +252,6 @@ S3 bucket name for storing cached data (optimized images, data cache, full route
 #### `CDK_NEXTJS_REVALIDATION_TABLE_NAME`
 
 DynamoDB table name for tracking cache revalidations and tag-to-cache-key mappings.
-
-#### `CDK_NEXTJS_BASE_PATH`
-
-Your app's `basePath`, set only on the CloudFront-fronted constructs
-(`NextjsGlobalFunctions`, `NextjsGlobalContainers`) and only when the app has
-one. `revalidateTag`/`revalidatePath` invalidate the CDN by route — Next.js
-strips `basePath` before routing, so the cache handler never sees it — and this
-adds it back to reach the URI CloudFront actually cached.
 
 #### `DEBUG`
 

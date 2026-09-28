@@ -241,6 +241,34 @@ describe("NextjsGlobalFunctions", () => {
         distributionId,
       );
     }
+    // Invalidation is scoped to this distribution, in one policy of its own
+    // on every group: the functions' default policies naming it would be a
+    // cycle through the Function URL origin, which `Template.fromStack` above
+    // rejects as undeployable.
+    const roleIds = Object.values(groups).map(
+      (id) => template.toJSON().Resources[id].Properties.Role["Fn::GetAtt"][0],
+    );
+    const invalidation = Object.values(
+      template.findResources("AWS::IAM::Policy"),
+    ).filter((policy) =>
+      policy.Properties.PolicyDocument.Statement.some(
+        (statement: any) =>
+          statement.Action === "cloudfront:CreateInvalidation" &&
+          policy.Properties.Roles.some((role: any) =>
+            roleIds.includes(role.Ref),
+          ),
+      ),
+    );
+    expect(invalidation).toHaveLength(1);
+    const [policy] = invalidation;
+    expect(policy.Properties.Roles.map((role: any) => role.Ref).sort()).toEqual(
+      roleIds.sort(),
+    );
+    const { Resource } = policy.Properties.PolicyDocument.Statement.find(
+      (statement: any) => statement.Action === "cloudfront:CreateInvalidation",
+    );
+    expect(JSON.stringify(Resource)).toContain(distributionId);
+    expect(JSON.stringify(Resource)).not.toContain("distribution/*");
   });
 
   describe("architecture", () => {

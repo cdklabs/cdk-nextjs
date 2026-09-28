@@ -2,7 +2,7 @@ import { Stack, Token } from "aws-cdk-lib";
 import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
-import { Grant, IGrantable } from "aws-cdk-lib/aws-iam";
+import { IRole, Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
@@ -393,75 +393,54 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * Lets `grantees` invalidate `distribution`, so on-demand revalidation
+   * Lets `roles` invalidate `distribution`, so on-demand revalidation
    * (revalidateTag/revalidatePath) can evict stale responses from the CDN edge
    * cache, not just the origin's S3/DynamoDB cache. Returns the environment
    * the cache handler finds the distribution through.
    *
-   * With `viaSsmParameter` (`NextjsGlobalFunctions`), the ID is published to an
-   * SSM Parameter whose *name* is static, and the grant covers every
-   * distribution in the account: the distribution's origin is the function's
-   * URL, so the function's environment or role naming the distribution back
-   * would be a circular CloudFormation dependency. The Containers' origin is
-   * the ALB, which the task doesn't depend on, so they get the ID itself and a
-   * grant on that one distribution.
+   * With `viaSsmParameter` (`NextjsGlobalFunctions`), the distribution's origin
+   * is the function's URL, so the function naming the distribution back —
+   * in its environment, or in its role's default policy, which a function
+   * depends on — would be a circular CloudFormation dependency. So the ID is
+   * published to an SSM Parameter whose *name* is static, and the grants go in
+   * a separate policy that depends on the distribution while no function
+   * depends on it. The Containers' origin is the ALB, which the task doesn't
+   * depend on, so they get the ID itself.
    */
   protected wireCloudFrontInvalidation(
-    grantees: IGrantable[],
+    roles: IRole[],
     distribution: IDistribution,
     viaSsmParameter: boolean,
   ): Record<string, string> {
-    // Paired with the ID because invalidation is the only thing that needs it:
-    // the paths the cache handler derives are routes, and CloudFront cached
-    // them under `basePath`. Set only when there is one, so apps without a
-    // `basePath` see no environment change.
-    const environment: Record<string, string> = this.resolvedBasePath
-      ? { CDK_NEXTJS_BASE_PATH: this.resolvedBasePath }
-      : {};
     if (!viaSsmParameter) {
-      grantees.forEach((grantee) =>
-        distribution.grantCreateInvalidation(grantee),
-      );
-      return {
-        ...environment,
-        CDK_NEXTJS_DISTRIBUTION_ID: distribution.distributionId,
-      };
+      roles.forEach((role) => distribution.grantCreateInvalidation(role));
+      return { CDK_NEXTJS_DISTRIBUTION_ID: distribution.distributionId };
     }
-    const stack = Stack.of(this);
     const parameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
     new StringParameter(this, "DistributionIdParameter", {
       parameterName,
       stringValue: distribution.distributionId,
     });
-    for (const grantee of grantees) {
-      Grant.addToPrincipal({
-        grantee,
-        actions: ["ssm:GetParameter"],
-        resourceArns: [
-          stack.formatArn({
-            service: "ssm",
-            resource: "parameter",
-            resourceName: parameterName,
-          }),
-        ],
-      });
-      Grant.addToPrincipal({
-        grantee,
-        actions: ["cloudfront:CreateInvalidation"],
-        resourceArns: [
-          stack.formatArn({
-            service: "cloudfront",
-            region: "",
-            resource: "distribution",
-            resourceName: "*",
-          }),
-        ],
-      });
-    }
-    return {
-      ...environment,
-      CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME: parameterName,
-    };
+    new Policy(this, "InvalidationPolicy", {
+      roles,
+      statements: [
+        new PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [
+            Stack.of(this).formatArn({
+              service: "ssm",
+              resource: "parameter",
+              resourceName: parameterName,
+            }),
+          ],
+        }),
+        new PolicyStatement({
+          actions: ["cloudfront:CreateInvalidation"],
+          resources: [distribution.distributionArn],
+        }),
+      ],
+    });
+    return { CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME: parameterName };
   }
 
   /**

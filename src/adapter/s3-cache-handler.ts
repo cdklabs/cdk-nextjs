@@ -3,6 +3,7 @@
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
@@ -187,6 +188,24 @@ function cdnInvalidationPaths(route: string, basePath: string): string[] {
 }
 
 /**
+ * The app's `basePath`, from the `required-server-files.json` every deployment
+ * root stages next to `serverDistDir`: Next.js hands the cache handler no
+ * other copy.
+ */
+function appBasePath(serverDistDir: string | undefined): string | undefined {
+  if (!serverDistDir) {
+    return undefined;
+  }
+  try {
+    const file = join(serverDistDir, "..", "required-server-files.json");
+    return JSON.parse(readFileSync(file, "utf8")).config?.basePath;
+  } catch (error) {
+    console.warn("Could not read basePath for CDN invalidation:", error);
+    return undefined;
+  }
+}
+
+/**
  * Invalidation paths covering every URI of the app: what an oversized batch, a
  * retry after a quota error, and a tag whose routes could not all be named fall
  * back to.
@@ -367,7 +386,7 @@ interface CloudFrontInvalidationConfig {
   region: string;
   /**
    * The app's `basePath`, as the URI prefix CloudFront cached the responses
-   * under. Only the Global `NextjsType`s set it, and only when the app has one.
+   * under. Read from `required-server-files.json` unless set here.
    * @see cdnInvalidationPaths
    */
   basePath: string;
@@ -450,10 +469,18 @@ export class S3CacheHandler implements CacheHandler {
         options.cloudFrontConfig?.region ||
         process.env.AWS_REGION ||
         "us-east-1",
-      basePath: basePathPrefix(
-        options.cloudFrontConfig?.basePath || process.env.CDK_NEXTJS_BASE_PATH,
-      ),
+      basePath: basePathPrefix(options.cloudFrontConfig?.basePath),
     };
+    // Only invalidation needs it, so only a handler behind a distribution reads
+    // it, and a missing file there is worth a warning.
+    if (
+      this.invalidatesCdn &&
+      options.cloudFrontConfig?.basePath === undefined
+    ) {
+      this.cloudFrontConfig.basePath = basePathPrefix(
+        appBasePath(options.context.serverDistDir),
+      );
+    }
 
     // Initialize AWS clients
     this.s3Client = new S3Client({ region: this.s3Config.region });

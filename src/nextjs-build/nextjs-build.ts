@@ -372,13 +372,19 @@ export class NextjsBuild extends Construct {
 
     // Names *and* routes: moving `/reports/**` into an existing group keeps the
     // names and still leaves that group's zip without the reports entrypoints.
+    // Order is not: assignment and CloudFront behaviors both go most specific
+    // first, and no two distinct patterns tie on a URL (`function-groups.ts`),
+    // so reordering groups or routes is the same split.
     // Already validated in the constructor, so this is absent or non-empty.
     const wanted = this.props.functionGroups?.length
       ? toFunctionGroupSpecs(this.props.functionGroups)
       : undefined;
     const got = manifest.functionGroups;
 
-    if (JSON.stringify(wanted) !== JSON.stringify(got)) {
+    if (
+      JSON.stringify(sortedGroupSpecs(wanted)) !==
+      JSON.stringify(sortedGroupSpecs(got))
+    ) {
       throw new Error(
         `${LOG_PREFIX} \`functionGroups\` asks for ` +
           `${wanted ? JSON.stringify(wanted) : "no splitting"} but the build ` +
@@ -1056,6 +1062,15 @@ function toFunctionGroupSpecs(
   groups: NextjsFunctionGroupRoutes[],
 ): FunctionGroupSpec[] {
   return groups.map(({ name, routes }) => ({ name, routes }));
+}
+
+/** `groups` in a canonical order, for comparing two of them. */
+function sortedGroupSpecs(
+  groups: readonly FunctionGroupSpec[] | undefined,
+): FunctionGroupSpec[] | undefined {
+  return groups
+    ?.map(({ name, routes }) => ({ name, routes: [...routes].sort() }))
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
 }
 
 /**

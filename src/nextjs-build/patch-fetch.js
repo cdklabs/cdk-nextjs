@@ -83,9 +83,11 @@ const PATCHED = Symbol.for("cdk-nextjs:patch-fetch");
 const originalFetch = globalThis.fetch;
 
 async function signedFetch(input, init) {
-  if (!init) return originalFetch(input, init);
-
-  const method = init.method?.toUpperCase();
+  // A `Request` carries its own method, headers and body, which `init`
+  // overrides only where it sets them: `fetch(new Request(url, { method:
+  // "POST", body }))` has no `init` at all, and went out unsigned.
+  const request = input instanceof Request ? input : undefined;
+  const method = (init?.method ?? request?.method)?.toUpperCase();
   if (method !== "PUT" && method !== "POST") {
     return originalFetch(input, init);
   }
@@ -104,8 +106,13 @@ async function signedFetch(input, init) {
     return originalFetch(input, init);
   }
 
-  const headers = new Headers(init.headers);
-  const encoded = await encodeBody(init.body);
+  init = init ?? {};
+  const headers = new Headers(init.headers ?? request?.headers);
+  const encoded =
+    request && init.body == null
+      ? // Read from a clone, so the request's own body is still there to send.
+        { bytes: new Uint8Array(await request.clone().arrayBuffer()) }
+      : await encodeBody(init.body);
   if (encoded.contentType) headers.set("content-type", encoded.contentType);
   if (encoded.body !== init.body) init.body = encoded.body;
   const bodyBytes = encoded.bytes;

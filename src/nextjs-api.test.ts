@@ -79,6 +79,58 @@ describe("NextjsApi", () => {
     expect(s3IntegrationKeys()).toContain("branch-x/_next/static/{key}");
   });
 
+  /** The statements of the API Gateway → S3 integration role's policy. */
+  function staticIntegrationStatements() {
+    const policies = Template.fromStack(stack).findResources(
+      "AWS::IAM::Policy",
+      {
+        Properties: {
+          Roles: [{ Ref: Match.stringLikeRegexp("StaticIntegrationRole") }],
+        },
+      },
+    );
+    return Object.values(policies).flatMap(
+      (policy) => policy.Properties.PolicyDocument.Statement,
+    );
+  }
+
+  it("scopes the S3 integration role to the static assets key prefix", () => {
+    // A shared bucket holds other apps' assets under their own prefixes.
+    createApi("/branch-x/");
+
+    const bucketArn = {
+      "Fn::Join": ["", ["arn:", { Ref: "AWS::Partition" }, ":s3:::my-bucket"]],
+    };
+    expect(staticIntegrationStatements()).toEqual([
+      {
+        Action: "s3:GetObject",
+        Effect: "Allow",
+        Resource: {
+          "Fn::Join": [
+            "",
+            ["arn:", { Ref: "AWS::Partition" }, ":s3:::my-bucket/branch-x/*"],
+          ],
+        },
+      },
+      {
+        // Unconditioned: S3 checks it during a GetObject, with no `s3:prefix`.
+        Action: "s3:ListBucket",
+        Effect: "Allow",
+        Resource: bucketArn,
+      },
+    ]);
+  });
+
+  it("lets the S3 integration role read the whole bucket without a key prefix", () => {
+    createApi();
+
+    const statements = staticIntegrationStatements();
+    expect(statements).toHaveLength(2);
+    expect(statements[0].Resource["Fn::Join"][1]).toContain(
+      ":s3:::my-bucket/*",
+    );
+  });
+
   it("keeps the key prefix independent of basePath, which is the URL prefix", () => {
     // A NextjsRegionalFunctions app whose `basePath` matches the API Gateway
     // stage still has its assets at the bucket root.

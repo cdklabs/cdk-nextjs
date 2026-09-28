@@ -196,6 +196,45 @@ describe("patch-fetch", () => {
       );
     });
 
+    test("hashes a Request's own body when init is omitted", async () => {
+      const request = new Request("https://example.com/api", {
+        method: "POST",
+        body: "request body",
+        headers: { "content-type": "text/plain" },
+      });
+
+      await (global as any).window.fetch(request);
+
+      const [sentInput] = originalFetch.mock.calls[0];
+      expect(sentInput).toBe(request);
+      // The body was read from a clone, so the request still has it to send.
+      expect(await (sentInput as Request).text()).toBe("request body");
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(sha256("request body"));
+      // `init.headers` replaces the request's own, so they must carry over.
+      expect(headers.get("content-type")).toBe("text/plain");
+    });
+
+    test("hashes init's body over a Request's own when both are set", async () => {
+      const request = new Request("https://example.com/api", {
+        method: "POST",
+        body: "request body",
+      });
+
+      await (global as any).window.fetch(request, { body: "init body" });
+
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(sha256("init body"));
+    });
+
+    test("passes a GET Request through without hashing", async () => {
+      const request = new Request("https://example.com/api");
+
+      await (global as any).window.fetch(request);
+
+      expect(originalFetch).toHaveBeenCalledWith(request, undefined);
+    });
+
     test("passes through untouched when init is omitted", async () => {
       await (global as any).window.fetch("https://example.com/api");
 

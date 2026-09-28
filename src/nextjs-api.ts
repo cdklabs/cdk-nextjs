@@ -35,6 +35,7 @@ import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import { staticAssetsObjectsPattern } from "./nextjs-static-assets";
 import { joinPath, normalizeBasePath } from "./utils/base-path";
 
 /**
@@ -336,13 +337,23 @@ export class NextjsApi extends Construct {
       assumedBy: new ServicePrincipal("apigateway.amazonaws.com"),
     });
 
+    // Only this app's own objects: a shared bucket holds other apps' assets
+    // under their own prefixes. `s3:ListBucket` makes a missing key a 404 (the
+    // only error the integration maps) rather than a 403. It stays unconditioned:
+    // S3 checks it during a GetObject, where no `s3:prefix` is present, so a
+    // prefix condition would turn every missing key back into a 403.
     staticIntegrationRole.addToPolicy(
       new PolicyStatement({
-        actions: ["s3:GetObject", "s3:ListBucket"],
+        actions: ["s3:GetObject"],
         resources: [
-          this.props.staticAssetsBucket.bucketArn,
-          `${this.props.staticAssetsBucket.bucketArn}/*`,
+          `${this.props.staticAssetsBucket.bucketArn}/${staticAssetsObjectsPattern(this.props.staticAssetsKeyPrefix)}`,
         ],
+      }),
+    );
+    staticIntegrationRole.addToPolicy(
+      new PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [this.props.staticAssetsBucket.bucketArn],
       }),
     );
     return staticIntegrationRole;
