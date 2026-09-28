@@ -1000,9 +1000,7 @@ const DYNAMIC_CACHE_KEY: CacheKeyProps = {
     "next-router-state-tree", // App Router navigation state
     "next-router-prefetch", // prefetch behavior
     "next-router-segment-prefetch", // segment-level prefetching
-    "x-matched-path", // dynamic routes and rewrites
     "x-prerender-revalidate", // on-demand ISR revalidation
-    "x-next-cache-tags", // tag-based cache revalidation
     "x-prerender-bypass", // draft mode
     // "x-nextjs-stale-time", // stale-while-revalidate behavior
     // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)

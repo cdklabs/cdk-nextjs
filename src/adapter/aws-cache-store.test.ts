@@ -21,6 +21,7 @@ import {
   markerFor,
   markerState,
   markerUpdate,
+  mergeMarkers,
   resolveAwsCacheConfig,
   REVALIDATION_LOG_MAX_PAGES,
   REVALIDATION_LOG_TTL_MS,
@@ -60,13 +61,13 @@ describe("resolveAwsCacheConfig", () => {
     });
   });
 
-  it("lets overrides win and reports what is unset as empty", () => {
+  it("reports what is unset as empty", () => {
     delete process.env.CDK_NEXTJS_CACHE_BUCKET_NAME;
     delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
     delete process.env.CDK_NEXTJS_BUILD_ID;
     delete process.env.AWS_REGION;
-    expect(resolveAwsCacheConfig({ bucketName: "mine" })).toEqual({
-      bucketName: "mine",
+    expect(resolveAwsCacheConfig()).toEqual({
+      bucketName: "",
       tableName: "",
       buildId: "",
       region: "us-east-1",
@@ -99,21 +100,36 @@ describe("tag markers", () => {
       const update = markerUpdate(1000, durations);
       const local = markerFor(1000, durations);
       const written: Record<string, number> = {};
-      const names: Record<string, string> = {
-        ":timestamp": "revalidatedAt",
-        ":stale": "staleAt",
-        ":expired": "expiredAt",
-      };
       for (const [name, value] of Object.entries(
         update.ExpressionAttributeValues!,
       )) {
-        written[names[name]] = Number(value.N);
+        written[name.slice(1)] = Number(value.N);
       }
       expect(written).toEqual(local);
     }
     expect(markerFor(1000, { expire: 60 })).toEqual({
       staleAt: 1000,
       expiredAt: 61000,
+    });
+  });
+
+  it("keeps an earlier expiredAt a profile with no expire leaves", () => {
+    // The row keeps it (`SET staleAt` only), so an instance learning of the
+    // second revalidation from the log has to keep it too.
+    const first = markerFor(1000, { expire: 60 });
+    const second = markerFor(2000, {});
+    expect(mergeMarkers(first, second)).toEqual({
+      staleAt: 2000,
+      expiredAt: 61000,
+    });
+    expect(mergeMarkers(second, first)).toEqual({
+      staleAt: 2000,
+      expiredAt: 61000,
+    });
+    // A newer `expire` still replaces it.
+    expect(mergeMarkers(first, markerFor(2000, { expire: 1 }))).toEqual({
+      staleAt: 2000,
+      expiredAt: 3000,
     });
   });
 
@@ -148,10 +164,10 @@ describe("TagMarkerTable", () => {
     expect(input).toEqual({
       TableName: "tbl",
       Key: { pk: { S: "build" }, sk: { S: "posts" } },
-      UpdateExpression: "SET staleAt = :stale, expiredAt = :expired",
+      UpdateExpression: "SET staleAt = :staleAt, expiredAt = :expiredAt",
       ExpressionAttributeValues: {
-        ":stale": { N: "1000" },
-        ":expired": { N: "2000" },
+        ":staleAt": { N: "1000" },
+        ":expiredAt": { N: "2000" },
       },
       ReturnValues: "ALL_NEW",
     });

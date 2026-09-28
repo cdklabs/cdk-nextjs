@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { Duration } from "aws-cdk-lib";
 import {
   Architecture,
@@ -11,7 +12,11 @@ import {
   RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
-import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
+import {
+  grantRuntimeAccess,
+  NextjsComputeBaseProps,
+  runtimeEnvironment,
+} from "./nextjs-compute-base-props";
 import {
   DEFAULT_FUNCTION_GROUP,
   FUNCTION_GROUP_ENV_VAR,
@@ -20,9 +25,9 @@ import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalFunctionProps } from "../generated-structs/OptionalFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { NextjsDeploymentRoot } from "../nextjs-build/nextjs-build";
-import { staticAssetsObjectsPattern } from "../nextjs-static-assets";
 import { RUNTIME_DIR_NAME } from "../runtime/manifest";
 import { getLambdaArchitecture } from "../utils/get-architecture";
+import { zipDirectory } from "../utils/zip-directory";
 
 export interface NextjsFunctionsOverrides {
   /**
@@ -226,8 +231,12 @@ export class NextjsFunctions extends Construct {
           "override, or, wiring the constructs yourself, pass NextjsBuild's `architecture` to NextjsFunctions.",
       );
     }
+    // Zipped here rather than by `cdk-assets`, which would dereference the
+    // pnpm symlinks the root depends on; see `zipDirectory`.
+    const zipPath = `${root.path}.zip`;
+    writeFileSync(zipPath, zipDirectory(root.path));
     const functionProps: FunctionProps = {
-      code: Code.fromAsset(root.path),
+      code: Code.fromAsset(zipPath),
       handler: `${RUNTIME_DIR_NAME}/lambda.handler`,
       memorySize: 2048,
       runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
@@ -242,20 +251,7 @@ export class NextjsFunctions extends Construct {
         // packages (React for Pages Router SSR among them) load their dev
         // builds without it.
         NODE_ENV: "production",
-        // Cache configuration environment variables
-        CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
-        CDK_NEXTJS_REVALIDATION_TABLE_NAME:
-          this.props.revalidationTable.tableName,
-        CDK_NEXTJS_BUILD_ID: this.props.buildId,
-        // Read by the runtime's image optimizer for non-absolute `<Image>` URLs,
-        // whose bytes live in S3 rather than in the deployment package.
-        CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
-          this.props.staticAssetsBucket.bucketName,
-        // Where in that bucket. Not derivable from the app's `basePath`: on the
-        // API Gateway types that is the stage name, which is part of the URL but
-        // not of the key.
-        CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX:
-          this.props.staticAssetsKeyPrefix ?? "",
+        ...runtimeEnvironment(this.props),
         // Which group this function is. Only used to make a misroute legible:
         // if CloudFront sends a request here for a route that was packaged
         // elsewhere, the 500 says which function got it and which group it
@@ -269,15 +265,7 @@ export class NextjsFunctions extends Construct {
 
     const fn = new LambdaFunction(this, id, functionProps);
 
-    // Grant cache access permissions
-    this.props.cacheBucket.grantReadWrite(fn);
-    this.props.revalidationTable.grantReadWriteData(fn);
-    // Read for image sources and for `public/` files a rewrite lands on, both
-    // of which live only in S3; nothing outside the app's own prefix.
-    this.props.staticAssetsBucket.grantRead(
-      fn,
-      staticAssetsObjectsPattern(this.props.staticAssetsKeyPrefix),
-    );
+    grantRuntimeAccess(this.props, fn);
 
     return fn;
   }

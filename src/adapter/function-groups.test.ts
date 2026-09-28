@@ -561,6 +561,22 @@ describe("what the edge routes, checked against what was packaged", () => {
       expect(assigned.p).toEqual(["/pricing"]);
     });
 
+    it("puts an exact trailingSlash form ahead of a subtree it sits at the base of", () => {
+      // `a/b/` and `a/b/*` have the same literal depth; were the subtree first
+      // it would take `/a/b/` from group x.
+      const assigned = assign(
+        [
+          { name: "x", routes: ["/a/b"] },
+          { name: "y", routes: ["/a/b/**"] },
+        ],
+        routes("/", "/a/b", "/a/b/[id]"),
+        "",
+        { trailingSlash: true },
+      );
+      expect(assigned.x).toEqual(["/a/b"]);
+      expect(assigned.y).toEqual(["/a/b/[id]"]);
+    });
+
     it("gives a group without Pages Router routes no data URL behaviors", () => {
       // An App Router `/index` next to a Pages Router home page: a data behavior
       // for the group, `_next/data/<id>/index.json`, would be the home page's

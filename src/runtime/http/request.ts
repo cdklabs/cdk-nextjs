@@ -37,6 +37,8 @@ export interface IncomingMessageInit {
   readonly remoteAddress?: string;
   /** `false` for the container shell behind an ALB terminating TLS. */
   readonly encrypted?: boolean;
+  /** `RuntimeRequest.trustForwardedHost`, kept for the requests made on its behalf. */
+  readonly trustForwardedHost?: boolean;
 }
 
 /**
@@ -60,6 +62,8 @@ export class ShimIncomingMessage extends IncomingMessage {
   /** Set by Next.js's `NodeNextRequest.originalRequest` getter. */
   public cookies?: unknown;
   public fetchMetrics?: unknown;
+  /** See {@link IncomingMessageInit.trustForwardedHost}. */
+  public readonly trustForwardedHost: boolean;
 
   private source?: Readable;
   private pumping = false;
@@ -81,6 +85,7 @@ export class ShimIncomingMessage extends IncomingMessage {
       headers["content-length"] = String(Buffer.byteLength(body));
     }
 
+    this.trustForwardedHost = init.trustForwardedHost ?? false;
     this.method = init.method.toUpperCase();
     this.url = init.url;
     this.headers = headers;

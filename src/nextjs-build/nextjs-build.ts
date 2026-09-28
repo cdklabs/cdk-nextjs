@@ -11,7 +11,6 @@ import {
   mkdirSync,
   cpSync,
   renameSync,
-  realpathSync,
   statSync,
   unlinkSync,
 } from "node:fs";
@@ -439,12 +438,9 @@ export class NextjsBuild extends Construct {
    * into a deploy and reports only a size. Splitting exists to stay under that
    * cap, so the error that tells you to split further has to name the group, its
    * size, and what to do — and arrive at synth.
-   *
-   * Symlinks are followed because `cdk-assets` dereferences them when it zips:
-   * the tree on disk is smaller than the function Lambda unpacks.
    */
   private assertUnderLambdaLimit(root: NextjsDeploymentRoot): void {
-    const bytes = dereferencedSize(root.path);
+    const bytes = storedSize(root.path);
     debug(
       `${LOG_PREFIX} Deployment root "${root.name}" is ${(bytes / 1e6).toFixed(1)} MB unzipped`,
     );
@@ -822,7 +818,7 @@ export class NextjsBuild extends Construct {
       // gone — `force` swallows the ENOENT its `rmdir` gets. Removing a store
       // directory before its links therefore left dangling
       // `@img/sharp-darwin-arm64` entries in the asset, which is a latent ENOENT
-      // in whatever next dereferences the tree (`cdk-assets` does, when it zips).
+      // in whatever next follows them (`sharp` does, when it looks for binaries).
       const symlinks: string[] = [];
       const directories: string[] = [];
 
@@ -1082,7 +1078,9 @@ function sortedGroupSpecs(
  * versions, and which one the *server's* `next` resolves is not knowable from
  * here. Shortest path wins as the closest to a hoisted install.
  */
-function pickStagedSharpPackage(candidates: string[]): string | undefined {
+export function pickStagedSharpPackage(
+  candidates: string[],
+): string | undefined {
   candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
   if (candidates.length > 1) {
     debug(
@@ -1111,7 +1109,10 @@ function pickStagedSharpPackage(candidates: string[]): string | undefined {
  * The `node_modules` segment is required as well, so an app directory that
  * happens to be called `@img` or `.pnpm` is still left alone.
  */
-function isSharpBinaryPackage(parentPath: string, name: string): boolean {
+export function isSharpBinaryPackage(
+  parentPath: string,
+  name: string,
+): boolean {
   const segments = parentPath.split(sep);
   const parent = segments[segments.length - 1];
   const scoped =
@@ -1125,13 +1126,12 @@ function isSharpBinaryPackage(parentPath: string, name: string): boolean {
  *
  * Not next to the staged `sharp` package. Under pnpm that is
  * `node_modules/.pnpm/sharp@x/node_modules/@img`, which only the store copy of
- * `sharp` resolves from, and the Functions zip dereferences symlinks
- * (`cdk-assets` zips with `followSymbolicLinks`): every link to `sharp` —
- * `app/node_modules/sharp`, `.pnpm/next@y/node_modules/sharp` — becomes a copy
- * that looks for `@img` from its own path and walks up, never into the store.
- * The root `node_modules` is on every one of those walks, and on the store
- * copy's too (which is what Containers, whose `COPY` keeps the links, load), so
- * it serves every layout. It is also where main installed them.
+ * `sharp` resolves from: a dereferenced link to `sharp` (a copy at
+ * `app/node_modules/sharp`, say) looks for `@img` from its own path and walks
+ * up, never into the store. Both the Functions zip (`zipDirectory`) and the
+ * Containers `COPY` keep the links, so it is the store copy that loads, and its
+ * walk up reaches the root `node_modules` too, so it serves either layout. It
+ * is also where main installed them.
  */
 export function sharpBinaryDir(root: string): string {
   return join(root, "node_modules", "@img");
@@ -1173,48 +1173,16 @@ export function writePublicFileList(runtimeDir: string, publicDir: string) {
 }
 
 /**
- * Total bytes of a tree with symlinks followed, as zipping it would see it.
- *
- * `cdk-assets` zips a Functions asset with `followSymbolicLinks`, so every link
- * to a directory becomes a full copy at the link's path: two links to one pnpm
- * store package are that package twice in the zip, and are counted twice here.
- * What bounds the walk is `ancestors`, the resolved paths of the directories
- * the *current* path is inside. A link back to one of them is a cycle (two
- * workspace packages linking each other), which would otherwise hang the synth
- * or blow the stack, and contributes nothing more. Keying on ancestors rather
- * than on every directory seen is what keeps the second link's copy counted:
- * the zip has it, so Lambda's 250 MB cap does too.
- *
- * A dangling link, or anything that cannot be read, is skipped rather than
- * thrown on, since it contributes nothing to the zip.
+ * Total bytes of a tree as its deployment zip stores it. `zipDirectory` keeps
+ * links as links, so each counts as its target path, not as the target, which
+ * is walked at its own path anyway (every link in a staged root points inside
+ * it).
  */
-export function dereferencedSize(
-  path: string,
-  ancestors: ReadonlySet<string> = new Set(),
-): number {
-  let real: string;
-  let entries: Dirent[];
-  try {
-    real = realpathSync(path);
-    if (ancestors.has(real)) {
-      return 0;
-    }
-    entries = readdirSync(path, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  const inside = new Set(ancestors).add(real);
+export function storedSize(root: string): number {
   let bytes = 0;
-  for (const entry of entries) {
-    const full = join(path, entry.name);
-    try {
-      // `statSync` follows links, which is the point.
-      const stats = entry.isSymbolicLink() ? statSync(full) : lstatSync(full);
-      bytes += stats.isDirectory()
-        ? dereferencedSize(full, inside)
-        : stats.size;
-    } catch {
-      continue;
+  for (const entry of listTree(root)) {
+    if (!entry.isDirectory()) {
+      bytes += lstatSync(join(entry.parentPath, entry.name)).size;
     }
   }
   return bytes;

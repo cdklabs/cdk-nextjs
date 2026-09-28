@@ -72,11 +72,10 @@ describe("resolvePublicFiles", () => {
     );
   }
 
-  it("lists public/ off disk, on the container types", () => {
+  it("lists public/ off disk when there is no list, on RegionalContainers", () => {
     const root = tempDir();
     mkdirSync(join(root, "apps/web/public"), { recursive: true });
     writeFileSync(join(root, "apps/web/public/robots.txt"), "");
-    writeList(root, JSON.stringify(["stale.txt"]));
     expect(resolvePublicFiles(root, manifest)).toEqual({
       files: ["robots.txt"],
       inS3: false,
@@ -88,6 +87,19 @@ describe("resolvePublicFiles", () => {
     writeList(root, JSON.stringify(["feed.xml", "sitemap.xml"]));
     expect(resolvePublicFiles(root, manifest)).toEqual({
       files: ["feed.xml", "sitemap.xml"],
+      inS3: true,
+    });
+  });
+
+  it("prefers the list over a public/ file the trace staged", () => {
+    // An OG-image route reading `public/fonts/Inter.ttf` through `fs` gets it
+    // traced into a Lambda root; the rest of `public/` is still only in S3.
+    const root = tempDir();
+    mkdirSync(join(root, "apps/web/public/fonts"), { recursive: true });
+    writeFileSync(join(root, "apps/web/public/fonts/Inter.ttf"), "");
+    writeList(root, JSON.stringify(["fonts/Inter.ttf", "logo.png"]));
+    expect(resolvePublicFiles(root, manifest)).toEqual({
+      files: ["fonts/Inter.ttf", "logo.png"],
       inS3: true,
     });
   });

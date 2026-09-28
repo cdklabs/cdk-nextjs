@@ -1325,6 +1325,41 @@ exports.handler = async () =>
     expect(sink.head?.headers["content-type"]).toBe("text/html; charset=utf-8");
   });
 
+  // undici throws on these (`expect: 100-continue` from curl for a large POST,
+  // `keep-alive` from an HTTP/1.0 client), which answered the request with a 500.
+  it("does not forward the headers that describe the client's connection", async () => {
+    await proxy({
+      expect: "100-continue",
+      "keep-alive": "timeout=5",
+      upgrade: "websocket",
+      connection: "keep-alive, upgrade",
+      "x-kept": "yes",
+    });
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    for (const name of [
+      "host",
+      "expect",
+      "keep-alive",
+      "upgrade",
+      "connection",
+    ]) {
+      expect(headers.has(name)).toBe(false);
+    }
+    expect(headers.get("x-kept")).toBe("yes");
+  });
+
+  // The request body is forwarded as received, so its encoding has to go with
+  // it: a gzip upload arriving unlabelled is garbage to the upstream.
+  it("forwards the request's content-encoding with its body", async () => {
+    await proxy({ "content-encoding": "gzip" });
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    expect(headers.get("content-encoding")).toBe("gzip");
+  });
+
   // Forwarding the origin's `content-encoding` over a body `fetch` already
   // decoded fails the whole response in the browser with
   // ERR_CONTENT_DECODING_FAILED, under a `Content-Length` that describes the

@@ -880,6 +880,29 @@ describe("NextjsDistribution function group behaviors", () => {
     );
   });
 
+  it("keys the dynamic cache only on headers the origin reads", () => {
+    // `x-matched-path` is stripped by the runtime and `x-next-cache-tags` is
+    // never sent by viewers: keying on either spends a header slot and lets a
+    // client fragment the cache for nothing.
+    const { stack, distributionProps } = setup([]);
+    new NextjsDistribution(stack, "Distribution", distributionProps);
+    const policies = Template.fromStack(stack).findResources(
+      "AWS::CloudFront::CachePolicy",
+      {
+        Properties: {
+          CachePolicyConfig: { Comment: Match.stringLikeRegexp("Dynamic") },
+        },
+      },
+    );
+    const [policy] = Object.values(policies);
+    const headers: string[] =
+      policy.Properties.CachePolicyConfig
+        .ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers;
+    expect(headers).not.toContain("x-matched-path");
+    expect(headers).not.toContain("x-next-cache-tags");
+    expect(headers).toContain("rsc");
+  });
+
   it("rejects splitting on a deployment type that cannot route it", () => {
     const { stack, functionGroups, distributionProps } = setup(["api"]);
     expect(

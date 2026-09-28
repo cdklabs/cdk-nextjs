@@ -20,6 +20,7 @@ import {
   AccessLogFormat,
   LogGroupLogDestination,
 } from "aws-cdk-lib/aws-apigateway";
+import { Architecture } from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
 const app = new App();
@@ -52,6 +53,9 @@ export class RegionalFunctionsStack extends Stack {
         },
         nextjsFunctions: {
           functionProps: {
+            // Its e2e job (rgnl-fns) runs on x86, so this deploy covers staging
+            // `sharp` for an architecture other than the build host's.
+            architecture: Architecture.ARM_64,
             environment: {
               DEBUG: "cdk-nextjs:*",
             },

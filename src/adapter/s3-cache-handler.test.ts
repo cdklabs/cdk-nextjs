@@ -1132,7 +1132,7 @@ describe("S3DynamoCacheHandler", () => {
         .map(([input]) => input)
         .find((input) => input.Key.sk.S === "test-tag");
       expect(markerWrite).toMatchObject({
-        UpdateExpression: "SET revalidatedAt = :timestamp",
+        UpdateExpression: "SET revalidatedAt = :revalidatedAt",
       });
     });
 
@@ -1827,11 +1827,11 @@ describe("S3DynamoCacheHandler", () => {
       const [input] = (UpdateItemCommand as unknown as jest.Mock).mock.calls[0];
       expect(input.Key.sk.S).toBe("posts");
       expect(input.UpdateExpression).toBe(
-        "SET staleAt = :stale, expiredAt = :expired",
+        "SET staleAt = :staleAt, expiredAt = :expiredAt",
       );
-      const staleAt = Number(input.ExpressionAttributeValues[":stale"].N);
+      const staleAt = Number(input.ExpressionAttributeValues[":staleAt"].N);
       expect(staleAt).toBeGreaterThanOrEqual(before);
-      expect(Number(input.ExpressionAttributeValues[":expired"].N)).toBe(
+      expect(Number(input.ExpressionAttributeValues[":expiredAt"].N)).toBe(
         staleAt + 60_000,
       );
     });
@@ -1840,26 +1840,6 @@ describe("S3DynamoCacheHandler", () => {
   describe("resetRequestCache", () => {
     it("should complete without errors", async () => {
       await expect(handler.resetRequestCache()).resolves.not.toThrow();
-    });
-  });
-
-  describe("custom configuration", () => {
-    it("should accept custom configuration options", () => {
-      const customHandler = new S3CacheHandler({
-        context: mockContext,
-        s3Config: {
-          bucketName: "custom-bucket",
-          region: "eu-west-1",
-          buildId: "custom-build",
-        },
-        dynamoConfig: {
-          tableName: "custom-table",
-          region: "eu-west-1",
-          buildId: "custom-build",
-        },
-      });
-
-      expect(customHandler).toBeDefined();
     });
   });
 });

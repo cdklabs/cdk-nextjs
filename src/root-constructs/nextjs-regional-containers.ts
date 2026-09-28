@@ -114,6 +114,7 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
     return new NextjsContainers(this, "NextjsContainers", {
       ...this.computeBaseProps(),
       alb: this.props.alb,
+      buildDirectory: this.props.buildDirectory,
       ecsCluster: this.props.ecsCluster,
       healthCheckPath: this.resolvedHealthCheckPath(this.props.healthCheckPath),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
@@ -122,7 +123,9 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
         ...this.props.overrides?.nextjsContainers,
         ecsClusterProps: {
           ...this.props.overrides?.nextjsContainers?.ecsClusterProps,
-          vpc: this.baseProps.vpc,
+          // Conditional for the same reason as the Functions' `vpc`: assigned
+          // unconditionally, an unset `vpc` prop would erase the override's.
+          ...(this.baseProps.vpc ? { vpc: this.baseProps.vpc } : {}),
         },
       },
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,

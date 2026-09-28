@@ -73,13 +73,8 @@ const dynamoSend = jest.fn(async (command: unknown) => {
     const row: Record<string, AttributeValue> = rows.get(Key.sk.S) ?? {
       sk: Key.sk,
     };
-    const names: Record<string, string> = {
-      ":timestamp": "revalidatedAt",
-      ":stale": "staleAt",
-      ":expired": "expiredAt",
-    };
     for (const [name, value] of Object.entries(ExpressionAttributeValues)) {
-      row[names[name]] = value as AttributeValue;
+      row[name.slice(1)] = value as AttributeValue;
     }
     rows.set(Key.sk.S, row);
     return {};

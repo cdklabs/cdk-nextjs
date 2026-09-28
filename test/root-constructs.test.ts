@@ -12,6 +12,7 @@ import { App, Stack } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
+import { Vpc } from "aws-cdk-lib/aws-ec2";
 import { Architecture } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
@@ -31,6 +32,12 @@ import {
 let buildDir: string;
 let nextConfigBasePath = "";
 let relativeProjectDir = "";
+/**
+ * What the build assigned each non-default group, shaped like
+ * `NextjsDeploymentRoot`: the route templates that matched its patterns, not
+ * the patterns themselves.
+ */
+let builtGroups: Record<string, { routes: string[]; hasDataRoutes?: boolean }>;
 
 jest.mock("../src/nextjs-build/nextjs-build", () => {
   const actual = jest.requireActual("../src/nextjs-build/nextjs-build");
@@ -49,6 +56,7 @@ jest.mock("../src/nextjs-build/nextjs-build", () => {
       name: string;
       path: string;
       routes: string[];
+      hasDataRoutes?: boolean;
     }[];
     readonly architecture: unknown;
     constructor(scope: Construct, id: string, props: any) {
@@ -58,7 +66,7 @@ jest.mock("../src/nextjs-build/nextjs-build", () => {
         ...(props.functionGroups ?? []).map((group: any) => ({
           name: group.name,
           path: join(buildDir, `root-${group.name}`),
-          routes: group.routes,
+          ...builtGroups[group.name],
         })),
       ];
       this.architecture = actual.deploymentArchitecture(props);
@@ -76,7 +84,7 @@ beforeAll(() => {
   buildDir = mkdtempSync(join(tmpdir(), "root-constructs-test-"));
   write(join(buildDir, "public", "favicon.ico"), "icon");
   write(join(buildDir, ".next", "static", "chunks", "main.js"), "// main");
-  for (const name of ["default", "reports"]) {
+  for (const name of ["default", "reports", "docs"]) {
     write(join(buildDir, `root-${name}`, "index.js"), `// ${name}`);
   }
 });
@@ -88,6 +96,7 @@ afterAll(() => {
 beforeEach(() => {
   nextConfigBasePath = "";
   relativeProjectDir = "";
+  builtGroups = { reports: { routes: ["/reports"] } };
 });
 
 const functionGroups = [{ name: "reports", routes: ["/reports"] }];
@@ -191,6 +200,24 @@ function expectCacheActions(actions: string[]) {
   );
 }
 
+/** The group whose function `json` (a template fragment) refers to, if any. */
+function groupIn(template: Template, json: unknown): string | undefined {
+  const text = JSON.stringify(json);
+  return Object.entries(appFunctions(template)).find(([, logicalId]) =>
+    text.includes(`"${logicalId}"`),
+  )?.[0];
+}
+
+/**
+ * The split a subtree pattern over an optional catch-all makes, as the build
+ * reports it: the template it matched, not the pattern, and a Pages Router
+ * route, so a `_next/data` URL space too.
+ */
+function useDocsGroup() {
+  builtGroups.docs = { routes: ["/docs/[[...slug]]"], hasDataRoutes: true };
+  return [{ name: "docs", routes: ["/docs/**"] }];
+}
+
 describe("NextjsGlobalFunctions", () => {
   it("serves every group through an AWS_IAM, streaming Function URL with cache grants", () => {
     const stack = new Stack(new App(), "Stack");
@@ -269,6 +296,44 @@ describe("NextjsGlobalFunctions", () => {
     );
     expect(JSON.stringify(Resource)).toContain(distributionId);
     expect(JSON.stringify(Resource)).not.toContain("distribution/*");
+  });
+
+  it("routes each group's patterns, parent and data URLs to its function", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups: useDocsGroup(),
+    });
+    const template = Template.fromStack(stack);
+    const resources = template.toJSON().Resources;
+    const [distribution] = Object.values(
+      template.findResources("AWS::CloudFront::Distribution"),
+    );
+    const { CacheBehaviors, Origins } =
+      distribution.Properties.DistributionConfig;
+    /** Origin id → group, through the Function URL the origin points at. */
+    const originGroup = (originId: string) => {
+      const origin = Origins.find((it: any) => it.Id === originId);
+      const [urlId] = Object.keys(
+        template.findResources("AWS::Lambda::Url"),
+      ).filter((id) => JSON.stringify(origin).includes(`"${id}"`));
+      return urlId && groupIn(template, resources[urlId].Properties);
+    };
+    const routed = Object.fromEntries(
+      CacheBehaviors.map((behavior: any) => [
+        behavior.PathPattern,
+        originGroup(behavior.TargetOriginId),
+      ]),
+    );
+    expect(routed).toMatchObject({
+      "docs/*": "docs",
+      // The optional catch-all's parent, which `docs/*` does not match, in
+      // both URL spaces.
+      docs: "docs",
+      "_next/data/next-build/docs/*": "docs",
+      "_next/data/next-build/docs.json": "docs",
+      "_next/image*": "default",
+    });
   });
 
   describe("architecture", () => {
@@ -374,6 +439,44 @@ describe("NextjsRegionalFunctions", () => {
     for (const logicalId of Object.values(groups)) {
       expectCacheGrants(template, logicalId);
     }
+  });
+
+  it("routes each group's patterns, parent and data URLs to its function", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsRegionalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups: useDocsGroup(),
+    });
+    const template = Template.fromStack(stack);
+    const apiResources = template.findResources("AWS::ApiGateway::Resource");
+    const pathOf = (ref: any): string => {
+      const resource = ref?.Ref && apiResources[ref.Ref];
+      return resource
+        ? `${pathOf(resource.Properties.ParentId)}/${resource.Properties.PathPart}`
+        : "";
+    };
+    const routed = Object.fromEntries(
+      Object.values(template.findResources("AWS::ApiGateway::Method"))
+        .filter((method) => method.Properties.HttpMethod === "ANY")
+        .map((method) => [
+          pathOf(method.Properties.ResourceId) || "/",
+          groupIn(template, method.Properties.Integration),
+        ]),
+    );
+    expect(routed).toEqual({
+      "/": "default",
+      "/{proxy+}": "default",
+      "/docs/{proxy+}": "docs",
+      // The optional catch-all's parent, in both URL spaces.
+      "/docs": "docs",
+      "/_next/data/{buildId}/docs.json": "docs",
+      "/_next/data/{buildId}/docs/{proxy+}": "docs",
+      // Parents created only for the data routes, which the default function
+      // answers as the catch-all would.
+      "/_next/data": "default",
+      "/_next/data/{buildId}": "default",
+      "/_next/data/{buildId}/docs": "default",
+    });
   });
 
   it("derives basePath from a stage name set through overrides.nextjsApi", () => {
@@ -506,6 +609,28 @@ describe("NextjsRegionalContainers", () => {
   });
 });
 
+describe.each([
+  ["NextjsGlobalContainers", NextjsGlobalContainers],
+  ["NextjsRegionalContainers", NextjsRegionalContainers],
+])("%s", (_, RootConstruct) => {
+  // An unset `vpc` prop used to be written over the override's as `undefined`,
+  // so the cluster created a VPC of its own and the tasks ran outside the
+  // consumer's.
+  it("keeps a VPC passed through overrides.nextjsContainers.ecsClusterProps", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    const vpc = new Vpc(stack, "Vpc");
+    const app = new RootConstruct(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+      overrides: { nextjsContainers: { ecsClusterProps: { vpc } } },
+    });
+    expect(app.nextjsContainers.ecsCluster.vpc).toBe(vpc);
+    Template.fromStack(stack).resourceCountIs("AWS::EC2::VPC", 1);
+  });
+});
+
 describe("static assets read grant", () => {
   /** The static assets bucket objects `s3:GetObject*` reaches, per role. */
   function staticReadObjects(template: Template, roleId: string): string[] {
@@ -546,32 +671,6 @@ describe("static assets read grant", () => {
   });
 });
 
-describe("architecture through nextjsFunctionsProps.overrides", () => {
-  // That override replaces `overrides.nextjsFunctions` wholesale, so the build
-  // has to stage `sharp` for the architecture it names.
-  it("is forwarded to NextjsBuild instead of throwing", () => {
-    const other = process.arch.startsWith("arm")
-      ? Architecture.X86_64
-      : Architecture.ARM_64;
-    const stack = new Stack(new App(), "Stack");
-    new NextjsGlobalFunctions(stack, "App", {
-      buildDirectory: buildDir,
-      overrides: {
-        nextjsGlobalFunctions: {
-          nextjsFunctionsProps: {
-            overrides: { functionProps: { architecture: other } },
-          } as any,
-        },
-      },
-    });
-    const template = Template.fromStack(stack);
-    const resources = template.toJSON().Resources;
-    expect(
-      resources[appFunctions(template).default].Properties.Architectures,
-    ).toEqual([other.name]);
-  });
-});
-
 describe("REST API stage redeploy", () => {
   it("NextjsRegionalFunctions redeploys its stage after each stack update", () => {
     const stack = new Stack(new App(), "Stack");
@@ -596,5 +695,28 @@ describe("REST API stage redeploy", () => {
     });
 
     Template.fromStack(stack).resourceCountIs("AWS::Events::Rule", 0);
+  });
+});
+
+describe("deploy-time invalidation", () => {
+  it.each([
+    ["NextjsGlobalFunctions", NextjsGlobalFunctions],
+    ["NextjsGlobalContainers", NextjsGlobalContainers],
+  ] as const)("%s scopes it to the app's basePath", (_, Root) => {
+    nextConfigBasePath = "base";
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    // A variable, so Functions takes the Containers-only prop without complaint.
+    const props = { buildDirectory: buildDir, healthCheckPath: "/api/health" };
+    new Root(stack, "App", props);
+    const [resource] = Object.values(
+      Template.fromStack(stack).findResources("Custom::NextjsPostDeploy"),
+    );
+    // `/*` would flush every other app on a shared distribution too.
+    expect(
+      resource.Properties.createInvalidationCommandInput.invalidationBatch.paths
+        .items,
+    ).toEqual(["/base", "/base?*", "/base/*"]);
   });
 });

@@ -13,6 +13,7 @@
  * which adds per-group `overrides`) is in `src/nextjs-compute/nextjs-functions.ts`
  * and is structurally assignable to {@link FunctionGroupSpec}.
  */
+import { ERROR_PAGE_SUFFIXES } from "../runtime/manifest";
 import { basePathPrefix } from "../utils/base-path";
 
 /**
@@ -94,14 +95,6 @@ export interface RoutingRules {
     readonly destination?: string;
   }[];
 }
-
-/**
- * The pages the runtime may render any request with, wherever it landed: App
- * Router's `/_not-found`, Pages Router's `/404` and `/500`, and `/_error`. Every
- * group stages them (`collectGroupStagingPlan`), so no URL has to be routed to
- * them. Before basePath.
- */
-export const ERROR_PAGE_SUFFIXES = ["/_not-found", "/404", "/500", "/_error"];
 
 const NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
 const SUBTREE_SUFFIX = "/**";
@@ -613,20 +606,28 @@ export function pathPatternsFor(
 
 /**
  * Rank a CloudFront path pattern so the most specific is added first: literal
- * segments before the first `*` dominate, then total segments, then length.
- * {@link groupBehaviors} sorts on it.
+ * segments before the first `*` dominate, then an exact pattern before a
+ * wildcard one, then total segments, then length. {@link groupBehaviors} sorts
+ * on it.
  *
  * Ranking on the leading literal is what a CloudFront wildcard forces, because
  * it matches across `/` rather than within one segment: an exact `a/b` has to
  * precede the subtree `a/*` that would otherwise swallow it, though the two are
- * the same length and depth. Since the data patterns carry the literal build ID,
- * no pattern has a wildcard anywhere but at its end.
+ * the same length and depth. At equal literal depth the exact one still goes
+ * first, since a trailingSlash `a/b/` is otherwise outranked by the subtree
+ * `a/b/*`, one segment longer, that matches it. Since the data patterns carry
+ * the literal build ID, no pattern has a wildcard anywhere but at its end.
  */
 function behaviorSpecificity(pattern: string): number {
   const segments = pattern.split("/").filter(Boolean);
   const firstWildcard = segments.findIndex((segment) => segment.includes("*"));
   const literalDepth = firstWildcard === -1 ? segments.length : firstWildcard;
-  return literalDepth * 1000000 + segments.length * 10000 + pattern.length;
+  const exact = firstWildcard === -1 ? 1 : 0;
+  return (
+    (literalDepth * 2 + exact) * 1000000 +
+    segments.length * 10000 +
+    pattern.length
+  );
 }
 
 /**

@@ -84,6 +84,8 @@ jobs:
           stack_name: ${{ env.ENV }}-rgnl-cntnrs
   rgnl-fns:
     needs: wait-for-approval
+    # x86 on purpose: examples/regional-functions deploys ARM_64, so this is the
+    # job that stages `sharp` for an architecture other than the host's.
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout PR

@@ -20,8 +20,8 @@
 # `--stack NAME` (or `--shared`) narrows the sweep to one stack by name and drops
 # the age floor. That is the *only* safe way to delete a stack minutes after
 # creating it: `HARNESS_SWEEP_MAX_AGE_HOURS=0` alone would also match every other
-# `hrns-*` stack in the account, including one a developer is running against
-# right then with HARNESS_ISOLATED_STACK=1.
+# `hrns-*` stack in the account, including another shard's, or one a developer
+# is running against right then (`HARNESS_SHARED_STACK_SUFFIX=dev-$USER`).
 #
 # Usage:
 #   scripts/e2e-sweep.sh                 # list candidates
@@ -43,7 +43,7 @@ while [ "$#" -gt 0 ]; do
   --apply) APPLY=1 ;;
   --dry-run) APPLY=0 ;;
   --wait) WAIT=1 ;;
-  --shared) ONLY_STACK="$(HARNESS_ISOLATED_STACK=0 harness_stack_name "")" ;;
+  --shared) ONLY_STACK="$(harness_stack_name)" ;;
   --stack)
     ONLY_STACK="${2:-}"
     if [ -z "$ONLY_STACK" ]; then
@@ -152,7 +152,9 @@ stack_facts() {
 
 # Hours, rounded down to 0.1, since the most recent of a stack's CloudFormation
 # timestamps and its probe's last hotswap. Read-only. A function or service that
-# is gone (a DELETE_FAILED stack, say) contributes nothing. Any other read failure
+# is gone (a DELETE_FAILED stack, say) contributes nothing - including a service
+# ECS reports MISSING in a cluster that is still there, which comes back with no
+# `services` at all, hence the `|| []`. Any other read failure
 # (throttling, AccessDenied) returns non-zero instead, and the caller keeps the
 # stack: without that timestamp, the floor can't tell an abandoned stack from one
 # being hotswapped into right now.
@@ -165,7 +167,7 @@ idle_hours() {
     service="${cluster#*/}"
     cluster="${cluster%%/*}"
     if ! modified="$(aws ecs describe-services --cluster "$cluster" --services "$service" \
-      --query 'max_by(services[0].deployments, &updatedAt).updatedAt' --output text 2>&1)"; then
+      --query 'max_by(services[0].deployments || `[]`, &updatedAt).updatedAt' --output text 2>&1)"; then
       case "$modified" in
         *ClusterNotFoundException*) modified="" ;;
         *)
@@ -197,6 +199,28 @@ idle_hours() {
   ' "$created" "$updated" "$modified"
 }
 
+# A named stack mid-operation (a full update a timed-out deploy left running
+# server-side, or its rollback) can't be deleted until it settles:
+# `delete-stack` is rejected, and under `set -e` that would end the sweep with
+# the stack still up. So poll until it does, bounded at 20 minutes, and print
+# the status it settled on - or nothing, if it is gone. Diagnostics on stderr.
+# (DELETE_IN_PROGRESS is fine as it is: `delete-stack` on it is a no-op.)
+settled_status() {
+  local status
+  for _ in $(seq 1 80); do
+    status="$(harness_stack_status "$1")" || return 1
+    case "$status" in
+      REVIEW_IN_PROGRESS | DELETE_IN_PROGRESS) break ;;
+      *_IN_PROGRESS)
+        echo "sweep: $1 is $status; waiting for it to settle" >&2
+        sleep 15
+        ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$status"
+}
+
 DESCRIPTION="harness stacks unused for ${MAX_AGE_HOURS}h"
 if [ -n "$ONLY_STACK" ]; then
   DESCRIPTION="harness stack ${ONLY_STACK}"
@@ -213,6 +237,14 @@ while IFS= read -r name <&4; do
     continue
   fi
   IFS=$'\t' read -r status created updated probe <<<"$facts"
+  # An operation in flight is someone using the stack. An account-wide sweep
+  # leaves it to the next sweep; a named one waits for it below. (A change set
+  # that was never executed, REVIEW_IN_PROGRESS, never settles by itself.)
+  if [ -z "$ONLY_STACK" ] && [ "$status" != "REVIEW_IN_PROGRESS" ] \
+    && [ "${status%_IN_PROGRESS}" != "$status" ]; then
+    echo "sweep: keeping $name - $status"
+    continue
+  fi
   # Skipped when one stack is named, since that drops the floor altogether.
   used=""
   if [ "$MAX_AGE_HOURS" != "0" ]; then
@@ -231,7 +263,25 @@ while IFS= read -r name <&4; do
     echo "sweep: would delete $name ($status$used)"
     continue
   fi
-  # Re-check the tag immediately before deleting rather than trusting the listing.
+  if [ -n "$ONLY_STACK" ]; then
+    if ! status="$(settled_status "$name")"; then
+      echo "sweep: keeping $name - could not re-read its status" >&2
+      exit 1
+    fi
+    case "$status" in
+      "")
+        echo "sweep: $name is already gone"
+        continue
+        ;;
+      REVIEW_IN_PROGRESS | DELETE_IN_PROGRESS) ;;
+      *_IN_PROGRESS)
+        echo "sweep: $name is still $status after 20 minutes; not deleting it" >&2
+        exit 1
+        ;;
+    esac
+  fi
+  # Re-check the tag immediately before deleting rather than trusting the
+  # listing, and after the settle wait, which can outlast the stack it began on.
   if ! harness_stack_is_ours "$name"; then
     echo "sweep: skipping $name - no longer tagged ${HARNESS_TAG_KEY}=${HARNESS_TAG_VALUE}"
     continue

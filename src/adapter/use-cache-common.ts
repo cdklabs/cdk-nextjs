@@ -13,6 +13,7 @@ import type {
   Timestamp,
 } from "next/dist/server/lib/cache-handlers/types";
 import {
+  applyMarker,
   DEFAULT_TAG_REFRESH_MS,
   markerFor,
   markerState,
@@ -352,7 +353,7 @@ export class UseCacheTagManifest {
     const at = now();
     const marker = markerFor(at, durations);
     for (const tag of tags) {
-      this.tracked.set(tag, { ...this.tracked.get(tag), ...marker });
+      this.tracked.set(tag, applyMarker(this.tracked.get(tag), marker));
     }
     const { markers, log } = this.table;
     if (!markers) {

@@ -8,6 +8,7 @@ import {
   prefixWithBasePath,
   relativeAssetPrefix,
   resolveBasePath,
+  wholeAppInvalidationPaths,
 } from "./base-path";
 
 const GLOBAL = [NextjsType.GLOBAL_FUNCTIONS, NextjsType.GLOBAL_CONTAINERS];
@@ -28,6 +29,23 @@ describe("normalizeBasePath", () => {
 
   it("keeps interior slashes of a nested basePath", () => {
     expect(normalizeBasePath("/team/app/")).toBe("team/app");
+  });
+});
+
+describe("wholeAppInvalidationPaths", () => {
+  it("is the whole distribution without a basePath", () => {
+    expect(wholeAppInvalidationPaths()).toEqual(["/*"]);
+    expect(wholeAppInvalidationPaths("")).toEqual(["/*"]);
+  });
+
+  it("covers the app's root and RSC payload, but no sibling prefix", () => {
+    for (const basePath of ["/base", "base", "/base/"]) {
+      expect(wholeAppInvalidationPaths(basePath)).toEqual([
+        "/base",
+        "/base?*",
+        "/base/*",
+      ]);
+    }
   });
 });
 

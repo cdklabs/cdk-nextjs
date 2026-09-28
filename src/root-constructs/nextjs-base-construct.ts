@@ -10,6 +10,7 @@ import { routedPatterns } from "../adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
+import { OptionalNextjsFunctionsProps } from "../generated-structs/OptionalNextjsFunctionsProps";
 import { NextjsApiOverrides } from "../nextjs-api";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
@@ -18,7 +19,6 @@ import {
   NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
-  NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 import {
   NextjsStaticAssets,
@@ -47,7 +47,7 @@ export interface NextjsBaseConstructOverrides {
  * ignore these.
  */
 export interface NextjsFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
-  readonly nextjsFunctionsProps?: NextjsFunctionsProps;
+  readonly nextjsFunctionsProps?: OptionalNextjsFunctionsProps;
 }
 
 /**
@@ -325,13 +325,6 @@ export abstract class NextjsBaseConstruct extends Construct {
    * declare. Cast for the same reason as {@link functionGroups}.
    */
   private get functionsOverrides(): NextjsFunctionsOverrides | undefined {
-    // `overrides.<type>.nextjsFunctionsProps.overrides`, when set, replaces
-    // `overrides.nextjsFunctions` wholesale in `createNextjsFunctions`, so it
-    // is also what the functions' architecture comes from.
-    const replacing = this.constructOverrides?.nextjsFunctionsProps?.overrides;
-    if (replacing) {
-      return replacing;
-    }
     const overrides = this.baseProps.overrides as
       { nextjsFunctions?: NextjsFunctionsOverrides } | undefined;
     return overrides?.nextjsFunctions;
@@ -385,7 +378,6 @@ export abstract class NextjsBaseConstruct extends Construct {
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       buildId: this.nextjsBuild.buildId,
-      buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
@@ -446,8 +438,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   /**
    * Run the post-deploy custom resource after the init cache upload.
    *
-   * It reads the tag manifest that upload puts in the cache bucket, and
-   * invalidating the CDN before the new cache is in place would only re-cache
+   * Invalidating the CDN before the new cache is in place would only re-cache
    * the responses the invalidation was meant to drop. CloudFormation infers no
    * ordering between the two custom resources on its own.
    */

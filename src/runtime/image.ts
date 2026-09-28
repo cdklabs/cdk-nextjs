@@ -49,7 +49,10 @@ type CacheHandlerClass = new (
 export interface ImageOptimizerOptions {
   readonly deploymentRoot: string;
   readonly manifest: AdapterManifest;
-  /** `CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME`. Empty when no images are served. */
+  /**
+   * `CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME`. Empty when the sources are on disk
+   * (`NextjsRegionalContainers`), which sends every one to `fetchInternal`.
+   */
   readonly bucket: string;
   /**
    * `CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX`. Empty when the assets sit at the root
@@ -288,50 +291,54 @@ export class RuntimeImageOptimizer {
     nextConfig: ReturnType<typeof loadImageRuntime>["nextConfig"],
     optimizer: NextImageModules["optimizer"],
   ) {
-    try {
-      const result = await fetchFromS3(this.s3, this.options.bucket, href, {
-        urlBasePath: nextConfig.basePath,
-        keyPrefix: this.options.bucketKeyPrefix,
-        assetPrefix: nextConfig.assetPrefix,
-      });
-      return {
-        buffer: result.buffer,
-        contentType: result.contentType,
-        cacheControl: null,
-        etag: result.etag,
-      };
-    } catch (error) {
-      const { fetchInternal } = this.options;
-      const missing = error instanceof Error && error.name === "NoSuchKey";
-      if (!fetchInternal || !missing) throw error;
-
-      // What `fetchInternalImage` checks, and throws, for the same response.
-      const response = await fetchInternal(href, req);
-      if (response.otherGroup !== undefined) {
-        // A deployment problem, not a bad `url`: see `NextjsRuntime.fetchInternal`,
-        // which logs the details.
-        throw new optimizer.ImageError(
-          502,
-          '"url" parameter is valid but its source is a route in another ' +
-            "functionGroups group, which the image optimizer cannot fetch",
-        );
+    const { bucket, fetchInternal } = this.options;
+    // No bucket when the sources are on disk (`NextjsRegionalContainers`), and
+    // the routes serve those as they serve anything S3 has no file for.
+    if (bucket || !fetchInternal) {
+      try {
+        const result = await fetchFromS3(this.s3, bucket, href, {
+          urlBasePath: nextConfig.basePath,
+          keyPrefix: this.options.bucketKeyPrefix,
+          assetPrefix: nextConfig.assetPrefix,
+        });
+        return {
+          buffer: result.buffer,
+          contentType: result.contentType,
+          cacheControl: null,
+          etag: result.etag,
+        };
+      } catch (error) {
+        const missing = error instanceof Error && error.name === "NoSuchKey";
+        if (!fetchInternal || !missing) throw error;
       }
-      if (!response.statusCode || response.body.length === 0) {
-        throw new optimizer.ImageError(
-          400,
-          '"url" parameter is valid but internal response is invalid',
-        );
-      }
-      return {
-        buffer: response.body,
-        contentType: firstValue(response.headers["content-type"]) ?? null,
-        cacheControl: firstValue(response.headers["cache-control"]) ?? null,
-        etag: optimizer.extractEtag(
-          firstValue(response.headers.etag) ?? null,
-          response.body,
-        ),
-      };
     }
+
+    // What `fetchInternalImage` checks, and throws, for the same response.
+    const response = await fetchInternal!(href, req);
+    if (response.otherGroup !== undefined) {
+      // A deployment problem, not a bad `url`: see `NextjsRuntime.fetchInternal`,
+      // which logs the details.
+      throw new optimizer.ImageError(
+        502,
+        '"url" parameter is valid but its source is a route in another ' +
+          "functionGroups group, which the image optimizer cannot fetch",
+      );
+    }
+    if (!response.statusCode || response.body.length === 0) {
+      throw new optimizer.ImageError(
+        400,
+        '"url" parameter is valid but internal response is invalid',
+      );
+    }
+    return {
+      buffer: response.body,
+      contentType: firstValue(response.headers["content-type"]) ?? null,
+      cacheControl: firstValue(response.headers["cache-control"]) ?? null,
+      etag: optimizer.extractEtag(
+        firstValue(response.headers.etag) ?? null,
+        response.body,
+      ),
+    };
   }
 }
 

@@ -13,6 +13,8 @@ function functionUrlEvent(
     isBase64Encoded: false,
     requestContext: {
       http: { method: "GET", sourceIp: "203.0.113.7" },
+      // CloudFront's Origin Access Control signature, as Lambda reports it.
+      authorizer: { iam: { callerId: "cloudfront" } },
     },
     ...fields,
   } as unknown as LambdaFunctionURLEvent;
@@ -75,6 +77,19 @@ describe("toRuntimeRequest, for a Function URL event", () => {
     expect(toRuntimeRequest(functionUrlEvent(), "").trustForwardedHost).toBe(
       true,
     );
+  });
+
+  // A URL overridden to `authType: NONE` takes the header from anyone.
+  it("does not trust x-forwarded-host on a request Lambda did not authenticate", () => {
+    const request = toRuntimeRequest(
+      functionUrlEvent({
+        requestContext: {
+          http: { method: "GET", sourceIp: "203.0.113.7" },
+        } as LambdaFunctionURLEvent["requestContext"],
+      }),
+      "",
+    );
+    expect(request.trustForwardedHost).toBe(false);
   });
 
   it("decodes a base64 body, and leaves an absent one absent", () => {

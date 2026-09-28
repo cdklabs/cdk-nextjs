@@ -19,7 +19,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `scripts/e2e-deploy.sh`             | `NEXT_TEST_DEPLOY_SCRIPT_PATH`. Installs, builds through the adapter, deploys, invalidates, prints the URL.        |
 | `scripts/e2e-logs.sh`               | `NEXT_TEST_DEPLOY_LOGS_SCRIPT_PATH`. Replays the build markers and the build log — and, under `HARNESS_VERBOSE_LOGS=1`, the deploy log and the Lambda's CloudWatch tail. |
-| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A no-op in shared-stack mode; deletes the stack under `HARNESS_ISOLATED_STACK=1`. |
+| `scripts/e2e-cleanup.sh`            | `NEXT_TEST_CLEANUP_SCRIPT_PATH`. A deliberate no-op: the shared stack outlives each file.                         |
 | `scripts/e2e-warm.sh`               | Creates this shard's shared stack before the suite starts, so no test file pays for it. Run it first.              |
 | `scripts/e2e-sweep.sh`              | Deletes orphaned harness stacks, and a shard's own after its run. Dry run unless `--apply`.                        |
 | `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
@@ -122,20 +122,18 @@ What the shared stack is paid for in:
   CloudFormation. The pin is only safe because a shared stack is always
   _created_ by `e2e-warm.sh`'s throwaway app: the create does run the custom
   resource, and with `buildId: "harness"` it would prune the creating app's own
-  `<buildId>/` cache and seed none of its tags. So `e2e-deploy.sh` runs
-  `e2e-warm.sh` itself when a shared stack does not exist yet, and an isolated
-  stack (`HARNESS_ISOLATED_STACK=1`), which no other fixture hotswaps into, is not
-  pinned at all.
+  `<buildId>/` cache. So `e2e-deploy.sh` runs `e2e-warm.sh` itself when a shared
+  stack does not exist yet.
 
 `test/deploy-tests-manifest.json` still lists test files explicitly rather than
 taking next.js's `test/e2e/**` include rule, and this still runs on a schedule
 rather than per-commit. Widen either deliberately - and only with files you have watched
 pass, since a file can be unbuildable rather than merely failing (see below).
 
-`HARNESS_ISOLATED_STACK=1` gives a stack per app directory instead — worth it to
-debug a single file, at the cost of a distribution create and delete per file. To
-run two _suites_ at once, give each its own shared stack with
-`HARNESS_SHARED_STACK_SUFFIX` rather than paying that per file.
+To debug a single file, or run two _suites_ at once, give each its own shared
+stack with `HARNESS_SHARED_STACK_SUFFIX` (`dev-$USER`, say) — see "Running two
+of them at once locally" — and delete it afterwards with
+`e2e-sweep.sh --apply --shared` under the same suffix.
 
 ## Sharding: one stack per shard
 
@@ -165,7 +163,7 @@ Each shard is self-contained, which is what makes this safe:
   `--shared` resolves the same suffix. Nothing lowers the age floor account-wide,
   so one shard finishing early cannot delete another's stack out from under it.
 - `fail-fast: false`, because one shard's failure says nothing about another's and
-  cancelling the others would leave their stacks to the next scheduled sweep - up
+  cancelling the others would leave their stacks to the next run's sweep - up
   to six days later - instead of to their own cleanup step.
 - `-c 1` stays mandatory _within_ a shard. Sharding adds stacks; it does not make
   one stack safe to deploy into twice at once.
@@ -176,7 +174,12 @@ that improves, not cost. Nor does it divide the next.js build — see below.
 
 Two runs must never overlap, because they would reuse the same shard names; the
 workflow's `concurrency` group is what guarantees that, and it queues rather than
-cancels.
+cancels. It is one group for every type, not one per type: each run's
+account-wide sweep could otherwise delete another type's idle-looking shard stack
+as that run warms into it. GitHub keeps only one _pending_ run per group, so
+dispatch a second type once the first has started, not while one is queued. A
+pending run that gets cancelled that way, the scheduled one included, loses no
+sweep: every run sweeps, not just the scheduled one.
 
 ## Caching the next.js build
 
@@ -243,12 +246,13 @@ the default branch's entry, so this only bites when the ref differs too.
 
 ## Running two of them at once locally
 
-Set a suffix per session and the same rules apply:
+Set a suffix per session (`dev-$USER`, then `dev-$USER-2` for a second) and the
+same rules apply:
 
 ```bash
-HARNESS_SHARED_STACK_SUFFIX=fix-a ADAPTER_DIR=$PWD ./scripts/e2e-warm.sh
+HARNESS_SHARED_STACK_SUFFIX=dev-$USER ADAPTER_DIR=$PWD ./scripts/e2e-warm.sh
 # ... and export it for run-tests.js too, then afterwards:
-HARNESS_SHARED_STACK_SUFFIX=fix-a ./scripts/e2e-sweep.sh --apply --shared
+HARNESS_SHARED_STACK_SUFFIX=dev-$USER ./scripts/e2e-sweep.sh --apply --shared
 ```
 
 What does _not_ parallelize as easily is the next.js checkout. `run-tests.js`
@@ -310,8 +314,9 @@ Two caveats worth knowing before reading a failure as a regression:
 `HARNESS_NEXTJS_TYPE` picks the root construct: `global-functions` (the default),
 `regional-functions`, `global-containers` or `regional-containers`. Each type but
 the default gets a stack infix of its own — `hrns-rf-*`, `hrns-gc-*`,
-`hrns-rc-*` — so no run can deploy into another type's stack, and runs of two
-types can overlap. The workflow's `nextjs_type` input sets it for every shard.
+`hrns-rc-*` — so no run can deploy into another type's stack. In CI, runs of two
+types still queue behind each other (see "Sharding"). The workflow's
+`nextjs_type` input sets it for every shard.
 
 ```bash
 ADAPTER_DIR=$PWD HARNESS_NEXTJS_TYPE=global-containers ./scripts/e2e-warm.sh
@@ -366,8 +371,8 @@ suite discards any path in the deployment URL (above), and a REST API's is alway
 stage to every request path and reports `http://127.0.0.1:<port>` as the
 deployment URL. The fixture is deployed as built. API Gateway strips the stage
 again, so the app sees what it would at a custom domain mapped at the root. The
-proxy outlives each test file; `e2e-cleanup.sh` and `e2e-sweep.sh` stop it
-alongside the stack delete.
+proxy outlives each test file; `e2e-sweep.sh` stops it alongside the stack
+delete.
 
 Three things the regional deploy does that the Global one does not:
 
@@ -489,7 +494,8 @@ pass.
 `screening` block records the funnel — how many files there are, how many survive
 each screen, and how many are already included. Regenerate it with `--write`
 whenever `next` is upgraded; `--check` exits nonzero if it has drifted, which is
-the only thing that keeps those numbers worth quoting.
+the only thing that keeps those numbers worth quoting. The workflow runs it in
+shard 1 of every run against the default next.js ref.
 
 Passing every screen makes a file a _candidate_, not a pass. It still has to
 be deployed and watched, and anything that fails gets root-caused and given a
@@ -521,7 +527,8 @@ Add a `comment` array to the entry naming the verdict it stands on.
 
 ## Running it locally
 
-Needs a next.js checkout at the tag matching this repo's `next` version, built
+Needs a next.js checkout at the tag matching this repo's `@next/routing` pin
+(which the workflow's `nextjs_ref` defaults to), built
 once (`pnpm install && pnpm build && pnpm install` in it — `run-tests.js` and
 `test/lib` are repo files, not published ones), and AWS credentials that can
 deploy.
@@ -628,14 +635,15 @@ When a deployment does fail, set the flag and re-run the one file.
 A CloudFront distribution that outlives its run is the thing to avoid, so there
 are two layers:
 
-1. `e2e-cleanup.sh` runs after every test file, pass or fail. In shared-stack
-   mode it deliberately keeps the stack; under `HARNESS_ISOLATED_STACK=1` it
-   calls `delete-stack` without waiting.
-2. `e2e-sweep.sh` deletes the shared stack after a run, and any leftovers a
-   cancelled or timed-out shard left behind.
+1. `e2e-sweep.sh --apply --shared` deletes the shared stack after a run — the
+   workflow's `always()` step, or by hand locally. (`e2e-cleanup.sh`, which runs
+   after every test file, deliberately keeps it.)
+2. An account-wide `e2e-sweep.sh --apply` deletes any leftovers a cancelled or
+   timed-out shard left behind.
 
-Both refuse to delete a stack unless it is named `hrns-*` **and** tagged
-`cdk-nextjs:harness=1`, re-checked immediately before the delete. The sweeper is
+The sweeper refuses to delete a stack unless it is named `hrns-*` **and** tagged
+`cdk-nextjs:harness=1`, re-checked immediately before the delete (after any
+wait for the stack to settle). It is
 additionally a dry run unless given `--apply`, and ignores any stack used within
 the last `HARNESS_SWEEP_MAX_AGE_HOURS` (default 6). "Used" is the latest of the
 stack's `CreationTime`, its `LastUpdatedTime`, and its server function's
@@ -646,8 +654,11 @@ That is re-read right before each delete as well.
 The floor protects a stack that was deployed into recently. It cannot protect one
 that has sat idle for six hours and is *about* to be deployed into again — a
 reused shared or shard name at the start of a run — so don't run an
-account-wide `--apply` sweep while a run is starting. CI's scheduled sweep waits
-for the `harness` job for this reason.
+account-wide `--apply` sweep while a run is starting. CI's sweep waits
+for the `harness` job for this reason, and the workflow's single `concurrency`
+group keeps other types' runs from starting under it. An account-wide sweep also
+keeps any stack with an operation in flight (`*_IN_PROGRESS`); a named one
+(`--shared`, `--stack`) waits up to 20 minutes for it to settle, then deletes.
 
 A stack left in `DELETE_FAILED` is retried by the next sweep, through the same
 gates. `--wait` blocks until each delete finishes and exits non-zero if one ends
@@ -667,9 +678,7 @@ the account.
 | `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
 | `HARNESS_ECS_STABILIZATION_TIMEOUT` | `600`                                | Seconds a Containers hotswap waits for the service to stabilize before the deploy fails.               |
 | `HARNESS_PROXY_PORT`                | _derived from the stack name_        | Port `stage-proxy.mjs` listens on. Regional only.                                                      |
-| `HARNESS_ISOLATED_STACK`            | `0`                                  | One stack per test file instead of one shared one. Re-enables `e2e-cleanup.sh`.                        |
-| `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per concurrent local suite.            |
-| `HARNESS_CLEANUP_WAIT`              | `0`                                  | Block until the stack delete completes. Isolated mode only.                                            |
+| `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per local session (`dev-$USER`).       |
 | `HARNESS_LOG_LINES`                 | `400`                                | Tail length per log section.                                                                           |
 | `HARNESS_LOG_SINCE`                 | `30m`                                | CloudWatch window for the runtime log tail.                                                            |
 | `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |

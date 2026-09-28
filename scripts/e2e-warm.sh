@@ -23,14 +23,6 @@ HARNESS_DIR="$ADAPTER_DIR/scripts/e2e-harness"
 # shellcheck source=scripts/e2e-harness/common.sh
 source "$HARNESS_DIR/common.sh"
 
-# Deliberately not `harness_stack_name`: warming an isolated stack would warm a
-# name no test file goes on to use, since HARNESS_ISOLATED_STACK derives the name
-# from the app directory.
-if [ "${HARNESS_ISOLATED_STACK:-0}" = "1" ]; then
-  echo "warm: HARNESS_ISOLATED_STACK=1 gives every test file its own stack; nothing to warm"
-  exit 0
-fi
-
 # The version the harness's own fixtures will build with. Read from this repo so
 # the warm app cannot drift from it: the *installed* version, exact, not the
 # `package.json` range, which would let the warm app resolve a newer release
@@ -120,7 +112,7 @@ printf 'harness warm-up\n' >"$WARM_DIR/public/warm.txt"
 # and deploys, and prints the URL on stdout.
 # Named in the log because a sharded run has one of these per shard, and which
 # stack a warm-up was for is otherwise only inferable from the job name.
-STACK_NAME="$(harness_stack_name "")"
+STACK_NAME="$(harness_stack_name)"
 
 # A stack still being deleted - by the previous run's cleanup, if that run was
 # cut off before its own wait finished - cannot be deployed into, and CloudFront

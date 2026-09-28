@@ -131,7 +131,17 @@ describe("ShimServerResponse.writeHead", () => {
     });
   });
 
-  it("accepts the flat even/odd array form Next.js passes", () => {
+  it("keeps every value of a name the flat array form repeats", () => {
+    const res = new ShimServerResponse();
+    const sink = collect(res);
+    res.setHeader("Set-Cookie", "stale=1");
+    res.setHeader("X-A", "stale");
+    res.writeHead(200, ["Set-Cookie", "a=1", "Set-Cookie", "b=2", "X-A", "1"]);
+    expect(sink.head()?.cookies).toEqual(["a=1", "b=2"]);
+    expect(sink.head()?.headers["x-a"]).toBe("1");
+  });
+
+  it("accepts the flat even/odd array form", () => {
     const res = new ShimServerResponse();
     const sink = collect(res);
     res.writeHead(200, ["Content-Type", "text/plain", "X-B", "2"]);

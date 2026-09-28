@@ -141,6 +141,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
 
   private createNextjsPostDeploy(): NextjsPostDeploy {
     const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      basePath: this.resolvedBasePath,
       buildId: this.nextjsBuild.buildId,
       distribution: this.nextjsDistribution.distribution,
       cacheBucket: this.nextjsCache.cacheBucket,

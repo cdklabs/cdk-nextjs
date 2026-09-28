@@ -204,6 +204,9 @@ The four root constructs fill these in; only code that uses `NextjsFunctions`,
   `staticAssetsKeyPrefix`; take both from `NextjsStaticAssets` (`bucket`,
   `keyPrefix`). `relativePathToPackage` is removed, and `healthCheckPath` moved
   (above).
+- **`NextjsComputeBaseProps.buildDirectory` moved to `NextjsContainersProps`.**
+  `NextjsFunctions` never read it. Stop passing it when you construct
+  `NextjsFunctions` directly; `NextjsContainers` still requires it.
 - **`NextjsFunctionsProps`** now requires `deploymentRoots` and takes an optional
   `architecture`; **`NextjsContainersProps`** now requires `relativeProjectDir`.
   Take them from `NextjsBuild`'s fields of the same names.
@@ -211,6 +214,26 @@ The four root constructs fill these in; only code that uses `NextjsFunctions`,
   read from the adapter manifest. New read-only fields: `architecture`,
   `deploymentRoots`, `nextBuildId`, `nextConfigAssetPrefix`,
   `nextConfigAssetPrefixPath`, `trailingSlash`.
+
+### `nextjsFunctionsProps` is all-optional and has no `overrides`
+
+`overrides.nextjsGlobalFunctions.nextjsFunctionsProps` and
+`overrides.nextjsRegionalFunctions.nextjsFunctionsProps` are now
+`OptionalNextjsFunctionsProps`, like their siblings (`nextjsContainersProps`,
+`nextjsApiProps`): every prop is optional, so no `as any` is needed to set one.
+The type has no `overrides` or `functionGroups`.
+
+- **Migration:** move `nextjsFunctionsProps.overrides` to
+  `overrides.nextjsFunctions`. Set `functionGroups` on the root construct's
+  props.
+
+### Fix: a VPC passed to the ECS cluster through `overrides` is kept
+
+On `NextjsGlobalContainers` and `NextjsRegionalContainers`, a VPC passed through
+`overrides.nextjsContainers.ecsClusterProps.vpc` was overwritten when the
+top-level `vpc` prop was unset, so the cluster created its own VPC. The override
+is now used. If you set it, the next deploy moves the tasks into that VPC and
+deletes the one the cluster created.
 
 ### Responses without `Cache-Control` are no longer cached by CloudFront
 
@@ -234,6 +257,23 @@ cache off, and the policy drops its cache key to match, because CloudFront
 rejects a policy that caches nothing but keys on headers, cookies or query
 strings. What reaches the origin does not change: the origin request policy
 forwards all of those regardless.
+
+### Behavior change: the dynamic cache key no longer includes `x-matched-path` or `x-next-cache-tags`
+
+The runtime strips `x-matched-path` from viewer requests, and viewers never send
+`x-next-cache-tags`, so both only took 2 of the policy's 10 cache-key header
+slots and let clients fragment the edge cache. The cache key changes, so expect
+one round of CloudFront cache misses on dynamic routes after upgrading. No
+action needed.
+
+### Behavior change: the deploy-time invalidation is scoped to `basePath`
+
+With a `basePath`, the CloudFront invalidation each deploy creates now covers
+only the app's URIs (`/base`, `/base?*`, `/base/*`) instead of `/*`, so
+deploying one app no longer empties the edge cache of other apps on a shared
+distribution. Without a `basePath` it is still `/*`.
+`overrides.nextjsPostDeploy.customResourceProperties.createInvalidationCommandInput`
+still replaces it.
 
 ### Behavior change: `public/` follows `next start`
 
@@ -339,6 +379,10 @@ absolute URLs, cached for other viewers). Now:
 - an association on viewer-request throws at synth, since CloudFront allows one
   function per event type per behavior. Move that logic to viewer-response or
   into middleware.
+
+The runtime trusts `X-Forwarded-Host` only on a request Lambda reports as
+IAM-authenticated, so a Function URL overridden to `authType: NONE` builds its
+URLs from `Host`.
 
 The Containers types are unaffected: their origin sees the viewer's `Host`.
 

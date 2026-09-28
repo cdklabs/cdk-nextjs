@@ -37,6 +37,14 @@ export interface OptionalNextjsPostDeployProps {
    */
   readonly cacheBucket?: aws_s3.IBucket;
   /**
+   * The app's `basePath`.
+   * Scopes the deploy's CloudFront invalidation to the
+   * app's URIs, so a deploy doesn't flush other apps on the same distribution.
+   * @default - the whole distribution (`/*`)
+   * @stability stable
+   */
+  readonly basePath?: string;
+  /**
    * @stability stable
    */
   readonly buildId?: string;

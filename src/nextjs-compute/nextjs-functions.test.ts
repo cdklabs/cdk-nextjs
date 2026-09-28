@@ -40,7 +40,6 @@ describe("NextjsFunctions overrides", () => {
       }),
       staticAssetsBucket: new Bucket(stack, "Assets"),
       buildId: "build",
-      buildDirectory: dir,
       nextjsType: NextjsType.REGIONAL_FUNCTIONS,
       deploymentRoots: [
         { name: "default", path: join(dir, "default"), routes: [] },

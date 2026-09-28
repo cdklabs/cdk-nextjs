@@ -1,8 +1,10 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -14,11 +16,13 @@ import { App, Stack } from "aws-cdk-lib";
 import { Architecture } from "aws-cdk-lib/aws-lambda";
 import {
   deploymentArchitecture,
-  dereferencedSize,
+  isSharpBinaryPackage,
   listTree,
   NextjsBuild,
   patchClientChunk,
+  pickStagedSharpPackage,
   sharpBinaryDir,
+  storedSize,
   writePublicFileList,
 } from "./nextjs-build";
 import { NextjsType } from "../constants";
@@ -70,9 +74,9 @@ function stagePnpmSharp(root: string) {
 }
 
 describe("sharpBinaryDir", () => {
-  it("is reachable from every copy of sharp once the tree is dereferenced", () => {
-    // The Functions zip follows links, so each link to `sharp` becomes its own
-    // copy that resolves `@img/...` from where it sits, never from the store.
+  it("is reachable from every copy of sharp, links kept or dereferenced", () => {
+    // The zip and the image keep links, so the store copy loads; a dereferenced
+    // copy resolves `@img/...` from where it sits, never from the store.
     const staged = join(dir, "staged");
     stagePnpmSharp(staged);
     const binary = join(sharpBinaryDir(staged), "sharp-linux-x64");
@@ -107,6 +111,188 @@ describe("sharpBinaryDir", () => {
   });
 });
 
+describe("isSharpBinaryPackage", () => {
+  it.each([
+    ["node_modules/@img", "sharp-linux-x64", true],
+    ["node_modules/@img", "sharp-linuxmusl-arm64", true],
+    ["node_modules/@img", "sharp-libvips-darwin-arm64", true],
+    ["apps/web/node_modules/@img", "sharp-darwin-arm64", true],
+    ["node_modules/.pnpm", "@img+sharp-darwin-arm64@0.34.5", true],
+    ["node_modules/.pnpm", "@img+sharp-libvips-darwin-arm64@1.2.4", true],
+    [
+      "node_modules/.pnpm/sharp@0.34.5/node_modules/@img",
+      "sharp-linux-x64",
+      true,
+    ],
+    // A route segment, not a package.
+    [".next/server/app", "sharp-edges", false],
+    // Unrelated `sharp-` dependencies.
+    ["node_modules", "sharp-ico", false],
+    ["node_modules/.pnpm", "sharp-phash@2.0.0", false],
+    ["node_modules/.pnpm", "sharp@0.34.5", false],
+    // `sharp` itself, the JS wrapper that loads the binary.
+    ["node_modules", "sharp", false],
+    ["node_modules/@img", "colour", false],
+    // App directories that happen to share the names, outside `node_modules`.
+    ["apps/web/@img", "sharp-linux-x64", false],
+    ["apps/web/.pnpm", "@img+sharp-linux-x64@0.34.5", false],
+  ])("%s/%s is %s", (parent, name, expected) => {
+    expect(isSharpBinaryPackage(join(dir, parent), name)).toBe(expected);
+  });
+});
+
+describe("pickStagedSharpPackage", () => {
+  it("returns undefined when the tree has no sharp", () => {
+    expect(pickStagedSharpPackage([])).toBeUndefined();
+  });
+
+  it("prefers the shortest path, the closest to a hoisted install", () => {
+    expect(
+      pickStagedSharpPackage([
+        "/r/node_modules/.pnpm/sharp@0.34.5/node_modules/sharp",
+        "/r/apps/web/node_modules/sharp",
+        "/r/node_modules/sharp",
+      ]),
+    ).toBe("/r/node_modules/sharp");
+  });
+
+  it("breaks a length tie by name, whatever order the walk found them in", () => {
+    const a = "/r/node_modules/.pnpm/sharp@0.34.4/node_modules/sharp";
+    const b = "/r/node_modules/.pnpm/sharp@0.34.5/node_modules/sharp";
+    expect(pickStagedSharpPackage([b, a])).toBe(a);
+    expect(pickStagedSharpPackage([a, b])).toBe(a);
+  });
+});
+
+describe("Sharp staging for the deployment target", () => {
+  // A version no real `sharp` pins, so the tarballs seeded into the shared
+  // download cache below are never mistaken for (or clobber) real ones.
+  const VERSION = "0.0.0-cdk-nextjs-test";
+  const cacheDir = join(tmpdir(), "cdk-nextjs-sharp-cache");
+  const seeded: string[] = [];
+
+  afterAll(() => {
+    for (const file of seeded) rmSync(file, { force: true });
+  });
+
+  /** Seed the download cache so the install runs without the registry. */
+  function seedCache(name: string) {
+    const pkg = join(dir, "tgz", name, "package");
+    write(join(pkg, "package.json"), JSON.stringify({ name: `@img/${name}` }));
+    mkdirSync(cacheDir, { recursive: true });
+    const tgz = join(cacheDir, `${name}-${VERSION}.tgz`);
+    execFileSync("tar", ["-czf", tgz, "-C", join(pkg, ".."), "package"]);
+    seeded.push(tgz);
+  }
+
+  // Private: the methods `NextjsBuild` runs per deployment root, which only
+  // touch the filesystem, so they run here without a construct.
+  const build = NextjsBuild.prototype as unknown as {
+    removeExistingSharpBinaries(root: string): string | undefined;
+    installSharpBinariesForTarget(
+      root: string,
+      sharpSource: string | undefined,
+      platform: string,
+    ): void;
+  };
+
+  it.each([
+    ["linux-x64", "darwin-arm64"],
+    ["linux-arm64", "linux-x64"],
+    ["linuxmusl-arm64", "linux-x64"],
+  ])(
+    "replaces the host's binaries with %s ones, leaving look-alikes",
+    (platform, host) => {
+      const root = join(dir, "staged");
+      stagePnpmSharp(root);
+      const store = join(
+        root,
+        "node_modules/.pnpm/sharp@0.34.5/node_modules/sharp",
+      );
+      write(
+        join(store, "package.json"),
+        JSON.stringify({
+          name: "sharp",
+          version: "0.34.5",
+          optionalDependencies: {
+            [`@img/sharp-${platform}`]: VERSION,
+            [`@img/sharp-libvips-${platform}`]: VERSION,
+          },
+        }),
+      );
+      // The host's binaries as pnpm stages them: in the store, linked from
+      // next to `sharp`, and (hoisted) at the root.
+      for (const name of [`sharp-${host}`, `sharp-libvips-${host}`]) {
+        write(
+          join(
+            root,
+            `node_modules/.pnpm/@img+${name}@0.34.5/node_modules/@img/${name}/package.json`,
+          ),
+          "{}",
+        );
+        mkdirSync(
+          join(root, "node_modules/.pnpm/sharp@0.34.5/node_modules/@img"),
+          { recursive: true },
+        );
+        symlinkSync(
+          `../../../@img+${name}@0.34.5/node_modules/@img/${name}`,
+          join(
+            root,
+            `node_modules/.pnpm/sharp@0.34.5/node_modules/@img/${name}`,
+          ),
+        );
+        write(join(root, `node_modules/@img/${name}/package.json`), "{}");
+      }
+      const lookalikes = [
+        "apps/web/.next/server/app/sharp-edges/page.js",
+        "node_modules/.pnpm/sharp-ico@0.1.5/node_modules/sharp-ico/package.json",
+        "apps/web/node_modules/sharp-ico/package.json",
+      ];
+      for (const file of lookalikes) write(join(root, file), "");
+      for (const name of [`sharp-${platform}`, `sharp-libvips-${platform}`]) {
+        seedCache(name);
+      }
+
+      const source = build.removeExistingSharpBinaries(root);
+      expect(source).toBe(store);
+      build.installSharpBinariesForTarget(root, source, platform);
+
+      expect(readdirSync(sharpBinaryDir(root)).sort()).toEqual(
+        [`sharp-${platform}`, `sharp-libvips-${platform}`].sort(),
+      );
+      expect(
+        JSON.parse(
+          readFileSync(
+            join(sharpBinaryDir(root), `sharp-${platform}/package.json`),
+            "utf-8",
+          ),
+        ).name,
+      ).toBe(`@img/sharp-${platform}`);
+      // No host binary survives, dangling link or otherwise.
+      expect(
+        listTree(root).filter((entry) => entry.name.includes(host)),
+      ).toEqual([]);
+      for (const file of lookalikes) {
+        expect(existsSync(join(root, file))).toBe(true);
+      }
+    },
+  );
+
+  it("warns and installs nothing when the build staged no sharp", () => {
+    const root = join(dir, "staged");
+    write(join(root, "apps/web/server.js"), "");
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const source = build.removeExistingSharpBinaries(root);
+    expect(source).toBeUndefined();
+    build.installSharpBinariesForTarget(root, source, "linux-arm64");
+    expect(existsSync(sharpBinaryDir(root))).toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('"sharp" not found'),
+    );
+    warn.mockRestore();
+  });
+});
+
 describe("listTree", () => {
   it("lists links without descending into them, so a cycle ends", () => {
     write(join(dir, "packages/a/index.js"), "");
@@ -126,30 +312,21 @@ describe("listTree", () => {
   });
 });
 
-describe("dereferencedSize", () => {
-  it("counts a directory once per link to it, as the zip holds it", () => {
+describe("storedSize", () => {
+  it("counts a link as its target path, as the zip stores it", () => {
     write(join(dir, "store/pkg/file"), "x".repeat(100));
     mkdirSync(join(dir, "a"));
-    mkdirSync(join(dir, "b"));
     symlinkSync("../store/pkg", join(dir, "a/pkg"));
-    symlinkSync("../store/pkg", join(dir, "b/pkg"));
 
-    expect(dereferencedSize(dir)).toBe(300);
+    expect(storedSize(dir)).toBe(100 + "../store/pkg".length);
   });
 
-  it("counts a linked file at its target's size", () => {
-    write(join(dir, "real"), "x".repeat(10));
-    symlinkSync("real", join(dir, "link"));
-
-    expect(dereferencedSize(dir)).toBe(20);
-  });
-
-  it("terminates on a cycle and skips a dangling link", () => {
+  it("terminates on a cycle and counts a dangling link", () => {
     write(join(dir, "a/file"), "x".repeat(10));
     symlinkSync("..", join(dir, "a/up"));
     symlinkSync("missing", join(dir, "a/dangling"));
 
-    expect(dereferencedSize(dir)).toBe(10);
+    expect(storedSize(dir)).toBe(10 + "..".length + "missing".length);
   });
 });
 

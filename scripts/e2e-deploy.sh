@@ -40,7 +40,7 @@ if [ ! -x "$CDK_BIN" ]; then
   exit 1
 fi
 
-STACK_NAME="$(harness_stack_name "$APP_DIR")"
+STACK_NAME="$(harness_stack_name)"
 printf '%s\n' "$STACK_NAME" >"$HARNESS_STACK_FILE"
 echo "harness: app=$APP_DIR stack=$STACK_NAME"
 
@@ -63,18 +63,17 @@ for _ in $(seq 1 120); do
   sleep 15
 done
 
-# A shared stack has to be created by `e2e-warm.sh`'s throwaway app, never by a
-# fixture: `app.js` pins the post-deploy `buildId` for shared stacks so test files
-# can hotswap, and the one deploy that runs the custom resource anyway - the
-# create - would then prune this fixture's `<buildId>/` cache and seed none of
-# its tags. CI warms every shard before the suite starts; this covers a local run
+# The shared stack has to be created by `e2e-warm.sh`'s throwaway app, never by
+# a fixture: `app.js` pins the post-deploy `buildId` so test files can hotswap,
+# and the one deploy that runs the custom resource anyway - the create - would
+# then prune this fixture's `<buildId>/` cache. CI warms every shard before the suite starts; this covers a local run
 # that did not. HARNESS_WARMING is how `e2e-warm.sh`'s own deploy says it is the
 # warm-up.
 #
 # A stack in ROLLBACK_COMPLETE (a failed create) or a DELETE_* state counts as
 # missing too: `cdk deploy` would delete and recreate it from this fixture, which
 # is the create the paragraph above rules out.
-if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ] && [ "${HARNESS_WARMING:-0}" != "1" ]; then
+if [ "${HARNESS_WARMING:-0}" != "1" ]; then
   if ! SHARED_STATUS="$(harness_stack_status "$STACK_NAME")"; then
     echo "harness: cannot read $STACK_NAME's status (see above); not guessing whether it exists" >&2
     exit 1
@@ -207,9 +206,8 @@ echo "harness: deploying $STACK_NAME"
 # see the table in scripts/e2e-harness/README.md for what actually differs between
 # two fixtures.
 #
-# `--output` inside the app directory: a shared cdk.out would have concurrent
-# test files overwrite each other's assembly. (The shared stack requires `-c 1`
-# anyway, but `HARNESS_ISOLATED_STACK=1` does not.)
+# `--output` inside the app directory: a shared cdk.out would have two shards'
+# test files overwrite each other's assembly.
 #
 # The container types hotswap too - a new image and a changed environment are
 # both task-definition changes - but a hotswap into ECS is a rolling deployment,
@@ -302,13 +300,30 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
     # stderr pipe) would hang it.
     nohup node "$HARNESS_DIR/stage-proxy.mjs" "$PROXY_PORT" "$URL" \
       </dev/null >"$PROXY_STATE.log" 2>&1 3>&- &
-    printf '%s' "$!" >"$PROXY_STATE.pid"
+    PROXY_PID="$!"
+    printf '%s' "$PROXY_PID" >"$PROXY_STATE.pid"
     printf '%s' "$URL" >"$PROXY_STATE.target"
+    # Ready when *this* proxy says it is listening - it logs that from the
+    # `listen` callback - not when something answers on the port: a leftover
+    # proxy for another stack answering there would have the suite test the
+    # wrong deployment, while ours died on EADDRINUSE.
+    PROXY_UP=0
     for _ in $(seq 1 50); do
-      if curl -s -o /dev/null "http://127.0.0.1:$PROXY_PORT/"; then break; fi
+      if grep -q "^stage-proxy: http://127.0.0.1:$PROXY_PORT " "$PROXY_STATE.log" 2>/dev/null; then
+        PROXY_UP=1
+        break
+      fi
+      kill -0 "$PROXY_PID" 2>/dev/null || break
       sleep 0.1
     done
-    echo "harness: started stage proxy $(cat "$PROXY_STATE.pid") on :$PROXY_PORT -> $URL"
+    if [ "$PROXY_UP" != "1" ]; then
+      echo "harness: stage proxy for $STACK_NAME did not start on :$PROXY_PORT; its log:" >&2
+      cat "$PROXY_STATE.log" >&2 || true
+      kill "$PROXY_PID" 2>/dev/null || true
+      rm -f "$PROXY_STATE.pid" "$PROXY_STATE.target"
+      exit 1
+    fi
+    echo "harness: started stage proxy $PROXY_PID on :$PROXY_PORT -> $URL"
   fi
   URL="http://127.0.0.1:$PROXY_PORT"
 

@@ -14,6 +14,7 @@ import { Construct } from "constructs";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
+import { wholeAppInvalidationPaths } from "./utils/base-path";
 
 export interface NextjsPostDeployOverrides {
   readonly functionProps?: OptionalFunctionProps;
@@ -28,6 +29,12 @@ export interface NextjsPostDeployOverrides {
 }
 
 export interface NextjsPostDeployProps {
+  /**
+   * The app's `basePath`. Scopes the deploy's CloudFront invalidation to the
+   * app's URIs, so a deploy doesn't flush other apps on the same distribution.
+   * @default - the whole distribution (`/*`)
+   */
+  readonly basePath?: string;
   readonly buildId: string;
   /**
    * Cache bucket for cleaning up old BUILD_ID prefixed objects
@@ -86,8 +93,8 @@ export interface PostDeployCustomResourceProperties {
         invalidationBatch: {
           callerReference: new Date().toISOString(),
           paths: {
-            quantity: 1,
-            items: ["/*"], // invalidate all paths
+            quantity: paths.length,
+            items: paths, // wholeAppInvalidationPaths(basePath)
           },
         },
       }
@@ -113,7 +120,7 @@ export interface PostDeployCustomResourceProperties {
 /**
  * Performs post deployment tasks in custom resource.
  *
- * 1. CloudFront Invalidation (defaults to /*)
+ * 1. CloudFront Invalidation of every URI of the app (`/*` without a `basePath`)
  * 2. Prune cache bucket by removing objects with old BUILD_ID prefixes
  * 3. Prune DynamoDB revalidation table by removing entries with old BUILD_ID prefixes
  * 4. Prune static assets S3 by removing objects that don't have next-build-id metadata of
@@ -157,6 +164,7 @@ export class NextjsPostDeploy extends Construct {
   }
 
   private createCustomResource() {
+    const paths = wholeAppInvalidationPaths(this.props.basePath);
     const properties: PostDeployCustomResourceProperties = {
       // ensures this CR runs each time new build
       buildId: this.props.buildId,
@@ -170,10 +178,7 @@ export class NextjsPostDeploy extends Construct {
             distributionId: this.props.distribution.distributionId,
             invalidationBatch: {
               callerReference: new Date().toISOString(),
-              paths: {
-                quantity: 1,
-                items: ["/*"],
-              },
+              paths: { quantity: paths.length, items: paths },
             },
           }
         : undefined,

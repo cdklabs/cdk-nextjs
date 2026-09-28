@@ -81,6 +81,13 @@ export interface RuntimeRequest {
    * ignored, as `next start` ignores it without `experimental.trustHostHeader`.
    */
   readonly trustForwardedHost?: boolean;
+  /**
+   * Set by {@link NextjsRuntime.handleInternally} for the in-process requests it
+   * makes: called with the `RouteInOtherGroupError` the route threw, instead of
+   * logging the misrouted-request warning, which describes a CloudFront or API
+   * Gateway problem this is not.
+   */
+  readonly onRouteInOtherGroup?: (error: RouteInOtherGroupError) => void;
 }
 
 /**
@@ -107,25 +114,6 @@ export interface NextjsRuntimeOptions {
   readonly bucketKeyPrefix?: string;
 }
 
-/**
- * The requests whose {@link RuntimeRequest.trustForwardedHost} was set, for the
- * internal requests made on their behalf (`fetchInternal`), which only get the
- * `IncomingMessage`.
- */
-const trustsForwardedHost = new WeakSet<ShimIncomingMessage>();
-
-/**
- * The in-process requests {@link NextjsRuntime.handleInternally} makes, each
- * mapped to the `RouteInOtherGroupError` its route threw, if it did. Registered
- * before the request runs, so that `route` knows to record the error here
- * instead of logging the misrouted-request warning, which describes a
- * CloudFront or API Gateway problem this is not.
- */
-const internalRequests = new WeakMap<
-  RuntimeRequest,
-  RouteInOtherGroupError | undefined
->();
-
 export class NextjsRuntime {
   private readonly entrypoints: EntrypointRegistry;
   private readonly dispatcher: Dispatcher;
@@ -150,7 +138,8 @@ export class NextjsRuntime {
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
       manifest,
-      bucket: options.bucket ?? "",
+      // On disk otherwise, with `.next/static`; see `ImageOptimizerOptions.bucket`.
+      bucket: this.publicFilesInS3 ? (options.bucket ?? "") : "",
       bucketKeyPrefix: options.bucketKeyPrefix ?? "",
       fetchInternal: (href, req) => this.fetchInternal(href, req),
     });
@@ -190,10 +179,8 @@ export class NextjsRuntime {
       body: body.forRequest,
       remoteAddress: request.remoteAddress,
       encrypted: request.encrypted,
+      trustForwardedHost: request.trustForwardedHost,
     });
-    if (request.trustForwardedHost) {
-      trustsForwardedHost.add(req);
-    }
     const res = new ShimServerResponse();
     // Next.js reads `res.req` in a few error paths.
     res.req = req;
@@ -312,10 +299,10 @@ export class NextjsRuntime {
             sendRedirect(res, `${canonical}${url.search}`, 308);
             return;
           }
-          if (internalRequests.has(request)) {
+          if (request.onRouteInOtherGroup) {
             // Explained by the caller of `handleInternally`, which knows why it
             // happened.
-            internalRequests.set(request, error);
+            request.onRouteInOtherGroup(error);
           } else {
             // Logged, because it is also what a misrouted group looks like; see
             // `RouteInOtherGroupError` for why it is a 404.
@@ -722,7 +709,7 @@ export class NextjsRuntime {
         "x-forwarded-proto",
       ]),
       encrypted: (req.socket as { encrypted?: boolean } | undefined)?.encrypted,
-      trustForwardedHost: trustsForwardedHost.has(req),
+      trustForwardedHost: req.trustForwardedHost,
     };
     const { head, body, otherGroup } = await this.handleInternally(request, {
       keepBody: true,
@@ -773,24 +760,30 @@ export class NextjsRuntime {
   }> {
     let head: ResponseHead | undefined;
     const chunks: Buffer[] = [];
-    internalRequests.set(request, undefined);
-    await this.handle(request, {
-      begin(responseHead) {
-        head = responseHead;
-        return new Writable({
-          write(chunk, _encoding, callback) {
-            if (options.keepBody) {
-              chunks.push(Buffer.from(chunk));
-            }
-            callback();
-          },
-        });
+    let otherGroup: RouteInOtherGroupError | undefined;
+    const onRouteInOtherGroup = (error: RouteInOtherGroupError) => {
+      otherGroup = error;
+    };
+    await this.handle(
+      { ...request, onRouteInOtherGroup },
+      {
+        begin(responseHead) {
+          head = responseHead;
+          return new Writable({
+            write(chunk, _encoding, callback) {
+              if (options.keepBody) {
+                chunks.push(Buffer.from(chunk));
+              }
+              callback();
+            },
+          });
+        },
       },
-    });
+    );
     return {
       head,
       body: Buffer.concat(chunks),
-      otherGroup: internalRequests.get(request),
+      otherGroup,
     };
   }
 
@@ -1418,6 +1411,26 @@ function sendMethodNotAllowed(res: ShimServerResponse): void {
   res.end("Method Not Allowed");
 }
 
+/**
+ * Request headers {@link proxyExternal} does not forward. The upstream's own
+ * `Host` must win; the rest describe our connection, not the proxied one, and
+ * undici throws on most of them, which would answer the request with a 500.
+ * Next.js's list for the requests it makes with undici (`ipcForbiddenHeaders`,
+ * `next/dist/server/lib/server-ipc/utils.js`), plus `host` and `upgrade`, minus
+ * `content-encoding`: Next strips that over a body it has already decoded, while
+ * this one is forwarded as received, still encoded.
+ */
+const PROXY_DROPPED_HEADERS: readonly string[] = [
+  "host",
+  "upgrade",
+  "accept-encoding",
+  "keepalive",
+  "keep-alive",
+  "transfer-encoding",
+  "connection",
+  "expect",
+];
+
 /** A `next.config` rewrite whose destination is another origin. */
 async function proxyExternal(
   req: ShimIncomingMessage,
@@ -1428,9 +1441,7 @@ async function proxyExternal(
   const method = req.method ?? "GET";
   const hasBody = method !== "GET" && method !== "HEAD";
   const headers = new Headers(requestHeaders);
-  // The upstream's own `Host` must win, and the hop-by-hop headers describe our
-  // connection, not the proxied one.
-  for (const name of ["host", "connection", "transfer-encoding"]) {
+  for (const name of PROXY_DROPPED_HEADERS) {
     headers.delete(name);
   }
   const upstream = await fetch(url, {

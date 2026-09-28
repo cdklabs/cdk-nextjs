@@ -74,6 +74,7 @@ function optimizerFor(
     images?: Record<string, unknown>;
     fetchInternal?: ImageOptimizerOptions["fetchInternal"];
     s3?: S3Client;
+    bucket?: string;
   } = {},
 ): RuntimeImageOptimizer {
   const via = new RuntimeImageOptimizer({
@@ -94,7 +95,7 @@ function optimizerFor(
       relativeProjectDir: "",
       config: { distDir: ".next" },
     } as unknown as AdapterManifest,
-    bucket: "assets",
+    bucket: options.bucket ?? "assets",
     bucketKeyPrefix: "",
     fetchInternal: options.fetchInternal,
     importModule: async (url) => {
@@ -306,6 +307,27 @@ describe("RuntimeImageOptimizer sources", () => {
       contentType: "image/png",
       cacheControl: "public, max-age=120",
     });
+  });
+
+  // `NextjsRegionalContainers`: the file is on disk, and a GetObject for it is
+  // a wasted round trip.
+  it("goes straight to the app's routes when there is no bucket", async () => {
+    const send = jest.fn();
+    const fetchInternal = jest.fn(async () => ({
+      statusCode: 200,
+      headers: { "content-type": "image/png" },
+      body: Buffer.from("disk-bytes"),
+    }));
+    const { head } = await request("/logo.png", {
+      via: optimizerFor({
+        bucket: "",
+        fetchInternal,
+        s3: { send } as unknown as S3Client,
+      }),
+    });
+    expect(head.statusCode).toBe(200);
+    expect(send).not.toHaveBeenCalled();
+    expect(fetchInternal).toHaveBeenCalledWith("/logo.png", expect.anything());
   });
 
   it("answers 400 when the route sends no body", async () => {

@@ -41,6 +41,11 @@ export interface OptionalNextjsContainersProps {
    */
   readonly healthCheckPath?: string;
   /**
+   * Directory where the Next.js application is located: the Docker build context, holding the `.next` directory and other build artifacts.
+   * @stability stable
+   */
+  readonly buildDirectory?: string;
+  /**
    * Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys.
    * @stability stable
    */
@@ -69,9 +74,4 @@ export interface OptionalNextjsContainersProps {
    * @stability stable
    */
   readonly buildId?: string;
-  /**
-   * Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds.
-   * @stability stable
-   */
-  readonly buildDirectory?: string;
 }

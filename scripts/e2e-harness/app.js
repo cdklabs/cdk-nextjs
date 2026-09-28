@@ -47,7 +47,7 @@ function required(name) {
 
 /**
  * Pins the post-deploy custom resource's properties so it is never what stops a
- * deploy from hotswapping. Shared by both types.
+ * deploy from hotswapping. Shared by every type.
  *
  * Both defaults change on every synth - `buildId` is the real build ID, and
  * `createInvalidationCommandInput` carries a `new Date().toISOString()` caller
@@ -61,8 +61,15 @@ function required(name) {
  * (src/adapter/s3-cache-handler.ts), which *is* hotswappable, and
  * `scripts/e2e-deploy.sh` invalidates the distribution itself - it has to, since
  * a hotswap never runs CloudFormation and so never runs a custom resource at all.
+ *
+ * The pin only holds up if the stack is *created* by an app whose cache it does
+ * not matter to lose: on a create the custom resource does run, and with
+ * `buildId: "harness"` it prunes every other `<buildId>/` prefix from the cache
+ * bucket - which is the app just deployed. That app is the throwaway one
+ * `scripts/e2e-warm.sh` deploys, and `e2e-deploy.sh` runs it first when the
+ * stack does not exist yet.
  */
-const SHARED_POST_DEPLOY = {
+const PINNED_POST_DEPLOY = {
   customResourceProperties: {
     buildId: "harness",
     // Dropped, not pinned to a fixed caller reference: CDK strips undefined
@@ -71,21 +78,6 @@ const SHARED_POST_DEPLOY = {
     createInvalidationCommandInput: undefined,
   },
 };
-
-/**
- * The pin only holds up if the stack is *created* by an app whose cache it does
- * not matter to lose: on a create the custom resource does run, and with
- * `buildId: "harness"` it prunes every other `<buildId>/` prefix from the cache
- * bucket - which is the app just deployed - and seeds no tag mappings. On a
- * shared stack that app is the throwaway one `scripts/e2e-warm.sh` deploys, and
- * `e2e-deploy.sh` runs it first when the stack does not exist yet.
- *
- * An isolated stack (`HARNESS_ISOLATED_STACK=1`) is created by the fixture itself
- * and never hotswapped into by another, so there is nothing to pin for: it gets
- * the real post-deploy pass, as a production deploy would.
- */
-const PINNED_POST_DEPLOY =
-  process.env["HARNESS_ISOLATED_STACK"] === "1" ? undefined : SHARED_POST_DEPLOY;
 
 const COMMON_PROPS = {
   buildDirectory: appDir,
@@ -370,6 +362,6 @@ new StackClass(app, stackName, {
   // constant: a tag whose value changed per deploy (a timestamp, say) would be
   // a stack-level diff on every run and so a CloudFormation update, which is
   // the one thing the hotswap path is trying to avoid. The sweeper ages stacks
-  // off CloudFormation's own `CreationTime` instead.
+  // off their server function's (or ECS service's) last hotswap instead.
   tags: { "cdk-nextjs:harness": "1" },
 });

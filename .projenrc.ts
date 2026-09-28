@@ -553,7 +553,9 @@ function generateStructs() {
     filePath: getFilePath("OptionalNextjsBuildProps"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsBuildProps"))
-    .omit("overrides")
+    // `functionGroups` is the root constructs' prop: set here, it would split
+    // the build without the behaviors or API routes that reach the groups.
+    .omit("overrides", "functionGroups")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsCacheProps",
@@ -582,6 +584,18 @@ function generateStructs() {
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsContainersProps"))
     .omit("overrides")
+    .allOptional();
+  new ProjenStruct(project, {
+    name: "OptionalNextjsFunctionsProps",
+    filePath: getFilePath("OptionalNextjsFunctionsProps"),
+  })
+    .mixin(Struct.fromFqn("cdk-nextjs.NextjsFunctionsProps"))
+    // `functionGroups`: same reason as `OptionalNextjsBuildProps`.
+    // `architecture` and `deploymentRoots` are what the build staged: set here,
+    // the Lambdas would run a root built for something else (sharp for the
+    // wrong CPU, say). The architecture is set through
+    // `overrides.nextjsFunctions.functionProps.architecture`, which the build reads.
+    .omit("overrides", "functionGroups", "architecture", "deploymentRoots")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalApplicationLoadBalancedTaskImageOptions",

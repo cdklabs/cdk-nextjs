@@ -25,6 +25,23 @@ export function basePathPrefix(basePath?: string): string {
 }
 
 /**
+ * Invalidation paths covering every URI of the app: what a deploy invalidates,
+ * and what the cache handler's oversized batches, retries after a quota error,
+ * and tags whose routes could not all be named fall back to.
+ *
+ * `/*` is the whole app only without a `basePath`. `/base/*` matches neither the
+ * app's root, `/base`, nor its RSC payload, `/base?_rsc=…` - the same root the
+ * `revalidatePath("/")` that overflowed may have named - so those are spelled
+ * out. `/base*` would cover them for one wildcard, but also every sibling
+ * prefix (`/base2`, `/basement`), which may be another app on the same
+ * distribution.
+ */
+export function wholeAppInvalidationPaths(basePath?: string): string[] {
+  const prefix = basePathPrefix(basePath);
+  return prefix ? [prefix, `${prefix}?*`, `${prefix}/*`] : ["/*"];
+}
+
+/**
  * Joins path parts with a single "/", normalizing each (so no leading or
  * trailing slash survives, including on the result) and dropping the empty
  * ones, so an unset `basePath` or key prefix leaves the rest untouched.

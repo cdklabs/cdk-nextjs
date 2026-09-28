@@ -58,11 +58,12 @@ test.describe("response headers", () => {
 
   /**
    * cdk-nextjs compresses responses in its own server now, where AWS Lambda Web
-   * Adapter used to. For the Global types CloudFront could also be the one
-   * compressing, so this is end-to-end there and origin-level on the Regional
-   * types, which have no CDN in front.
+   * Adapter used to. Only the Regional types, with no CDN in front, pin that on
+   * the runtime. On the Global types CloudFront compresses too, so there this
+   * says only that *something* did - the runtime's side of it is covered by the
+   * Regional jobs and the unit tests.
    */
-  test("compresses HTML when the client asks for it", async ({ request }) => {
+  test("serves gzip HTML when the client asks for it", async ({ request }) => {
     const response = await request.get("./ssr/1", {
       headers: { "accept-encoding": "gzip" },
     });
@@ -86,6 +87,13 @@ test.describe("response headers", () => {
    * A 304 has no body, and the response stream has to be ended anyway. Getting
    * that wrong hangs the request until the Lambda or ALB times out rather than
    * failing outright, so the assertion that matters is that it *returns*.
+   *
+   * Both a static chunk and a rendered page, because they are different code
+   * paths: `_next/static` comes from S3 on three of the four types, so only the
+   * page reaches cdk-nextjs's runtime everywhere (behind CloudFront, the edge
+   * may answer from its own copy, which is fine). The page is ISR, so its ETag
+   * can legitimately change between the two requests when it revalidates, and
+   * `toPass` retries for that. A hang still fails, once the retries run out.
    */
   test("answers a conditional GET with a 304 and does not hang", async ({
     page,
@@ -108,6 +116,18 @@ test.describe("response headers", () => {
     });
     expect(notModified.status()).toBe(304);
     expect(await notModified.body()).toHaveLength(0);
+
+    await expect(async () => {
+      const rendered = await request.get("./isr/1");
+      const pageEtag = rendered.headers()["etag"];
+      expect(pageEtag).toBeTruthy();
+      const pageNotModified = await request.get("./isr/1", {
+        headers: { "if-none-match": pageEtag! },
+        timeout: 15_000,
+      });
+      expect(pageNotModified.status()).toBe(304);
+      expect(await pageNotModified.body()).toHaveLength(0);
+    }).toPass({ timeout: 60_000 });
   });
 });
 

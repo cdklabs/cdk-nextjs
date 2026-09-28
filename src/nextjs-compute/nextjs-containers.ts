@@ -23,12 +23,15 @@ import {
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { CfnElement } from "aws-cdk-lib/core";
 import { Construct } from "constructs";
-import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
+import {
+  grantRuntimeAccess,
+  NextjsComputeBaseProps,
+  runtimeEnvironment,
+} from "./nextjs-compute-base-props";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
 import { OptionalDockerImageAssetProps } from "../generated-structs/OptionalDockerImageAssetProps";
-import { staticAssetsObjectsPattern } from "../nextjs-static-assets";
 
 export interface NextjsContainersOverrides {
   readonly ecsClusterProps?: OptionalClusterProps;
@@ -45,6 +48,11 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
    * construction to avoid deployment failures.
    */
   readonly alb?: IApplicationLoadBalancer;
+  /**
+   * Directory where the Next.js application is located: the Docker build
+   * context, holding the `.next` directory and other build artifacts.
+   */
+  readonly buildDirectory: string;
   /**
    * Bring your own ECS cluster. When provided, cdk-nextjs will skip creating
    * a new cluster and VPC gateway endpoints. The cluster is passed directly
@@ -252,19 +260,7 @@ export class NextjsContainers extends Construct {
           }),
           ...this.props.overrides?.taskImageOptions,
           environment: {
-            // Cache configuration environment variables
-            CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
-            CDK_NEXTJS_REVALIDATION_TABLE_NAME:
-              this.props.revalidationTable.tableName,
-            CDK_NEXTJS_BUILD_ID: this.props.buildId,
-            // Read by the runtime's image optimizer for non-absolute `<Image>`
-            // URLs whose bytes are in S3 rather than in the image.
-            CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME:
-              this.props.staticAssetsBucket.bucketName,
-            // Where in that bucket. Not derivable from the app's `basePath`,
-            // which prefixes the URL rather than the key.
-            CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX:
-              this.props.staticAssetsKeyPrefix ?? "",
+            ...runtimeEnvironment(this.props),
             // Merge with user-provided environment variables (user values take precedence)
             ...this.props.overrides?.taskImageOptions?.environment,
           },
@@ -279,17 +275,7 @@ export class NextjsContainers extends Construct {
       "0.0.0.0",
     );
 
-    // Grant cache access permissions
-    this.props.cacheBucket.grantReadWrite(
-      albFargateService.taskDefinition.taskRole,
-    );
-    this.props.revalidationTable.grantReadWriteData(
-      albFargateService.taskDefinition.taskRole,
-    );
-    this.props.staticAssetsBucket.grantRead(
-      albFargateService.taskDefinition.taskRole,
-      staticAssetsObjectsPattern(this.props.staticAssetsKeyPrefix),
-    );
+    grantRuntimeAccess(this.props, albFargateService.taskDefinition.taskRole);
 
     // speed up deployments by shortening deregistration delay
     // https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/load-balancer-connection-draining.html

@@ -111,16 +111,31 @@ describe("pruneS3", () => {
     expect(listPrefixes()).toEqual(["branch-a/_next/"]);
   });
 
-  // A bare "branch-a" prefix also matches "branch-a-staging/...", which is a
-  // different app's objects.
-  it("terminates the prefix with a slash", async () => {
-    stubBucketContents([]);
+  // A sibling app whose prefix starts with this one's ("branch-a-staging") is a
+  // different app's objects, even though its keys start with "branch-a".
+  it("leaves a sibling prefix's assets alone", async () => {
+    const longAgo = new Date(Date.now() - MS_TTL * 2);
+    const bucket = [
+      "branch-a/_next/static/old.js",
+      "branch-a-staging/_next/static/old.js",
+    ];
+    holder.send.mockImplementation((command: unknown) => {
+      if (command instanceof ListObjectsV2Command) {
+        return Promise.resolve({
+          Contents: bucket
+            .filter((Key) => Key.startsWith(command.input.Prefix ?? ""))
+            .map((Key) => ({ Key, LastModified: longAgo })),
+        });
+      }
+      if (command instanceof DeleteObjectsCommand) {
+        return Promise.resolve({});
+      }
+      return Promise.resolve({ Metadata: { build_id: "build-1" } });
+    });
 
     await prune("branch-a");
 
-    // Asserted as an exact value: a bare "branch-a", and an absent prefix, both
-    // reach objects belonging to another app.
-    expect(listPrefixes()).toEqual(["branch-a/_next/"]);
+    expect(deletedKeys()).toEqual(["branch-a/_next/static/old.js"]);
   });
 
   it("takes a nested prefix as NextjsStaticAssets resolved it", async () => {

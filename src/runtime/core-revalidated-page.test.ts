@@ -63,7 +63,7 @@ describe("the revalidated-page hook", () => {
 
   it("invalidates the page and its data route under basePath", async () => {
     process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "param";
-    new S3CacheHandler({ context, cloudFrontConfig: { basePath: "base" } });
+    new S3CacheHandler({ context, basePath: "base" });
     await (globals[HOOK] as Hook)([
       "/blog/hello",
       "/_next/data/build-1/blog/hello.json",

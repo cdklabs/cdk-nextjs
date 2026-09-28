@@ -43,19 +43,13 @@ export interface AwsCacheConfig {
   buildId: string;
 }
 
-/** The configuration from the environment, `overrides` taking precedence. */
-export function resolveAwsCacheConfig(
-  overrides: Partial<AwsCacheConfig> = {},
-): AwsCacheConfig {
+/** The configuration from the environment. */
+export function resolveAwsCacheConfig(): AwsCacheConfig {
   return {
-    bucketName:
-      overrides.bucketName || process.env.CDK_NEXTJS_CACHE_BUCKET_NAME || "",
-    tableName:
-      overrides.tableName ||
-      process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME ||
-      "",
-    region: overrides.region || process.env.AWS_REGION || "us-east-1",
-    buildId: overrides.buildId || process.env.CDK_NEXTJS_BUILD_ID || "",
+    bucketName: process.env.CDK_NEXTJS_CACHE_BUCKET_NAME || "",
+    tableName: process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME || "",
+    region: process.env.AWS_REGION || "us-east-1",
+    buildId: process.env.CDK_NEXTJS_BUILD_ID || "",
   };
 }
 
@@ -163,8 +157,13 @@ export function markerClock(): number {
 }
 
 /**
- * The marker a tag revalidated at `now` gets, as {@link markerUpdate} writes it -
- * for a handler to apply to its own copy without waiting to read it back.
+ * The marker fields a tag revalidated at `now` sets.
+ *
+ * Without `durations` - `updateTag`, or `revalidateTag` with no profile - the
+ * tag's entries expire immediately (`revalidatedAt`). With them the entries go
+ * stale now and expire after the profile's `expire`, the same pair of
+ * timestamps Next.js's `FileSystemCache.revalidateTag` records. A profile with
+ * no `expire` sets only `staleAt`, and whatever `expiredAt` the tag had stays.
  */
 export function markerFor(
   now: number,
@@ -179,14 +178,26 @@ export function markerFor(
   return { staleAt: now, expiredAt: now + durations.expire * 1000 };
 }
 
+const MARKER_FIELDS = ["revalidatedAt", "staleAt", "expiredAt"] as const;
+
 /**
- * The marker-row update for a tag revalidated at `now`.
- *
- * Without `durations` - `updateTag`, or `revalidateTag` with no profile - the
- * tag's entries expire immediately (`revalidatedAt`). With them the entries go
- * stale now and expire after the profile's `expire`, the same pair of
- * timestamps Next.js's `FileSystemCache.revalidateTag` records.
+ * `existing` with the fields `update` sets, as a {@link markerUpdate} leaves
+ * the row: a field `update` does not set keeps its value.
  */
+export function applyMarker(
+  existing: TagMarker | undefined,
+  update: TagMarker,
+): TagMarker {
+  const marker = { ...existing };
+  for (const field of MARKER_FIELDS) {
+    if (update[field] !== undefined) {
+      marker[field] = update[field];
+    }
+  }
+  return marker;
+}
+
+/** The marker-row update that sets {@link markerFor}'s fields. */
 export function markerUpdate(
   now: number,
   durations: RevalidateDurations | undefined,
@@ -194,24 +205,13 @@ export function markerUpdate(
   ConstructorParameters<typeof UpdateItemCommand>[0],
   "UpdateExpression" | "ExpressionAttributeValues"
 > {
-  if (!durations) {
-    return {
-      UpdateExpression: "SET revalidatedAt = :timestamp",
-      ExpressionAttributeValues: { ":timestamp": { N: String(now) } },
-    };
-  }
-  if (durations.expire === undefined) {
-    return {
-      UpdateExpression: "SET staleAt = :stale",
-      ExpressionAttributeValues: { ":stale": { N: String(now) } },
-    };
-  }
+  const marker = markerFor(now, durations);
+  const fields = MARKER_FIELDS.filter((field) => marker[field] !== undefined);
   return {
-    UpdateExpression: "SET staleAt = :stale, expiredAt = :expired",
-    ExpressionAttributeValues: {
-      ":stale": { N: String(now) },
-      ":expired": { N: String(now + durations.expire * 1000) },
-    },
+    UpdateExpression: `SET ${fields.map((field) => `${field} = :${field}`).join(", ")}`,
+    ExpressionAttributeValues: Object.fromEntries(
+      fields.map((field) => [`:${field}`, { N: String(marker[field]) }]),
+    ),
   };
 }
 
@@ -397,7 +397,7 @@ export class RevalidationLog {
       sk: { S: `${logSkPrefix(at)}#${tag}` },
       ttl: { N: String(Math.ceil((at + REVALIDATION_LOG_TTL_MS) / 1000)) },
     };
-    for (const field of ["revalidatedAt", "staleAt", "expiredAt"] as const) {
+    for (const field of MARKER_FIELDS) {
       const value = marker[field];
       if (value !== undefined) {
         item[field] = { N: String(value) };
@@ -952,12 +952,15 @@ export function mergeMarkers(
   if (!remote) {
     return local;
   }
-  const localStaleIsNewer = (local.staleAt ?? -1) > (remote.staleAt ?? -1);
+  // `expiredAt` is written with `staleAt`, so it belongs to whichever is
+  // newer - unless that revalidation's profile had no `expire` and left it.
+  const [older, newer] =
+    (local.staleAt ?? -1) > (remote.staleAt ?? -1)
+      ? [remote, local]
+      : [local, remote];
   return {
+    ...applyMarker(older, newer),
     revalidatedAt: maxDefined(local.revalidatedAt, remote.revalidatedAt),
-    staleAt: maxDefined(local.staleAt, remote.staleAt),
-    // Written together with `staleAt`, so it belongs to whichever is newer.
-    expiredAt: localStaleIsNewer ? local.expiredAt : remote.expiredAt,
   };
 }
 

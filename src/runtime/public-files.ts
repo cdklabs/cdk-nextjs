@@ -92,26 +92,23 @@ export function readPublicFiles(dir: string): string[] {
 export interface PublicFiles {
   readonly files: readonly string[];
   /**
-   * `true` when `files` came from {@link PUBLIC_FILES_FILE_NAME} because
-   * `public/` is not on disk: every type but `NextjsRegionalContainers`. Their
-   * bytes are in S3.
+   * `true` when `files` came from {@link PUBLIC_FILES_FILE_NAME}: every type
+   * but `NextjsRegionalContainers`. Their bytes are in S3.
    */
   readonly inS3: boolean;
 }
 
 /**
- * `public/` off disk when it is there, which is `NextjsRegionalContainers`, and the
- * synth-time list otherwise. An empty `public/` on disk with no list is an app
- * without one.
+ * The synth-time list when the deployment root has one, which is every type but
+ * `NextjsRegionalContainers`, and `public/` off disk otherwise. The list wins
+ * even when some of `public/` is on disk: a route that reads a `public/` file
+ * through `fs` gets that file traced into a Lambda root, and the rest of
+ * `public/` is still only in S3.
  */
 export function resolvePublicFiles(
   deploymentRoot: string,
   manifest: AdapterManifest,
 ): PublicFiles {
-  const onDisk = readPublicFiles(join(deploymentRoot, publicDirKey(manifest)));
-  if (onDisk.length > 0) {
-    return { files: onDisk, inS3: false };
-  }
   let listed: unknown;
   try {
     listed = JSON.parse(
@@ -122,7 +119,8 @@ export function resolvePublicFiles(
     );
   } catch (error) {
     if ((error as { code?: string }).code === "ENOENT") {
-      return { files: onDisk, inS3: false };
+      const onDisk = join(deploymentRoot, publicDirKey(manifest));
+      return { files: readPublicFiles(onDisk), inS3: false };
     }
     throw error;
   }

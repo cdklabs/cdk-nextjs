@@ -50,7 +50,7 @@ import {
   INIT_CACHE_TAG_MANIFEST,
 } from "./cache-utils";
 import { sharedTagManifest, UseCacheTagManifest } from "./use-cache-common";
-import { basePathPrefix } from "../utils/base-path";
+import { basePathPrefix, wholeAppInvalidationPaths } from "../utils/base-path";
 
 /**
  * The tags a stored entry has to be tag-revalidated against.
@@ -206,22 +206,6 @@ function appBasePath(serverDistDir: string | undefined): string | undefined {
 }
 
 /**
- * Invalidation paths covering every URI of the app: what an oversized batch, a
- * retry after a quota error, and a tag whose routes could not all be named fall
- * back to.
- *
- * `/*` is the whole app only without a `basePath`. `/base/*` matches neither the
- * app's root, `/base`, nor its RSC payload, `/base?_rsc=…` - the same root the
- * `revalidatePath("/")` that overflowed may have named - so those are spelled
- * out. `/base*` would cover them for one wildcard, but also every sibling
- * prefix (`/base2`, `/basement`), which may be another app on the same
- * distribution.
- */
-function wholeAppInvalidationPaths(basePath: string): string[] {
-  return basePath ? [basePath, `${basePath}?*`, `${basePath}/*`] : ["/*"];
-}
-
-/**
  * `route` as the URI a browser requests it under, which is what CloudFront
  * caches it by.
  *
@@ -361,13 +345,6 @@ function nextTagsManifest():
   return manifest instanceof Map ? manifest : undefined;
 }
 
-type S3CacheConfig = Pick<AwsCacheConfig, "bucketName" | "region" | "buildId">;
-
-type DynamoDBRevalidationConfig = Pick<
-  AwsCacheConfig,
-  "tableName" | "region" | "buildId"
->;
-
 interface CloudFrontInvalidationConfig {
   /**
    * The distribution ID, when the compute's environment can carry it
@@ -383,10 +360,9 @@ interface CloudFrontInvalidationConfig {
    * known at synth time; only its *value* depends on the distribution.
    */
   distributionIdParameterName: string;
-  region: string;
   /**
    * The app's `basePath`, as the URI prefix CloudFront cached the responses
-   * under. Read from `required-server-files.json` unless set here.
+   * under.
    * @see cdnInvalidationPaths
    */
   basePath: string;
@@ -394,9 +370,11 @@ interface CloudFrontInvalidationConfig {
 
 export interface S3CacheHandlerOptions {
   context: CacheHandlerContext;
-  s3Config?: Partial<S3CacheConfig>;
-  dynamoConfig?: Partial<DynamoDBRevalidationConfig>;
-  cloudFrontConfig?: Partial<CloudFrontInvalidationConfig>;
+  /**
+   * The app's `basePath`, for tests: read from `required-server-files.json`
+   * otherwise.
+   */
+  basePath?: string;
 }
 
 export class S3CacheHandler implements CacheHandler {
@@ -406,8 +384,7 @@ export class S3CacheHandler implements CacheHandler {
   private ssmClient: SSMClient;
   private bucket: CacheBucket;
   private tags: UseCacheTagManifest;
-  private s3Config: S3CacheConfig;
-  private dynamoConfig: DynamoDBRevalidationConfig;
+  private config: AwsCacheConfig;
   private cloudFrontConfig: CloudFrontInvalidationConfig;
   private debug = getDebug("cdk-nextjs:cache-handler:s3");
 
@@ -437,65 +414,36 @@ export class S3CacheHandler implements CacheHandler {
   private buildTags: Promise<Map<string, string[]>> | undefined;
 
   constructor(options: S3CacheHandlerOptions) {
-    // Initialize S3 configuration from environment variables and options
-    const { bucketName, region, buildId } = resolveAwsCacheConfig(
-      options.s3Config,
-    );
-    this.s3Config = { bucketName, region, buildId };
+    this.config = resolveAwsCacheConfig();
 
-    // Initialize DynamoDB configuration from environment variables and options
-    const dynamo = resolveAwsCacheConfig(options.dynamoConfig);
-    this.dynamoConfig = {
-      tableName: dynamo.tableName,
-      region: dynamo.region,
-      buildId: dynamo.buildId,
-    };
-
-    // Initialize CloudFront configuration from environment variables and options.
     // Only set for CloudFront-fronted deployments (NextjsGlobalFunctions/Containers).
     // When unset, on-demand revalidation skips CDN invalidation and relies on the
     // distribution's cache policy TTL (driven by the origin's Cache-Control header)
     // to eventually pick up fresh content.
     this.cloudFrontConfig = {
-      distributionId:
-        options.cloudFrontConfig?.distributionId ||
-        process.env.CDK_NEXTJS_DISTRIBUTION_ID ||
-        "",
+      distributionId: process.env.CDK_NEXTJS_DISTRIBUTION_ID || "",
       distributionIdParameterName:
-        options.cloudFrontConfig?.distributionIdParameterName ||
-        process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME ||
-        "",
-      region:
-        options.cloudFrontConfig?.region ||
-        process.env.AWS_REGION ||
-        "us-east-1",
-      basePath: basePathPrefix(options.cloudFrontConfig?.basePath),
+        process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME || "",
+      basePath: basePathPrefix(options.basePath),
     };
     // Only invalidation needs it, so only a handler behind a distribution reads
     // it, and a missing file there is worth a warning.
-    if (
-      this.invalidatesCdn &&
-      options.cloudFrontConfig?.basePath === undefined
-    ) {
+    if (this.invalidatesCdn && options.basePath === undefined) {
       this.cloudFrontConfig.basePath = basePathPrefix(
         appBasePath(options.context.serverDistDir),
       );
     }
 
     // Initialize AWS clients
-    this.s3Client = new S3Client({ region: this.s3Config.region });
-    this.dynamoClient = new DynamoDBClient({
-      region: this.dynamoConfig.region,
-    });
-    this.cloudFrontClient = new CloudFrontClient({
-      region: this.cloudFrontConfig.region,
-    });
-    this.ssmClient = new SSMClient({ region: this.cloudFrontConfig.region });
-    this.bucket = new CacheBucket(this.s3Client, this.s3Config.bucketName);
+    const { region } = this.config;
+    this.s3Client = new S3Client({ region });
+    this.dynamoClient = new DynamoDBClient({ region });
+    this.cloudFrontClient = new CloudFrontClient({ region });
+    this.ssmClient = new SSMClient({ region });
+    this.bucket = new CacheBucket(this.s3Client, this.config.bucketName);
     // The process's one copy of the tag markers, shared with the `'use cache'`
     // handlers: one `revalidateTag` writes each tag's rows once, and one log
-    // `Query` per interval serves every handler. From the environment, like
-    // the rest of this configuration, whatever `dynamoConfig` says.
+    // `Query` per interval serves every handler.
     this.tags = sharedTagManifest();
 
     // `res.revalidate()` regenerates a page without going through
@@ -516,13 +464,13 @@ export class S3CacheHandler implements CacheHandler {
       };
     }
 
-    if (!this.s3Config.bucketName) {
+    if (!this.config.bucketName) {
       console.warn(
         "CDK_NEXTJS_CACHE_BUCKET_NAME environment variable not set, S3 cache disabled",
       );
     }
 
-    if (!this.dynamoConfig.tableName) {
+    if (!this.config.tableName) {
       console.warn(
         "CDK_NEXTJS_REVALIDATION_TABLE_NAME environment variable not set, revalidation tracking disabled",
       );
@@ -552,7 +500,7 @@ export class S3CacheHandler implements CacheHandler {
         );
       }
 
-      if (!this.s3Config.bucketName) {
+      if (!this.config.bucketName) {
         return null;
       }
 
@@ -647,7 +595,7 @@ export class S3CacheHandler implements CacheHandler {
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
     cacheKey?: string,
   ): Promise<boolean> {
-    if (!this.dynamoConfig.tableName) {
+    if (!this.config.tableName) {
       return false;
     }
     const checkTags = isFetchCacheGet(ctx)
@@ -696,7 +644,7 @@ export class S3CacheHandler implements CacheHandler {
         // Delete from S3 and DynamoDB
         this.debug(`S3 CACHE DELETE: ${cacheKey}`);
 
-        if (!this.s3Config.bucketName) {
+        if (!this.config.bucketName) {
           return;
         }
 
@@ -713,7 +661,7 @@ export class S3CacheHandler implements CacheHandler {
 
         try {
           const deleteCommand = new DeleteObjectCommand({
-            Bucket: this.s3Config.bucketName,
+            Bucket: this.config.bucketName,
             Key: s3Key,
           });
           await this.s3Client.send(deleteCommand);
@@ -749,7 +697,7 @@ export class S3CacheHandler implements CacheHandler {
         this.debug(`S3 cache entry for ${cacheKey} has tags:`, tags);
       }
 
-      if (!this.s3Config.bucketName) {
+      if (!this.config.bucketName) {
         return;
       }
 
@@ -806,7 +754,7 @@ export class S3CacheHandler implements CacheHandler {
     const tags = Array.isArray(tag) ? tag : [tag];
     this.debug(`REVALIDATING TAGS: [${tags.join(", ")}]`);
 
-    if (!this.dynamoConfig.tableName) {
+    if (!this.config.tableName) {
       return;
     }
 
@@ -884,9 +832,7 @@ export class S3CacheHandler implements CacheHandler {
     // is an S3 key only if it starts with the build's own prefix, which is how
     // `buildS3Key` writes every one.
     const prefixLength = tag.length + 1;
-    const keyPrefix = this.dynamoConfig.buildId
-      ? `${this.dynamoConfig.buildId}/`
-      : "";
+    const keyPrefix = this.config.buildId ? `${this.config.buildId}/` : "";
     const s3Keys = items
       .map((item) => item.sk?.S?.slice(prefixLength))
       .filter((s3Key): s3Key is string =>
@@ -938,7 +884,7 @@ export class S3CacheHandler implements CacheHandler {
    */
   private buildTagManifest(): Promise<Map<string, string[]> | undefined> {
     this.buildTags ??= this.bucket
-      .get(`${this.s3Config.buildId}/${INIT_CACHE_TAG_MANIFEST}`)
+      .get(`${this.config.buildId}/${INIT_CACHE_TAG_MANIFEST}`)
       // None is normal: only tagged prerenders write one.
       .then(
         (object) => new Map(Object.entries(JSON.parse(object?.body ?? "{}"))),
@@ -970,10 +916,10 @@ export class S3CacheHandler implements CacheHandler {
     do {
       const response = await this.dynamoClient.send(
         new QueryCommand({
-          TableName: this.dynamoConfig.tableName,
+          TableName: this.config.tableName,
           KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
           ExpressionAttributeValues: {
-            ":pk": { S: this.dynamoConfig.buildId },
+            ":pk": { S: this.config.buildId },
             ":skPrefix": { S: `${tag}#` },
           },
           ExclusiveStartKey: exclusiveStartKey,
@@ -1007,7 +953,7 @@ export class S3CacheHandler implements CacheHandler {
    * the real ones.
    */
   private s3KeyToInvalidationPath(s3Key: string): string | undefined {
-    const prefix = `${this.s3Config.buildId}/`;
+    const prefix = `${this.config.buildId}/`;
     const withoutPrefix = s3Key.startsWith(prefix)
       ? s3Key.slice(prefix.length)
       : s3Key;
@@ -1136,7 +1082,7 @@ export class S3CacheHandler implements CacheHandler {
    * extra S3 read before every delete, for rows nothing ever reads.
    */
   private get mapsTagsToPaths(): boolean {
-    return Boolean(this.dynamoConfig.tableName) && this.invalidatesCdn;
+    return Boolean(this.config.tableName) && this.invalidatesCdn;
   }
 
   /** Whether there is a distribution to invalidate. */
@@ -1149,7 +1095,7 @@ export class S3CacheHandler implements CacheHandler {
 
   /** `{buildId}/{cacheKey}.json`; see {@link buildS3Key}. */
   private buildS3Key(cacheKey: string): string {
-    return buildS3Key(this.s3Config.buildId, cacheKey);
+    return buildS3Key(this.config.buildId, cacheKey);
   }
 
   private async storeDynamoDBTagMappings(
@@ -1160,9 +1106,9 @@ export class S3CacheHandler implements CacheHandler {
       const updatePromises = tags.map(async (tag) => {
         const tagCacheKey = `${tag}#${s3Key}`;
         const updateCommand = new UpdateItemCommand({
-          TableName: this.dynamoConfig.tableName,
+          TableName: this.config.tableName,
           Key: {
-            pk: { S: this.dynamoConfig.buildId },
+            pk: { S: this.config.buildId },
             sk: { S: tagCacheKey },
           },
           // Deliberately no `revalidatedAt`: a mapping row records only that an
@@ -1226,9 +1172,9 @@ export class S3CacheHandler implements CacheHandler {
         Array.from(new Set(tags)).map(async (tag) => {
           await this.dynamoClient.send(
             new DeleteItemCommand({
-              TableName: this.dynamoConfig.tableName,
+              TableName: this.config.tableName,
               Key: {
-                pk: { S: this.dynamoConfig.buildId },
+                pk: { S: this.config.buildId },
                 sk: { S: `${tag}#${s3Key}` },
               },
             }),
@@ -1264,7 +1210,7 @@ export class S3CacheHandler implements CacheHandler {
     if (ctxTags?.length) {
       return ctxTags;
     }
-    if (!this.s3Config.bucketName || !this.mapsTagsToPaths) {
+    if (!this.config.bucketName || !this.mapsTagsToPaths) {
       return [];
     }
     try {

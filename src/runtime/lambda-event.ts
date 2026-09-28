@@ -47,9 +47,19 @@ export function toRuntimeRequest(
     // overwrites `x-forwarded-host` with the viewer's `Host`; see
     // `RuntimeRequest.trustForwardedHost`. `NextjsDistribution` refuses an
     // override that would replace that function
-    // (`withDynamicFunctionAssociations`).
-    trustForwardedHost: true,
+    // (`withDynamicFunctionAssociations`). Gated on the signature Lambda
+    // verified, not assumed: a URL overridden to `authType: NONE` can be called
+    // by anyone, with any header.
+    trustForwardedHost: isIamAuthenticated(event),
   };
+}
+
+/** Lambda sets `authorizer.iam` only for a request it verified the SigV4 of. */
+function isIamAuthenticated(event: LambdaFunctionURLEvent): boolean {
+  const { authorizer } = event.requestContext as {
+    authorizer?: { iam?: unknown };
+  };
+  return authorizer?.iam !== undefined;
 }
 
 function decodeBody(

@@ -20,8 +20,8 @@ on:
   workflow_dispatch:
     inputs:
       nextjs_ref:
-        description: "vercel/next.js ref to test against (tag matching the `next` version in package.json by default)"
-        default: "v16.3.5"
+        description: "vercel/next.js ref to test against. Empty means the tag of the `@next/routing` pin in package.json."
+        default: ""
         type: string
       test_filters:
         description: "NEXT_EXTERNAL_TESTS_FILTERS, relative to the next.js checkout"
@@ -64,15 +64,22 @@ on:
     - cron: "0 14 */6 * *"
 
 concurrency:
-  # Never two runs of one type at once. Shards within a run get a stack each, but
-  # two runs would reuse the same shard names and each would deploy over the
-  # other's app. Two types can overlap: every type but global-functions has a
-  # stack infix of its own (`harness_stack_name` in scripts/e2e-harness/common.sh).
-  group: ${{ github.workflow }}-${{ inputs.nextjs_type || 'global-functions' }}
+  # Never two runs at once, of any type. Two runs of one type would reuse the same
+  # shard names and each would deploy over the other's app. Two *types* would not
+  # collide on names - every type but global-functions has a stack infix of its
+  # own (`harness_stack_name` in scripts/e2e-harness/common.sh) - but each
+  # run's `sweep` is account-wide, and could delete another type's
+  # idle-looking shard stack just as that run's shard warms into it.
+  #
+  # GitHub keeps one *pending* run per group and cancels an older pending one, so
+  # dispatch a second type only once the first has started. A cancelled pending
+  # run - the scheduled one included - loses no sweep: every run sweeps.
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
+# Per job below: only the jobs that assume the AWS role get `id-token: write`.
+# The `nextjs` job runs vercel/next.js's own install and build scripts.
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -88,15 +95,27 @@ jobs:
       nextjs-ref: ${{ steps.plan.outputs.nextjs-ref }}
       cache-key: ${{ steps.plan.outputs.cache-key }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: /package.json
+          sparse-checkout-cone-mode: false
+
       - name: Resolve the next.js ref to a commit
         id: resolve
         env:
-          NEXTJS_REF: ${{ inputs.nextjs_ref || 'v16.3.5' }}
+          NEXTJS_REF: ${{ inputs.nextjs_ref }}
         # The cache key and every checkout below use the commit, not the ref: a
         # moving ref (`canary`, a branch) keyed by name kept restoring the first
         # build made under that name while the logs said it was testing the
         # latest. `^{}` peels an annotated tag to the commit it points at.
+        #
+        # The default is the tag of the `@next/routing` pin, read rather than
+        # written here so that it cannot drift from what the adapter is built
+        # against. That pin is exact; `next` itself is a range.
         run: |
+          if [ -z "$NEXTJS_REF" ]; then
+            NEXTJS_REF="v$(node -p 'require("./package.json").devDependencies["@next/routing"]')"
+          fi
           if [[ ! "$NEXTJS_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "nextjs_ref is not a plausible git ref: $NEXTJS_REF" >&2
             exit 1
@@ -211,7 +230,14 @@ jobs:
   harness:
     needs: [plan, nextjs]
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    # The sum of the capped steps below - warm 25, run 150, delete 65 - plus ~50
+    # for setup, which is minutes on a cache hit and a next.js build on a miss.
+    # The step caps are what guarantee the delete its time; this only has to
+    # stay above their sum.
+    timeout-minutes: 290
+    permissions:
+      id-token: write
+      contents: read
     strategy:
       # One shard's failure says nothing about another's, and each holds a stack
       # that its own `always()` step is what deletes. Cancelling the others would
@@ -250,21 +276,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: aws-actions/configure-aws-credentials@v4.2.1
-        with:
-          aws-region: us-east-1
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
-          # Matched to this job's `timeout-minutes`, because the action exports
-          # static credentials once and nothing here refreshes them. At the
-          # default hour, a shard running ~34 test files at 2-3 min each hit
-          # `ExpiredToken` on every file past the ~55-minute mark - and so did the
-          # `always()` stack deletion below, leaking a stack with a CloudFront
-          # distribution in it until the next scheduled sweep.
-          #
-          # Requires `MaxSessionDuration >= 10800` on GitHubActionRole; STS
-          # rejects a longer request than the role allows.
-          role-duration-seconds: 10800
-
       - name: Warn about the cache miss
         if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
         # The `nextjs` job populated this entry before any shard started, so a miss
@@ -292,6 +303,21 @@ jobs:
         # the download in that case.
         run: pnpm playwright install --with-deps chromium
 
+      - uses: aws-actions/configure-aws-credentials@v4.2.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+          # Covers the warm and run steps' caps (25 + 150), because the action
+          # exports static credentials once and nothing here refreshes them.
+          # Assumed here, after the builds, so that a cache-miss rebuild does not
+          # eat into it. At the default hour, a shard running ~34 test files at
+          # 2-3 min each hit `ExpiredToken` on every file past the ~55-minute mark.
+          # The delete step re-assumes its own.
+          #
+          # Requires `MaxSessionDuration >= 10800` on GitHubActionRole; STS
+          # rejects a longer request than the role allows.
+          role-duration-seconds: 10800
+
       - name: Warm this shard's stack
         # Creating the CloudFront distribution takes ~240s, and the harness
         # runs `createNext` inside jest's `beforeAll` - so without this the first
@@ -305,6 +331,7 @@ jobs:
         # exceeded"), and a failed create rolls back, so that shard runs nothing.
         # A retry redeploys over the ROLLBACK_COMPLETE stack, which `cdk deploy`
         # deletes and recreates.
+        timeout-minutes: 25
         run: |
           sleep $(( (${{ matrix.shard }} - 1) * 20 ))
           ./scripts/e2e-warm.sh || { echo "::warning::warming failed once; retrying"; sleep 60; ./scripts/e2e-warm.sh; }
@@ -313,9 +340,9 @@ jobs:
 
       - name: Run the harness
         working-directory: nextjs
-        # Below the job's 180, so a slow run ends here rather than at the job
-        # timeout, and the stack deletion below still gets to `--wait` for its
-        # result.
+        # Capped, so a slow run ends here rather than at the job timeout, and the
+        # stack deletion below still gets its 65 minutes to `--wait` for its
+        # result. See the job's `timeout-minutes`.
         timeout-minutes: 150
         env:
           NEXT_TEST_MODE: deploy
@@ -357,6 +384,8 @@ jobs:
         with:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
+          # Outlasts the delete step's cap; the default hour would not.
+          role-duration-seconds: 4200
 
       - name: Delete this shard's stack
         if: ${{ always() }}
@@ -364,34 +393,52 @@ jobs:
         # this is the step that actually deletes it - not a backstop. `--shared`
         # resolves HARNESS_SHARED_STACK_SUFFIX, so each shard deletes only its
         # own, which is what lets the age floor go: dropping the floor
-        # account-wide instead would also delete the other shards' stacks, and an
-        # isolated stack a developer had running at the time.
+        # account-wide instead would also delete the other shards' stacks, and a
+        # developer's `dev-<name>` stack running at the time.
         #
         # `--wait`: the next run's shard N deploys into this same stack name, and
         # the workflow's `concurrency` group only holds it back until this job
         # ends. Returning as soon as `delete-stack` is accepted would let it start
         # against a stack still DELETE_IN_PROGRESS (a CloudFront delete takes 15+
         # minutes), and a DELETE_FAILED would go unnoticed until the sweep.
+        #
+        # 65 minutes: up to 20 for a stack a timed-out run left mid-update to
+        # settle (`settled_status`), then a Containers stack's ECS drain and
+        # CloudFront delete, which can pass 40.
+        timeout-minutes: 65
         run: ./scripts/e2e-sweep.sh --apply --shared --wait
+
+      - name: Check the manifest's screening counts
+        # Once per run, in a job that already has the next.js checkout, and only
+        # against the default ref - the counts are recorded for that one. Without
+        # it, the counts the README quotes go stale silently on a `next` upgrade.
+        if: ${{ !cancelled() && matrix.shard == 1 && !inputs.nextjs_ref }}
+        run: node scripts/e2e-harness/screen.mjs --next nextjs --check
 
   sweep:
     # What a cancelled or timed-out run leaves behind is collected by the *next*
-    # scheduled run, at most six days later. That is why this job exists, and it
-    # still has to wait for `harness`. The age floor now counts from a stack's
+    # run, at most six days later on the schedule. That is why this job exists,
+    # and it still has to wait for `harness`. The age floor now counts from a stack's
     # last deploy (its server function's `LastModified`, which hotswaps move), not
     # its `CreationTime` - but a `hrns-shard-3` left by an earlier cancelled run
     # is still hours idle at the moment this run's shard 3 is about to
     # `cdk deploy` into it. Sweeping concurrently once issued `delete-stack` on it
     # ~30s in while the deploy started ~4 min in, and a CloudFront delete takes
     # 15+ minutes, so the shard went red. The workflow-level `concurrency` group
-    # serializes runs, not the jobs inside one.
+    # serializes runs, not the jobs inside one - and it is one group for every
+    # type, because this sweep is account-wide.
     #
     # `always()` so that a failed or cancelled shard still gets its leftovers
-    # swept rather than waiting another six days.
+    # swept rather than waiting another six days. Every run, not just the
+    # scheduled one, because a dispatch queued behind a running run cancels a
+    # pending scheduled run, and with it this job.
     needs: harness
-    if: ${{ always() && github.event_name == 'schedule' }}
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4.2.1

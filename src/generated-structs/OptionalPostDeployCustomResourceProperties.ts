@@ -28,8 +28,8 @@ export interface OptionalPostDeployCustomResourceProperties {
    invalidationBatch: {
      callerReference: new Date().toISOString(),
      paths: {
-       quantity: 1,
-       items: ["/*"], // invalidate all paths
+       quantity: paths.length,
+       items: paths, // wholeAppInvalidationPaths(basePath)
      },
    },
  }

@@ -4,18 +4,16 @@ import {
   copyFile,
   cp,
   mkdir,
-  readFile,
   readlink,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join, posix, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { NextAdapter } from "next";
 import {
   DEFAULT_FUNCTION_GROUP,
-  ERROR_PAGE_SUFFIXES,
   FUNCTION_GROUPS_ENV_VAR,
   FunctionGroupSpec,
   assertNoI18nSplitting,
@@ -30,6 +28,7 @@ import {
   AdapterEntrypointType,
   AdapterManifest,
   AdapterMiddleware,
+  ERROR_PAGE_SUFFIXES,
   MANIFEST_FILE_NAME,
   RUNTIME_DIR_NAME,
   groupStagingDirName,
@@ -185,7 +184,6 @@ export async function writeBuildOutputs(
     const path = join(adapterDir, ...group.dirName.split("/"));
     await mkdir(path, { recursive: true });
     await stageFiles(groupStaging, path);
-    await hoistStoreOnlyPackages(groupStaging, path);
     stagedGroups.push({ name: group.name, path, fileCount: groupStaging.size });
   }
 
@@ -924,9 +922,8 @@ function buildMiddleware(
  * Regular files are staged first so that a symlink whose path was already
  * materialized as a real directory is skipped rather than clobbering it.
  *
- * Preserved links are enough for Containers but not for the Functions zip; see
- * {@link hoistStoreOnlyPackages} for what makes the tree resolvable once
- * something dereferences them.
+ * Nothing may dereference them afterwards: the Functions zip keeps them as
+ * links (`zipDirectory`), and the Containers `COPY` does too.
  */
 /** Bounded so a large app doesn't exhaust file descriptors. */
 const STAGING_CONCURRENCY = 32;
@@ -1120,184 +1117,6 @@ function addRequiredServerFiles(
   }
   assertStagingKey(key, source);
   staging.set(key, source);
-}
-
-/** `node_modules/.pnpm/<pkg>/node_modules/<name>` — pnpm's virtual store. */
-const PNPM_STORE_SEGMENT = "node_modules/.pnpm/";
-
-/**
- * Copies every package that exists *only* inside pnpm's virtual store to
- * `<deploymentRoot>/node_modules/<name>`, where Node finds it from anywhere in
- * the tree as a last resort — the same job pnpm's own `.pnpm/node_modules`
- * hoisted directory does inside a workspace.
- *
- * Needed because the symlinks {@link stageFiles} preserves do not survive
- * zipping: `cdk-assets` dereferences them (verified 2026-09-21 — a published
- * Functions asset zip contains zero symlink entries), so a store package
- * materializes at its logical path (`app/node_modules/next/…`) while the
- * siblings it resolves its own dependencies through stay behind in the store.
- * The failure that motivated this was `next/dist/client/lib/console.js`
- * requiring `@swc/helpers`, which is in the store and nowhere else, so every
- * request 500ed with "Could not load middleware".
- *
- * Containers keep the symlinks (`COPY` preserves them) and so resolve through
- * the store as before; the hoisted copies are dead weight there, but the
- * store-only set is small — one traced package version each, and a package
- * with a logical path of its own is skipped unless a hoisted package needs it
- * and can't reach it through that path (see the walk below).
- *
- * Two versions of the same store-only package can't both be hoisted, so the one
- * with the most staged code files wins and the other's consumers resolve it.
- * That is also what pnpm's hoisted directory does (modulo which version it
- * picks), and it only applies to a dependency no package depends on directly.
- *
- * Code files, rather than the first version by staging key, because a version
- * can be staged for its metadata alone: the trace reads `semver@6.3.1`'s
- * `package.json` and nothing else, and hoisting *that* left
- * `node_modules/semver` without a single module in it, so `sharp` failed to
- * load and every `/_next/image` request silently served the unoptimized
- * original — under next's misleading "Module `sharp` not found".
- */
-async function hoistStoreOnlyPackages(
-  staging: StagingPlan,
-  stagingDir: string,
-): Promise<void> {
-  /** name → store directory → how many staged files other than metadata. */
-  const storeRoots = new Map<string, Map<string, number>>();
-  /** Every non-store package directory, e.g. `apps/web/node_modules/next`. */
-  const logicalRoots = new Set<string>();
-  const hasLogicalPath = new Set<string>();
-  for (const key of staging.keys()) {
-    const root = packageRootOf(key);
-    if (!root) continue;
-    if (!root.path.includes(PNPM_STORE_SEGMENT)) {
-      // Counts even when the key *is* the package root, i.e. a link: whatever
-      // dereferences it materializes the package at this logical path.
-      hasLogicalPath.add(root.name);
-      logicalRoots.add(root.path);
-    } else if (key !== root.path) {
-      // A key equal to the root is one store directory linking to another
-      // (`.pnpm/next@…/node_modules/react` → `.pnpm/react@19…`); only the
-      // directory holding the package's own files can be copied out.
-      const versions = storeRoots.get(root.name) ?? new Map<string, number>();
-      const weight = key === `${root.path}/package.json` ? 0 : 1;
-      versions.set(root.path, (versions.get(root.path) ?? 0) + weight);
-      storeRoots.set(root.name, versions);
-    }
-  }
-
-  /** The store directory to copy out for `name`: the most code, then path. */
-  const pick = (name: string) =>
-    [...storeRoots.get(name)!].sort(
-      // Path is the tiebreak so the choice doesn't ride on staging order.
-      ([aPath, aModules], [bPath, bModules]) =>
-        bModules - aModules || aPath.localeCompare(bPath),
-    )[0];
-
-  const hoisted = new Set(
-    [...storeRoots.keys()].filter((name) => !hasLogicalPath.has(name)),
-  );
-
-  // A logical path only serves the consumers *under* it. A package with one at
-  // `apps/web/node_modules/semver` is not store-only, but a hoisted
-  // `node_modules/sharp` walks up to `node_modules/semver` and never sees it,
-  // so `sharp` fails to load and `/_next/image` silently serves originals. So
-  // every materialized package's declared dependencies are resolved the way
-  // Node would once the links are dereferenced, and whatever misses is
-  // hoisted too — then its own dependencies are checked, to a fixed point.
-  // Only a version with code in it is hoisted this way: one staged for its
-  // `package.json` alone would resolve, and then fail to load.
-  const resolvable = (dependency: string, from: string) => {
-    // `from` and its ancestors, as Node walks them: `<dir>/node_modules/<dep>`
-    // for every `<dir>` that isn't itself a `node_modules`.
-    for (let dir = from; dir !== "."; dir = posix.dirname(dir)) {
-      if (
-        posix.basename(dir) !== "node_modules" &&
-        logicalRoots.has(`${dir}/node_modules/${dependency}`)
-      ) {
-        return true;
-      }
-    }
-    return (
-      logicalRoots.has(`node_modules/${dependency}`) || hoisted.has(dependency)
-    );
-  };
-  const queue = [
-    ...[...logicalRoots].map((path) => ({ path, source: path })),
-    ...[...hoisted].map((name) => ({
-      path: `node_modules/${name}`,
-      source: pick(name)[0],
-    })),
-  ];
-  while (queue.length > 0) {
-    const { path, source } = queue.pop()!;
-    for (const dependency of await declaredDependencies(
-      join(stagingDir, source),
-    )) {
-      if (!storeRoots.has(dependency) || resolvable(dependency, path)) continue;
-      const [root, modules] = pick(dependency);
-      if (modules === 0) continue;
-      hoisted.add(dependency);
-      queue.push({ path: `node_modules/${dependency}`, source: root });
-    }
-  }
-
-  for (const name of hoisted) {
-    const [root] = pick(name);
-    const source = join(stagingDir, root);
-    const dest = join(stagingDir, "node_modules", name);
-    if (existsSync(dest)) continue;
-    await mkdir(dirname(dest), { recursive: true });
-    await cp(source, dest, { recursive: true });
-  }
-}
-
-/**
- * The packages `packageDir`'s `package.json` depends on, peers and optionals
- * included; none when it has no staged `package.json`.
- */
-async function declaredDependencies(packageDir: string): Promise<string[]> {
-  let manifest: Record<string, unknown>;
-  try {
-    manifest = JSON.parse(
-      await readFile(join(packageDir, "package.json"), "utf8"),
-    );
-  } catch {
-    return [];
-  }
-  const names = new Set<string>();
-  for (const field of [
-    "dependencies",
-    "optionalDependencies",
-    "peerDependencies",
-  ]) {
-    const deps = manifest[field];
-    if (deps && typeof deps === "object") {
-      for (const name of Object.keys(deps)) names.add(name);
-    }
-  }
-  return [...names];
-}
-
-/**
- * The package a staging key belongs to, or `undefined` if it isn't under a
- * `node_modules/` segment. Reads the *last* segment so that a nested
- * `node_modules/a/node_modules/b/index.js` is attributed to `b`.
- */
-function packageRootOf(
-  key: string,
-): { name: string; path: string } | undefined {
-  const marker = "node_modules/";
-  const at = key.lastIndexOf(marker);
-  if (at === -1) return;
-  const after = key.slice(at + marker.length).split("/");
-  const parts = after[0].startsWith("@")
-    ? after.slice(0, 2)
-    : after.slice(0, 1);
-  // A key that *is* the `node_modules/<scope>` directory names no package.
-  if (parts.length < (after[0].startsWith("@") ? 2 : 1)) return;
-  const name = parts.join("/");
-  return { name, path: key.slice(0, at + marker.length) + name };
 }
 
 /**

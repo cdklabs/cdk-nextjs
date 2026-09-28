@@ -74,9 +74,9 @@ export async function pruneCacheBucket(props: PruneCacheBucketProps) {
         .map((obj) => ({ Key: obj.Key! })),
     );
 
-    if (listResponse.NextContinuationToken) {
-      continuationToken = listResponse.NextContinuationToken;
-    }
+    // Unconditionally: the last page has no token, and keeping the previous
+    // one re-listed that page until the guard below tripped.
+    continuationToken = listResponse.NextContinuationToken;
     listObjectsCount++;
     // assume less than 100K objects (100 * 1K objects per ListObjectsV2Command = 100K)
   } while (continuationToken && listObjectsCount <= 100);

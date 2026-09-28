@@ -60,6 +60,28 @@ export function groupStagingDirName(group?: string): string {
 export const MANIFEST_FILE_NAME = "manifest.json";
 
 /**
+ * The entrypoints the runtime renders a 404 or a 500 with, in the order it
+ * tries them, and `/_error`, the last resort for both. Before basePath.
+ */
+export const STATUS_PAGE_SUFFIXES = {
+  404: ["/_not-found", "/404"],
+  500: ["/500"],
+  fallback: "/_error",
+};
+
+/**
+ * Every {@link STATUS_PAGE_SUFFIXES} page: App Router's `/_not-found`, Pages
+ * Router's `/404` and `/500`, and `/_error`. The runtime may render any request
+ * with them, wherever it landed, so every function group stages them
+ * (`collectGroupStagingPlan`) and no URL has to be routed to them.
+ */
+export const ERROR_PAGE_SUFFIXES = [
+  ...STATUS_PAGE_SUFFIXES[404],
+  ...STATUS_PAGE_SUFFIXES[500],
+  STATUS_PAGE_SUFFIXES.fallback,
+];
+
+/**
  * Reserved key inside the staging tree that cdk-nextjs's own bundled runtime
  * files are copied to at synth (Lambda handler
  * `cdk-nextjs-runtime/lambda.handler`). Reserved because a repo-root-relative

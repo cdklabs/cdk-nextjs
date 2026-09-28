@@ -37,12 +37,12 @@ harness_app_id() {
   printf '%s-%s' "${base:0:60}" "$hash"
 }
 
-# The stack name to deploy a harness app directory into.
+# The stack name every harness app directory deploys into.
 #
-# One shared stack by default. The harness builds a *different* app per test
-# file, so the deploy itself cannot be skipped - but the CloudFront distribution
-# it goes behind can be created once instead of once per file, which is where
-# most of the wall-clock went. That only works if every test file lands in the
+# One shared stack. The harness builds a *different* app per test file, so the
+# deploy itself cannot be skipped - but the CloudFront distribution it goes behind
+# can be created once instead of once per file, which is where most of the
+# wall-clock went. That only works if every test file lands in the
 # same stack, which in turn means:
 #
 #   - Test files must be serialized (`run-tests.js -c 1`). Two concurrent
@@ -62,9 +62,9 @@ harness_app_id() {
 # concurrent runs must not reuse a suffix, for the same reason two files in one
 # shard cannot overlap.
 #
-# Set HARNESS_ISOLATED_STACK=1 for a stack per app directory instead. Worth it
-# when debugging one file - at the cost of a distribution create and delete per
-# file.
+# A developer debugging one file gets a stack of their own the same way
+# (`HARNESS_SHARED_STACK_SUFFIX=dev-$USER`), and deletes it with
+# `e2e-sweep.sh --apply --shared`.
 #
 # Every type but `global-functions` (HARNESS_NEXTJS_TYPE) gets its own infix
 # after the prefix - `rf-`, `gc-`, `rc-` - so a run can never deploy into another
@@ -72,7 +72,6 @@ harness_app_id() {
 # replacement of nearly everything in it. The prefix is unchanged, so
 # `e2e-sweep.sh` finds them all.
 harness_stack_name() {
-  local dir="$1"
   local prefix="$HARNESS_STACK_PREFIX"
   local type
   # Assigned on its own line so a rejected type fails this function instead of
@@ -83,11 +82,7 @@ harness_stack_name() {
     global-containers) prefix="${prefix}gc-" ;;
     regional-containers) prefix="${prefix}rc-" ;;
   esac
-  if [ "${HARNESS_ISOLATED_STACK:-0}" != "1" ]; then
-    printf '%s%s' "$prefix" "${HARNESS_SHARED_STACK_SUFFIX:-shared}"
-    return 0
-  fi
-  printf '%s%s' "$prefix" "$(harness_app_id "$dir")"
+  printf '%s%s' "$prefix" "${HARNESS_SHARED_STACK_SUFFIX:-shared}"
 }
 
 # Which root construct `app.js` deploys: `global-functions` (the default),

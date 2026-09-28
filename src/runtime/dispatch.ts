@@ -25,7 +25,11 @@ import {
   detectLocale,
   resolveRoutes,
 } from "@next/routing";
-import { AdapterEntrypoint, AdapterManifest } from "./manifest";
+import {
+  AdapterEntrypoint,
+  AdapterManifest,
+  STATUS_PAGE_SUFFIXES,
+} from "./manifest";
 import { publicDirKey } from "./public-files";
 import { emptyStream, toSearch, withoutPathPrefix } from "./util";
 
@@ -557,24 +561,7 @@ export class Dispatcher {
       return { kind: "response", status, responseHeaders };
     }
 
-    // Unresolved. `/_next/image` normally resolves above; this is the fallback
-    // for a request that reached the image path without `resolveRoutes`
-    // matching it.
-    //
-    // Matched against the rewritten URL when middleware rewrote one, because
-    // middleware may be what puts the request on the image path at all: the
-    // API Gateway examples rewrite `/_next/image` to `/<stage>/_next/image` so
-    // that `basePath` lines up, and comparing the URL as received would miss it.
     const resolvedUrl = middlewareRewrite ?? request.url;
-    if (resolvedUrl.pathname === this.imagePathname) {
-      return {
-        kind: "image-optimization",
-        url: resolvedUrl,
-        requestHeaders: forwardedHeaders,
-        responseHeaders,
-      };
-    }
-
     return {
       kind: "not-found",
       pathname: resolvedPathname ?? resolvedUrl.pathname,
@@ -978,8 +965,7 @@ function statusTarget(
   locale: string | undefined,
 ): StatusTarget {
   const { basePath } = manifest.config;
-  const entrypoints = status === 404 ? ["/_not-found", "/404"] : ["/500"];
-  for (const suffix of entrypoints) {
+  for (const suffix of STATUS_PAGE_SUFFIXES[status]) {
     const pathname = `${basePath}${suffix}`;
     const entrypoint = manifest.entrypoints[pathname];
     if (entrypoint) {
@@ -991,7 +977,7 @@ function statusTarget(
   if (filePath !== undefined) {
     return { kind: "static-file", pathname: prerendered, filePath };
   }
-  const errorPathname = `${basePath}/_error`;
+  const errorPathname = `${basePath}${STATUS_PAGE_SUFFIXES.fallback}`;
   const errorEntrypoint = manifest.entrypoints[errorPathname];
   if (errorEntrypoint) {
     return {

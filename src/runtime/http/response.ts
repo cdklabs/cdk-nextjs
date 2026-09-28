@@ -148,11 +148,20 @@ export class ShimServerResponse extends Transform {
     }
 
     if (Array.isArray(headers)) {
-      // Node accepts a flat even/odd `[name, value, name, value]` array here,
-      // not only tuples. Next.js does pass the flat form.
+      // Node's flat even/odd `[name, value, name, value]` form, where a name
+      // may repeat (one `Set-Cookie` per cookie), so, as Node does, each name
+      // replaces what was set before but its values add up. Tuples are
+      // flattened into the same form.
       const flat = Array.isArray(headers[0]) ? headers.flat() : headers;
       for (let i = 0; i < flat.length; i += 2) {
-        this.setHeader(String(flat[i]), flat[i + 1] as HeaderValue);
+        this.removeHeader(String(flat[i]));
+      }
+      for (let i = 0; i < flat.length; i += 2) {
+        const value = flat[i + 1] as HeaderValue;
+        this.appendHeader(
+          String(flat[i]),
+          typeof value === "number" ? String(value) : value,
+        );
       }
     } else if (headers) {
       for (const [name, value] of Object.entries(headers)) {
