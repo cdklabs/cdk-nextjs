@@ -100,13 +100,6 @@ export interface NextjsApiProps {
    */
   readonly functionGroups?: NextjsApiFunctionGroup[];
   /**
-   * Whether the app has Pages Router routes, and therefore a
-   * `/_next/data/<buildId>/…json` URL space that has to be routed alongside the
-   * HTML one. Ignored without {@link functionGroups}.
-   * @default false
-   */
-  readonly hasDataRoutes?: boolean;
-  /**
    * Deploy the stage again once each stack update has finished, so it serves
    * the API as it is after the update.
    *
@@ -130,6 +123,13 @@ export interface NextjsApiFunctionGroup {
   /** Path patterns the group owns, as written in `NextjsFunctionGroup.routes`. */
   readonly routes: string[];
   readonly function: IFunction;
+  /**
+   * Whether the group owns Pages Router routes, and therefore a
+   * `/_next/data/<buildId>/…json` URL space that has to be routed alongside the
+   * HTML one (`NextjsDeploymentRoot.hasDataRoutes`).
+   * @default false
+   */
+  readonly hasDataRoutes?: boolean;
 }
 
 /**
@@ -180,14 +180,13 @@ export class NextjsApi extends Construct {
   private readonly baseResource: IResource;
   private readonly nextResource: IResource;
   /**
-   * Resources created only as parents of a group route. API Gateway answers a
-   * request for a resource with no method itself — 403 "Missing Authentication
-   * Token" — rather than falling back to the root `{proxy+}`, so each gets the
-   * default function in {@link createDynamicIntegration}. Without that a
-   * `/api/reports/**` group turned `/api/reports` and `/api` into 403s.
+   * Resources created only as parents of a group route, and their paths. API
+   * Gateway answers a request for a resource with no method itself — 403
+   * "Missing Authentication Token" — rather than falling back to a `{proxy+}`
+   * higher up, so each needs one. Without it a `/api/reports/**` group turned
+   * `/api/reports` and `/api` into 403s.
    */
-  private readonly groupParentResources = new Set<IResource>();
-  private readonly groupRouteResources = new Set<IResource>();
+  private readonly groupParentResources = new Map<IResource, string[]>();
   private readonly props: NextjsApiProps;
   private staticIntegrationRole: IRole;
 
@@ -528,6 +527,9 @@ export class NextjsApi extends Construct {
     if (!groups?.length) {
       return;
     }
+    const routeResources = new Set<IResource>();
+    /** Each subtree's base path and the integration its `{proxy+}` got. */
+    const subtrees: [string[], LambdaIntegration][] = [];
     for (const group of groups) {
       const integration = new LambdaIntegration(group.function, {
         responseTransferMode: ResponseTransferMode.STREAM,
@@ -538,11 +540,35 @@ export class NextjsApi extends Construct {
       for (const route of group.routes) {
         this.assertRoutable(route, group.name);
         this.assertNoPublicCollision(route, group.name);
-        for (const path of this.resourcePathsFor(route)) {
+        for (const path of this.resourcePathsFor(route, group.hasDataRoutes)) {
           const resource = this.resourceFor(path);
           resource.addMethod("ANY", integration);
-          this.groupRouteResources.add(resource);
+          routeResources.add(resource);
+          if (path[path.length - 1] === "{proxy+}") {
+            subtrees.push([path.slice(0, -1), integration]);
+          }
         }
+      }
+    }
+    // A parent under another group's subtree belongs to that group, as it does
+    // at the edge and in `assignRoutesToGroups`: with `/api/**` and
+    // `/api/reports/**`, `/api/reports` is the `api` group's. The deepest
+    // covering subtree wins; the rest are left to the default function.
+    for (const [resource, path] of this.groupParentResources) {
+      if (routeResources.has(resource)) {
+        this.groupParentResources.delete(resource);
+        continue;
+      }
+      const owner = subtrees
+        .filter(
+          ([base]) =>
+            base.length < path.length &&
+            base.every((segment, i) => segment === path[i]),
+        )
+        .sort(([a], [b]) => b.length - a.length)[0];
+      if (owner) {
+        resource.addMethod("ANY", owner[1]);
+        this.groupParentResources.delete(resource);
       }
     }
   }
@@ -612,13 +638,13 @@ export class NextjsApi extends Construct {
    * `assignRoutesToGroups`. An exact path gets no proxy segment, which leaves its
    * children falling through to the root `{proxy+}` — also the CloudFront result.
    */
-  private resourcePathsFor(route: string): string[][] {
+  private resourcePathsFor(route: string, hasDataRoutes?: boolean): string[][] {
     const isSubtree = route.endsWith("/**");
     const base = (isSubtree ? route.slice(0, -3) : route)
       .split("/")
       .filter(Boolean);
     const paths = [isSubtree ? [...base, "{proxy+}"] : base];
-    if (this.props.hasDataRoutes) {
+    if (hasDataRoutes) {
       // `<buildId>` changes every build, so it is a path parameter rather than a
       // literal — the integration ignores it, the runtime reads it off the URL.
       // Unlike CloudFront's `*`, which `NextjsDistribution` had to replace with
@@ -647,7 +673,7 @@ export class NextjsApi extends Construct {
       const existing = resource.getResource(segment);
       resource = existing ?? resource.addResource(segment);
       if (!existing && index < segments.length - 1) {
-        this.groupParentResources.add(resource);
+        this.groupParentResources.set(resource, segments.slice(0, index + 1));
       }
     }
     return resource;
@@ -673,10 +699,8 @@ export class NextjsApi extends Construct {
 
     // Add catch-all routes with streaming integration for server-side rendering
     this.baseResource.addMethod("ANY", streamingIntegration);
-    for (const resource of this.groupParentResources) {
-      if (!this.groupRouteResources.has(resource)) {
-        resource.addMethod("ANY", streamingIntegration);
-      }
+    for (const resource of this.groupParentResources.keys()) {
+      resource.addMethod("ANY", streamingIntegration);
     }
     const proxyResource = this.baseResource.addResource("{proxy+}");
     proxyResource.addMethod("ANY", streamingIntegration);

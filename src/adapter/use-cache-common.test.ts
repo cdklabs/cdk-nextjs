@@ -111,7 +111,10 @@ function stored(bytes: number, extra: Partial<StoredEntry> = {}): StoredEntry {
 describe("UseCacheTagManifest", () => {
   it("reads a tag the first time it is needed, and not again", async () => {
     const markers = fakeMarkers(new Map([["a", { revalidatedAt: 50 }]]));
-    const tags = new UseCacheTagManifest({ markers: markers.table });
+    const tags = new UseCacheTagManifest({
+      markers: markers.table,
+      log: fakeLog().log,
+    });
 
     await Promise.all([tags.ensure(["a", "b"]), tags.ensure(["a", "b"])]);
     await tags.ensure(["a", "b"]);
@@ -123,31 +126,12 @@ describe("UseCacheTagManifest", () => {
     expect(tags.state(["b"], 40)).toBe("fresh");
   });
 
-  it("re-reads every tracked marker on each refresh without a log", async () => {
-    const rows = new Map<string, TagMarker>();
-    const markers = fakeMarkers(rows);
-    const here = new UseCacheTagManifest({
-      markers: markers.table,
-      refreshIntervalMs: 0,
-    });
-    const there = new UseCacheTagManifest({
-      markers: fakeMarkers(rows).table,
-      refreshIntervalMs: 0,
-    });
-    const createdAt = Date.now() - 1000;
-    await here.ensure(["posts"]);
-
-    await there.update(["posts"], undefined);
-    // Not yet: `here` has not read since.
-    expect(here.state(["posts"], createdAt)).toBe("fresh");
-    await here.refresh();
-    expect(here.state(["posts"], createdAt)).toBe("expired");
-    expect(markers.read).toHaveBeenCalledWith(["posts"]);
-  });
-
   it("applies its own revalidation at once, and writes it once for both handlers", async () => {
     const markers = fakeMarkers();
-    const tags = new UseCacheTagManifest({ markers: markers.table });
+    const tags = new UseCacheTagManifest({
+      markers: markers.table,
+      log: fakeLog().log,
+    });
     const createdAt = Date.now() - 1000;
 
     // What Next.js does: `updateTags` on the default and the remote handler.
@@ -170,7 +154,10 @@ describe("UseCacheTagManifest", () => {
     const markers = fakeMarkers(
       new Map([["posts", { revalidatedAt: createdAt + 500 }]]),
     );
-    const tags = new UseCacheTagManifest({ markers: markers.table });
+    const tags = new UseCacheTagManifest({
+      markers: markers.table,
+      log: fakeLog().log,
+    });
 
     await tags.update(["posts"], { expire: 3600 });
 
@@ -179,7 +166,7 @@ describe("UseCacheTagManifest", () => {
   });
 
   it("marks a profile's revalidation stale until its expire", async () => {
-    const tags = new UseCacheTagManifest({ markers: undefined });
+    const tags = new UseCacheTagManifest({});
     const createdAt = Date.now() - 1000;
     await tags.update(["a"], { expire: 3600 });
     expect(tags.state(["a"], createdAt)).toBe("stale");
@@ -194,7 +181,7 @@ describe("UseCacheTagManifest", () => {
   it("stamps markers on the clock entries are stamped with", async () => {
     const wall = jest.spyOn(Date, "now").mockImplementation(() => now() + 500);
     try {
-      const tags = new UseCacheTagManifest({ markers: undefined });
+      const tags = new UseCacheTagManifest({});
       await tags.update(["a"], undefined);
       const regenerated = now() + 1;
       expect(tags.state(["a"], regenerated)).toBe("fresh");
@@ -212,7 +199,10 @@ describe("UseCacheTagManifest", () => {
         ["_N_T_/c", { staleAt: 150, expiredAt: Date.now() + 60_000 }],
       ]),
     );
-    const tags = new UseCacheTagManifest({ markers: markers.table });
+    const tags = new UseCacheTagManifest({
+      markers: markers.table,
+      log: fakeLog().log,
+    });
     await tags.ensure(["_N_T_/a", "_N_T_/b", "_N_T_/c", "_N_T_/d"]);
     expect(tags.expiration(["_N_T_/a", "_N_T_/b", "_N_T_/c"])).toBe(200);
     expect(tags.expiration(["_N_T_/d"])).toBe(0);
@@ -222,6 +212,7 @@ describe("UseCacheTagManifest", () => {
     const markers = fakeMarkers();
     const tags = new UseCacheTagManifest({
       markers: markers.table,
+      log: fakeLog().log,
       refreshIntervalMs: 0,
     });
     await tags.update(["a"], undefined);
@@ -237,6 +228,7 @@ describe("UseCacheTagManifest", () => {
     markers.read.mockRejectedValueOnce(new Error("throttled"));
     const tags = new UseCacheTagManifest({
       markers: markers.table,
+      log: fakeLog().log,
       refreshIntervalMs: 0,
     });
 
@@ -251,6 +243,7 @@ describe("UseCacheTagManifest", () => {
     const markers = fakeMarkers();
     const tags = new UseCacheTagManifest({
       markers: markers.table,
+      log: fakeLog().log,
       maxTrackedTags: 2,
     });
     await tags.ensure(["a"]);
@@ -267,7 +260,10 @@ describe("UseCacheTagManifest", () => {
   // tracked 1000 at most, half its requests re-read an evicted marker.
   it("keeps 2000 tags a page each tracked, without reading them again", async () => {
     const markers = fakeMarkers();
-    const tags = new UseCacheTagManifest({ markers: markers.table });
+    const tags = new UseCacheTagManifest({
+      markers: markers.table,
+      log: fakeLog().log,
+    });
     const pages = Array.from({ length: 1000 }, (_, n) => [
       `item-${n}`,
       `_N_T_/use-cache/${n}`,
@@ -279,8 +275,7 @@ describe("UseCacheTagManifest", () => {
   });
 
   it("keeps tags local to the process without a table", async () => {
-    const tags = new UseCacheTagManifest({ markers: undefined });
-    expect(tags.isShared).toBe(false);
+    const tags = new UseCacheTagManifest({});
     await tags.ensure(["a"]);
     await tags.refresh();
     await tags.update(["a"], undefined);

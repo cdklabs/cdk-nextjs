@@ -27,36 +27,30 @@ import {
 } from "@next/routing";
 import { AdapterEntrypoint, AdapterManifest } from "./manifest";
 import { publicDirKey } from "./public-files";
+import { emptyStream, toSearch, withoutPathPrefix } from "./util";
 
 /**
- * Runs the app's middleware. Supplied by `MiddlewareRunner` in `./middleware`.
+ * Runs the app's middleware for one request. Supplied by `MiddlewareRunner` in
+ * `./middleware`.
  *
  * `MiddlewareContext` carries no method — `resolveRoutes` never needs one — but
  * middleware very much does (`if (request.method === "POST")`), so dispatch adds
- * it from the request it was given.
+ * it from the request it was given. The `Response` middleware returned comes
+ * back beside the result, because `resolveRoutes` reports `middlewareResponded`
+ * without it.
  */
 export type MiddlewareInvoker = (
   ctx: MiddlewareContext & { readonly method: string },
-) => Promise<MiddlewareResult>;
+) => Promise<MiddlewareResult & { readonly response: Response }>;
 
 export interface DispatcherOptions {
   readonly manifest: AdapterManifest;
   /**
    * The files under `public/`, from `readPublicFiles`: unencoded paths relative
    * to it. Served ahead of every route, as `next start` serves them.
-   *
-   * Pass the same array on every request: the routing table built from it and
-   * the manifest is cached against both, and building it is linear in the
-   * number of files.
    * @default - no `public/` files
    */
   readonly publicFiles?: readonly string[];
-  /**
-   * Required whenever `manifest.middleware` is non-null. `resolveRoutes` decides
-   * *whether* to call it from `routing.middlewareMatchers`; we only supply the
-   * how.
-   */
-  readonly invokeMiddleware?: MiddlewareInvoker;
 }
 
 export interface DispatchRequest {
@@ -68,6 +62,12 @@ export interface DispatchRequest {
    * the body. Use an already-closed stream for GET/HEAD.
    */
   readonly body: ReadableStream;
+  /**
+   * Required whenever `manifest.middleware` is non-null. `resolveRoutes` decides
+   * *whether* to call it from `routing.middlewareMatchers`; we only supply the
+   * how.
+   */
+  readonly invokeMiddleware?: MiddlewareInvoker;
 }
 
 interface DispatchResultBase {
@@ -89,13 +89,6 @@ export interface DispatchEntrypointResult extends DispatchResultBase {
   readonly resolvedPathname: string;
   /** The *concrete* pathname + query to invoke the route with. */
   readonly invocationTarget: RouteInvocationTarget;
-  readonly query: ResolveRoutesQuery;
-  /**
-   * Dynamic segment captures, both positional and `nxtP`-named. A group the
-   * match left unset is still a key here, with no value — see
-   * {@link repairRouteParamQuery}.
-   */
-  readonly routeMatches: Record<string, string | undefined>;
   /** Request headers as middleware left them. */
   readonly requestHeaders: Headers;
 }
@@ -148,9 +141,10 @@ export interface DispatchExternalRewriteResult extends DispatchResultBase {
   readonly requestHeaders: Headers;
 }
 
-/** Middleware returned its own response; the runner is holding it. */
+/** Middleware returned its own response: send it. */
 export interface DispatchMiddlewareRespondedResult extends DispatchResultBase {
   readonly kind: "middleware-responded";
+  readonly response: Response;
 }
 
 /** A matched route forced a status with nothing to invoke. */
@@ -163,7 +157,7 @@ export interface DispatchNotFoundResult extends DispatchResultBase {
   readonly kind: "not-found";
   /** What failed to resolve. For logging. */
   readonly pathname: string;
-  readonly notFound: NotFoundTarget;
+  readonly notFound: StatusTarget;
   readonly requestHeaders: Headers;
 }
 
@@ -178,11 +172,11 @@ export type DispatchResult =
   | DispatchNotFoundResult;
 
 /**
- * How to produce a 404 body. Resolved once per locale from the manifest (see
- * {@link Dispatcher.notFoundFor}); honoring `notFound()` from a route is the
+ * How to produce a 404 or 500 body. Resolved once per locale from the manifest
+ * (see {@link statusTargets}); honoring `notFound()` from a route is the
  * runtime core's job, not dispatch's.
  */
-export type NotFoundTarget =
+export type StatusTarget =
   | {
       readonly kind: "entrypoint";
       readonly pathname: string;
@@ -218,46 +212,23 @@ function asI18n(i18n: unknown | null): ResolveRoutesParams["i18n"] | undefined {
 }
 
 export class Dispatcher {
-  /**
-   * Resolved once at construction; see {@link NotFoundTarget}. The default
-   * locale's in an i18n app — {@link notFoundFor} picks the request's.
-   */
-  public readonly notFound: NotFoundTarget;
+  /** The 404 to render for a request to a URL; see {@link statusTargets}. */
+  public readonly notFoundFor: (url: URL) => StatusTarget;
 
   private readonly routes: ResolveRoutesParams["routes"];
   private readonly i18n: ResolveRoutesParams["i18n"] | undefined;
   private readonly table: RoutingTable;
   private readonly imagePathname: string;
-  private readonly invokeMiddleware: MiddlewareInvoker;
   private readonly trailingSlash: boolean;
-  /** {@link notFound}, per configured locale. Empty without i18n. */
-  private readonly notFoundByLocale: ReadonlyMap<string, NotFoundTarget>;
 
   public constructor(private readonly options: DispatcherOptions) {
     const { manifest } = options;
     this.routes = asRoutes(manifest.routing);
     this.i18n = asI18n(manifest.config.i18n);
     this.trailingSlash = manifest.config.trailingSlash;
-    this.table = routingTableFor(manifest, options.publicFiles ?? NO_FILES);
+    this.table = buildRoutingTable(manifest, options.publicFiles ?? []);
     this.imagePathname = `${manifest.config.basePath}/_next/image`;
-    this.notFound = resolveNotFoundTarget(manifest, this.i18n?.defaultLocale);
-    this.notFoundByLocale = new Map(
-      (this.i18n?.locales ?? []).map((locale) => [
-        locale,
-        resolveNotFoundTarget(manifest, locale),
-      ]),
-    );
-
-    if (manifest.middleware && !options.invokeMiddleware) {
-      throw new Error(
-        "This build has middleware, so the Dispatcher needs an " +
-          "`invokeMiddleware` implementation. Refusing to route without it: " +
-          "silently skipping middleware would change auth and rewrite behavior.",
-      );
-    }
-    // `resolveRoutes` requires the callback even when no middleware matcher can
-    // fire, so give it a no-op rather than making the field optional.
-    this.invokeMiddleware = options.invokeMiddleware ?? (async () => ({}));
+    this.notFoundFor = statusTargets(manifest, 404);
   }
 
   public get manifest(): AdapterManifest {
@@ -276,28 +247,9 @@ export class Dispatcher {
       : pathname;
   }
 
-  /**
-   * The 404 to render for a request to `url`: in an i18n app, the prerendered
-   * 404 of the locale the URL is in (`/fr/nope` gets `/fr/404`), and otherwise
-   * of the domain's default locale — which is how `next start` picks the
-   * locale it renders its 404 in. Without i18n, always {@link notFound}.
-   */
-  public notFoundFor(url: URL): NotFoundTarget {
-    const locale = requestLocale(this.manifest, url);
-    return (
-      (locale !== undefined && this.notFoundByLocale.get(locale)) ||
-      this.notFound
-    );
-  }
-
   /** The request path with `basePath` removed, which is what i18n applies to. */
   private withoutBasePath(pathname: string): string {
-    const { basePath } = this.manifest.config;
-    // On a segment boundary: `/docsearch` is not under the basePath `/docs`.
-    return basePath &&
-      (pathname === basePath || pathname.startsWith(`${basePath}/`))
-      ? pathname.slice(basePath.length) || "/"
-      : pathname;
+    return withoutPathPrefix(pathname, this.manifest.config.basePath);
   }
 
   /**
@@ -399,7 +351,7 @@ export class Dispatcher {
       buildId: this.manifest.buildId,
       basePath: this.manifest.config.basePath,
       headers,
-      requestBody: emptyBody(),
+      requestBody: emptyStream(),
       pathnames: [],
       routes: {
         ...this.routes,
@@ -448,6 +400,7 @@ export class Dispatcher {
     const url = this.withRootLocale(request.url, requestHeaders);
     let middlewareRequestHeaders: Headers | undefined;
     let middlewareRewrite: URL | undefined;
+    let middlewareResponse: Response | undefined;
 
     const result = await resolveRoutes({
       url,
@@ -458,11 +411,22 @@ export class Dispatcher {
       pathnames: this.table.pathnames,
       routes: this.routes,
       i18n: this.i18n,
+      // Only called when a `middlewareMatchers` entry matches, which only a
+      // build with middleware has.
       invokeMiddleware: async (ctx) => {
-        const middleware = await this.invokeMiddleware({
+        if (!request.invokeMiddleware) {
+          throw new Error(
+            "This build has middleware, so dispatch needs an " +
+              "`invokeMiddleware` implementation. Refusing to route without " +
+              "it: silently skipping middleware would change auth and " +
+              "rewrite behavior.",
+          );
+        }
+        const { response, ...middleware } = await request.invokeMiddleware({
           ...ctx,
           method: request.method,
         });
+        middlewareResponse = response;
         // `resolveRoutes` drops `MiddlewareResult.requestHeaders` entirely: it
         // neither returns them nor mutates the `headers` passed in. Capturing
         // them here is what keeps `NextResponse.next({ request: { headers } })`
@@ -490,9 +454,10 @@ export class Dispatcher {
     const forwardedHeaders = middlewareRequestHeaders ?? requestHeaders;
     const status = result.status;
 
-    if (result.middlewareResponded) {
+    if (result.middlewareResponded && middlewareResponse) {
       return {
         kind: "middleware-responded",
+        response: middlewareResponse,
         responseHeaders: await this.beforeMiddlewareHeaders(
           url,
           receivedHeaders,
@@ -562,10 +527,9 @@ export class Dispatcher {
       }
       const entrypoint = this.manifest.entrypoints[resolvedPathname];
       if (entrypoint) {
-        const routeMatches = result.routeMatches ?? {};
         const query = repairRouteParamQuery(
           result.resolvedQuery ?? {},
-          routeMatches,
+          result.routeMatches ?? {},
         );
         return {
           kind: "entrypoint",
@@ -579,8 +543,6 @@ export class Dispatcher {
               resolvedPathname,
             query,
           },
-          query,
-          routeMatches,
           requestHeaders: forwardedHeaders,
           responseHeaders,
           status,
@@ -623,10 +585,6 @@ export class Dispatcher {
   }
 }
 
-export function createDispatcher(options: DispatcherOptions): Dispatcher {
-  return new Dispatcher(options);
-}
-
 /** A static file, as dispatch resolves one. */
 interface StaticFileTarget {
   readonly filePath: string;
@@ -635,9 +593,8 @@ interface StaticFileTarget {
 
 /**
  * What dispatch matches a request against, derived once from the manifest and
- * `public/` rather than on every request: the Dispatcher itself is per request
- * (see `NextjsRuntime.route`), and with a few thousand `public/` files the
- * derivation is most of the cost of a dispatch.
+ * `public/`: with a few thousand `public/` files the derivation would be most
+ * of the cost of a dispatch.
  */
 interface RoutingTable {
   /**
@@ -647,30 +604,6 @@ interface RoutingTable {
   readonly pathnames: string[];
   /** Every spelling a static file is requested by → the file. */
   readonly staticFiles: ReadonlyMap<string, StaticFileTarget>;
-}
-
-const NO_FILES: readonly string[] = [];
-
-const routingTables = new WeakMap<
-  AdapterManifest,
-  WeakMap<readonly string[], RoutingTable>
->();
-
-function routingTableFor(
-  manifest: AdapterManifest,
-  publicFiles: readonly string[],
-): RoutingTable {
-  let byPublicFiles = routingTables.get(manifest);
-  if (!byPublicFiles) {
-    byPublicFiles = new WeakMap();
-    routingTables.set(manifest, byPublicFiles);
-  }
-  let table = byPublicFiles.get(publicFiles);
-  if (!table) {
-    table = buildRoutingTable(manifest, publicFiles);
-    byPublicFiles.set(publicFiles, table);
-  }
-  return table;
 }
 
 /**
@@ -785,26 +718,6 @@ function requestSpellings(path: string): string[] {
     "http://n",
   ).pathname;
   return parsed === encoded ? [encoded] : [encoded, parsed];
-}
-
-/** A request body for a `resolveRoutes` call that never runs middleware. */
-function emptyBody(): ReadableStream {
-  return new ReadableStream({
-    start(controller) {
-      controller.close();
-    },
-  });
-}
-
-/** A `ResolveRoutesQuery` back into a query string, repeats and all. */
-function toSearch(query: ResolveRoutesQuery): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    for (const item of Array.isArray(value) ? value : [value]) {
-      if (item !== undefined) search.append(key, item);
-    }
-  }
-  return search.toString();
 }
 
 /**
@@ -1032,39 +945,51 @@ function isFilledParam(value: ResolveRoutesQueryValue | undefined): boolean {
 
 /**
  * The order next itself uses, in `base-server.ts`'s `renderErrorToResponse`:
- * App Router's `/_not-found`, then Pages Router's `/404`, then `/_error`. `/404`
- * has to come before `/_error` — it is the app's *custom* 404, and `/_error` is
- * the built-in "404: This page could not be found". Measured against
- * `test/e2e/404-page-app`, where every URL got the built-in page.
+ * the status page's entrypoints, then its prerender, then `/_error`, which is
+ * the built-in error page unless the app wrote its own.
  *
- * `/404` is almost always prerendered: `next build` emits `404.html` whenever
+ * For a 404 the entrypoints are App Router's `/_not-found`, then Pages
+ * Router's `/404`. `/404` has to come before `/_error` — it is the app's
+ * *custom* 404, and `/_error` is the built-in "404: This page could not be
+ * found". Measured against `test/e2e/404-page-app`, where every URL got the
+ * built-in page. For a 500 it is `/500`.
+ *
+ * The prerender is almost always there: `next build` emits `404.html` whenever
  * `pages/_app` has no `getInitialProps` (`useStaticPages404`), from the app's
- * `pages/404.js` or else from `_error`, and `next start` serves it through
- * `hasPage('/404')` ahead of `/_error`. So it reaches us as a static file —
- * under i18n one per locale (`/en-US/404`), and never a bare `/404` — and that
- * file is what has to come before `/_error`, which every Pages build has. It is
- * an entrypoint only when something forces a per-request render, which a
+ * `pages/404.js` or else from `_error`, and `pages/500.js` is a
+ * `STATIC_STATUS_PAGES` entry. So it reaches us as a static file — under i18n
+ * one per locale (`/en-US/404`), and never a bare `/404` — and `next start`
+ * serves it ahead of `/_error`, which every Pages build has. The page is an
+ * entrypoint only when something forces a per-request render, which a
  * `getInitialProps` in `_app` does.
+ *
+ * A 500 is only rendered when an entrypoint *throws*. Next.js's page handlers
+ * deliberately rethrow ("rethrow so that we can handle serving error page",
+ * `pages-handler.ts`), leaving the error page to whatever is hosting them —
+ * measured against `test/e2e/async-modules`, whose `/make-error` throws in
+ * `getServerSideProps` and expects the app's `pages/_error`.
  *
  * Apps with none of these get nothing.
  */
-function resolveNotFoundTarget(
+function statusTarget(
   manifest: AdapterManifest,
-  /** Which locale's prerendered 404 to look for, in an i18n app. */
+  status: 404 | 500,
+  /** Which locale's prerender to look for, in an i18n app. */
   locale: string | undefined,
-): NotFoundTarget {
+): StatusTarget {
   const { basePath } = manifest.config;
-  for (const suffix of ["/_not-found", "/404"]) {
+  const entrypoints = status === 404 ? ["/_not-found", "/404"] : ["/500"];
+  for (const suffix of entrypoints) {
     const pathname = `${basePath}${suffix}`;
     const entrypoint = manifest.entrypoints[pathname];
     if (entrypoint) {
       return { kind: "entrypoint", pathname, entrypoint };
     }
   }
-  const staticNotFound = `${basePath}${locale ? `/${locale}` : ""}/404`;
-  const filePath = manifest.staticFiles[staticNotFound];
+  const prerendered = `${basePath}${locale ? `/${locale}` : ""}/${status}`;
+  const filePath = manifest.staticFiles[prerendered];
   if (filePath !== undefined) {
-    return { kind: "static-file", pathname: staticNotFound, filePath };
+    return { kind: "static-file", pathname: prerendered, filePath };
   }
   const errorPathname = `${basePath}/_error`;
   const errorEntrypoint = manifest.entrypoints[errorPathname];
@@ -1076,6 +1001,32 @@ function resolveNotFoundTarget(
     };
   }
   return { kind: "none" };
+}
+
+/**
+ * {@link statusTarget} for every locale, resolved once, and a lookup of the
+ * request's: in an i18n app, the prerender of the locale the URL is in
+ * (`/fr/nope` gets `/fr/404`), and otherwise of the domain's default locale —
+ * which is how `next start` picks the locale it renders a status page in. A
+ * request whose URL could not be parsed, `undefined`, gets the default
+ * locale's.
+ */
+export function statusTargets(
+  manifest: AdapterManifest,
+  status: 404 | 500,
+): (url: URL | undefined) => StatusTarget {
+  const i18n = asI18n(manifest.config.i18n);
+  const fallback = statusTarget(manifest, status, i18n?.defaultLocale);
+  const byLocale = new Map(
+    (i18n?.locales ?? []).map((locale) => [
+      locale,
+      statusTarget(manifest, status, locale),
+    ]),
+  );
+  return (url) => {
+    const locale = url ? requestLocale(manifest, url) : undefined;
+    return (locale !== undefined && byLocale.get(locale)) || fallback;
+  };
 }
 
 /**
@@ -1090,100 +1041,11 @@ function requestLocale(
 ): string | undefined {
   const i18n = asI18n(manifest.config.i18n);
   if (!i18n) return undefined;
-  const { basePath } = manifest.config;
-  const pathname =
-    basePath &&
-    (url.pathname === basePath || url.pathname.startsWith(`${basePath}/`))
-      ? url.pathname.slice(basePath.length)
-      : url.pathname;
+  const pathname = withoutPathPrefix(url.pathname, manifest.config.basePath);
   const segment = (pathname.split("/")[1] ?? "").toLowerCase();
   return (
     i18n.locales.find((candidate) => candidate.toLowerCase() === segment) ??
     detectDomainLocale(i18n.domains, url.hostname)?.defaultLocale ??
     i18n.defaultLocale
   );
-}
-
-/**
- * How to produce a 500 body. Same shapes as {@link NotFoundTarget}, and resolved
- * the same way — once per locale, from the manifest.
- */
-export type ErrorTarget = NotFoundTarget;
-
-/**
- * The 500 to render for a request, per locale; see {@link createErrorTargets}.
- * Takes `undefined` for a request whose URL could not be parsed, which gets the
- * default locale's.
- */
-export type ErrorTargetResolver = (url: URL | undefined) => ErrorTarget;
-
-/**
- * {@link resolveErrorTarget} for every locale, resolved once: in an i18n app the
- * prerendered 500 exists only per locale (`/en-US/500`, never a bare `/500`),
- * so without the locale it was never found and `/_error` rendered instead.
- */
-export function createErrorTargets(
-  manifest: AdapterManifest,
-): ErrorTargetResolver {
-  const fallback = resolveErrorTarget(manifest);
-  const i18n = asI18n(manifest.config.i18n);
-  const byLocale = new Map(
-    (i18n?.locales ?? []).map((locale) => [
-      locale,
-      resolveErrorTarget(manifest, locale),
-    ]),
-  );
-  return (url) => {
-    const locale = url ? requestLocale(manifest, url) : undefined;
-    return (locale !== undefined && byLocale.get(locale)) || fallback;
-  };
-}
-
-/**
- * The order next itself uses, in `base-server.ts`'s `renderErrorToResponse`:
- * `/500` — App Router's first, then Pages Router's — and then `/_error`, which is
- * the built-in error page unless the app wrote its own. `pages/500.js` is a
- * `STATIC_STATUS_PAGES` entry and so is normally prerendered to HTML, which is why
- * the static file is checked before `/_error` rather than after it: next would
- * serve that prerender in preference to `/_error` too.
- *
- * Only reached when an entrypoint *throws*. Next.js's page handlers deliberately
- * rethrow ("rethrow so that we can handle serving error page",
- * `pages-handler.ts`), leaving the error page to whatever is hosting them —
- * measured against `test/e2e/async-modules`, whose `/make-error` throws in
- * `getServerSideProps` and expects the app's `pages/_error`.
- */
-export function resolveErrorTarget(
-  manifest: AdapterManifest,
-  /**
-   * Which locale's prerendered 500 to look for. Defaults to the app's default
-   * locale in an i18n app, whose prerenders are all locale-prefixed.
-   */
-  locale: string | undefined = asI18n(manifest.config.i18n)?.defaultLocale,
-): ErrorTarget {
-  const { basePath } = manifest.config;
-  const error500 = `${basePath}/500`;
-  const entrypoint500 = manifest.entrypoints[error500];
-  if (entrypoint500) {
-    return {
-      kind: "entrypoint",
-      pathname: error500,
-      entrypoint: entrypoint500,
-    };
-  }
-  const static500 = `${basePath}${locale ? `/${locale}` : ""}/500`;
-  const filePath = manifest.staticFiles[static500];
-  if (filePath !== undefined) {
-    return { kind: "static-file", pathname: static500, filePath };
-  }
-  const errorPathname = `${basePath}/_error`;
-  const errorEntrypoint = manifest.entrypoints[errorPathname];
-  if (errorEntrypoint) {
-    return {
-      kind: "entrypoint",
-      pathname: errorPathname,
-      entrypoint: errorEntrypoint,
-    };
-  }
-  return { kind: "none" };
 }

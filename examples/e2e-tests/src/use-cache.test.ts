@@ -25,7 +25,7 @@ const MAX_ROUNDS = 6;
 
 /**
  * Longer than the tag markers' refresh interval
- * (`CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`, 1s by default), so every instance has
+ * (`CDK_NEXTJS_TAG_REFRESH_MS`, 1s by default), so every instance has
  * re-read them by the time a request is sent.
  */
 const TAG_REFRESH_WAIT_SEC = 3;

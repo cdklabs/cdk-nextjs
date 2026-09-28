@@ -1,3 +1,16 @@
 {
-  "extends": ["../tsconfig.json"]
+  "extends": ["../tsconfig.json"],
+  "compilerOptions": {
+    // @tsconfig/node24's lib plus DOM: Playwright's `page.evaluate` callbacks
+    // run in the browser.
+    "lib": [
+      "es2024",
+      "ESNext.Array",
+      "ESNext.Collection",
+      "ESNext.Error",
+      "ESNext.Iterator",
+      "ESNext.Promise",
+      "DOM"
+    ]
+  }
 }

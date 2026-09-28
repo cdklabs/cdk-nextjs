@@ -465,7 +465,8 @@
         "which is next.js's own mechanism for a partially passing file - see",
         "test/get-test-filter.js. The two skipped cases refresh the browser within",
         "`retry`'s 3s default window after a `revalidatePath`, which is shorter than a",
-        "CloudFront invalidation takes; see docs/harness-coverage.md."
+        "CloudFront invalidation takes. Unsupported (asynchronous invalidation); see",
+        "docs/harness-coverage.md."
       ],
       "failed": [
         "app-dir trailingSlash handling should revalidate a page with generated static params (withSlash=true)",
@@ -511,7 +512,8 @@
         "default window after a `revalidatePath`, which is shorter than a CloudFront",
         "invalidation takes - the same timing problem as the two skipped `trailingslash`",
         "cases and as revalidate-dynamic, which is excluded outright. The dynamic-page",
-        "case passes, so the file is worth running. See docs/harness-coverage.md."
+        "case passes, so the file is worth running. Unsupported (asynchronous invalidation);",
+        "see docs/harness-coverage.md."
       ],
       "failed": [
         "revalidatePath with rewrites static page should revalidate a static page that was rewritten"
@@ -523,7 +525,7 @@
         "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
         "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
         "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
-        "CDN-inherent; see docs/harness-coverage.md.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
         "",
         "The two that pass are the ones that matter: a valid asset path serves the",
         "build manifest with a 200, and an invalid non-asset path renders the app's own",
@@ -539,7 +541,7 @@
         "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
         "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
         "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
-        "CDN-inherent; see docs/harness-coverage.md.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
         "",
         "The two that pass are the ones that matter: a valid asset path serves the",
         "build manifest with a 200, and an invalid non-asset path renders the app's own",
@@ -555,7 +557,7 @@
         "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
         "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
         "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
-        "CDN-inherent; see docs/harness-coverage.md.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
         "",
         "The two that pass are the ones that matter: a valid asset path serves the",
         "build manifest with a 200, and an invalid non-asset path renders the app's own",
@@ -571,7 +573,7 @@
         "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
         "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
         "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
-        "CDN-inherent; see docs/harness-coverage.md.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
         "",
         "The two that pass are the ones that matter: a valid asset path serves the",
         "build manifest with a 200, and an invalid non-asset path renders the app's own",
@@ -587,7 +589,7 @@
         "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
         "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
         "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
-        "CDN-inherent; see docs/harness-coverage.md.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
         "",
         "The two that pass are the ones that matter: a valid asset path serves the",
         "build manifest with a 200, and an invalid non-asset path renders the app's own",
@@ -603,7 +605,7 @@
         "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
         "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
         "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
-        "CDN-inherent; see docs/harness-coverage.md.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
         "",
         "The two that pass are the ones that matter: a valid asset path serves the",
         "build manifest with a 200, and an invalid non-asset path renders the app's own",
@@ -693,7 +695,7 @@
       "See docs/harness-coverage.md."
     ],
     "test/e2e/app-dir/revalidate-dynamic/revalidate-dynamic.test.ts": [
-      "Excluded as timing-inherent, not as a cdk-nextjs defect: both cases.",
+      "Excluded as unsupported (asynchronous invalidation), not as a cdk-nextjs defect: both cases.",
       "test/e2e/app-dir/revalidate-path-with-rewrites is the same problem and is in `suites`,",
       "since 1 of its 2 cases passes; so are the two skipped `trailingslash` cases there.",
       "",
@@ -763,7 +765,7 @@
       "reporting upstream - the fix is two `set` -> `append` calls. Requeue once it ships."
     ],
     "test/e2e/proxy-readable-toweb/proxy-readable-toweb.test.ts": [
-      "Excluded as CDN-inherent. Both cases `POST` a JSON body from the jest process and get",
+      "Excluded as unsupported. Both cases `POST` a JSON body from the jest process and get",
       "`403 InvalidSignatureException` with `x-cache: Error from cloudfront`. CloudFront's origin access",
       "control signs the request to a Lambda Function URL with SigV4 but supplies only the empty-body",
       "hash, so a request with a body must carry `x-amz-content-sha256` holding that body's hex SHA-256",

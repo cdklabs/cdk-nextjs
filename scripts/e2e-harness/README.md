@@ -269,18 +269,16 @@ last. A session that must have its own working tree wants a `git worktree` _and_
 its own next.js checkout _and_ its own stack suffix; three of those is usually the
 point at which running one at a time is the cheaper answer.
 
-## Why `NextjsGlobalFunctions`
+## Why the schedule runs `NextjsGlobalFunctions`
 
-The harness builds every request URL as `new URL(path, deploymentUrl)` —
+All four types run (see "Running on the other `NextjsType`s"); the schedule picks
+one. The harness builds every request URL as `new URL(path, deploymentUrl)` —
 `getFullUrl` in `test/lib/next-test-utils.ts` assigns `pathname` outright — so any
-prefix in the deployment URL is dropped. That rules out both Regional types:
-their API Gateway REST URL is always
-`https://<id>.execute-api.<region>.amazonaws.com/<stage>`, and every absolute
-path the suite requests would miss the stage and 404. A CloudFront distribution
-is served at the origin root. (`NextjsRegionalFunctions` can still be run, behind
-a local proxy that puts the stage back — see "Running on
-`NextjsRegionalFunctions`" — but that is a second front door, not the one users
-deploy, so it stays the exception.)
+prefix in the deployment URL is dropped. `NextjsRegionalFunctions`'s API Gateway
+REST URL always ends in `/<stage>`, so it runs behind `stage-proxy.mjs`, a local
+proxy that puts the stage back (see "Running on `NextjsRegionalFunctions`") — a
+second front door, not the one users deploy. A CloudFront distribution is served
+at the origin root.
 
 It is also the front door the suite was written for. `NEXT_TEST_MODE=deploy` is
 the mode Vercel validates edge-fronted deployments with, so its tests tolerate a
@@ -360,7 +358,7 @@ reason alone.
 
 `HARNESS_NEXTJS_TYPE=regional-functions` deploys `NextjsRegionalFunctions`
 instead, into `hrns-rf-<suffix>` stacks so it can never land in a Global run's.
-Local and manual for now; the scheduled workflow is Global only.
+By hand or `workflow_dispatch`; the schedule runs `NextjsGlobalFunctions` only.
 
 The stage is the whole problem, and `stage-proxy.mjs` is the whole answer. The
 suite discards any path in the deployment URL (above), and a REST API's is always
@@ -586,7 +584,7 @@ scripts/e2e-offline.sh app-dir/layout-params   # then curl :3112 and :3113
 It builds the fixture through the adapter and serves the same build twice — once
 by our container shell, once by `next start` — so "why does the deployment
 disagree with next.js" becomes one `diff` of two responses. Defects 11, 13 and 14
-in `docs/harness-coverage.md` were all found this way; 11 in particular had
+in `docs/harness-coverage.md`'s table were all found this way; 11 in particular had
 survived one wrong fix because the value in question only shows up under a
 debugger (`JSON.stringify` erases it).
 

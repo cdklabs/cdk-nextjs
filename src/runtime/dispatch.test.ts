@@ -4,13 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { MiddlewareResult } from "@next/routing";
 import {
-  createDispatcher,
-  createErrorTargets,
   DispatchRequest,
   Dispatcher,
   outOfBandRouteParams,
   repairRouteParamQuery,
-  resolveErrorTarget,
+  statusTargets,
   toRedirect,
 } from "./dispatch";
 import { AdapterManifest } from "./manifest";
@@ -82,21 +80,38 @@ function request(url: string, headers: Record<string, string> = {}) {
         controller.close();
       },
     }),
+    // Middleware that lets every request through.
+    invokeMiddleware: async () => ({ response: new Response() }),
   };
   return result;
 }
 
+/** A Dispatcher over `name`, whose middleware, if given, answers `middleware()`. */
 function dispatcherFor(
   name: keyof typeof manifests,
-  invokeMiddleware?: () => Promise<MiddlewareResult>,
-): Dispatcher {
-  const manifest = manifests[name];
-  return createDispatcher({
-    manifest,
-    invokeMiddleware: manifest.middleware
-      ? (invokeMiddleware ?? (async () => ({})))
-      : undefined,
-  });
+  middleware?: () => Promise<MiddlewareResult>,
+): Pick<Dispatcher, "dispatch" | "notFoundFor"> {
+  const dispatcher = new Dispatcher({ manifest: manifests[name] });
+  return {
+    notFoundFor: dispatcher.notFoundFor,
+    dispatch: (req) =>
+      dispatcher.dispatch(
+        middleware
+          ? {
+              ...req,
+              invokeMiddleware: async () => ({
+                ...(await middleware()),
+                response: new Response(),
+              }),
+            }
+          : req,
+      ),
+  };
+}
+
+/** The 404 or 500 a request with no locale gets. */
+function statusTargetOf(manifest: AdapterManifest, status: 404 | 500) {
+  return statusTargets(manifest, status)(undefined);
 }
 
 describe("Dispatcher entrypoint resolution", () => {
@@ -113,8 +128,6 @@ describe("Dispatcher entrypoint resolution", () => {
       pathname: "/isr/1",
       query: { nxtPid: "1" },
     });
-    expect(result.query).toEqual({ nxtPid: "1" });
-    expect(result.routeMatches).toMatchObject({ nxtPid: "1" });
     expect(result.entrypoint.filePath).toContain("isr/[id]/page.js");
     expect(result.entrypoint.type).toBe("app-page");
   });
@@ -174,7 +187,7 @@ describe("Dispatcher entrypoint resolution", () => {
       `/_next/data/${buildId}/fr/blog/[slug].json`,
     );
     expect(result.entrypoint.filePath).toContain("blog/[slug]");
-    expect(result.query).toMatchObject({ nxtPslug: "hello" });
+    expect(result.invocationTarget.query).toMatchObject({ nxtPslug: "hello" });
   });
 
   it("resolves the canonical trailing-slash URL of a `trailingSlash` app", async () => {
@@ -198,9 +211,8 @@ describe("Dispatcher entrypoint resolution", () => {
     routing.beforeMiddleware = routing.beforeMiddleware.filter(
       (route) => route.status !== 308,
     );
-    const dispatcher = createDispatcher({
+    const dispatcher = new Dispatcher({
       manifest: manifestOf(withSlash),
-      invokeMiddleware: async () => ({}),
     });
 
     const page = await dispatcher.dispatch(request("/isr/1/"));
@@ -246,14 +258,17 @@ describe("Dispatcher entrypoint resolution", () => {
       pathname: "/params/prefix/a/b",
       query: { nxtPid: "a", nxtPid2: "b" },
     });
-    expect(result.query).toEqual({ nxtPid: "a", nxtPid2: "b" });
+    expect(result.invocationTarget.query).toEqual({
+      nxtPid: "a",
+      nxtPid2: "b",
+    });
   });
 
   it("applies a gated beforeFiles rewrite from next.config.ts once", async () => {
     // app-playground's one config rewrite: `/e2e/rewrite/:path(.*)` with
     // `has: query json=true`, to `/e2e/rewrite/echo?from=/:path`. Its output
     // matches it again, which is what Next.js re-applies inside the entrypoint
-    // (defect 29) - the Dispatcher's half is resolving it exactly once.
+    // - the Dispatcher's half is resolving it exactly once.
     const dispatcher = dispatcherFor("app-playground");
     const rewritten = await dispatcher.dispatch(
       request("/e2e/rewrite/some/route?json=true"),
@@ -293,10 +308,9 @@ describe("Dispatcher public/ files", () => {
     name: keyof typeof manifests,
     files: string[],
   ): Dispatcher {
-    return createDispatcher({
+    return new Dispatcher({
       manifest: manifests[name],
       publicFiles: publicDir(files),
-      invokeMiddleware: async () => ({}),
     });
   }
 
@@ -398,9 +412,8 @@ describe("Dispatcher build-output spellings", () => {
       staticFiles: { ...base.staticFiles, [pathname]: filePath },
       pathnames: [...base.pathnames, pathname],
     };
-    const dispatcher = createDispatcher({
+    const dispatcher = new Dispatcher({
       manifest,
-      invokeMiddleware: async () => ({}),
     });
     for (const url of [
       "/_next/static/chunks/app/isr/%5Bid%5D/page-0123abcd.js",
@@ -470,7 +483,7 @@ describe("Dispatcher non-entrypoint outcomes", () => {
   it("optimizes the destination of a next.config rewrite onto /_next/image", async () => {
     const manifest = manifests["app-playground-root-catch-all"];
     const routing = manifest.routing as { beforeFiles: unknown[] };
-    const result = await createDispatcher({
+    const result = await new Dispatcher({
       manifest: {
         ...manifest,
         routing: {
@@ -485,7 +498,6 @@ describe("Dispatcher non-entrypoint outcomes", () => {
           ],
         },
       },
-      invokeMiddleware: async () => ({}),
     }).dispatch(request("/avatar/42"));
     expect(result.kind).toBe("image-optimization");
     if (result.kind !== "image-optimization") return;
@@ -567,7 +579,7 @@ describe("Dispatcher non-entrypoint outcomes", () => {
       },
       ...routing.beforeMiddleware.filter((route) => route.status !== 308),
     ];
-    const dispatcher = createDispatcher({ manifest: manifestOf(withSlash) });
+    const dispatcher = new Dispatcher({ manifest: manifestOf(withSlash) });
 
     expect(await dispatcher.dispatch(request("/"))).toMatchObject({
       kind: "static-file",
@@ -608,7 +620,7 @@ describe("Dispatcher non-entrypoint outcomes", () => {
         ],
       },
     };
-    const result = await createDispatcher({ manifest }).dispatch(
+    const result = await new Dispatcher({ manifest }).dispatch(
       request("/blocked"),
     );
     expect(result).toMatchObject({ kind: "response", status: 403 });
@@ -625,17 +637,19 @@ describe("Dispatcher non-entrypoint outcomes", () => {
   });
 
   it("resolves the 404 target per router flavor", () => {
-    expect(dispatcherFor("app-playground").notFound).toMatchObject({
+    expect(statusTargetOf(manifests["app-playground"], 404)).toMatchObject({
       kind: "entrypoint",
       pathname: "/_not-found",
     });
-    expect(dispatcherFor("app-playground-base-path").notFound).toMatchObject({
+    expect(
+      statusTargetOf(manifests["app-playground-base-path"], 404),
+    ).toMatchObject({
       kind: "entrypoint",
       pathname: "/prod/_not-found",
     });
     // Pages Router has no `/_not-found`, and `next build` prerenders its 404 —
     // one per locale — which `next start` serves ahead of `/_error`.
-    expect(dispatcherFor("pages-i18n").notFound).toEqual({
+    expect(statusTargetOf(manifests["pages-i18n"], 404)).toEqual({
       kind: "static-file",
       pathname: "/en-US/404",
       filePath: manifests["pages-i18n"].staticFiles["/en-US/404"],
@@ -679,8 +693,7 @@ describe("Dispatcher non-entrypoint outcomes", () => {
       Object.entries(base.staticFiles).filter(([key]) => !key.endsWith("/404")),
     );
     expect(
-      createDispatcher({ manifest: { ...base, staticFiles: without404 } })
-        .notFound,
+      statusTargetOf({ ...base, staticFiles: without404 }, 404),
     ).toMatchObject({ kind: "entrypoint", pathname: "/_error" });
   });
 
@@ -697,14 +710,15 @@ describe("Dispatcher non-entrypoint outcomes", () => {
         "/404": { ...base.entrypoints["/_error"], id: "/404" },
       },
     };
-    expect(
-      createDispatcher({ manifest: withCustom404 }).notFound,
-    ).toMatchObject({ kind: "entrypoint", pathname: "/404" });
+    expect(statusTargetOf(withCustom404, 404)).toMatchObject({
+      kind: "entrypoint",
+      pathname: "/404",
+    });
     // App Router still wins over both: `/_not-found` is what next looks for
     // first, and an app with both routers has all three.
     expect(
-      createDispatcher({
-        manifest: {
+      statusTargetOf(
+        {
           ...withCustom404,
           entrypoints: {
             ...withCustom404.entrypoints,
@@ -714,7 +728,8 @@ describe("Dispatcher non-entrypoint outcomes", () => {
             },
           },
         },
-      }).notFound,
+        404,
+      ),
     ).toMatchObject({ kind: "entrypoint", pathname: "/_not-found" });
   });
 
@@ -725,25 +740,21 @@ describe("Dispatcher non-entrypoint outcomes", () => {
       entrypoints: {},
       middleware: null,
     };
-    expect(createDispatcher({ manifest: withoutEntrypoints }).notFound).toEqual(
-      {
-        kind: "static-file",
-        pathname: "/404",
-        filePath: base.staticFiles["/404"],
-      },
-    );
+    expect(statusTargetOf(withoutEntrypoints, 404)).toEqual({
+      kind: "static-file",
+      pathname: "/404",
+      filePath: base.staticFiles["/404"],
+    });
     expect(
-      createDispatcher({
-        manifest: { ...withoutEntrypoints, staticFiles: {} },
-      }).notFound,
+      statusTargetOf({ ...withoutEntrypoints, staticFiles: {} }, 404),
     ).toEqual({ kind: "none" });
   });
 });
 
-describe("resolveErrorTarget", () => {
+describe("the 500 ladder", () => {
   it("prefers the prerendered /500 next emits by default", () => {
     const base = manifests["app-playground"];
-    expect(resolveErrorTarget(base)).toEqual({
+    expect(statusTargetOf(base, 500)).toEqual({
       kind: "static-file",
       pathname: "/500",
       filePath: base.staticFiles["/500"],
@@ -754,13 +765,16 @@ describe("resolveErrorTarget", () => {
     // What a `pages/500.js` that cannot be static-optimized builds.
     const base = manifests["pages-i18n"];
     expect(
-      resolveErrorTarget({
-        ...base,
-        entrypoints: {
-          ...base.entrypoints,
-          "/500": { ...base.entrypoints["/_error"], id: "/500" },
+      statusTargetOf(
+        {
+          ...base,
+          entrypoints: {
+            ...base.entrypoints,
+            "/500": { ...base.entrypoints["/_error"], id: "/500" },
+          },
         },
-      }),
+        500,
+      ),
     ).toMatchObject({ kind: "entrypoint", pathname: "/500" });
   });
 
@@ -768,12 +782,12 @@ describe("resolveErrorTarget", () => {
     // `/_error` is where a custom error page lands when it has
     // `getInitialProps` — the case `test/e2e/async-modules` measures.
     const base = manifests["pages-i18n"];
-    expect(resolveErrorTarget({ ...base, staticFiles: {} })).toMatchObject({
+    expect(statusTargetOf({ ...base, staticFiles: {} }, 500)).toMatchObject({
       kind: "entrypoint",
       pathname: "/_error",
     });
     expect(
-      resolveErrorTarget({ ...base, staticFiles: {}, entrypoints: {} }),
+      statusTargetOf({ ...base, staticFiles: {}, entrypoints: {} }, 500),
     ).toEqual({ kind: "none" });
   });
 
@@ -781,7 +795,7 @@ describe("resolveErrorTarget", () => {
     // Under i18n the prerendered 500 is keyed only by locale, never as a bare
     // `/500`, so looking up `/500` alone always fell through to `/_error`.
     const base = manifests["pages-i18n"];
-    const errorTargetFor = createErrorTargets(base);
+    const errorTargetFor = statusTargets(base, 500);
     const at = (url: string) => errorTargetFor(new URL(url, ORIGIN));
 
     expect(at("/fr/ssr")).toEqual({
@@ -798,12 +812,12 @@ describe("resolveErrorTarget", () => {
     expect(errorTargetFor(undefined)).toMatchObject({
       pathname: "/en-US/500",
     });
-    expect(resolveErrorTarget(base)).toMatchObject({ pathname: "/en-US/500" });
+    expect(statusTargetOf(base, 500)).toMatchObject({ pathname: "/en-US/500" });
   });
 
   it("looks for the error page under the app's basePath", () => {
     const base = manifests["app-playground-base-path"];
-    expect(resolveErrorTarget(base)).toMatchObject({ pathname: "/prod/500" });
+    expect(statusTargetOf(base, 500)).toMatchObject({ pathname: "/prod/500" });
   });
 });
 
@@ -934,14 +948,15 @@ describe("Dispatcher middleware handling", () => {
     expect(result.requestHeaders.get("x-caller")).toBe("yes");
   });
 
-  it("refuses to construct without a runner when the build has middleware", () => {
-    expect(() =>
-      createDispatcher({ manifest: manifests["app-playground"] }),
-    ).toThrow(/needs an `invokeMiddleware` implementation/);
+  it("refuses to route without a runner when the build has middleware", async () => {
+    const bare = { ...request("/isr/1"), invokeMiddleware: undefined };
+    await expect(
+      new Dispatcher({ manifest: manifests["app-playground"] }).dispatch(bare),
+    ).rejects.toThrow(/needs an `invokeMiddleware` implementation/);
     // No middleware in the build, so no runner is required.
-    expect(() =>
-      createDispatcher({ manifest: manifests["pages-i18n"] }),
-    ).not.toThrow();
+    await expect(
+      new Dispatcher({ manifest: manifests["pages-i18n"] }).dispatch(bare),
+    ).resolves.toBeDefined();
   });
 });
 

@@ -57,8 +57,7 @@ const adapter: NextAdapter = {
     for (const group of stagedGroups) {
       const routes = manifest.groups?.[group.name];
       console.log(
-        `${LOG_PREFIX} Staged ${group.fileCount} files ` +
-          `(${(group.stagedBytes / 1e6).toFixed(1)} MB) for ` +
+        `${LOG_PREFIX} Staged ${group.fileCount} files for ` +
           `${routes ? `${routes.length} of ${entrypointCount}` : entrypointCount} ` +
           `entrypoints in ${group.path}`,
       );

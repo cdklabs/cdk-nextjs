@@ -41,9 +41,9 @@ import {
 } from "../runtime/manifest";
 import { readPublicFiles } from "../runtime/public-files";
 import {
-  readNextConfigAssetPrefix,
-  readNextConfigAssetPrefixPath,
-  readNextConfigBasePath,
+  assetPrefixPath,
+  normalizeBasePath,
+  relativeAssetPrefix,
 } from "../utils/base-path";
 import {
   getLambdaArchitecture,
@@ -91,9 +91,8 @@ export interface NextjsBuildProps {
   readonly functionGroups?: NextjsFunctionGroupRoutes[];
   /**
    * Lambda architecture the Functions types deploy, which decides the `sharp`
-   * binaries staged into each deployment root. A group's own
-   * {@link NextjsFunctionGroupRoutes.architecture} wins for that group. Ignored
-   * by the Containers types, whose image is built for the synth machine.
+   * binaries staged into every deployment root. Ignored by the Containers
+   * types, whose image is built for the synth machine.
    * @default - the architecture of the machine running synth
    */
   readonly architecture?: Architecture;
@@ -106,12 +105,6 @@ export interface NextjsBuildProps {
 export interface NextjsFunctionGroupRoutes {
   readonly name: string;
   readonly routes: string[];
-  /**
-   * This group's Lambda architecture, when it differs from
-   * {@link NextjsBuildProps.architecture}.
-   * @default NextjsBuildProps.architecture
-   */
-  readonly architecture?: Architecture;
 }
 
 /** One staged deployment root, and the function group it belongs to. */
@@ -130,32 +123,24 @@ export interface NextjsDeploymentRoot {
    */
   readonly routes: string[];
   /**
-   * The architecture this root's native dependencies (`sharp`) were staged for.
-   * The Lambda deploying it must use the same one.
+   * Whether this root holds a Pages Router route, and therefore a second URL
+   * space (`/_next/data/<buildId>/<route>.json`) that carries the same routes.
+   * Only `functionGroups` cares: a group's routes have to be reachable in both.
+   * @default false
    */
-  readonly architecture: Architecture;
+  readonly hasDataRoutes?: boolean;
 }
 
 /**
- * What a group's deployment root is staged for: the group's `architecture`,
- * else the build's, else the synth machine's. Containers ignore both: Docker
- * builds their image natively, so it can only match the synth machine.
+ * What every deployment root is staged for: the build's `architecture`, else
+ * the synth machine's. Containers ignore it: Docker builds their image
+ * natively, so it can only match the synth machine.
  */
-export function deploymentRootArchitecture(
-  props: NextjsBuildProps,
-  group: string,
-): Architecture {
-  if (
-    props.nextjsType !== NextjsType.GLOBAL_FUNCTIONS &&
-    props.nextjsType !== NextjsType.REGIONAL_FUNCTIONS
-  ) {
-    return getLambdaArchitecture();
-  }
-  return (
-    props.functionGroups?.find((g) => g.name === group)?.architecture ??
-    props.architecture ??
-    getLambdaArchitecture()
-  );
+export function deploymentArchitecture(props: NextjsBuildProps): Architecture {
+  const isFunctions =
+    props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
+    props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
+  return (isFunctions && props.architecture) || getLambdaArchitecture();
 }
 
 export interface PublicDirEntry {
@@ -206,8 +191,7 @@ export class NextjsBuild extends Construct {
   dotNextPath: string;
   /**
    * The Next.js app's own `basePath` — the URL prefix it generates its links and
-   * asset hrefs under — read out of the build's `required-server-files.json`.
-   * Normalized to a bare path segment, empty when the app sets none. Exposed so
+   * asset hrefs under — as the adapter manifest recorded it. Normalized to a bare path segment, empty when the app sets none. Exposed so
    * root constructs can reconcile it with the CDK `basePath` prop, which is a
    * distinct thing; see `resolveBasePath`.
    */
@@ -215,8 +199,7 @@ export class NextjsBuild extends Construct {
   /**
    * The Next.js app's own `assetPrefix`, as a path with a leading slash and no
    * trailing one, empty when the app sets none or sets an absolute URL (which
-   * names an origin cdk-nextjs does not serve). Read from the same
-   * `required-server-files.json`.
+   * names an origin cdk-nextjs does not serve).
    *
    * Exposed because it is the shape of `assetPrefix` the regional
    * `NextjsType`s cannot serve — see `warnUnservedAssetPrefix`. What the
@@ -236,34 +219,20 @@ export class NextjsBuild extends Construct {
    */
   nextConfigAssetPrefixPath: string;
   /**
-   * Absolute path to the deployment root: the staged union of every shipped
-   * output's traced assets, written by the adapter's `onBuildComplete`. This is
-   * the Lambda zip asset and the Docker `COPY` source.
-   *
-   * With `functionGroups` there is no single root — this is the `default`
-   * group's, which exists in every build. Use {@link deploymentRoots} to reach
-   * them all.
-   * @example "/Users/john/myapp/.next/cdk-nextjs-adapter/app"
-   */
-  deploymentRootPath: string;
-  /**
-   * Every staged deployment root, one per function group. Exactly one entry
-   * (named `default`) unless `functionGroups` splits the app.
+   * Every staged deployment root, one per function group, `default` first: the
+   * staged union of each group's shipped outputs and their traced assets,
+   * written by the adapter's `onBuildComplete`. Exactly one entry (named
+   * `default`, at `.next/cdk-nextjs-adapter/app`) unless `functionGroups`
+   * splits the app. The Lambda zip assets; Containers `COPY` the `default` one.
    */
   deploymentRoots: NextjsDeploymentRoot[];
   /**
-   * From {@link deploymentRootPath} to the Next.js project dir, POSIX, `""` when
+   * From the deployment root to the Next.js project dir, POSIX, `""` when
    * the app is at the repo root. The runtime `chdir`s here; Containers pass it to
    * their Dockerfile so `.next/static` and `public` land in the same place.
    * @see AdapterManifest.relativeProjectDir
    */
   relativeProjectDir: string;
-  /**
-   * Whether the app has any Pages Router route, and therefore a second URL space
-   * (`/_next/data/<buildId>/<route>.json`) that carries the same routes. Only
-   * `functionGroups` cares: a group's routes have to be reachable in both.
-   */
-  hasDataRoutes: boolean;
   /**
    * The app's `next.config` `trailingSlash`. Only `functionGroups` cares: it
    * decides which URL a route's own pattern has to match, since a
@@ -271,6 +240,11 @@ export class NextjsBuild extends Construct {
    * @see AdapterManifest.config
    */
   trailingSlash: boolean;
+  /**
+   * The architecture every deployment root's native dependencies (`sharp`)
+   * were staged for. The Lambdas deploying them must use the same one.
+   */
+  architecture: Architecture;
 
   private props: NextjsBuildProps;
   private buildCommand: string;
@@ -323,10 +297,14 @@ export class NextjsBuild extends Construct {
     this.buildId = this.getBuildId();
     this.nextBuildId = manifest.buildId;
     this.publicDirEntries = this.getLocalPublicDirEntries();
-    this.nextConfigBasePath = readNextConfigBasePath(this.dotNextPath);
-    this.nextConfigAssetPrefix = readNextConfigAssetPrefix(this.dotNextPath);
-    this.nextConfigAssetPrefixPath = readNextConfigAssetPrefixPath(
-      this.dotNextPath,
+    // Next.js's resolved config, the same one it writes into
+    // `required-server-files.json`.
+    this.nextConfigBasePath = normalizeBasePath(manifest.config.basePath);
+    this.nextConfigAssetPrefix = relativeAssetPrefix(
+      manifest.config.assetPrefix,
+    );
+    this.nextConfigAssetPrefixPath = assetPrefixPath(
+      manifest.config.assetPrefix,
     );
 
     const isFunctions =
@@ -335,12 +313,9 @@ export class NextjsBuild extends Construct {
 
     this.relativeProjectDir = manifest.relativeProjectDir;
     this.relativePathToEntrypoint = joinPosix(RUNTIME_DIR_NAME, "server.mjs");
-    this.hasDataRoutes = Object.values(manifest.entrypoints).some(
-      (entrypoint) => entrypoint.type === "page",
-    );
     this.trailingSlash = manifest.config.trailingSlash;
+    this.architecture = deploymentArchitecture(props);
     this.deploymentRoots = this.resolveDeploymentRoots(manifest);
-    this.deploymentRootPath = this.deploymentRoots[0].path;
 
     // Only the RegionalContainers image carries `public/`: nothing is in front
     // of it to answer those paths from S3. Every other type lists it here and
@@ -370,7 +345,7 @@ export class NextjsBuild extends Construct {
       this.installSharpBinariesForTarget(
         root.path,
         sharpSource,
-        `${isFunctions ? "linux" : "linuxmusl"}-${toNodeArchitecture(root.architecture)}`,
+        `${isFunctions ? "linux" : "linuxmusl"}-${toNodeArchitecture(this.architecture)}`,
       );
 
       if (isFunctions) {
@@ -393,22 +368,22 @@ export class NextjsBuild extends Construct {
   private resolveDeploymentRoots(
     manifest: AdapterManifest,
   ): NextjsDeploymentRoot[] {
-    const requested = this.props.functionGroups;
     const staged = manifest.groups;
 
-    // Already validated in the constructor, so `requested` here is either absent
-    // or a non-empty, well-formed list.
-    const wanted = requested?.length
-      ? [DEFAULT_FUNCTION_GROUP, ...requested.map((group) => group.name)].sort()
+    // Names *and* routes: moving `/reports/**` into an existing group keeps the
+    // names and still leaves that group's zip without the reports entrypoints.
+    // Already validated in the constructor, so this is absent or non-empty.
+    const wanted = this.props.functionGroups?.length
+      ? toFunctionGroupSpecs(this.props.functionGroups)
       : undefined;
-    const got = staged ? Object.keys(staged).sort() : undefined;
+    const got = manifest.functionGroups;
 
     if (JSON.stringify(wanted) !== JSON.stringify(got)) {
       throw new Error(
         `${LOG_PREFIX} \`functionGroups\` asks for ` +
-          `${wanted ? `[${wanted.join(", ")}]` : "no splitting"} but the build ` +
-          `in ${this.dotNextPath} staged ` +
-          `${got ? `[${got.join(", ")}]` : "a single deployment root"}. ` +
+          `${wanted ? JSON.stringify(wanted) : "no splitting"} but the build ` +
+          `in ${this.dotNextPath} was split into ` +
+          `${got ? JSON.stringify(got) : "a single deployment root"}. ` +
           `Groups are resolved during \`next build\` (cdk-nextjs passes them in ` +
           `via ${FUNCTION_GROUPS_ENV_VAR}), so this means the build output is ` +
           `stale, or \`skipBuild: true\` and the build was run without that ` +
@@ -416,7 +391,7 @@ export class NextjsBuild extends Construct {
       );
     }
 
-    const names = got ?? [DEFAULT_FUNCTION_GROUP];
+    const names = staged ? Object.keys(staged) : [DEFAULT_FUNCTION_GROUP];
     const roots = names.map((name) => ({
       name,
       path: join(
@@ -425,11 +400,13 @@ export class NextjsBuild extends Construct {
         ...groupStagingDirName(staged ? name : undefined).split("/"),
       ),
       routes: staged?.[name] ?? [],
-      architecture: deploymentRootArchitecture(this.props, name),
+      hasDataRoutes: (staged?.[name] ?? Object.keys(manifest.entrypoints)).some(
+        (template) => manifest.entrypoints[template]?.type === "page",
+      ),
     }));
 
-    // `default` first, so `deploymentRootPath` and any other "the root" caller
-    // gets the group that owns everything unassigned.
+    // `default` first, so any "the root" caller gets the group that owns
+    // everything unassigned.
     roots.sort((a, b) =>
       a.name === DEFAULT_FUNCTION_GROUP
         ? -1
@@ -657,10 +634,7 @@ export class NextjsBuild extends Construct {
           ...(this.props.functionGroups?.length
             ? {
                 [FUNCTION_GROUPS_ENV_VAR]: JSON.stringify(
-                  this.props.functionGroups.map((group) => ({
-                    name: group.name,
-                    routes: group.routes,
-                  })),
+                  toFunctionGroupSpecs(this.props.functionGroups),
                 ),
               }
             : {}),
@@ -785,8 +759,6 @@ export class NextjsBuild extends Construct {
         ? deploymentId.replace(/[^A-Za-z0-9_-]/g, "-")
         : "";
     } catch {
-      // `readNextConfigBasePath` already warns about an unreadable
-      // `required-server-files.json`; a second warning per synth adds nothing.
       return "";
     }
   }
@@ -1074,6 +1046,16 @@ export class NextjsBuild extends Construct {
       return false;
     }
   }
+}
+
+/**
+ * What travels to the adapter in {@link FUNCTION_GROUPS_ENV_VAR}, and what it
+ * records back as `AdapterManifest.functionGroups`.
+ */
+function toFunctionGroupSpecs(
+  groups: NextjsFunctionGroupRoutes[],
+): FunctionGroupSpec[] {
+  return groups.map(({ name, routes }) => ({ name, routes }));
 }
 
 /**

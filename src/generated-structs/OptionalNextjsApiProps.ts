@@ -44,13 +44,6 @@ export interface OptionalNextjsApiProps {
    */
   readonly redeployAfterUpdate?: boolean;
   /**
-   * Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one.
-   * Ignored without {@link functionGroups}.
-   * @default false
-   * @stability stable
-   */
-  readonly hasDataRoutes?: boolean;
-  /**
    * The non-`default` function groups, each needing its own resources so the routes it was packaged with reach it rather than {@link serverFunction}.
    * @default - no splitting; `{proxy+}` serves every dynamic route
    * @stability stable

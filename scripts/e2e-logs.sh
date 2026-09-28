@@ -59,9 +59,9 @@ fi
 # derived from the function name.
 if [ -f "$HARNESS_STACK_FILE" ]; then
   STACK_NAME="$(cat "$HARNESS_STACK_FILE")"
-  LOG_GROUP="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" ServerLogGroupName)"
+  LOG_GROUP="$(harness_stack_output "$STACK_NAME" ServerLogGroupName)"
   if [ -z "$LOG_GROUP" ]; then
-    FUNCTION_NAME="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" ServerFunctionName)"
+    FUNCTION_NAME="$(harness_stack_output "$STACK_NAME" ServerFunctionName)"
     [ -n "$FUNCTION_NAME" ] && LOG_GROUP="/aws/lambda/$FUNCTION_NAME"
   fi
   if [ -n "$LOG_GROUP" ]; then

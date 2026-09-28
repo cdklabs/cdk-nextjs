@@ -198,7 +198,7 @@ After that, an instance doesn't re-read the tags it tracks to learn what
 changed. Each `revalidateTag`/`updateTag` also writes a row to a revalidation
 log in the same table (`pk = <buildId>#log`, expiring after 15 minutes through
 the table's `ttl` attribute). At most once per
-[`CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`](#cdk_nextjs_use_cache_tag_refresh_ms),
+[`CDK_NEXTJS_TAG_REFRESH_MS`](#cdk_nextjs_tag_refresh_ms),
 each instance sends one DynamoDB `Query` for the rows written since its last
 one and applies those for tags it tracks. So a revalidation on another instance
 is honored within that window (1 second by default), and on the instance that ran
@@ -208,9 +208,8 @@ re-read every 7.5 to 10 minutes, a few each second rather than all at once (abou
 RCU a second at the most an instance tracks, 10,000 tags). After a gap the log
 may no longer cover (a Lambda frozen between invocations, a run of failed
 queries), an instance forgets its tracked markers and reads each again as it's
-needed. ISR and the data cache catch up on revalidations from the
-same log, once per
-[`CDK_NEXTJS_TAG_MARKER_TTL_MS`](./docs/caching-guide.md#on-demand-revalidation).
+needed. ISR and the data cache share the same copy of the markers, so one
+`revalidateTag` writes each tag's rows once and one `Query` serves them all.
 
 If you pass your own `revalidationTable`, enable TTL on its `ttl` attribute, or
 the log rows (about 100 bytes per revalidated tag) are kept until the build is
@@ -220,13 +219,13 @@ Two instances that generate the same `'use cache: remote'` entry at the same
 moment both store it; each serves its own copy until that copy's `revalidate`
 time, after which S3's is used.
 
-#### `CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS`
+#### `CDK_NEXTJS_TAG_REFRESH_MS`
 
 How often, at most, in milliseconds, an instance asks the revalidation log what
-other instances revalidated: the longest a `revalidateTag` elsewhere goes unseen.
-It's one DynamoDB `Query`, however many tags the instance tracks, shared by every
-request on the instance during the window. `0` asks before every request that
-uses a cache.
+other instances revalidated: the longest a `revalidateTag` elsewhere goes unseen,
+for `'use cache'`, ISR and the data cache alike. It's one DynamoDB `Query`,
+however many tags the instance tracks, shared by every request on the instance
+during the window. `0` asks before every cache check.
 
 **Default**: `1000`
 
@@ -380,8 +379,10 @@ add. That covers:
 
 Not checked, because it is only known at request time: **a middleware
 `NextResponse.rewrite()`** to a route in another group reaches the function that
-received the original URL, which answers 500 for a file it lacks. Keep a
-middleware rewrite's source and destination in the same group. The same goes
+received the original URL, which lacks the route's file. It answers 404 (or a
+308 to the canonical URL when only the case differs) and logs a warning naming
+the group that owns the route. Keep a middleware rewrite's source and
+destination in the same group. The same goes
 for a `next.config` rewrite whose destination is built from its parameters
 (`/b/:slug` → `/blog/:slug`), and for a dynamic segment of a `default` route
 that overlaps a group's literal path (`/[section]/intro` against `/docs/**`).
@@ -725,7 +726,7 @@ What this means for choosing one:
 - **Functions constructs scale with no sizing.** Both held at least 6,560 req/s of SSR, the load generator's limit, at the same latency as at 10 req/s. The cost is a cold start of about 1.4 s on a new execution environment.
 - **Containers constructs are fastest per request but need sizing.** Two 1 vCPU tasks served SSR at 19–22 ms p50 against Lambda's ~30 ms, but tasks take minutes to add. Past capacity they don't degrade gradually: tasks too busy to answer the ALB health check are replaced, which leaves fewer tasks for the same load. Leave headroom.
 - **CloudFront carries the Global constructs' cached traffic.** Prerendered pages, ISR hits, images and assets were answered at the edge in 2–3 ms at every rate. On the Regional constructs every request reaches the construct: `NextjsRegionalContainers` serves assets and image optimization from the same tasks, so 50 req/s on every route at once (400 req/s) is already more than two tasks handle.
-- **Cached pages scale on every construct.** ISR hits held at least 6,000 req/s on all four: at the edge on the Global constructs, and through the S3 + DynamoDB cache on the Regional ones, where each instance holds a tag's revalidation marker for a second (`CDK_NEXTJS_TAG_MARKER_TTL_MS`, see the [Caching Guide](./docs/caching-guide.md)).
+- **Cached pages scale on every construct.** ISR hits held at least 6,000 req/s on all four: at the edge on the Global constructs, and through the S3 + DynamoDB cache on the Regional ones, where each instance holds a tag's revalidation marker for a second (`CDK_NEXTJS_TAG_REFRESH_MS`, see the [Caching Guide](./docs/caching-guide.md)).
 
 <details>
 <summary><code>NextjsGlobalFunctions</code></summary>

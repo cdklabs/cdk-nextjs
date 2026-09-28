@@ -24,6 +24,11 @@ export interface OptionalNextjsContainersProps {
    */
   readonly alb?: aws_elasticloadbalancingv2.IApplicationLoadBalancer;
   /**
+   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo root.
+   * @stability stable
+   */
+  readonly relativeProjectDir?: string;
+  /**
    * @stability stable
    */
   readonly relativeEntrypointPath?: string;
@@ -51,19 +56,9 @@ export interface OptionalNextjsContainersProps {
    */
   readonly revalidationTable?: aws_dynamodb.ITableV2;
   /**
-   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo root.
-   * @stability stable
-   */
-  readonly relativeProjectDir?: string;
-  /**
    * @stability stable
    */
   readonly nextjsType?: NextjsType;
-  /**
-   * Absolute path to the staged deployment root: the Lambda zip asset for Functions, the Docker `COPY` source for Containers.
-   * @stability stable
-   */
-  readonly deploymentRootPath?: string;
   /**
    * S3 bucket for cache storage.
    * @stability stable

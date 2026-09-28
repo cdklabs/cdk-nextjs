@@ -78,6 +78,9 @@ const COMPRESSIBLE =
  */
 const UNCOMPRESSABLE_STATUS = new Set([204, 206, 304]);
 
+/** `compression`'s own test for the directive. */
+const NO_TRANSFORM = /(?:^|,)\s*?no-transform\s*?(?:,|$)/i;
+
 export interface PipeOptions {
   /** `next.config` `compress`. */
   readonly compress: boolean;
@@ -166,6 +169,11 @@ function shouldGzip(
     return false;
   }
   if (!COMPRESSIBLE.test(head.headers["content-type"] ?? "")) {
+    return false;
+  }
+  // The response's opt-out, which `next start`'s `compression` honors too: an
+  // SSE stream sets it so that nothing buffers its events.
+  if (NO_TRANSFORM.test(head.headers["cache-control"] ?? "")) {
     return false;
   }
   return acceptsGzip(req.headers["accept-encoding"]);

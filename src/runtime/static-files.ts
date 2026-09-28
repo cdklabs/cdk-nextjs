@@ -27,11 +27,11 @@ import {
   GetObjectCommand,
   GetObjectCommandOutput,
   HeadObjectCommand,
-  S3Client,
 } from "@aws-sdk/client-s3";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { nextModule } from "./next-modules";
+import { drained, firstValue, s3Client } from "./util";
 
 const SERVE_STATIC = "next/dist/server/serve-static.js";
 type ServeStaticModule = typeof import("next/dist/server/serve-static.js");
@@ -155,9 +155,6 @@ function isMissingFile(error: unknown): boolean {
   return code === "ENOENT" || code === "ENOTDIR";
 }
 
-/** Created on the first S3-served file; most requests never need one. */
-let s3: S3Client | undefined;
-
 /** Where a type without `public/` on disk finds a file it does not carry. */
 export interface S3PublicFile {
   /** `CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME`. */
@@ -197,7 +194,6 @@ export async function serveS3PublicFile(
   res: ShimServerResponse,
   file: S3PublicFile,
 ): Promise<boolean> {
-  s3 ??= new S3Client({});
   const prefix = file.keyPrefix.replace(/^\/+|\/+$/g, "");
   const key = prefix ? `${prefix}/${file.file}` : file.file;
   const ifNoneMatch = file.etag
@@ -208,7 +204,7 @@ export async function serveS3PublicFile(
     : firstValue(req.headers.range);
   let object: Omit<GetObjectCommandOutput, "Body"> & { Body?: unknown };
   try {
-    object = await s3.send(
+    object = await s3Client().send(
       req.method === "HEAD"
         ? new HeadObjectCommand({
             Bucket: file.bucket,
@@ -279,7 +275,7 @@ export async function serveS3PublicFile(
       : Readable.from(body as AsyncIterable<Uint8Array>);
   try {
     for await (const chunk of stream) {
-      if (!res.write(chunk) && !(await drainedOrClosed(res))) {
+      if (!res.write(chunk) && !(await drained(res))) {
         // The client went away; the rest of the object is not wanted.
         return true;
       }
@@ -290,24 +286,4 @@ export async function serveS3PublicFile(
     stream.destroy();
   }
   return true;
-}
-
-/** Resolves `true` on `drain`, `false` if the response closes first. */
-function drainedOrClosed(res: ShimServerResponse): Promise<boolean> {
-  if (res.destroyed) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const onDrain = (): void => settle(true);
-    const onClose = (): void => settle(false);
-    const settle = (value: boolean): void => {
-      res.off("drain", onDrain);
-      res.off("close", onClose);
-      resolve(value);
-    };
-    res.once("drain", onDrain);
-    res.once("close", onClose);
-  });
-}
-
-function firstValue(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }

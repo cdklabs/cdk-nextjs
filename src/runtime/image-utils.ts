@@ -9,6 +9,7 @@
  * it through `./next-modules` instead.
  */
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { withoutPathPrefix } from "./util";
 
 /** Where the app is served versus where its assets were uploaded. */
 export interface S3AssetLocation {
@@ -72,12 +73,7 @@ export async function fetchFromS3(
   // indistinguishable from a real `public/base/` directory, which loses; that's
   // the right trade, since every statically imported image carries the prefix
   // and the alternative costs an S3 round trip per request to detect it.
-  const hasBasePath =
-    !!urlBasePath &&
-    (path === urlBasePath || path.startsWith(`${urlBasePath}/`));
-  const assetPath = (
-    hasBasePath ? path.slice(urlBasePath.length) : path
-  ).replace(/^\/+/, "");
+  const assetPath = withoutPathPrefix(path, urlBasePath).replace(/^\/+/, "");
   const prefix = keyPrefix.replace(/^\/+|\/+$/g, "");
   const decoded = decodePath(assetPath);
   const key = prefix ? `${prefix}/${decoded}` : decoded;

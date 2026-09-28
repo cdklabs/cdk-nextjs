@@ -1,15 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { NextjsType } from "../constants";
 import {
+  assetPrefixPath,
+  basePathPrefix,
   isAssetPrefixUnserved,
   joinPath,
   normalizeBasePath,
   prefixWithBasePath,
-  readNextConfigAssetPrefix,
-  readNextConfigAssetPrefixPath,
-  readNextConfigBasePath,
+  relativeAssetPrefix,
   resolveBasePath,
 } from "./base-path";
 
@@ -75,7 +72,7 @@ describe("joinPath", () => {
 
 describe("prefixWithBasePath", () => {
   // The health check path is handed to things that talk to the app directly (an
-  // ALB target group, the Lambda Web Adapter readiness check), and the app only
+  // ALB target group, the container's own health probe), and the app only
   // answers under its basePath. Unprefixed, every check 404s: the target never
   // turns healthy, so tasks are killed on the health check interval and the
   // deployment rolls back.
@@ -134,93 +131,27 @@ describe("prefixWithBasePath", () => {
   });
 });
 
-describe("readNextConfigBasePath", () => {
-  let dotNextPath: string;
-  let warn: jest.SpyInstance;
-
-  beforeEach(() => {
-    dotNextPath = mkdtempSync(join(tmpdir(), "base-path-"));
-    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    warn.mockRestore();
-    rmSync(dotNextPath, { recursive: true, force: true });
-  });
-
-  function writeRequiredServerFiles(contents: string) {
-    writeFileSync(join(dotNextPath, "required-server-files.json"), contents);
-  }
-
-  it("reads the app's basePath and strips the leading slash", () => {
-    writeRequiredServerFiles(JSON.stringify({ config: { basePath: "/prod" } }));
-
-    expect(readNextConfigBasePath(dotNextPath)).toBe("prod");
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("returns an empty string when the app sets no basePath", () => {
-    // `next build` writes basePath: "" rather than omitting it.
-    writeRequiredServerFiles(JSON.stringify({ config: { basePath: "" } }));
-
-    expect(readNextConfigBasePath(dotNextPath)).toBe("");
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  // Degrading to "" is deliberate, but it's indistinguishable from an app that
-  // sets no basePath, so it has to be visible: the Global constructs derive
-  // their basePath from this value and would otherwise 404 every static asset
-  // with nothing but a silent fallback to explain it.
-  it("warns when required-server-files.json is missing", () => {
-    expect(readNextConfigBasePath(dotNextPath)).toBe("");
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("required-server-files.json"),
-    );
-  });
-
-  it("warns when the file isn't valid JSON", () => {
-    writeRequiredServerFiles("not json");
-
-    expect(readNextConfigBasePath(dotNextPath)).toBe("");
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("Could not read basePath"),
-    );
-  });
-
-  it("returns an empty string when the file has no config key", () => {
-    writeRequiredServerFiles(JSON.stringify({ files: [] }));
-
-    expect(readNextConfigBasePath(dotNextPath)).toBe("");
+describe("basePathPrefix", () => {
+  it("spells every basePath the way Next.js does", () => {
+    for (const value of ["/base", "base", "/base/", "//base//"]) {
+      expect(basePathPrefix(value)).toBe("/base");
+    }
+    expect(basePathPrefix("/a/b/")).toBe("/a/b");
+    expect(basePathPrefix("/")).toBe("");
+    expect(basePathPrefix(undefined)).toBe("");
   });
 });
 
-describe("readNextConfigAssetPrefix", () => {
-  let dotNextPath: string;
-  let warn: jest.SpyInstance;
-
-  beforeEach(() => {
-    dotNextPath = mkdtempSync(join(tmpdir(), "asset-prefix-"));
-    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    warn.mockRestore();
-    rmSync(dotNextPath, { recursive: true, force: true });
-  });
-
-  function write(config: unknown) {
-    writeFileSync(
-      join(dotNextPath, "required-server-files.json"),
-      JSON.stringify({ config }),
-    );
-  }
-
+describe("relativeAssetPrefix", () => {
   it("reads a path-style assetPrefix with one leading slash", () => {
-    write({ assetPrefix: "/custom-asset-prefix" });
-    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("/custom-asset-prefix");
-    write({ assetPrefix: "custom-asset-prefix/" });
-    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("/custom-asset-prefix");
-    expect(warn).not.toHaveBeenCalled();
+    expect(relativeAssetPrefix("/custom-asset-prefix")).toBe(
+      "/custom-asset-prefix",
+    );
+    expect(relativeAssetPrefix("custom-asset-prefix/")).toBe(
+      "/custom-asset-prefix",
+    );
+    expect(relativeAssetPrefix("")).toBe("");
+    expect(relativeAssetPrefix("/")).toBe("");
   });
 
   it("ignores an absolute assetPrefix", () => {
@@ -231,32 +162,16 @@ describe("readNextConfigAssetPrefix", () => {
       "http://cdn.example.com/x",
       "//cdn.example.com",
     ]) {
-      write({ assetPrefix });
-      expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
+      expect(relativeAssetPrefix(assetPrefix)).toBe("");
     }
-    expect(warn).not.toHaveBeenCalled();
   });
+});
 
-  it("returns an empty string for every way of setting none", () => {
-    for (const config of [
-      { assetPrefix: "" },
-      { assetPrefix: "/" },
-      { assetPrefix: undefined },
-      {},
-      // `next build` has never written a non-string here, but the file is JSON
-      // from another program's version of the schema.
-      { assetPrefix: 3 },
-    ]) {
-      write(config);
-      expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
-    }
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("reports the path an absolute assetPrefix carries, separately", () => {
-    // `readNextConfigAssetPrefix` answers "is this a prefix the regional
-    // NextjsTypes cannot serve"; `…Path` answers "what path do bundle URLs carry",
-    // and an absolute prefix with a path carries one — `next build` compiles a
+describe("assetPrefixPath", () => {
+  it("reports the path an absolute assetPrefix carries too", () => {
+    // `relativeAssetPrefix` answers "is this a prefix the regional NextjsTypes
+    // cannot serve"; this answers "what path do bundle URLs carry", and an
+    // absolute prefix with a path carries one — `next build` compiles a
     // rewrite for it, so `next start` serves bundles there. See
     // `test/e2e/app-dir/asset-prefix-absolute`.
     for (const [assetPrefix, path] of [
@@ -267,25 +182,8 @@ describe("readNextConfigAssetPrefix", () => {
       ["/cdn", "/cdn"],
       ["", ""],
     ] as const) {
-      write({ assetPrefix });
-      expect(readNextConfigAssetPrefixPath(dotNextPath)).toBe(path);
+      expect(assetPrefixPath(assetPrefix)).toBe(path);
     }
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("stays quiet when the file is missing, and warns when it is unreadable", () => {
-    // `readNextConfigBasePath` reads the same file and already warns about it
-    // being absent; a second warning on every synth of an app with no
-    // `assetPrefix` would be noise. Unparseable is different — it means the file
-    // is there and says something we could not understand.
-    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
-    expect(warn).not.toHaveBeenCalled();
-
-    writeFileSync(join(dotNextPath, "required-server-files.json"), "not json");
-    expect(readNextConfigAssetPrefix(dotNextPath)).toBe("");
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("Could not read assetPrefix"),
-    );
   });
 });
 
@@ -337,7 +235,7 @@ describe("isAssetPrefixUnserved", () => {
   it.each(Object.values(NextjsType))(
     "%s: flags nothing when there is no prefix",
     (nextjsType) => {
-      // `readNextConfigAssetPrefix` already reduces an absolute prefix to `""`,
+      // `relativeAssetPrefix` already reduces an absolute prefix to `""`,
       // which is the supported way to serve assets from another origin.
       expect(isAssetPrefixUnserved(nextjsType, "", "prod")).toBe(false);
       expect(isAssetPrefixUnserved(nextjsType, "", undefined)).toBe(false);

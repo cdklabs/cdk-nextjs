@@ -1,9 +1,6 @@
-import { Stack } from "aws-cdk-lib";
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
 import { ICluster } from "aws-cdk-lib/aws-ecs";
 import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { PolicyStatement } from "aws-cdk-lib/aws-iam";
-import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import {
@@ -122,79 +119,16 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
 
     this.nextjsContainers = this.createNextjsContainers();
     this.nextjsDistribution = this.createNextjsDistribution();
-    this.wireCloudFrontInvalidation();
-    this.nextjsPostDeploy = this.createNextjsPostDeploy();
-  }
-
-  /**
-   * Grants the task role permission to invalidate the distribution and passes
-   * along a way to look up its ID, so on-demand revalidation
-   * (revalidateTag/revalidatePath) can evict stale responses from the CDN
-   * edge cache, not just the origin's S3/DynamoDB cache.
-   *
-   * The distribution ID is published to an SSM Parameter (whose *name* is
-   * static and safe to embed in the task's environment) rather than passed
-   * directly, and the IAM grant is scoped to all distributions in this
-   * account/region rather than this specific one. See the equivalent method
-   * in `NextjsGlobalFunctions` for why: the same pattern is used here for
-   * consistency, even though containers' distribution (ALB-origin-based)
-   * doesn't hit the circular CloudFormation dependency functions' does.
-   */
-  private wireCloudFrontInvalidation(): void {
-    const stack = Stack.of(this);
     const { taskDefinition } = this.nextjsContainers.albFargateService;
-    const distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
-
-    new StringParameter(this, "DistributionIdParameter", {
-      parameterName: distributionIdParameterName,
-      stringValue: this.nextjsDistribution.distribution.distributionId,
-    });
-
-    taskDefinition.addToTaskRolePolicy(
-      new PolicyStatement({
-        actions: ["ssm:GetParameter"],
-        resources: [
-          stack.formatArn({
-            service: "ssm",
-            resource: "parameter",
-            resourceName: distributionIdParameterName,
-          }),
-        ],
-      }),
+    const environment = this.wireCloudFrontInvalidation(
+      [taskDefinition.taskRole],
+      this.nextjsDistribution.distribution,
+      false,
     );
-    taskDefinition.addToTaskRolePolicy(
-      new PolicyStatement({
-        actions: ["cloudfront:CreateInvalidation"],
-        // Scoped to all distributions (not just this one) for consistency
-        // with NextjsGlobalFunctions, which can't scope this to its specific
-        // distribution due to a circular CloudFormation dependency (see the
-        // class doc comment above and the equivalent method there). Hence
-        // the SSM parameter indirection above for looking up the ID at
-        // runtime instead of synth time.
-        resources: [
-          stack.formatArn({
-            service: "cloudfront",
-            region: "",
-            resource: "distribution",
-            resourceName: "*",
-          }),
-        ],
-      }),
-    );
-    taskDefinition.defaultContainer?.addEnvironment(
-      "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
-      distributionIdParameterName,
-    );
-    // Paired with the parameter name because invalidation is the only thing that
-    // needs it: the paths the cache handler derives are routes, and CloudFront
-    // cached them under `basePath`. Set only when there is one, so apps without
-    // a `basePath` see no environment change.
-    if (this.resolvedBasePath) {
-      taskDefinition.defaultContainer?.addEnvironment(
-        "CDK_NEXTJS_BASE_PATH",
-        this.resolvedBasePath,
-      );
+    for (const [name, value] of Object.entries(environment)) {
+      taskDefinition.defaultContainer?.addEnvironment(name, value);
     }
+    this.nextjsPostDeploy = this.createNextjsPostDeploy();
   }
 
   private createNextjsContainers(): NextjsContainers {
@@ -205,6 +139,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       ecsCluster: this.props.ecsCluster,
       healthCheckPath: this.resolvedHealthCheckPath(this.props.healthCheckPath),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
+      relativeProjectDir: this.nextjsBuild.relativeProjectDir,
       overrides: {
         ...this.props.overrides?.nextjsContainers,
         ecsClusterProps: {

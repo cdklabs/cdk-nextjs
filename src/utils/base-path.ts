@@ -1,6 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { Token } from "aws-cdk-lib";
+/**
+ * Pure `basePath` and URL path helpers. Nothing here imports `aws-cdk-lib` or
+ * touches the filesystem, so the adapter and runtime bundles can import it as
+ * well as the constructs.
+ */
 import { LOG_PREFIX, NextjsType } from "../constants";
 
 /**
@@ -10,6 +12,16 @@ import { LOG_PREFIX, NextjsType } from "../constants";
  */
 export function normalizeBasePath(basePath?: string): string {
   return (basePath || "").replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+/**
+ * A `basePath` as Next.js spells it and URLs start with it: one leading slash,
+ * no trailing one ("/base"), `""` for none. Accepts any spelling
+ * {@link normalizeBasePath} does.
+ */
+export function basePathPrefix(basePath?: string): string {
+  const bare = normalizeBasePath(basePath);
+  return bare ? `/${bare}` : "";
 }
 
 /**
@@ -29,8 +41,8 @@ export function joinPath(...parts: (string | undefined)[]): string {
  * answers "/api/health" and "/api/health/" differently.
  *
  * Use this for paths handed to something that talks to the app directly — an ALB
- * target group health check, the Lambda Web Adapter readiness check — since the
- * app only answers under its own `basePath`.
+ * target group health check, the container's own health probe — since the app
+ * only answers under its own `basePath`.
  *
  * Prefixes unconditionally, so `path` has to arrive as the app routes it,
  * without `basePath`: for an app based at "/base", "/base/api/health" becomes
@@ -48,86 +60,28 @@ export function prefixWithBasePath(
   return normalized ? `/${normalized}${absolute}` : absolute;
 }
 
-/**
- * Read the Next.js app's own `basePath` out of `required-server-files.json`,
- * which `next build` writes into `.next` with the fully resolved config (so
- * this picks up a `basePath` computed in `next.config.js`, not only a literal
- * one). Normalized, empty when the app sets none.
- *
- * Degrades to `""` rather than throwing, since an unreadable file shouldn't
- * fail a deployment that would otherwise work. It warns because `""` is
- * indistinguishable from an app that genuinely sets no `basePath`: the
- * `NextjsType`s that derive `basePath` from the app would quietly not derive
- * it and 404 every static asset.
- */
-export function readNextConfigBasePath(dotNextPath: string): string {
-  const requiredServerFiles = join(dotNextPath, "required-server-files.json");
-  const fallback = (reason: string) => {
-    console.warn(
-      `${LOG_PREFIX} ${reason}. Assuming your Next.js app sets no \`basePath\`: ` +
-        "if it does set one, static assets will 404 and any `basePath` prop " +
-        "mismatch reported at synth will name the wrong value.",
-    );
-    return "";
-  };
-  if (!existsSync(requiredServerFiles)) {
-    return fallback(
-      `"required-server-files.json" not found at ${requiredServerFiles}`,
-    );
-  }
-  try {
-    const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
-    return normalizeBasePath(config?.basePath);
-  } catch (error) {
-    return fallback(
-      `Could not read basePath from ${requiredServerFiles}: ${error}`,
-    );
-  }
-}
-
 /** Whether an `assetPrefix` names an origin rather than a path on this one. */
 function isAbsoluteAssetPrefix(assetPrefix: string): boolean {
   return /^([a-z][a-z0-9+.-]*:)?\/\//i.test(assetPrefix);
 }
 
 /**
- * Read the app's own `assetPrefix` out of the same fully resolved config, as a
- * path with a leading and no trailing slash ("/cdn"), or `""` when the app sets
- * none.
+ * The app's own `assetPrefix` as a path with a leading and no trailing slash
+ * ("/cdn"), or `""` when the app sets none.
  *
  * Returns `""` for an absolute `assetPrefix` ("https://cdn.example.com", or the
  * protocol-relative "//cdn.example.com") too: that names an origin cdk-nextjs
  * does not control, and it is the supported way to serve assets from elsewhere,
- * so nothing about it is worth warning about. Use
- * {@link readNextConfigAssetPrefixPath} for what the *distribution* has to
- * answer on, which includes the path an absolute prefix carries.
+ * so nothing about it is worth warning about. Use {@link assetPrefixPath} for
+ * what the *distribution* has to answer on, which includes the path an absolute
+ * prefix carries.
  *
  * Next.js applies `assetPrefix` on top of, not under, `basePath`, so the result
  * is the whole prefix of a `_next/static` URL and must not be joined with
  * `basePath`.
  */
-export function readNextConfigAssetPrefix(dotNextPath: string): string {
-  const assetPrefix = readAssetPrefix(dotNextPath, true);
-  if (!assetPrefix || isAbsoluteAssetPrefix(assetPrefix)) return "";
-  const normalized = normalizeBasePath(assetPrefix);
-  return normalized ? `/${normalized}` : "";
-}
-
-/**
- * The *path* every bundle URL carries, whichever form `assetPrefix` takes: "/cdn"
- * for `assetPrefix: "/cdn"` and for `assetPrefix:
- * "https://cdn.example.com/cdn"` alike, `""` when there is none (an absolute
- * prefix with no path, or no prefix at all).
- *
- * An absolute prefix's path counts because `next build` compiles a `beforeFiles`
- * rewrite of its own for it — `/cdn/_next/:path+ → /_next/:path+` — so `next
- * start` serves every bundle under that path as well as under `/_next`. A CDN
- * fronting this deployment at that path therefore has to be answered, and the
- * distribution's `assetPrefix` behavior is what answers it. Measured against
- * `test/e2e/app-dir/asset-prefix-absolute`; see `docs/harness-coverage.md`.
- */
-export function readNextConfigAssetPrefixPath(dotNextPath: string): string {
-  return assetPrefixPath(readAssetPrefix(dotNextPath, false));
+export function relativeAssetPrefix(assetPrefix: string): string {
+  return isAbsoluteAssetPrefix(assetPrefix) ? "" : basePathPrefix(assetPrefix);
 }
 
 /**
@@ -173,9 +127,19 @@ export function isAssetPrefixUnserved(
 }
 
 /**
- * The path portion of an `assetPrefix` value, with a leading and no trailing
- * slash, or `""` when it carries none. Shared with `NextjsDistribution`, whose
- * `assetPrefix` prop a user can also set by hand.
+ * The *path* every bundle URL carries, whichever form `assetPrefix` takes: "/cdn"
+ * for `assetPrefix: "/cdn"` and for `assetPrefix:
+ * "https://cdn.example.com/cdn"` alike, `""` when there is none (an absolute
+ * prefix with no path, or no prefix at all).
+ *
+ * An absolute prefix's path counts because `next build` compiles a `beforeFiles`
+ * rewrite of its own for it — `/cdn/_next/:path+ → /_next/:path+` — so `next
+ * start` serves every bundle under that path as well as under `/_next`. A CDN
+ * fronting this deployment at that path therefore has to be answered, and the
+ * distribution's `assetPrefix` behavior is what answers it. Measured against
+ * `test/e2e/app-dir/asset-prefix-absolute`; see `docs/harness-coverage.md`.
+ * Shared with `NextjsDistribution`, whose `assetPrefix` prop a user can also
+ * set by hand.
  */
 export function assetPrefixPath(assetPrefix: string): string {
   if (!assetPrefix) return "";
@@ -189,37 +153,7 @@ export function assetPrefixPath(assetPrefix: string): string {
       return "";
     }
   }
-  const normalized = normalizeBasePath(path);
-  return normalized ? `/${normalized}` : "";
-}
-
-/**
- * The raw `assetPrefix` string, or `""` when it cannot be read. `warnOnError` is
- * off for the second reader of the same file, so an unreadable one is reported
- * once per synth rather than once per reader.
- */
-function readAssetPrefix(dotNextPath: string, warnOnError: boolean): string {
-  const requiredServerFiles = join(dotNextPath, "required-server-files.json");
-  if (!existsSync(requiredServerFiles)) {
-    // `readNextConfigBasePath` already warned about this file; an app with no
-    // `assetPrefix` is also the overwhelmingly common case, so a second warning
-    // would be noise on every synth.
-    return "";
-  }
-  try {
-    const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
-    const assetPrefix: unknown = config?.assetPrefix;
-    return typeof assetPrefix === "string" ? assetPrefix : "";
-  } catch (error) {
-    if (warnOnError) {
-      console.warn(
-        `${LOG_PREFIX} Could not read assetPrefix from ${requiredServerFiles}: ${error}. ` +
-          "Assuming your Next.js app sets no `assetPrefix`: if it does set one, " +
-          "its bundles will 404.",
-      );
-    }
-    return "";
-  }
+  return basePathPrefix(path);
 }
 
 /**
@@ -458,18 +392,4 @@ export function resolveBasePath(
       // no routing meaning that could disagree with the app.
       return prop || undefined;
   }
-}
-
-/**
- * The S3 object key pattern covering every static asset uploaded under
- * `keyPrefix` (`NextjsStaticAssets.keyPrefix`): `"base/*"`, or `"*"` at the
- * bucket root. For scoping the compute's read grant to the app's own objects
- * when several apps share one bucket.
- */
-export function staticAssetsObjectsPattern(keyPrefix?: string): string {
-  if (keyPrefix && Token.isUnresolved(keyPrefix)) {
-    return "*";
-  }
-  const prefix = normalizeBasePath(keyPrefix);
-  return prefix ? `${prefix}/*` : "*";
 }

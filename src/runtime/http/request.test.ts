@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { createIncomingMessage, toIncomingHttpHeaders } from "./request";
+import { ShimIncomingMessage, toIncomingHttpHeaders } from "./request";
 
 async function readAll(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];
@@ -9,9 +9,9 @@ async function readAll(stream: Readable): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-describe("createIncomingMessage", () => {
+describe("ShimIncomingMessage", () => {
   it("exposes the request line and headers Next.js reads", () => {
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: "get",
       url: "/a?b=c",
       headers: { host: "example.test" },
@@ -24,7 +24,7 @@ describe("createIncomingMessage", () => {
   });
 
   it("ends the stream immediately when there is no body", async () => {
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: "GET",
       url: "/",
       headers: {},
@@ -34,7 +34,7 @@ describe("createIncomingMessage", () => {
   });
 
   it("frames a Buffer body with a content-length", async () => {
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: "POST",
       url: "/api",
       headers: { "content-type": "application/json" },
@@ -47,7 +47,7 @@ describe("createIncomingMessage", () => {
   });
 
   it("leaves an existing content-length alone", () => {
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: "POST",
       url: "/api",
       headers: { "content-length": "99" },
@@ -57,7 +57,7 @@ describe("createIncomingMessage", () => {
   });
 
   it("pipes a streamed body through", async () => {
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: "PUT",
       url: "/upload",
       headers: { "transfer-encoding": "chunked" },
@@ -73,7 +73,7 @@ describe("createIncomingMessage", () => {
         this.destroy(new Error("upstream gone"));
       },
     });
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: "POST",
       url: "/",
       headers: {},
@@ -83,7 +83,7 @@ describe("createIncomingMessage", () => {
   });
 
   it("fills the socket fields that `send` and x-forwarded-for handling read", () => {
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: "GET",
       url: "/",
       headers: {},

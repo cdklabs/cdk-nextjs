@@ -1,6 +1,6 @@
 import { Duration } from "aws-cdk-lib";
-import { ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
+  Architecture,
   Code,
   Function as LambdaFunction,
   FunctionProps,
@@ -20,8 +20,8 @@ import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalFunctionProps } from "../generated-structs/OptionalFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
 import { NextjsDeploymentRoot } from "../nextjs-build/nextjs-build";
+import { staticAssetsObjectsPattern } from "../nextjs-static-assets";
 import { RUNTIME_DIR_NAME } from "../runtime/manifest";
-import { staticAssetsObjectsPattern } from "../utils/base-path";
 import { getLambdaArchitecture } from "../utils/get-architecture";
 
 export interface NextjsFunctionsOverrides {
@@ -82,7 +82,8 @@ export interface NextjsFunctionGroup {
   /**
    * Per-group overrides, merged over the construct-wide `overrides` — which is
    * the point of splitting for anything other than size: a group can have its
-   * own memory, timeout, or concurrency.
+   * own memory, timeout, or concurrency. Not its own architecture: every group
+   * deploys the one the build staged `sharp` for.
    */
   readonly overrides?: NextjsFunctionsOverrides;
 }
@@ -104,11 +105,17 @@ export interface NextjsFunctionGroupResources {
 export interface NextjsFunctionsProps extends NextjsComputeBaseProps {
   readonly overrides?: NextjsFunctionsOverrides;
   /**
-   * The staged deployment roots, one per function group.
+   * The staged deployment roots, one per function group, `default` among them.
    * @see NextjsBuild.deploymentRoots
-   * @default - one root, from `deploymentRootPath`
    */
-  readonly deploymentRoots?: NextjsDeploymentRoot[];
+  readonly deploymentRoots: NextjsDeploymentRoot[];
+  /**
+   * The architecture `NextjsBuild` staged the deployment roots' native
+   * dependencies (`sharp`) for, which every function deploys.
+   * @see NextjsBuild.architecture
+   * @default - the architecture of the machine running synth, as `NextjsBuild`'s
+   */
+  readonly architecture?: Architecture;
   /**
    * Per-group configuration, keyed by name against {@link deploymentRoots}.
    * Routes come from the build rather than from here, since the adapter resolved
@@ -152,19 +159,7 @@ export class NextjsFunctions extends Construct {
     super(scope, id);
     this.props = props;
 
-    const roots = props.deploymentRoots ?? [
-      {
-        name: DEFAULT_FUNCTION_GROUP,
-        path: props.deploymentRootPath,
-        routes: [],
-        // Only a hand-built `NextjsFunctions` gets here, and its caller staged
-        // the root: assume it did so for the architecture it asks for.
-        architecture:
-          props.overrides?.functionProps?.architecture ??
-          getLambdaArchitecture(),
-      },
-    ];
-
+    const roots = props.deploymentRoots;
     this.functionGroups = roots.map((root) => {
       const group = props.functionGroups?.find((it) => it.name === root.name);
       // The default group keeps the unsuffixed construct id it has always had,
@@ -179,7 +174,6 @@ export class NextjsFunctions extends Construct {
       );
       let functionUrl: FunctionUrl | undefined;
       if (props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
-        fn.grantInvoke(new ServicePrincipal("cloudfront.amazonaws.com"));
         functionUrl = fn.addFunctionUrl({
           authType: FunctionUrlAuthType.AWS_IAM,
           invokeMode: InvokeMode.RESPONSE_STREAM,
@@ -213,23 +207,23 @@ export class NextjsFunctions extends Construct {
     root: NextjsDeploymentRoot,
     groupOverrides: NextjsFunctionsOverrides | undefined,
   ) {
-    const architecture = root.architecture;
+    const architecture = this.props.architecture ?? getLambdaArchitecture();
     const requested =
       groupOverrides?.functionProps?.architecture ??
       this.props.overrides?.functionProps?.architecture;
     if (requested && requested.name !== architecture.name) {
       // Ignoring it would deploy a function the user didn't ask for; honoring
       // it would deploy one that can't load the `sharp` binaries staged for
-      // the root. The root constructs pass the same value to both unless an
-      // override sets `NextjsBuild`'s own (`nextjsBuildProps.architecture` or
-      // its `functionGroups`), or `NextjsBuild` and `NextjsFunctions` are
-      // wired by hand.
+      // the root. The root constructs pass the same value to both unless
+      // `nextjsBuildProps.architecture` overrides `NextjsBuild`'s, a group's
+      // own override asks for another (one architecture per deployment), or
+      // `NextjsBuild` and `NextjsFunctions` are wired by hand.
       throw new Error(
         `${LOG_PREFIX} functionProps.architecture for function group "${root.name}" is ${requested.name}, ` +
           `but NextjsBuild staged its native dependencies (sharp) for ${architecture.name}. ` +
-          "Give NextjsBuild the same architecture: drop a conflicting `nextjsBuildProps.architecture` or " +
-          "`nextjsBuildProps.functionGroups` override, or, wiring the constructs yourself, pass it to " +
-          "NextjsBuild's `architecture` (or the group's).",
+          "Every function group deploys one architecture: set it construct-wide in " +
+          "`overrides.nextjsFunctions.functionProps`, drop a conflicting `nextjsBuildProps.architecture` " +
+          "override, or, wiring the constructs yourself, pass NextjsBuild's `architecture` to NextjsFunctions.",
       );
     }
     const functionProps: FunctionProps = {

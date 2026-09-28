@@ -1,6 +1,6 @@
 import { Writable } from "node:stream";
 import { gunzipSync } from "node:zlib";
-import { createIncomingMessage, ShimIncomingMessage } from "./request";
+import { ShimIncomingMessage } from "./request";
 import { ResponseHead, ShimServerResponse } from "./response";
 import { acceptsGzip, pipeToSink, ResponseSink } from "./sink";
 
@@ -30,7 +30,7 @@ function requestWith(
   headers: Record<string, string>,
   method = "GET",
 ): ShimIncomingMessage {
-  return createIncomingMessage({ method, url: "/", headers });
+  return new ShimIncomingMessage({ method, url: "/", headers });
 }
 
 interface PipeCase {
@@ -96,6 +96,13 @@ describe("pipeToSink compression", () => {
   it.each([
     ["an incompressible content type", { "content-type": "image/avif" }],
     ["an already-encoded body", { "content-encoding": "br" }],
+    [
+      "a response that opts out with no-transform",
+      {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache, no-transform",
+      },
+    ],
   ])("does not gzip %s", async (_name, headers) => {
     const sink = await run((res) => {
       for (const [name, value] of Object.entries(headers)) {

@@ -117,6 +117,7 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
       ecsCluster: this.props.ecsCluster,
       healthCheckPath: this.resolvedHealthCheckPath(this.props.healthCheckPath),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
+      relativeProjectDir: this.nextjsBuild.relativeProjectDir,
       overrides: {
         ...this.props.overrides?.nextjsContainers,
         ecsClusterProps: {

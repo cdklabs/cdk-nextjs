@@ -99,21 +99,28 @@ test.describe("revalidation", () => {
     const posts = [1, 2, 3];
     const initialTimestamps: Map<number, string> = new Map();
 
-    // Step 1: Visit all pages and record timestamps
+    // Step 1: Visit all pages and record settled timestamps. Settled, not the
+    // first thing served: the previous test's revalidation of the same tag may
+    // still be landing, and would otherwise pass this one on its own.
     for (const postId of posts) {
       await page.goto(`${ON_DEMAND}/${postId}`, { waitUntil: "networkidle" });
-      const timestamp = await getPageTimestamp(page);
-      if (timestamp) {
-        initialTimestamps.set(postId, timestamp);
-      }
+      const timestamp = await waitForSettledTimestamp(page, {
+        intervalMs: 1_000,
+      });
+      expect(timestamp).toBeTruthy();
+      initialTimestamps.set(postId, timestamp!);
       console.log(`Post ${postId} initial: ${timestamp}`);
     }
 
     // Step 2: Wait and call revalidation API
     await waitXSec(2);
     console.log("Revalidating 'on-demand' tag for all posts...");
-    await page.goto(`./api/revalidate?${BY_TAG}`, {
+    const revalidateResponse = await page.goto(`./api/revalidate?${BY_TAG}`, {
       waitUntil: "networkidle",
+    });
+    expect(revalidateResponse?.status()).toBe(200);
+    expect(await revalidateResponse?.json()).toMatchObject({
+      revalidated: true,
     });
 
     // Step 3: Check all pages were revalidated. Poll until fresh, since

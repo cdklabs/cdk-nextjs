@@ -42,22 +42,11 @@ describe("NextjsFunctions overrides", () => {
       buildId: "build",
       buildDirectory: dir,
       nextjsType: NextjsType.REGIONAL_FUNCTIONS,
-      deploymentRootPath: join(dir, "default"),
-      relativeProjectDir: "",
       deploymentRoots: [
-        {
-          name: "default",
-          path: join(dir, "default"),
-          routes: [],
-          architecture: staged,
-        },
-        {
-          name: "reports",
-          path: join(dir, "reports"),
-          routes: ["/reports"],
-          architecture: staged,
-        },
+        { name: "default", path: join(dir, "default"), routes: [] },
+        { name: "reports", path: join(dir, "reports"), routes: ["/reports"] },
       ],
+      architecture: staged,
       functionGroups: [
         { name: "reports", routes: ["/reports"], overrides: groupOverrides },
       ],
@@ -109,7 +98,7 @@ describe("NextjsFunctions overrides", () => {
   });
 
   describe("architecture", () => {
-    it("deploys what the root was staged for, whatever this machine is", () => {
+    it("deploys what the roots were staged for, whatever this machine is", () => {
       expect(synth({}).default.Architectures).toEqual(["x86_64"]);
       const arm = synth({}, undefined, Architecture.ARM_64);
       expect(arm.default.Architectures).toEqual(["arm64"]);
@@ -126,7 +115,8 @@ describe("NextjsFunctions overrides", () => {
     });
 
     // Silently deploying the staged architecture instead of the one asked for
-    // is how this used to fail.
+    // is how this used to fail. A group can't ask for its own either: one
+    // architecture per deployment.
     it("throws on an override the staged binaries can't run on", () => {
       expect(() =>
         synth({ functionProps: { architecture: Architecture.ARM_64 } }),

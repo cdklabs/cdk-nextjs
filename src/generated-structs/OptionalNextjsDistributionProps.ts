@@ -13,19 +13,19 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly trailingSlash?: boolean;
   /**
-   * The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required with {@link functionGroups} when {@link hasDataRoutes} is set.
+   * The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs — `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data routes are matched on it literally, because a `*` in its place also matches `/` and would claim other groups' data URLs. Required when a function group sets `hasDataRoutes`.
    * @default - none; only needed for a split Pages Router app
    * @stability stable
    */
   readonly nextBuildId?: string;
   /**
    * The most cache behaviors the distribution may have, the default one included.
-   * cdk-nextjs counts what it adds (plus whatever a supplied
-   * {@link distribution} already has) against this at synth, so running out
-   * is a synth error naming what used them rather than a failed deploy.
+   * cdk-nextjs counts what it adds against this at synth, so running
+   * out is a synth error naming what used them rather than a failed deploy.
    *
    * Raise it after raising the "Cache behaviors per distribution" quota for
-   * your account.
+   * your account. Lower it by the behaviors a supplied {@link distribution}
+   * (or `overrides.distributionProps`) already has, which are not counted.
    * @default 75 - CloudFront's default quota
    * @stability stable
    */
@@ -35,13 +35,6 @@ export interface OptionalNextjsDistributionProps {
    * @stability stable
    */
   readonly loadBalancer?: aws_elasticloadbalancingv2.IApplicationLoadBalancer;
-  /**
-   * Whether the app has Pages Router routes, and therefore a `/_next/data/<buildId>/…json` URL space that has to be routed alongside the HTML one.
-   * Ignored without {@link functionGroups}.
-   * @default false
-   * @stability stable
-   */
-  readonly hasDataRoutes?: boolean;
   /**
    * Required if `NextjsType.GLOBAL_FUNCTIONS`.
    * @stability stable

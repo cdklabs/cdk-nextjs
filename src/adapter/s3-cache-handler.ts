@@ -35,25 +35,21 @@ import {
   AwsCacheConfig,
   buildS3Key,
   CacheBucket,
-  markerFor,
   markerState,
   markerClock,
-  mergeMarkers,
   resolveAwsCacheConfig,
   RevalidateDurations,
-  RevalidationLog,
   RevalidationState,
-  TagMarker,
-  TagMarkerTable,
-  tagMarkerTtl,
-  TrackedTagMarkers,
 } from "./aws-cache-store";
 import {
   serializeCacheValue,
   parseCacheValue,
   getTags,
-  NEXT_CACHE_TAGS_HEADER,
+  headerTags,
+  INIT_CACHE_TAG_MANIFEST,
 } from "./cache-utils";
+import { sharedTagManifest, UseCacheTagManifest } from "./use-cache-common";
+import { basePathPrefix } from "../utils/base-path";
 
 /**
  * The tags a stored entry has to be tag-revalidated against.
@@ -68,27 +64,8 @@ import {
  * app whose pages are all static never revalidates at all. Measured against
  * next.js's `test/e2e/app-dir/resume-data-cache`.
  */
-function entryTags(stored: {
-  tags?: string[];
-  /**
-   * The cache value, in whatever shape it arrives: a stored entry read back from
-   * S3 on the way in, and the `IncrementalCacheValue` union on the way out. Only
-   * the `headers` some of its members carry is read, so `unknown` and one narrow
-   * is less noise than spelling that union out twice.
-   */
-  value?: unknown;
-}): string[] {
-  if (stored.tags?.length) {
-    return stored.tags;
-  }
-  const headers = (stored.value as { headers?: unknown } | undefined)?.headers;
-  const header = (headers as Record<string, unknown> | undefined)?.[
-    NEXT_CACHE_TAGS_HEADER
-  ];
-  if (typeof header !== "string" || header === "") {
-    return [];
-  }
-  return header.split(",").filter(Boolean);
+function entryTags(stored: { tags?: string[]; value?: unknown }): string[] {
+  return stored.tags?.length ? stored.tags : headerTags(stored.value);
 }
 
 /**
@@ -131,7 +108,7 @@ function isFetchCacheGet(
   return isFetchCacheKind(ctx.kind);
 }
 
-/** `NEXT_CACHE_IMPLICIT_TAG_ID`, inlined like {@link NEXT_CACHE_TAGS_HEADER}. */
+/** `NEXT_CACHE_IMPLICIT_TAG_ID`, inlined so this file imports no Next.js internals. */
 const NEXT_CACHE_IMPLICIT_TAG_ID = "_N_T_";
 
 /**
@@ -174,18 +151,6 @@ function implicitTagPaths(tag: string): string[] {
   // A dynamic route template ("/blog/[slug]") matches no cached URI. Harmless to
   // send, but it costs an invalidation path, and those are metered.
   return Array.from(new Set(candidates)).filter((p) => !p.includes("["));
-}
-
-/**
- * The app's `basePath` as the URI prefix CloudFront caches under (`/base`), or
- * `""` when it sets none.
- *
- * Accepts the bare segment the constructs pass (`base`) as well as `/base/`, so
- * the runtime doesn't depend on which spelling reached the environment.
- */
-function normalizeBasePathPrefix(raw?: string): string {
-  const trimmed = (raw || "").replace(/^\/+/, "").replace(/\/+$/, "");
-  return trimmed ? `/${trimmed}` : "";
 }
 
 /**
@@ -379,31 +344,24 @@ function nextTagsManifest():
 
 type S3CacheConfig = Pick<AwsCacheConfig, "bucketName" | "region" | "buildId">;
 
-interface DynamoDBRevalidationConfig extends Pick<
+type DynamoDBRevalidationConfig = Pick<
   AwsCacheConfig,
   "tableName" | "region" | "buildId"
-> {
-  /**
-   * How often, at most, this instance catches up on other instances'
-   * revalidations from the revalidation log: the staleness window for a
-   * `revalidateTag` run elsewhere. `0` reads the markers on every check
-   * instead. From `CDK_NEXTJS_TAG_MARKER_TTL_MS`.
-   * @see TrackedTagMarkers
-   */
-  markerTtlMs: number;
-}
+>;
 
 interface CloudFrontInvalidationConfig {
   /**
-   * Name (not value) of the SSM Parameter holding the distribution ID.
+   * The distribution ID, when the compute's environment can carry it
+   * (`NextjsGlobalContainers`).
+   */
+  distributionId: string;
+  /**
+   * Otherwise, the name (not value) of the SSM Parameter holding it.
    *
-   * The distribution ID itself can't be passed as a plain env var: CDK
-   * constructs the Lambda/Fargate task before the distribution exists (the
-   * distribution's origin references the compute's function URL/ALB), so
-   * embedding the distribution's physical ID directly in the compute's
-   * environment or IAM policy would create a circular CloudFormation
-   * dependency. The parameter *name* is static and known at synth time, so
-   * it can be safely embedded; only its *value* depends on the distribution.
+   * On `NextjsGlobalFunctions` the distribution's origin is the function's
+   * URL, so the function's environment naming the distribution back would be
+   * a circular CloudFormation dependency. The parameter *name* is static and
+   * known at synth time; only its *value* depends on the distribution.
    */
   distributionIdParameterName: string;
   region: string;
@@ -428,10 +386,7 @@ export class S3CacheHandler implements CacheHandler {
   private cloudFrontClient: CloudFrontClient;
   private ssmClient: SSMClient;
   private bucket: CacheBucket;
-  private tagMarkers: TagMarkerTable;
-  private revalidationLog: RevalidationLog;
-  /** The markers this instance tracks, or `undefined` to read on every check. */
-  private trackedMarkers: TrackedTagMarkers | undefined;
+  private tags: UseCacheTagManifest;
   private s3Config: S3CacheConfig;
   private dynamoConfig: DynamoDBRevalidationConfig;
   private cloudFrontConfig: CloudFrontInvalidationConfig;
@@ -459,6 +414,9 @@ export class S3CacheHandler implements CacheHandler {
    */
   private softRevalidatedKeys = new Set<string>();
 
+  /** @see buildTagManifest */
+  private buildTags: Promise<Map<string, string[]>> | undefined;
+
   constructor(options: S3CacheHandlerOptions) {
     // Initialize S3 configuration from environment variables and options
     const { bucketName, region, buildId } = resolveAwsCacheConfig(
@@ -472,9 +430,6 @@ export class S3CacheHandler implements CacheHandler {
       tableName: dynamo.tableName,
       region: dynamo.region,
       buildId: dynamo.buildId,
-      markerTtlMs:
-        options.dynamoConfig?.markerTtlMs ??
-        tagMarkerTtl(process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS),
     };
 
     // Initialize CloudFront configuration from environment variables and options.
@@ -483,6 +438,10 @@ export class S3CacheHandler implements CacheHandler {
     // distribution's cache policy TTL (driven by the origin's Cache-Control header)
     // to eventually pick up fresh content.
     this.cloudFrontConfig = {
+      distributionId:
+        options.cloudFrontConfig?.distributionId ||
+        process.env.CDK_NEXTJS_DISTRIBUTION_ID ||
+        "",
       distributionIdParameterName:
         options.cloudFrontConfig?.distributionIdParameterName ||
         process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME ||
@@ -491,7 +450,7 @@ export class S3CacheHandler implements CacheHandler {
         options.cloudFrontConfig?.region ||
         process.env.AWS_REGION ||
         "us-east-1",
-      basePath: normalizeBasePathPrefix(
+      basePath: basePathPrefix(
         options.cloudFrontConfig?.basePath || process.env.CDK_NEXTJS_BASE_PATH,
       ),
     };
@@ -506,33 +465,18 @@ export class S3CacheHandler implements CacheHandler {
     });
     this.ssmClient = new SSMClient({ region: this.cloudFrontConfig.region });
     this.bucket = new CacheBucket(this.s3Client, this.s3Config.bucketName);
-    this.tagMarkers = new TagMarkerTable(
-      this.dynamoClient,
-      this.dynamoConfig.tableName,
-      this.dynamoConfig.buildId,
-    );
-    this.revalidationLog = new RevalidationLog(
-      this.dynamoClient,
-      this.dynamoConfig.tableName,
-      this.dynamoConfig.buildId,
-    );
-    this.trackedMarkers =
-      this.dynamoConfig.markerTtlMs > 0
-        ? new TrackedTagMarkers({
-            markers: this.tagMarkers,
-            log: this.revalidationLog,
-            refreshIntervalMs: this.dynamoConfig.markerTtlMs,
-            debug: getDebug("cdk-nextjs:cache-handler:s3:tags"),
-            label: "tag",
-          })
-        : undefined;
+    // The process's one copy of the tag markers, shared with the `'use cache'`
+    // handlers: one `revalidateTag` writes each tag's rows once, and one log
+    // `Query` per interval serves every handler. From the environment, like
+    // the rest of this configuration, whatever `dynamoConfig` says.
+    this.tags = sharedTagManifest();
 
     // `res.revalidate()` regenerates a page without going through
     // `revalidateTag`, so the runtime asks for the CDN copies itself, through
     // this hook (`invalidateRevalidatedPage` in `src/runtime/core.ts`). A global
     // because the runtime and this handler are separate bundles in one process.
     // Every instance registers the same thing, so the latest one winning is fine.
-    if (this.cloudFrontConfig.distributionIdParameterName) {
+    if (this.invalidatesCdn) {
       (globalThis as Record<symbol, unknown>)[REVALIDATED_PAGE_HOOK] = (
         routes: readonly string[],
       ): Promise<void> => {
@@ -701,7 +645,7 @@ export class S3CacheHandler implements CacheHandler {
    * {@link softRevalidatedKeys}.
    */
   private noteSoftRevalidated(cacheKey: string): void {
-    if (!this.cloudFrontConfig.distributionIdParameterName) {
+    if (!this.invalidatesCdn) {
       return;
     }
     this.softRevalidatedKeys.delete(cacheKey);
@@ -763,7 +707,7 @@ export class S3CacheHandler implements CacheHandler {
       // forwards it unchanged — so the tags live in the render's
       // `x-next-cache-tags` header and nowhere else. Reading only `ctx` meant no
       // runtime-rendered page ever got a mapping row, and a page that is not in
-      // the build manifest has none from `seedTagMappings` either: a later
+      // the build's tag manifest names none either: a later
       // `revalidateTag` found nothing to invalidate and CloudFront kept serving
       // the stale HTML and RSC payload for the whole `s-maxage`. Same source the
       // read path above already falls back to.
@@ -839,20 +783,37 @@ export class S3CacheHandler implements CacheHandler {
       return;
     }
 
-    // Settled rather than `all`: one tag's throttled write must not drop the
+    // Record the revalidation against each tag itself, not only against the
+    // cache keys already mapped to it: `checkIfRevalidated` reads these marker
+    // rows, and a build-time prerender has no mapping rows at all.
+    const recorded = await this.tags.update(tags, durations);
+
+    if (!this.mapsTagsToPaths) {
+      return;
+    }
+
+    const { basePath } = this.cloudFrontConfig;
+    if (!recorded) {
+      // Other instances may never learn of this revalidation, so no path list
+      // is enough: drop the whole app from CloudFront rather than serve stale
+      // pages until their TTL.
+      await this.invalidateCloudFrontPaths(wholeAppInvalidationPaths(basePath));
+      return;
+    }
+
+    // Settled rather than `all`: one tag's throttled Query must not drop the
     // CloudFront paths every other tag resolved.
     const results = await Promise.allSettled(
-      tags.map((t) => this.revalidateSingleTag(t, durations)),
+      tags.map((t) => this.tagRoutes(t)),
     );
     const routes: string[] = [];
     let wholeApp = false;
     for (const result of results) {
       if (result.status === "rejected") {
-        console.error("Error updating revalidation metadata:", result.reason);
-        // Its marker row may already be written - the Query after it is what
-        // failed - so the tag's entries can be revalidated at the origin while
-        // nothing names their CloudFront paths. The same answer as a tag cut
-        // short by `MAX_TAG_QUERY_PAGES`: the whole app, never a stale page.
+        console.error("Error reading tag mappings:", result.reason);
+        // The tag's entries are revalidated at the origin while nothing names
+        // their CloudFront paths. The same answer as a tag cut short by
+        // `MAX_TAG_QUERY_PAGES`: the whole app, never a stale page.
         wholeApp = true;
         continue;
       }
@@ -864,37 +825,25 @@ export class S3CacheHandler implements CacheHandler {
     // keep serving stale responses until the cache policy's TTL naturally
     // expires. One request for every tag at once: see
     // `MAX_WILDCARD_PATHS_PER_INVALIDATION` for why never several.
-    if (this.cloudFrontConfig.distributionIdParameterName) {
-      const { basePath } = this.cloudFrontConfig;
-      await this.invalidateCloudFrontPaths(
-        wholeApp
-          ? wholeAppInvalidationPaths(basePath)
-          : routes.flatMap((route) => cdnInvalidationPaths(route, basePath)),
-      );
-    }
+    await this.invalidateCloudFrontPaths(
+      wholeApp
+        ? wholeAppInvalidationPaths(basePath)
+        : routes.flatMap((route) => cdnInvalidationPaths(route, basePath)),
+    );
   }
 
   /**
-   * Record `tag`'s revalidation, and return the routes CloudFront could be
-   * holding a response for it under - `truncated` when there were more than
-   * {@link MAX_TAG_QUERY_PAGES} could name.
+   * The routes CloudFront could be holding a response for `tag` under -
+   * `truncated` when they could not all be named: more mapping rows than
+   * {@link MAX_TAG_QUERY_PAGES}, or no build tag manifest to read.
    */
-  private async revalidateSingleTag(
+  private async tagRoutes(
     tag: string,
-    durations: RevalidateDurations | undefined,
   ): Promise<{ routes: string[]; truncated: boolean }> {
-    // Record the revalidation against the tag itself, not only against the cache
-    // keys already mapped to it. The mapping rows only exist for entries some
-    // runtime `set` wrote; a build-time prerender has none, so without this
-    // marker `revalidateTag` would have nothing to act on for a static page.
-    // See `checkIfRevalidated`, which reads it.
-    await this.recordRevalidation(tag, durations);
-
-    if (!this.mapsTagsToPaths) {
-      return { routes: [], truncated: false };
-    }
-
-    const { items, truncated } = await this.queryTagMappings(tag);
+    const [{ items, truncated }, buildTags] = await Promise.all([
+      this.queryTagMappings(tag),
+      this.buildTagManifest(),
+    ]);
     // Extract S3 keys from sort keys (format: "tag#s3Key"). Split at the tag's
     // own length rather than at the first "#": a tag is app-defined and may
     // contain one, and `revalidateTag("user#42")` then yielded
@@ -916,6 +865,11 @@ export class S3CacheHandler implements CacheHandler {
       .filter((s3Key): s3Key is string =>
         Boolean(s3Key && s3Key.startsWith(keyPrefix)),
       );
+    // The build-time prerenders carrying the tag, which no `set` wrote a row
+    // for.
+    for (const cacheKey of buildTags?.get(tag) ?? []) {
+      s3Keys.push(this.buildS3Key(cacheKey));
+    }
 
     this.debug(
       `TAG ${tag}: Found ${s3Keys.length} cache entries to invalidate`,
@@ -945,7 +899,28 @@ export class S3CacheHandler implements CacheHandler {
     // way to reach a build-time prerender's CDN copy when it has no mapping
     // row.
     routes.push(...implicitTagPaths(tag));
-    return { routes, truncated };
+    return { routes, truncated: truncated || !buildTags };
+  }
+
+  /**
+   * The build-time prerenders' cache keys by tag ({@link INIT_CACHE_TAG_MANIFEST}),
+   * read from the cache bucket once per instance, or `undefined` when that
+   * failed, to be read again next time. A prerender is written by the adapter,
+   * never through `set`, so this is the only record of which tags name its
+   * CloudFront paths, and it is served with a year-long `s-maxage`.
+   */
+  private buildTagManifest(): Promise<Map<string, string[]> | undefined> {
+    this.buildTags ??= this.bucket
+      .get(`${this.s3Config.buildId}/${INIT_CACHE_TAG_MANIFEST}`)
+      // None is normal: only tagged prerenders write one.
+      .then(
+        (object) => new Map(Object.entries(JSON.parse(object?.body ?? "{}"))),
+      );
+    return this.buildTags.catch((error) => {
+      this.buildTags = undefined;
+      console.warn("Could not read the build's tag manifest:", error);
+      return undefined;
+    });
   }
 
   /**
@@ -953,8 +928,8 @@ export class S3CacheHandler implements CacheHandler {
    * {@link MAX_TAG_QUERY_PAGES} cut the walk short.
    *
    * DynamoDB caps a Query at 1 MB of items regardless of how many match, and
-   * there is one row per tagged entry — a build-time seed writes one for every
-   * tagged prerender, so a large site passes 1 MB on a common tag. Stopping at the
+   * there is one row per tagged entry a runtime `set` wrote, so a large site
+   * passes 1 MB on a common tag. Stopping at the
    * first page invalidates only that page's entries while still reporting
    * success, which is indistinguishable from revalidation having worked.
    */
@@ -1093,11 +1068,14 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
-   * Resolves the distribution's physical ID via SSM Parameter Store, caching
-   * it for the lifetime of this instance. See `CloudFrontInvalidationConfig`
-   * for why this indirection (rather than a plain env var) is necessary.
+   * The distribution's physical ID, from the environment or else SSM Parameter
+   * Store, cached for the lifetime of this instance. See
+   * `CloudFrontInvalidationConfig` for why Functions need the indirection.
    */
   private async getDistributionId(): Promise<string | null> {
+    if (this.cloudFrontConfig.distributionId) {
+      return this.cloudFrontConfig.distributionId;
+    }
     if (this.cachedDistributionId) {
       return this.cachedDistributionId;
     }
@@ -1131,8 +1109,13 @@ export class S3CacheHandler implements CacheHandler {
    * extra S3 read before every delete, for rows nothing ever reads.
    */
   private get mapsTagsToPaths(): boolean {
+    return Boolean(this.dynamoConfig.tableName) && this.invalidatesCdn;
+  }
+
+  /** Whether there is a distribution to invalidate. */
+  private get invalidatesCdn(): boolean {
     return Boolean(
-      this.dynamoConfig.tableName &&
+      this.cloudFrontConfig.distributionId ||
       this.cloudFrontConfig.distributionIdParameterName,
     );
   }
@@ -1193,7 +1176,7 @@ export class S3CacheHandler implements CacheHandler {
    * enough of them push live entries onto a page
    * {@link MAX_TAG_QUERY_PAGES} may not reach.
    *
-   * Only the mapping rows: the bare-`tag` marker row `revalidateSingleTag`
+   * Only the mapping rows: the bare-`tag` marker row `revalidateTag`
    * writes belongs to the tag rather than to any entry, and `checkIfRevalidated`
    * reads it for every *other* entry carrying that tag.
    *
@@ -1270,69 +1253,10 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
-   * Write `tag`'s marker row and its revalidation log row, and track the marker
-   * as written: this instance sees its own `revalidateTag` at once, other
-   * instances within {@link DynamoDBRevalidationConfig.markerTtlMs}.
-   *
-   * The `'use cache'` handlers' manifest writes a log row for the same call
-   * too, when they are registered. Two rows for one revalidation cost a write
-   * each and are applied alike; relying on the other writer would miss every
-   * revalidation of an app that registers its own `cacheHandlers`.
-   */
-  private async recordRevalidation(
-    tag: string,
-    durations: RevalidateDurations | undefined,
-  ): Promise<void> {
-    // The marker on the clock the `'use cache'` handlers stamp the same rows
-    // with; the log row's sort key on the wall clock (see `RevalidationLog`).
-    const at = markerClock();
-    const [row] = await Promise.all([
-      this.tagMarkers.write(tag, at, durations),
-      // Not the revalidation failing: the marker row is the source of truth,
-      // and every instance re-reads it within `DEFAULT_TAG_RESYNC_MS`.
-      this.revalidationLog
-        .put(tag, Date.now(), markerFor(at, durations))
-        .catch((error) =>
-          console.error("Error writing tag revalidation log row:", error),
-        ),
-    ]);
-    const tracked = this.trackedMarkers;
-    if (tracked) {
-      tracked.set(
-        tag,
-        mergeMarkers(tracked.get(tag), row ?? markerFor(at, durations)),
-      );
-    }
-  }
-
-  /**
-   * The markers of `tags` that are set, by tag: this instance's tracked copy,
-   * caught up from the revalidation log at most once per `markerTtlMs`, or
-   * straight from the table on every check when that is `0`.
-   */
-  private async readTagMarkers(
-    tags: string[],
-  ): Promise<Map<string, TagMarker>> {
-    const tracked = this.trackedMarkers;
-    if (!tracked) {
-      return this.tagMarkers.read(tags);
-    }
-    await tracked.refresh();
-    await tracked.ensure(tags);
-    const markers = new Map<string, TagMarker>();
-    for (const tag of tags) {
-      const marker = tracked.get(tag);
-      if (marker) {
-        markers.set(tag, marker);
-      }
-    }
-    return markers;
-  }
-
-  /**
    * Whether any of `tags` was revalidated after this entry was stored, and how.
    *
-   * Reads the per-tag marker rows `revalidateSingleTag` writes, by primary key.
+   * Reads the per-tag marker rows `revalidateTag` writes, as this instance
+   * tracks them: see `TrackedTagMarkers` for when they are read.
    * Scanning the tag's mapping rows instead would answer the wrong question:
    * those rows exist per cache *key*, so which one a `Limit: 1` query returned
    * depended on sort order, and an entry could be judged against another
@@ -1350,11 +1274,16 @@ export class S3CacheHandler implements CacheHandler {
     tags: string[],
   ): Promise<RevalidationState> {
     try {
-      const markers = await this.readTagMarkers(tags);
+      await this.tags.refresh();
+      await this.tags.ensure(tags);
       const at = markerClock();
       const staleTags: [string, number][] = [];
 
-      for (const [tag, marker] of markers) {
+      for (const tag of new Set(tags)) {
+        const marker = this.tags.get(tag);
+        if (!marker) {
+          continue;
+        }
         const state = markerState(marker, cacheLastModified, at);
         if (state === "expired") {
           this.debug(

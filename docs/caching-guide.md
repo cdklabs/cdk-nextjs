@@ -345,6 +345,8 @@ PK: "METADATA"            SK: "CURRENT_BUILD"                               buil
   storage.
 - **Mapping rows name CloudFront paths**: `revalidateTag` queries
   `begins_with(sk, "{tag}#")` for the S3 keys, and so the paths, to invalidate.
+  Runtime `set`s write them; build-time prerenders are named by the build's
+  tag manifest in the cache bucket instead.
 - **Efficient pruning**: the post-deploy step queries the previous build's
   partition and deletes it. Log rows expire through TTL instead.
 
@@ -448,7 +450,7 @@ When `revalidateTag("user-profile")` is called:
 
 1. **Write the marker**: Set `revalidatedAt` (or `staleAt`/`expiredAt` for a profile) on the tag's marker row, `pk = {buildId}, sk = user-profile`
 2. **Log it**: Put a revalidation log row, `pk = {buildId}#log, sk = {epoch ms}#user-profile`, for other instances to find
-3. **Find the pages** (Global constructs only): Query the mapping rows, `pk = {buildId} and begins_with(sk, "user-profile#")`, for the S3 keys, and so the paths, the tag appears on
+3. **Find the pages** (Global constructs only): Query the mapping rows, `pk = {buildId} and begins_with(sk, "user-profile#")`, for the S3 keys, and so the paths, the tag appears on, plus the build-time prerenders the build's tag manifest (`{buildId}/_cdk-nextjs-tag-manifest.json` in the cache bucket, read once per instance) lists for it
 4. **Invalidate CloudFront** (`NextjsGlobalFunctions`/`NextjsGlobalContainers` only): Evict the corresponding paths from the CDN edge cache too, so the origin's now-fresh state isn't masked by a still-cached edge response. This is best-effort and asynchronous (`cloudfront:CreateInvalidation` has no bounded completion SLA), so a client may briefly still observe stale content immediately after revalidation.
 
 No S3 object is deleted: the next `get()` of an entry the tag is on compares the marker with the entry's `lastModified` and treats it as revalidated, and the refetch or re-render that follows overwrites it.
@@ -460,7 +462,7 @@ No S3 object is deleted: the next `get()` of an entry the tag is on compares the
 3. **Compare Timestamps**: If any `revalidatedAt` (or a past `expiredAt`) > the entry's `lastModified`, it is expired; a later `staleAt` alone makes it stale, served while it regenerates
 4. **Fresh Data**: The refetch or re-render writes a new entry over the old one
 
-**Marker reads are kept per instance, and caught up from a log.** Every cache hit checks its tags, in-memory hits included, and every marker of a deployment shares one partition key. So each instance reads a tag's marker the first time it needs it and keeps it. Once a second it sends one `Query` to the revalidation log (`pk = <buildId>#log`, one row per revalidated tag, expiring after 15 minutes) for what other instances revalidated since, instead of re-reading its tags. Concurrent checks share that query. It still re-reads each marker it keeps every 7.5 to 10 minutes (a random point per tag, so tags first read together don't come due together), since the marker rows are the source of truth, but at most 100 per second rather than all at once. An instance keeps up to 10,000 tags. The instance that calls `revalidateTag` sees it immediately; other instances see it up to 1 s later, which is within what CloudFront's invalidation already takes. Set `CDK_NEXTJS_TAG_MARKER_TTL_MS` on the functions or tasks (through `overrides`) to change the interval, or to `0` to read the markers from DynamoDB on every check.
+**Marker reads are kept per instance, and caught up from a log.** Every cache hit checks its tags, in-memory hits included, and every marker of a deployment shares one partition key. So each instance reads a tag's marker the first time it needs it and keeps it. Once a second it sends one `Query` to the revalidation log (`pk = <buildId>#log`, one row per revalidated tag, expiring after 15 minutes) for what other instances revalidated since, instead of re-reading its tags. Concurrent checks share that query. It still re-reads each marker it keeps every 7.5 to 10 minutes (a random point per tag, so tags first read together don't come due together), since the marker rows are the source of truth, but at most 100 per second rather than all at once. An instance keeps up to 10,000 tags. The instance that calls `revalidateTag` sees it immediately; other instances see it up to 1 s later, which is within what CloudFront's invalidation already takes. ISR, the data cache and `'use cache'` share one copy of the markers per instance, and so one query. Set `CDK_NEXTJS_TAG_REFRESH_MS` on the functions or tasks (through `overrides`) to change the interval, or to `0` to query the log on every check.
 
 ### Time-based Revalidation
 
@@ -507,7 +509,7 @@ until that runs out (with `{ expire: 0 }`, at once). Route handlers can use
 ### DynamoDB Revalidation
 
 - **Query Latency**: ~1-5ms (single partition key lookup)
-- **Revalidation Check**: One `BatchGetItem` for tags an instance hasn't seen yet, then one revalidation log `Query` per second per instance, however many tags it keeps (`CDK_NEXTJS_TAG_MARKER_TTL_MS`)
+- **Revalidation Check**: One `BatchGetItem` for tags an instance hasn't seen yet, then one revalidation log `Query` per second per instance, however many tags it keeps (`CDK_NEXTJS_TAG_REFRESH_MS`)
 - **Scalability**: Handles millions of cache entries
 - **Cost**: Minimal - only pays for actual reads/writes
 - **Consistency**: Eventually consistent (sufficient for cache invalidation)
@@ -533,7 +535,7 @@ until that runs out (with `{ expire: 0 }`, at once). Route handlers can use
 1. Verify tags are set correctly in fetch requests
 2. Check the tag's marker row in DynamoDB (`pk = {buildId}, sk = {tag}`) and its log rows (`pk = {buildId}#log`)
 3. Ensure revalidateTag() calls are working
-4. On the Global constructs, check the tag's mapping rows (`sk` beginning `{tag}#`), which name the CloudFront paths to invalidate
+4. On the Global constructs, check the tag's mapping rows (`sk` beginning `{tag}#`) and the build's tag manifest (`{buildId}/_cdk-nextjs-tag-manifest.json`), which name the CloudFront paths to invalidate
 5. With `DEBUG=cdk-nextjs:*`, check CloudWatch logs for "CACHE INVALIDATED BY TAG" messages
 6. Compare the marker's timestamps with the entry's `lastModified`
 

@@ -25,7 +25,7 @@ import {
   BuildCompleteContext,
   buildAdapterManifest,
 } from "../adapter/build-outputs";
-import { createIncomingMessage } from "./http/request";
+import { ShimIncomingMessage } from "./http/request";
 import { ResponseHead } from "./http/response";
 import { ResponseSink } from "./http/sink";
 import {
@@ -661,7 +661,7 @@ describe("NextjsRuntime.handle", () => {
           options: {
             fetchInternal: (
               href: string,
-              req: ReturnType<typeof createIncomingMessage>,
+              req: ShimIncomingMessage,
             ) => Promise<{
               statusCode: number;
               headers: Record<string, unknown>;
@@ -671,7 +671,7 @@ describe("NextjsRuntime.handle", () => {
         };
       }
     ).images;
-    const viewer = createIncomingMessage({
+    const viewer = new ShimIncomingMessage({
       method: "GET",
       url: "/_next/image?url=%2Fapi%2Fhealth%3Favatar%3D42&w=64&q=75",
       headers: { host: "shop.example.test", cookie: "session=secret" },
@@ -756,7 +756,7 @@ exports.handler = async () =>
       sink,
     );
     // `resolveRoutes` only reports that middleware responded; the body comes
-    // back through the runner's `onResponse` callback.
+    // back from the invoker, on the `middleware-responded` result.
     expect(sink.head?.statusCode).toBe(401);
     expect(sink.head?.statusMessage).toBe("Unauthorized");
     expect(sink.head?.cookies).toEqual([
@@ -974,8 +974,10 @@ describe("a Pages API route", () => {
 
 describe("res.revalidate() across functionGroups", () => {
   it("says which group owns a page it cannot render", async () => {
-    const grouped = await loadRuntime(
-      stageDeployment(MIDDLEWARE_STUB, (manifest) => ({
+    let missing = "";
+    const staged = stageDeployment(MIDDLEWARE_STUB, (manifest) => {
+      missing = manifest.entrypoints["/isr/[id]"].filePath;
+      return {
         ...manifest,
         groups: {
           default: Object.keys(manifest.entrypoints).filter(
@@ -983,25 +985,31 @@ describe("res.revalidate() across functionGroups", () => {
           ),
           blog: ["/isr/[id]"],
         },
-      })),
-    );
+      };
+    });
+    rmSync(join(staged, missing));
+    const grouped = await loadRuntime(staged);
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     process.env.CDK_NEXTJS_FUNCTION_GROUP = "default";
     try {
       const sink = new CollectingSink();
       await grouped.handle(
         {
           method: "GET",
-          url: "/?revalidate=%2Fisr%2F1%3Fstatus%3D500",
+          url: "/?revalidate=%2Fisr%2F1",
           headers: { host: "shop.example.test" },
         },
         sink,
       );
       const { error } = JSON.parse(sink.body.toString("utf-8"));
-      expect(error).toMatch(/^Invalid response 500: /);
+      expect(error).toMatch(/^Invalid response 404: /);
       expect(error).toContain('group "blog"');
       expect(error).toContain('("default")');
+      // The error explains it; the misrouted-request warning would not.
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       delete process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      warn.mockRestore();
     }
   });
 });
@@ -1632,7 +1640,7 @@ describe("a route packaged into another functionGroups group", () => {
       ).fetchInternal.bind(grouped);
       const response = await fetchInternal(
         "/isr/1",
-        createIncomingMessage({
+        new ShimIncomingMessage({
           method: "GET",
           url: "/_next/image?url=%2Fisr%2F1&w=64&q=75",
           headers: { host: "shop.example.test" },
@@ -1669,25 +1677,6 @@ describe("a route packaged into another functionGroups group", () => {
     } finally {
       delete process.env.CDK_NEXTJS_FUNCTION_GROUP;
       warn.mockRestore();
-    }
-  });
-});
-
-describe("CDK_NEXTJS_IMAGE_CACHE", () => {
-  const imageCacheOf = (loaded: NextjsRuntime): unknown =>
-    (loaded as unknown as { images: { options: { cache?: boolean } } }).images
-      .options.cache;
-
-  it("leaves the image cache on by default", async () => {
-    expect(imageCacheOf(await loadRuntime(root))).toBe(true);
-  });
-
-  it("turns it off for 0", async () => {
-    process.env.CDK_NEXTJS_IMAGE_CACHE = "0";
-    try {
-      expect(imageCacheOf(await loadRuntime(root))).toBe(false);
-    } finally {
-      delete process.env.CDK_NEXTJS_IMAGE_CACHE;
     }
   });
 });

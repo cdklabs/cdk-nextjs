@@ -144,12 +144,6 @@ export class ShimIncomingMessage extends IncomingMessage {
   }
 }
 
-export function createIncomingMessage(
-  init: IncomingMessageInit,
-): ShimIncomingMessage {
-  return new ShimIncomingMessage(init);
-}
-
 /** Lowercases and flattens a `Headers` into `IncomingHttpHeaders`. */
 export function toIncomingHttpHeaders(headers: Headers): IncomingHttpHeaders {
   const result: IncomingHttpHeaders = {};

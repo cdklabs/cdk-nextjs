@@ -1,10 +1,9 @@
 /*
-  In-memory cache handler with tag management
+  In-memory cache handler
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
 import {
-  CacheHandler,
   CacheHandlerValue,
   CacheHandlerContext,
 } from "next/dist/server/lib/incremental-cache";
@@ -12,23 +11,24 @@ import {
   IncrementalCacheValue,
   GetIncrementalFetchCacheContext,
   GetIncrementalResponseCacheContext,
-  SetIncrementalResponseCacheContext,
-  SetIncrementalFetchCacheContext,
 } from "next/dist/server/response-cache";
 import { markerClock } from "./aws-cache-store";
-import { getTags } from "./cache-utils";
 
 interface MemoryCacheEntry {
   value: CacheHandlerValue;
   expiresAt: number; // Timestamp in milliseconds
-  tags: string[];
 }
 
 export interface MemoryCacheHandlerOptions {
   context: CacheHandlerContext;
 }
 
-export class MemoryCacheHandler implements CacheHandler {
+/**
+ * The in-memory layer the orchestrating handler puts in front of
+ * `S3CacheHandler`. Not a `CacheHandler` of its own: it has no tags, since
+ * every hit is checked against the tag markers before it is served.
+ */
+export class MemoryCacheHandler {
   private inMemoryCache: Map<string, MemoryCacheEntry> = new Map();
   private debug = getDebug("cdk-nextjs:cache-handler:memory");
 
@@ -36,9 +36,8 @@ export class MemoryCacheHandler implements CacheHandler {
    * Time to live in milliseconds for cache entries.
    * After this duration, entries expire and are removed from the cache.
    *
-   * Tag revalidations clear this cache only on the instance that processes them;
-   * every other instance finds out because the orchestrating handler checks each
-   * memory hit against the revalidation table before serving it
+   * Tag revalidations never clear this cache: the orchestrating handler checks
+   * each memory hit against the tag markers before serving it
    * (`S3CacheHandler.isRevalidated`), so a revalidated entry is not served from
    * memory anywhere.
    *
@@ -154,7 +153,6 @@ export class MemoryCacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
     lastModified?: number,
   ): Promise<void> {
     if (!data) {
@@ -176,7 +174,6 @@ export class MemoryCacheHandler implements CacheHandler {
     const entry: MemoryCacheEntry = {
       value: cacheHandlerValue,
       expiresAt: Date.now() + this.ttlMs,
-      tags: getTags(ctx) || [],
     };
 
     // Clean up expired entries before adding new one
@@ -191,25 +188,6 @@ export class MemoryCacheHandler implements CacheHandler {
     this.inMemoryCache.set(cacheKey, entry);
 
     this.debug(`Cache entries: ${this.inMemoryCache.size}/${this.maxEntries}`);
-  }
-
-  async revalidateTag(tag: string | string[]): Promise<void> {
-    const tags = Array.isArray(tag) ? tag : [tag];
-    let invalidatedCount = 0;
-
-    for (const [key, entry] of this.inMemoryCache.entries()) {
-      if (entry.tags.some((entryTag) => tags.includes(entryTag))) {
-        this.inMemoryCache.delete(key);
-        invalidatedCount++;
-      }
-    }
-
-    this.debug(
-      `MEMORY REVALIDATE TAGS: [${tags.join(", ")}] removed ${invalidatedCount} entries`,
-    );
-
-    // Only this instance's entries: other instances' memory hits are checked
-    // against the revalidation table by the orchestrating handler instead.
   }
 
   /**

@@ -1,12 +1,12 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDispatcher, DispatchRequest } from "./dispatch";
+import { Dispatcher, DispatchRequest } from "./dispatch";
 import { AdapterManifest } from "./manifest";
 import {
-  createMiddlewareRunner,
   MiddlewareHandler,
   MiddlewarePerRequest,
+  MiddlewareRunner,
 } from "./middleware";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
 import {
@@ -24,6 +24,8 @@ const manifest: AdapterManifest = buildAdapterManifest(fixtureContext, {
 }).manifest;
 
 const ORIGIN = "https://example.test";
+
+const dispatcher = new Dispatcher({ manifest });
 
 function request(
   url: string,
@@ -49,7 +51,7 @@ function request(
 }
 
 function runnerFor(handler: MiddlewareHandler) {
-  return createMiddlewareRunner({
+  return new MiddlewareRunner({
     middleware: manifest.middleware!,
     root: "/unused-because-loadHandler-is-set",
     loadHandler: async () => handler,
@@ -62,11 +64,10 @@ function dispatchThrough(
   dispatchRequest: DispatchRequest,
   perRequest?: MiddlewarePerRequest,
 ) {
-  const runner = runnerFor(handler);
-  return createDispatcher({
-    manifest,
-    invokeMiddleware: runner.invokerFor(perRequest),
-  }).dispatch(dispatchRequest);
+  return dispatcher.dispatch({
+    ...dispatchRequest,
+    invokeMiddleware: runnerFor(handler).invokerFor(perRequest),
+  });
 }
 
 describe("MiddlewareRunner request construction", () => {
@@ -132,7 +133,7 @@ describe("MiddlewareRunner request construction", () => {
 
   it("loads the handler at most once across requests", async () => {
     let loads = 0;
-    const runner = createMiddlewareRunner({
+    const runner = new MiddlewareRunner({
       middleware: manifest.middleware!,
       root: "/unused",
       loadHandler: async () => {
@@ -140,17 +141,14 @@ describe("MiddlewareRunner request construction", () => {
         return async () => next();
       },
     });
-    const dispatcher = createDispatcher({
-      manifest,
+    const invokeMiddleware = runner.invokerFor();
+    await dispatcher.dispatch({ ...request("/isr/1"), invokeMiddleware });
+    await dispatcher.dispatch({ ...request("/isr/2"), invokeMiddleware });
+    // A fresh invoker for a later request must reuse the loaded handler.
+    await dispatcher.dispatch({
+      ...request("/isr/3"),
       invokeMiddleware: runner.invokerFor(),
     });
-    await dispatcher.dispatch(request("/isr/1"));
-    await dispatcher.dispatch(request("/isr/2"));
-    // A fresh invoker for a later request must reuse the loaded handler.
-    await createDispatcher({
-      manifest,
-      invokeMiddleware: runner.invokerFor(),
-    }).dispatch(request("/isr/3"));
     expect(loads).toBe(1);
   });
 
@@ -160,7 +158,7 @@ describe("MiddlewareRunner request construction", () => {
     // have nothing to do with the module (EMFILE under a cold-start burst, an
     // allocation near the memory limit).
     let loads = 0;
-    const runner = createMiddlewareRunner({
+    const runner = new MiddlewareRunner({
       middleware: manifest.middleware!,
       root: "/unused",
       loadHandler: async () => {
@@ -172,10 +170,10 @@ describe("MiddlewareRunner request construction", () => {
       },
     });
     const dispatch = () =>
-      createDispatcher({
-        manifest,
+      dispatcher.dispatch({
+        ...request("/isr/1"),
         invokeMiddleware: runner.invokerFor(),
-      }).dispatch(request("/isr/1"));
+      });
 
     await expect(dispatch()).rejects.toThrow(/EMFILE/);
     await expect(dispatch()).resolves.toBeDefined();
@@ -284,6 +282,9 @@ describe("MiddlewareRunner response translation", () => {
       request("/isr/1"),
     );
     expect(result.kind).toBe("middleware-responded");
+    if (result.kind !== "middleware-responded") return;
+    expect(result.response.status).toBe(401);
+    expect(await result.response.text()).toBe("denied");
   });
 });
 
@@ -296,8 +297,8 @@ describe("MiddlewareRunner module loading", () => {
   }
 
   const invoke = (root: string) =>
-    createMiddlewareRunner({
-      middleware: { id: "/_middleware", filePath: "middleware.js", env: {} },
+    new MiddlewareRunner({
+      middleware: { id: "/_middleware", filePath: "middleware.js" },
       root,
     }).invokerFor()({
       method: "GET",

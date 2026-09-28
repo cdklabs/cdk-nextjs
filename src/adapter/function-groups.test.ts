@@ -561,10 +561,11 @@ describe("what the edge routes, checked against what was packaged", () => {
       expect(assigned.p).toEqual(["/pricing"]);
     });
 
-    it("rejects a group pattern claiming a data URL of a file left in default", () => {
-      // An App Router `/index` next to a Pages Router home page: the group's
-      // `_next/data/<id>/index.json` behavior is the home page's data URL.
-      expect(() =>
+    it("gives a group without Pages Router routes no data URL behaviors", () => {
+      // An App Router `/index` next to a Pages Router home page: a data behavior
+      // for the group, `_next/data/<id>/index.json`, would be the home page's
+      // data URL. The group owns no page, so it gets none.
+      expect(
         assign(
           [{ name: "idx", routes: ["/index"] }],
           [
@@ -573,6 +574,28 @@ describe("what the edge routes, checked against what was packaged", () => {
               template: "/index",
               entrypointId: "app/index/page.js",
               type: "app-page",
+            },
+          ],
+        ).idx,
+      ).toEqual(["/index"]);
+    });
+
+    it("rejects a group pattern claiming a data URL of a file left in default", () => {
+      // The same collision in a group that does own a page.
+      expect(() =>
+        assign(
+          [{ name: "idx", routes: ["/index", "/legacy"] }],
+          [
+            { template: "/", entrypointId: "pages/index.js", type: "page" },
+            {
+              template: "/index",
+              entrypointId: "app/index/page.js",
+              type: "app-page",
+            },
+            {
+              template: "/legacy",
+              entrypointId: "pages/legacy.js",
+              type: "page",
             },
           ],
         ),

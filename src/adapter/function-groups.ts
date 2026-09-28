@@ -13,6 +13,7 @@
  * which adds per-group `overrides`) is in `src/nextjs-compute/nextjs-functions.ts`
  * and is structurally assignable to {@link FunctionGroupSpec}.
  */
+import { basePathPrefix } from "../utils/base-path";
 
 /**
  * The implicit group every unassigned route falls into. Reserved as a group
@@ -392,7 +393,7 @@ export function assignRoutesToGroups(
   options: AssignRoutesOptions,
 ): Record<string, string[]> {
   validateFunctionGroups(groups);
-  const basePath = normalizedBasePath(options.basePath);
+  const basePath = basePathPrefix(options.basePath);
 
   // Most specific first, so the first match is the winner and "longest wins"
   // needs no second pass. Segment count before string length: "/a/b" is more
@@ -471,7 +472,16 @@ export function assignRoutesToGroups(
     basePath,
     buildId: options.buildId,
     trailingSlash: options.trailingSlash ?? false,
-    hasDataRoutes: entries.some((entry) => entry.type === "page"),
+    // Only a group that owns a Pages Router page has data URLs to route. Read
+    // before interception moves files: those are App Router, never pages.
+    dataRouteGroups: new Set(
+      entries
+        .filter((entry) => entry.type === "page")
+        .map(
+          (entry) =>
+            groupOfEntrypoint.get(entry.entrypointId) ?? DEFAULT_FUNCTION_GROUP,
+        ),
+    ),
   };
   reassignInterceptingFiles(
     entries,
@@ -604,8 +614,7 @@ export function pathPatternsFor(
 /**
  * Rank a CloudFront path pattern so the most specific is added first: literal
  * segments before the first `*` dominate, then total segments, then length.
- * `NextjsDistribution` adds behaviors in this order and {@link edgeBehaviors}
- * replays it, so it lives here, where both can reach it.
+ * {@link groupBehaviors} sorts on it.
  *
  * Ranking on the leading literal is what a CloudFront wildcard forces, because
  * it matches across `/` rather than within one segment: an exact `a/b` has to
@@ -613,7 +622,7 @@ export function pathPatternsFor(
  * the same length and depth. Since the data patterns carry the literal build ID,
  * no pattern has a wildcard anywhere but at its end.
  */
-export function behaviorSpecificity(pattern: string): number {
+function behaviorSpecificity(pattern: string): number {
   const segments = pattern.split("/").filter(Boolean);
   const firstWildcard = segments.findIndex((segment) => segment.includes("*"));
   const literalDepth = firstWildcard === -1 ? segments.length : firstWildcard;
@@ -774,7 +783,41 @@ interface EdgeOptions {
   readonly basePath: string;
   readonly buildId?: string;
   readonly trailingSlash: boolean;
-  readonly hasDataRoutes: boolean;
+  /** The groups that own a Pages Router page, and so have data URLs. */
+  readonly dataRouteGroups: ReadonlySet<string>;
+}
+
+/** A group as the edge routes it. */
+export interface RoutedGroup {
+  readonly name: string;
+  /** The group's {@link routedPatterns}. */
+  readonly routes: readonly string[];
+  /** Whether the group owns a Pages Router page, see {@link pathPatternsFor}. */
+  readonly hasDataRoutes?: boolean;
+}
+
+/**
+ * Every group behavior, most specific first: the order CloudFront has to see
+ * them in, since it stops at the first match. `NextjsDistribution` adds exactly
+ * this list and {@link assignRoutesToGroups} replays it, so the two cannot drift.
+ * Patterns are before basePath (`blog/*`).
+ */
+export function groupBehaviors<G extends RoutedGroup>(
+  groups: readonly G[],
+  options: { trailingSlash?: boolean; buildId?: string },
+): { group: G; route: string; pattern: string }[] {
+  return groups
+    .flatMap((group) =>
+      group.routes.flatMap((route) =>
+        pathPatternsFor(route, {
+          ...options,
+          hasDataRoutes: group.hasDataRoutes ?? false,
+        }).map((pattern) => ({ group, route, pattern })),
+      ),
+    )
+    .sort(
+      (a, b) => behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
+    );
 }
 
 /** One CloudFront behavior a group gets, and the pattern it came from. */
@@ -787,34 +830,27 @@ interface EdgeBehavior {
   readonly regex: RegExp;
 }
 
-/**
- * Every group behavior `NextjsDistribution.addFunctionGroupBehaviors` adds, in
- * the order it adds them: the same patterns, from the same functions, sorted by
- * the same key, so the first match here is the first match at the edge.
- */
+/** {@link groupBehaviors} as `NextjsDistribution` deploys them, with regexes. */
 function edgeBehaviors(
   groups: readonly FunctionGroupSpec[],
   assigned: Record<string, string[]>,
   edge: EdgeOptions,
 ): EdgeBehavior[] {
-  return groups
-    .flatMap((group) =>
-      routedPatterns(
-        group.routes,
-        assigned[group.name] ?? [],
-        edge.basePath,
-      ).flatMap((route) =>
-        pathPatternsFor(route, edge).map((pattern) => ({
-          group: group.name,
-          route,
-          pattern,
-          regex: cloudFrontPatternRegex(`${edge.basePath}/${pattern}`),
-        })),
-      ),
-    )
-    .sort(
-      (a, b) => behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
-    );
+  const routed = groups.map((group) => ({
+    name: group.name,
+    routes: routedPatterns(
+      group.routes,
+      assigned[group.name] ?? [],
+      edge.basePath,
+    ),
+    hasDataRoutes: edge.dataRouteGroups.has(group.name),
+  }));
+  return groupBehaviors(routed, edge).map(({ group, route, pattern }) => ({
+    group: group.name,
+    route,
+    pattern,
+    regex: cloudFrontPatternRegex(`${edge.basePath}/${pattern}`),
+  }));
 }
 
 /**
@@ -1538,14 +1574,8 @@ function groupLabel(group: string): string {
     : `group "${group}"`;
 }
 
-/** `basePath` with one leading slash and no trailing one; `""` for none. */
-function normalizedBasePath(basePath: string): string {
-  const bare = (basePath || "").replace(/^\/+/, "").replace(/\/+$/, "");
-  return bare ? `/${bare}` : "";
-}
-
 function prefixBasePath(route: string, basePath: string): string {
-  return `${normalizedBasePath(basePath)}${route}`;
+  return `${basePathPrefix(basePath)}${route}`;
 }
 
 /** `template` without `basePath` (`/` for the base itself), `undefined` if outside it. */

@@ -120,7 +120,7 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       expect(s3.get).toHaveBeenCalledTimes(1);
     });
 
-    it("revalidates a tag in memory and in S3/DynamoDB, passing the durations through", async () => {
+    it("revalidates a tag in S3/DynamoDB, passing the durations through", async () => {
       const testData: IncrementalCacheValue = {
         kind: CachedRouteKind.APP_PAGE,
         html: "<html>tagged</html>",
@@ -137,10 +137,6 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
         revalidateTag: jest.fn().mockResolvedValue(undefined),
       };
       (cacheHandler as any).s3DynamoHandler = s3;
-      const memoryRevalidate = jest.spyOn(
-        (cacheHandler as any).memoryHandler,
-        "revalidateTag",
-      );
 
       await cacheHandler.set("tagged-key", testData, {
         fetchCache: true as const,
@@ -150,7 +146,6 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       // so dropping them turns every soft revalidation into a hard one.
       await cacheHandler.revalidateTag(["posts"], { expire: 60 });
 
-      expect(memoryRevalidate).toHaveBeenCalledWith(["posts"]);
       expect(s3.revalidateTag).toHaveBeenCalledWith(["posts"], { expire: 60 });
 
       await cacheHandler.revalidateTag("posts");

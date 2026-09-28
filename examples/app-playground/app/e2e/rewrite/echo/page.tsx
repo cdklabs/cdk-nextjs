@@ -6,7 +6,7 @@
  * A page rather than a route handler on purpose. Next.js's second rewrite pass
  * rewrites the `query` object a page's `searchParams` come from, and leaves
  * `req.url` alone - which is all a route handler's `request.nextUrl` reads. A
- * route handler here passes with the defect 29 fix reverted.
+ * route handler here passes with the fix for the double rewrite reverted.
  */
 export const instant = false;
 

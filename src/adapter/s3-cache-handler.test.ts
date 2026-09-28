@@ -40,6 +40,7 @@ import {
   IncrementalCacheKind,
 } from "next/dist/server/response-cache";
 import { S3CacheHandler } from "./s3-cache-handler";
+import { sharedTagManifest } from "./use-cache-common";
 
 const mockS3Send = jest.fn();
 const mockDynamoSend = jest.fn();
@@ -112,8 +113,19 @@ describe("S3DynamoCacheHandler", () => {
     });
   };
 
+  /**
+   * Drop the process's tag manifest, so the next handler starts with one of
+   * its own, as a new instance does.
+   */
+  const resetTagManifest = () => {
+    delete (globalThis as Record<symbol, unknown>)[
+      Symbol.for("cdk-nextjs.use-cache.tag-manifest")
+    ];
+  };
+
   beforeEach(() => {
     mockContext = { dev: false } as CacheHandlerContext;
+    resetTagManifest();
 
     // Set up environment variables
     process.env.CDK_NEXTJS_CACHE_BUCKET_NAME = "test-bucket";
@@ -130,6 +142,8 @@ describe("S3DynamoCacheHandler", () => {
 
     // Reset mocks
     mockS3Send.mockReset();
+    // An empty bucket: no object, such as no build tag manifest.
+    mockS3Send.mockResolvedValue({});
     mockDynamoSend.mockReset();
     mockCloudFrontSend.mockReset();
     mockSsmSend.mockReset();
@@ -142,6 +156,7 @@ describe("S3DynamoCacheHandler", () => {
     delete process.env.CDK_NEXTJS_BUILD_ID;
     delete process.env.AWS_REGION;
     delete process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME;
+    delete process.env.CDK_NEXTJS_DISTRIBUTION_ID;
     delete process.env.CDK_NEXTJS_BASE_PATH;
 
     // Restore console.warn
@@ -243,15 +258,16 @@ describe("S3DynamoCacheHandler", () => {
         kind: IncrementalCacheKind.APP_PAGE,
         isFallback: false,
       } as const;
-      // Each step below changes the markers DynamoDB holds; read them afresh.
-      handler = new S3CacheHandler({
-        context: mockContext,
-        dynamoConfig: { markerTtlMs: 0 },
-      });
+      // Each step below changes the markers DynamoDB holds; a new instance
+      // reads them afresh.
+      const freshHandler = () => {
+        resetTagManifest();
+        return new S3CacheHandler({ context: mockContext });
+      };
 
       // No marker at all: the tag was never revalidated.
       dynamoResponses({});
-      expect(await handler.get("index", getCtx)).toMatchObject({
+      expect(await freshHandler().get("index", getCtx)).toMatchObject({
         lastModified,
       });
 
@@ -259,7 +275,7 @@ describe("S3DynamoCacheHandler", () => {
       dynamoResponses({
         get: { Item: { revalidatedAt: { N: String(lastModified - 1000) } } },
       });
-      expect(await handler.get("index", getCtx)).toMatchObject({
+      expect(await freshHandler().get("index", getCtx)).toMatchObject({
         lastModified,
       });
       expect(mockS3Send).not.toHaveBeenCalledWith(
@@ -270,7 +286,7 @@ describe("S3DynamoCacheHandler", () => {
       dynamoResponses({
         get: { Item: { revalidatedAt: { N: String(lastModified + 1000) } } },
       });
-      expect(await handler.get("index", getCtx)).toMatchObject({
+      expect(await freshHandler().get("index", getCtx)).toMatchObject({
         lastModified: -1,
         value: seeded.value,
       });
@@ -459,6 +475,11 @@ describe("S3DynamoCacheHandler", () => {
         "/deployment/node_modules/next/dist/server/lib/incremental-cache",
         "tags-manifest.external.js",
       );
+      // The module the server loads, resolved for real, so a Next.js upgrade
+      // that moves or reshapes it fails here rather than silently turning
+      // stale-while-revalidate into blocking renders.
+      const realManifestPath =
+        require.resolve("next/dist/server/lib/incremental-cache/tags-manifest.external.js");
 
       beforeEach(() => {
         mockS3Send.mockImplementation((command: unknown) =>
@@ -479,11 +500,12 @@ describe("S3DynamoCacheHandler", () => {
 
       afterEach(() => {
         delete mockModuleCache[manifestPath];
+        delete mockModuleCache[realManifestPath];
       });
 
       it("serves the entry and marks the tag stale in Next.js's manifest", async () => {
-        const tagsManifest = new Map<string, { stale?: number }>();
-        mockModuleCache[manifestPath] = { exports: { tagsManifest } };
+        const next = jest.requireActual(realManifestPath);
+        mockModuleCache[realManifestPath] = { exports: next };
         const staleAt = lastModified + 500;
         dynamoResponses({
           get: {
@@ -499,7 +521,8 @@ describe("S3DynamoCacheHandler", () => {
           value: stored.value,
         });
         // Where `IncrementalCache.get` reads it, to answer `isStale: true`.
-        expect(tagsManifest.get("posts")).toEqual({ stale: staleAt });
+        expect(next.tagsManifest.get("posts")).toEqual({ stale: staleAt });
+        expect(next.areTagsStale(["posts"], lastModified)).toBe(true);
       });
 
       it("expires the entry when Next.js's manifest cannot be found", async () => {
@@ -785,30 +808,20 @@ describe("S3DynamoCacheHandler", () => {
       expect(await handler.get("page", getCtx)).toMatchObject(expired);
     });
 
-    it("reads on every check with CDK_NEXTJS_TAG_MARKER_TTL_MS=0", async () => {
-      process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS = "0";
-      handler = new S3CacheHandler({ context: mockContext });
-      try {
-        await handler.get("page", getCtx);
-        await handler.get("page", getCtx);
-      } finally {
-        delete process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS;
-      }
+    it("writes each tag once when the 'use cache' handlers get the same call", async () => {
+      // Next.js calls `revalidateTag` here and `updateTags` on every
+      // `cacheHandlers` entry, and all of them share one manifest.
+      await Promise.all([
+        handler.revalidateTag(["posts"]),
+        sharedTagManifest().update(["posts"], undefined),
+      ]);
 
-      expect(markerReads()).toBe(2);
-    });
-
-    it("keeps the default for a CDK_NEXTJS_TAG_MARKER_TTL_MS that isn't a duration", async () => {
-      process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS = "soon";
-      handler = new S3CacheHandler({ context: mockContext });
-      try {
-        await handler.get("page", getCtx);
-        await handler.get("page", getCtx);
-      } finally {
-        delete process.env.CDK_NEXTJS_TAG_MARKER_TTL_MS;
-      }
-
-      expect(markerReads()).toBe(1);
+      const writes = mockDynamoSend.mock.calls.filter(
+        ([command]) =>
+          command instanceof UpdateItemCommand ||
+          command instanceof PutItemCommand,
+      );
+      expect(writes).toHaveLength(2);
     });
   });
 
@@ -1164,6 +1177,27 @@ describe("S3DynamoCacheHandler", () => {
         "/isr/1*",
         "/isr/2*",
       ]);
+    });
+
+    it("invalidates a distribution whose ID is in the environment without SSM", async () => {
+      // NextjsGlobalContainers: the task can name the distribution directly.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID = "direct-distribution-id";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+      dynamoResponses({
+        query: { Items: [{ sk: { S: "test-tag#test-build-id/isr/1.json" } }] },
+      });
+      mockS3Send.mockResolvedValue({});
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      expect(mockSsmSend).not.toHaveBeenCalled();
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.DistributionId).toBe("direct-distribution-id");
     });
 
     it("splits a mapping row at the tag's length, so a tag containing # still resolves", async () => {
@@ -1619,6 +1653,68 @@ describe("S3DynamoCacheHandler", () => {
       }).revalidateTag("user");
 
       expect(invalidations()).toEqual([["/profile*"]]);
+    });
+
+    it("adds the build-time prerenders the build's tag manifest names, reading it once", async () => {
+      // A prerender is written by the adapter, never through `set`, so it has
+      // no mapping row: the manifest is the only record of its tags.
+      const cdnHandler = withDistribution({
+        Items: [{ sk: { S: "posts#test-build-id/blog/b.json" } }],
+      });
+      const manifestGets = () =>
+        (GetObjectCommand as unknown as jest.Mock).mock.calls.filter(
+          ([input]) =>
+            input.Key === "test-build-id/_cdk-nextjs-tag-manifest.json",
+        );
+      mockS3Send.mockImplementation((command: unknown) =>
+        Promise.resolve(
+          command instanceof GetObjectCommand
+            ? {
+                Body: {
+                  transformToString: async () =>
+                    JSON.stringify({ posts: ["blog/a", "index"] }),
+                },
+              }
+            : {},
+        ),
+      );
+
+      await cdnHandler.revalidateTag("posts");
+      await cdnHandler.revalidateTag("constructor");
+
+      expect(invalidations()).toEqual([["/blog/b*", "/blog/a*", "/", "/?*"]]);
+      expect(manifestGets()).toHaveLength(1);
+    });
+
+    it("invalidates the whole app when the build's tag manifest cannot be read, and reads it again next time", async () => {
+      const cdnHandler = withDistribution({ Items: [] });
+      mockS3Send.mockRejectedValueOnce(new Error("AccessDenied"));
+
+      await cdnHandler.revalidateTag("posts");
+      await cdnHandler.revalidateTag("posts");
+
+      expect(invalidations()).toEqual([["/*"]]);
+      expect(mockS3Send).toHaveBeenCalledTimes(2);
+    });
+
+    it("invalidates the whole app when a tag's marker row cannot be written", async () => {
+      // Other instances would never see the revalidation, so no path list is
+      // enough.
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      jest.spyOn(console, "error").mockImplementation();
+      mockDynamoSend.mockImplementation((command: unknown) =>
+        command instanceof QueryCommand
+          ? Promise.resolve({ Items: [] })
+          : Promise.reject(new Error("ProvisionedThroughputExceeded")),
+      );
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await new S3CacheHandler({ context: mockContext }).revalidateTag("posts");
+
+      expect(invalidations()).toEqual([["/*"]]);
     });
 
     it("invalidates the whole app when a tag's mapping rows cannot be read", async () => {

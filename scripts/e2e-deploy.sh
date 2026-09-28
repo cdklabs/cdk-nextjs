@@ -44,6 +44,19 @@ STACK_NAME="$(harness_stack_name "$APP_DIR")"
 printf '%s\n' "$STACK_NAME" >"$HARNESS_STACK_FILE"
 echo "harness: app=$APP_DIR stack=$STACK_NAME"
 
+# A previous file's deploy that outran its per-file timeout was killed here, but
+# its CloudFormation operation keeps going server-side. Deploying over it would
+# fail or interleave two fixtures, so wait for it to settle first. Bounded at 30
+# minutes; the status checks below and `cdk deploy` itself report what is left.
+for _ in $(seq 1 120); do
+  STACK_STATUS="$(harness_stack_status "$STACK_NAME")" || break
+  case "$STACK_STATUS" in
+    *_IN_PROGRESS) echo "harness: $STACK_NAME is $STACK_STATUS; waiting" ;;
+    *) break ;;
+  esac
+  sleep 15
+done
+
 # A shared stack has to be created by `e2e-warm.sh`'s throwaway app, never by a
 # fixture: `app.js` pins the post-deploy `buildId` for shared stacks so test files
 # can hotswap, and the one deploy that runs the custom resource anyway - the
@@ -217,12 +230,11 @@ esac
 "$CDK_BIN" deploy "$STACK_NAME" \
   --app "node $HARNESS_DIR/app.js" \
   --output "$APP_DIR/$HARNESS_CDK_OUT" \
-  --outputs-file "$APP_DIR/$HARNESS_OUTPUTS_FILE" \
   "${HOTSWAP_ARGS[@]}" \
   --require-approval never \
   --ci 2>&1 | tee "$HARNESS_DEPLOY_LOG"
 
-URL="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" HarnessUrl)"
+URL="$(harness_stack_output "$STACK_NAME" HarnessUrl)"
 if [ -z "$URL" ]; then
   echo "harness: deploy reported success but $STACK_NAME has no HarnessUrl output" >&2
   exit 1
@@ -237,7 +249,7 @@ case "$NEXTJS_TYPE" in
     # passes. A full CloudFormation update waits for that, but leaves the old task
     # `draining` behind it, still answering. So wait here, either way, until the
     # target group holds exactly one target and it is `healthy`.
-    TARGET_GROUP_ARN="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" TargetGroupArn)"
+    TARGET_GROUP_ARN="$(harness_stack_output "$STACK_NAME" TargetGroupArn)"
     if [ -z "$TARGET_GROUP_ARN" ]; then
       echo "harness: $STACK_NAME has no TargetGroupArn output; cannot wait for the new task" >&2
       exit 1
@@ -348,7 +360,7 @@ else
   # properties are pinned in app.js for exactly that reason). Blocking until it
   # completes, because the first request the harness makes is the one that would
   # read a stale response.
-  DISTRIBUTION_ID="$(harness_stack_output "$HARNESS_OUTPUTS_FILE" "$STACK_NAME" DistributionId)"
+  DISTRIBUTION_ID="$(harness_stack_output "$STACK_NAME" DistributionId)"
   if [ -z "$DISTRIBUTION_ID" ]; then
     echo "harness: $STACK_NAME has no DistributionId output; cannot invalidate" >&2
     exit 1

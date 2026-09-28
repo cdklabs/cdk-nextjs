@@ -103,9 +103,9 @@ server.mts                               @next/routing             static file
 - **PPR is origin-only**, as in `next start`. The CDN-shell variant needs
   CloudFront to splice an edge response with an origin stream, which it cannot
   do.
-- **The dispatcher is per request**, because middleware's `Response` comes back
-  through a closure. Anything expensive belongs in the cached routing table, not
-  in the constructor.
+- **One Dispatcher serves every request**, concurrently on the container shell,
+  so per-request state (the middleware invoker, with its `waitUntil` and
+  `signal`) travels in the `DispatchRequest`, never on the Dispatcher.
 
 ## Where it differs from `next start`, knowingly
 

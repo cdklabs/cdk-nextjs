@@ -15,25 +15,19 @@ import { readFile } from "node:fs/promises";
 import type { IncomingHttpHeaders } from "node:http";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import type { ResolveRoutesQuery } from "@next/routing";
 import { caseCanonicalPath } from "./case-redirect";
 import {
-  createDispatcher,
-  createErrorTargets,
-  ErrorTargetResolver,
-  NotFoundTarget,
+  Dispatcher,
   outOfBandRouteParams,
+  StatusTarget,
+  statusTargets,
 } from "./dispatch";
 import {
   EntrypointHandler,
   EntrypointRegistry,
   RouteInOtherGroupError,
 } from "./entrypoints";
-import {
-  createIncomingMessage,
-  ShimIncomingMessage,
-  toIncomingHttpHeaders,
-} from "./http/request";
+import { ShimIncomingMessage, toIncomingHttpHeaders } from "./http/request";
 import {
   asServerResponse,
   ResponseHead,
@@ -46,7 +40,7 @@ import {
   deployedManifestPath,
   MANIFEST_FILE_NAME,
 } from "./manifest";
-import { createMiddlewareRunner, MiddlewareRunner } from "./middleware";
+import { MiddlewareRunner } from "./middleware";
 import {
   loadEnvFiles,
   setupNodeEnvironment,
@@ -54,6 +48,13 @@ import {
 } from "./next-modules";
 import { publicDirKey, resolvePublicFiles } from "./public-files";
 import { serveS3PublicFile, serveStaticFile } from "./static-files";
+import {
+  drained,
+  emptyStream,
+  firstValue,
+  toSearch,
+  withoutPathPrefix,
+} from "./util";
 
 /** One request, normalized by a shell. */
 export interface RuntimeRequest {
@@ -104,12 +105,6 @@ export interface NextjsRuntimeOptions {
   readonly bucket?: string;
   /** `CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX`. */
   readonly bucketKeyPrefix?: string;
-  /**
-   * See `ImageOptimizerOptions.cache` in `./image`. `loadRuntime` turns it off
-   * for `CDK_NEXTJS_IMAGE_CACHE=0`.
-   * @default true
-   */
-  readonly imageCache?: boolean;
 }
 
 /**
@@ -120,50 +115,49 @@ export interface NextjsRuntimeOptions {
 const trustsForwardedHost = new WeakSet<ShimIncomingMessage>();
 
 /**
- * The in-process requests {@link NextjsRuntime.fetchInternal} makes for an image
- * source, each mapped to the `RouteInOtherGroupError` its route threw, if it
- * did. Registered before the request runs, so that `route` knows to record the
- * error here instead of logging the misrouted-request warning, which describes
- * a CloudFront or API Gateway problem this is not.
+ * The in-process requests {@link NextjsRuntime.handleInternally} makes, each
+ * mapped to the `RouteInOtherGroupError` its route threw, if it did. Registered
+ * before the request runs, so that `route` knows to record the error here
+ * instead of logging the misrouted-request warning, which describes a
+ * CloudFront or API Gateway problem this is not.
  */
-const imageSourceFetches = new WeakMap<
+const internalRequests = new WeakMap<
   RuntimeRequest,
   RouteInOtherGroupError | undefined
 >();
 
 export class NextjsRuntime {
   private readonly entrypoints: EntrypointRegistry;
+  private readonly dispatcher: Dispatcher;
   private readonly middleware?: MiddlewareRunner;
   private readonly images: RuntimeImageOptimizer;
-  /**
-   * Resolved here rather than on the Dispatcher, which is per request: the throw
-   * this answers can happen before one exists.
-   */
-  private readonly errorTargetFor: ErrorTargetResolver;
-  /** Listed once, at cold start; see `resolvePublicFiles`. */
-  private readonly publicFiles: readonly string[];
-  /** Whether {@link publicFiles} are served from the assets bucket. */
+  /** The 500 ladder; see `statusTargets`. */
+  private readonly errorTargetFor: (url: URL | undefined) => StatusTarget;
+  /** Whether `public/` files are served from the assets bucket. */
   private readonly publicFilesInS3: boolean;
 
   public constructor(private readonly options: NextjsRuntimeOptions) {
     const { manifest, deploymentRoot } = options;
     this.entrypoints = new EntrypointRegistry(deploymentRoot, manifest);
+    // Listed once, at cold start; see `resolvePublicFiles`.
     const publicFiles = resolvePublicFiles(deploymentRoot, manifest);
-    this.publicFiles = publicFiles.files;
+    this.dispatcher = new Dispatcher({
+      manifest,
+      publicFiles: publicFiles.files,
+    });
     this.publicFilesInS3 = publicFiles.inS3;
-    this.errorTargetFor = createErrorTargets(manifest);
+    this.errorTargetFor = statusTargets(manifest, 500);
     this.images = new RuntimeImageOptimizer({
       deploymentRoot,
       manifest,
       bucket: options.bucket ?? "",
       bucketKeyPrefix: options.bucketKeyPrefix ?? "",
-      cache: options.imageCache ?? true,
       fetchInternal: (href, req) => this.fetchInternal(href, req),
     });
     // The runner is shared — it memoizes the loaded middleware module — while the
     // `invokeMiddleware` callback it produces is per request.
     this.middleware = manifest.middleware
-      ? createMiddlewareRunner({
+      ? new MiddlewareRunner({
           middleware: manifest.middleware,
           root: deploymentRoot,
         })
@@ -185,7 +179,7 @@ export class NextjsRuntime {
     };
 
     const body = splitBody(request.body, this.middleware !== undefined);
-    const req = createIncomingMessage({
+    const req = new ShimIncomingMessage({
       method: request.method,
       url: request.url,
       headers: withoutInternalHeaders(
@@ -283,28 +277,15 @@ export class NextjsRuntime {
     waitUntil: (promise: Promise<unknown>) => void,
     request: RuntimeRequest,
   ): Promise<void> {
-    // `middlewareResponse` is the reason the dispatcher is built per request:
-    // `resolveRoutes` reports `middlewareResponded` without carrying the
-    // `Response`, so the runner hands it back through this closure — and a
-    // closure shared across requests would cross-talk under the concurrency the
-    // container shell has.
-    let middlewareResponse: Response | undefined;
-    const dispatcher = createDispatcher({
-      manifest: this.options.manifest,
-      publicFiles: this.publicFiles,
-      invokeMiddleware: this.middleware?.invokerFor(
-        { waitUntil, signal: request.signal },
-        (response) => {
-          middlewareResponse = response;
-        },
-      ),
-    });
-
-    const result = await dispatcher.dispatch({
+    const result = await this.dispatcher.dispatch({
       method: req.method ?? "GET",
       url,
       headers: new Headers(toWebHeaders(req.headers)),
       body: body.forDispatch,
+      invokeMiddleware: this.middleware?.invokerFor({
+        waitUntil,
+        signal: request.signal,
+      }),
     });
     body.releaseUnread(result.kind === "middleware-responded");
 
@@ -331,9 +312,10 @@ export class NextjsRuntime {
             sendRedirect(res, `${canonical}${url.search}`, 308);
             return;
           }
-          if (imageSourceFetches.has(request)) {
-            // Explained by `fetchInternal`, which knows why it happened.
-            imageSourceFetches.set(request, error);
+          if (internalRequests.has(request)) {
+            // Explained by the caller of `handleInternally`, which knows why it
+            // happened.
+            internalRequests.set(request, error);
           } else {
             // Logged, because it is also what a misrouted group looks like; see
             // `RouteInOtherGroupError` for why it is a 404.
@@ -344,7 +326,7 @@ export class NextjsRuntime {
             res,
             waitUntil,
             { pathname: url.pathname, requestHeaders: result.requestHeaders },
-            dispatcher.notFoundFor(url),
+            this.dispatcher.notFoundFor(url),
             url,
           );
           return;
@@ -362,10 +344,9 @@ export class NextjsRuntime {
         );
         const invocationQuery =
           outOfBand?.query ?? result.invocationTarget.query;
-        req.url = formatTarget({
-          pathname: result.invocationTarget.pathname,
-          query: invocationQuery,
-        });
+        const { pathname } = result.invocationTarget;
+        const search = toSearch(invocationQuery);
+        req.url = search ? `${pathname}?${search}` : pathname;
         // Middleware may have rewritten request headers via
         // `NextResponse.next({ request: { headers } })`.
         req.headers = toIncomingHttpHeaders(result.requestHeaders);
@@ -418,7 +399,7 @@ export class NextjsRuntime {
                 req,
                 res,
                 waitUntil,
-                dispatcher.notFoundFor(url),
+                this.dispatcher.notFoundFor(url),
               );
             },
             // `res.revalidate()` from a Pages API route. Without it, Next.js
@@ -484,7 +465,7 @@ export class NextjsRuntime {
         if (statusPage !== undefined) {
           res.statusCode = statusPage;
         }
-        const etag = this.options.manifest.config.generateEtags !== false;
+        const etag = this.options.manifest.config.generateEtags;
         const publicDir = `${publicDirKey(this.options.manifest)}/`;
         const served =
           (await serveStaticFile(
@@ -515,7 +496,7 @@ export class NextjsRuntime {
             res,
             waitUntil,
             result,
-            dispatcher.notFoundFor(url),
+            this.dispatcher.notFoundFor(url),
             url,
           );
         }
@@ -529,7 +510,7 @@ export class NextjsRuntime {
             res,
             waitUntil,
             { pathname: url.pathname, requestHeaders: result.requestHeaders },
-            dispatcher.notFoundFor(url),
+            this.dispatcher.notFoundFor(url),
             url,
           );
           return;
@@ -547,7 +528,7 @@ export class NextjsRuntime {
         return;
 
       case "middleware-responded":
-        await sendWebResponse(res, middlewareResponse);
+        await sendWebResponse(res, result.response);
         return;
 
       case "response":
@@ -618,7 +599,7 @@ export class NextjsRuntime {
     res: ShimServerResponse,
     waitUntil: (promise: Promise<unknown>) => void,
     result: { readonly pathname: string; readonly requestHeaders: Headers },
-    target: NotFoundTarget,
+    target: StatusTarget,
     url: URL,
   ): Promise<void> {
     res.setHeader("Cache-Control", NO_STORE);
@@ -631,7 +612,7 @@ export class NextjsRuntime {
       pathname.startsWith("/_next/static/") ||
       ((req.method === "GET" || req.method === "HEAD") &&
         NON_HTML_SEC_FETCH_DESTS.has(
-          first(req.headers["sec-fetch-dest"]) ?? "",
+          firstValue(req.headers["sec-fetch-dest"]) ?? "",
         ))
     ) {
       res.statusCode = 404;
@@ -670,7 +651,7 @@ export class NextjsRuntime {
     config: RevalidateConfig,
     origin: RuntimeRequest,
   ): Promise<void> {
-    const { head } = await this.handleInternally(
+    const { head, otherGroup } = await this.handleInternally(
       {
         method: "GET",
         url: config.urlPath,
@@ -699,8 +680,18 @@ export class NextjsRuntime {
       status !== 200 &&
       !(status === 404 && config.opts.unstable_onlyGenerated)
     ) {
+      const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
+      // A page packaged into another `functionGroups` group: it is rendered in
+      // process, and this function does not have the page's code.
       throw new Error(
-        `Invalid response ${status}${this.otherGroupHint(config.urlPath)}`,
+        otherGroup
+          ? `Invalid response ${status}: "${config.urlPath}" belongs to ` +
+              `\`functionGroups\` group "${otherGroup.owner}", and ` +
+              `res.revalidate() can only revalidate pages in the group it runs ` +
+              `in ("${self}"). Call it from an API route in group ` +
+              `"${otherGroup.owner}", or use revalidatePath()/revalidateTag(), ` +
+              `which work from any group.`
+          : `Invalid response ${status}`,
       );
     }
 
@@ -733,11 +724,9 @@ export class NextjsRuntime {
       encrypted: (req.socket as { encrypted?: boolean } | undefined)?.encrypted,
       trustForwardedHost: trustsForwardedHost.has(req),
     };
-    imageSourceFetches.set(request, undefined);
-    const { head, body } = await this.handleInternally(request, {
+    const { head, body, otherGroup } = await this.handleInternally(request, {
       keepBody: true,
     });
-    const otherGroup = imageSourceFetches.get(request);
     if (otherGroup) {
       // The edge sends every `/_next/image` request to the default group, and
       // the source is rendered in process, so a route packaged into another
@@ -769,16 +758,22 @@ export class NextjsRuntime {
 
   /**
    * One request through {@link handle}, answered to this runtime instead of a
-   * client: the head, and the body when it is wanted. `handle` awaits the
+   * client: the head, the body when it is wanted, and the error when the route
+   * is packaged into another `functionGroups` group. `handle` awaits the
    * request's `waitUntil` work too, so whatever the render wrote is committed by
    * the time this resolves.
    */
   private async handleInternally(
     request: RuntimeRequest,
     options: { readonly keepBody: boolean },
-  ): Promise<{ head?: ResponseHead; body: Buffer }> {
+  ): Promise<{
+    head?: ResponseHead;
+    body: Buffer;
+    otherGroup?: RouteInOtherGroupError;
+  }> {
     let head: ResponseHead | undefined;
     const chunks: Buffer[] = [];
+    internalRequests.set(request, undefined);
     await this.handle(request, {
       begin(responseHead) {
         head = responseHead;
@@ -792,53 +787,22 @@ export class NextjsRuntime {
         });
       },
     });
-    return { head, body: Buffer.concat(chunks) };
-  }
-
-  /**
-   * Why a revalidation of a page packaged into another `functionGroups` group
-   * fails: it is rendered in process, and this function does not have the page's
-   * code. Empty when that is not the reason.
-   */
-  private otherGroupHint(urlPath: string): string {
-    const { groups } = this.options.manifest;
-    const self = process.env.CDK_NEXTJS_FUNCTION_GROUP;
-    if (!groups || !self) {
-      return "";
-    }
-    const pathname = urlPath.split("?")[0];
-    const owned = new Set(groups[self] ?? []);
-    const owner = Object.entries(groups).find(
-      ([name, templates]) =>
-        name !== self &&
-        templates.some(
-          (template) =>
-            !owned.has(template) && templateMatches(template, pathname),
-        ),
-    )?.[0];
-    if (!owner) {
-      return "";
-    }
-    return (
-      `: "${pathname}" looks like it belongs to \`functionGroups\` group ` +
-      `"${owner}", and res.revalidate() can only revalidate pages in the ` +
-      `group it runs in ("${self}"). Call it from an API route in group ` +
-      `"${owner}", or use revalidatePath()/revalidateTag(), which work from ` +
-      `any group.`
-    );
+    return {
+      head,
+      body: Buffer.concat(chunks),
+      otherGroup: internalRequests.get(request),
+    };
   }
 
   /**
    * App Router builds an invocable `/_not-found`, Pages Router a prerendered
-   * `404.html` (per locale under i18n) or else `/_error`. The ladder is resolved
-   * once at construction by the Dispatcher, and the locale per request by
-   * `Dispatcher.notFoundFor`.
+   * `404.html` (per locale under i18n) or else `/_error`; see `statusTargets`.
    */
   private async sendNotFound(
     req: ShimIncomingMessage,
     res: ShimServerResponse,
     waitUntil: (promise: Promise<unknown>) => void,
-    target: NotFoundTarget,
+    target: StatusTarget,
     /**
      * What to render the 404 as. Omitted by `render404`, which is called
      * mid-render with `req.url` already pointing at the route that gave up —
@@ -998,18 +962,6 @@ const NON_HTML_SEC_FETCH_DESTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `removePathPrefix` (`next/dist/shared/lib/router/utils/remove-path-prefix.js`):
- * strips `prefix` on a path boundary only. An absolute-URL `assetPrefix` never
- * matches a pathname, so it is a no-op there, as it is in Next.
- */
-function withoutPathPrefix(pathname: string, prefix: string): string {
-  if (!prefix || !(pathname === prefix || pathname.startsWith(`${prefix}/`))) {
-    return pathname;
-  }
-  return pathname.slice(prefix.length) || "/";
-}
-
-/**
  * `INTERNAL_HEADERS` from `next/dist/server/lib/server-ipc/utils.js` (Next
  * 16.3), which `next start` deletes from every request before routing it
  * (`filterInternalHeaders` in `router-server.js`). They are signals between
@@ -1150,26 +1102,6 @@ export function revalidatedPageRoutes(
     : [[localized, localizedData]];
 }
 
-/**
- * Whether a route template (`/blog/[slug]`, `/docs/[...all]`,
- * `/shop/[[...rest]]`) matches `pathname`. Only precise enough to name the
- * group in an error message.
- */
-function templateMatches(template: string, pathname: string): boolean {
-  const pattern = template
-    .split("/")
-    .map((segment) => {
-      if (/^\[\[\.\.\..+\]\]$/.test(segment)) return "(?:/.*)?";
-      if (/^\[\.\.\..+\]$/.test(segment)) return "/.+";
-      if (/^\[.+\]$/.test(segment)) return "/[^/]+";
-      return segment
-        ? `/${segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
-        : "";
-    })
-    .join("");
-  return new RegExp(`^${pattern || "/"}/?$`).test(pathname);
-}
-
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -1241,7 +1173,6 @@ export async function loadRuntime(
     manifest,
     bucket: process.env.CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME,
     bucketKeyPrefix: process.env.CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX,
-    imageCache: process.env.CDK_NEXTJS_IMAGE_CACHE !== "0",
   });
 }
 
@@ -1263,7 +1194,7 @@ const HOST_AUTHORITY = /^(?:\[[0-9A-Fa-f:.]+\]|[0-9A-Za-z._-]+)(?::\d{1,5})?$/;
 function validAuthority(
   value: string | string[] | undefined,
 ): string | undefined {
-  const candidate = first(value)?.split(",")[0].trim();
+  const candidate = firstValue(value)?.split(",")[0].trim();
   return candidate && HOST_AUTHORITY.test(candidate) ? candidate : undefined;
 }
 
@@ -1290,7 +1221,7 @@ function absoluteUrl(request: RuntimeRequest): URL {
       : undefined) ??
     validAuthority(request.headers.host) ??
     "localhost";
-  const forwardedProto = first(request.headers["x-forwarded-proto"])
+  const forwardedProto = firstValue(request.headers["x-forwarded-proto"])
     ?.split(",")[0]
     .trim()
     .toLowerCase();
@@ -1316,10 +1247,6 @@ function pickDefined(
     }
   }
   return picked;
-}
-
-function first(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }
 
 /**
@@ -1416,14 +1343,6 @@ export function splitBody(
   };
 }
 
-function emptyStream(): ReadableStream {
-  return new ReadableStream({
-    start(controller) {
-      controller.close();
-    },
-  });
-}
-
 function bufferStream(body: Buffer): ReadableStream {
   return new ReadableStream({
     start(controller) {
@@ -1465,20 +1384,6 @@ function applyHeaders(res: ShimServerResponse, headers: Headers): void {
   for (const cookie of headers.getSetCookie()) {
     res.appendHeader("set-cookie", cookie);
   }
-}
-
-function formatTarget(target: {
-  pathname: string;
-  query: ResolveRoutesQuery;
-}): string {
-  const search = new URLSearchParams();
-  for (const [name, value] of Object.entries(target.query)) {
-    for (const single of Array.isArray(value) ? value : [value]) {
-      search.append(name, single);
-    }
-  }
-  const query = search.toString();
-  return query ? `${target.pathname}?${query}` : target.pathname;
 }
 
 /**
@@ -1566,17 +1471,8 @@ const STALE_FRAMING_HEADERS: ReadonlySet<string> = new Set([
 /** Stream a `Response` — middleware's own, or a proxied origin's — into `res`. */
 async function sendWebResponse(
   res: ShimServerResponse,
-  response: Response | undefined,
+  response: Response,
 ): Promise<void> {
-  if (!response) {
-    // `resolveRoutes` said middleware responded but the runner never saw a
-    // `Response`. Unreachable unless the two disagree, and a silent 200 with an
-    // empty body would be far harder to diagnose than this.
-    throw new Error(
-      "Middleware responded but its Response was not captured. This is a bug " +
-        "in the cdk-nextjs runtime, not in your app.",
-    );
-  }
   res.statusCode = response.status;
   if (response.statusText) {
     res.statusMessage = response.statusText;
@@ -1619,19 +1515,4 @@ async function sendWebResponse(
     }
   }
   res.end();
-}
-
-/** Resolves true once `res` drains, or false if it is destroyed first. */
-function drained(res: ShimServerResponse): Promise<boolean> {
-  return new Promise((resolve) => {
-    const onDrain = (): void => settle(true);
-    const onClose = (): void => settle(false);
-    const settle = (value: boolean): void => {
-      res.off("drain", onDrain);
-      res.off("close", onClose);
-      resolve(value);
-    };
-    res.once("drain", onDrain);
-    res.once("close", onClose);
-  });
 }

@@ -19,14 +19,10 @@ import type {
   SetIncrementalFetchCacheContext,
   SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
+import { getTags } from "./cache-utils";
 import { LocalFileCacheHandler } from "./local-file-cache-handler";
 import { MemoryCacheHandler } from "./memory-cache-handler";
 import { S3CacheHandler } from "./s3-cache-handler";
-
-// Helper to safely extract tags from context
-const getTags = (
-  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
-): string[] | undefined => ("tags" in ctx ? ctx.tags : undefined);
 
 /**
  * Orchestrator cache handler that conditionally instantiates handlers based on environment
@@ -124,7 +120,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
         ))
       ) {
         this.debug(`Memory cache REVALIDATED: ${cacheKey}`);
-        await this.memoryHandler.set(cacheKey, null, ctx as any);
+        await this.memoryHandler.set(cacheKey, null);
       } else if (memoryResult) {
         this.debug(`Memory cache HIT: ${cacheKey}`);
         return memoryResult;
@@ -149,7 +145,6 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
           await this.memoryHandler.set(
             cacheKey,
             s3Result.value,
-            ctx as any,
             s3Result.lastModified,
           );
         }
@@ -188,7 +183,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       if (data) {
         // Write to memory
         if (this.memoryHandler) {
-          await this.memoryHandler.set(cacheKey, data, ctx);
+          await this.memoryHandler.set(cacheKey, data);
           this.debug(`Memory cache write: ${cacheKey}`);
         }
 
@@ -203,7 +198,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
 
         // Delete from memory (removes from cache Map)
         if (this.memoryHandler) {
-          await this.memoryHandler.set(cacheKey, null, ctx);
+          await this.memoryHandler.set(cacheKey, null);
         }
 
         // Delete from S3/DynamoDB
@@ -227,12 +222,8 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       return;
     }
 
-    // Clear from memory
-    if (this.memoryHandler) {
-      await this.memoryHandler.revalidateTag(tag);
-    }
-
-    // Clear from S3/DynamoDB
+    // Memory hits are checked against the same markers (see `get`), so only
+    // the S3/DynamoDB handler has anything to record.
     if (this.s3DynamoHandler) {
       await this.s3DynamoHandler.revalidateTag(tag, durations);
     }

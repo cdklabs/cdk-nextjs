@@ -1,7 +1,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 /**
  * The init cache: one response-cache entry per prerendered route, written by
- * `onBuildComplete` and seeded into S3 and DynamoDB at deploy, so a fresh
+ * `onBuildComplete` and seeded into S3 at deploy, so a fresh
  * deployment starts with what `next build` rendered instead of a cold cache.
  *
  * Separate from `adapter.mts` only so it can be tested without loading the
@@ -18,9 +18,9 @@ import { cacheKindResolver } from "./cache-kinds";
 import {
   appPageCacheHeaders,
   groupPrerenders,
+  headerTags,
   INIT_CACHE_TAG_MANIFEST,
   InitCacheTagManifest,
-  NEXT_CACHE_TAGS_HEADER,
   prerenderPathToCacheKey,
   serializeCacheValue,
 } from "./cache-utils";
@@ -45,7 +45,7 @@ export async function writeInitCache(
 
   const cacheKindOf = cacheKindResolver(ctx.outputs);
 
-  // Tag -> cache keys, for the rows a runtime `set` would have written.
+  // Tag -> cache keys, standing in for the mapping rows a runtime `set` writes.
   // See `INIT_CACHE_TAG_MANIFEST`.
   const tagManifest: InitCacheTagManifest = {};
 
@@ -226,7 +226,7 @@ export async function writeInitCache(
 
       await writeFile(cacheFilePath, serializeCacheValue(cacheEntry));
 
-      for (const tag of cacheEntryTags(cacheEntry)) {
+      for (const tag of headerTags(cacheEntry.value)) {
         (tagManifest[tag] ??= []).push(cacheKey);
       }
 
@@ -244,21 +244,6 @@ export async function writeInitCache(
     );
     debug(`Wrote ${INIT_CACHE_TAG_MANIFEST} with ${taggedKeys} tags`);
   }
-}
-
-/**
- * The tags a prerender was rendered with, as Next.js records them: in the
- * entry's own `x-next-cache-tags` header, comma separated, including the
- * implicit `_N_T_/…` path chain `revalidatePath` uses.
- */
-function cacheEntryTags(entry: CacheHandlerValue): string[] {
-  const headers =
-    entry.value && "headers" in entry.value ? entry.value.headers : undefined;
-  const header = headers?.[NEXT_CACHE_TAGS_HEADER];
-  if (typeof header !== "string") {
-    return [];
-  }
-  return header.split(",").filter(Boolean);
 }
 
 /**

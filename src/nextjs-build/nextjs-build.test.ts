@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { App, Stack } from "aws-cdk-lib";
 import { Architecture } from "aws-cdk-lib/aws-lambda";
 import {
-  deploymentRootArchitecture,
+  deploymentArchitecture,
   dereferencedSize,
   listTree,
   NextjsBuild,
@@ -226,40 +226,53 @@ describe("NextjsBuild with skipBuild and no build output", () => {
   });
 });
 
-describe("deploymentRootArchitecture", () => {
+describe("NextjsBuild with a build split by other functionGroups", () => {
+  it("rejects a build whose groups kept their names but not their routes", () => {
+    // Moving `/reports/**` into `api` keeps the group names, and a names-only
+    // check let CloudFront send `reports/*` to a zip without those routes.
+    write(join(dir, ".next", "BUILD_ID"), "b1");
+    write(
+      join(dir, ".next", "cdk-nextjs-adapter", "manifest.json"),
+      JSON.stringify({
+        version: 1,
+        buildId: "b1",
+        relativeProjectDir: "",
+        config: { basePath: "", assetPrefix: "", trailingSlash: false },
+        entrypoints: {},
+        groups: { default: [], api: [] },
+        functionGroups: [{ name: "api", routes: ["/api/**"] }],
+      }),
+    );
+    expect(
+      () =>
+        new NextjsBuild(new Stack(new App(), "Stack"), "Build", {
+          buildCommand: "true",
+          buildDirectory: dir,
+          nextjsType: NextjsType.REGIONAL_FUNCTIONS,
+          skipBuild: true,
+          functionGroups: [{ name: "api", routes: ["/api/**", "/reports/**"] }],
+        }),
+    ).toThrow(/build output is\s+stale/);
+  });
+});
+
+describe("deploymentArchitecture", () => {
   const base = { buildCommand: "", buildDirectory: "" };
   const functions = { ...base, nextjsType: NextjsType.GLOBAL_FUNCTIONS };
 
   const host = process.arch.startsWith("arm") ? "arm64" : "x86_64";
 
   it("stages the Functions types for the synth machine unless told otherwise", () => {
-    expect(deploymentRootArchitecture(functions, "default").name).toBe(host);
+    expect(deploymentArchitecture(functions).name).toBe(host);
   });
 
   // The point of honoring the prop: `sharp` for another architecture is only
   // a download, so the build no longer has to run where the function will.
   it("stages for the architecture asked for, not the synth machine's", () => {
     const other = host === "arm64" ? Architecture.X86_64 : Architecture.ARM_64;
-    expect(
-      deploymentRootArchitecture(
-        { ...functions, architecture: other },
-        "default",
-      ),
-    ).toBe(other);
-  });
-
-  it("prefers the group's architecture over the build's", () => {
-    const props = {
-      ...functions,
-      architecture: Architecture.ARM_64,
-      functionGroups: [
-        { name: "api", routes: ["/api/**"], architecture: Architecture.X86_64 },
-      ],
-    };
-    expect(deploymentRootArchitecture(props, "default")).toBe(
-      Architecture.ARM_64,
+    expect(deploymentArchitecture({ ...functions, architecture: other })).toBe(
+      other,
     );
-    expect(deploymentRootArchitecture(props, "api")).toBe(Architecture.X86_64);
   });
 
   it("follows the synth machine for the Containers types", () => {
@@ -269,6 +282,6 @@ describe("deploymentRootArchitecture", () => {
       architecture:
         host === "arm64" ? Architecture.X86_64 : Architecture.ARM_64,
     };
-    expect(deploymentRootArchitecture(props, "default").name).toBe(host);
+    expect(deploymentArchitecture(props).name).toBe(host);
   });
 });

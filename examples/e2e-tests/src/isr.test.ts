@@ -36,40 +36,11 @@ test.describe("isr", () => {
     console.log("Waiting 11 seconds for revalidation period to expire...");
     await waitXSec(11);
 
-    // This request must be answered from the cache and revalidate in the
-    // background, not block on a re-render. `x-nextjs-cache` is the assertion,
-    // not the timestamp: whether the timestamp has already advanced depends on
-    // whether a background revalidation landed first, which stale-while-
-    // revalidate deliberately leaves unspecified. (It used to assert the
-    // timestamp was unchanged here, which only held because revalidation on the
-    // old `next start` path was slow enough to still be in flight.) `MISS` is
-    // the failure this catches: a synchronous re-render of an expired entry.
-    //
-    // Behind CloudFront the header is the one the *cached* copy was stored
-    // with, and an edge hit is by definition not a re-render. The baseline above
-    // is usually the blocking `REVALIDATED` render the `/api/revalidate` call
-    // forces, cached for `s-maxage=10`, and CloudFront keeps serving it stale
-    // under `stale-while-revalidate` while it refetches in the background. That
-    // only surfaced once dynamic responses stopped being cached by default:
-    // before, CloudFront cached `/api/revalidate` itself for a day, and the
-    // revalidation never reached the app.
-    const staleResponse = await page.reload({ waitUntil: "networkidle" });
-    const headers = staleResponse?.headers() ?? {};
-    const cacheState = headers["x-nextjs-cache"];
-    const edgeHit = /^Hit from cloudfront/i.test(headers["x-cache"] ?? "");
-    expect(
-      edgeHit || ["STALE", "HIT"].includes(cacheState ?? ""),
-      `x-nextjs-cache: ${cacheState}, x-cache: ${headers["x-cache"]}`,
-    ).toBe(true);
-    const staleTimestamp = await getPageTimestamp(page);
-    expect(staleTimestamp).toBeTruthy();
-    console.log(
-      `Request after 11s served from cache (x-nextjs-cache: ${cacheState})`,
-    );
-
-    // Next request should serve the freshly revalidated page. Poll until
-    // fresh, since CloudFront invalidation and cross-instance cache eviction
-    // are eventually consistent with no fixed completion time.
+    // The page should now regenerate. Poll until fresh: stale-while-revalidate
+    // serves the old copy at least once, and CloudFront's own copy expires on
+    // its own schedule. (Whether that first request is served stale rather than
+    // blocking on a re-render is not observable behind a CDN; the unit tests
+    // cover it.)
     await page.reload({ waitUntil: "networkidle" });
     const revalidatedTimestamp = await waitForFreshTimestamp(
       page,
@@ -83,30 +54,6 @@ test.describe("isr", () => {
     // content changing at all is the meaningful signal.
     expect(revalidatedTimestamp).not.toBe(initialTimestamp);
     console.log(`Revalidated page has new timestamp: ${revalidatedTimestamp}`);
-  });
-
-  test("should have independent revalidation per post", async ({
-    page,
-    baseURL,
-  }) => {
-    // no cache in dev mode
-    test.skip(baseURL?.includes("localhost") === true);
-
-    // Visit post 2
-    await page.goto("./isr/2", { waitUntil: "networkidle" });
-    const post2Timestamp = await getPageTimestamp(page);
-    expect(post2Timestamp).toBeTruthy();
-    console.log(`Post 2 render timestamp: ${post2Timestamp}`);
-
-    // Visit post 3
-    await page.goto("./isr/3", { waitUntil: "networkidle" });
-    const post3Timestamp = await getPageTimestamp(page);
-    expect(post3Timestamp).toBeTruthy();
-    console.log(`Post 3 render timestamp: ${post3Timestamp}`);
-
-    // Both posts should have timestamps (may be same or different depending on build/cache state)
-    expect(post2Timestamp).toBeTruthy();
-    expect(post3Timestamp).toBeTruthy();
   });
 
   test("should show consistent timestamp during cache period", async ({

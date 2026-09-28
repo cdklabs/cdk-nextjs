@@ -101,6 +101,9 @@ export interface NextjsCacheProps {
    * Bring your own DynamoDB table for revalidation metadata. When provided,
    * cdk-nextjs will skip creating a new table. The table must have `pk` (String)
    * as partition key and `sk` (String) as sort key.
+   * Enable TTL on its `ttl` attribute too: each tag revalidation writes a
+   * revalidation log row that expires through it, and without TTL those rows
+   * accumulate.
    *
    * The table must be dedicated to this one deployment. Don't share it with
    * another deployment (another branch, stage, or app): every deploy's

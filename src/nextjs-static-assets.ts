@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RemovalPolicy } from "aws-cdk-lib";
+import { RemovalPolicy, Token } from "aws-cdk-lib";
 import {
   BlockPublicAccess,
   Bucket,
@@ -24,6 +24,20 @@ import {
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { normalizeBasePath } from "./utils/base-path";
+
+/**
+ * The S3 object key pattern covering every static asset uploaded under
+ * `keyPrefix` (`NextjsStaticAssets.keyPrefix`): `"base/*"`, or `"*"` at the
+ * bucket root. For scoping the compute's read grant to the app's own objects
+ * when several apps share one bucket.
+ */
+export function staticAssetsObjectsPattern(keyPrefix?: string): string {
+  if (keyPrefix && Token.isUnresolved(keyPrefix)) {
+    return "*";
+  }
+  const prefix = normalizeBasePath(keyPrefix);
+  return prefix ? `${prefix}/*` : "*";
+}
 
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;

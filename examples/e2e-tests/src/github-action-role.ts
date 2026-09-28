@@ -35,10 +35,12 @@ class AwsGitHubActionRole extends Stack {
     // which covers `cdk deploy`. The harness scripts (scripts/e2e-*.sh,
     // scripts/e2e-harness/common.sh) also call the AWS CLI directly, as this role,
     // to read stack outputs, invalidate the distribution, read the server
-    // function's `LastModified`, tail its logs and delete orphaned stacks. Each
-    // statement below is one of those, scoped to the harness's `hrns-` names and,
-    // wherever something is changed, to its `cdk-nextjs:harness=1` tag. Keep in
-    // step with HARNESS_STACK_PREFIX / HARNESS_TAG_* in common.sh.
+    // function's `LastModified`, tail its logs, hotswap and delete orphaned
+    // stacks. Each statement below is one of those, scoped to the harness's
+    // `hrns-` names; DeleteStack and CreateInvalidation are also scoped to its
+    // `cdk-nextjs:harness=1` tag, while the Lambda and ECS hotswap grants rely on
+    // the name prefix alone. Keep in step with HARNESS_STACK_PREFIX /
+    // HARNESS_TAG_* in common.sh.
     const stackArn = this.formatArn({
       service: "cloudformation",
       resource: "stack",
@@ -179,7 +181,9 @@ class AwsGitHubActionRole extends Stack {
     role.addToPrincipalPolicy(
       new PolicyStatement({
         actions: ["s3:GetObject"],
-        resources: [`arn:${this.partition}:s3:::cdk-*-assets-${this.account}-${this.region}/*`],
+        resources: [
+          `arn:${this.partition}:s3:::cdk-*-assets-${this.account}-${this.region}/*`,
+        ],
       }),
     );
     // The Containers types: a new task definition, then the service pointed at

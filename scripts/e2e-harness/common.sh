@@ -9,7 +9,6 @@
 readonly HARNESS_MARKERS_FILE=".adapter-markers.log"
 readonly HARNESS_BUILD_LOG=".adapter-build.log"
 readonly HARNESS_DEPLOY_LOG=".adapter-deploy.log"
-readonly HARNESS_OUTPUTS_FILE=".adapter-outputs.json"
 readonly HARNESS_STACK_FILE=".adapter-stack.txt"
 readonly HARNESS_CDK_OUT=".adapter-cdk-out"
 
@@ -135,44 +134,10 @@ harness_proxy_state() {
   printf '%s/%s-stage-proxy' "${TMPDIR:-/tmp}" "$stack"
 }
 
-# Read one CloudFormation output out of `cdk deploy --outputs-file`'s JSON.
-# `node` rather than `jq`: node is already a hard requirement here, jq is not.
-harness_read_output() {
-  local file="$1" key="$2"
-  # `break`, not `return`: `node -e` compiles its argument as a script body, and
-  # a top-level `return` there is a SyntaxError.
-  node -e '
-    const [file, key] = process.argv.slice(1);
-    const outputs = require("node:fs").existsSync(file)
-      ? JSON.parse(require("node:fs").readFileSync(file, "utf8"))
-      : {};
-    // One stack per deploy, so take whichever stack is in there rather than
-    // depending on the name.
-    for (const stack of Object.values(outputs)) {
-      if (stack && stack[key]) {
-        process.stdout.write(String(stack[key]));
-        break;
-      }
-    }
-  ' "$file" "$key"
-}
-
-# Read one CloudFormation output, preferring `--outputs-file` and falling back
-# to CloudFormation itself.
-#
-# The fallback is what makes the shared stack workable: `--hotswap-fallback` can
-# finish without going through CloudFormation at all, and a deploy that took the
-# hotswap path is not guaranteed to leave an outputs file behind. The outputs of
-# a hotswapped stack are unchanged from its last real deployment, so reading them
-# off the stack is equivalent.
+# Read one CloudFormation output off the stack, or nothing if it has none.
 harness_stack_output() {
-  local file="$1" stack="$2" key="$3"
+  local stack="$1" key="$2"
   local value
-  value="$(harness_read_output "$file" "$key")"
-  if [ -n "$value" ]; then
-    printf '%s' "$value"
-    return 0
-  fi
   value="$(aws cloudformation describe-stacks --stack-name "$stack" \
     --query "Stacks[0].Outputs[?OutputKey=='${key}'].OutputValue" \
     --output text 2>/dev/null)" || return 0

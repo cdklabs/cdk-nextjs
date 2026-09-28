@@ -67,11 +67,6 @@ export class EntrypointRegistry {
     }
     return handler;
   }
-
-  /** Number of distinct files loaded. Reported in cold-start logs. */
-  public get loadedCount(): number {
-    return this.handlers.size;
-  }
 }
 
 async function loadEntrypointHandler(

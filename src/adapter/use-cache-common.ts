@@ -13,6 +13,7 @@ import type {
   Timestamp,
 } from "next/dist/server/lib/cache-handlers/types";
 import {
+  DEFAULT_TAG_REFRESH_MS,
   markerFor,
   markerState,
   mergeMarkers,
@@ -20,7 +21,9 @@ import {
   RevalidateDurations,
   RevalidationLog,
   RevalidationState,
+  TagMarker,
   TagMarkerTable,
+  TagTable,
   TrackedTagMarkers,
   TrackedTagMarkersOptions,
   markerClock as now,
@@ -208,23 +211,8 @@ function sizeOf(key: string, entry: StoredEntry): number {
 export const DEFAULT_MEMORY_BYTES = 50 * 1024 * 1024;
 
 /**
- * How often, at most, {@link UseCacheTagManifest.refresh} asks the revalidation
- * log what changed: the staleness window for a `revalidateTag` run on another
- * instance. `CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS` overrides it; `0` asks before
- * every request that uses a cache.
- */
-export const DEFAULT_TAG_REFRESH_MS = 1000;
-
-/** How {@link UseCacheTagManifest} is built. */
-export interface UseCacheTagManifestOptions extends Omit<
-  TrackedTagMarkersOptions,
-  "refreshIntervalMs" | "debug"
-> {
-  refreshIntervalMs?: number;
-}
-
-/**
- * This instance's copy of the tag markers, for the `cacheHandlers`.
+ * This instance's copy of the tag markers, for the `cacheHandlers` and the
+ * incremental cache's `S3CacheHandler` alike.
  *
  * Next.js's built-in `'use cache'` handler keeps tags in a module-level map
  * (`tags-manifest.external.js`) that only its own `updateTags` writes, and its
@@ -238,27 +226,23 @@ export interface UseCacheTagManifestOptions extends Omit<
  * revalidation log: see {@link TrackedTagMarkers} for how, and for the cost.
  */
 export class UseCacheTagManifest {
-  private readonly markers: TagMarkerTable | undefined;
-  private readonly log: RevalidationLog | undefined;
+  private readonly table: TagTable;
   private readonly tracked: TrackedTagMarkers;
   private readonly clock: () => number;
-  private readonly updating = new Map<string, Promise<void>>();
+  private readonly updating = new Map<string, Promise<boolean>>();
 
-  constructor(options: UseCacheTagManifestOptions) {
-    this.markers = options.markers;
-    this.log = options.markers ? options.log : undefined;
+  constructor(options: TrackedTagMarkersOptions) {
+    this.table = options;
     this.clock = options.clock ?? (() => Date.now());
     this.tracked = new TrackedTagMarkers({
       ...options,
-      refreshIntervalMs: options.refreshIntervalMs ?? DEFAULT_TAG_REFRESH_MS,
-      debug: getDebug("cdk-nextjs:cache-handler:use-cache:tags"),
-      label: "'use cache' tag",
+      debug: getDebug("cdk-nextjs:cache-handler:tags"),
     });
   }
 
-  /** Whether markers are read from, and written to, the revalidation table. */
-  get isShared(): boolean {
-    return this.markers !== undefined;
+  /** `tag`'s marker as this instance knows it, if it tracks `tag`. */
+  get(tag: string): TagMarker | undefined {
+    return this.tracked.get(tag);
   }
 
   /** @see TrackedTagMarkers.track */
@@ -286,17 +270,18 @@ export class UseCacheTagManifest {
 
   /**
    * Record a revalidation of `tags`: here at once, and in the revalidation
-   * table for every other instance - the same marker `S3CacheHandler`'s
-   * `revalidateTag` writes for the same call, plus a log row per tag.
+   * table for every other instance - the marker row plus a log row per tag.
    *
-   * Next.js calls `updateTags` on every distinct handler, and both
-   * `cacheHandlers` share this manifest, so the second identical call while
-   * the first is in flight joins it instead of writing the rows again.
+   * Next.js calls `revalidateTag` on the incremental cache and `updateTags` on
+   * every distinct `cacheHandlers` entry, and all of them share this manifest,
+   * so an identical call while the first is in flight joins it instead of
+   * writing the rows again. Never rejects: resolves `false` when a row failed
+   * to write (the error is logged), so other instances may not see it.
    */
   async update(
     tags: readonly string[],
     durations: RevalidateDurations | undefined,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const key = JSON.stringify([tags, durations ?? null]);
     const inFlight = this.updating.get(key);
     if (inFlight) {
@@ -363,40 +348,37 @@ export class UseCacheTagManifest {
   private async write(
     tags: readonly string[],
     durations: RevalidateDurations | undefined,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const at = now();
     const marker = markerFor(at, durations);
     for (const tag of tags) {
       this.tracked.set(tag, { ...this.tracked.get(tag), ...marker });
     }
-    if (!this.markers) {
-      return;
+    const { markers, log } = this.table;
+    if (!markers) {
+      return true;
     }
-    const { markers, log } = this;
     // The log row's sort key is on the wall clock, the marker values on
     // Next.js's: see `RevalidationLog`.
     const loggedAt = this.clock();
     const writes: [string, Promise<unknown>][] = [];
     for (const tag of new Set(tags)) {
       writes.push([
-        "Error writing 'use cache' tag revalidation marker:",
+        "Error writing tag revalidation marker:",
         // The row as it is now, which carries any earlier `revalidatedAt`
         // another instance wrote: tracking only what this call set would
         // hide that one until the rolling re-read, and an entry older than it
-        // would read as merely stale. What `S3CacheHandler.recordRevalidation`
-        // does with the same row.
+        // would read as merely stale.
         markers.write(tag, at, durations).then((row) => {
           if (row) {
             this.tracked.set(tag, mergeMarkers(this.tracked.get(tag), row));
           }
         }),
       ]);
-      if (log) {
-        writes.push([
-          "Error writing 'use cache' revalidation log row:",
-          log.put(tag, loggedAt, marker),
-        ]);
-      }
+      writes.push([
+        "Error writing tag revalidation log row:",
+        log.put(tag, loggedAt, marker),
+      ]);
     }
     const results = await Promise.allSettled(writes.map(([, write]) => write));
     results.forEach((result, i) => {
@@ -404,6 +386,7 @@ export class UseCacheTagManifest {
         console.error(writes[i][0], result.reason);
       }
     });
+    return results.every((result) => result.status === "fulfilled");
   }
 }
 
@@ -429,9 +412,10 @@ const TAG_MANIFEST_SYMBOL = Symbol.for("cdk-nextjs.use-cache.tag-manifest");
 /**
  * The process's one {@link UseCacheTagManifest}, from the environment.
  *
- * Kept on `globalThis` because the `default` and `remote` handlers are separate
- * bundles - separate module instances - and should share one manifest: one
- * refresh read for both, and one marker write per `revalidateTag`.
+ * Kept on `globalThis` because the incremental cache handler and the `default`
+ * and `remote` handlers are separate bundles - separate module instances - and
+ * should share one manifest: one refresh read for all of them, and one marker
+ * write per `revalidateTag`.
  *
  * At build time there is no table to read (and no credentials to read it
  * with), so tags stay local to the process there.
@@ -440,29 +424,27 @@ export function sharedTagManifest(): UseCacheTagManifest {
   const global = globalThis as { [TAG_MANIFEST_SYMBOL]?: UseCacheTagManifest };
   if (!global[TAG_MANIFEST_SYMBOL]) {
     const config = resolveAwsCacheConfig();
-    const shared = Boolean(config.tableName) && !isBuildPhase();
-    const client = shared
-      ? new DynamoDBClient({ region: config.region })
-      : undefined;
-    const markers = client
-      ? new TagMarkerTable(client, config.tableName, config.buildId)
-      : undefined;
-    const log = client
-      ? new RevalidationLog(client, config.tableName, config.buildId)
-      : undefined;
-    if (!markers && !isBuildPhase()) {
-      console.warn(
-        "CDK_NEXTJS_REVALIDATION_TABLE_NAME environment variable not set, 'use cache' tags are local to each instance",
-      );
+    const refreshIntervalMs = numberFromEnv(
+      "CDK_NEXTJS_TAG_REFRESH_MS",
+      DEFAULT_TAG_REFRESH_MS,
+    );
+    if (config.tableName && !isBuildPhase()) {
+      const client = new DynamoDBClient({ region: config.region });
+      global[TAG_MANIFEST_SYMBOL] = new UseCacheTagManifest({
+        markers: new TagMarkerTable(client, config.tableName, config.buildId),
+        log: new RevalidationLog(client, config.tableName, config.buildId),
+        refreshIntervalMs,
+      });
+    } else {
+      if (!isBuildPhase()) {
+        console.warn(
+          "CDK_NEXTJS_REVALIDATION_TABLE_NAME environment variable not set, cache tags are local to each instance",
+        );
+      }
+      global[TAG_MANIFEST_SYMBOL] = new UseCacheTagManifest({
+        refreshIntervalMs,
+      });
     }
-    global[TAG_MANIFEST_SYMBOL] = new UseCacheTagManifest({
-      markers,
-      log,
-      refreshIntervalMs: numberFromEnv(
-        "CDK_NEXTJS_USE_CACHE_TAG_REFRESH_MS",
-        DEFAULT_TAG_REFRESH_MS,
-      ),
-    });
   }
   return global[TAG_MANIFEST_SYMBOL];
 }

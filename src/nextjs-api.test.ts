@@ -270,7 +270,7 @@ describe("NextjsApi", () => {
       return Object.values(methods).map(
         (method) =>
           JSON.stringify(method.Properties.Integration.Uri).match(
-            /(ServerFn|GroupFn)[A-F0-9]+/,
+            /(ServerFn|GroupFn|ReportsFn)[A-F0-9]+/,
           )![1],
       );
     }
@@ -304,6 +304,52 @@ describe("NextjsApi", () => {
       expect(anyTargets("export")).toEqual(["GroupFn"]);
     });
 
+    it("sends a parent under another group's subtree to that group", () => {
+      // `assignRoutesToGroups` packages `/api/reports` into `api`, and
+      // CloudFront's `api/*` sends it there; so must API Gateway.
+      new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+        functionGroups: [
+          {
+            name: "api",
+            routes: ["/api/**"],
+            hasDataRoutes: true,
+            function: new LambdaFunction(stack, "GroupFn", {
+              runtime: Runtime.NODEJS_22_X,
+              handler: "index.handler",
+              code: Code.fromInline("exports.handler = async () => {};"),
+            }),
+          },
+          {
+            name: "reports",
+            routes: ["/api/reports/q1/**"],
+            hasDataRoutes: true,
+            function: new LambdaFunction(stack, "ReportsFn", {
+              runtime: Runtime.NODEJS_22_X,
+              handler: "index.handler",
+              code: Code.fromInline("exports.handler = async () => {};"),
+            }),
+          },
+        ],
+      });
+
+      // Each path part below appears twice, under `/` and under the data
+      // prefix, so check the tree by path.
+      const targets = anyTargetsByPath();
+      expect(targets["/api"]).toEqual(["ServerFn"]);
+      expect(targets["/api/reports"]).toEqual(["GroupFn"]);
+      expect(targets["/api/reports/q1"]).toEqual(["GroupFn"]);
+      expect(targets["/api/reports/q1/{proxy+}"]).toEqual(["ReportsFn"]);
+      expect(targets["/_next/data/{buildId}/api/reports"]).toEqual(["GroupFn"]);
+      expect(targets["/_next/data/{buildId}"]).toEqual(["ServerFn"]);
+    });
+
     function createGroupedApi(hasDataRoutes: boolean) {
       new NextjsApi(stack, "NextjsApi", {
         staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
@@ -313,11 +359,11 @@ describe("NextjsApi", () => {
           code: Code.fromInline("exports.handler = async () => {};"),
         }),
         publicDirEntries: [],
-        hasDataRoutes,
         functionGroups: [
           {
             name: "reports",
             routes: ["/reports/**", "/docs/intro"],
+            hasDataRoutes,
             function: new LambdaFunction(stack, "GroupFn", {
               runtime: Runtime.NODEJS_22_X,
               handler: "index.handler",
@@ -343,6 +389,33 @@ describe("NextjsApi", () => {
       return Object.keys(resources).map(pathOf).sort();
     }
 
+    /** Resource path → the Lambda functions `ANY` on it invokes. */
+    function anyTargetsByPath(): Record<string, string[]> {
+      const template = Template.fromStack(stack);
+      const resources = template.findResources("AWS::ApiGateway::Resource");
+      const pathOf = (id: string): string => {
+        const { ParentId, PathPart } = resources[id].Properties;
+        const parent = ParentId.Ref;
+        return parent && resources[parent]
+          ? `${pathOf(parent)}/${PathPart}`
+          : `/${PathPart}`;
+      };
+      const methods = template.findResources("AWS::ApiGateway::Method", {
+        Properties: { HttpMethod: "ANY" },
+      });
+      const targets: Record<string, string[]> = {};
+      for (const method of Object.values(methods)) {
+        const id = method.Properties.ResourceId?.Ref;
+        if (!id || !resources[id]) continue;
+        (targets[pathOf(id)] ??= []).push(
+          JSON.stringify(method.Properties.Integration.Uri).match(
+            /(ServerFn|GroupFn|ReportsFn)[A-F0-9]+/,
+          )![1],
+        );
+      }
+      return targets;
+    }
+
     it("routes a group's Pages Router data URLs to it too", () => {
       createGroupedApi(true);
 
@@ -365,11 +438,11 @@ describe("NextjsApi", () => {
           code: Code.fromInline("exports.handler = async () => {};"),
         }),
         publicDirEntries: [],
-        hasDataRoutes: true,
         functionGroups: [
           {
             name: "blog",
             routes: ["/blog/**"],
+            hasDataRoutes: true,
             function: new LambdaFunction(stack, "GroupFn", {
               runtime: Runtime.NODEJS_22_X,
               handler: "index.handler",

@@ -43,33 +43,25 @@ jest.mock("../src/nextjs-build/nextjs-build", () => {
     readonly nextConfigAssetPrefixPath = "";
     readonly relativeProjectDir = relativeProjectDir;
     readonly relativePathToEntrypoint = "cdk-nextjs-runtime/server.mjs";
-    readonly hasDataRoutes = false;
     readonly trailingSlash = false;
     readonly initCacheDir = join(buildDir, ".next", "cdk-nextjs-init-cache");
     readonly deploymentRoots: {
       name: string;
       path: string;
       routes: string[];
-      architecture: unknown;
     }[];
-    readonly deploymentRootPath: string;
+    readonly architecture: unknown;
     constructor(scope: Construct, id: string, props: any) {
       super(scope, id);
       this.deploymentRoots = [
-        {
-          name: "default",
-          path: join(buildDir, "root-default"),
-          routes: [],
-          architecture: actual.deploymentRootArchitecture(props, "default"),
-        },
+        { name: "default", path: join(buildDir, "root-default"), routes: [] },
         ...(props.functionGroups ?? []).map((group: any) => ({
           name: group.name,
           path: join(buildDir, `root-${group.name}`),
           routes: group.routes,
-          architecture: actual.deploymentRootArchitecture(props, group.name),
         })),
       ];
-      this.deploymentRootPath = this.deploymentRoots[0].path;
+      this.architecture = actual.deploymentArchitecture(props);
     }
   }
   return { ...actual, NextjsBuild: StubNextjsBuild };
@@ -233,6 +225,22 @@ describe("NextjsGlobalFunctions", () => {
         SigningBehavior: "always",
       }),
     });
+    // And invocable only by this distribution, on every group.
+    const [distributionId] = Object.keys(
+      template.findResources("AWS::CloudFront::Distribution"),
+    );
+    const invokers = Object.values(
+      template.findResources("AWS::Lambda::Permission", {
+        Properties: { Action: "lambda:InvokeFunction" },
+      }),
+    );
+    expect(invokers).toHaveLength(2);
+    for (const permission of invokers) {
+      expect(permission.Properties.Principal).toBe("cloudfront.amazonaws.com");
+      expect(JSON.stringify(permission.Properties.SourceArn)).toContain(
+        distributionId,
+      );
+    }
   });
 
   describe("architecture", () => {
@@ -263,7 +271,7 @@ describe("NextjsGlobalFunctions", () => {
       });
     });
 
-    it("honors functionProps.architecture, construct-wide and per group", () => {
+    it("honors functionProps.architecture construct-wide, and only there", () => {
       expect(
         architectures({
           functionGroups,
@@ -274,7 +282,8 @@ describe("NextjsGlobalFunctions", () => {
           },
         }),
       ).toEqual({ default: [other.name], reports: [other.name] });
-      expect(
+      // One architecture per deployment.
+      expect(() =>
         architectures({
           functionGroups: [
             {
@@ -285,7 +294,7 @@ describe("NextjsGlobalFunctions", () => {
             },
           ],
         }),
-      ).toEqual({ default: [host], reports: [other.name] });
+      ).toThrow(/function group "reports" is/);
     });
   });
 
@@ -393,6 +402,34 @@ describe("NextjsGlobalContainers", () => {
     template.resourceCountIs("AWS::ECS::Service", 1);
     expectCacheActions(taskRoleActions(template));
     expectTableScopedDynamoGrants(template, taskRoleId(template));
+
+    // The ALB origin doesn't depend on the task, so it gets the distribution
+    // ID itself and an invalidation grant on that distribution alone.
+    const [distributionId] = Object.keys(
+      template.findResources("AWS::CloudFront::Distribution"),
+    );
+    template.resourceCountIs("AWS::SSM::Parameter", 0);
+    template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Environment: Match.arrayWith([
+            {
+              Name: "CDK_NEXTJS_DISTRIBUTION_ID",
+              Value: { Ref: distributionId },
+            },
+          ]),
+        }),
+      ]),
+    });
+    const invalidation = Object.values(
+      template.findResources("AWS::IAM::Policy"),
+    )
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .find(
+        (statement: any) =>
+          statement.Action === "cloudfront:CreateInvalidation",
+      );
+    expect(JSON.stringify(invalidation.Resource)).toContain(distributionId);
   });
 });
 

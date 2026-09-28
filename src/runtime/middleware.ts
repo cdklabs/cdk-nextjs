@@ -77,15 +77,7 @@ export class MiddlewareRunner {
    * `waitUntil` / `signal` / `requestMeta` are per-request while the loaded
    * handler is not.
    */
-  public invokerFor(
-    perRequest: MiddlewarePerRequest = {},
-    /**
-     * Receives the raw `Response` middleware returned. `resolveRoutes` reports
-     * `middlewareResponded: true` without carrying the response, so this is the
-     * only way the caller can stream middleware's own body.
-     */
-    onResponse?: (response: Response) => void,
-  ): MiddlewareInvoker {
+  public invokerFor(perRequest: MiddlewarePerRequest = {}): MiddlewareInvoker {
     return async ({ url, headers, requestBody, method }) => {
       const handler = await this.load();
       const hasBody = !BODYLESS_METHODS.has(method.toUpperCase());
@@ -112,11 +104,12 @@ export class MiddlewareRunner {
         );
       }
 
-      onResponse?.(response);
-
       // Mutates `headers` in place as well as returning the result, which is
       // why dispatch hands it a copy it owns.
-      return responseToMiddlewareResult(response, headers, url);
+      return {
+        ...responseToMiddlewareResult(response, headers, url),
+        response,
+      };
     };
   }
 
@@ -138,12 +131,6 @@ export class MiddlewareRunner {
     }
     return this.handler;
   }
-}
-
-export function createMiddlewareRunner(
-  options: MiddlewareRunnerOptions,
-): MiddlewareRunner {
-  return new MiddlewareRunner(options);
 }
 
 /** `require` the built middleware module and pull `handler` off it. */

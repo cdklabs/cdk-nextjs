@@ -137,9 +137,6 @@ jobs:
               throw new Error(`shard_total must be an integer in 1..20, got ${process.env.SHARD_TOTAL}`);
             }
             const ref = process.env.NEXTJS_REF;
-            if (!/^[\w.\-\/]+$/.test(ref)) {
-              throw new Error(`nextjs_ref is not a plausible git ref: ${ref}`);
-            }
             const shards = Array.from({ length: total }, (_, i) => i + 1);
             console.log(`shards=${JSON.stringify(shards)}`);
             console.log(`total=${total}`);
@@ -316,6 +313,10 @@ jobs:
 
       - name: Run the harness
         working-directory: nextjs
+        # Below the job's 180, so a slow run ends here rather than at the job
+        # timeout, and the stack deletion below still gets to `--wait` for its
+        # result.
+        timeout-minutes: 150
         env:
           NEXT_TEST_MODE: deploy
           NEXT_EXTERNAL_TESTS_FILTERS: ${{ env.TEST_FILTERS }}

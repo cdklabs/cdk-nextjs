@@ -150,6 +150,12 @@ export interface AdapterManifest {
    * rather than crash on a missing file. This field is what lets it say so.
    */
   readonly groups?: Record<string, string[]>;
+  /**
+   * The `functionGroups` the build was split by (name and routes, as passed in
+   * `CDK_NEXTJS_FUNCTION_GROUPS`), present exactly when {@link groups} is. Synth
+   * compares it with its own props to catch a stale or hand-run build.
+   */
+  readonly functionGroups?: { name: string; routes: string[] }[];
 }
 
 export interface AdapterManifestConfig {
@@ -170,10 +176,9 @@ export interface AdapterManifestConfig {
   readonly compress: boolean;
   /**
    * `next.config` `generateEtags`. Honored for the files the runtime serves
-   * itself, as `next start` does (`serveStatic`'s `etag` option). Absent in a
-   * manifest from before the field existed, which means the default, `true`.
+   * itself, as `next start` does (`serveStatic`'s `etag` option).
    */
-  readonly generateEtags?: boolean;
+  readonly generateEtags: boolean;
   /**
    * `ResolveRoutesParams["i18n"]`-shaped, narrower than NextConfigComplete.
    * `null` when the app configures no `i18n`.
@@ -195,5 +200,4 @@ export interface AdapterMiddleware {
   readonly id: string;
   /** Repo-root-relative POSIX key inside the staging tree. Never absolute. */
   readonly filePath: string;
-  readonly env: Record<string, string>;
 }

@@ -5,10 +5,8 @@ import {
   cp,
   mkdir,
   readFile,
-  readdir,
   readlink,
   rm,
-  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -133,12 +131,6 @@ export interface StagedGroup {
 
 export interface BuildAdapterManifestResult {
   readonly manifest: AdapterManifest;
-  /**
-   * The union of every group's plan. One group's plan is a subset of this; with
-   * no splitting it *is* this. Kept separately because the cross-output
-   * `assetsHashes` conflict check is only meaningful across the whole build.
-   */
-  readonly staging: StagingPlan;
   /** One entry per deployment root to stage. Length 1 unless splitting. */
   readonly groups: StagedGroup[];
 }
@@ -149,8 +141,6 @@ export interface StagedGroupResult {
   /** Absolute path to the deployment root. */
   readonly path: string;
   readonly fileCount: number;
-  /** Bytes staged into this root. Recorded to keep the 250 MB cap honest. */
-  readonly stagedBytes: number;
 }
 
 export interface WriteBuildOutputsResult extends BuildAdapterManifestResult {
@@ -160,8 +150,6 @@ export interface WriteBuildOutputsResult extends BuildAdapterManifestResult {
   readonly manifestPath: string;
   /** One per deployment root, in the order they were staged. */
   readonly stagedGroups: StagedGroupResult[];
-  /** Total bytes across every deployment root. */
-  readonly stagedBytes: number;
 }
 
 /**
@@ -176,11 +164,7 @@ export async function writeBuildOutputs(
   const adapterDir = join(ctx.distDir, ADAPTER_DIR_NAME);
   const manifestPath = join(adapterDir, MANIFEST_FILE_NAME);
 
-  const {
-    manifest,
-    staging: planned,
-    groups,
-  } = buildAdapterManifest(ctx, options);
+  const { manifest, groups } = buildAdapterManifest(ctx, options);
 
   // Traced once and merged into every group. The trace is async, which is why it
   // cannot happen inside `buildAdapterManifest`, and it is the same set of files
@@ -188,8 +172,6 @@ export async function writeBuildOutputs(
   const runtimeClosure = new Map<string, string>();
   await addRuntimeNextClosure(ctx, runtimeClosure);
   addRequiredServerFiles(ctx, runtimeClosure);
-
-  const staging = merged(planned, runtimeClosure);
 
   // A previous build's tree is never additive with this one's: a removed route
   // leaves behind an entrypoint the manifest no longer mentions, a renamed chunk
@@ -202,27 +184,19 @@ export async function writeBuildOutputs(
     const groupStaging = merged(group.staging, runtimeClosure);
     const path = join(adapterDir, ...group.dirName.split("/"));
     await mkdir(path, { recursive: true });
-    const stagedBytes =
-      (await stageFiles(groupStaging, path)) +
-      (await hoistStoreOnlyPackages(groupStaging, path));
-    stagedGroups.push({
-      name: group.name,
-      path,
-      fileCount: groupStaging.size,
-      stagedBytes,
-    });
+    await stageFiles(groupStaging, path);
+    await hoistStoreOnlyPackages(groupStaging, path);
+    stagedGroups.push({ name: group.name, path, fileCount: groupStaging.size });
   }
 
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
   return {
     manifest,
-    staging,
     groups,
     adapterDir,
     manifestPath,
     stagedGroups,
-    stagedBytes: stagedGroups.reduce((sum, g) => sum + g.stagedBytes, 0),
   };
 }
 
@@ -266,9 +240,7 @@ export function buildAdapterManifest(
   assertNodeRuntimes(invocable, outputs.middleware);
   warnOnDroppedRouteConfig(invocable);
 
-  const staging = collectStagingPlan(ctx, invocable);
   const staticFiles = collectStaticFiles(ctx);
-  stageServedStaticFiles(ctx, staging);
 
   const entrypoints: Record<string, AdapterEntrypoint> = {};
   for (const { outputs: group, type } of [
@@ -344,7 +316,15 @@ export function buildAdapterManifest(
     entrypoints,
     middleware: buildMiddleware(repoRoot, outputs.middleware),
     staticFiles,
-    ...(assignment ? { groups: assignment } : {}),
+    ...(assignment
+      ? {
+          groups: assignment,
+          functionGroups: functionGroups!.map(({ name, routes }) => ({
+            name,
+            routes,
+          })),
+        }
+      : {}),
   };
 
   const groups: StagedGroup[] = assignment
@@ -362,11 +342,11 @@ export function buildAdapterManifest(
         {
           name: DEFAULT_FUNCTION_GROUP,
           dirName: groupStagingDirName(),
-          staging,
+          staging: servedStagingPlan(ctx, invocable),
         },
       ];
 
-  return { manifest, staging, groups };
+  return { manifest, groups };
 }
 
 /**
@@ -379,22 +359,16 @@ export function buildAdapterManifest(
  * runtime serves itself (`404.html`, `favicon.ico.body`): any group can be asked
  * for them. And so are the not-found and error pages: the runtime renders a
  * 404 or a 500 with whichever of them the shared manifest names
- * (`resolveNotFoundTarget`, `resolveErrorTarget`), in whichever group the
+ * (`statusTargets` in `runtime/dispatch.ts`), in whichever group the
  * request reached, so a group without them answered a URL under its own
  * pattern that matches no route with "the deployment package is incomplete".
  *
- * Ownership is matched on `output.id` rather than on pathname because the manifest
- * is what decided the grouping, and its entrypoints are keyed by *template* while
- * an output may back several templates.
- *
- * And on `filePath` as well as `id`, because {@link addPrerenderPathnames}
- * synthesizes entrypoints that carry the *prerender's* id — which no invocable
- * output has. A group whose pattern matches only such a template (the root-params
- * app: entrypoint `/en` with `id: "/en"` backed by the output `/[locale]`) passed
- * `assignRoutesToGroups` validation and then staged no entrypoint at all, so every
- * request to its behavior answered 500 with "the deployment package is
- * incomplete". The synthesized entrypoint's `filePath` is the owning output's, so
- * that is the reliable key.
+ * Ownership is matched on the entrypoint's `filePath`, not its `id` or
+ * pathname: the manifest's entrypoints are keyed by *template*, an output may
+ * back several templates, and {@link addPrerenderPathnames} synthesizes
+ * entrypoints that carry the *prerender's* id, which no invocable output has (the
+ * root-params app: entrypoint `/en` with `id: "/en"` backed by the output
+ * `/[locale]`). The synthesized entrypoint's `filePath` is the owning output's.
  */
 function collectGroupStagingPlan(
   ctx: BuildCompleteContext,
@@ -409,16 +383,22 @@ function collectGroupStagingPlan(
   ]
     .map((template) => entrypoints[template])
     .filter((entry): entry is AdapterEntrypoint => entry !== undefined);
-  const ownedIds = new Set(ownedEntrypoints.map((entry) => entry.id));
   const ownedFiles = new Set(ownedEntrypoints.map((entry) => entry.filePath));
   const middleware = ctx.outputs.middleware;
   const owned = invocable.filter(
     (output) =>
-      ownedIds.has(output.id) ||
       ownedFiles.has(toPosix(relative(ctx.repoRoot, output.filePath))) ||
       output === middleware,
   );
-  const staging = collectStagingPlan(ctx, owned);
+  return servedStagingPlan(ctx, owned);
+}
+
+/** {@link collectStagingPlan} for `outputs`, plus the files the runtime serves. */
+function servedStagingPlan(
+  ctx: BuildCompleteContext,
+  outputs: InvocableOutput[],
+): Map<string, string> {
+  const staging = collectStagingPlan(ctx, outputs);
   stageServedStaticFiles(ctx, staging);
   return staging;
 }
@@ -924,12 +904,11 @@ function buildMiddleware(
   return {
     id: middleware.id,
     filePath: toPosix(relative(repoRoot, middleware.filePath)),
-    env: middleware.config.env ?? {},
   };
 }
 
 /**
- * Copy the staging plan into `stagingDir`. Returns total bytes staged.
+ * Copy the staging plan into `stagingDir`.
  *
  * **Symlinks are recreated as symlinks, not dereferenced**, which is what
  * Next.js's own `copyTracedFiles` does (`next/dist/build/utils.js`: `readlink`
@@ -955,7 +934,7 @@ const STAGING_CONCURRENCY = 32;
 async function stageFiles(
   staging: StagingPlan,
   stagingDir: string,
-): Promise<number> {
+): Promise<void> {
   const planned = [...staging];
   // One `readlink` per file, so issued concurrently; results land by index so
   // `links` keeps the plan's order.
@@ -985,7 +964,6 @@ async function stageFiles(
     }
   }
 
-  let bytes = 0;
   const makeParents = async (entries: Array<[string, string, ...string[]]>) => {
     for (const dir of sortedUnique(
       entries.map(([key]) => dirname(join(stagingDir, key))),
@@ -999,12 +977,7 @@ async function stageFiles(
   const copyWorker = async () => {
     while (cursor < files.length) {
       const [key, source] = files[cursor++];
-      const dest = join(stagingDir, key);
-      await copyFile(source, dest);
-      // Read the size into a local first: `bytes += await …` reads `bytes`
-      // *before* awaiting, so concurrent workers would clobber each other.
-      const size = (await stat(dest)).size;
-      bytes += size;
+      await copyFile(source, join(stagingDir, key));
     }
   };
   await Promise.all(
@@ -1029,12 +1002,8 @@ async function stageFiles(
       // Points outside the deployment root, so the link would dangle in Lambda.
       // Absolute store paths are the realistic case here.
       await cp(source, dest, { recursive: true, dereference: true });
-      const size = await directorySize(dest);
-      bytes += size;
     }
   }
-
-  return bytes;
 }
 
 /**
@@ -1192,7 +1161,7 @@ const PNPM_STORE_SEGMENT = "node_modules/.pnpm/";
 async function hoistStoreOnlyPackages(
   staging: StagingPlan,
   stagingDir: string,
-): Promise<number> {
+): Promise<void> {
   /** name → store directory → how many staged files other than metadata. */
   const storeRoots = new Map<string, Map<string, number>>();
   /** Every non-store package directory, e.g. `apps/web/node_modules/next`. */
@@ -1273,7 +1242,6 @@ async function hoistStoreOnlyPackages(
     }
   }
 
-  let bytes = 0;
   for (const name of hoisted) {
     const [root] = pick(name);
     const source = join(stagingDir, root);
@@ -1281,9 +1249,7 @@ async function hoistStoreOnlyPackages(
     if (existsSync(dest)) continue;
     await mkdir(dirname(dest), { recursive: true });
     await cp(source, dest, { recursive: true });
-    bytes += await directorySize(dest);
   }
-  return bytes;
 }
 
 /**
@@ -1332,18 +1298,6 @@ function packageRootOf(
   if (parts.length < (after[0].startsWith("@") ? 2 : 1)) return;
   const name = parts.join("/");
   return { name, path: key.slice(0, at + marker.length) + name };
-}
-
-async function directorySize(path: string): Promise<number> {
-  const entry = await stat(path);
-  if (!entry.isDirectory()) {
-    return entry.size;
-  }
-  let total = 0;
-  for (const child of await readdir(path)) {
-    total += await directorySize(join(path, child));
-  }
-  return total;
 }
 
 /**

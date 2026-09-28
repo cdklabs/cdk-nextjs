@@ -1,8 +1,12 @@
-import { Token } from "aws-cdk-lib";
+import { Stack, Token } from "aws-cdk-lib";
+import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
+import { Grant, IGrantable } from "aws-cdk-lib/aws-iam";
 import { IBucket } from "aws-cdk-lib/aws-s3";
+import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
+import { routedPatterns } from "../adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
@@ -113,6 +117,9 @@ export interface NextjsBaseProps {
    * Bring your own DynamoDB table for revalidation metadata. When provided,
    * cdk-nextjs will use this table instead of creating a new one. The table
    * must have `pk` (String) as partition key and `sk` (String) as sort key.
+   * Enable TTL on its `ttl` attribute too: each tag revalidation writes a
+   * revalidation log row that expires through it, and without TTL those rows
+   * accumulate.
    *
    * The table must be dedicated to this one deployment. Don't share it with
    * another deployment (another branch, stage, or app): every deploy's
@@ -214,7 +221,7 @@ export abstract class NextjsBaseConstruct extends Construct {
    *
    * Warn rather than throw: it is the app's config, the deployment otherwise
    * works, and an absolute `assetPrefix` (already reduced to `""` by
-   * `readNextConfigAssetPrefix`) is the supported way to serve assets from
+   * `relativeAssetPrefix`) is the supported way to serve assets from
    * elsewhere.
    */
   private warnUnservedAssetPrefix(): void {
@@ -240,7 +247,7 @@ export abstract class NextjsBaseConstruct extends Construct {
    * For the Global `NextjsType`s the key prefix isn't a free choice: it has to be
    * `basePath` (see `resolveBasePath`). A `destinationKeyPrefix` override that
    * moves the objects elsewhere has no way to tell the distribution about it —
-   * unlike the image Lambda and `NextjsApi`, which read
+   * unlike the functions' image optimizer and `NextjsApi`, which read
    * `NextjsStaticAssets.keyPrefix` — so fail at synth rather than 404 every
    * static request.
    */
@@ -314,17 +321,6 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * `functionGroups`, which only the two Functions root constructs accept —
-   * Containers deploy one task definition and have no 250 MB package limit to
-   * split around.
-   *
-   * Read off `baseProps` with a cast for the same reason as
-   * {@link getConstructOverrides}: `createNextjsBuild` and
-   * `createNextjsFunctions` are shared here, but the prop is declared on the
-   * subclasses, so nothing weaker than a cast can see it. Adding it to
-   * `NextjsBaseProps` would offer it to Containers, where it does nothing.
-   */
-  /**
    * `overrides.nextjsFunctions`, which only the two Functions root constructs
    * declare. Cast for the same reason as {@link functionGroups}.
    */
@@ -341,6 +337,17 @@ export abstract class NextjsBaseConstruct extends Construct {
     return overrides?.nextjsFunctions;
   }
 
+  /**
+   * `functionGroups`, which only the two Functions root constructs accept —
+   * Containers deploy one task definition and have no 250 MB package limit to
+   * split around.
+   *
+   * Read off `baseProps` with a cast for the same reason as
+   * {@link getConstructOverrides}: `createNextjsBuild` and
+   * `createNextjsFunctions` are shared here, but the prop is declared on the
+   * subclasses, so nothing weaker than a cast can see it. Adding it to
+   * `NextjsBaseProps` would offer it to Containers, where it does nothing.
+   */
   protected get functionGroups(): NextjsFunctionGroup[] | undefined {
     const props = this.baseProps as { functionGroups?: NextjsFunctionGroup[] };
     return props.functionGroups;
@@ -380,10 +387,80 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildId: this.nextjsBuild.buildId,
       buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
-      deploymentRootPath: this.nextjsBuild.deploymentRootPath,
-      relativeProjectDir: this.nextjsBuild.relativeProjectDir,
       staticAssetsBucket: this.nextjsStaticAssets.bucket,
       staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
+    };
+  }
+
+  /**
+   * Lets `grantees` invalidate `distribution`, so on-demand revalidation
+   * (revalidateTag/revalidatePath) can evict stale responses from the CDN edge
+   * cache, not just the origin's S3/DynamoDB cache. Returns the environment
+   * the cache handler finds the distribution through.
+   *
+   * With `viaSsmParameter` (`NextjsGlobalFunctions`), the ID is published to an
+   * SSM Parameter whose *name* is static, and the grant covers every
+   * distribution in the account: the distribution's origin is the function's
+   * URL, so the function's environment or role naming the distribution back
+   * would be a circular CloudFormation dependency. The Containers' origin is
+   * the ALB, which the task doesn't depend on, so they get the ID itself and a
+   * grant on that one distribution.
+   */
+  protected wireCloudFrontInvalidation(
+    grantees: IGrantable[],
+    distribution: IDistribution,
+    viaSsmParameter: boolean,
+  ): Record<string, string> {
+    // Paired with the ID because invalidation is the only thing that needs it:
+    // the paths the cache handler derives are routes, and CloudFront cached
+    // them under `basePath`. Set only when there is one, so apps without a
+    // `basePath` see no environment change.
+    const environment: Record<string, string> = this.resolvedBasePath
+      ? { CDK_NEXTJS_BASE_PATH: this.resolvedBasePath }
+      : {};
+    if (!viaSsmParameter) {
+      grantees.forEach((grantee) =>
+        distribution.grantCreateInvalidation(grantee),
+      );
+      return {
+        ...environment,
+        CDK_NEXTJS_DISTRIBUTION_ID: distribution.distributionId,
+      };
+    }
+    const stack = Stack.of(this);
+    const parameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
+    new StringParameter(this, "DistributionIdParameter", {
+      parameterName,
+      stringValue: distribution.distributionId,
+    });
+    for (const grantee of grantees) {
+      Grant.addToPrincipal({
+        grantee,
+        actions: ["ssm:GetParameter"],
+        resourceArns: [
+          stack.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName: parameterName,
+          }),
+        ],
+      });
+      Grant.addToPrincipal({
+        grantee,
+        actions: ["cloudfront:CreateInvalidation"],
+        resourceArns: [
+          stack.formatArn({
+            service: "cloudfront",
+            region: "",
+            resource: "distribution",
+            resourceName: "*",
+          }),
+        ],
+      });
+    }
+    return {
+      ...environment,
+      CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME: parameterName,
     };
   }
 
@@ -410,12 +487,11 @@ export abstract class NextjsBaseConstruct extends Construct {
       skipBuild: this.baseProps.skipBuild,
       // The build resolves the split, since only it knows the route templates;
       // the constructs read the result back off the manifest.
-      functionGroups: this.functionGroups?.map((group) => ({
-        name: group.name,
-        routes: group.routes,
-        architecture: group.overrides?.functionProps?.architecture,
+      functionGroups: this.functionGroups?.map(({ name, routes }) => ({
+        name,
+        routes,
       })),
-      // What each Lambda will run decides the `sharp` binaries staged for it.
+      // What the Lambdas will run decides the `sharp` binaries staged for them.
       architecture: this.functionsOverrides?.functionProps?.architecture,
       ...this.constructOverrides?.nextjsBuildProps,
     });
@@ -452,6 +528,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     return new NextjsFunctions(this, "NextjsFunctions", {
       ...this.computeBaseProps(),
       deploymentRoots: this.nextjsBuild.deploymentRoots,
+      architecture: this.nextjsBuild.architecture,
       functionGroups: this.functionGroups,
       overrides: {
         ...overrides,
@@ -468,4 +545,42 @@ export abstract class NextjsBaseConstruct extends Construct {
       ...this.constructOverrides?.nextjsFunctionsProps,
     });
   }
+}
+
+/**
+ * The non-`default` function groups, joined by name with what was built and
+ * deployed for each — the input both `NextjsDistribution` and `NextjsApi` take.
+ * A module function rather than a protected method so its return type stays out
+ * of the jsii API.
+ */
+export function deployedFunctionGroups(
+  groups: NextjsFunctionGroup[] | undefined,
+  functions: NextjsFunctions,
+  build: NextjsBuild,
+) {
+  return groups?.map((group) => {
+    const deployed = functions.functionGroups.find(
+      (it) => it.name === group.name,
+    );
+    if (!deployed || (functions.functionUrl && !deployed.functionUrl)) {
+      throw new Error(
+        `Function group "${group.name}" was not deployed as a function.`,
+      );
+    }
+    const root = build.deploymentRoots.find((it) => it.name === group.name);
+    return {
+      name: group.name,
+      // The patterns as the props wrote them, not the templates that matched
+      // them, plus the parent of any optional catch-all a subtree pattern moved
+      // into the group, which that pattern's behavior does not match.
+      routes: routedPatterns(
+        group.routes,
+        root?.routes ?? [],
+        build.nextConfigBasePath,
+      ),
+      function: deployed.function,
+      functionUrl: deployed.functionUrl,
+      hasDataRoutes: root?.hasDataRoutes,
+    };
+  });
 }

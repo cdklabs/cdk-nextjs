@@ -14,10 +14,11 @@
  * origin root, which is what this presents: `http://127.0.0.1:<port>/foo` goes to
  * `<target>/foo`.
  *
- * The app is deployed *without* a `basePath`, because the fixtures set their own
- * or none. API Gateway strips the stage again before invoking the Lambda, so the
- * app sees the same paths it would at a root-mapped custom domain — which is the
- * setup `examples/regional-functions/README.md` recommends for production.
+ * The app is deployed with the fixture's own `basePath`, or none (`app.js`),
+ * never one that includes the stage. API Gateway strips the stage again before
+ * invoking the Lambda, so the app sees the same paths it would at a root-mapped
+ * custom domain — which is the setup `examples/regional-functions/README.md`
+ * recommends for production.
  *
  * The response goes back unchanged except for `Location`: an absolute one naming
  * the target, or this origin over `https`, is rewritten to this origin, so the harness follows redirects here

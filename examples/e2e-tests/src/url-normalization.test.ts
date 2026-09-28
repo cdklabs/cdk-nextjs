@@ -29,9 +29,8 @@ import { isGlobalFunctions, isLocal } from "./utils/deployment-type";
  * - The 308's body. Next.js sends the destination as text; only cloudfront-js-2.0
  *   can return a body on a generated response, and no known client reads it.
  *
- * On `NextjsRegionalFunctions` three cases here were `test.fail`ed against
- * **defect #36** (see `docs/harness-coverage.md`): every redirect lost the stage
- * prefix, because API Gateway strips `/prod` before the Lambda sees the path and
+ * On `NextjsRegionalFunctions` three cases here were once `test.fail`ed because
+ * every redirect lost the stage prefix, because API Gateway strips `/prod` before the Lambda sees the path and
  * only the app's `proxy.ts` put it back, after routing had started. The Lambda
  * shell now hands Next.js the unstripped path for an app whose `basePath` carries
  * the stage (`src/runtime/api-gateway-path.ts`), so the `Location`s come out as
@@ -77,9 +76,9 @@ test.describe("url normalization", () => {
     // The collapse actually happened.
     expect(location).not.toContain("//isr");
     // ...and it landed somewhere still inside the app. This is the assertion that
-    // catches defect #36 at the source rather than one request later: the two
-    // above pass happily against `Location: /isr/1` on a deployment served at
-    // `/prod`, which is a redirect out of the app.
+    // catches a redirect that drops the stage at the source rather than one
+    // request later: the two above pass happily against `Location: /isr/1` on a
+    // deployment served at `/prod`, which is a redirect out of the app.
     const prefix = servedUnder(baseURL);
     if (prefix) {
       expect(location).toContain(`${prefix}/isr/1`);

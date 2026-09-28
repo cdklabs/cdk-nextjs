@@ -103,7 +103,7 @@ test.describe("response headers", () => {
     expect(etag).toBeTruthy();
 
     const notModified = await request.get(chunk!, {
-      headers: { "if-none-match": etag },
+      headers: { "if-none-match": etag! },
       timeout: 15_000,
     });
     expect(notModified.status()).toBe(304);

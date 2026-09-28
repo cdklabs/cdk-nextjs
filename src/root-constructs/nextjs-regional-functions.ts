@@ -1,9 +1,9 @@
 import { Construct } from "constructs";
-import { routedPatterns } from "../adapter/function-groups";
 import { NextjsType } from "../constants";
 import { OptionalNextjsApiProps } from "../generated-structs/OptionalNextjsApiProps";
 import { NextjsApi, NextjsApiOverrides } from "../nextjs-api";
 import {
+  deployedFunctionGroups,
   NextjsBaseConstruct,
   NextjsBaseProps,
   NextjsFunctionsConstructOverrides,
@@ -98,30 +98,11 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       // `serverFunction` above is the default group's, which the `{proxy+}`
       // catch-all reaches; the rest get resources of their own.
-      functionGroups: this.props.functionGroups?.map((group) => {
-        const deployed = this.nextjsFunctions.functionGroups.find(
-          (it) => it.name === group.name,
-        );
-        if (!deployed) {
-          throw new Error(
-            `Function group "${group.name}" was not deployed as a function.`,
-          );
-        }
-        return {
-          name: group.name,
-          // Plus the parent of any optional catch-all a subtree pattern moved
-          // into the group, which that pattern's behavior does not match.
-          routes: routedPatterns(
-            group.routes,
-            this.nextjsBuild.deploymentRoots.find(
-              (it) => it.name === group.name,
-            )?.routes ?? [],
-            this.nextjsBuild.nextConfigBasePath,
-          ),
-          function: deployed.function,
-        };
-      }),
-      hasDataRoutes: this.nextjsBuild.hasDataRoutes,
+      functionGroups: deployedFunctionGroups(
+        this.props.functionGroups,
+        this.nextjsFunctions,
+        this.nextjsBuild,
+      ),
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
     });
   }

@@ -67,7 +67,10 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
   "buildAdapterManifest(%s)",
   (name) => {
     const ctx = asContext(fixtures[name]);
-    const { manifest, staging } = build(ctx);
+    const {
+      manifest,
+      groups: [{ staging }],
+    } = build(ctx);
 
     it("stamps the manifest version and build identity", () => {
       expect(manifest.version).toBe(1);
@@ -311,7 +314,10 @@ describe("buildAdapterManifest edge cases", () => {
   });
 
   it("records middleware without duplicating its matchers", () => {
-    const { manifest, staging } = build(asContext(appPlayground));
+    const {
+      manifest,
+      groups: [{ staging }],
+    } = build(asContext(appPlayground));
     expect(manifest.middleware).not.toBeNull();
     expect(manifest.middleware!.filePath).toMatch(/^[^/]/);
     expect(staging.has(manifest.middleware!.filePath)).toBe(true);
@@ -432,7 +438,10 @@ describe("buildAdapterManifest edge cases", () => {
     await mkdir(join(ctx.projectDir, "public"), { recursive: true });
     await writeFile(join(ctx.projectDir, "public", "test.txt"), "hello");
 
-    const { manifest, staging } = build(ctx);
+    const {
+      manifest,
+      groups: [{ staging }],
+    } = build(ctx);
     expect(
       Object.values(manifest.staticFiles).filter((key) =>
         key.includes("/public/"),
@@ -731,7 +740,6 @@ describe("writeBuildOutputs", () => {
     expect(soleRoot(result)).toBe(
       join(ctx.distDir, "cdk-nextjs-adapter", "app"),
     );
-    expect(result.stagedBytes).toBeGreaterThan(0);
 
     const staged = (...parts: string[]) => join(soleRoot(result), ...parts);
     await expect(
@@ -1043,6 +1051,8 @@ describe("writeBuildOutputs", () => {
         default: ["/"],
         reports: ["/api/reports/[id]"],
       });
+      // What synth compares its own props with, to catch a stale build.
+      expect(manifest.functionGroups).toEqual(groups);
     });
 
     it("stages one tree per group, each holding only its own routes", async () => {

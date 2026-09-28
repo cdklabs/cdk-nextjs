@@ -15,7 +15,7 @@ import { Writable } from "node:stream";
 import { S3Client } from "@aws-sdk/client-s3";
 import { imageOptimizer } from "next/dist/server/image-optimizer.js";
 import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
-import { createIncomingMessage } from "./http/request";
+import { ShimIncomingMessage } from "./http/request";
 import { ResponseHead, ShimServerResponse } from "./http/response";
 import { pipeToSink } from "./http/sink";
 import { ImageOptimizerOptions, RuntimeImageOptimizer } from "./image";
@@ -43,29 +43,80 @@ function stage(extraConfig: Record<string, unknown> = {}): string {
   return root;
 }
 
-let optimizer: RuntimeImageOptimizer;
+/** The app's `cacheHandler`, reduced to a map: what the S3 handler is to it. */
+class MapCacheHandler {
+  public static readonly entries = new Map<string, unknown>();
+  public static options: Record<string, unknown> | undefined;
+  public constructor(options: Record<string, unknown>) {
+    MapCacheHandler.options = options;
+  }
+  public async get(key: string) {
+    return MapCacheHandler.entries.get(key) ?? null;
+  }
+  public async set(key: string, value: unknown) {
+    MapCacheHandler.entries.set(key, { value, lastModified: Date.now() });
+  }
+}
 
-beforeAll(() => {
-  useNextFrom(join(__dirname, "../.."));
-  optimizer = new RuntimeImageOptimizer({
-    deploymentRoot: stage(),
+let imported: string | undefined;
+
+const s3Hit = {
+  send: async () => ({
+    Body: [Buffer.from("upstream-bytes")],
+    ContentType: "image/png",
+    ETag: '"upstream"',
+  }),
+} as unknown as S3Client;
+
+/** An optimizer over {@link MapCacheHandler}, as the adapter configures one. */
+function optimizerFor(
+  options: {
+    images?: Record<string, unknown>;
+    fetchInternal?: ImageOptimizerOptions["fetchInternal"];
+    s3?: S3Client;
+  } = {},
+): RuntimeImageOptimizer {
+  const via = new RuntimeImageOptimizer({
+    deploymentRoot: stage({
+      cacheHandler: "../node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
+      cacheMaxMemorySize: 0,
+      ...(options.images
+        ? {
+            images: {
+              ...imageConfigDefault,
+              localPatterns: undefined,
+              ...options.images,
+            },
+          }
+        : {}),
+    }),
     manifest: {
       relativeProjectDir: "",
       config: { distDir: ".next" },
     } as unknown as AdapterManifest,
     bucket: "assets",
     bucketKeyPrefix: "",
+    fetchInternal: options.fetchInternal,
+    importModule: async (url) => {
+      imported = url;
+      return { default: MapCacheHandler };
+    },
   });
-  (optimizer as unknown as { s3: S3Client }).s3 = {
-    send: async () => ({
-      Body: [Buffer.from("upstream-bytes")],
-      ContentType: "image/png",
-      ETag: '"upstream"',
-    }),
-  } as unknown as S3Client;
+  (via as unknown as { s3: S3Client }).s3 = options.s3 ?? s3Hit;
+  return via;
+}
+
+let optimizer: RuntimeImageOptimizer;
+
+beforeAll(() => {
+  useNextFrom(join(__dirname, "../.."));
+  optimizer = optimizerFor();
 });
 
 beforeEach(() => {
+  MapCacheHandler.entries.clear();
+  imported = undefined;
+  (imageOptimizer as jest.Mock).mockClear();
   (imageOptimizer as jest.Mock).mockResolvedValue({
     buffer: PNG,
     contentType: "image/webp",
@@ -91,7 +142,7 @@ async function request(
   const url = new URL(
     `https://shop.example.test/_next/image?url=${encodeURIComponent(src)}&w=640&q=75`,
   );
-  const req = createIncomingMessage({
+  const req = new ShimIncomingMessage({
     method: init.method ?? "GET",
     url: `${url.pathname}${url.search}`,
     headers: { accept: "image/webp", ...init.headers },
@@ -122,17 +173,7 @@ async function request(
 
 describe("RuntimeImageOptimizer.isEnabled", () => {
   const withImages = (images: Record<string, unknown>) =>
-    new RuntimeImageOptimizer({
-      deploymentRoot: stage({
-        images: { ...imageConfigDefault, localPatterns: undefined, ...images },
-      }),
-      manifest: {
-        relativeProjectDir: "",
-        config: { distDir: ".next" },
-      } as unknown as AdapterManifest,
-      bucket: "assets",
-      bucketKeyPrefix: "",
-    });
+    optimizerFor({ images });
 
   // Where `next start` answers 404 rather than optimize.
   it("is off for images.unoptimized and for a non-default loader", () => {
@@ -224,7 +265,6 @@ describe("RuntimeImageOptimizer sources", () => {
     ["instance metadata", "http://169.254.169.254/latest/meta-data/"],
     ["a protocol-relative url", "//evil.example.test/x.png"],
   ])("rejects a remote source that is not allowed: %s", async (_name, src) => {
-    (imageOptimizer as jest.Mock).mockClear();
     const { head, body } = await request(src);
     expect(head.statusCode).toBe(400);
     expect(body).toMatch(/"url" parameter/);
@@ -234,22 +274,14 @@ describe("RuntimeImageOptimizer sources", () => {
   function withS3Miss(
     fetchInternal?: ImageOptimizerOptions["fetchInternal"],
   ): RuntimeImageOptimizer {
-    const missing = new RuntimeImageOptimizer({
-      deploymentRoot: stage(),
-      manifest: {
-        relativeProjectDir: "",
-        config: { distDir: ".next" },
-      } as unknown as AdapterManifest,
-      bucket: "assets",
-      bucketKeyPrefix: "",
+    return optimizerFor({
       fetchInternal,
+      s3: {
+        send: async () => {
+          throw Object.assign(new Error("missing"), { name: "NoSuchKey" });
+        },
+      } as unknown as S3Client,
     });
-    (missing as unknown as { s3: S3Client }).s3 = {
-      send: async () => {
-        throw Object.assign(new Error("missing"), { name: "NoSuchKey" });
-      },
-    } as unknown as S3Client;
-    return missing;
   }
 
   it("falls back to the app's routes for a source S3 has no file for", async () => {
@@ -290,7 +322,6 @@ describe("RuntimeImageOptimizer sources", () => {
   it("answers an explicit 502 for a source served by another functionGroups group", async () => {
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     try {
-      (imageOptimizer as jest.Mock).mockClear();
       const { head, body } = await request("/api/avatar?id=42", {
         via: withS3Miss(async () => ({
           statusCode: 0,
@@ -313,56 +344,9 @@ describe("RuntimeImageOptimizer sources", () => {
   });
 });
 
-describe("RuntimeImageOptimizer cache (the Regional types)", () => {
-  /** The app's `cacheHandler`, reduced to a map: what the S3 handler is to it. */
-  class MapCacheHandler {
-    public static readonly entries = new Map<string, unknown>();
-    public static options: Record<string, unknown> | undefined;
-    public constructor(options: Record<string, unknown>) {
-      MapCacheHandler.options = options;
-    }
-    public async get(key: string) {
-      return MapCacheHandler.entries.get(key) ?? null;
-    }
-    public async set(key: string, value: unknown) {
-      MapCacheHandler.entries.set(key, { value, lastModified: Date.now() });
-    }
-  }
-
-  let imported: string | undefined;
-  function cached(cache: boolean): RuntimeImageOptimizer {
-    const root = stage({
-      cacheHandler: "../node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
-      cacheMaxMemorySize: 0,
-    });
-    const via = new RuntimeImageOptimizer({
-      deploymentRoot: root,
-      manifest: {
-        relativeProjectDir: "",
-        config: { distDir: ".next" },
-      } as unknown as AdapterManifest,
-      bucket: "assets",
-      bucketKeyPrefix: "",
-      cache,
-      importModule: async (url) => {
-        imported = url;
-        return { default: MapCacheHandler };
-      },
-    });
-    (via as unknown as { s3: S3Client }).s3 = (
-      optimizer as unknown as { s3: S3Client }
-    ).s3;
-    return via;
-  }
-
-  beforeEach(() => {
-    MapCacheHandler.entries.clear();
-    imported = undefined;
-    (imageOptimizer as jest.Mock).mockClear();
-  });
-
+describe("RuntimeImageOptimizer cache", () => {
   it("optimizes once, then answers from the cache handler", async () => {
-    const via = cached(true);
+    const via = optimizerFor();
     const first = await request("/photos/cached.png", { via });
     expect(first.head.headers["x-nextjs-cache"]).toBe("MISS");
     expect(first.body).toBe(PNG.toString());
@@ -383,15 +367,15 @@ describe("RuntimeImageOptimizer cache (the Regional types)", () => {
 
   // Another instance: nothing in memory, so the hit is the cache handler's.
   it("shares the optimized image across instances", async () => {
-    await request("/photos/shared.png", { via: cached(true) });
-    const other = await request("/photos/shared.png", { via: cached(true) });
+    await request("/photos/shared.png", { via: optimizerFor() });
+    const other = await request("/photos/shared.png", { via: optimizerFor() });
     expect(other.head.headers["x-nextjs-cache"]).toBe("HIT");
     expect(imageOptimizer).toHaveBeenCalledTimes(1);
   });
 
   // `required-server-files.json` names it relative to the dist dir.
   it("loads the app's cacheHandler from where next start would", async () => {
-    await request("/photos/cached.png", { via: cached(true) });
+    await request("/photos/cached.png", { via: optimizerFor() });
     expect(imported).toMatch(
       /^file:\/\/.*\/node_modules\/cdk-nextjs\/lib\/adapter\/cache-handler\.mjs$/,
     );
@@ -413,7 +397,7 @@ describe("RuntimeImageOptimizer cache (the Regional types)", () => {
     try {
       const pending: Array<Promise<unknown>> = [];
       const first = await request("/photos/deferred.png", {
-        via: cached(true),
+        via: optimizerFor(),
         waitUntil: (promise) => pending.push(promise),
       });
       expect(first.head.headers["x-nextjs-cache"]).toBe("MISS");
@@ -425,14 +409,5 @@ describe("RuntimeImageOptimizer cache (the Regional types)", () => {
     } finally {
       MapCacheHandler.prototype.set = set;
     }
-  });
-
-  it("is off unless asked for: every request is optimized afresh", async () => {
-    const via = cached(false);
-    await request("/photos/cached.png", { via });
-    const second = await request("/photos/cached.png", { via });
-    expect(second.head.headers["x-nextjs-cache"]).toBe("MISS");
-    expect(imageOptimizer).toHaveBeenCalledTimes(2);
-    expect(imported).toBeUndefined();
   });
 });

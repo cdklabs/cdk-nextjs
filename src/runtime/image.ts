@@ -11,7 +11,6 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute as isAbsolutePath, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { S3Client } from "@aws-sdk/client-s3";
 import type { NextConfigComplete } from "next/dist/server/config-shared.js";
 import type { CachedRouteKind } from "next/dist/server/response-cache/types.js";
 import type { ShimIncomingMessage } from "./http/request";
@@ -19,6 +18,7 @@ import { asServerResponse, ShimServerResponse } from "./http/response";
 import { fetchFromS3, resolveErrorResponse } from "./image-utils";
 import { AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
+import { firstValue, s3Client } from "./util";
 
 /**
  * Required through {@link nextModule} rather than imported, because `next` is
@@ -73,18 +73,6 @@ export interface ImageOptimizerOptions {
     req: ShimIncomingMessage,
   ) => Promise<InternalImageResponse>;
   /**
-   * Keep optimized images in the app's `cacheHandler` (the S3 cache), the way
-   * `next start` does with `images.customCacheHandler`, which the adapter
-   * turns on. On every type: with no CDN in front (the Regional types) every
-   * request for the same image would otherwise run `sharp` again, and behind
-   * CloudFront each edge miss is an S3 read rather than a re-optimization.
-   * `CDK_NEXTJS_IMAGE_CACHE=0` on the compute turns it off, for an app that
-   * would rather re-run `sharp` on every miss than read and write S3. Off in
-   * tests unless a test turns it on.
-   * @default false
-   */
-  readonly cache?: boolean;
-  /**
    * Loads the `cacheHandler` module from its file URL. A seam for tests, which
    * run as CommonJS and cannot `import()` a URL.
    * @default - `import()`
@@ -111,7 +99,7 @@ interface RequiredServerFiles {
 }
 
 export class RuntimeImageOptimizer {
-  private readonly s3 = new S3Client({});
+  private readonly s3 = s3Client();
   private loaded?: ReturnType<typeof loadImageRuntime>;
   private imageCache?: Promise<ImageCache>;
 
@@ -229,28 +217,14 @@ export class RuntimeImageOptimizer {
         );
       };
 
-      if (!this.options.cache) {
-        // `MISS` because there is no image cache here to hit: every request
-        // that reaches the origin is optimized afresh, and CloudFront is the
-        // cache.
-        const { buffer, contentType, maxAge, etag } = await optimize();
-        // `null` for a type `mime` doesn't know, which `sendResponse` handles
-        // (no `Content-Type`, `image.bin`); its signature just doesn't say so.
-        send(
-          next.serveStatic.getExtension(contentType) ?? "",
-          buffer,
-          etag,
-          "MISS",
-          maxAge,
-        );
-        return;
-      }
-
       // `next start`'s `handleNextImageRequest`, step for step: a
       // `ResponseCache` over an `ImageOptimizerCache` backed by the app's
       // `cacheHandler`, so a hit skips the fetch and `sharp`, a stale entry is
       // served while it is regenerated, and concurrent misses for one image
-      // optimize it once.
+      // optimize it once. The app's `cacheHandler` is the S3 cache, which the
+      // adapter turns on with `images.customCacheHandler`: with no CDN in front
+      // (the Regional types) every request would otherwise run `sharp` again,
+      // and behind CloudFront each edge miss is an S3 read instead.
       this.imageCache ??= loadImageCache(this.options, this.loaded);
       const cache = await this.imageCache;
       const entry = await cache.responses.get(
@@ -350,10 +324,10 @@ export class RuntimeImageOptimizer {
       }
       return {
         buffer: response.body,
-        contentType: firstHeader(response.headers["content-type"]) ?? null,
-        cacheControl: firstHeader(response.headers["cache-control"]) ?? null,
+        contentType: firstValue(response.headers["content-type"]) ?? null,
+        cacheControl: firstValue(response.headers["cache-control"]) ?? null,
         etag: optimizer.extractEtag(
-          firstHeader(response.headers.etag) ?? null,
+          firstValue(response.headers.etag) ?? null,
           response.body,
         ),
       };
@@ -464,10 +438,6 @@ function deferWrites(
     return Promise.resolve();
   };
   return deferred;
-}
-
-function firstHeader(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }
 
 function sendText(

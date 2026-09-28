@@ -3,11 +3,9 @@ import { App, Duration, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
   Function as CloudFrontFunction,
-  Distribution,
   FunctionCode,
   FunctionEventType,
 } from "aws-cdk-lib/aws-cloudfront";
-import { S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import {
   Code,
   Function as LambdaFunction,
@@ -175,8 +173,10 @@ describe("NextjsDistribution function group behaviors", () => {
     );
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
-      functionGroups,
-      hasDataRoutes: true,
+      functionGroups: functionGroups.map((g) => ({
+        ...g,
+        hasDataRoutes: true,
+      })),
       nextBuildId: "abc123",
     });
     const patterns = pathPatterns(stack).slice(2);
@@ -191,8 +191,10 @@ describe("NextjsDistribution function group behaviors", () => {
       () =>
         new NextjsDistribution(stack, "Distribution", {
           ...distributionProps,
-          functionGroups,
-          hasDataRoutes: true,
+          functionGroups: functionGroups.map((g) => ({
+            ...g,
+            hasDataRoutes: true,
+          })),
         }),
     ).toThrow(/`nextBuildId` is required/);
   });
@@ -293,32 +295,6 @@ describe("NextjsDistribution function group behaviors", () => {
     ).toThrow(/must be a positive integer/);
   });
 
-  it("counts the behaviors a supplied distribution already has", () => {
-    const { stack, distributionProps } = setup([], {
-      publicDirEntries: Array.from({ length: 20 }, (_, i) => `file${i}.txt`),
-    });
-    const origin = S3BucketOrigin.withOriginAccessControl(
-      distributionProps.assetsBucket,
-    );
-    const distribution = new Distribution(stack, "Existing", {
-      defaultBehavior: { origin },
-      additionalBehaviors: {
-        "legacy/*": { origin },
-        "old/*": { origin },
-        status: { origin },
-      },
-    });
-    // 3 fixed + 20 public + 3 already there = 26.
-    expect(
-      () =>
-        new NextjsDistribution(stack, "Distribution", {
-          ...distributionProps,
-          distribution,
-          maxCacheBehaviors: 25,
-        }),
-    ).toThrow(/26 CloudFront cache behaviors.*3 already on the distribution/s);
-  });
-
   it("does not count basePath behaviors for a basePath of /", () => {
     // `basePath: "/"` normalizes to no basePath and adds no behaviors, so
     // counting 2 for it could reject an app that is under the limit.
@@ -341,8 +317,10 @@ describe("NextjsDistribution function group behaviors", () => {
     });
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
-      functionGroups,
-      hasDataRoutes: true,
+      functionGroups: functionGroups.map((g) => ({
+        ...g,
+        hasDataRoutes: true,
+      })),
       nextBuildId: "abc123",
     });
     expect(pathPatterns(stack).slice(2).sort()).toEqual([
@@ -350,6 +328,29 @@ describe("NextjsDistribution function group behaviors", () => {
       "_next/data/abc123/pricing.json",
       "blog/*",
       "pricing",
+    ]);
+  });
+
+  it("adds data-route patterns only for the groups that own Pages Router routes", () => {
+    // One legacy page must not double every group's behaviors.
+    const { stack, functionGroups, distributionProps } = setup(
+      ["blog", "docs"],
+      {
+        routesFor: (name) => (name === "blog" ? ["/blog/**"] : ["/docs/**"]),
+      },
+    );
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups: functionGroups.map((g) => ({
+        ...g,
+        hasDataRoutes: g.name === "blog",
+      })),
+      nextBuildId: "abc123",
+    });
+    expect(pathPatterns(stack).slice(2).sort()).toEqual([
+      "_next/data/abc123/blog/*",
+      "blog/*",
+      "docs/*",
     ]);
   });
 

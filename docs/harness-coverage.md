@@ -19,7 +19,7 @@ and how to screen a new candidate.
 | **fixed**         | Failed, was root-caused to a cdk-nextjs defect, and the defect is fixed.                       |
 | **bug**           | Fails for a cdk-nextjs reason. Not acceptable. Fix it, then add the file.                      |
 | **upstream**      | Fails because of a bug in next.js or its fixture, not reachable from here.                     |
-| **unsupported**   | Fails because of a deliberate, documented product limitation. Acceptable.                      |
+| **unsupported**   | Fails because of a deliberate, documented product limitation or design choice. Acceptable.     |
 | **CDN-inherent**  | Fails for a reason true of any CDN-fronted deployment. Acceptable.                             |
 | **architectural** | Fails for a reason true of any distributed (multi-instance) cache handler. Acceptable.         |
 | **no signal**     | next.js skips or gates the file itself, or the fixture cannot be built here. Nothing measured. |
@@ -50,22 +50,26 @@ each scheduled run re-runs what is already included.
 | Verdict       | Files                                                                                                                                                                                                                |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | pass          | 427 whole files, plus the passing cases of the 10 `suites` files                                                                                                                                                     |
-| fixed         | 35 harness defects (1–22, 24–27, 29–35), plus 36 from the four-type e2e suite. See the index below                                                                                                                   |
+| fixed         | the defects in the table below                                                                                                                                                                                       |
 | bug           | none open                                                                                                                                                                                                            |
 | upstream      | 2 — `rewrites-destination-query-array`, `incremental-cache-path-traversal`                                                                                                                                           |
-| unsupported   | 2 — `prerender-encoding`, `middleware-fetches-with-any-http-method` (plus 203 files the edge screen disqualifies without deploying)                                                                                  |
-| CDN-inherent  | 2 whole files (`revalidate-dynamic`, `proxy-readable-toweb`), plus the skipped cases of `trailingslash`, `dynamic-route-interpolation`, `revalidate-path-with-rewrites` and the 6 `invalid-static-asset-404-*` files |
+| unsupported   | 4 whole files (`prerender-encoding`, `middleware-fetches-with-any-http-method`, `revalidate-dynamic`, `proxy-readable-toweb`), plus the skipped cases of `trailingslash`, `revalidate-path-with-rewrites` and the 6 `invalid-static-asset-404-*` files, and 203 files the edge screen disqualifies without deploying |
+| CDN-inherent  | the 4 skipped cases of `dynamic-route-interpolation`                                                                                                                                                                 |
 | architectural | the 2 skipped `resume-data-cache` cases                                                                                                                                                                              |
 | no signal     | 49 — 2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files that cannot be built here                                                                                |
 
 ### Which types the harness proves
 
-The harness runs on `NextjsGlobalFunctions`. The findings whose plumbing differs
-per deployment type are back-filled into `examples/e2e-tests` (run against
-`examples/app-playground` on all four types, every commit) — the "4-type spec"
-column of the defect index. What stays harness-only is what cannot coexist with
-the App Router fixture in one `next.config.ts` (`trailingSlash`, `assetPrefix`,
-`i18n`, the Pages Router) or has no per-type divergence (defect 25).
+The harness runs on all four types: the schedule on `NextjsGlobalFunctions`, the
+other three by `workflow_dispatch` (`nextjs_type`) or by hand, with
+`NextjsRegionalFunctions` behind `scripts/e2e-harness/stage-proxy.mjs`, which puts
+back the stage prefix the harness would otherwise drop. The findings whose
+plumbing differs per deployment type are also back-filled into
+`examples/e2e-tests` (run against `examples/app-playground` on all four types,
+every commit) — the "4-type spec" column of the table under "Fixed". What stays
+harness-only is what cannot coexist with the App Router fixture in one
+`next.config.ts` (`trailingSlash`, `assetPrefix`, `i18n`, the Pages Router) or has
+no per-type divergence (defect 25).
 
 ### Running on `NextjsRegionalFunctions`
 
@@ -126,23 +130,18 @@ verdict below.
 
 | File                                                               | Cases      | Skipped, and why                                                                                |
 | ------------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------------------------- |
-| `app-dir/trailingslash`                                            | 6 / 8      | 2 `should revalidate a page with generated static params` — CDN-inherent (invalidation timing)  |
+| `app-dir/trailingslash`                                            | 6 / 8      | 2 `should revalidate a page with generated static params` — unsupported (async invalidation)    |
 | `app-dir/resume-data-cache`                                        | 3 / 5      | 2 `should have consistent data between static and dynamic renders` — architectural              |
 | `dynamic-route-interpolation`                                      | 3 / 7      | 4 requesting unencoded `[`/`]` — CDN-inherent                                                   |
-| `app-dir/revalidate-path-with-rewrites`                            | 1 / 2      | `static page` — CDN-inherent (invalidation timing)                                              |
-| `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3/OAC 403, CDN-inherent |
+| `app-dir/revalidate-path-with-rewrites`                            | 1 / 2      | `static page` — unsupported (async invalidation)                                                |
+| `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3's XML 404, unsupported |
 | `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason                                                                          |
 
-## Fixed — defect index
+## Fixed
 
-Numbering is permanent: code comments cite these numbers ("defect 29"). There is
-no **23** here — it is in the same sequence but came from `examples/e2e-tests`
-(`isr.test.ts`): a `revalidateTag` deleted a PPR route's seeded entry and a hard
-miss on a route with a `fallback` is answered from the fallback shell forever;
-tag-expired response entries now return `lastModified: -1` instead (see
-"Stale-while-revalidate after a tag revalidation"). There is no **28**: the number
-was skipped, not withdrawn. **37** and **38** also came from the four-type suite;
-see the note after the table.
+`#` labels a row for the rest of this doc. **23**, **37** and **38** were found by
+the four-type suite (`examples/e2e-tests`) rather than the harness: 23 is under
+"Stale-while-revalidate after a tag revalidation", 37 and 38 follow the table.
 
 "4-type spec" names the `examples/e2e-tests/src/*.test.ts` file guarding it on all
 four deployment types; `—` means harness or unit tests only.
@@ -157,20 +156,20 @@ four deployment types; `—` means harness or unit tests only.
 | 6   | `trailingSlash: true` — every canonical `/a/` URL 404s                                                       | Output pathnames never carry the slash; `@next/routing` matches exactly                                                             | `withTrailingSlashVariants`, `Dispatcher.normalizePathname`                                                           | —                                                              |
 | 7   | `next build` fails: "encountered uncached or runtime data during prerendering" (`cacheComponents` + handler) | Build-time cache handler was write-only; the final prerender pass re-issued fetches                                                 | `LocalFileCacheHandler.get`; `cache-handler.test.ts`                                                                  | —                                                              |
 | 8   | `revalidateTag` never reaches a build-time prerender; tagged entries evicted right after storing             | Handler read a `tags` array only runtime `set` writes, not `x-next-cache-tags`; mapping rows stamped `revalidatedAt = now`          | `entryTags`, `checkIfRevalidated`, per-tag marker row — `src/adapter/s3-cache-handler.ts`                             | —                                                              |
-| 9   | Origin re-renders after `revalidatePath`, browser still gets the old page (`x-cache: Hit from cloudfront`)   | Invalidation paths came only from tag mapping rows, which build-time prerenders lack                                                | `implicitTagPath`/`invalidationVariants` (s3-cache-handler); `seedTagMappings` (post-deploy)                          | —                                                              |
+| 9   | Origin re-renders after `revalidatePath`, browser still gets the old page (`x-cache: Hit from cloudfront`)   | Invalidation paths came only from tag mapping rows, which build-time prerenders lack                                                | `implicitTagPath`/`invalidationVariants`; the build's tag manifest (s3-cache-handler)                          | —                                                              |
 | 10  | Fixture _n+1_ serves fixture _n_'s pages (another app's `/_not-found`)                                       | With `NEXT_DEPLOYMENT_ID` set, next's `BUILD_ID` is the constant `build-TfctsWXpff2fKS`; our cache is partitioned by build id       | `getBuildId` in `src/nextjs-build/nextjs-build.ts` suffixes the deployment id                                         | —                                                              |
 | 11  | Unmatched optional catchall renders a segment `"undefined"`                                                  | `@next/routing` reports an unfilled param as a present key with value `undefined`                                                   | `repairRouteParamQuery` second pass; `dispatch.test.ts`                                                               | `routing-params`                                               |
 | 12  | `robots.txt`, `sitemap.xml`, `manifest.webmanifest` served as `application/octet-stream`                     | Static metadata staged as `<route>.body`; `send` types by extension                                                                 | `setBodyFileContentType`, `src/runtime/static-files.ts`                                                               | `metadata-routes`                                              |
 | 13  | Root-params app (no `app/layout.tsx`) 404s at every URL                                                      | next gates the `dynamicRoutes` rule on draft cookies; concrete prerenders were not registered                                       | `addPrerenderPathnames`, `src/adapter/build-outputs.ts`                                                               | `draft-mode`, `cookies` (cookie half only)                     |
 | 14  | PPR fallback shell rendered per request (`(runtime)` where `(buildtime)` expected)                           | Seeding loop skipped every prerender group whose pathname contains `[`                                                              | Prerender-group loop in `src/adapter/adapter.mts` (no jest; verified with `e2e-offline.sh`)                           | —                                                              |
-| 15  | Custom `pages/404` replaced by the built-in 404                                                              | `resolveNotFoundTarget` tried `/_error` before an invocable `/404`                                                                  | `resolveNotFoundTarget`; `dispatch.test.ts` "prefers an invocable custom /404 over /\_error"                          | —                                                              |
-| 16  | Path-style `assetPrefix` — every bundle 404s                                                                 | No CloudFront behavior for `<prefix>/_next/static*`; Next applies `assetPrefix` on top of `basePath`                                | `readNextConfigAssetPrefix`, `NextjsDistribution.addAssetPrefixBehavior` (CF function); regional types warn at synth  | —                                                              |
+| 15  | Custom `pages/404` replaced by the built-in 404                                                              | `statusTarget` tried `/_error` before an invocable `/404`                                                                           | `statusTarget`; `dispatch.test.ts` "prefers an invocable custom /404 over /\_error"                                   | —                                                              |
+| 16  | Path-style `assetPrefix` — every bundle 404s                                                                 | No CloudFront behavior for `<prefix>/_next/static*`; Next applies `assetPrefix` on top of `basePath`                                | `relativeAssetPrefix`, `NextjsDistribution.addAssetPrefixBehavior` (CF function); regional types warn at synth        | —                                                              |
 | 17  | Pages Router home page `/` 404s (many unrelated-looking symptoms)                                            | `normalizePagePath("/")` is `/index`; nothing registered `/`                                                                        | `routablePathnames`, `src/adapter/build-outputs.ts`                                                                   | —                                                              |
 | 18  | Space in a `public/` filename fails synth: "Invalid CloudFront Distribution Cache Behavior Path Pattern"     | Characters outside CloudFront's path-pattern alphabet threw                                                                         | `toPathPattern` (`src/nextjs-distribution.ts`); `NextjsApi` warns and skips on Regional Functions. See 37             | `static-assets` (asserts 404 on Regional Functions)            |
 | 19  | A throw answers plain-text 500, never the app's error page                                                   | No error-page ladder; one `failWith` wrote a bare 500                                                                               | `resolveErrorTarget` (dispatch.ts) + `NextjsRuntime.sendError`, `no-store`                                            | `status-codes` (App Router side)                               |
 | 20  | Every i18n app answers `/` with a 308 to `/en-US`                                                            | `@next/routing` builds `/${locale}/`, which the trailing-slash 308 then matches                                                     | `Dispatcher.withRootLocale`, `normalizeRedirectLocation`                                                              | —                                                              |
 | 21  | Static `getStaticProps` data route 404s, so client navigation into it full-reloads                           | Without middleware, next emits no rule for it; the concrete prerender was skipped                                                   | `addPrerenderPathnames` registers concrete `/_next/data/…json` when no ungated rule matches                           | —                                                              |
-| 22  | Absolute `assetPrefix` with a path — every bundle 404s                                                       | The prefix's path was reduced to `""`, so no behavior was added                                                                     | `readNextConfigAssetPrefixPath`, `src/utils/base-path.ts`                                                             | —                                                              |
+| 22  | Absolute `assetPrefix` with a path — every bundle 404s                                                       | The prefix's path was reduced to `""`, so no behavior was added                                                                     | `assetPrefixPath`, `src/utils/base-path.ts`                                                                           | —                                                              |
 | 24  | `/_next/image` 400s for a `public/` file whose name needs percent-encoding                                   | `fetchFromS3` used the still-encoded href as the S3 key                                                                             | Tolerant percent-decode in `fetchFromS3`, `src/runtime/image-utils.ts`                                                | `static-assets` (asserts `image/webp`)                         |
 | 25  | A web worker never starts (assertion times out on placeholder text)                                          | `patch-fetch.js` was prepended to `turbopack-worker-*.js` and read `window`                                                         | `patch-fetch.js` uses `globalThis`; worker-scope block in `patch-fetch.test.ts`                                       | —                                                              |
 | 26  | Large init cache only partly seeded (`MISS`, postponed shell); deploy reported success                       | `BucketDeployment` Lambda hit `ENOSPC` in 512 MiB `/tmp`; `--hotswap` ignores a custom resource's `FAILED`                          | `sizeDeploymentLambda`, `src/nextjs-cache.ts`                                                                         | —                                                              |
@@ -184,8 +183,7 @@ four deployment types; `—` means harness or unit tests only.
 | 35  | Catch-all capture containing `%2F` → 500 ("Requested and resolved page mismatch")                            | The `nxtP` query contract decodes twice and splits on `/`                                                                           | `outOfBandRouteParams` (dispatch.ts) passes `requestMeta.params`. Verified offline; the file is upstream              | —                                                              |
 | 36  | Regional Functions: every redirect drops the stage prefix, following it → 403                                | API Gateway strips the stage before invoking the Lambda                                                                             | `src/runtime/api-gateway-path.ts` uses `requestContext.path` when `basePath` starts with the stage                    | `url-normalization` (where it was found)                       |
 
-Still true after the review follow-up to **37**/**38** (both found by the
-four-type suite, not the harness):
+Found by the four-type suite:
 
 - **37** — defect 18's first fix wrote one `?` per _percent-encoded_ character.
   CloudFront URL-decodes the path before matching and `?` matches one byte of the
@@ -283,7 +281,7 @@ undercounts. 203 of 1134 files are disqualified this way.
 The `middleware` screen's count is a floor: an inline-`files` fixture only shows up
 as a ~7s build failure naming `assertNodeRuntimes`.
 
-## CDN-inherent — excluded, acceptable
+## Unsupported — a design choice
 
 ### A missing `/_next/static/*` is a 404 from S3, not from Next.js
 
@@ -308,22 +306,6 @@ README's Limitations states it: on `NextjsGlobalFunctions` a non-browser caller
 must hash a `POST`/`PUT` body. The Node-runtime proxy itself is covered by four
 `proxy-*` files in `rules.include`.
 
-### CloudFront rejects unencoded `[` and `]` in a path
-
-`dynamic-route-interpolation`, 4 of 7 (the other 3 via `suites`). The four request
-literal brackets (`/blog/[slug]`, `/api/dynamic/[abc]`) and CloudFront answers
-before the Lambda:
-
-```
-$ curl -sg --path-as-is -D - -o /dev/null 'https://…/blog/[slug]'
-HTTP/2 400
-content-length: 0
-x-cache: Error from cloudfront
-```
-
-Percent-encoded (`/blog/%5Bslug%5D`) the same routes render correctly. `[`/`]`
-are `gen-delims` and not legal in a path, so CloudFront is conformant.
-
 ### Revalidation re-requested about a second later
 
 `app-dir/revalidate-dynamic` (2 of 2, excluded outright),
@@ -343,6 +325,24 @@ Making them pass would mean blocking every revalidation on an invalidation.
 **Tell for a real regression instead:** the _same_ random value across every
 attempt, on a case with no prerender to invalidate. That was defect 34 — the
 `dynamic page` case of `revalidate-path-with-rewrites` had passed once by luck.
+
+## CDN-inherent — excluded, acceptable
+
+### CloudFront rejects unencoded `[` and `]` in a path
+
+`dynamic-route-interpolation`, 4 of 7 (the other 3 via `suites`). The four request
+literal brackets (`/blog/[slug]`, `/api/dynamic/[abc]`) and CloudFront answers
+before the Lambda:
+
+```
+$ curl -sg --path-as-is -D - -o /dev/null 'https://…/blog/[slug]'
+HTTP/2 400
+content-length: 0
+x-cache: Error from cloudfront
+```
+
+Percent-encoded (`/blog/%5Bslug%5D`) the same routes render correctly. `[`/`]`
+are `gen-delims` and not legal in a path, so CloudFront is conformant.
 
 ## Architectural — excluded, acceptable
 
@@ -532,8 +532,8 @@ parsing turns it into `/`). In Playwright, read duplicate headers with
   cache looks partly seeded, count objects in the cache bucket against the seed
   directory and read the `BucketDeployment` Lambda's log (defect 26).
 - **Hotswap never runs CloudFormation**, so the post-deploy custom resource does
-  not fire between fixtures — anything it does (e.g. `seedTagMappings`) is not
-  under harness coverage (defect 9).
+  not fire between fixtures — anything it does (e.g. pruning the previous build) is not
+  under harness coverage.
 - **`NEXT_DEPLOYMENT_ID` makes every build id the same constant**; if one fixture
   serves another's content, check for one cache prefix shared across builds
   (defect 10).

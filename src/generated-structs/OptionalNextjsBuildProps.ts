@@ -22,10 +22,9 @@ export interface OptionalNextjsBuildProps {
    */
   readonly buildCommand?: string;
   /**
-   * Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into each deployment root.
-   * A group's own
-   * {@link NextjsFunctionGroupRoutes.architecture} wins for that group. Ignored
-   * by the Containers types, whose image is built for the synth machine.
+   * Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into every deployment root.
+   * Ignored by the Containers
+   * types, whose image is built for the synth machine.
    * @default - the architecture of the machine running synth
    * @stability stable
    */

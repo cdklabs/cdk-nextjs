@@ -10,13 +10,16 @@
  * would have told the client a URL `next start` serves does not exist.
  */
 import { AdapterManifest } from "./manifest";
+import { withoutPathPrefix } from "./util";
 
 /**
  * `pathname` (as requested, percent-encoded) respelled with the static segments
  * of `template` (the matched `manifest.entrypoints` key), keeping the request's
- * own dynamic segment values, basePath and locale prefix. `undefined` when the
- * two differ in anything but case — a rewrite, a mismatched shape — or not at
- * all, since then a redirect would not change where the request goes.
+ * own dynamic segment values and basePath, which the manifest key carries too.
+ * `undefined` when the two differ in anything but case — a rewrite, a
+ * mismatched shape — or not at all, since then a redirect would not change
+ * where the request goes. No locale handling: `functionGroups` cannot be
+ * combined with i18n (`assertNoI18nSplitting`).
  */
 export function caseCanonicalPath(
   pathname: string,
@@ -33,23 +36,9 @@ export function caseCanonicalPath(
     prefix = basePath;
     rest = rest.slice(basePath.length) || "/";
   }
-  const i18n = manifest.config.i18n as {
-    readonly locales?: readonly string[];
-  } | null;
-  const first = rest.split("/")[1] ?? "";
-  const locale = i18n?.locales?.find(
-    (candidate) => candidate.toLowerCase() === first.toLowerCase(),
-  );
-  if (locale) {
-    prefix += `/${locale}`;
-    rest = rest.slice(first.length + 1) || "/";
-  }
-
   const trailingSlash = rest.length > 1 && rest.endsWith("/");
   const requested = segments(rest);
-  const expected = segments(
-    withoutRoutePrefix(template, basePath, i18n?.locales ?? []),
-  );
+  const expected = segments(withoutPathPrefix(template, basePath));
   const canonical: string[] = [];
   for (let i = 0; i < expected.length; i++) {
     const part = expected[i];
@@ -86,28 +75,6 @@ function finish(
   const path = `${prefix}/${canonical.join("/")}`.replace(/\/+$/, "") || "/";
   const result = trailingSlash && path !== "/" ? `${path}/` : path;
   return result === pathname ? undefined : result;
-}
-
-/**
- * `template` without its basePath and locale. Manifest keys carry both (the
- * adapter's pathnames are basePath-prefixed, Pages i18n ones locale-prefixed
- * too), while the request's own spelling of them is what the redirect keeps —
- * including a locale other than the template's, or none for the default one.
- */
-function withoutRoutePrefix(
-  template: string,
-  basePath: string,
-  locales: readonly string[],
-): string {
-  let rest = template;
-  if (basePath && startsWithSegment(rest, basePath)) {
-    rest = rest.slice(basePath.length) || "/";
-  }
-  const first = rest.split("/")[1] ?? "";
-  if (locales.includes(first)) {
-    rest = rest.slice(first.length + 1) || "/";
-  }
-  return rest;
 }
 
 function segments(path: string): string[] {
