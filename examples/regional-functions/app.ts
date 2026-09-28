@@ -25,6 +25,12 @@ import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
 const app = new App();
 
+// Not needed by this app - it fits in one Lambda. Declared so CI exercises the
+// split behind API Gateway too: the `function-groups` e2e asserts `/api/**` and
+// `/` are served by different functions. See `E2E_FUNCTION_GROUPS` in
+// `.github/workflows/e2e-tests.yml`.
+const functionGroups = [{ name: "api", routes: ["/api/**"] }];
+
 export class RegionalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
@@ -32,6 +38,7 @@ export class RegionalFunctionsStack extends Stack {
     process.env["NEXT_PUBLIC_IMAGE_SRC_PREFIX"] = "/prod"; // prefix image paths for API Gateway deployments
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
+      functionGroups,
       overrides: {
         nextjsApi: {
           restApiProps: {

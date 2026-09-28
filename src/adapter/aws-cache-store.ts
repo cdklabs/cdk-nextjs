@@ -566,9 +566,19 @@ export type TrackedTagMarkersOptions = TagTable & {
 
 /**
  * One instance's copy of the marker rows of the tags it has needed, kept
- * current through the {@link RevalidationLog}. What the process's one tag
- * manifest (`sharedTagManifest`) keeps, for the `'use cache'` handlers and the
- * incremental cache alike.
+ * current through the {@link RevalidationLog}: the process's one tag manifest
+ * (`sharedTagManifest`), for the `'use cache'` handlers and the incremental
+ * cache alike.
+ *
+ * Next.js's built-in `'use cache'` handler keeps tags in a module-level map
+ * (`tags-manifest.external.js`) that only its own `updateTags` writes, and its
+ * `refreshTags` is a no-op, so a `revalidateTag` on one instance never reaches
+ * the others: they keep serving the revalidated entry, including inside pages
+ * that are being re-rendered *because* of that revalidation. The
+ * `cacheHandlers` interface's answer is `refreshTags`, "called before starting
+ * a new request … to refresh the local tags manifest", and this is that
+ * manifest, backed by the same marker rows the incremental cache's
+ * `revalidateTag` writes (`pk = buildId`, `sk = tag`).
  *
  * The cost is bounded per instance, not per request:
  * - {@link ensure} reads a tag's marker the first time it is needed and not
@@ -620,6 +630,8 @@ export class TrackedTagMarkers {
   private lastLogRead: number;
   /** Log rows at or after the cursor already applied, by sort key. */
   private readonly applied = new Map<string, number>();
+  /** {@link update}s of the current turn, by their arguments. */
+  private readonly updating = new Map<string, Promise<boolean>>();
 
   constructor(options: TrackedTagMarkersOptions) {
     this.markers = options.markers;
@@ -755,6 +767,154 @@ export class TrackedTagMarkers {
       this.refreshing = undefined;
     });
     return this.refreshing;
+  }
+
+  /**
+   * Record a revalidation of `tags`: here at once, and in the revalidation
+   * table for every other instance - the marker row plus a log row per tag.
+   *
+   * Next.js calls `revalidateTag` on the incremental cache and `updateTags` on
+   * every distinct `cacheHandlers` entry, all in one synchronous loop
+   * (`revalidation-utils`), and all of them share this manifest. So an
+   * identical call in the same turn joins the first instead of writing the
+   * rows again. One in a later turn is a revalidation of its own, even while
+   * the first one's writes are in flight, and gets its own, later, marker.
+   * Never rejects: resolves `false` when a row failed to write (the error is
+   * logged), so other instances may not see it.
+   */
+  async update(
+    tags: readonly string[],
+    durations: RevalidateDurations | undefined,
+  ): Promise<boolean> {
+    const key = JSON.stringify([tags, durations ?? null]);
+    const inFlight = this.updating.get(key);
+    if (inFlight) {
+      return inFlight;
+    }
+    const update = this.write(tags, durations);
+    this.updating.set(key, update);
+    // Forgotten as soon as the current turn's calls have been made.
+    void Promise.resolve().then(() => this.updating.delete(key));
+    return update;
+  }
+
+  /**
+   * What the tracked markers say about an entry carrying `tags`, created at
+   * `createdAt`: the most severe answer of any of them.
+   */
+  state(tags: readonly string[], createdAt: number): RevalidationState {
+    // `markerClock()`, not `Date.now()`, here and wherever a marker is stamped:
+    // `createdAt` is on Next.js's clock, and a marker on the wall clock would be
+    // compared across the two, so an entry regenerated just after a
+    // revalidation could still read as older than it wherever they drift.
+    const at = markerClock();
+    let state: RevalidationState = "fresh";
+    for (const tag of tags) {
+      const marker = this.get(tag);
+      if (!marker) {
+        continue;
+      }
+      const tagState = markerState(marker, createdAt, at);
+      if (tagState === "expired") {
+        return "expired";
+      }
+      if (tagState === "stale") {
+        state = "stale";
+      }
+    }
+    return state;
+  }
+
+  /**
+   * `getExpiration`'s answer: the latest time any of `tags` expired, `0` if
+   * none has. Only expirations already past count - a profile's future
+   * `expire` is not an expiration yet - and a stale mark does not, matching
+   * Next.js's default handler, which reads only `expired` for implicit tags.
+   */
+  expiration(tags: readonly string[]): number {
+    const at = markerClock();
+    let latest = 0;
+    for (const tag of tags) {
+      const marker = this.get(tag);
+      if (!marker) {
+        continue;
+      }
+      if (marker.revalidatedAt !== undefined) {
+        latest = Math.max(latest, marker.revalidatedAt);
+      }
+      if (marker.expiredAt !== undefined && marker.expiredAt <= at) {
+        latest = Math.max(latest, marker.expiredAt);
+      }
+    }
+    return latest;
+  }
+
+  private async write(
+    tags: readonly string[],
+    durations: RevalidateDurations | undefined,
+  ): Promise<boolean> {
+    const at = markerClock();
+    const marker = markerFor(at, durations);
+    for (const tag of tags) {
+      this.set(tag, applyMarker(this.get(tag), marker));
+    }
+    const { markers, log } = this;
+    if (!markers || !log) {
+      return true;
+    }
+    const writes: [string, Promise<unknown>][] = [];
+    for (const tag of new Set(tags)) {
+      writes.push([
+        "Error writing tag revalidation marker:",
+        // The row as it is now, which carries any earlier `revalidatedAt`
+        // another instance wrote: tracking only what this call set would
+        // hide that one until the rolling re-read, and an entry older than it
+        // would read as merely stale.
+        markers.write(tag, at, durations).then((row) => {
+          if (row) {
+            this.set(tag, mergeMarkers(this.get(tag), row));
+          }
+        }),
+      ]);
+      writes.push([
+        "Error writing tag revalidation log row:",
+        this.putLogRow(log, tag, marker),
+      ]);
+    }
+    const results = await Promise.allSettled(writes.map(([, write]) => write));
+    results.forEach((result, i) => {
+      if (result.status === "rejected") {
+        console.error(writes[i][0], result.reason);
+      }
+    });
+    return results.every((result) => result.status === "fulfilled");
+  }
+
+  /**
+   * Put `tag`'s log row, stamped on the wall clock (the marker values are on
+   * Next.js's: see {@link RevalidationLog}).
+   *
+   * Readers only look {@link REVALIDATION_LOG_LOOKBACK_MS} behind their last
+   * query, so a row that shows up much later than its timestamp - a slow
+   * connection, retries under throttling - is behind every cursor and never
+   * read. A slow put is therefore made again under a fresh timestamp, which
+   * readers will see; one slow twice is reported as a failure.
+   */
+  private async putLogRow(
+    log: RevalidationLog,
+    tag: string,
+    marker: TagMarker,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const at = this.clock();
+      await log.put(tag, at, marker);
+      if (this.clock() - at <= MAX_LOG_PUT_MS) {
+        return;
+      }
+    }
+    throw new Error(
+      `The revalidation log row for ${tag} took longer than readers look back`,
+    );
   }
 
   /**
@@ -959,6 +1119,13 @@ export class TrackedTagMarkers {
     }
   }
 }
+
+/**
+ * The longest a log row's put may take and still be seen by every reader: half
+ * the lookback, leaving the rest for writers' clocks and eventually consistent
+ * queries.
+ */
+const MAX_LOG_PUT_MS = REVALIDATION_LOG_LOOKBACK_MS / 2;
 
 /**
  * A marker as read from the table or the log, keeping whatever this instance

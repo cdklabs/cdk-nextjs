@@ -17,6 +17,7 @@ import { App, Stack } from "aws-cdk-lib";
 import { Architecture } from "aws-cdk-lib/aws-lambda";
 import {
   deploymentArchitecture,
+  deploymentBuildId,
   isSharpBinaryPackage,
   listTree,
   NextjsBuild,
@@ -225,7 +226,34 @@ describe("Sharp staging for the deployment target", () => {
       sharpSource: string | undefined,
       platform: string,
     ): void;
+    stageSharpForTarget(
+      root: { name: string; path: string },
+      projectDir: string,
+      platform: string,
+    ): void;
   };
+
+  /** A staged pnpm `sharp` that pins test-version binaries for `platform`. */
+  function stagePinnedSharp(root: string, platform: string) {
+    stagePnpmSharp(root);
+    write(
+      join(
+        root,
+        "node_modules/.pnpm/sharp@0.34.5/node_modules/sharp/package.json",
+      ),
+      JSON.stringify({
+        name: "sharp",
+        version: "0.34.5",
+        optionalDependencies: {
+          [`@img/sharp-${platform}`]: VERSION,
+          [`@img/sharp-libvips-${platform}`]: VERSION,
+        },
+      }),
+    );
+    for (const name of [`sharp-${platform}`, `sharp-libvips-${platform}`]) {
+      seedCache(name);
+    }
+  }
 
   it.each([
     ["linux-x64", "darwin-arm64"],
@@ -327,6 +355,60 @@ describe("Sharp staging for the deployment target", () => {
       expect.stringContaining('"sharp" not found'),
     );
     warn.mockRestore();
+  });
+
+  describe("per function group", () => {
+    const platform = "linux-arm64";
+    const stage = (name: string) =>
+      build.stageSharpForTarget(
+        { name, path: join(dir, "staged") },
+        join(dir, "staged/apps/web"),
+        platform,
+      );
+
+    // Only `default` serves `/_next/image`, so a group without sharp is normal.
+    it("installs nothing and stays quiet for a group without sharp", () => {
+      write(join(dir, "staged/apps/web/server.js"), "");
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      stage("api");
+      expect(existsSync(sharpBinaryDir(join(dir, "staged")))).toBe(false);
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("warns for default without sharp, which can't optimize images", () => {
+      write(join(dir, "staged/apps/web/server.js"), "");
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      stage("default");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('"sharp" not found'),
+      );
+      warn.mockRestore();
+    });
+
+    it("installs the target's binaries for a group whose own routes use sharp", () => {
+      stagePinnedSharp(join(dir, "staged"), platform);
+      stage("api");
+      expect(readdirSync(sharpBinaryDir(join(dir, "staged"))).sort()).toEqual(
+        [`sharp-${platform}`, `sharp-libvips-${platform}`].sort(),
+      );
+    });
+  });
+});
+
+describe("deploymentBuildId", () => {
+  it("is Next.js's build ID when the app sets no deploymentId", () => {
+    expect(
+      deploymentBuildId({ buildId: "b1", config: { deploymentId: "" } }),
+    ).toBe("b1");
+  });
+
+  // With `NEXT_DEPLOYMENT_ID`, Next's BUILD_ID is a constant, so without the
+  // suffix every deployment would share one cache partition.
+  it("is suffixed with the deploymentId when the app sets one", () => {
+    expect(
+      deploymentBuildId({ buildId: "b1", config: { deploymentId: "d7" } }),
+    ).toBe("b1-d7");
   });
 });
 

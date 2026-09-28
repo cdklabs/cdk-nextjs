@@ -14,6 +14,7 @@ import {
   Runtime,
 } from "aws-cdk-lib/aws-lambda";
 import { Bucket } from "aws-cdk-lib/aws-s3";
+import { pathPatternsFor } from "./adapter/function-groups";
 import { NextjsType } from "./constants";
 import {
   NextjsDistribution,
@@ -22,9 +23,9 @@ import {
 
 /**
  * `functionGroups` routing at the edge. `NextjsBuild` is deliberately not
- * involved: these assertions are about behavior *order*, which is the one thing
- * CloudFront gets silently wrong, and constructing the distribution directly
- * avoids running a real `next build`.
+ * involved: which behaviors a group gets, and in what order, is the adapter's
+ * decision (`function-groups.test.ts`), so these pass the behaviors in directly
+ * and assert on what the distribution does with them.
  */
 describe("NextjsDistribution function group behaviors", () => {
   const setup = (
@@ -33,6 +34,7 @@ describe("NextjsDistribution function group behaviors", () => {
       routesFor?: (name: string) => string[];
       publicDirEntries?: string[];
       basePath?: string;
+      trailingSlash?: boolean;
     } = {},
   ) => {
     const stack = new Stack(new App(), "TestStack");
@@ -45,13 +47,21 @@ describe("NextjsDistribution function group behaviors", () => {
         });
         return {
           name,
-          routes: props.routesFor?.(name) ?? [`/${name}/**`],
           functionUrl: new FunctionUrl(stack, `Url${name}`, {
             function: fn,
             authType: FunctionUrlAuthType.AWS_IAM,
           }),
         };
       },
+    );
+    // In the order given: the build's list is already most specific first.
+    const functionGroupBehaviors = groupNames.flatMap((group) =>
+      (props.routesFor?.(group) ?? [`/${group}/**`]).flatMap((route) =>
+        pathPatternsFor(route, {
+          hasDataRoutes: false,
+          trailingSlash: props.trailingSlash,
+        }).map((pattern) => ({ group, route, pattern })),
+      ),
     );
     const defaultFn = new LambdaFunction(stack, "FnDefault", {
       code: Code.fromInline("exports.handler = () => {};"),
@@ -61,6 +71,7 @@ describe("NextjsDistribution function group behaviors", () => {
     return {
       stack,
       functionGroups,
+      functionGroupBehaviors,
       distributionProps: {
         assetsBucket: new Bucket(stack, "Assets"),
         basePath: props.basePath,
@@ -109,19 +120,20 @@ describe("NextjsDistribution function group behaviors", () => {
     });
   });
 
-  it("orders overlapping group patterns most specific first", () => {
+  it("adds group behaviors in the build's order, after the image behavior", () => {
     // CloudFront stops at the first matching behavior, so `api/*` ahead of
     // `api/reports/*` would send every report request to the wrong function.
-    const { stack, functionGroups, distributionProps } = setup(
-      ["api", "reports"],
-      {
+    // The build sorted them when it checked them; re-sorting here could only
+    // disagree with that.
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["reports", "api"], {
         routesFor: (name) =>
           name === "api" ? ["/api/**"] : ["/api/reports/**"],
-      },
-    );
+      });
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
       functionGroups,
+      functionGroupBehaviors,
     });
     expect(pathPatterns(stack)).toEqual([
       "_next/static*",
@@ -131,105 +143,21 @@ describe("NextjsDistribution function group behaviors", () => {
     ]);
   });
 
-  it("ranks by segment count before string length", () => {
-    const { stack, functionGroups, distributionProps } = setup(["a", "b"], {
-      routesFor: (name) =>
-        name === "a" ? ["/a/b/**"] : ["/averyverylongsegment/**"],
-    });
-    new NextjsDistribution(stack, "Distribution", {
-      ...distributionProps,
-      functionGroups,
-    });
-    expect(pathPatterns(stack).slice(2)).toEqual([
-      "a/b/*",
-      "averyverylongsegment/*",
-    ]);
-  });
-
-  it("puts an exact pattern ahead of a wildcard of the same depth", () => {
-    // `a/*` and `a/b` are the same length and the same segment count, so ranking
-    // on those alone left the order up to the sort's stability — and `a/*` first
-    // swallows `a/b`, sending group b's only route to group a's function. The
-    // literal prefix is what decides it: `a/b` matches strictly less.
-    const { stack, functionGroups, distributionProps } = setup(["a", "b"], {
-      routesFor: (name) => (name === "a" ? ["/a/**"] : ["/a/b"]),
-    });
-    new NextjsDistribution(stack, "Distribution", {
-      ...distributionProps,
-      functionGroups,
-    });
-    expect(pathPatterns(stack).slice(2)).toEqual(["a/b", "a/*"]);
-  });
-
-  it("anchors data-route patterns on the literal build ID", () => {
-    // With a `*` for the build ID, `_next/data/*/blog/*` also matched
-    // `/_next/data/<id>/docs/blog/x.json` — CloudFront's `*` crosses `/` — and
-    // sent another group's data URL to the blog function.
-    const { stack, functionGroups, distributionProps } = setup(
-      ["blog", "docs"],
-      {
-        routesFor: (name) => (name === "blog" ? ["/blog/**"] : ["/docs/**"]),
-      },
-    );
-    new NextjsDistribution(stack, "Distribution", {
-      ...distributionProps,
-      functionGroups: functionGroups.map((g) => ({
-        ...g,
-        hasDataRoutes: true,
-      })),
-      nextBuildId: "abc123",
-    });
-    const patterns = pathPatterns(stack).slice(2);
-    expect(patterns).toContain("_next/data/abc123/blog/*");
-    expect(patterns).toContain("_next/data/abc123/docs/*");
-    expect(patterns.some((pattern) => pattern.includes("data/*"))).toBe(false);
-  });
-
-  it("requires the build ID to route a split Pages Router app", () => {
-    const { stack, functionGroups, distributionProps } = setup(["blog"]);
-    expect(
-      () =>
-        new NextjsDistribution(stack, "Distribution", {
-          ...distributionProps,
-          functionGroups: functionGroups.map((g) => ({
-            ...g,
-            hasDataRoutes: true,
-          })),
-        }),
-    ).toThrow(/`nextBuildId` is required/);
-  });
-
-  it("adds the trailing-slash form of an exact pattern for a trailingSlash app", () => {
-    // With `trailingSlash: true` the app links to `/pricing/`, which `pricing`
-    // does not match: the canonical URL fell through to the default function,
-    // which does not have the route packaged.
-    const { stack, functionGroups, distributionProps } = setup(["mkt"], {
-      routesFor: () => ["/pricing"],
-    });
-    new NextjsDistribution(stack, "Distribution", {
-      ...distributionProps,
-      functionGroups,
-      trailingSlash: true,
-    });
-    expect(pathPatterns(stack).slice(2).sort()).toEqual([
-      "pricing",
-      "pricing/",
-    ]);
-  });
-
   it("keeps the two slash variants distinct under a basePath", () => {
     // `getPathPattern` used to join through a helper that strips trailing
     // slashes, so `pricing` and `pricing/` both became `/base/pricing`: two
     // behaviors with the same path pattern, which CloudFront rejects at deploy
     // with no hint that `trailingSlash` is what produced the duplicate.
-    const { stack, functionGroups, distributionProps } = setup(["mkt"], {
-      routesFor: () => ["/pricing"],
-      basePath: "/base",
-    });
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["mkt"], {
+        routesFor: () => ["/pricing"],
+        basePath: "/base",
+        trailingSlash: true,
+      });
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
       functionGroups,
-      trailingSlash: true,
+      functionGroupBehaviors,
     });
     const patterns = pathPatterns(stack);
     expect(patterns).toContain("/base/pricing");
@@ -311,56 +239,28 @@ describe("NextjsDistribution function group behaviors", () => {
     ).not.toThrow();
   });
 
-  it("routes a group's Pages Router data URLs alongside its HTML", () => {
-    const { stack, functionGroups, distributionProps } = setup(["blog"], {
-      routesFor: () => ["/blog/**", "/pricing"],
-    });
-    new NextjsDistribution(stack, "Distribution", {
-      ...distributionProps,
-      functionGroups: functionGroups.map((g) => ({
-        ...g,
-        hasDataRoutes: true,
-      })),
-      nextBuildId: "abc123",
-    });
-    expect(pathPatterns(stack).slice(2).sort()).toEqual([
-      "_next/data/abc123/blog/*",
-      "_next/data/abc123/pricing.json",
-      "blog/*",
-      "pricing",
-    ]);
-  });
-
-  it("adds data-route patterns only for the groups that own Pages Router routes", () => {
-    // One legacy page must not double every group's behaviors.
-    const { stack, functionGroups, distributionProps } = setup(
-      ["blog", "docs"],
-      {
-        routesFor: (name) => (name === "blog" ? ["/blog/**"] : ["/docs/**"]),
-      },
+  it("rejects a behavior for a group it was not given", () => {
+    const { stack, functionGroupBehaviors, distributionProps } = setup(["api"]);
+    expect(
+      () =>
+        new NextjsDistribution(stack, "Distribution", {
+          ...distributionProps,
+          functionGroupBehaviors,
+        }),
+    ).toThrow(
+      /routes to function group "api", which is not in `functionGroups`/,
     );
-    new NextjsDistribution(stack, "Distribution", {
-      ...distributionProps,
-      functionGroups: functionGroups.map((g) => ({
-        ...g,
-        hasDataRoutes: g.name === "blog",
-      })),
-      nextBuildId: "abc123",
-    });
-    expect(pathPatterns(stack).slice(2).sort()).toEqual([
-      "_next/data/abc123/blog/*",
-      "blog/*",
-      "docs/*",
-    ]);
   });
 
   it("points each group's behaviors at that group's own origin", () => {
-    const { stack, functionGroups, distributionProps } = setup(["api"], {
-      routesFor: () => ["/api/**", "/health"],
-    });
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["api"], {
+        routesFor: () => ["/api/**", "/health"],
+      });
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
       functionGroups,
+      functionGroupBehaviors,
     });
     const distributions = Template.fromStack(stack).findResources(
       "AWS::CloudFront::Distribution",
@@ -386,27 +286,31 @@ describe("NextjsDistribution function group behaviors", () => {
   });
 
   it("prefixes group patterns with basePath", () => {
-    const { stack, functionGroups, distributionProps } = setup(["api"], {
-      routesFor: () => ["/api/**"],
-      basePath: "/base",
-    });
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["api"], {
+        routesFor: () => ["/api/**"],
+        basePath: "/base",
+      });
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
       functionGroups,
+      functionGroupBehaviors,
     });
     expect(pathPatterns(stack)).toContain("/base/api/*");
   });
 
   it("names every claim on the behavior budget when it is exceeded", () => {
-    const { stack, functionGroups, distributionProps } = setup(["api"], {
-      routesFor: () => ["/api/**"],
-      publicDirEntries: Array.from({ length: 22 }, (_, i) => `file${i}.txt`),
-    });
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["api"], {
+        routesFor: () => ["/api/**"],
+        publicDirEntries: Array.from({ length: 22 }, (_, i) => `file${i}.txt`),
+      });
     expect(
       () =>
         new NextjsDistribution(stack, "Distribution", {
           ...distributionProps,
           functionGroups,
+          functionGroupBehaviors,
           maxCacheBehaviors: 25,
         }),
     ).toThrow(
@@ -417,12 +321,14 @@ describe("NextjsDistribution function group behaviors", () => {
   it("rejects a group pattern that duplicates a public/ directory's", () => {
     // `public/docs/` and `/docs/**` both deploy as `docs/*`: the synth
     // succeeded and CloudFront rejected the deploy.
-    const { stack, functionGroups, distributionProps } = setup(["docs"]);
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["docs"]);
     expect(
       () =>
         new NextjsDistribution(stack, "Distribution", {
           ...distributionProps,
           functionGroups,
+          functionGroupBehaviors,
           publicDirEntries: [{ name: "docs", isDirectory: true }],
         }),
     ).toThrow(
@@ -432,29 +338,33 @@ describe("NextjsDistribution function group behaviors", () => {
 
   it("rejects a group pattern a public/ directory's behavior would shadow", () => {
     // `docs/*` is added first, so `docs/guide/*` never matches.
-    const { stack, functionGroups, distributionProps } = setup(["guide"], {
-      routesFor: () => ["/docs/guide/**"],
-    });
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["guide"], {
+        routesFor: () => ["/docs/guide/**"],
+      });
     expect(
       () =>
         new NextjsDistribution(stack, "Distribution", {
           ...distributionProps,
           functionGroups,
+          functionGroupBehaviors,
           publicDirEntries: [{ name: "docs", isDirectory: true }],
         }),
     ).toThrow(/public\/ entry behind "docs\/\*" is matched first/);
   });
 
   it("rejects an exact group pattern equal to a public/ file's, basePath included", () => {
-    const { stack, functionGroups, distributionProps } = setup(["mkt"], {
-      routesFor: () => ["/robots.txt"],
-      basePath: "/base",
-    });
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["mkt"], {
+        routesFor: () => ["/robots.txt"],
+        basePath: "/base",
+      });
     expect(
       () =>
         new NextjsDistribution(stack, "Distribution", {
           ...distributionProps,
           functionGroups,
+          functionGroupBehaviors,
           publicDirEntries: [{ name: "robots.txt", isDirectory: false }],
         }),
     ).toThrow(/deploys as the path pattern "\/base\/robots\.txt"/);
@@ -462,30 +372,19 @@ describe("NextjsDistribution function group behaviors", () => {
 
   it("allows a group pattern beside a public/ entry it does not overlap", () => {
     // `/docs` exact is not under `docs/*`, and `docs/*` does not match `/docs`.
-    const { stack, functionGroups, distributionProps } = setup(["docs"], {
-      routesFor: () => ["/docs"],
-    });
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["docs"], {
+        routesFor: () => ["/docs"],
+      });
     new NextjsDistribution(stack, "Distribution", {
       ...distributionProps,
       functionGroups,
+      functionGroupBehaviors,
       publicDirEntries: [{ name: "docs", isDirectory: true }],
     });
     expect(pathPatterns(stack)).toEqual(
       expect.arrayContaining(["docs/*", "docs"]),
     );
-  });
-
-  it("routes an optional catch-all's parent when the group lists it", () => {
-    // What the root constructs pass for `/shop/**` over `shop/[[...slug]]`
-    // (see `routedPatterns`): `shop/*` alone does not match `/shop`.
-    const { stack, functionGroups, distributionProps } = setup(["shop"], {
-      routesFor: () => ["/shop/**", "/shop"],
-    });
-    new NextjsDistribution(stack, "Distribution", {
-      ...distributionProps,
-      functionGroups,
-    });
-    expect(pathPatterns(stack).slice(2).sort()).toEqual(["shop", "shop/*"]);
   });
 
   it("serves bundles under a path-style assetPrefix, rewriting the prefix away", () => {
@@ -904,7 +803,8 @@ describe("NextjsDistribution function group behaviors", () => {
   });
 
   it("rejects splitting on a deployment type that cannot route it", () => {
-    const { stack, functionGroups, distributionProps } = setup(["api"]);
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["api"]);
     expect(
       () =>
         new NextjsDistribution(stack, "Distribution", {
@@ -912,6 +812,7 @@ describe("NextjsDistribution function group behaviors", () => {
           nextjsType: NextjsType.GLOBAL_CONTAINERS,
           loadBalancer: undefined,
           functionGroups,
+          functionGroupBehaviors,
         }),
     ).toThrow(/NextjsDistributionProps.loadBalancer/);
   });

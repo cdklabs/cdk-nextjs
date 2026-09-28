@@ -93,7 +93,7 @@ server.mts                               @next/routing             static file
   about revalidations from the revalidation log (`RevalidationLog`, `pk =
 <buildId>#log`) through `TrackedTagMarkers`: one `Query` per refresh interval
   instead of re-reading every tracked marker. The cache handler and the
-  `'use cache'` manifest each keep their own, so an instance sends two.
+  `'use cache'` handlers share one manifest, so an instance sends one.
 
 ### Invariants worth not breaking
 

@@ -67,6 +67,25 @@ describe("serveS3PublicFile", () => {
     expect(input.IfNoneMatch).toBeUndefined();
   });
 
+  // The 304's ETag is the object's, not the client's list of candidates.
+  it.each([
+    ["the object's ETag", { headers: { etag: '"e1"' } }, '"e1"'],
+    ["no ETag without one", undefined, undefined],
+  ])("answers an If-None-Match list with %s", async (_, $response, etag) => {
+    send$.mockImplementation((async () => {
+      throw Object.assign(new Error("Not Modified"), {
+        $metadata: { httpStatusCode: 304 },
+        $response,
+      });
+    }) as never);
+    const { res, served } = serve("GET", undefined, {
+      "if-none-match": '"e0", "e1"',
+    });
+    expect(await served).toBe(true);
+    expect(res.statusCode).toBe(304);
+    expect(res.getHeader("ETag")).toBe(etag);
+  });
+
   // `fresh` ignores If-Modified-Since next to an If-None-Match.
   it("leaves If-Modified-Since out next to an If-None-Match", async () => {
     send$.mockImplementation((async () => ({})) as never);

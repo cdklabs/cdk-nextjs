@@ -213,14 +213,17 @@ The four root constructs fill these in; only code that uses `NextjsFunctions`,
   Take them from `NextjsBuild`'s fields of the same names.
 - **`NextjsBuild.relativePathToPackage` → `NextjsBuild.relativeProjectDir`**, now
   read from the adapter manifest. New read-only fields: `architecture`,
-  `deploymentRoots`, `nextBuildId`, `nextConfigAssetPrefix`,
-  `nextConfigAssetPrefixPath`, `trailingSlash`.
+  `deploymentRoots`, `functionGroupBehaviors`, `nextConfigAssetPrefix`,
+  `nextConfigAssetPrefixPath`.
 - **`NextjsBuild.buildId` ends in `-<deploymentId>`** when the app sets
   `deploymentId` (or `NEXT_DEPLOYMENT_ID`), so it no longer always equals
-  `.next/BUILD_ID`. The unsuffixed value is the new `nextBuildId`.
+  `.next/BUILD_ID`.
 - **`NextjsBuild.relativePathToEntrypoint` is `cdk-nextjs-runtime/server.mjs`**,
   not `server.js` (or `<package>/server.js` in a monorepo). Update any task
   definition or command you built from it.
+- **`NextjsBaseConstruct.createNextjsFunctions()`** (protected) takes no
+  parameter; it reads `overrides.nextjsFunctions` itself. A subclass that passed
+  overrides to it should set them there instead.
 
 ### `nextjsFunctionsProps` is removed
 
@@ -244,6 +247,15 @@ On `NextjsGlobalContainers` and `NextjsRegionalContainers`, a VPC passed through
 top-level `vpc` prop was unset, so the cluster created its own VPC. The override
 is now used. If you set it, the next deploy moves the tasks into that VPC and
 deletes the one the cluster created.
+
+### Fix: `NextjsGlobalFunctions` honors the `distribution` prop
+
+0.6.x silently ignored `distribution` on `NextjsGlobalFunctions` and always
+created its own (`NextjsGlobalContainers` already honored it). If you set it,
+the next deploy deletes the construct-created distribution, and with it its
+`dXXXX.cloudfront.net` domain, and adds the app's behaviors to yours instead.
+Without a `basePath` no catch-all behavior is added, so point your
+distribution's default behavior at the function, or set `basePath`.
 
 ### Responses without `Cache-Control` are no longer cached by CloudFront
 
@@ -362,6 +374,15 @@ needs `events:*` added to its CloudFormation execution policy, or the deploy
 fails creating the rule. The redeploy moves the stage off the deployment
 CloudFormation made, so drift detection reports the stage's `DeploymentId` as
 modified; that is expected.
+
+`OptionalNextjsApiProps` omits `overrides` and `functionGroups`, so
+`nextjsApiProps.overrides` no longer compiles. `functionGroups` belongs on the
+root construct's props, where the build checks routes against it, and
+`overrides.nextjsApi` is where `NextjsRegionalFunctions` reads the `RestApi`'s
+props from to derive `basePath`; one set under `nextjsApiProps` used to replace
+it, so the two could disagree about the stage.
+
+- **Migration:** move `nextjsApiProps.overrides` to `overrides.nextjsApi`.
 
 With groups and Pages Router data routes, the `_next/data` behaviors name the
 literal Next.js build ID, so they change on every deploy unless a
@@ -519,6 +540,11 @@ default), so give those their own buckets too.
   bucket and table once nothing points at them.
   [examples/bring-your-own](../examples/bring-your-own) now shares only the VPC,
   ECS cluster, and ALB between branches.
+- **Upgrading bring-your-own:** deploy every branch stack first, then
+  `SharedInfra`. The new `SharedInfra` deletes the shared cache bucket, static
+  assets bucket, revalidation table and their SSM parameters, which a branch
+  stack still on the old version serves from and reads at deploy; deployed
+  first, each branch has moved onto its own buckets and table before they go.
 
 ### Performance compared with 0.6.2
 

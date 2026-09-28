@@ -2,8 +2,9 @@
 import {
   S3Client,
   ListObjectsV2Command,
+  ListObjectsV2CommandOutput,
   DeleteObjectsCommand,
-  ListObjectsV2CommandInput,
+  _Object,
 } from "@aws-sdk/client-s3";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
@@ -18,120 +19,79 @@ interface PruneCacheBucketProps {
 }
 
 /**
- * Given `bucketName` and `currentBuildId`, list all objects in the cache bucket
- * and delete any that have BUILD_ID prefixes that don't match the current build ID.
- * Cache objects are prefixed with {buildId}/ pattern (no leading slash).
+ * Given `bucketName` and `currentBuildId`, delete every cache object that isn't
+ * under the current build's `{buildId}/` prefix (no leading slash).
+ *
+ * The top level is listed with a delimiter, so the current build, which can
+ * hold any number of `'use cache: remote'` entries, is never walked. Each old
+ * build prefix is then listed and deleted page by page. Top-level keys outside
+ * any build prefix (legacy objects) are deleted too.
  */
 export async function pruneCacheBucket(props: PruneCacheBucketProps) {
   const { bucketName, currentBuildId } = props;
 
-  const objectsToDelete: { Key: string }[] = [];
-  let continuationToken: string | undefined = undefined;
-  let listObjectsCount = 0;
-
+  const oldPrefixes: string[] = [];
+  let deleted = 0;
+  let continuationToken: string | undefined;
   do {
-    // List objects in the bucket
-    const listObjectsV2Input: ListObjectsV2CommandInput = {
-      Bucket: bucketName,
-      ContinuationToken: continuationToken,
-    };
-    const listResponse = await s3Client.send(
-      new ListObjectsV2Command(listObjectsV2Input),
+    const page: ListObjectsV2CommandOutput = await s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: bucketName,
+        Delimiter: "/",
+        ContinuationToken: continuationToken,
+      }),
     );
-
-    if (!listResponse.Contents || listResponse.Contents.length === 0) {
-      break;
+    for (const { Prefix } of page.CommonPrefixes ?? []) {
+      if (Prefix && Prefix !== `${currentBuildId}/`) oldPrefixes.push(Prefix);
     }
+    deleted += await deleteObjects(bucketName, page.Contents);
+    continuationToken = page.NextContinuationToken;
+  } while (continuationToken);
 
-    // Filter objects that have old BUILD_ID prefixes
-    const oldCacheObjects = listResponse.Contents.filter((obj) => {
-      if (!obj.Key) return false;
+  debug(`Found ${oldPrefixes.length} old build prefixes to delete`);
 
-      // Check if the object key starts with a BUILD_ID prefix pattern
-      // Expected pattern: {buildId}/* (buildId followed by slash, no leading slash)
-      // Regex /^([^\/]+)\// matches: BUILD_ID/... and captures BUILD_ID in group 1
-      // Example: "abc123def456/pages/index.html" captures "abc123def456"
-      const buildIdMatch = obj.Key.match(/^([^\/]+)\//);
-      if (buildIdMatch) {
-        const objectBuildId = buildIdMatch[1]; // Extract BUILD_ID from capture group
-        // Delete if it's not the current build ID
-        return objectBuildId !== currentBuildId;
-      }
-
-      // Also delete objects that don't follow the BUILD_ID prefix pattern
-      // These might be legacy cache objects or objects with leading slashes
-      return true;
-    });
-
-    debug(
-      `Found ${oldCacheObjects.length} cache objects with old BUILD_ID prefixes to delete`,
-    );
-
-    // Add objects to delete list
-    objectsToDelete.push(
-      ...oldCacheObjects
-        .filter((obj) => obj.Key)
-        .map((obj) => ({ Key: obj.Key! })),
-    );
-
-    // Unconditionally: the last page has no token, and keeping the previous
-    // one re-listed that page until the guard below tripped.
-    continuationToken = listResponse.NextContinuationToken;
-    listObjectsCount++;
-    // assume less than 100K objects (100 * 1K objects per ListObjectsV2Command = 100K)
-  } while (continuationToken && listObjectsCount <= 100);
-
-  // Delete objects in parallel batches (respecting S3's 1000 objects per request limit)
-  if (objectsToDelete.length > 0) {
-    const deleteBatches = [];
-
-    for (let i = 0; i < objectsToDelete.length; i += 1000) {
-      const batch = objectsToDelete.slice(i, i + 1000);
-      deleteBatches.push(batch);
-    }
-
-    await processBatch(
-      deleteBatches,
-      5, // Process up to 5 delete batches in parallel
-      async (batch) => {
-        try {
-          debug(
-            `Deleting cache objects: ${batch.map((b) => b.Key)} from ${bucketName}`,
-          );
-          await s3Client.send(
-            new DeleteObjectsCommand({
-              Bucket: bucketName,
-              Delete: { Objects: batch },
-            }),
-          );
-          debug(`Deleted ${batch.length} cache objects from ${bucketName}`);
-        } catch (error) {
-          console.error("Error deleting cache objects:", error);
-        }
-      },
-    );
+  for (const prefix of oldPrefixes) {
+    continuationToken = undefined;
+    do {
+      const page: ListObjectsV2CommandOutput = await s3Client.send(
+        new ListObjectsV2Command({
+          Bucket: bucketName,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+      deleted += await deleteObjects(bucketName, page.Contents);
+      continuationToken = page.NextContinuationToken;
+    } while (continuationToken);
   }
 
   debug(
-    `Cache bucket pruning complete. Deleted ${objectsToDelete.length} objects from ${bucketName}`,
+    `Cache bucket pruning complete. Deleted ${deleted} objects from ${bucketName}`,
   );
 }
 
 /**
- * Process objects in batches to avoid overwhelming the system
+ * Delete one listed page of objects. ListObjectsV2 returns at most 1000 keys a
+ * page, which is also the DeleteObjects limit, so a page is one request.
+ * Returns how many objects were sent for deletion.
  */
-async function processBatch<T, R>(
-  items: T[],
-  batchSize: number,
-  processFn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = [];
-
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(processFn));
-    results.push(...batchResults);
+async function deleteObjects(bucketName: string, contents: _Object[] = []) {
+  const objects = contents
+    .filter((obj) => obj.Key)
+    .map((obj) => ({ Key: obj.Key! }));
+  if (objects.length === 0) return 0;
+  try {
+    debug(
+      `Deleting cache objects: ${objects.map((o) => o.Key)} from ${bucketName}`,
+    );
+    await s3Client.send(
+      new DeleteObjectsCommand({
+        Bucket: bucketName,
+        Delete: { Objects: objects },
+      }),
+    );
+  } catch (error) {
+    console.error("Error deleting cache objects:", error);
   }
-
-  return results;
+  return objects.length;
 }

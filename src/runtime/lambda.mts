@@ -26,17 +26,16 @@ import type { ResponseSink } from "./http/sink";
 import { LambdaEvent, toRuntimeRequest } from "./lambda-event";
 
 /**
- * Started at module load so the manifest read, the `chdir`, and the routing-table
+ * Loaded at module load so the manifest read, the `chdir`, and the routing-table
  * construction all happen during Lambda's init phase, which gets full CPU and is
  * not billed on a provisioned-concurrency or SnapStart-less cold start the way
- * handler time is.
+ * handler time is. Awaited there too, so a failed load fails the init — Lambda
+ * reports it and retries in a fresh sandbox — instead of being cached as a
+ * rejected promise every invocation in this one would re-throw.
  */
-const runtimePromise = loadRuntime(
+const runtime = await loadRuntime(
   deploymentRootOf(dirname(fileURLToPath(import.meta.url))),
 );
-// Nothing awaits this until the first invocation, and an unhandled rejection
-// would take the sandbox down before any request could report why.
-runtimePromise.catch(() => {});
 
 class LambdaResponseSink implements ResponseSink {
   /** See {@link ResponseSink.padEmptyBody}. Both integrations need it. */
@@ -58,7 +57,6 @@ class LambdaResponseSink implements ResponseSink {
 
 export const handler = awslambda.streamifyResponse(
   async (event: LambdaEvent, responseStream: Writable): Promise<void> => {
-    const runtime = await runtimePromise;
     await runtime.handle(
       toRuntimeRequest(event, runtime.manifest.config.basePath),
       new LambdaResponseSink(responseStream),

@@ -34,7 +34,10 @@ import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
-import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import {
+  NextjsFunctionGroupBehavior,
+  PublicDirEntry,
+} from "./nextjs-build/nextjs-build";
 import { staticAssetsObjectsPattern } from "./nextjs-static-assets";
 import { joinPath, normalizeBasePath } from "./utils/base-path";
 
@@ -95,11 +98,18 @@ export interface NextjsApiProps {
    */
   readonly vpc?: IVpc;
   /**
-   * The non-`default` function groups, each needing its own resources so the
-   * routes it was packaged with reach it rather than {@link serverFunction}.
+   * The non-`default` function groups, the Lambdas
+   * {@link functionGroupBehaviors} route to.
    * @default - no splitting; `{proxy+}` serves every dynamic route
    */
   readonly functionGroups?: NextjsApiFunctionGroup[];
+  /**
+   * `NextjsBuild.functionGroupBehaviors`: each distinct `route` becomes a
+   * resource subtree integrated with its group, so the routes each group was
+   * packaged with reach it rather than {@link serverFunction}.
+   * @default - none
+   */
+  readonly functionGroupBehaviors?: NextjsFunctionGroupBehavior[];
   /**
    * Deploy the stage again once each stack update has finished, so it serves
    * the API as it is after the update.
@@ -121,16 +131,7 @@ export interface NextjsApiProps {
 /** A non-default function group and the Lambda its routes must reach. */
 export interface NextjsApiFunctionGroup {
   readonly name: string;
-  /** Path patterns the group owns, as written in `NextjsFunctionGroup.routes`. */
-  readonly routes: string[];
   readonly function: IFunction;
-  /**
-   * Whether the group owns Pages Router routes, and therefore a
-   * `/_next/data/<buildId>/…json` URL space that has to be routed alongside the
-   * HTML one (`NextjsDeploymentRoot.hasDataRoutes`).
-   * @default false
-   */
-  readonly hasDataRoutes?: boolean;
 }
 
 /**
@@ -534,9 +535,16 @@ export class NextjsApi extends Construct {
    * resource — so every segment goes through {@link resourceFor}.
    */
   private createFunctionGroupIntegrations() {
-    const groups = this.props.functionGroups;
-    if (!groups?.length) {
-      return;
+    const groups = this.props.functionGroups ?? [];
+    const behaviors = this.props.functionGroupBehaviors ?? [];
+    const unknown = behaviors.find(
+      (behavior) => !groups.some((group) => group.name === behavior.group),
+    );
+    if (unknown) {
+      throw new Error(
+        `${LOG_PREFIX} \`functionGroupBehaviors\` routes to function group ` +
+          `"${unknown.group}", which is not in \`functionGroups\`.`,
+      );
     }
     const routeResources = new Set<IResource>();
     /** Each subtree's base path and the integration its `{proxy+}` got. */
@@ -548,10 +556,17 @@ export class NextjsApi extends Construct {
         scopePermissionToMethod: false,
         ...this.props.overrides?.dynamicIntegrationProps,
       });
-      for (const route of group.routes) {
+      // The CloudFront patterns are for the edge; a resource path per route
+      // covers what they do here, a `trailingSlash` form included, since API
+      // Gateway matches `/pricing/` on the `pricing` resource.
+      const own = behaviors.filter((behavior) => behavior.group === group.name);
+      const hasDataRoutes = own.some(({ pattern }) =>
+        pattern.startsWith("_next/data/"),
+      );
+      for (const route of new Set(own.map((behavior) => behavior.route))) {
         this.assertRoutable(route, group.name);
         this.assertNoPublicCollision(route, group.name);
-        for (const path of this.resourcePathsFor(route, group.hasDataRoutes)) {
+        for (const path of this.resourcePathsFor(route, hasDataRoutes)) {
           const resource = this.resourceFor(path);
           resource.addMethod("ANY", integration);
           routeResources.add(resource);

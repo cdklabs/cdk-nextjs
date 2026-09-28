@@ -54,6 +54,14 @@ pnpm run deploy:branch
 pnpm run deploy:branch -- -c branchName=feature/my-feature
 ```
 
+### Upgrading from 0.6.x
+
+Deploy every branch stack first, then shared infrastructure. The new
+`SharedInfra` deletes the shared cache bucket, static assets bucket,
+revalidation table and their SSM parameters, which branch stacks still on 0.6.x
+serve from and read at deploy. See
+[breaking changes](../../docs/breaking-changes.md#sharing-a-cachebucket-or-revalidationtable-between-deployments-is-not-supported).
+
 ## Destroy
 
 ```bash

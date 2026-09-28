@@ -89,6 +89,7 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
         compress: true,
         generateEtags: true,
         i18n: ctx.config.i18n ?? null,
+        deploymentId: "",
       });
     });
 
@@ -198,6 +199,17 @@ describe("buildAdapterManifest edge cases", () => {
     expect(() => buildAdapterManifest(asContext(appPlayground))).toThrow(
       /must run from the Next.js project directory/,
     );
+  });
+
+  it("records the deploymentId, reduced to what a cache key prefix can hold", () => {
+    // `NextjsBuild` suffixes its `buildId` with it: next pins the build ID
+    // itself once `deploymentId` is set.
+    const ctx = asContext(appPlayground);
+    const { manifest } = build({
+      ...ctx,
+      config: { ...ctx.config, deploymentId: "v1.2/main" },
+    });
+    expect(manifest.config.deploymentId).toBe("v1-2-main");
   });
 
   it("keys locale variants of one page to the same entrypoint file", () => {
@@ -626,21 +638,21 @@ describe("writeBuildOutputs", () => {
     );
     await writeFile(
       join(tracer, "index.js"),
-      `const files = ${JSON.stringify(files)};\n` +
-        // Real nft returns paths relative to `base`; these are already relative
-        // to the repo root, which is the `base` the adapter passes.
-        `const prefix = ${JSON.stringify(relative(repoRoot, nextRoot).split(sep).join("/"))};\n` +
-        // Like real nft, the entries themselves are in the list.
+      // Real nft returns paths relative to `base`, which is the repo root the
+      // adapter passes.
+      `const prefix = ${JSON.stringify(relative(repoRoot, nextRoot).split(sep).join("/"))};\n` +
         "const { realpathSync } = require('node:fs');\n" +
         "const { relative } = require('node:path');\n" +
-        "exports.nodeFileTrace = async (entries, { base }) => ({\n" +
-        "  fileList: new Set([\n" +
-        "    ...files.map((f) => `${prefix}/${f}`),\n" +
-        "    ...entries\n" +
-        "      .map((e) => relative(realpathSync(base), e))\n" +
-        "      .filter((e) => !e.startsWith('..')),\n" +
-        "  ]),\n" +
-        "});\n",
+        "exports.nodeFileTrace = async (entries, { base }) => {\n" +
+        // Like real nft, the entries themselves are in the list.
+        "  const traced = entries\n" +
+        "    .map((e) => relative(realpathSync(base), e))\n" +
+        "    .filter((e) => !e.startsWith('..'));\n" +
+        "  if (traced.some((e) => e.endsWith('image-optimizer.js'))) {\n" +
+        "    traced.push(`${prefix}/dist/shared/lib/match-remote-pattern.js`);\n" +
+        "  }\n" +
+        "  return { fileList: new Set(traced) };\n" +
+        "};\n",
     );
   }
 
@@ -930,9 +942,16 @@ describe("writeBuildOutputs", () => {
      * repo: its single output cannot be split.
      */
     async function makeSplittableRepo(
-      options: { withNotFound?: boolean; withPagesSsr?: boolean } = {},
+      options: {
+        withNotFound?: boolean;
+        withPagesSsr?: boolean;
+        withNext?: boolean;
+      } = {},
     ) {
       const repoRoot = await mkdtemp(join(tmpdir(), "cdk-nextjs-groups-"));
+      if (options.withNext) {
+        await installFakeNext(repoRoot);
+      }
       const projectDir = join(repoRoot, "app");
       const distDir = join(projectDir, ".next");
       await mkdir(join(distDir, "server", "app"), { recursive: true });
@@ -1008,6 +1027,14 @@ describe("writeBuildOutputs", () => {
       });
       // What synth compares its own props with, to catch a stale build.
       expect(manifest.functionGroups).toEqual(groups);
+      // And what it deploys, as the assignment checked it.
+      expect(manifest.behaviors).toEqual([
+        {
+          group: "reports",
+          route: "/api/reports/**",
+          pattern: "api/reports/*",
+        },
+      ]);
     });
 
     it("stages one tree per group, each holding only its own routes", async () => {
@@ -1074,6 +1101,42 @@ describe("writeBuildOutputs", () => {
         await expect(
           has(name, "app", ".next", "required-server-files.json"),
         ).resolves.toBe(true);
+      }
+    });
+
+    it("stages the image optimizer into default only, serve-static into every group", async () => {
+      // Only `default` answers `/_next/image`, and the optimizer is what pulls
+      // `sharp` in; prerendered and static results are served with
+      // `serve-static` in whichever group they land.
+      const { ctx } = await makeSplittableRepo({ withNext: true });
+      const result = await writeBuildOutputs(ctx, {
+        buildCwd: ctx.projectDir,
+        functionGroups: groups,
+      });
+      const has = (name: string, file: string) =>
+        lstat(
+          join(
+            result.stagedGroups.find((it) => it.name === name)!.path,
+            "node_modules",
+            "next",
+            "dist",
+            file,
+          ),
+        ).then(
+          () => true,
+          () => false,
+        );
+      for (const file of [
+        "server/image-optimizer.js",
+        "shared/lib/image-config.js",
+        "server/config-shared.js",
+        "shared/lib/match-remote-pattern.js",
+      ]) {
+        await expect(has("default", file)).resolves.toBe(true);
+        await expect(has("reports", file)).resolves.toBe(false);
+      }
+      for (const name of ["default", "reports"]) {
+        await expect(has(name, "server/serve-static.js")).resolves.toBe(true);
       }
     });
 

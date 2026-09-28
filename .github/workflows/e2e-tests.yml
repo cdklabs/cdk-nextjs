@@ -87,6 +87,10 @@ jobs:
     # x86 on purpose: examples/regional-functions deploys ARM_64, so this is the
     # job that stages `sharp` for an architecture other than the host's.
     runs-on: ubuntu-22.04
+    # Declares the same `functionGroups` as glbl-fns, so splitting is exercised
+    # behind API Gateway as well as CloudFront.
+    env:
+      E2E_FUNCTION_GROUPS: api
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4

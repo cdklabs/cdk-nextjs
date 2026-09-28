@@ -474,10 +474,19 @@ describe("Dispatcher non-entrypoint outcomes", () => {
     if (page.kind !== "entrypoint") return;
     expect(page.resolvedPathname).toBe("/[[...rest]]");
 
-    const prefixed = await dispatcherFor(
+    const prefixedCatchAll = dispatcherFor(
       "app-playground-base-path-root-catch-all",
-    ).dispatch(request(`/prod/_next/image${query}`));
+    );
+    const prefixed = await prefixedCatchAll.dispatch(
+      request(`/prod/_next/image${query}`),
+    );
     expect(prefixed.kind).toBe("image-optimization");
+    // Without which the image assertion would pass on a fixture with no
+    // catch-all at all.
+    const prefixedPage = await prefixedCatchAll.dispatch(request("/prod/a/b"));
+    expect(prefixedPage.kind).toBe("entrypoint");
+    if (prefixedPage.kind !== "entrypoint") return;
+    expect(prefixedPage.resolvedPathname).toBe("/prod/[[...rest]]");
   });
 
   it("optimizes the destination of a next.config rewrite onto /_next/image", async () => {

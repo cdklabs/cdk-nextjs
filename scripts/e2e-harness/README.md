@@ -221,10 +221,10 @@ Eviction is in any case a speed problem and not a correctness one: if the entry 
 gone, the `nextjs` job rebuilds it once and the shards still find it. The cadence
 buys the fast path, not the working one.
 
-`.github/actions/build-nextjs` holds the build itself, so the `nextjs` job and a
-shard's miss-path fallback cannot drift. A shard that misses logs a `::warning`
-and rebuilds rather than failing: a slow run still produces the signal the run is
-for.
+`.github/actions/build-nextjs` holds the build itself, and only the `nextjs` job
+runs it. A shard that misses fails its restore (`fail-on-cache-miss`) rather than rebuilding:
+rebuilding would run next.js's install and build scripts in the job that holds
+`id-token: write`. Re-run the workflow and the `nextjs` job rebuilds the entry.
 
 What is cached is the whole `nextjs` directory plus `~/.cache/ms-playwright`,
 keyed on the next.js ref and the runner image and node major its `node_modules`

@@ -43,18 +43,23 @@ export function toRuntimeRequest(
     headers: functionUrlHeaders(event),
     body,
     remoteAddress: http.sourceIp,
-    // Only CloudFront can invoke the URL, and its viewer-request function
-    // overwrites `x-forwarded-host` with the viewer's `Host`; see
-    // `RuntimeRequest.trustForwardedHost`. `NextjsDistribution` refuses an
-    // override that would replace that function
-    // (`withDynamicFunctionAssociations`). Gated on the signature Lambda
-    // verified, not assumed: a URL overridden to `authType: NONE` can be called
-    // by anyone, with any header.
+    // Trusted for any IAM-authorized invoker: in practice CloudFront's Origin
+    // Access Control, whose viewer-request function overwrites
+    // `x-forwarded-host` with the viewer's `Host` (see
+    // `RuntimeRequest.trustForwardedHost`; `NextjsDistribution` refuses an
+    // override that would replace that function,
+    // `withDynamicFunctionAssociations`), plus principals granted
+    // `lambda:InvokeFunctionUrl`, which are already trusted with the function.
+    // Gated on the signature Lambda verified, not assumed: a URL overridden to
+    // `authType: NONE` can be called by anyone, with any header.
     trustForwardedHost: isIamAuthenticated(event),
   };
 }
 
-/** Lambda sets `authorizer.iam` only for a request it verified the SigV4 of. */
+/**
+ * Lambda sets `authorizer.iam` only for a request it verified the SigV4 of — by
+ * any principal allowed to invoke the URL, not only CloudFront.
+ */
 function isIamAuthenticated(event: LambdaFunctionURLEvent): boolean {
   const { authorizer } = event.requestContext as {
     authorizer?: { iam?: unknown };
@@ -93,8 +98,8 @@ function functionUrlHeaders(
 }
 
 /**
- * `multiValueHeaders` is preferred where present: the single-valued map keeps only
- * the last value, which loses repeated headers.
+ * `multiValueHeaders` only: API Gateway always sends it, as a superset of the
+ * single-valued map, which keeps only the last value of a repeated header.
  *
  * `cookie` is rejoined with `"; "` rather than the `", "` every other header uses,
  * because that is the separator the field's own grammar uses (RFC 6265) and what
@@ -114,12 +119,6 @@ function restHeaders(event: APIGatewayProxyEvent): IncomingHttpHeaders {
           : values.join(key === "cookie" ? "; " : ", ");
     }
   }
-  for (const [name, value] of Object.entries(event.headers ?? {})) {
-    const key = name.toLowerCase();
-    if (value !== undefined && headers[key] === undefined) {
-      headers[key] = value;
-    }
-  }
   return headers;
 }
 
@@ -130,20 +129,11 @@ function restHeaders(event: APIGatewayProxyEvent): IncomingHttpHeaders {
  */
 function formatQuery(event: APIGatewayProxyEvent): string {
   const search = new URLSearchParams();
-  const multi = event.multiValueQueryStringParameters;
-  if (multi) {
-    for (const [name, values] of Object.entries(multi)) {
-      for (const value of values ?? []) {
-        search.append(name, value);
-      }
-    }
-  } else {
-    for (const [name, value] of Object.entries(
-      event.queryStringParameters ?? {},
-    )) {
-      if (value !== undefined) {
-        search.append(name, value);
-      }
+  for (const [name, values] of Object.entries(
+    event.multiValueQueryStringParameters ?? {},
+  )) {
+    for (const value of values ?? []) {
+      search.append(name, value);
     }
   }
   const query = search.toString();

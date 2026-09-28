@@ -132,7 +132,7 @@ overrides the [infrastructure variables](#infrastructure-configuration) too.
 
 Time to live in milliseconds for in-memory cache entries. After this duration, entries expire and are removed from the cache.
 
-**Note**: Every memory hit is checked against the DynamoDB revalidation markers (one `BatchGetItem`), so an entry revalidated on another instance is not served from memory. Memory still saves the S3 read and body parse. Set this to `0` to disable the memory cache entirely (all requests will fall through to S3 + DynamoDB).
+**Note**: Every memory hit is checked against the tag revalidation markers, so an entry revalidated on another instance is not served from memory. A tag's marker is read from DynamoDB only on its first use and a rolling re-read every few minutes; in between, revalidations arrive through the revalidation log (one `Query` per [`CDK_NEXTJS_TAG_REFRESH_MS`](#cdk_nextjs_tag_refresh_ms)). Memory still saves the S3 read and body parse. Set this to `0` to disable the memory cache entirely (all requests will fall through to S3 + DynamoDB).
 
 **Default**: `3600000` (1 hour)
 
@@ -211,9 +211,9 @@ queries), an instance forgets its tracked markers and reads each again as it's
 needed. ISR and the data cache share the same copy of the markers, so one
 `revalidateTag` writes each tag's rows once and one `Query` serves them all.
 
-If you pass your own `revalidationTable`, enable TTL on its `ttl` attribute, or
-the log rows (about 100 bytes per revalidated tag) are kept until the build is
-replaced and the table is cleaned up by hand.
+If you pass your own `revalidationTable`, enabling TTL on its `ttl` attribute is
+recommended. Without it the log rows (about 100 bytes per revalidated tag) are
+kept until a deploy replaces their build, whose post-deploy step deletes them.
 
 Two instances that generate the same `'use cache: remote'` entry at the same
 moment both store it; each serves its own copy until that copy's `revalidate`

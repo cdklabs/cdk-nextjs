@@ -14,21 +14,38 @@ import { pruneCacheBucket } from "./prune-cache-bucket";
 const holder = { send: jest.fn() };
 
 /**
- * Pages of listed keys, each asked for by the token `page-<index>`; the last
- * carries no NextContinuationToken, as S3 returns it.
+ * A fake bucket: ListObjectsV2 honours `Prefix` and `Delimiter`, and pages
+ * `pageSize` keys at a time via the token `<offset>`; the last page carries no
+ * NextContinuationToken, as S3 returns it.
  */
-function stubPages(pages: string[][]): void {
+function stubBucket(keys: string[], pageSize = 2): void {
   holder.send.mockImplementation((command: unknown) => {
-    if (command instanceof ListObjectsV2Command) {
-      const token = command.input.ContinuationToken;
-      const index = token ? Number(token.replace("page-", "")) : 0;
-      return Promise.resolve({
-        Contents: pages[index].map((Key) => ({ Key })),
-        NextContinuationToken:
-          index + 1 < pages.length ? `page-${index + 1}` : undefined,
-      });
+    if (!(command instanceof ListObjectsV2Command)) return Promise.resolve({});
+    const { Prefix = "", Delimiter, ContinuationToken } = command.input;
+    const entries: { key?: string; prefix?: string }[] = [];
+    for (const key of keys.filter((k) => k.startsWith(Prefix))) {
+      const cut = Delimiter ? key.indexOf(Delimiter, Prefix.length) : -1;
+      if (cut < 0) {
+        entries.push({ key });
+      } else {
+        const prefix = key.slice(0, cut + 1);
+        if (!entries.some((entry) => entry.prefix === prefix)) {
+          entries.push({ prefix });
+        }
+      }
     }
-    return Promise.resolve({});
+    const offset = Number(ContinuationToken ?? 0);
+    const page = entries.slice(offset, offset + pageSize);
+    return Promise.resolve({
+      Contents: page.filter((e) => e.key).map((e) => ({ Key: e.key })),
+      CommonPrefixes: page
+        .filter((e) => e.prefix)
+        .map((e) => ({ Prefix: e.prefix })),
+      NextContinuationToken:
+        offset + pageSize < entries.length
+          ? String(offset + pageSize)
+          : undefined,
+    });
   });
 }
 
@@ -38,26 +55,58 @@ function sent<T>(type: new (...args: any[]) => T): T[] {
     .filter((command): command is T => command instanceof type);
 }
 
+function deletedKeys(): (string | undefined)[] {
+  return sent(DeleteObjectsCommand).flatMap((command) =>
+    command.input.Delete!.Objects!.map((object) => object.Key),
+  );
+}
+
 describe("pruneCacheBucket", () => {
   beforeEach(() => {
     holder.send.mockReset();
   });
 
-  // Keeping the previous page's token re-listed the last page until the
-  // 100-page guard tripped, deleting its keys 100 times over.
-  it("stops listing once a page returns no continuation token", async () => {
-    stubPages([
-      ["old/a.json", "current/a.json"],
-      ["old/b.json", "current/b.json"],
+  it("deletes every old build prefix across pages, and loose keys", async () => {
+    stubBucket([
+      "current/a.json",
+      "current/_use-cache/1.entry",
+      "old1/a.json",
+      "old1/_use-cache/1.entry",
+      "old1/_use-cache/2.entry",
+      "old2/a.json",
+      "loose.json",
+      "/leading-slash.json",
     ]);
 
     await pruneCacheBucket({ bucketName: "cache", currentBuildId: "current" });
 
-    expect(sent(ListObjectsV2Command)).toHaveLength(2);
+    expect(deletedKeys().sort()).toEqual(
+      [
+        "/leading-slash.json",
+        "loose.json",
+        "old1/_use-cache/1.entry",
+        "old1/_use-cache/2.entry",
+        "old1/a.json",
+        "old2/a.json",
+      ].sort(),
+    );
+  });
+
+  // The current build can hold unbounded 'use cache: remote' entries, so it
+  // must never be walked: the delimited top-level listing only names it.
+  it("never lists inside the current build", async () => {
+    stubBucket([
+      ...Array.from({ length: 10 }, (_, i) => `current/_use-cache/${i}.entry`),
+      "old/a.json",
+    ]);
+
+    await pruneCacheBucket({ bucketName: "cache", currentBuildId: "current" });
+
     expect(
-      sent(DeleteObjectsCommand).flatMap((command) =>
-        command.input.Delete!.Objects!.map((object) => object.Key),
+      sent(ListObjectsV2Command).map(
+        ({ input }) => input.Delimiter ?? input.Prefix,
       ),
-    ).toEqual(["old/a.json", "old/b.json"]);
+    ).toEqual(["/", "old/"]);
+    expect(deletedKeys()).toEqual(["old/a.json"]);
   });
 });

@@ -264,6 +264,9 @@ while IFS= read -r name <&4; do
     continue
   fi
   if [ -n "$ONLY_STACK" ]; then
+    # A hotswap an orphaned `cdk deploy` is still running is invisible to
+    # CloudFormation, so `settled_status` alone would not wait for it.
+    harness_wait_for_cdk "$name"
     if ! status="$(settled_status "$name")"; then
       echo "sweep: keeping $name - could not re-read its status" >&2
       exit 1

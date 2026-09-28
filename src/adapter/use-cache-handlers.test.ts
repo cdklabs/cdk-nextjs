@@ -24,8 +24,9 @@ import {
   CacheBucket,
   RevalidationLog,
   TagMarkerTable,
+  TrackedTagMarkers,
 } from "./aws-cache-store";
-import { readStream, UseCacheTagManifest } from "./use-cache-common";
+import { readStream } from "./use-cache-common";
 import { createDefaultUseCacheHandler } from "./use-cache-default-handler";
 import { createRemoteUseCacheHandler } from "./use-cache-remote-handler";
 
@@ -122,7 +123,7 @@ const dynamoCalls = (type: unknown) =>
 
 /** One compute instance's view of the shared table. */
 function tagManifest(refreshIntervalMs = 0) {
-  return new UseCacheTagManifest({
+  return new TrackedTagMarkers({
     markers: new TagMarkerTable(new DynamoDBClient({}), "table", "build"),
     log: new RevalidationLog(new DynamoDBClient({}), "table", "build"),
     refreshIntervalMs,

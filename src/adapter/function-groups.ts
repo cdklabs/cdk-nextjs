@@ -1,12 +1,14 @@
 /**
  * `functionGroups` resolution: the rules shared by `next build` and synth.
  *
- * Splitting has to be decided twice, in two processes. `onBuildComplete` stages
- * one deployment tree per group while `next build` is still running; the
- * constructs turn the *same* patterns into CloudFront behaviors or API Gateway
- * resources at synth. If the two disagree, CloudFront sends a request to a
- * function whose zip lacks its entrypoint — so the rules live here, once, and
- * both sides call them.
+ * Splitting spans two processes. `onBuildComplete` stages one deployment tree
+ * per group while `next build` is still running; the constructs turn the groups
+ * into CloudFront behaviors or API Gateway resources at synth. If the two
+ * disagree, CloudFront sends a request to a function whose zip lacks its
+ * entrypoint — so the build decides both, here, and records the behaviors it
+ * checked in the manifest for synth to deploy as they are. Synth still runs
+ * {@link validateFunctionGroups}, to fail before a `next build` it would
+ * otherwise pay for.
  *
  * Nothing in this file imports `aws-cdk-lib`: it is bundled into the adapter by
  * esbuild. The public JSII struct consumers actually write (`NextjsFunctionGroup`,
@@ -54,16 +56,36 @@ export interface RouteEntry {
   readonly type?: string;
 }
 
+/**
+ * One behavior the edge routes a group on. The Functions root constructs deploy
+ * exactly these, in order: a CloudFront behavior each, or the API Gateway
+ * resources for each distinct `route`.
+ */
+export interface GroupBehavior {
+  readonly group: string;
+  /**
+   * The group pattern (`/blog/**`) the behavior was generated from, or the
+   * optional catch-all parent {@link routedPatterns} added.
+   */
+  readonly route: string;
+  /**
+   * The CloudFront path pattern, before basePath and without a leading slash
+   * (`blog/*`, `_next/data/<buildId>/blog/*`).
+   */
+  readonly pattern: string;
+}
+
 /** What {@link assignRoutesToGroups} decided. */
 export interface GroupAssignment {
   /** Group name → the templates packaged into it, `default` included. */
   readonly templates: Record<string, string[]>;
   /**
-   * The groups owning a Pages Router page, whose `/_next/data` URLs the edge
-   * routes to them too. Recorded rather than recomputed at synth, so the
-   * behaviors deployed are the ones this assignment was checked against.
+   * Every group behavior, most specific first: the order CloudFront has to see
+   * them in, since it stops at the first match. Recorded rather than
+   * recomputed at synth, so the behaviors deployed are the ones this
+   * assignment was checked against.
    */
-  readonly dataRouteGroups: string[];
+  readonly behaviors: GroupBehavior[];
 }
 
 /** What {@link assignRoutesToGroups} needs to know besides the routes. */
@@ -79,10 +101,11 @@ export interface AssignRoutesOptions {
   /** `next.config` `trailingSlash`. */
   readonly trailingSlash?: boolean;
   /**
-   * `ctx.routing`, for the `next.config` rewrites whose source and destination
-   * have to land in one group. Omitted, no rewrite is checked.
+   * `ctx.routing`: the `next.config` rewrites whose source and destination
+   * have to land in one group, and Next.js's own dynamic route order, which
+   * decides the template a URL resolves to.
    */
-  readonly routing?: RoutingRules;
+  readonly routing: RoutingRules;
 }
 
 /** One `ctx.routing` rewrite, reduced to the fields read here. */
@@ -498,20 +521,29 @@ export function assignRoutesToGroups(
   // Rebuilt rather than reused: an intercepting file never adds an optional
   // catch-all parent, so this is the same list, but only by that argument.
   const behaviors = edgeBehaviors(groups, assigned, edge);
-  assertEdgeReachesEveryFile(entries, groupOfEntrypoint, behaviors, edge);
-  assertRewritesStayInGroup(
+  const router: Router = {
+    fileOfTemplate: fileOfTemplate(entries),
+    routing: options.routing,
+  };
+  assertEdgeReachesEveryFile(
     entries,
     groupOfEntrypoint,
     behaviors,
-    options.routing,
+    edge,
+    router,
   );
+  assertRewritesStayInGroup(groupOfEntrypoint, behaviors, router);
 
   for (const key of Object.keys(assigned)) {
     assigned[key] = [...assigned[key]].sort();
   }
   return {
     templates: assigned,
-    dataRouteGroups: [...edge.dataRouteGroups].sort(),
+    behaviors: behaviors.map(({ group, route, pattern }) => ({
+      group,
+      route,
+      pattern,
+    })),
   };
 }
 
@@ -526,10 +558,6 @@ export function assignRoutesToGroups(
  * is rejected as a typo, with a hint pointing here. Nothing else a subtree owns
  * needs this: a file whose parent URL is its subtree's base can only be an
  * optional catch-all, since Next.js rejects `app/blog/page.tsx` next to it.
- *
- * Both sides call this — `assignRoutesToGroups` to check coverage, the root
- * constructs to build the behaviors — from the same `routes` and the templates
- * the manifest assigned the group, so they cannot disagree.
  *
  * @param ownedTemplates the templates assigned to the group, basePath-prefixed
  *   as `manifest.groups` records them
@@ -559,9 +587,9 @@ export function routedPatterns(
 }
 
 /**
- * CloudFront / API Gateway path patterns for one group pattern, without a
- * leading slash — the form `NextjsDistribution.getPathPattern` expects, so the
- * basePath is added there rather than here.
+ * CloudFront path patterns for one group pattern, without a leading slash —
+ * the form `NextjsDistribution.getPathPattern` expects, so the basePath is
+ * added there rather than here.
  *
  * Two patterns come back when the group owns a Pages Router route: its RSC-era
  * equivalent is a second URL space, `/_next/data/<buildId>/<route>.json`, which
@@ -618,7 +646,7 @@ export function pathPatternsFor(
 /**
  * Rank a CloudFront path pattern so the most specific is added first: literal
  * segments before the first `*` dominate, then an exact pattern before a
- * wildcard one, then total segments, then length. {@link groupBehaviors} sorts
+ * wildcard one, then total segments, then length. {@link edgeBehaviors} sorts
  * on it.
  *
  * Ranking on the leading literal is what a CloudFront wildcard forces, because
@@ -762,7 +790,7 @@ function isInternalTemplate(path: string): boolean {
   return path.endsWith(".rsc") || path.includes(".segments/");
 }
 
-/** The edge's inputs, as `NextjsDistribution` receives them. */
+/** What the edge routes on. */
 interface EdgeOptions {
   /** With a leading slash, `""` for none. */
   readonly basePath: string;
@@ -772,70 +800,43 @@ interface EdgeOptions {
   readonly dataRouteGroups: ReadonlySet<string>;
 }
 
-/** A group as the edge routes it. */
-export interface RoutedGroup {
-  readonly name: string;
-  /** The group's {@link routedPatterns}. */
-  readonly routes: readonly string[];
-  /** Whether the group owns a Pages Router page, see {@link pathPatternsFor}. */
-  readonly hasDataRoutes?: boolean;
+/** A {@link GroupBehavior}, with the regex CloudFront matches it as. */
+interface EdgeBehavior extends GroupBehavior {
+  readonly regex: RegExp;
 }
 
 /**
  * Every group behavior, most specific first: the order CloudFront has to see
- * them in, since it stops at the first match. `NextjsDistribution` adds exactly
- * this list and {@link assignRoutesToGroups} replays it, so the two cannot drift.
- * Patterns are before basePath (`blog/*`).
+ * them in, since it stops at the first match. The assignment returns this list
+ * and the constructs deploy it as it is.
  */
-export function groupBehaviors<G extends RoutedGroup>(
-  groups: readonly G[],
-  options: { trailingSlash?: boolean; buildId?: string },
-): { group: G; route: string; pattern: string }[] {
-  return groups
-    .flatMap((group) =>
-      group.routes.flatMap((route) =>
-        pathPatternsFor(route, {
-          ...options,
-          hasDataRoutes: group.hasDataRoutes ?? false,
-        }).map((pattern) => ({ group, route, pattern })),
-      ),
-    )
-    .sort(
-      (a, b) => behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
-    );
-}
-
-/** One CloudFront behavior a group gets, and the pattern it came from. */
-interface EdgeBehavior {
-  readonly group: string;
-  /** The group pattern (`/blog/**`) the behavior was generated from. */
-  readonly route: string;
-  /** The behavior path pattern, before basePath (`blog/*`). */
-  readonly pattern: string;
-  readonly regex: RegExp;
-}
-
-/** {@link groupBehaviors} as `NextjsDistribution` deploys them, with regexes. */
 function edgeBehaviors(
   groups: readonly FunctionGroupSpec[],
   assigned: Record<string, string[]>,
   edge: EdgeOptions,
 ): EdgeBehavior[] {
-  const routed = groups.map((group) => ({
-    name: group.name,
-    routes: routedPatterns(
-      group.routes,
-      assigned[group.name] ?? [],
-      edge.basePath,
-    ),
-    hasDataRoutes: edge.dataRouteGroups.has(group.name),
-  }));
-  return groupBehaviors(routed, edge).map(({ group, route, pattern }) => ({
-    group: group.name,
-    route,
-    pattern,
-    regex: cloudFrontPatternRegex(`${edge.basePath}/${pattern}`),
-  }));
+  return groups
+    .flatMap((group) =>
+      routedPatterns(
+        group.routes,
+        assigned[group.name] ?? [],
+        edge.basePath,
+      ).flatMap((route) =>
+        pathPatternsFor(route, {
+          trailingSlash: edge.trailingSlash,
+          buildId: edge.buildId,
+          hasDataRoutes: edge.dataRouteGroups.has(group.name),
+        }).map((pattern) => ({
+          group: group.name,
+          route,
+          pattern,
+          regex: cloudFrontPatternRegex(`${edge.basePath}/${pattern}`),
+        })),
+      ),
+    )
+    .sort(
+      (a, b) => behaviorSpecificity(b.pattern) - behaviorSpecificity(a.pattern),
+    );
 }
 
 /**
@@ -992,6 +993,7 @@ function assertEdgeReachesEveryFile(
   groupOfEntrypoint: ReadonlyMap<string, string>,
   behaviors: readonly EdgeBehavior[],
   edge: EdgeOptions,
+  router: Router,
 ): void {
   const files = new Map<string, RouteEntry[]>();
   for (const entry of entries) {
@@ -999,7 +1001,18 @@ function assertEdgeReachesEveryFile(
     list.push(entry);
     files.set(entry.entrypointId, list);
   }
-  const routable = routableTemplates(entries, edge);
+  // Deep enough for a sample to get past every template a capturing group
+  // could shadow it with.
+  const deepest =
+    Math.max(
+      0,
+      ...entries.map((entry) => {
+        const path = stripBasePath(entry.template, edge.basePath);
+        return path !== undefined && isRoutablePath(path)
+          ? path.split("/").filter(Boolean).length
+          : 0;
+      }),
+    ) + 1;
   for (const [file, fileEntries] of files) {
     const owner = groupOfEntrypoint.get(file) ?? DEFAULT_FUNCTION_GROUP;
     const misrouted: Misroute[] = [];
@@ -1014,9 +1027,10 @@ function assertEdgeReachesEveryFile(
       for (const it of capturedDynamicUrls(
         entry,
         owner,
-        routable,
+        deepest,
         behaviors,
         edge,
+        router,
       )) {
         if (!misrouted.some((known) => known.url === it.url)) {
           misrouted.push(it);
@@ -1049,45 +1063,17 @@ interface Misroute {
  */
 const ANY_SEGMENT = "_";
 
-/** A template Next.js may resolve a request to, basePath stripped. */
-interface RoutableTemplate {
-  readonly template: string;
-  readonly segments: readonly string[];
-  readonly regex: RegExp;
-  readonly file: string;
-  readonly isPage: boolean;
-}
-
 /**
- * The templates the router of *every* group resolves requests against — each
- * group ships the whole manifest — less the ones no request resolves to
- * directly: RSC and segment rewrites, interception routes, and the data-URL
- * aliases (a data URL resolves to the page it names).
+ * Whether a request can resolve to `path` (basePath stripped) directly: not an
+ * RSC or segment rewrite, an interception route, or a data-URL alias (a data URL
+ * resolves to the page it names).
  */
-function routableTemplates(
-  entries: readonly RouteEntry[],
-  edge: EdgeOptions,
-): RoutableTemplate[] {
-  const result: RoutableTemplate[] = [];
-  for (const entry of entries) {
-    const path = stripBasePath(entry.template, edge.basePath);
-    if (
-      path === undefined ||
-      isInternalTemplate(path) ||
-      isInterceptionTemplate(path) ||
-      path.startsWith("/_next/data/")
-    ) {
-      continue;
-    }
-    result.push({
-      template: entry.template,
-      segments: path.split("/").filter(Boolean),
-      regex: templateRegex(path),
-      file: entry.entrypointId,
-      isPage: entry.type === "page",
-    });
-  }
-  return result;
+function isRoutablePath(path: string): boolean {
+  return (
+    !isInternalTemplate(path) &&
+    !isInterceptionTemplate(path) &&
+    !path.startsWith("/_next/data/")
+  );
 }
 
 /** 0 static, 1 `[param]`, 2 `[...catchAll]`, 3 `[[...optional]]`. */
@@ -1102,42 +1088,6 @@ function segmentKind(segment: string): number {
 }
 
 /**
- * The template Next.js serves `path` with: of the ones matching it, the most
- * specific, compared segment by segment — static before `[param]` before
- * `[...catchAll]` before `[[...optional]]`, the order `getSortedRoutes` in
- * `next/dist/shared/lib/router/utils/sorted-routes.js` gives them. Two matches
- * can only tie on kinds all the way down if one is a prefix of the other, and
- * then the shorter is the page at that path.
- */
-function resolveTemplate(
-  templates: readonly RoutableTemplate[],
-  path: string,
-  pagesOnly: boolean,
-): RoutableTemplate | undefined {
-  let best: RoutableTemplate | undefined;
-  for (const candidate of templates) {
-    if ((pagesOnly && !candidate.isPage) || !candidate.regex.test(path)) {
-      continue;
-    }
-    if (best === undefined || compareSpecificity(candidate, best) < 0) {
-      best = candidate;
-    }
-  }
-  return best;
-}
-
-function compareSpecificity(a: RoutableTemplate, b: RoutableTemplate): number {
-  const depth = Math.min(a.segments.length, b.segments.length);
-  for (let i = 0; i < depth; i++) {
-    const diff = segmentKind(a.segments[i]) - segmentKind(b.segments[i]);
-    if (diff !== 0) {
-      return diff;
-    }
-  }
-  return a.segments.length - b.segments.length;
-}
-
-/**
  * The URLs of a *dynamic* template's space that another group's behavior
  * captures, and that Next.js — running in that group's function — still
  * resolves to this template's file.
@@ -1147,33 +1097,29 @@ function compareSpecificity(a: RoutableTemplate, b: RoutableTemplate): number {
  * yet `/blog/a/b` does, reaches the blog function, and resolves there to
  * `/[...slug]`, which the blog zip lacks. So each other group's behavior is
  * intersected with the template's URL space, one sample URL per shape
- * ({@link sampleTemplatePaths}), and each sample is resolved against every
- * template. A more specific template in the capturing group legitimately
- * shadows the sample (`/blog/[slug]` answers `/blog/_`, so only `/blog/_/_`
- * is a misroute); anything it does not shadow is flagged.
+ * ({@link sampleTemplatePaths}), and each sample is resolved the way Next.js
+ * resolves it ({@link resolveFile}). A more specific template in the capturing
+ * group legitimately shadows the sample (`/blog/[slug]` answers `/blog/_`, so
+ * only `/blog/_/_` is a misroute); anything it does not shadow is flagged.
  */
 function capturedDynamicUrls(
   entry: RouteEntry,
   owner: string,
-  routable: readonly RoutableTemplate[],
+  deepest: number,
   behaviors: readonly EdgeBehavior[],
   edge: EdgeOptions,
+  router: Router,
 ): Misroute[] {
   const path = stripBasePath(entry.template, edge.basePath);
   if (
     path === undefined ||
     !path.includes("[") ||
     ERROR_PAGE_SUFFIXES.includes(path) ||
-    isInternalTemplate(path) ||
-    isInterceptionTemplate(path) ||
-    path.startsWith("/_next/data/")
+    !isRoutablePath(path)
   ) {
     return [];
   }
   const segments = path.split("/").filter(Boolean);
-  // Deep enough to get past every template a capturing group could shadow
-  // the sample with.
-  const deepest = Math.max(0, ...routable.map((it) => it.segments.length)) + 1;
   const samples = new Set<string>();
   for (const behavior of behaviors) {
     if (
@@ -1197,14 +1143,14 @@ function capturedDynamicUrls(
     }
   }
   const misrouted: Misroute[] = [];
-  const check = (url: string, samplePath: string, pagesOnly: boolean) => {
+  // `resolved` is `url` as Next.js matches it: without the trailing slash.
+  const check = (url: string, resolved: string) => {
     const behavior = edgeBehaviorFor(behaviors, url);
     const group = behavior?.group ?? DEFAULT_FUNCTION_GROUP;
     if (group === owner || misrouted.some((it) => it.url === url)) {
       return;
     }
-    const served = resolveTemplate(routable, samplePath, pagesOnly);
-    if (served?.file === entry.entrypointId) {
+    if (resolveFile(resolved, router) === entry.entrypointId) {
       misrouted.push({
         url,
         group,
@@ -1215,16 +1161,13 @@ function capturedDynamicUrls(
   };
   for (const sample of samples) {
     const url = withBasePath(sample, edge.basePath);
-    check(url, sample, false);
+    check(url, url);
     if (edge.trailingSlash && sample !== "/") {
-      check(`${url}/`, sample, false);
+      check(`${url}/`, url);
     }
     if (entry.type === "page" && edge.buildId) {
-      check(
-        `${edge.basePath}/_next/data/${edge.buildId}${sample === "/" ? "/index" : sample}.json`,
-        sample,
-        true,
-      );
+      const data = `${edge.basePath}/_next/data/${edge.buildId}${sample === "/" ? "/index" : sample}.json`;
+      check(data, data);
     }
   }
   return misrouted;
@@ -1427,19 +1370,11 @@ function suggestedPattern(url: string, edge: EdgeOptions): string | undefined {
  * config, and cannot be checked at all.
  */
 function assertRewritesStayInGroup(
-  entries: readonly RouteEntry[],
   groupOfEntrypoint: ReadonlyMap<string, string>,
   behaviors: readonly EdgeBehavior[],
-  routing: RoutingRules | undefined,
+  router: Router,
 ): void {
-  if (!routing) {
-    return;
-  }
-  const fileOfTemplate = new Map(
-    entries
-      .filter((entry) => !isInternalTemplate(entry.template))
-      .map((entry) => [entry.template, entry.entrypointId]),
-  );
+  const { routing } = router;
   const phases: [readonly RewriteRule[] | undefined, boolean][] = [
     [routing.beforeFiles, false],
     // `afterFiles` and `fallback` only apply when no file matched the URL, so a
@@ -1455,13 +1390,13 @@ function assertRewritesStayInGroup(
       if (destination === undefined || isInterceptionTemplate(destination)) {
         continue;
       }
-      const file = resolveFile(destination, fileOfTemplate, routing);
+      const file = resolveFile(destination, router);
       if (file === undefined) {
         continue;
       }
       const target = groupOfEntrypoint.get(file) ?? DEFAULT_FUNCTION_GROUP;
       for (const url of rewriteSourceUrls(rule.source)) {
-        if (yieldsToFiles && fileOfTemplate.has(url)) {
+        if (yieldsToFiles && router.fileOfTemplate.has(url)) {
           continue;
         }
         const behavior = edgeBehaviorFor(behaviors, url);
@@ -1498,17 +1433,33 @@ function literalDestination(
   return pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
 }
 
+/** What {@link resolveFile} resolves against. */
+interface Router {
+  /** Template → the file behind it, less the RSC and segment rewrites. */
+  readonly fileOfTemplate: ReadonlyMap<string, string>;
+  readonly routing: RoutingRules;
+}
+
+function fileOfTemplate(entries: readonly RouteEntry[]): Map<string, string> {
+  return new Map(
+    entries
+      .filter((entry) => !isInternalTemplate(entry.template))
+      .map((entry) => [entry.template, entry.entrypointId]),
+  );
+}
+
 /**
  * The file Next.js serves `pathname` with: a template of that exact name, or
  * else the first of Next.js's own dynamic route rules that matches — matched
- * case-insensitively, as `resolveRoutes` does.
+ * case-insensitively, as `resolveRoutes` does. `dynamicRoutes` is in Next.js's
+ * priority order (static segment before `[param]` before `[...catchAll]`
+ * before `[[...optional]]`), Pages Router data URLs included.
  */
 function resolveFile(
   pathname: string,
-  fileOfTemplate: ReadonlyMap<string, string>,
-  routing: RoutingRules,
+  { fileOfTemplate: files, routing }: Router,
 ): string | undefined {
-  const exact = fileOfTemplate.get(pathname);
+  const exact = files.get(pathname);
   if (exact !== undefined) {
     return exact;
   }
@@ -1521,7 +1472,7 @@ function resolveFile(
     }
     if (matches) {
       const template = route.destination?.split("?")[0];
-      return template === undefined ? undefined : fileOfTemplate.get(template);
+      return template === undefined ? undefined : files.get(template);
     }
   }
   return undefined;

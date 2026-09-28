@@ -3,7 +3,6 @@ import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { routedPatterns } from "../adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
@@ -454,15 +453,14 @@ export abstract class NextjsBaseConstruct extends Construct {
 }
 
 /**
- * The non-`default` function groups, joined by name with what was built and
- * deployed for each — the input both `NextjsDistribution` and `NextjsApi` take.
- * A module function rather than a protected method so its return type stays out
- * of the jsii API.
+ * The non-`default` function groups, joined by name with what was deployed for
+ * each — the input both `NextjsDistribution` and `NextjsApi` take, beside the
+ * build's `functionGroupBehaviors`. A module function rather than a protected
+ * method so its return type stays out of the jsii API.
  */
 export function deployedFunctionGroups(
   groups: NextjsFunctionGroup[] | undefined,
   functions: NextjsFunctions,
-  build: NextjsBuild,
 ) {
   return groups?.map((group) => {
     const deployed = functions.functionGroups.find(
@@ -473,20 +471,10 @@ export function deployedFunctionGroups(
         `Function group "${group.name}" was not deployed as a function.`,
       );
     }
-    const root = build.deploymentRoots.find((it) => it.name === group.name);
     return {
       name: group.name,
-      // The patterns as the props wrote them, not the templates that matched
-      // them, plus the parent of any optional catch-all a subtree pattern moved
-      // into the group, which that pattern's behavior does not match.
-      routes: routedPatterns(
-        group.routes,
-        root?.routes ?? [],
-        build.nextConfigBasePath,
-      ),
       function: deployed.function,
       functionUrl: deployed.functionUrl,
-      hasDataRoutes: root?.hasDataRoutes,
     };
   });
 }

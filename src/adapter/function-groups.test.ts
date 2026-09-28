@@ -1,3 +1,9 @@
+/* eslint-disable import/no-extraneous-dependencies */
+import { getNamedRouteRegex } from "next/dist/shared/lib/router/utils/route-regex";
+import {
+  getSortedRouteObjects,
+  getSortedRoutes,
+} from "next/dist/shared/lib/router/utils/sorted-routes";
 import appPlayground from "./__fixtures__/app-playground.json";
 import pagesI18n from "./__fixtures__/pages-i18n.json";
 import { BuildCompleteContext, buildAdapterManifest } from "./build-outputs";
@@ -6,6 +12,7 @@ import {
   DEFAULT_FUNCTION_GROUP,
   FunctionGroupSpec,
   RouteEntry,
+  RoutingRules,
   assignRoutesToGroups,
   interceptedRoute,
   parseFunctionGroupsEnv,
@@ -20,7 +27,40 @@ const routes = (...templates: string[]): RouteEntry[] =>
 
 const BUILD_ID = "abc123";
 
-const assign = (
+/**
+ * `ctx.routing.dynamicRoutes` as `next build` derives it from `entries`: Next's
+ * own route sort and regexes, data URLs included.
+ */
+function nextRouting(entries: RouteEntry[], basePath: string): RoutingRules {
+  const dataPrefix = `${basePath}/_next/data/${BUILD_ID}/`;
+  const dynamic = [...new Set(entries.map((entry) => entry.template))].filter(
+    (template) =>
+      template.includes("[") &&
+      !template.endsWith(".rsc") &&
+      !/\(\.{1,3}\)/.test(template),
+  );
+  const route = (template: string) => ({
+    sourceRegex: getNamedRouteRegex(template, {
+      prefixRouteKeys: true,
+      includeSuffix: true,
+    }).namedRegex,
+    destination: template,
+  });
+  return {
+    dynamicRoutes: [
+      // Sorted by the page they name: Next's sort reads `[slug].json` as static.
+      ...getSortedRouteObjects(
+        dynamic.filter((template) => template.startsWith(dataPrefix)),
+        (template) => `/${template.slice(dataPrefix.length, -".json".length)}`,
+      ).map(route),
+      ...getSortedRoutes(
+        dynamic.filter((template) => !template.startsWith(dataPrefix)),
+      ).map(route),
+    ],
+  };
+}
+
+const assignment = (
   groups: FunctionGroupSpec[],
   entries: RouteEntry[],
   basePath = "",
@@ -30,7 +70,15 @@ const assign = (
     basePath,
     buildId: BUILD_ID,
     ...options,
-  }).templates;
+    routing: { ...nextRouting(entries, basePath), ...options.routing },
+  });
+
+const assign = (...args: Parameters<typeof assignment>) =>
+  assignment(...args).templates;
+
+/** The path patterns of the behaviors the assignment returns, in order. */
+const patternsOf = (...args: Parameters<typeof assignment>) =>
+  assignment(...args).behaviors.map(({ pattern }) => pattern);
 
 /**
  * A captured `onBuildComplete` fixture's routes, exactly as `buildAdapterManifest`
@@ -398,6 +446,68 @@ describe("assignRoutesToGroups", () => {
   });
 });
 
+describe("the behaviors the assignment returns", () => {
+  it("orders overlapping group patterns most specific first", () => {
+    // CloudFront stops at the first matching behavior, so `api/*` ahead of
+    // `api/reports/*` would send every report request to the wrong function.
+    expect(
+      patternsOf(
+        [
+          { name: "api", routes: ["/api/**"] },
+          { name: "reports", routes: ["/api/reports/**"] },
+        ],
+        routes("/api/[x]", "/api/reports/[id]"),
+      ),
+    ).toEqual(["api/reports/*", "api/*"]);
+  });
+
+  it("ranks by segment count before string length", () => {
+    expect(
+      patternsOf(
+        [
+          { name: "a", routes: ["/a/b/**"] },
+          { name: "b", routes: ["/averyverylongsegment/**"] },
+        ],
+        routes("/a/b/[x]", "/averyverylongsegment/[x]"),
+      ),
+    ).toEqual(["a/b/*", "averyverylongsegment/*"]);
+  });
+
+  it("puts an exact pattern ahead of a wildcard of the same depth", () => {
+    // `a/*` and `a/b` are the same length and segment count; `a/*` first
+    // swallows `a/b`, sending group b's only route to group a's function.
+    expect(
+      patternsOf(
+        [
+          { name: "a", routes: ["/a/**"] },
+          { name: "b", routes: ["/a/b"] },
+        ],
+        routes("/a/b", "/a/[x]"),
+      ),
+    ).toEqual(["a/b", "a/*"]);
+  });
+
+  it("adds data-URL behaviors only for the groups that own a Pages Router page", () => {
+    // One legacy page must not double every group's behaviors.
+    expect(
+      patternsOf(
+        [
+          { name: "blog", routes: ["/blog/**"] },
+          { name: "docs", routes: ["/docs/**"] },
+        ],
+        [
+          {
+            template: "/blog/[slug]",
+            entrypointId: "pages/blog/[slug].js",
+            type: "page",
+          },
+          { template: "/docs/[page]", entrypointId: "app/docs/[page]/page.js" },
+        ],
+      ),
+    ).toEqual(["_next/data/abc123/blog/*", "blog/*", "docs/*"]);
+  });
+});
+
 describe("what the edge routes, checked against what was packaged", () => {
   describe("Pages Router data URLs (A)", () => {
     it("keeps a nested page's data URL in its own group", () => {
@@ -436,7 +546,7 @@ describe("what the edge routes, checked against what was packaged", () => {
       const unlocalized = entries.filter(
         (entry) => !locale.test(entry.template),
       );
-      const { templates, dataRouteGroups } = assignRoutesToGroups(
+      const { templates, behaviors } = assignRoutesToGroups(
         [
           { name: "blog", routes: ["/blog/**"] },
           { name: "ssr", routes: ["/ssr"] },
@@ -449,7 +559,20 @@ describe("what the edge routes, checked against what was packaged", () => {
         `/_next/data/${options.buildId}/ssr.json`,
         "/ssr",
       ]);
-      expect(dataRouteGroups).toEqual(["blog", "default", "ssr"]);
+      expect(
+        behaviors.filter(({ pattern }) => pattern.startsWith("_next/data/")),
+      ).toEqual([
+        {
+          group: "ssr",
+          route: "/ssr",
+          pattern: `_next/data/${options.buildId}/ssr.json`,
+        },
+        {
+          group: "blog",
+          route: "/blog/**",
+          pattern: `_next/data/${options.buildId}/blog/*`,
+        },
+      ]);
     });
   });
 
@@ -457,13 +580,26 @@ describe("what the edge routes, checked against what was packaged", () => {
     it("routes the parent URL with the subtree that moved the file", () => {
       const { entries, options } = fixtureRoutes(appPlayground);
       const groups = [{ name: "params", routes: ["/params/optional/**"] }];
-      const assigned = assignRoutesToGroups(groups, entries, options).templates;
-      expect(assigned.params).toContain("/params/optional/[[...rest]]");
+      const { templates, behaviors } = assignRoutesToGroups(
+        groups,
+        entries,
+        options,
+      );
+      expect(templates.params).toContain("/params/optional/[[...rest]]");
       // `params/optional/*` does not match `/params/optional`, which the same
-      // file serves: the constructs add the exact behavior from this.
-      expect(
-        routedPatterns(groups[0].routes, assigned.params, options.basePath),
-      ).toEqual(["/params/optional/**", "/params/optional"]);
+      // file serves, so it gets an exact behavior of its own.
+      expect(behaviors).toEqual([
+        {
+          group: "params",
+          route: "/params/optional",
+          pattern: "params/optional",
+        },
+        {
+          group: "params",
+          route: "/params/optional/**",
+          pattern: "params/optional/*",
+        },
+      ]);
     });
 
     it("points the old exact-pattern workaround at the subtree", () => {

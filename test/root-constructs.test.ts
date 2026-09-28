@@ -33,42 +33,55 @@ let buildDir: string;
 let nextConfigBasePath = "";
 let relativeProjectDir = "";
 /**
- * What the build assigned each non-default group, shaped like
- * `NextjsDeploymentRoot`: the route templates that matched its patterns, not
- * the patterns themselves.
+ * What the build assigned each non-default group: the route templates that
+ * matched its patterns, as `NextjsDeploymentRoot.routes`, and the behaviors it
+ * checked them against, as `NextjsBuild.functionGroupBehaviors` (most specific
+ * first).
  */
-let builtGroups: Record<string, { routes: string[]; hasDataRoutes?: boolean }>;
+let builtGroups: Record<
+  string,
+  { routes: string[]; behaviors: { route: string; pattern: string }[] }
+>;
 
 jest.mock("../src/nextjs-build/nextjs-build", () => {
   const actual = jest.requireActual("../src/nextjs-build/nextjs-build");
   class StubNextjsBuild extends Construct {
     readonly buildId = "test-build";
-    readonly nextBuildId = "next-build";
     readonly publicDirEntries = [{ name: "favicon.ico", isDirectory: false }];
     readonly nextConfigBasePath = nextConfigBasePath;
     readonly nextConfigAssetPrefix = "";
     readonly nextConfigAssetPrefixPath = "";
     readonly relativeProjectDir = relativeProjectDir;
     readonly relativePathToEntrypoint = "cdk-nextjs-runtime/server.mjs";
-    readonly trailingSlash = false;
     readonly initCacheDir = join(buildDir, ".next", "cdk-nextjs-init-cache");
     readonly deploymentRoots: {
       name: string;
       path: string;
       routes: string[];
-      hasDataRoutes?: boolean;
+    }[];
+    readonly functionGroupBehaviors: {
+      group: string;
+      route: string;
+      pattern: string;
     }[];
     readonly architecture: unknown;
     constructor(scope: Construct, id: string, props: any) {
       super(scope, id);
+      const groups: { name: string }[] = props.functionGroups ?? [];
       this.deploymentRoots = [
         { name: "default", path: join(buildDir, "root-default"), routes: [] },
-        ...(props.functionGroups ?? []).map((group: any) => ({
+        ...groups.map((group) => ({
           name: group.name,
           path: join(buildDir, `root-${group.name}`),
-          ...builtGroups[group.name],
+          routes: builtGroups[group.name].routes,
         })),
       ];
+      this.functionGroupBehaviors = groups.flatMap((group) =>
+        builtGroups[group.name].behaviors.map((behavior) => ({
+          group: group.name,
+          ...behavior,
+        })),
+      );
       this.architecture = actual.deploymentArchitecture(props);
     }
   }
@@ -96,7 +109,12 @@ afterAll(() => {
 beforeEach(() => {
   nextConfigBasePath = "";
   relativeProjectDir = "";
-  builtGroups = { reports: { routes: ["/reports"] } };
+  builtGroups = {
+    reports: {
+      routes: ["/reports"],
+      behaviors: [{ route: "/reports", pattern: "reports" }],
+    },
+  };
 });
 
 const functionGroups = [{ name: "reports", routes: ["/reports"] }];
@@ -210,11 +228,20 @@ function groupIn(template: Template, json: unknown): string | undefined {
 
 /**
  * The split a subtree pattern over an optional catch-all makes, as the build
- * reports it: the template it matched, not the pattern, and a Pages Router
- * route, so a `_next/data` URL space too.
+ * reports it: the template it matched, not the pattern, the optional
+ * catch-all's parent routed too, and a Pages Router route, so a `_next/data`
+ * URL space as well.
  */
 function useDocsGroup() {
-  builtGroups.docs = { routes: ["/docs/[[...slug]]"], hasDataRoutes: true };
+  builtGroups.docs = {
+    routes: ["/docs/[[...slug]]"],
+    behaviors: [
+      { route: "/docs", pattern: "_next/data/next-build/docs.json" },
+      { route: "/docs/**", pattern: "_next/data/next-build/docs/*" },
+      { route: "/docs", pattern: "docs" },
+      { route: "/docs/**", pattern: "docs/*" },
+    ],
+  };
   return [{ name: "docs", routes: ["/docs/**"] }];
 }
 

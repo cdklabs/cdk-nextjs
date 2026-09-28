@@ -76,7 +76,7 @@ exports.handler = async (req, res, ctx) => {
       await ctx.requestMeta.revalidate({
         urlPath: url.searchParams.get("revalidate"),
         headers: { "x-prerender-revalidate": "preview-id" },
-        opts: {},
+        opts: { unstable_onlyGenerated: url.searchParams.has("onlyGenerated") },
       });
     } catch (err) {
       error = err.message;
@@ -882,6 +882,13 @@ exports.handler = async () =>
     expect(stubBody(sink)).toEqual({ bodyLength: 32 * chunk.length });
   });
 
+  // The Lambda shell's body: already in memory, as a Buffer.
+  it("passes a Buffer upload through middleware to the route intact", async () => {
+    const body = Buffer.alloc(1024 * 1024, 1);
+    const sink = await send({ url: "/?readBody=1", method: "POST", body });
+    expect(stubBody(sink)).toEqual({ bodyLength: body.length });
+  });
+
   it("reads middleware's body only as fast as the client takes it", async () => {
     const pulls = { count: 0 };
     (globalThis as Record<string, unknown>).__cdkNextjsPulls = pulls;
@@ -1002,7 +1009,12 @@ describe("a Pages API route", () => {
 });
 
 describe("res.revalidate() across functionGroups", () => {
-  it("says which group owns a page it cannot render", async () => {
+  // The other group's page renders as a 404, which `unstable_onlyGenerated`
+  // alone would accept as "not generated".
+  it.each([
+    ["", "/?revalidate=%2Fisr%2F1"],
+    [" with unstable_onlyGenerated", "/?revalidate=%2Fisr%2F1&onlyGenerated=1"],
+  ])("says which group owns a page it cannot render%s", async (_, url) => {
     let missing = "";
     const staged = stageDeployment(MIDDLEWARE_STUB, (manifest) => {
       missing = manifest.entrypoints["/isr/[id]"].filePath;
@@ -1025,7 +1037,7 @@ describe("res.revalidate() across functionGroups", () => {
       await grouped.handle(
         {
           method: "GET",
-          url: "/?revalidate=%2Fisr%2F1",
+          url,
           headers: { host: "shop.example.test" },
         },
         sink,
@@ -1329,6 +1341,7 @@ exports.handler = async () =>
 
   async function proxy(
     headers: Record<string, string> = {},
+    trustForwardedHost = false,
   ): Promise<CollectingSink> {
     const sink = new CollectingSink();
     await proxying.handle(
@@ -1336,11 +1349,43 @@ exports.handler = async () =>
         method: "GET",
         url: "/anything",
         headers: { host: "shop.example.test", ...headers },
+        trustForwardedHost,
       },
       sink,
     );
     return sink;
   }
+
+  const SIGNED = {
+    authorization:
+      "AWS4-HMAC-SHA256 Credential=AKIA/20260928/us-east-1/lambda/aws4_request",
+    "x-amz-date": "20260928T000000Z",
+    "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+    "x-amz-security-token": "token",
+  };
+
+  // Forwarded, OAC's signature would let the upstream replay the request
+  // against the Function URL.
+  it("does not forward the SigV4 headers of an IAM-verified request", async () => {
+    await proxy(SIGNED, true);
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    for (const name of Object.keys(SIGNED)) {
+      expect(headers.has(name)).toBe(false);
+    }
+  });
+
+  // Anywhere else they are the client's own, which `next start` forwards.
+  it("forwards the client's own Authorization and x-amz-* headers", async () => {
+    await proxy(SIGNED);
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    for (const [name, value] of Object.entries(SIGNED)) {
+      expect(headers.get(name)).toBe(value);
+    }
+  });
 
   it("proxies the request to the rewritten origin", async () => {
     const sink = await proxy();
@@ -1663,6 +1708,18 @@ describe("splitBody", () => {
     expect(
       await drain(body.forDispatch as unknown as AsyncIterable<Uint8Array>),
     ).toBe(8 * CHUNK.length);
+  });
+
+  // Every Lambda request with a body: the shell hands the runtime a Buffer.
+  it("reads a Buffer body twice, whole each time", async () => {
+    const source = Buffer.from("x".repeat(100_000));
+    const body = splitBody(source, true);
+    body.releaseUnread(false);
+
+    expect(
+      await drain(body.forDispatch as unknown as AsyncIterable<Uint8Array>),
+    ).toBe(source.length);
+    expect((body.forRequest as Buffer).length).toBe(source.length);
   });
 
   it("does not split at all without middleware", () => {

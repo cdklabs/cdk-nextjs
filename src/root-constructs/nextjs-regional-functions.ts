@@ -99,8 +99,8 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       functionGroups: deployedFunctionGroups(
         this.props.functionGroups,
         this.nextjsFunctions,
-        this.nextjsBuild,
       ),
+      functionGroupBehaviors: this.nextjsBuild.functionGroupBehaviors,
       ...this.props.overrides?.nextjsRegionalFunctions?.nextjsApiProps,
     });
   }

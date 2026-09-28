@@ -120,7 +120,8 @@ STACK_NAME="$(harness_stack_name)"
 # makes that wait 15+ minutes. Wait it out here, where it costs no test file.
 #
 # ROLLBACK_COMPLETE needs nothing here: `cdk deploy` deletes and recreates it,
-# and this is the app that should do the create. DELETE_FAILED can't be deployed
+# and this is the app that should do the create. Nor does REVIEW_IN_PROGRESS (a
+# change set that was never executed), which `cdk deploy` creates over. DELETE_FAILED can't be deployed
 # into at all, and deleting it is `e2e-sweep.sh`'s job, behind its tag gate.
 STATUS="$(harness_stack_status "$STACK_NAME")"
 case "$STATUS" in

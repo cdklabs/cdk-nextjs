@@ -8,6 +8,7 @@ import {
   RevalidationLogRow,
   TagMarker,
   TagMarkerTable,
+  TrackedTagMarkers,
 } from "./aws-cache-store";
 import {
   cacheEntryOf,
@@ -17,7 +18,6 @@ import {
   readStream,
   StoredEntry,
   storedEntryOf,
-  UseCacheTagManifest,
 } from "./use-cache-common";
 
 /** A `TagMarkerTable` over a plain map, counting its calls. */
@@ -108,10 +108,10 @@ function stored(bytes: number, extra: Partial<StoredEntry> = {}): StoredEntry {
   };
 }
 
-describe("UseCacheTagManifest", () => {
+describe("TrackedTagMarkers", () => {
   it("reads a tag the first time it is needed, and not again", async () => {
     const markers = fakeMarkers(new Map([["a", { revalidatedAt: 50 }]]));
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
     });
@@ -128,7 +128,7 @@ describe("UseCacheTagManifest", () => {
 
   it("applies its own revalidation at once, and writes it once for both handlers", async () => {
     const markers = fakeMarkers();
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
     });
@@ -157,7 +157,7 @@ describe("UseCacheTagManifest", () => {
           release = () => resolve({ revalidatedAt: at });
         }),
     );
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
     });
@@ -181,7 +181,7 @@ describe("UseCacheTagManifest", () => {
       // Readers' cursors have moved past the row by the time it shows.
       clock.at += 10_000;
     });
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: fakeMarkers().table,
       log: log.log,
       clock: clock.now,
@@ -200,7 +200,7 @@ describe("UseCacheTagManifest", () => {
       clock.at += 10_000;
     });
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: fakeMarkers().table,
       log: log.log,
       clock: clock.now,
@@ -217,7 +217,7 @@ describe("UseCacheTagManifest", () => {
     const markers = fakeMarkers(
       new Map([["posts", { revalidatedAt: createdAt + 500 }]]),
     );
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
     });
@@ -229,7 +229,7 @@ describe("UseCacheTagManifest", () => {
   });
 
   it("marks a profile's revalidation stale until its expire", async () => {
-    const tags = new UseCacheTagManifest({});
+    const tags = new TrackedTagMarkers({});
     const createdAt = Date.now() - 1000;
     await tags.update(["a"], { expire: 3600 });
     expect(tags.state(["a"], createdAt)).toBe("stale");
@@ -244,7 +244,7 @@ describe("UseCacheTagManifest", () => {
   it("stamps markers on the clock entries are stamped with", async () => {
     const wall = jest.spyOn(Date, "now").mockImplementation(() => now() + 500);
     try {
-      const tags = new UseCacheTagManifest({});
+      const tags = new TrackedTagMarkers({});
       await tags.update(["a"], undefined);
       const regenerated = now() + 1;
       expect(tags.state(["a"], regenerated)).toBe("fresh");
@@ -262,7 +262,7 @@ describe("UseCacheTagManifest", () => {
         ["_N_T_/c", { staleAt: 150, expiredAt: Date.now() + 60_000 }],
       ]),
     );
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
     });
@@ -273,7 +273,7 @@ describe("UseCacheTagManifest", () => {
 
   it("does not let an eventually consistent read undo its own write", async () => {
     const markers = fakeMarkers();
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
       refreshIntervalMs: 0,
@@ -289,7 +289,7 @@ describe("UseCacheTagManifest", () => {
     const markers = fakeMarkers(new Map([["a", { revalidatedAt: 50 }]]));
     const error = jest.spyOn(console, "error").mockImplementation(() => {});
     markers.read.mockRejectedValueOnce(new Error("throttled"));
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
       refreshIntervalMs: 0,
@@ -304,7 +304,7 @@ describe("UseCacheTagManifest", () => {
 
   it("forgets the least recently used tag past its bound, and reads it again", async () => {
     const markers = fakeMarkers();
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
       maxTrackedTags: 2,
@@ -323,7 +323,7 @@ describe("UseCacheTagManifest", () => {
   // tracked 1000 at most, half its requests re-read an evicted marker.
   it("keeps 2000 tags a page each tracked, without reading them again", async () => {
     const markers = fakeMarkers();
-    const tags = new UseCacheTagManifest({
+    const tags = new TrackedTagMarkers({
       markers: markers.table,
       log: fakeLog().log,
     });
@@ -338,7 +338,7 @@ describe("UseCacheTagManifest", () => {
   });
 
   it("keeps tags local to the process without a table", async () => {
-    const tags = new UseCacheTagManifest({});
+    const tags = new TrackedTagMarkers({});
     await tags.ensure(["a"]);
     await tags.refresh();
     await tags.update(["a"], undefined);
@@ -346,7 +346,7 @@ describe("UseCacheTagManifest", () => {
   });
 });
 
-describe("UseCacheTagManifest with the revalidation log", () => {
+describe("TrackedTagMarkers with the revalidation log", () => {
   const INTERVAL = 1000;
 
   /** Two instances, `a` and `b`, over one table and one clock. */
@@ -359,7 +359,7 @@ describe("UseCacheTagManifest with the revalidation log", () => {
     const instance = () => {
       const markers = fakeMarkers(markerRows);
       const log = fakeLog(logRows);
-      const tags = new UseCacheTagManifest({
+      const tags = new TrackedTagMarkers({
         markers: markers.table,
         log: log.log,
         refreshIntervalMs: INTERVAL,

@@ -20,6 +20,7 @@ import type {
 import {
   CacheBucket,
   resolveAwsCacheConfig,
+  TrackedTagMarkers,
   useCacheS3Key,
 } from "./aws-cache-store";
 import { parseCacheValue, serializeCacheValue } from "./cache-utils";
@@ -37,7 +38,6 @@ import {
   StoredEntry,
   storedEntryOf,
   tagMethods,
-  UseCacheTagManifest,
 } from "./use-cache-common";
 
 export interface RemoteUseCacheHandlerOptions {
@@ -49,7 +49,7 @@ export interface RemoteUseCacheHandlerOptions {
   /** Prefixes every S3 key; `CDK_NEXTJS_BUILD_ID` by default. */
   buildId?: string;
   /** Tag state; the process-wide one from the environment by default. */
-  tags?: UseCacheTagManifest;
+  tags?: TrackedTagMarkers;
   /** Memory tier bound in bytes; `CDK_NEXTJS_USE_CACHE_MEMORY_BYTES` or 50 MB. */
   maxMemoryBytes?: number;
 }

@@ -60,7 +60,7 @@ export interface OptionalNextjsDistributionProps {
    *
    * Applied on top of `basePath`, not under it, because that is how Next.js
    * builds the URL.
-   * @default - read from the build's `required-server-files.json`
+   * @default - none; pass `NextjsBuild.nextConfigAssetPrefixPath`
    * @stability stable
    */
   readonly assetPrefix?: string;

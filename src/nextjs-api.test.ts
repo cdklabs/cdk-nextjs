@@ -5,10 +5,43 @@ import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   Code,
   Function as LambdaFunction,
+  IFunction,
   Runtime,
 } from "aws-cdk-lib/aws-lambda";
 import { Bucket } from "aws-cdk-lib/aws-s3";
+import { pathPatternsFor } from "./adapter/function-groups";
 import { NextjsApi, NextjsApiProps } from "./nextjs-api";
+
+/**
+ * `functionGroups` and the `functionGroupBehaviors` the build would record for
+ * them: `routes` as routed (an optional catch-all's parent listed by hand),
+ * with data-URL behaviors for a group that owns a Pages Router page.
+ */
+function grouped(
+  groups: {
+    name: string;
+    routes: string[];
+    hasDataRoutes?: boolean;
+    trailingSlash?: boolean;
+    function: IFunction;
+  }[],
+): Pick<NextjsApiProps, "functionGroups" | "functionGroupBehaviors"> {
+  return {
+    functionGroups: groups.map(({ name, function: fn }) => ({
+      name,
+      function: fn,
+    })),
+    functionGroupBehaviors: groups.flatMap((group) =>
+      group.routes.flatMap((route) =>
+        pathPatternsFor(route, {
+          hasDataRoutes: group.hasDataRoutes ?? false,
+          trailingSlash: group.trailingSlash,
+          buildId: "abc123",
+        }).map((pattern) => ({ group: group.name, route, pattern })),
+      ),
+    ),
+  };
+}
 
 describe("NextjsApi", () => {
   let stack: Stack;
@@ -338,7 +371,7 @@ describe("NextjsApi", () => {
           code: Code.fromInline("exports.handler = async () => {};"),
         }),
         publicDirEntries: [],
-        functionGroups: [
+        ...grouped([
           {
             name: "reports",
             routes: ["/api/reports/**", "/api/export"],
@@ -348,7 +381,7 @@ describe("NextjsApi", () => {
               code: Code.fromInline("exports.handler = async () => {};"),
             }),
           },
-        ],
+        ]),
       });
 
       expect(anyTargets("api")).toEqual(["ServerFn"]);
@@ -367,7 +400,7 @@ describe("NextjsApi", () => {
           code: Code.fromInline("exports.handler = async () => {};"),
         }),
         publicDirEntries: [],
-        functionGroups: [
+        ...grouped([
           {
             name: "api",
             routes: ["/api/**"],
@@ -388,7 +421,7 @@ describe("NextjsApi", () => {
               code: Code.fromInline("exports.handler = async () => {};"),
             }),
           },
-        ],
+        ]),
       });
 
       // Each path part below appears twice, under `/` and under the data
@@ -411,7 +444,7 @@ describe("NextjsApi", () => {
           code: Code.fromInline("exports.handler = async () => {};"),
         }),
         publicDirEntries: [],
-        functionGroups: [
+        ...grouped([
           {
             name: "reports",
             routes: ["/reports/**", "/docs/intro"],
@@ -422,7 +455,7 @@ describe("NextjsApi", () => {
               code: Code.fromInline("exports.handler = async () => {};"),
             }),
           },
-        ],
+        ]),
       });
     }
 
@@ -490,7 +523,7 @@ describe("NextjsApi", () => {
           code: Code.fromInline("exports.handler = async () => {};"),
         }),
         publicDirEntries: [],
-        functionGroups: [
+        ...grouped([
           {
             name: "blog",
             routes: ["/blog/**"],
@@ -501,7 +534,7 @@ describe("NextjsApi", () => {
               code: Code.fromInline("exports.handler = async () => {};"),
             }),
           },
-        ],
+        ]),
       });
       expect(
         resourcePaths().filter((path) => path.startsWith("/_next/data")),
@@ -514,9 +547,9 @@ describe("NextjsApi", () => {
     });
 
     it("routes an optional catch-all's parent to the group when it is listed (B)", () => {
-      // `NextjsRegionalFunctions` passes `/shop` alongside `/shop/**` when the
-      // group owns `shop/[[...slug]]` (see `routedPatterns`): `{proxy+}` does
-      // not match the parent, which would otherwise reach the default function.
+      // The build routes `/shop` alongside `/shop/**` when the group owns
+      // `shop/[[...slug]]` (see `routedPatterns`): `{proxy+}` does not match
+      // the parent, which would otherwise reach the default function.
       new NextjsApi(stack, "NextjsApi", {
         staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
         serverFunction: new LambdaFunction(stack, "ServerFn", {
@@ -525,7 +558,7 @@ describe("NextjsApi", () => {
           code: Code.fromInline("exports.handler = async () => {};"),
         }),
         publicDirEntries: [],
-        functionGroups: [
+        ...grouped([
           {
             name: "shop",
             routes: ["/shop/**", "/shop"],
@@ -535,7 +568,7 @@ describe("NextjsApi", () => {
               code: Code.fromInline("exports.handler = async () => {};"),
             }),
           },
-        ],
+        ]),
       });
       expect(anyTargets("shop")).toEqual(["GroupFn"]);
     });
@@ -561,7 +594,7 @@ describe("NextjsApi", () => {
                 code: Code.fromInline("exports.handler = async () => {};"),
               }),
               publicDirEntries: [entry],
-              functionGroups: [
+              ...grouped([
                 {
                   name: "g",
                   routes: [route],
@@ -571,7 +604,7 @@ describe("NextjsApi", () => {
                     code: Code.fromInline("exports.handler = async () => {};"),
                   }),
                 },
-              ],
+              ]),
             }),
         ).toThrow(`overlaps the top-level public/ ${kind} "${entry.name}"`);
       },
@@ -592,7 +625,7 @@ describe("NextjsApi", () => {
               code: Code.fromInline("exports.handler = async () => {};"),
             }),
             publicDirEntries: [{ name: "docs", isDirectory: true }],
-            functionGroups: [
+            ...grouped([
               {
                 name: "g",
                 routes: ["/docs"],
@@ -602,9 +635,74 @@ describe("NextjsApi", () => {
                   code: Code.fromInline("exports.handler = async () => {};"),
                 }),
               },
-            ],
+            ]),
           }),
       ).not.toThrow();
+    });
+
+    it("routes an exact route's trailingSlash form through its one resource", () => {
+      // CloudFront needs `pricing/` as a behavior of its own; API Gateway
+      // matches `/pricing/` on the `pricing` resource, so the variant adds
+      // nothing here and must not add the resource twice.
+      new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+        ...grouped([
+          {
+            name: "pricing",
+            routes: ["/pricing"],
+            trailingSlash: true,
+            function: new LambdaFunction(stack, "GroupFn", {
+              runtime: Runtime.NODEJS_22_X,
+              handler: "index.handler",
+              code: Code.fromInline("exports.handler = async () => {};"),
+            }),
+          },
+        ]),
+      });
+      expect(
+        resourcePaths().filter((path) => !path.startsWith("/_next/static")),
+      ).toEqual(["/_next", "/pricing", "/{proxy+}"]);
+      expect(anyTargetsByPath()).toEqual({
+        "/pricing": ["GroupFn"],
+        "/{proxy+}": ["ServerFn"],
+      });
+    });
+
+    it("rejects a behavior for a group it was not given", () => {
+      const { functionGroupBehaviors } = grouped([
+        {
+          name: "api",
+          routes: ["/api/**"],
+          function: new LambdaFunction(stack, "GroupFn", {
+            runtime: Runtime.NODEJS_22_X,
+            handler: "index.handler",
+            code: Code.fromInline("exports.handler = async () => {};"),
+          }),
+        },
+      ]);
+      expect(
+        () =>
+          new NextjsApi(stack, "NextjsApi", {
+            staticAssetsBucket: Bucket.fromBucketName(
+              stack,
+              "Bucket",
+              "my-bucket",
+            ),
+            serverFunction: new LambdaFunction(stack, "ServerFn", {
+              runtime: Runtime.NODEJS_22_X,
+              handler: "index.handler",
+              code: Code.fromInline("exports.handler = async () => {};"),
+            }),
+            publicDirEntries: [],
+            functionGroupBehaviors,
+          }),
+      ).toThrow(/routes to function group "api", which is not in/);
     });
 
     it("adds no data routes for an app without Pages Router routes", () => {
@@ -649,7 +747,7 @@ describe("NextjsApi", () => {
             code: Code.fromInline("exports.handler = async () => {};"),
           }),
           publicDirEntries: [],
-          functionGroups: [
+          ...grouped([
             {
               name: "about",
               routes: ["/about~us"],
@@ -659,7 +757,7 @@ describe("NextjsApi", () => {
                 code: Code.fromInline("exports.handler = async () => {};"),
               }),
             },
-          ],
+          ]),
         }),
     ).toThrow(/pattern "\/about~us" \(group "about"\) has a segment/);
   });

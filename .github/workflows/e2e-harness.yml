@@ -78,7 +78,12 @@ concurrency:
   cancel-in-progress: false
 
 # Per job below: only the jobs that assume the AWS role get `id-token: write`.
-# The `nextjs` job runs vercel/next.js's own install and build scripts.
+# The `nextjs` job, which runs vercel/next.js's install and build scripts, is not
+# one of them, so those scripts never see the token. That is all this buys: the
+# shards then run next.js's test runner, restored from that job's cache, with
+# the role. Trusting the pinned next.js SHA is inherent to running its suite, so
+# what bounds the damage is GitHubActionRole's scope (hrns-* stacks and the CDK
+# bootstrap roles) and this workflow running only on dispatch and schedule.
 permissions:
   contents: read
 
@@ -231,7 +236,7 @@ jobs:
     needs: [plan, nextjs]
     runs-on: ubuntu-24.04
     # The sum of the capped steps below - warm 25, run 150, delete 65 - plus ~50
-    # for setup, which is minutes on a cache hit and a next.js build on a miss.
+    # for setup.
     # The step caps are what guarantee the delete its time; this only has to
     # stay above their sum.
     timeout-minutes: 290
@@ -264,32 +269,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Restore the next.js build
-        id: nextjs-cache
+        # The `nextjs` job populated this entry before any shard started, so a miss
+        # here means the save failed or the entry was evicted mid-run. Fail rather
+        # than rebuild: building next.js runs its install and build scripts, and
+        # this job has `id-token: write`. Re-running the workflow rebuilds it in
+        # the `nextjs` job.
         uses: actions/cache/restore@v4
         with:
           path: |
             nextjs
             ~/.cache/ms-playwright
           key: ${{ needs.plan.outputs.cache-key }}
+          fail-on-cache-miss: true
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Warn about the cache miss
-        if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
-        # The `nextjs` job populated this entry before any shard started, so a miss
-        # here means the save failed or the entry was evicted mid-run. Rebuild
-        # rather than fail - a slow run still produces the signal the run is for -
-        # but say so in the summary, because every shard rebuilding next.js is the
-        # difference between a fast run and the two-hour one this replaced.
-        run: echo "::warning::next.js build cache miss (${{ needs.plan.outputs.cache-key }}); shard ${{ matrix.shard }} is rebuilding it"
-
-      - name: Build next.js
-        if: ${{ steps.nextjs-cache.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/build-nextjs
-        with:
-          ref: ${{ needs.plan.outputs.nextjs-ref }}
 
       - name: Build cdk-nextjs
         run: |
@@ -309,8 +305,8 @@ jobs:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT }}:role/GitHubActionRole
           # Covers the warm and run steps' caps (25 + 150), because the action
           # exports static credentials once and nothing here refreshes them.
-          # Assumed here, after the builds, so that a cache-miss rebuild does not
-          # eat into it. At the default hour, a shard running ~34 test files at
+          # Assumed here, after the builds, so that they do not eat into it. At
+          # the default hour, a shard running ~34 test files at
           # 2-3 min each hit `ExpiredToken` on every file past the ~55-minute mark.
           # The delete step re-assumes its own.
           #

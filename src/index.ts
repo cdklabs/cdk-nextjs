@@ -17,6 +17,7 @@ export {
   NextjsBuild,
   NextjsBuildProps,
   NextjsDeploymentRoot,
+  NextjsFunctionGroupBehavior,
   NextjsFunctionGroupRoutes,
   PublicDirEntry,
 } from "./nextjs-build/nextjs-build";

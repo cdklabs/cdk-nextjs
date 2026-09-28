@@ -169,10 +169,8 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       functionGroups: deployedFunctionGroups(
         this.props.functionGroups,
         this.nextjsFunctions,
-        this.nextjsBuild,
       )?.map((group) => ({ ...group, functionUrl: group.functionUrl! })),
-      nextBuildId: this.nextjsBuild.nextBuildId,
-      trailingSlash: this.nextjsBuild.trailingSlash,
+      functionGroupBehaviors: this.nextjsBuild.functionGroupBehaviors,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsDistributionProps,
     });
   }

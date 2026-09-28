@@ -162,6 +162,19 @@ harness_stack_status() {
   return 1
 }
 
+# Wait, bounded at 30 minutes, for an orphaned `cdk deploy` of the named stack
+# to exit. A deploy that outran its caller's timeout was killed, but its
+# `cdk deploy` can outlive it - and a hotswap runs in that process, invisible to
+# CloudFormation, so no stack status says it is still going.
+harness_wait_for_cdk() {
+  local stack="$1"
+  for _ in $(seq 1 120); do
+    pgrep -f -- "deploy $stack --app" >/dev/null || return 0
+    echo "harness: an earlier cdk deploy of $stack is still running; waiting" >&2
+    sleep 15
+  done
+}
+
 # True when the named stack exists and carries the harness tag. Read-only, and
 # the gate on every delete: nothing else in the account can be removed by these
 # scripts even if a stack name is passed in by hand.

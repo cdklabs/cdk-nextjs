@@ -107,11 +107,12 @@ export const RUNTIME_DIR_NAME = "cdk-nextjs-runtime";
 
 /**
  * The file, next to the manifest in {@link RUNTIME_DIR_NAME}, that lists
- * `public/` on the Lambda types: a JSON array of `/`-separated paths relative
- * to `public/`, as `readPublicFiles` returns them. Synth writes it after the
- * build command (so `postbuild` output is listed) because the Lambda zips do
- * not carry `public/` itself; the runtime serves a listed file from S3. The
- * container images copy `public/` in and have no such file.
+ * `public/` on every type but `NextjsRegionalContainers`: a JSON array of
+ * `/`-separated paths relative to `public/`, as `readPublicFiles` returns them.
+ * Synth writes it after the build command (so `postbuild` output is listed)
+ * because those deployment packages do not carry `public/` itself; the runtime
+ * serves a listed file from S3. The RegionalContainers image copies `public/`
+ * in and has no such file.
  */
 export const PUBLIC_FILES_FILE_NAME = "public-files.json";
 
@@ -189,12 +190,12 @@ export interface AdapterManifest {
    */
   readonly groups?: Record<string, string[]>;
   /**
-   * The {@link groups} owning a Pages Router page, whose
-   * `/_next/data/<buildId>/…` URLs the edge routes to them as well. Present
-   * exactly when {@link groups} is. Recorded by the assignment rather than
-   * recomputed at synth, so the behaviors deployed are the ones it checked.
+   * Every behavior the edge routes a non-default group on, most specific first
+   * (`GroupBehavior` in `function-groups.ts`). Present exactly when
+   * {@link groups} is. Recorded by the assignment rather than recomputed at
+   * synth, so the behaviors deployed are the ones it checked.
    */
-  readonly dataRouteGroups?: string[];
+  readonly behaviors?: { group: string; route: string; pattern: string }[];
   /**
    * The `functionGroups` the build was split by (name and routes, as passed in
    * `CDK_NEXTJS_FUNCTION_GROUPS`), present exactly when {@link groups} is. Synth
@@ -229,6 +230,13 @@ export interface AdapterManifestConfig {
    * `null` when the app configures no `i18n`.
    */
   readonly i18n: unknown | null;
+  /**
+   * `next.config` `deploymentId` (or `NEXT_DEPLOYMENT_ID`), reduced to the
+   * characters safe in an S3 key prefix and a DynamoDB partition key — `/` in
+   * particular would split the prefix `prune-cache-bucket.ts` matches on. `""`
+   * when the app sets none.
+   */
+  readonly deploymentId: string;
 }
 
 export type AdapterEntrypointType =

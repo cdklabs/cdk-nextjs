@@ -92,7 +92,7 @@ export interface NextjsBuildProps {
   readonly functionGroups?: NextjsFunctionGroupRoutes[];
   /**
    * Lambda architecture the Functions types deploy, which decides the `sharp`
-   * binaries staged into every deployment root. Ignored by the Containers
+   * binaries staged into the deployment roots. Ignored by the Containers
    * types, whose image is built for the synth machine.
    * @default - the architecture of the machine running synth
    */
@@ -123,13 +123,27 @@ export interface NextjsDeploymentRoot {
    * files the runtime reads off disk, and anything the catch-all routes to it.
    */
   readonly routes: string[];
+}
+
+/**
+ * One behavior that routes a function group's URLs to it, as the adapter
+ * checked them against what each group was packaged with.
+ */
+export interface NextjsFunctionGroupBehavior {
+  /** The function group the behavior routes to. */
+  readonly group: string;
   /**
-   * Whether this root holds a Pages Router route, and therefore a second URL
-   * space (`/_next/data/<buildId>/<route>.json`) that carries the same routes.
-   * Only `functionGroups` cares: a group's routes have to be reachable in both.
-   * @default false
+   * The group pattern it came from (`/blog/**`), or the parent of an optional
+   * catch-all a subtree pattern moved into the group (`/blog` for
+   * `/blog/[[...slug]]`), which that subtree's behavior does not match.
    */
-  readonly hasDataRoutes?: boolean;
+  readonly route: string;
+  /**
+   * The CloudFront path pattern, before basePath and without a leading slash:
+   * `blog/*`, `pricing`, `pricing/` for a `trailingSlash` app, and
+   * `_next/data/<buildId>/blog/*` for a group owning a Pages Router page.
+   */
+  readonly pattern: string;
 }
 
 /**
@@ -142,6 +156,17 @@ export function deploymentArchitecture(props: NextjsBuildProps): Architecture {
     props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
     props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
   return (isFunctions && props.architecture) || getLambdaArchitecture();
+}
+
+/** {@link NextjsBuild.buildId}: Next.js's build ID, suffixed with the app's `deploymentId`. */
+export function deploymentBuildId(manifest: {
+  readonly buildId: string;
+  readonly config: { readonly deploymentId: string };
+}): string {
+  const { deploymentId } = manifest.config;
+  return deploymentId
+    ? `${manifest.buildId}-${deploymentId}`
+    : manifest.buildId;
 }
 
 export interface PublicDirEntry {
@@ -158,17 +183,23 @@ export class NextjsBuild extends Construct {
    * Unique id for this deployment. Used to partition cache storage and as
    * metadata for static assets in S3 bucket.
    *
-   * `.next/BUILD_ID`, suffixed with the app's `deploymentId` when it sets one —
-   * see {@link getBuildId} for why that suffix is what makes this unique.
+   * Next.js's build ID, suffixed with the app's `deploymentId` when it sets
+   * one. The build ID alone is not unique per deployment: setting
+   * `deploymentId` (or building with `NEXT_DEPLOYMENT_ID`) turns on skew
+   * protection, and next.js then *pins* the build ID to the constant
+   * `build-TfctsWXpff2fKS` — see `getBuildId` in `next/dist/build/index.js`,
+   * which does that deliberately so that tooling doing
+   * `.replace(escapedBuildId, …)` still has something to replace. Two
+   * successive deployments of such an app would share one cache prefix and one
+   * revalidation-table partition, and the new one would read the previous
+   * one's prerenders. Appending the deployment ID restores the "one
+   * deployment, one partition" invariant that ID exists to carry.
+   *
+   * Nothing routes on this value — the `/_next/data/<buildId>/…` URL space is
+   * routed on Next.js's own build ID, which is what the app's client bundles
+   * carry — so it is free to be longer than next.js's own.
    */
   buildId: string;
-  /**
-   * The build ID Next.js itself uses, `.next/BUILD_ID` without the
-   * `deploymentId` suffix {@link buildId} carries: the `<buildId>` segment of
-   * every Pages Router `/_next/data/<buildId>/…json` URL, so it is what those
-   * URLs are routed on when `functionGroups` splits the app.
-   */
-  nextBuildId: string;
   /**
    * Absolute path to the init cache directory
    * @example "/Users/john/myapp/.next/cdk-nextjs-init-cache"
@@ -228,19 +259,18 @@ export class NextjsBuild extends Construct {
    */
   deploymentRoots: NextjsDeploymentRoot[];
   /**
+   * What routes each non-default function group's URLs to it, most specific
+   * first — the order CloudFront has to see them in, since it stops at the
+   * first match. Empty unless `functionGroups` splits the app.
+   */
+  functionGroupBehaviors: NextjsFunctionGroupBehavior[];
+  /**
    * From the deployment root to the Next.js project dir, POSIX, `""` when
    * the app is at the repo root. The runtime `chdir`s here; Containers pass it to
    * their Dockerfile so `.next/static` and `public` land in the same place.
    * @see AdapterManifest.relativeProjectDir
    */
   relativeProjectDir: string;
-  /**
-   * The app's `next.config` `trailingSlash`. Only `functionGroups` cares: it
-   * decides which URL a route's own pattern has to match, since a
-   * `trailingSlash` app links to `/pricing/` and not `/pricing`.
-   * @see AdapterManifest.config
-   */
-  trailingSlash: boolean;
   /**
    * The architecture every deployment root's native dependencies (`sharp`)
    * were staged for. The Lambdas deploying them must use the same one.
@@ -295,8 +325,7 @@ export class NextjsBuild extends Construct {
       this.patchFetchInClientJs();
     }
 
-    this.buildId = this.getBuildId();
-    this.nextBuildId = manifest.buildId;
+    this.buildId = deploymentBuildId(manifest);
     this.publicDirEntries = this.getLocalPublicDirEntries();
     // Next.js's resolved config, the same one it writes into
     // `required-server-files.json`.
@@ -314,9 +343,9 @@ export class NextjsBuild extends Construct {
 
     this.relativeProjectDir = manifest.relativeProjectDir;
     this.relativePathToEntrypoint = joinPosix(RUNTIME_DIR_NAME, "server.mjs");
-    this.trailingSlash = manifest.config.trailingSlash;
     this.architecture = deploymentArchitecture(props);
     this.deploymentRoots = this.resolveDeploymentRoots(manifest);
+    this.functionGroupBehaviors = manifest.behaviors ?? [];
 
     // Only the RegionalContainers image carries `public/`: nothing is in front
     // of it to answer those paths from S3. Every other type lists it here and
@@ -331,24 +360,12 @@ export class NextjsBuild extends Construct {
 
     for (const root of this.deploymentRoots) {
       this.stageRuntime(root.path, isFunctions, publicOnDisk);
-
-      // Strip whatever platform-specific Sharp binaries `next build`'s output
-      // file tracing staged, since they're the host's (e.g. macOS/glibc) rather
-      // than the deployment target's, then install the target's. Skipping this
-      // is silent: `imageOptimizer` catches the load failure internally and
-      // returns the unoptimized original with an HTTP 200.
-      //
       // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc),
       // for the architecture their Lambda deploys, whatever this machine is;
-      // Containers run on node:24-alpine (musl). Every group optimizes images,
-      // so every root gets the binaries.
-      const sharpSource = this.removeExistingSharpBinaries(
-        root.path,
+      // Containers run on node:24-alpine (musl).
+      this.stageSharpForTarget(
+        root,
         join(root.path, this.relativeProjectDir),
-      );
-      this.installSharpBinariesForTarget(
-        root.path,
-        sharpSource,
         `${isFunctions ? "linux" : "linuxmusl"}-${toNodeArchitecture(this.architecture)}`,
       );
 
@@ -410,13 +427,6 @@ export class NextjsBuild extends Construct {
         ...groupStagingDirName(staged ? name : undefined).split("/"),
       ),
       routes: staged?.[name] ?? [],
-      // The adapter's answer, which its edge replay was checked against. An
-      // unsplit build has no group behaviors, so nothing routes on it there.
-      hasDataRoutes: staged
-        ? manifest.dataRouteGroups?.includes(name) === true
-        : Object.values(manifest.entrypoints).some(
-            (entrypoint) => entrypoint.type === "page",
-          ),
     }));
 
     // `default` first, so any "the root" caller gets the group that owns
@@ -718,64 +728,6 @@ export class NextjsBuild extends Construct {
   }
 
   /**
-   * The value every deployment-scoped store is partitioned by: `.next/BUILD_ID`,
-   * plus the app's `deploymentId` when it sets one.
-   *
-   * `BUILD_ID` alone is not unique per deployment. Setting `deploymentId` (or
-   * building with `NEXT_DEPLOYMENT_ID`) turns on skew protection, and next.js
-   * then *pins* the build ID to the constant `build-TfctsWXpff2fKS` — see
-   * `getBuildId` in `next/dist/build/index.js`, which does that deliberately so
-   * that tooling doing `.replace(escapedBuildId, …)` still has something to
-   * replace. Two successive deployments of such an app would share one cache
-   * prefix and one revalidation-table partition, and the new one would read the
-   * previous one's prerenders. Appending the deployment ID restores the "one
-   * deployment, one partition" invariant that ID exists to carry.
-   *
-   * Nothing routes on this value — the `/_next/data/<buildId>/…` URL space is
-   * routed on {@link nextBuildId}, which is what the app's own client bundles
-   * carry — so it is free to be longer than next.js's own.
-   */
-  private getBuildId(): string {
-    const buildIdPath = join(this.dotNextPath, "BUILD_ID");
-    // Verify BUILD_ID exists (needed for cache partitioning)
-    if (!existsSync(buildIdPath)) {
-      throw new Error(
-        `BUILD_ID file not found at ${buildIdPath}. ` +
-          `Ensure Next.js build completed successfully.`,
-      );
-    }
-    const buildId = readFileSync(buildIdPath, "utf-8").trim();
-    const deploymentId = this.getDeploymentId();
-    return deploymentId ? `${buildId}-${deploymentId}` : buildId;
-  }
-
-  /**
-   * The app's resolved `deploymentId`, read out of `required-server-files.json`
-   * so that one computed in `next.config.js` counts as much as a literal or a
-   * `NEXT_DEPLOYMENT_ID`. Empty when the app sets none.
-   *
-   * Reduced to the characters that are safe in an S3 key prefix and a DynamoDB
-   * partition key, since this is an arbitrary user string and `/` in particular
-   * would split the prefix `prune-cache-bucket.ts` matches on.
-   */
-  private getDeploymentId(): string {
-    const requiredServerFiles = join(
-      this.dotNextPath,
-      "required-server-files.json",
-    );
-    if (!existsSync(requiredServerFiles)) return "";
-    try {
-      const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
-      const deploymentId = config?.deploymentId;
-      return typeof deploymentId === "string"
-        ? deploymentId.replace(/[^A-Za-z0-9_-]/g, "-")
-        : "";
-    } catch {
-      return "";
-    }
-  }
-
-  /**
    * Get public directory entries from local filesystem
    */
   private getLocalPublicDirEntries(): PublicDirEntry[] {
@@ -794,6 +746,29 @@ export class NextjsBuild extends Construct {
     } catch (error) {
       console.warn(`${LOG_PREFIX} Failed to read public directory: ${error}`);
       return [];
+    }
+  }
+
+  /**
+   * Strip whatever platform-specific Sharp binaries `next build`'s output file
+   * tracing staged, since they're the host's (e.g. macOS/glibc) rather than the
+   * deployment target's, then install the target's. Skipping this is silent:
+   * `imageOptimizer` catches the load failure internally and returns the
+   * unoptimized original with an HTTP 200.
+   *
+   * Only a root with `sharp` staged gets the binaries: the image optimizer
+   * brings it into `default`, which serves every `/_next/image`, and another
+   * group has it only if its own routes use it. So only `default` warns when
+   * it's missing.
+   */
+  private stageSharpForTarget(
+    root: NextjsDeploymentRoot,
+    projectDir: string,
+    platform: string,
+  ) {
+    const sharpSource = this.removeExistingSharpBinaries(root.path, projectDir);
+    if (sharpSource || root.name === DEFAULT_FUNCTION_GROUP) {
+      this.installSharpBinariesForTarget(root.path, sharpSource, platform);
     }
   }
 
@@ -1201,10 +1176,10 @@ export function listTree(root: string): Dirent[] {
 }
 
 /**
- * Write {@link PUBLIC_FILES_FILE_NAME} into a Lambda root's runtime directory:
- * every file under `publicDir`, listed the way the runtime would list it off
- * disk (`readPublicFiles`: symlinks followed, `/`-separated, sorted). An app
- * without `public/` gets `[]`.
+ * Write {@link PUBLIC_FILES_FILE_NAME} into a deployment root's runtime
+ * directory: every file under `publicDir`, listed the way the runtime would
+ * list it off disk (`readPublicFiles`: symlinks followed, `/`-separated,
+ * sorted). An app without `public/` gets `[]`.
  */
 export function writePublicFileList(runtimeDir: string, publicDir: string) {
   writeFileSync(

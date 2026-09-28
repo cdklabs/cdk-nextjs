@@ -7,7 +7,7 @@
   built-in handler keeps them in a process-local map, so a `revalidateTag` on
   one instance left every other instance serving the revalidated entry. Here
   they go through the revalidation table's marker rows. See
-  `UseCacheTagManifest`.
+  `TrackedTagMarkers`.
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
@@ -15,6 +15,7 @@ import type {
   CacheEntry,
   CacheHandler,
 } from "next/dist/server/lib/cache-handlers/types";
+import { TrackedTagMarkers } from "./aws-cache-store";
 import {
   cacheEntryOf,
   DEFAULT_MEMORY_BYTES,
@@ -27,12 +28,11 @@ import {
   sharedTagManifest,
   storedEntryOf,
   tagMethods,
-  UseCacheTagManifest,
 } from "./use-cache-common";
 
 export interface DefaultUseCacheHandlerOptions {
   /** Tag state; the process-wide one from the environment by default. */
-  tags?: UseCacheTagManifest;
+  tags?: TrackedTagMarkers;
   /** Memory bound in bytes; `CDK_NEXTJS_USE_CACHE_MEMORY_BYTES` or 50 MB. */
   maxMemoryBytes?: number;
 }

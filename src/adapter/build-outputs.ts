@@ -61,17 +61,25 @@ const ENV_FILES = [".env", ".env.production"];
 
 /**
  * `next` submodules the *runtime* requires that no app ever reaches, so
- * `next build`'s own trace never covers them: next's image optimizer and the
- * config/`serve-static` helpers around it (`src/runtime/image.ts`). They are
- * required from the app's `next` rather than bundled, deliberately — see
- * `src/runtime/next-modules.ts` — which makes staging their closure this
- * module's job.
+ * `next build`'s own trace never covers them. They are required from the app's
+ * `next` rather than bundled, deliberately — see `src/runtime/next-modules.ts`
+ * — which makes staging their closure this module's job.
+ *
+ * `serve-static` is in every group: `serveStaticFile`
+ * (`src/runtime/static-files.ts`) serves prerendered and static results with it
+ * wherever they land.
  */
-const RUNTIME_NEXT_MODULES = [
+const RUNTIME_NEXT_MODULES = ["next/dist/server/serve-static.js"];
+
+/**
+ * next's image optimizer and the config helpers around it
+ * (`src/runtime/image.ts`), whose closure is what brings `sharp` in. Only the
+ * `default` group gets them: the edge sends every `/_next/image` request there.
+ */
+const IMAGE_NEXT_MODULES = [
   "next/dist/server/config-shared.js",
   "next/dist/shared/lib/image-config.js",
   "next/dist/server/image-optimizer.js",
-  "next/dist/server/serve-static.js",
 ];
 
 /**
@@ -165,11 +173,12 @@ export async function writeBuildOutputs(
 
   const { manifest, groups } = buildAdapterManifest(ctx, options);
 
-  // Traced once and merged into every group. The trace is async, which is why it
-  // cannot happen inside `buildAdapterManifest`, and it is the same set of files
-  // for every group: `/_next/image` is served by all of them.
+  // Traced once, here: the trace is async, which is why it cannot happen inside
+  // `buildAdapterManifest`. `runtimeClosure` is merged into every group, and
+  // `imageClosure` into `default` only, the one group `/_next/image` reaches.
   const runtimeClosure = new Map<string, string>();
-  await addRuntimeNextClosure(ctx, runtimeClosure);
+  const imageClosure = new Map<string, string>();
+  await addRuntimeNextClosure(ctx, runtimeClosure, imageClosure);
   addRequiredServerFiles(ctx, runtimeClosure);
 
   // A previous build's tree is never additive with this one's: a removed route
@@ -180,7 +189,10 @@ export async function writeBuildOutputs(
 
   const stagedGroups: StagedGroupResult[] = [];
   for (const group of groups) {
-    const groupStaging = merged(group.staging, runtimeClosure);
+    const groupStaging = merged(
+      merged(group.staging, runtimeClosure),
+      group.name === DEFAULT_FUNCTION_GROUP ? imageClosure : new Map(),
+    );
     const path = join(adapterDir, ...group.dirName.split("/"));
     await mkdir(path, { recursive: true });
     await stageFiles(groupStaging, path);
@@ -308,6 +320,10 @@ export function buildAdapterManifest(
       compress: ctx.config.compress !== false,
       generateEtags: ctx.config.generateEtags !== false,
       i18n: ctx.config.i18n ?? null,
+      deploymentId: (ctx.config.deploymentId ?? "").replace(
+        /[^A-Za-z0-9_-]/g,
+        "-",
+      ),
     },
     routing: ctx.routing,
     pathnames,
@@ -317,7 +333,7 @@ export function buildAdapterManifest(
     ...(assignment
       ? {
           groups: assignment.templates,
-          dataRouteGroups: assignment.dataRouteGroups,
+          behaviors: assignment.behaviors,
           functionGroups: functionGroups!.map(({ name, routes }) => ({
             name,
             routes,
@@ -934,65 +950,45 @@ async function stageFiles(
   stagingDir: string,
 ): Promise<void> {
   const planned = [...staging];
-  // One `readlink` per file, so issued concurrently; results land by index so
-  // `links` keeps the plan's order.
-  const linkTargets: Array<string | null> = new Array(planned.length);
+  // Links land by plan index, so the pass below creates them in the plan's
+  // order whatever order the workers finished in.
+  const links: Array<[string, string, string] | undefined> = new Array(
+    planned.length,
+  );
   let nextEntry = 0;
-  const readlinkWorker = async () => {
+  const worker = async () => {
     while (nextEntry < planned.length) {
       const index = nextEntry++;
-      linkTargets[index] = await readlink(planned[index][1]).catch(() => null);
+      const [key, source] = planned[index];
+      const linkTarget = await readlink(source).catch(() => null);
+      if (linkTarget !== null) {
+        links[index] = [key, source, linkTarget];
+        continue;
+      }
+      const dest = join(stagingDir, key);
+      await mkdir(dirname(dest), { recursive: true });
+      await copyFile(source, dest);
     }
   };
   await Promise.all(
     Array.from(
       { length: Math.min(STAGING_CONCURRENCY, planned.length) },
-      readlinkWorker,
+      worker,
     ),
   );
 
-  const files: Array<[string, string]> = [];
-  const links: Array<[string, string, string]> = [];
-  for (const [index, [key, source]] of planned.entries()) {
-    const linkTarget = linkTargets[index];
-    if (linkTarget === null) {
-      files.push([key, source]);
-    } else {
-      links.push([key, source, linkTarget]);
+  for (const link of links) {
+    if (link === undefined) {
+      continue;
     }
-  }
-
-  const makeParents = async (entries: Array<[string, string, ...string[]]>) => {
-    for (const dir of sortedUnique(
-      entries.map(([key]) => dirname(join(stagingDir, key))),
-    )) {
-      await mkdir(dir, { recursive: true });
-    }
-  };
-
-  await makeParents(files);
-  let cursor = 0;
-  const copyWorker = async () => {
-    while (cursor < files.length) {
-      const [key, source] = files[cursor++];
-      await copyFile(source, join(stagingDir, key));
-    }
-  };
-  await Promise.all(
-    Array.from(
-      { length: Math.min(STAGING_CONCURRENCY, files.length) },
-      copyWorker,
-    ),
-  );
-
-  await makeParents(links);
-  for (const [key, source, linkTarget] of links) {
+    const [key, source, linkTarget] = link;
     const dest = join(stagingDir, key);
     if (existsSync(dest)) {
-      // Already staged as real content by the loop above; the link would add
+      // Already staged as real content by the pool above; the link would add
       // nothing and would replace a directory we need.
       continue;
     }
+    await mkdir(dirname(dest), { recursive: true });
     const resolved = resolve(dirname(dest), linkTarget);
     if (resolved === stagingDir || resolved.startsWith(stagingDir + sep)) {
       await symlink(linkTarget, dest);
@@ -1005,8 +1001,8 @@ async function stageFiles(
 }
 
 /**
- * Adds {@link RUNTIME_NEXT_MODULES} and everything they require to the staging
- * plan.
+ * Adds {@link RUNTIME_NEXT_MODULES}, `@next/env`, and everything they require to
+ * `staging`, and {@link IMAGE_NEXT_MODULES} and theirs to `imageStaging`.
  *
  * Without this the deployment is complete for every route the app has and broken
  * for `/_next/image`: the traced `assets` of a build output cover what the *app*
@@ -1025,6 +1021,7 @@ async function stageFiles(
 async function addRuntimeNextClosure(
   ctx: BuildCompleteContext,
   staging: Map<string, string>,
+  imageStaging: Map<string, string>,
 ): Promise<void> {
   // The anchor file needn't exist; `createRequire` only reads its directory.
   const nextRequire = createRequire(
@@ -1032,8 +1029,12 @@ async function addRuntimeNextClosure(
   );
 
   let entries: string[];
+  let imageEntries: string[];
   try {
     entries = RUNTIME_NEXT_MODULES.map((specifier) =>
+      nextRequire.resolve(specifier),
+    );
+    imageEntries = IMAGE_NEXT_MODULES.map((specifier) =>
       nextRequire.resolve(specifier),
     );
   } catch (cause) {
@@ -1070,6 +1071,21 @@ async function addRuntimeNextClosure(
     );
   }
 
+  const add = (fileList: Set<string>, target: Map<string, string>) => {
+    for (const traced of fileList) {
+      const key = toPosix(traced);
+      if (target.has(key)) {
+        continue;
+      }
+      const source = join(ctx.repoRoot, traced);
+      assertStagingKey(key, source);
+      target.set(key, source);
+    }
+  };
+  add(
+    (await nodeFileTrace(imageEntries, { base: ctx.repoRoot })).fileList,
+    imageStaging,
+  );
   const { fileList } = await nodeFileTrace(entries, { base: ctx.repoRoot });
   // The trace starts from `@next/env`'s real path, so under pnpm it never
   // passes through the `.pnpm/next@…/node_modules/@next/env` link that `next`
@@ -1080,15 +1096,7 @@ async function addRuntimeNextClosure(
     // `resolve` returns real paths, so relative to the real repo root.
     fileList.add(relative(realpathSync(ctx.repoRoot), nextEnvLink));
   }
-  for (const traced of fileList) {
-    const key = toPosix(traced);
-    if (staging.has(key)) {
-      continue;
-    }
-    const source = join(ctx.repoRoot, traced);
-    assertStagingKey(key, source);
-    staging.set(key, source);
-  }
+  add(fileList, staging);
 }
 
 /**

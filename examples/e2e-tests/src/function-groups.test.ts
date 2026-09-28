@@ -3,12 +3,13 @@ import { test, expect } from "@playwright/test";
 /**
  * `functionGroups` splits one Next.js app across several Lambda functions to
  * stay under Lambda's 250 MB unzipped limit. Only meaningful on a deployment
- * that declared groups, so the example that does sets `E2E_FUNCTION_GROUPS` to
- * the group name owning `/api/**` (see `examples/global-functions/app.ts`).
+ * that declared groups, so the examples that do set `E2E_FUNCTION_GROUPS` to
+ * the group name owning `/api/**` (see `examples/global-functions/app.ts` and
+ * `examples/regional-functions/app.ts`).
  *
  * What can silently break: the edge routes by path pattern while the build
  * packages by route, and the two decisions are made in different processes. A
- * mismatch means CloudFront sending `/api/*` to a function whose zip has no
+ * mismatch means the edge (CloudFront or API Gateway) sending `/api/*` to a function whose zip has no
  * `/api` entrypoint - a 500 at request time, invisible at synth.
  */
 const groupName = process.env["E2E_FUNCTION_GROUPS"];

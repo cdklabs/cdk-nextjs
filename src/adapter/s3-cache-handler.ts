@@ -40,6 +40,7 @@ import {
   resolveAwsCacheConfig,
   RevalidateDurations,
   RevalidationState,
+  TrackedTagMarkers,
 } from "./aws-cache-store";
 import {
   serializeCacheValue,
@@ -48,7 +49,7 @@ import {
   headerTags,
   INIT_CACHE_TAG_MANIFEST,
 } from "./cache-utils";
-import { sharedTagManifest, UseCacheTagManifest } from "./use-cache-common";
+import { sharedTagManifest } from "./use-cache-common";
 import { REVALIDATED_PAGE_HOOK } from "../runtime/manifest";
 import { basePathPrefix, wholeAppInvalidationPaths } from "../utils/base-path";
 
@@ -379,7 +380,7 @@ export class S3CacheHandler implements CacheHandler {
   private cloudFrontClient: CloudFrontClient;
   private ssmClient: SSMClient;
   private bucket: CacheBucket;
-  private tags: UseCacheTagManifest;
+  private tags: TrackedTagMarkers;
   private config: AwsCacheConfig;
   private cloudFrontConfig: CloudFrontInvalidationConfig;
   private debug = getDebug("cdk-nextjs:cache-handler:s3");

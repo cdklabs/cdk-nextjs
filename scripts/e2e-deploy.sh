@@ -21,20 +21,16 @@ source "$HARNESS_DIR/common.sh"
 
 APP_DIR="$PWD"
 CDK_BIN="${CDK_BIN:-$ADAPTER_DIR/node_modules/.bin/cdk}"
-ADAPTER_ENTRY="$ADAPTER_DIR/lib/adapter/adapter.mjs"
-CACHE_HANDLER_ENTRY="$ADAPTER_DIR/lib/adapter/cache-handler.mjs"
-# `cacheHandlers.default` / `.remote`, resolved the same way (src/adapter/adapter.mts).
-USE_CACHE_HANDLER_ENTRIES=(
-  "$ADAPTER_DIR/lib/adapter/use-cache-default-handler.mjs"
-  "$ADAPTER_DIR/lib/adapter/use-cache-remote-handler.mjs"
-)
-
-for required in "$ADAPTER_ENTRY" "$CACHE_HANDLER_ENTRY" "${USE_CACHE_HANDLER_ENTRIES[@]}" "$ADAPTER_DIR/lib/index.js"; do
-  if [ ! -f "$required" ]; then
-    echo "harness: $required is missing. Run \`pnpm bundle && pnpm compile\` in $ADAPTER_DIR." >&2
+# Every file the package's `exports` points at: the adapter, and the cache
+# handlers it resolves through them (src/adapter/adapter.mts). Read first, so
+# that a failed read ends the script rather than checking nothing.
+EXPORTED="$(node -p 'Object.values(require(process.argv[1]).exports).map((e) => e.default).join("\n")' "$ADAPTER_DIR/package.json")"
+while IFS= read -r required; do
+  if [ ! -f "$ADAPTER_DIR/$required" ]; then
+    echo "harness: $ADAPTER_DIR/$required is missing. Run \`pnpm bundle && pnpm compile\` in $ADAPTER_DIR." >&2
     exit 1
   fi
-done
+done <<<"$EXPORTED"
 if [ ! -x "$CDK_BIN" ]; then
   echo "harness: no CDK CLI at $CDK_BIN. Run \`pnpm i\` in $ADAPTER_DIR, or set CDK_BIN." >&2
   exit 1
@@ -45,21 +41,19 @@ printf '%s\n' "$STACK_NAME" >"$HARNESS_STACK_FILE"
 echo "harness: app=$APP_DIR stack=$STACK_NAME"
 
 # A previous file's deploy that outran its per-file timeout was killed here, but
-# its `cdk deploy` can outlive it (a hotswap runs in that process, invisible to
-# CloudFormation), and a full update keeps going server-side. Deploying over
-# either would fail or interleave two fixtures, so wait for both to settle.
-# Bounded at 30 minutes; the status checks below and `cdk deploy` itself report
-# what is left.
+# its `cdk deploy` can outlive it, and a full update keeps going server-side.
+# Deploying over either would fail or interleave two fixtures, so wait for both
+# to settle. Bounded at 30 minutes each; the status checks below and
+# `cdk deploy` itself report what is left. (A change set that was never
+# executed, REVIEW_IN_PROGRESS, never settles by itself.)
+harness_wait_for_cdk "$STACK_NAME"
 for _ in $(seq 1 120); do
-  if pgrep -f -- "deploy $STACK_NAME --app" >/dev/null; then
-    echo "harness: an earlier cdk deploy of $STACK_NAME is still running; waiting"
-  else
-    STACK_STATUS="$(harness_stack_status "$STACK_NAME")" || break
-    case "$STACK_STATUS" in
-      *_IN_PROGRESS) echo "harness: $STACK_NAME is $STACK_STATUS; waiting" ;;
-      *) break ;;
-    esac
-  fi
+  STACK_STATUS="$(harness_stack_status "$STACK_NAME")" || break
+  case "$STACK_STATUS" in
+    REVIEW_IN_PROGRESS) break ;;
+    *_IN_PROGRESS) echo "harness: $STACK_NAME is $STACK_STATUS; waiting" ;;
+    *) break ;;
+  esac
   sleep 15
 done
 
@@ -69,15 +63,16 @@ done
 # this covers a local run that did not. HARNESS_WARMING is how `e2e-warm.sh`'s
 # own deploy says it is the warm-up.
 #
-# A stack in ROLLBACK_COMPLETE (a failed create) or a DELETE_* state counts as
-# missing too: `cdk deploy` would delete and recreate it from this fixture.
+# A stack in ROLLBACK_COMPLETE (a failed create), REVIEW_IN_PROGRESS (a change
+# set that was never executed) or a DELETE_* state counts as missing too:
+# `cdk deploy` would create it from this fixture.
 if [ "${HARNESS_WARMING:-0}" != "1" ]; then
   if ! SHARED_STATUS="$(harness_stack_status "$STACK_NAME")"; then
     echo "harness: cannot read $STACK_NAME's status (see above); not guessing whether it exists" >&2
     exit 1
   fi
   case "$SHARED_STATUS" in
-    "" | ROLLBACK_COMPLETE | DELETE_*)
+    "" | ROLLBACK_COMPLETE | REVIEW_IN_PROGRESS | DELETE_*)
       echo "harness: $STACK_NAME is ${SHARED_STATUS:-missing}; creating it with scripts/e2e-warm.sh first"
       ADAPTER_DIR="$ADAPTER_DIR" "$ADAPTER_DIR/scripts/e2e-warm.sh"
       ;;
@@ -135,15 +130,19 @@ echo "harness: package manager $PM (${PM_CMD[*]})"
 # packageManager assertion, not resolution or the lockfile. Exported for the
 # `next build` below, which is what runs the chained script.
 export npm_config_package_manager_strict=false
-# Without AWS credentials: this is where third-party install scripts run, and
-# nothing in an install needs AWS. In a subshell so the deploy below keeps them.
-# The config and credentials files are pointed away too, for a local run whose
-# credentials live there rather than in the environment.
-(
-  while IFS= read -r var; do unset "$var"; done < <(compgen -e | grep '^AWS_')
+# Run a command without any credentials: the fixture's install and build are
+# where third-party code runs, and neither needs AWS - only `cdk deploy` and the
+# aws CLI calls below do. In a subshell so they keep them. The config and
+# credentials files are pointed away too, for a local run whose credentials live
+# there rather than in the environment; and the Actions runtime and OIDC request
+# tokens go with them, since with `id-token: write` those mint a token that
+# assumes the deploy role.
+without_credentials() (
+  while IFS= read -r var; do unset "$var"; done < <(compgen -e | grep -E '^(AWS_|ACTIONS_ID_TOKEN_REQUEST_|ACTIONS_RUNTIME_TOKEN$)')
   export AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null
-  "${PM_CMD[@]}" install "${INSTALL_ARGS[@]}"
+  "$@"
 )
+without_credentials "${PM_CMD[@]}" install "${INSTALL_ARGS[@]}"
 
 # Make the adapter resolvable as a package rather than a loose file: the adapter
 # resolves its own cache handler with
@@ -181,7 +180,7 @@ export NEXT_PRIVATE_TEST_MODE=e2e
 
 echo "harness: building with NEXT_ADAPTER_PATH=$NEXT_ADAPTER_PATH"
 # `run build`, not `build`: pnpm accepts the bare script name but npm does not.
-"${PM_CMD[@]}" run build 2>&1 | tee "$HARNESS_BUILD_LOG"
+without_credentials "${PM_CMD[@]}" run build 2>&1 | tee "$HARNESS_BUILD_LOG"
 
 # The markers the harness parses out of the logs script's output
 # (`test/lib/next-modes/next-deploy.ts`'s `parseIdsFromCliOutput`). The fixture's

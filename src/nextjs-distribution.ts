@@ -43,13 +43,15 @@ import { Construct } from "constructs";
 import {
   cloudFrontPatternRegex,
   DEFAULT_FUNCTION_GROUP,
-  groupBehaviors,
   PATH_PATTERN_LITERAL,
 } from "./adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
-import { PublicDirEntry } from "./nextjs-build/nextjs-build";
+import {
+  NextjsFunctionGroupBehavior,
+  PublicDirEntry,
+} from "./nextjs-build/nextjs-build";
 import { assetPrefixPath, normalizeBasePath } from "./utils/base-path";
 
 export interface NextjsDistributionOverrides {
@@ -89,7 +91,7 @@ export interface NextjsDistributionProps {
    * Applied on top of `basePath`, not under it, because that is how Next.js
    * builds the URL.
    *
-   * @default - read from the build's `required-server-files.json`
+   * @default - none; pass `NextjsBuild.nextConfigAssetPrefixPath`
    */
   readonly assetPrefix?: string;
   /**
@@ -121,20 +123,18 @@ export interface NextjsDistributionProps {
    */
   readonly publicDirEntries: PublicDirEntry[];
   /**
-   * The non-`default` function groups, each needing its own behaviors so the
-   * routes it was packaged with reach it rather than the default function.
+   * The non-`default` function groups, the origins
+   * {@link functionGroupBehaviors} route to.
    * @default - no splitting; the default behavior serves every dynamic route
    */
   readonly functionGroups?: NextjsDistributionFunctionGroup[];
   /**
-   * The build ID Next.js puts in `/_next/data/<buildId>/…json` URLs —
-   * `NextjsBuild.nextBuildId`, not the deployment-suffixed `buildId`. Group data
-   * routes are matched on it literally, because a `*` in its place also matches
-   * `/` and would claim other groups' data URLs. Required when a function
-   * group sets `hasDataRoutes`.
-   * @default - none; only needed for a split Pages Router app
+   * `NextjsBuild.functionGroupBehaviors`: one cache behavior each, added in
+   * order, so the routes each group was packaged with reach it rather than the
+   * default function.
+   * @default - none
    */
-  readonly nextBuildId?: string;
+  readonly functionGroupBehaviors?: NextjsFunctionGroupBehavior[];
   /**
    * The most cache behaviors the distribution may have, the default one
    * included. cdk-nextjs counts what it adds against this at synth, so running
@@ -147,29 +147,13 @@ export interface NextjsDistributionProps {
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
    */
   readonly maxCacheBehaviors?: number;
-  /**
-   * The app's `next.config` `trailingSlash`. A `trailingSlash` app links to
-   * `/pricing/`, which an exact group pattern of `pricing` does not match, so
-   * each one needs a slash variant. Ignored without {@link functionGroups}.
-   * @default false
-   */
-  readonly trailingSlash?: boolean;
 }
 
 /** A non-default function group and the origin its routes must reach. */
 export interface NextjsDistributionFunctionGroup {
   readonly name: string;
-  /** Path patterns the group owns, as written in `NextjsFunctionGroup.routes`. */
-  readonly routes: string[];
   /** The group's Lambda Function URL. */
   readonly functionUrl: IFunctionUrl;
-  /**
-   * Whether the group owns Pages Router routes, and therefore a
-   * `/_next/data/<buildId>/…json` URL space that has to be routed alongside the
-   * HTML one (`NextjsDeploymentRoot.hasDataRoutes`).
-   * @default false
-   */
-  readonly hasDataRoutes?: boolean;
 }
 
 export class NextjsDistribution extends Construct {
@@ -597,20 +581,15 @@ export class NextjsDistribution extends Construct {
    * useful message.
    */
   private validateFunctionGroupProps() {
-    if (!this.props.functionGroups?.length) {
+    if (
+      !this.props.functionGroups?.length &&
+      !this.props.functionGroupBehaviors?.length
+    ) {
       return;
     }
     if (!this.isFunctionCompute) {
       throw new Error(
         "`functionGroups` is only supported by NextjsGlobalFunctions.",
-      );
-    }
-    const withData = this.props.functionGroups.find((g) => g.hasDataRoutes);
-    if (withData && !this.props.nextBuildId) {
-      throw new Error(
-        `${LOG_PREFIX} \`nextBuildId\` is required when a function group ` +
-          `has data routes ("${withData.name}"): its "/_next/data/<buildId>/…" ` +
-          `behaviors are matched on it. Pass \`NextjsBuild.nextBuildId\`.`,
       );
     }
   }
@@ -619,13 +598,22 @@ export class NextjsDistribution extends Construct {
    * {@link addFunctionGroupBehaviors} adds them.
    */
   private functionGroupBehaviors() {
-    return groupBehaviors(this.props.functionGroups ?? [], {
-      trailingSlash: this.props.trailingSlash,
-      buildId: this.props.nextBuildId,
-    }).map((behavior) => ({
-      ...behavior,
-      pathPattern: this.getPathPattern(behavior.pattern),
-    }));
+    return (this.props.functionGroupBehaviors ?? []).map((behavior) => {
+      const group = this.props.functionGroups?.find(
+        (it) => it.name === behavior.group,
+      );
+      if (!group) {
+        throw new Error(
+          `${LOG_PREFIX} \`functionGroupBehaviors\` routes to function group ` +
+            `"${behavior.group}", which is not in \`functionGroups\`.`,
+        );
+      }
+      return {
+        ...behavior,
+        group,
+        pathPattern: this.getPathPattern(behavior.pattern),
+      };
+    });
   }
   /**
    * One behavior per group pattern, most specific first.
@@ -634,14 +622,10 @@ export class NextjsDistribution extends Construct {
    * and stops at the first whose path pattern matches, and `addBehavior`
    * appends — so `api/*` added before `api/reports/*` would swallow every
    * report request and send it to a function whose package has no report
-   * entrypoint. Sorting here is what makes "longest pattern wins" true at the
-   * edge, matching how `assignRoutesToGroups` packaged the same routes.
+   * entrypoint. The adapter sorted the list when it checked it against how
+   * `assignRoutesToGroups` packaged the same routes, so it is added as it is.
    */
   private addFunctionGroupBehaviors() {
-    const groups = this.props.functionGroups;
-    if (!groups?.length) {
-      return;
-    }
     const originPerGroup = new Map<string, IOrigin>();
     for (const { group, pathPattern } of this.functionGroupBehaviors()) {
       let origin = originPerGroup.get(group.name);
@@ -934,9 +918,10 @@ export class NextjsDistribution extends Construct {
    * Optionally prepends base path to given path pattern.
    *
    * A trailing slash on `pathPattern` is load-bearing and survives, which is why
-   * this concatenates rather than going through `joinPath`. `pathPatternsFor`
-   * emits both "pricing" and "pricing/" for a `trailingSlash` app, and
-   * normalizing the second one collapsed it onto the first: `addBehavior` was
+   * this concatenates rather than going through `joinPath`. The build's
+   * `functionGroupBehaviors` hold both "pricing" and "pricing/" for a
+   * `trailingSlash` app, and normalizing the second one collapsed it onto the
+   * first: `addBehavior` was
    * then called twice with `/base/pricing`, which CloudFront rejects at deploy
    * ("more than one cache behavior has the same path pattern"), and the
    * canonical `/base/pricing/` was left to the `/base/*` catch-all — the misroute

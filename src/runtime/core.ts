@@ -75,11 +75,14 @@ export interface RuntimeRequest {
   readonly signal?: AbortSignal;
   /**
    * Whether `x-forwarded-host` names the host the client asked for. Only the
-   * shell can know: it is `true` for a Lambda Function URL event, which only
-   * CloudFront can send (the URL is `AWS_IAM`, signed by Origin Access Control)
-   * and whose viewer-request function overwrites the header with the viewer's
-   * `Host` — CloudFront has to replace `Host` itself with the Function URL's
-   * domain. Everywhere else the header is whatever the client sent, and it is
+   * shell can know: it is `true` for a Function URL event whose SigV4 Lambda
+   * verified. That is any IAM-authorized invoker — in practice CloudFront's
+   * Origin Access Control, whose viewer-request function overwrites the header
+   * with the viewer's `Host` (CloudFront has to replace `Host` itself with the
+   * Function URL's domain), plus principals granted `lambda:InvokeFunctionUrl`,
+   * who could replace the function's code anyway. It is also what
+   * `proxyExternal` drops OAC's signature on. Everywhere else the header is
+   * whatever the client sent, and it is
    * ignored, as `next start` ignores it without `experimental.trustHostHeader`.
    */
   readonly trustForwardedHost?: boolean;
@@ -647,24 +650,27 @@ export class NextjsRuntime {
     );
 
     const status = head?.statusCode ?? 500;
+    if (otherGroup) {
+      const self = process.env[FUNCTION_GROUP_ENV_VAR];
+      // A page packaged into another `functionGroups` group: it is rendered in
+      // process, and this function does not have the page's code. Checked
+      // first because it renders as a 404, which `unstable_onlyGenerated`
+      // would otherwise accept.
+      throw new Error(
+        `Invalid response ${status}: "${config.urlPath}" belongs to ` +
+          `\`functionGroups\` group "${otherGroup.owner}", and ` +
+          `res.revalidate() can only revalidate pages in the group it runs ` +
+          `in ("${self}"). Call it from an API route in group ` +
+          `"${otherGroup.owner}", or use revalidatePath()/revalidateTag(), ` +
+          `which work from any group.`,
+      );
+    }
     if (
       head?.headers["x-nextjs-cache"] !== "REVALIDATED" &&
       status !== 200 &&
       !(status === 404 && config.opts.unstable_onlyGenerated)
     ) {
-      const self = process.env[FUNCTION_GROUP_ENV_VAR];
-      // A page packaged into another `functionGroups` group: it is rendered in
-      // process, and this function does not have the page's code.
-      throw new Error(
-        otherGroup
-          ? `Invalid response ${status}: "${config.urlPath}" belongs to ` +
-              `\`functionGroups\` group "${otherGroup.owner}", and ` +
-              `res.revalidate() can only revalidate pages in the group it runs ` +
-              `in ("${self}"). Call it from an API route in group ` +
-              `"${otherGroup.owner}", or use revalidatePath()/revalidateTag(), ` +
-              `which work from any group.`
-          : `Invalid response ${status}`,
-      );
+      throw new Error(`Invalid response ${status}`);
     }
 
     await invalidateRevalidatedPage(config.urlPath, this.options.manifest);
@@ -1429,6 +1435,20 @@ const PROXY_DROPPED_HEADERS: readonly string[] = [
   "expect",
 ];
 
+/**
+ * The SigV4 signature Origin Access Control put on a request to the Function
+ * URL, also dropped by {@link proxyExternal} when the request was IAM-verified:
+ * forwarded, it would let the third-party origin replay the request against
+ * the Function URL. Anywhere else these are the client's own, and are
+ * forwarded as `next start` forwards them.
+ */
+const SIGV4_HEADERS: readonly string[] = [
+  "authorization",
+  "x-amz-date",
+  "x-amz-content-sha256",
+  "x-amz-security-token",
+];
+
 /** A `next.config` rewrite whose destination is another origin. */
 async function proxyExternal(
   req: ShimIncomingMessage,
@@ -1441,6 +1461,11 @@ async function proxyExternal(
   const headers = new Headers(requestHeaders);
   for (const name of PROXY_DROPPED_HEADERS) {
     headers.delete(name);
+  }
+  if (req.trustForwardedHost) {
+    for (const name of SIGV4_HEADERS) {
+      headers.delete(name);
+    }
   }
   const upstream = await fetch(url, {
     method,

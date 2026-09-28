@@ -72,8 +72,9 @@ describe("toRuntimeRequest, for a Function URL event", () => {
     expect(request.headers["x-forwarded-host"]).toBe("shop.test");
   });
 
-  // Only CloudFront can invoke the URL, and it overwrites the header.
-  it("trusts x-forwarded-host", () => {
+  // Any IAM-authorized invoker: in practice CloudFront, which overwrites the
+  // header.
+  it("trusts x-forwarded-host on a request Lambda authenticated", () => {
     expect(toRuntimeRequest(functionUrlEvent(), "").trustForwardedHost).toBe(
       true,
     );
@@ -128,19 +129,17 @@ describe("toRuntimeRequest, for an API Gateway REST event", () => {
     expect(request.headers.accept).toBe("text/html, application/json");
   });
 
-  it("prefers multiValueHeaders, filling in from headers", () => {
+  // API Gateway sends every header in both maps; the single-valued one keeps
+  // only the last value of a repeated header.
+  it("reads multiValueHeaders, not the single-valued map", () => {
     const request = toRuntimeRequest(
       restEvent({
-        headers: { Host: "api.test", "X-Only-Single": "1", Cookie: "last=1" },
-        multiValueHeaders: { Cookie: ["a=1", "b=2"] },
+        headers: { Host: "api.test", Cookie: "b=2" },
+        multiValueHeaders: { Host: ["api.test"], Cookie: ["a=1", "b=2"] },
       }),
       "",
     );
-    expect(request.headers).toMatchObject({
-      cookie: "a=1; b=2",
-      host: "api.test",
-      "x-only-single": "1",
-    });
+    expect(request.headers).toEqual({ cookie: "a=1; b=2", host: "api.test" });
   });
 
   it("re-encodes the query API Gateway decoded, keeping repeated keys", () => {

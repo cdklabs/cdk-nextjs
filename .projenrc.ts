@@ -189,8 +189,7 @@ project.package.addField("stability", "stable");
 // managed repo.
 project.gitignore.addPatterns("!/examples/**/tsconfig.json"); // must call method, cannot set in initial props
 copyDockerfiles();
-bundle();
-checkBundleSyntax();
+checkBundleSyntax(bundle());
 typeCheckEsmSources();
 updateGitHubWorkflows();
 generateStructs();
@@ -225,8 +224,11 @@ function cjsGlobalsBanner() {
   ].join(" ");
 }
 
-function bundle() {
+function bundle(): javascript.Bundle[] {
   const target = `node${nodeVersion}`;
+  const bundles: javascript.Bundle[] = [];
+  const addBundle = (entry: string, options: javascript.AddBundleOptions) =>
+    bundles.push(project.bundler.addBundle(entry, options));
   // esbuild's CJS-interop shim calls `require` for inlined CommonJS deps, so
   // these ESM bundles must define it. Use a *static* import rather than
   // `await import('node:module')`: these files get pulled into the user's own
@@ -249,7 +251,7 @@ function bundle() {
     "import { createRequire as __cdkNextjsCreateRequire } from 'node:module';",
     "const require = __cdkNextjsCreateRequire(import.meta.url);",
   ].join(" ");
-  project.bundler.addBundle("src/adapter/cache-handler.ts", {
+  addBundle("src/adapter/cache-handler.ts", {
     platform: "node",
     target,
     outfile: "../../../lib/adapter/cache-handler.mjs",
@@ -260,7 +262,7 @@ function bundle() {
   // One bundle per `cacheHandlers` name: Next.js loads each from its own path
   // and takes the module's default export as the handler.
   for (const kind of ["default", "remote"]) {
-    project.bundler.addBundle(`src/adapter/use-cache-${kind}-handler.ts`, {
+    addBundle(`src/adapter/use-cache-${kind}-handler.ts`, {
       platform: "node",
       target,
       outfile: `../../../lib/adapter/use-cache-${kind}-handler.mjs`,
@@ -269,7 +271,7 @@ function bundle() {
       banner: createRequireBanner,
     });
   }
-  project.bundler.addBundle("src/adapter/adapter.mts", {
+  addBundle("src/adapter/adapter.mts", {
     platform: "node",
     target,
     outfile: "../../../lib/adapter/adapter.mjs",
@@ -277,7 +279,7 @@ function bundle() {
     format: "esm",
     banner: createRequireBanner,
   });
-  project.bundler.addBundle("src/nextjs-build/patch-fetch.js", {
+  addBundle("src/nextjs-build/patch-fetch.js", {
     platform: "browser",
     // https://nextjs.org/docs/architecture/supported-browsers
     target: "chrome111,firefox111,safari16.4,edge111",
@@ -289,7 +291,7 @@ function bundle() {
   // a second bundled copy would be a different module instance of the same
   // singletons. "@next/routing" and the AWS SDK are bundled (see devDeps).
   for (const shell of ["lambda", "server"]) {
-    project.bundler.addBundle(`src/runtime/${shell}.mts`, {
+    addBundle(`src/runtime/${shell}.mts`, {
       platform: "node",
       target,
       outfile: `../../../lib/runtime/${shell}.mjs`,
@@ -300,6 +302,7 @@ function bundle() {
       banner: cjsGlobalsBanner(),
     });
   }
+  return bundles;
 }
 
 /**
@@ -335,17 +338,11 @@ function typeCheckEsmSources() {
  * esbuild happily writes but Node cannot parse (see `cjsGlobalsBanner`) would
  * otherwise first surface as a `Runtime.UserCodeSyntaxError` in a deployment.
  */
-function checkBundleSyntax() {
+function checkBundleSyntax(bundles: javascript.Bundle[]) {
   const bundleTask = project.tasks.tryFind("bundle");
   if (!bundleTask) return;
-  for (const bundled of [
-    join("lib", "adapter", "adapter.mjs"),
-    join("lib", "adapter", "cache-handler.mjs"),
-    join("lib", "adapter", "use-cache-default-handler.mjs"),
-    join("lib", "adapter", "use-cache-remote-handler.mjs"),
-    join("lib", "runtime", "lambda.mjs"),
-    join("lib", "runtime", "server.mjs"),
-  ]) {
+  const esm = bundles.map((b) => b.outfile).filter((f) => f.endsWith(".mjs"));
+  for (const bundled of esm.sort()) {
     bundleTask.exec(`node --check ${bundled}`);
   }
 }
@@ -573,7 +570,7 @@ function generateStructs() {
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsDistributionProps"))
     // Build-derived routing: set here, the deployed behaviors would differ from
     // the ones the build checked every route against.
-    .omit("overrides", "functionGroups", "nextBuildId", "trailingSlash")
+    .omit("overrides", "functionGroups", "functionGroupBehaviors")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsApiProps",
@@ -581,7 +578,7 @@ function generateStructs() {
   })
     .mixin(Struct.fromFqn("cdk-nextjs.NextjsApiProps"))
     // Same reason as `OptionalNextjsDistributionProps`.
-    .omit("overrides", "functionGroups")
+    .omit("overrides", "functionGroups", "functionGroupBehaviors")
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalNextjsContainersProps",

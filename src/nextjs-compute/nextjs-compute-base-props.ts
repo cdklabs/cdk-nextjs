@@ -19,11 +19,12 @@ export interface NextjsComputeBaseProps {
   readonly buildId: string;
   readonly nextjsType: NextjsType;
   /**
-   * S3 bucket holding `.next/static` and `public`. Both deployment styles need
-   * it: the runtime's image optimizer fetches the bytes of every non-absolute
-   * `<Image>` from S3, since they are deliberately not in the deployment package,
-   * and on every type but `NextjsRegionalContainers` so does a rewrite that
-   * lands on a `public/` file.
+   * S3 bucket holding `.next/static` and `public`. On every type but
+   * `NextjsRegionalContainers` the runtime reads it: its image optimizer fetches
+   * the bytes of every non-absolute `<Image>` from S3, since they are
+   * deliberately not in the deployment package, and so does a rewrite that
+   * lands on a `public/` file. `NextjsRegionalContainers` carries both in its
+   * image, so it gets neither the bucket's environment nor read access to it.
    * Read access is scoped to `staticAssetsKeyPrefix`.
    */
   readonly staticAssetsBucket: IBucket;
@@ -42,18 +43,22 @@ export interface NextjsComputeBaseProps {
 export function runtimeEnvironment(
   props: NextjsComputeBaseProps,
 ): Record<string, string> {
-  return {
+  const env: Record<string, string> = {
     CDK_NEXTJS_CACHE_BUCKET_NAME: props.cacheBucket.bucketName,
     CDK_NEXTJS_REVALIDATION_TABLE_NAME: props.revalidationTable.tableName,
     CDK_NEXTJS_BUILD_ID: props.buildId,
+  };
+  if (readsStaticAssets(props)) {
     // Read by the runtime's image optimizer for non-absolute `<Image>` URLs,
-    // whose bytes live in S3 rather than in the deployment package or image.
-    CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME: props.staticAssetsBucket.bucketName,
+    // whose bytes live in S3 rather than in the deployment package.
+    env.CDK_NEXTJS_STATIC_ASSETS_BUCKET_NAME =
+      props.staticAssetsBucket.bucketName;
     // Where in that bucket. Not derivable from the app's `basePath`: on the
     // API Gateway types that is the stage name, which is part of the URL but
     // not of the key.
-    CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX: props.staticAssetsKeyPrefix ?? "",
-  };
+    env.CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX = props.staticAssetsKeyPrefix ?? "";
+  }
+  return env;
 }
 
 /** Grants `grantee` what {@link runtimeEnvironment} points it at. */
@@ -63,10 +68,17 @@ export function grantRuntimeAccess(
 ): void {
   props.cacheBucket.grantReadWrite(grantee);
   props.revalidationTable.grantReadWriteData(grantee);
-  // Read for image sources and for `public/` files a rewrite lands on, both
-  // of which live only in S3; nothing outside the app's own prefix.
-  props.staticAssetsBucket.grantRead(
-    grantee,
-    staticAssetsObjectsPattern(props.staticAssetsKeyPrefix),
-  );
+  if (readsStaticAssets(props)) {
+    // Read for image sources and for `public/` files a rewrite lands on, both
+    // of which live only in S3; nothing outside the app's own prefix.
+    props.staticAssetsBucket.grantRead(
+      grantee,
+      staticAssetsObjectsPattern(props.staticAssetsKeyPrefix),
+    );
+  }
+}
+
+/** Every type but `NextjsRegionalContainers`, whose image carries the assets. */
+function readsStaticAssets(props: NextjsComputeBaseProps): boolean {
+  return props.nextjsType !== NextjsType.REGIONAL_CONTAINERS;
 }

@@ -234,7 +234,12 @@ export async function serveS3PublicFile(
       if (!res.getHeader("Cache-Control")) {
         res.setHeader("Cache-Control", "public, max-age=0");
       }
-      if (ifNoneMatch) res.setHeader("ETag", ifNoneMatch);
+      // The object's own, not the client's `If-None-Match`, which can be a
+      // list or `*`.
+      const etag = (
+        error as { $response?: { headers?: Record<string, string> } }
+      ).$response?.headers?.etag;
+      if (etag) res.setHeader("ETag", etag);
       res.statusCode = 304;
       res.end();
       return true;

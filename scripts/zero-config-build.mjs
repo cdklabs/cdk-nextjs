@@ -119,18 +119,16 @@ function mkdirIfNeeded(dir) {
 }
 
 /**
- * `npm pack` the working tree into `appDir`. Fails loudly if the bundled runtime
- * files are missing, because the tarball would otherwise be published-shaped but
- * adapter-less and every assertion below would be about nothing.
+ * `npm pack` the working tree into `appDir`. Fails loudly if a file the package's
+ * `exports` points at is missing, because the tarball would otherwise be
+ * published-shaped but adapter-less and every assertion below would be about
+ * nothing.
  */
 function pack(appDir) {
-  for (const file of [
-    "lib/adapter/adapter.mjs",
-    "lib/adapter/cache-handler.mjs",
-    "lib/adapter/use-cache-default-handler.mjs",
-    "lib/adapter/use-cache-remote-handler.mjs",
-    "lib/index.js",
-  ]) {
+  const { exports } = JSON.parse(
+    readFileSync(join(repoRoot, "package.json"), "utf8"),
+  );
+  for (const { default: file } of Object.values(exports)) {
     assert(
       existsSync(join(repoRoot, file)),
       `${file} is missing — run \`pnpm compile && pnpm bundle\` first.`,
