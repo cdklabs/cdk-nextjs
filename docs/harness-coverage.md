@@ -84,6 +84,18 @@ type, 17 green, no cdk-nextjs defect. The failures are what to expect on a re-ru
 | `app-dir/redirect-rewrite-dynamic-basepath`         | 1 / 2   | Same, surfacing as a 500 from the runtime's error path.                                                             |
 | `invalid-static-asset-404-{app,pages}-asset-prefix` | fail    | Nothing serves `assetPrefix` on the regional types; cdk-nextjs warns at synth (`isAssetPrefixUnserved`).            |
 
+Then in CI on 2026-09-28, the whole manifest (437 files) in 10 shards: 428 green,
+8 of them only on retry, mostly `basePath` fixtures (the ~90s stage settle in the
+README). Beyond the table above, the same two causes failed four more files, and
+one failure was a cdk-nextjs defect:
+
+| File                                                                  | Result | Why                                                                                                                                                                                            |
+| --------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app-dir/asset-prefix-absolute`, `app-dir/asset-prefix-with-basepath` | fail   | `assetPrefix` is unserved on the regional types, as above; each logs the synth warning.                                                                                                        |
+| `next-form/default/app-dir`                                           | fails  | The action `redirect()`s, streamed by a server-side fetch of the app's own origin. Same cause as `app-basepath`.                                                                               |
+| `app-dir/action-forward-loop`                                         | fails  | Action forwarding fetches the request's own origin (`createForwardedActionResponse`, from `initURL`) — `127.0.0.1`. Same cause.                                                                |
+| `hydration`                                                           | 1 / 3  | **Defect, fixed:** API Gateway collapses `//` to `/` in `event.path`, so Next.js never redirected it and the page failed to hydrate at `//`. `apiGatewayRequestPath` now restores the slashes. |
+
 ## Passing — in `rules.include`
 
 The list is the manifest's `rules.include`; it is not duplicated here. Notes worth

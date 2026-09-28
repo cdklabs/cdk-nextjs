@@ -62,6 +62,34 @@ describe("apiGatewayRequestPath", () => {
     ).toBe("/foo");
   });
 
+  it("keeps repeated slashes API Gateway collapsed out of event.path", () => {
+    // Below the stage, so Next.js can redirect `//` away itself.
+    expect(apiGatewayRequestPath(event("/", "/prod//"), "")).toBe("//");
+    expect(apiGatewayRequestPath(event("/foo", "/prod//foo"), "")).toBe(
+      "//foo",
+    );
+    expect(apiGatewayRequestPath(event("/a/b", "/prod/a//b"), "")).toBe(
+      "/a//b",
+    );
+    // A base path mapping of more than one segment strips as many.
+    expect(apiGatewayRequestPath(event("/foo", "/v1/api//foo"), "")).toBe(
+      "//foo",
+    );
+    // A custom domain mapped at the root strips nothing.
+    expect(apiGatewayRequestPath(event("/", "//"), "")).toBe("//");
+    // And with a basePath API Gateway does not strip.
+    expect(apiGatewayRequestPath(event("/docs/", "/docs//"), "/docs")).toBe(
+      "/docs//",
+    );
+  });
+
+  it("keeps event.path when the repeated slashes cannot be placed", () => {
+    // No suffix of the context path collapses to event.path.
+    expect(apiGatewayRequestPath(event("/bar", "/prod//foo"), "")).toBe("/bar");
+    // Repeated slashes only inside the stripped prefix.
+    expect(apiGatewayRequestPath(event("/foo", "//prod/foo"), "")).toBe("/foo");
+  });
+
   it("falls back to event.path when the context has no path", () => {
     expect(
       apiGatewayRequestPath({ path: "/foo", requestContext: {} }, "/prod"),

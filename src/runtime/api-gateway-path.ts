@@ -36,5 +36,42 @@ export function apiGatewayRequestPath(
   if (unstripped && hasPathPrefix(unstripped, basePath)) {
     return unstripped;
   }
-  return event.path;
+  return (
+    (unstripped && withRepeatedSlashes(unstripped, event.path)) ?? event.path
+  );
+}
+
+/**
+ * `event.path` with the repeated slashes API Gateway collapsed put back, or
+ * `undefined` when there are none to restore.
+ *
+ * `//` arrives as `event.path = "/"`, so Next.js never sees the repeated slash it
+ * redirects away (`normalizeRepeatedSlashes`), and the page is served at `//`
+ * itself - where the Pages Router's client throws `Invalid URL` building a URL
+ * from a protocol-relative path, and the page never hydrates. Found by next.js's
+ * `test/e2e/hydration` on Regional Functions.
+ *
+ * The prefix API Gateway stripped (the stage, or a base path mapping) is not
+ * recoverable by subtracting one field from the other, for the reason above.
+ * So whole leading segments are dropped from `requestContext.path` until what is
+ * left, collapsed, is `event.path`: the first such suffix is the unstripped path
+ * below the prefix. If none matches, `event.path` stands.
+ */
+function withRepeatedSlashes(
+  unstripped: string,
+  stripped: string,
+): string | undefined {
+  if (!unstripped.includes("//")) {
+    return undefined;
+  }
+  for (let rest = unstripped; ;) {
+    if (rest.replace(/\/{2,}/g, "/") === stripped) {
+      return rest === stripped ? undefined : rest;
+    }
+    const next = rest.replace(/^\/[^/]+/, "");
+    if (next === rest) {
+      return undefined;
+    }
+    rest = next;
+  }
 }
