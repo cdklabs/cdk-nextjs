@@ -245,8 +245,13 @@ jobs:
       HARNESS_NEXTJS_TYPE: ${{ inputs.nextjs_type || 'global-functions' }}
       # The per-file budget `createNext` - build, deploy and all - runs inside. The
       # Containers types add an image build and push and an ECS rollout to every
-      # deploy, which the Functions types' 240s does not fit.
-      NEXT_E2E_TEST_TIMEOUT: ${{ endsWith(inputs.nextjs_type || 'global-functions', '-containers') && '480000' || '240000' }}
+      # deploy, which the Functions types' 240s does not fit. The Global types
+      # get more again: a fixture whose top-level `public/` entries differ from
+      # the previous file's changes the distribution's cache behaviors, which
+      # hotswap cannot apply, and the full update then waits on CloudFront -
+      # 8-10 minutes measured on 2026-09-28. At 240s such a file failed wholesale,
+      # and its retry spent its own 240s waiting for that same update to finish.
+      NEXT_E2E_TEST_TIMEOUT: ${{ startsWith(inputs.nextjs_type || 'global-functions', 'global-') && '900000' || (endsWith(inputs.nextjs_type || 'global-functions', '-containers') && '480000' || '240000') }}
       # The stack this shard owns, read by `harness_stack_name` in
       # scripts/e2e-harness/common.sh. Every step below that touches AWS - warm,
       # deploy, sweep - resolves the same name from it, which is the whole of what

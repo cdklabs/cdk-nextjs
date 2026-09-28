@@ -409,7 +409,11 @@ needs no flag (`.mts` is ESM either way) and is green.
   attempt 0, and read durations, not case names — a file can report 8 of 8
   "routing" cases failing when none ran. A deploy that suddenly takes a full
   CloudFormation update (~110s+) instead of a hotswap (~50s) is the usual cause —
-  e.g. churning bucket `Tags` once did this; see the README.
+  e.g. churning bucket `Tags` once did this; see the README. On the Global
+  types, `rejected changes: DistributionConfig` in the log means a CloudFront
+  update, which takes 8-10 minutes; if the next file logs `an earlier cdk deploy
+  … is still running; waiting`, it is waiting on that update, not failing on its
+  own.
 - **A pass in under ~10s deployed nothing.** A real file spends 100s+ on
   `next build` plus a hotswap. `run-tests.js --timings` prints per-file duration —
   the only signal for a passing file, since output prints on failure only.

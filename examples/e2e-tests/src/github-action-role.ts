@@ -51,11 +51,13 @@ class AwsGitHubActionRole extends Stack {
         [`aws:ResourceTag/${HARNESS_TAG_KEY}`]: HARNESS_TAG_VALUE,
       },
     };
-    // `e2e-sweep.sh` lists every stack to find orphans, and DescribeStacks with no
-    // stack name cannot be scoped to a resource. Read-only.
+    // `e2e-sweep.sh` lists every stack to find orphans. DescribeStacks with no
+    // stack name cannot be scoped to a resource, and IAM authorizes it as
+    // `cloudformation:ListStacks` too - without that, the workflow's `sweep` job
+    // failed on AccessDenied. Read-only.
     role.addToPrincipalPolicy(
       new PolicyStatement({
-        actions: ["cloudformation:DescribeStacks"],
+        actions: ["cloudformation:DescribeStacks", "cloudformation:ListStacks"],
         resources: ["*"],
       }),
     );

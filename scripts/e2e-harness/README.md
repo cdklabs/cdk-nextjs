@@ -88,7 +88,9 @@ far more often than the distribution. Measured over batch 9, a 23-file run with
 - The **distribution** blocks the remainder. Its cache behaviors change when a
   fixture's `public/` directory differs from the previous one's, since `public/`
   entries become behaviors (`src/nextjs-distribution.ts`). CloudFront then has to
-  propagate, which is the irreducibly expensive case.
+  propagate, which is the irreducibly expensive case: 8-10 minutes per update in
+  the 2026-09-28 Global Functions run, not the ~110s above. That is why the
+  workflow gives the Global types a `NEXT_E2E_TEST_TIMEOUT` of 900000.
 
 Either way the shared stack wins: even a full CloudFormation update that leaves
 the distribution alone costs ~110s, against ~4 minutes for a stack of its own plus
@@ -352,7 +354,8 @@ VPC. What the harness does differently:
   VPC of its own, and NAT gateways hold Elastic IPs out of a per-region quota.
 - **`NEXT_E2E_TEST_TIMEOUT` is 480000 in the workflow**, not 240000. An image
   build, a push and an ECS rollout are added to every file's deploy, all inside
-  `beforeAll`.
+  `beforeAll`. `NextjsGlobalContainers` gets 900000, like `NextjsGlobalFunctions`,
+  for a CloudFront update (see "One shared stack, not one per test file").
 
 `NextjsRegionalContainers` is served over plain HTTP at its ALB's origin — no
 stage, so no proxy — which is what the construct deploys without a certificate.

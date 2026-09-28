@@ -81,10 +81,10 @@ export HARNESS_STACK_PREFIX
 # test file's hotswap rewrites.
 #
 # One stack by name is described by name. Listing every stack needs
-# `cloudformation:ListStacks`, which CI's GitHubActionRole does not have, and
-# without this a shard's own cleanup (`--shared`) failed on AccessDenied and
-# left its stack behind. A named stack that is already gone is simply not a
-# candidate.
+# `cloudformation:ListStacks`, which a shard's own cleanup (`--shared`) should
+# not depend on: before GitHubActionRole had it, that cleanup failed on
+# AccessDenied and left its stack behind. A named stack that is already gone is
+# simply not a candidate.
 list_stacks() {
   if [ -z "$ONLY_STACK" ]; then
     aws cloudformation describe-stacks --output json
