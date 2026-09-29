@@ -307,6 +307,15 @@ jobs:
           # rejects a longer request than the role allows.
           role-duration-seconds: 10800
 
+      - name: Log in to Amazon ECR Public
+        # The Containers types build an image per test file, on
+        # `public.ecr.aws/docker/library/node`. Pulled anonymously, fifteen shards
+        # warming at once hit ECR Public's rate limit (429 Too Many Requests) on
+        # both of the warm step's attempts, and two shards ran nothing. An
+        # authenticated pull has a far higher limit. The token lasts 12 hours.
+        if: ${{ endsWith(env.HARNESS_NEXTJS_TYPE, '-containers') }}
+        run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+
       - name: Warm this shard's stack
         # Creating the CloudFront distribution takes ~240s, and the harness
         # runs `createNext` inside jest's `beforeAll` - so without this the first
@@ -327,6 +336,13 @@ jobs:
         env:
           ADAPTER_DIR: ${{ github.workspace }}
 
+      - name: Apply this type's exclusions
+        # `rules.excludeByType` in the manifest, as one more manifest for
+        # NEXT_EXTERNAL_TESTS_FILTERS - see scripts/e2e-harness/type-filters.mjs.
+        # Read from the first manifest in TEST_FILTERS, which is relative to the
+        # next.js checkout.
+        run: node scripts/e2e-harness/type-filters.mjs "nextjs/${TEST_FILTERS%%,*}" "$HARNESS_NEXTJS_TYPE" "$RUNNER_TEMP/harness-type-filters.json"
+
       - name: Run the harness
         working-directory: nextjs
         # Capped, so a slow run ends here rather than at the job timeout, and the
@@ -335,7 +351,7 @@ jobs:
         timeout-minutes: 150
         env:
           NEXT_TEST_MODE: deploy
-          NEXT_EXTERNAL_TESTS_FILTERS: ${{ env.TEST_FILTERS }}
+          NEXT_EXTERNAL_TESTS_FILTERS: ${{ env.TEST_FILTERS }},${{ runner.temp }}/harness-type-filters.json
           IS_TURBOPACK_TEST: 1
           # cdk-nextjs *is* an adapter deployment, and next.js's suite asks. Ten
           # e2e files branch on this, most of them by way of

@@ -456,7 +456,64 @@
       "test/e2e/use-router-with-rewrites/use-router-with-rewrites.test.ts",
       "test/e2e/useselectedlayoutsegment-s-in-pages-router/useselectedlayoutsegment-s-in-pages-router.test.ts"
     ],
-    "exclude": []
+    "exclude": [],
+    "excludeByType": {
+      "comment": [
+        "Per NextjsType: files, or cases within a file, that the harness cannot pass on that type for a",
+        "reason docs/harness-coverage.md records. Applied by scripts/e2e-harness/type-filters.mjs, which",
+        "writes an overlay manifest the workflow appends to NEXT_EXTERNAL_TESTS_FILTERS. An entry without",
+        "`failed` excludes the whole file; with `failed`, only those cases. Never a cdk-nextjs defect."
+      ],
+      "regional-functions": {
+        "test/e2e/app-dir/actions-streaming/actions-streaming.test.ts": {
+          "comment": "The action fetches location.origin from the server: 127.0.0.1 behind the stage proxy, unreachable from the Lambda."
+        },
+        "test/e2e/app-dir/action-forward-loop/action-forward-loop.test.ts": {
+          "comment": "Action forwarding fetches the request's own origin (initURL): 127.0.0.1 behind the stage proxy."
+        },
+        "test/e2e/app-dir/app-basepath/index.test.ts": {
+          "comment": "A streamed action redirect() is a server-side fetch of the app's own origin: 127.0.0.1 behind the stage proxy.",
+          "failed": [
+            "app dir - basepath should properly stream an internal server action redirect() with a relative URL",
+            "app dir - basepath should properly stream an internal server action redirect() with a absolute URL",
+            "app dir - basepath should redirect externally when encountering absolute URLs on the same host outside the basePath"
+          ]
+        },
+        "test/e2e/next-form/default/app-dir.test.ts": {
+          "comment": "Each action redirect()s, streamed by a server-side fetch of the app's own origin: 127.0.0.1 behind the stage proxy.",
+          "failed": [
+            "next-form - app dir functions passed to action runs server action",
+            "next-form - app dir functions passed to action runs server action (closure)",
+            "next-form - app dir functions passed to formAction runs server action from submitter and doesn't warn about unsupported attributes",
+            "next-form - app dir functions passed to formAction runs server action (closure) from submitter and doesn't warn about unsupported attributes"
+          ]
+        },
+        "test/e2e/app-dir/asset-prefix-absolute/asset-prefix-absolute.test.ts": {
+          "comment": "Nothing serves assetPrefix on Regional Functions; cdk-nextjs warns at synth (isAssetPrefixUnserved).",
+          "failed": [
+            "app-dir absolute assetPrefix bundles should return 200 on served assetPrefix"
+          ]
+        },
+        "test/e2e/app-dir/asset-prefix-with-basepath/asset-prefix-with-basepath.test.ts": {
+          "comment": "Nothing serves assetPrefix on Regional Functions; cdk-nextjs warns at synth (isAssetPrefixUnserved).",
+          "failed": [
+            "app-dir assetPrefix with basePath handling bundles should return 200 on served assetPrefix"
+          ]
+        },
+        "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app-asset-prefix.test.ts": {
+          "comment": "Nothing serves assetPrefix on Regional Functions; cdk-nextjs warns at synth (isAssetPrefixUnserved).",
+          "failed": [
+            "invalid-static-asset-404-app-asset-prefix should return correct output with status 200 on valid asset path"
+          ]
+        },
+        "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages-asset-prefix.test.ts": {
+          "comment": "Nothing serves assetPrefix on Regional Functions; cdk-nextjs warns at synth (isAssetPrefixUnserved).",
+          "failed": [
+            "invalid-static-asset-404-pages-asset-prefix should return correct output with status 200 on valid asset path"
+          ]
+        }
+      }
+    }
   },
   "suites": {
     "test/e2e/app-dir/trailingslash/trailingslash.test.ts": {

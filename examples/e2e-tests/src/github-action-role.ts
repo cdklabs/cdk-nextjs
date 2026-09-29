@@ -51,6 +51,18 @@ class AwsGitHubActionRole extends Stack {
         [`aws:ResourceTag/${HARNESS_TAG_KEY}`]: HARNESS_TAG_VALUE,
       },
     };
+    // The workflow logs in to ECR Public before a Containers run, so the image
+    // builds pull `public.ecr.aws/docker/library/node` authenticated rather than
+    // hitting the anonymous rate limit. Neither action can be scoped to a resource.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: [
+          "ecr-public:GetAuthorizationToken",
+          "sts:GetServiceBearerToken",
+        ],
+        resources: ["*"],
+      }),
+    );
     // `e2e-sweep.sh` lists every stack to find orphans. DescribeStacks with no
     // stack name cannot be scoped to a resource, and IAM authorizes it as
     // `cloudformation:ListStacks` too - without that, the workflow's `sweep` job

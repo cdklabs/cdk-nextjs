@@ -87,7 +87,8 @@ type, 17 green, no cdk-nextjs defect. The failures are what to expect on a re-ru
 Then in CI on 2026-09-28, the whole manifest (437 files) in 10 shards: 428 green,
 8 of them only on retry, mostly `basePath` fixtures (the ~90s stage settle in the
 README). Beyond the table above, the same two causes failed four more files, and
-one failure was a cdk-nextjs defect:
+one failure was a cdk-nextjs defect. Everything but `hydration` is now in the
+manifest's `rules.excludeByType["regional-functions"]`:
 
 | File                                                                  | Result | Why                                                                                                                                                                                            |
 | --------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

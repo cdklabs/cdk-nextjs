@@ -327,6 +327,26 @@ ADAPTER_DIR=$PWD HARNESS_NEXTJS_TYPE=global-containers ./scripts/e2e-warm.sh
 HARNESS_NEXTJS_TYPE=global-containers ./scripts/e2e-sweep.sh --apply --shared
 ```
 
+What a type cannot pass for a known reason goes in the manifest's
+`rules.excludeByType`, keyed by type: a whole file, or with `failed`, only those
+cases. The workflow turns the entry into one more manifest for
+NEXT_EXTERNAL_TESTS_FILTERS (`type-filters.mjs`); by hand, do the same:
+
+```bash
+node scripts/e2e-harness/type-filters.mjs test/deploy-tests-manifest.json \
+  "$HARNESS_NEXTJS_TYPE" /tmp/harness-type-filters.json
+export NEXT_EXTERNAL_TESTS_FILTERS=../test/deploy-tests-manifest.json,/tmp/harness-type-filters.json
+```
+
+Only harness limitations and documented unsupported features belong there, each
+with its reason in `docs/harness-coverage.md`. A cdk-nextjs defect is a bug to
+fix, not an exclusion.
+
+Shard counts: 10 fit the job's time caps for every type but
+`NextjsGlobalContainers`, whose files average ~4.3 minutes and need ~15. Every
+Global shard is a CloudFront distribution with three response headers policies,
+out of an account quota of 50 by default; 15 shards need the raised quota.
+
 ### The Containers types
 
 Both deploy through the same `--hotswap-fallback` path. A new image and a
