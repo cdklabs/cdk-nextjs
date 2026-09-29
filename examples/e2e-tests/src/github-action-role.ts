@@ -264,6 +264,34 @@ class AwsGitHubActionRole extends Stack {
         ],
       }),
     );
+    // `e2e-sweep.sh` deletes the log groups of harness stacks that are gone:
+    // Lambda's and Container Insights' are created outside the stack, and the
+    // task's is retained, so nothing else ever removes them. Listing them by
+    // prefix is authorized against every log group; deleting is scoped to the
+    // three harness prefixes.
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["logs:DescribeLogGroups"],
+        resources: ["*"],
+      }),
+    );
+    role.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: ["logs:DeleteLogGroup"],
+        resources: [
+          `${HARNESS_STACK_PREFIX}*`,
+          `/aws/lambda/${HARNESS_STACK_PREFIX}*`,
+          `/aws/ecs/containerinsights/${HARNESS_STACK_PREFIX}*`,
+        ].map((resourceName) =>
+          this.formatArn({
+            service: "logs",
+            resource: "log-group",
+            resourceName: `${resourceName}:*`,
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          }),
+        ),
+      }),
+    );
   }
 }
 

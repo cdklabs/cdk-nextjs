@@ -295,6 +295,53 @@ while IFS=$'\t' read -r name status created updated probe <&4; do
   DELETED+=("$name")
 done 4<<<"$CANDIDATES"
 
+# Log groups outlive their stacks: the ECS task's is the stack's own but
+# retained, and Lambda's and Container Insights' are created by AWS outside the
+# stack, so no stack setting can expire them. Two days of runs left ~450. Only on
+# an account-wide sweep, and only a group whose stack no longer exists (the name
+# starts with `<stack>-`) and that is over an hour old - a stack being created
+# right now is listed, so its groups are kept.
+sweep_log_groups() {
+  local stacks
+  stacks="$(aws cloudformation describe-stacks \
+    --query "Stacks[?starts_with(StackName, '${HARNESS_STACK_PREFIX}')].StackName" \
+    --output text | tr '\t' '\n')" || return 1
+  local cutoff=$((($(date +%s) - 3600) * 1000))
+  local prefix group created base stack live count=0
+  for prefix in "${HARNESS_STACK_PREFIX}" "/aws/lambda/${HARNESS_STACK_PREFIX}" \
+    "/aws/ecs/containerinsights/${HARNESS_STACK_PREFIX}"; do
+    while IFS=$'\t' read -r group created; do
+      [ -n "$group" ] || continue
+      [ "$created" -lt "$cutoff" ] || continue
+      base="${group#/aws/lambda/}"
+      base="${base#/aws/ecs/containerinsights/}"
+      live=0
+      while IFS= read -r stack; do
+        if [ -n "$stack" ] && { [ "$base" = "$stack" ] || [ "${base#"$stack"-}" != "$base" ]; }; then
+          live=1
+          break
+        fi
+      done <<<"$stacks"
+      [ "$live" = "0" ] || continue
+      count=$((count + 1))
+      if [ "$APPLY" = "1" ]; then
+        aws logs delete-log-group --log-group-name "$group"
+      else
+        echo "sweep: would delete log group $group"
+      fi
+    done < <(aws logs describe-log-groups --log-group-name-prefix "$prefix" \
+      --query 'logGroups[].[logGroupName, creationTime]' --output text)
+  done
+  if [ "$APPLY" = "1" ]; then
+    echo "sweep: deleted $count log groups of stacks that are gone"
+  else
+    echo "sweep: $count log groups of stacks that are gone"
+  fi
+}
+if [ -z "$ONLY_STACK" ]; then
+  sweep_log_groups || echo "sweep: could not sweep log groups" >&2
+fi
+
 if [ "$FOUND" = "0" ]; then
   echo "sweep: no ${DESCRIPTION}"
   exit 0

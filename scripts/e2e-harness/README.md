@@ -342,10 +342,20 @@ Only harness limitations and documented unsupported features belong there, each
 with its reason in `docs/harness-coverage.md`. A cdk-nextjs defect is a bug to
 fix, not an exclusion.
 
+A case-level entry is a `suites` entry in the overlay, and next.js runs every
+`suites` file regardless of `rules.include`. On the full manifest that changes
+nothing; with a narrower `test_filters`, those files run as well.
+
 Shard counts: 10 fit the job's time caps for every type but
 `NextjsGlobalContainers`, whose files average ~4.3 minutes and need ~15. Every
 Global shard is a CloudFront distribution with three response headers policies,
-out of an account quota of 50 by default; 15 shards need the raised quota.
+out of an account quota of 50 by default; 15 shards need the raised quota. The
+dev account's is 100 (raised 2026-09-29), which fits 15 Global shards beside the
+per-PR example stacks.
+
+Log groups outlive their stacks - Lambda's and Container Insights' are created
+outside the stack - so an account-wide `e2e-sweep.sh` also deletes the `hrns-*`
+log groups of stacks that no longer exist (dry run first, like the stacks).
 
 ### The Containers types
 
