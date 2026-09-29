@@ -529,6 +529,29 @@ describe("NextjsRegionalFunctions", () => {
 });
 
 describe("NextjsGlobalContainers", () => {
+  it("forwards CloudFront's headers to the ALB, for the viewer's protocol", () => {
+    // Without a certificate CloudFront reaches the ALB over HTTP, so only
+    // `CloudFront-Forwarded-Proto` tells the runtime the viewer used HTTPS.
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsGlobalContainers(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+    });
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::Distribution",
+      {
+        DistributionConfig: Match.objectLike({
+          DefaultCacheBehavior: Match.objectLike({
+            // Managed-AllViewerAndCloudFrontHeaders-2022-06
+            OriginRequestPolicyId: "33f36d7e-f396-46d9-90e0-52428a34d9dc",
+          }),
+        }),
+      },
+    );
+  });
+
   it("grants the task role the cache and creates no Function URL", () => {
     const stack = new Stack(new App(), "Stack", {
       env: { account: "123456789012", region: "us-east-1" },

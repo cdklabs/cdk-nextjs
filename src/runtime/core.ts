@@ -1202,7 +1202,17 @@ function absoluteUrl(request: RuntimeRequest): URL {
       : undefined) ??
     validAuthority(request.headers.host) ??
     "localhost";
-  const forwardedProto = firstValue(request.headers["x-forwarded-proto"])
+  // `cloudfront-forwarded-proto` first: it is the viewer's protocol, which only
+  // CloudFront knows. On Global Containers without a certificate CloudFront
+  // reaches the ALB over plain HTTP, so the ALB's `x-forwarded-proto` said
+  // `http` to an app every viewer reaches over HTTPS - and Next.js forwarded
+  // server actions to that `http://` origin, where CloudFront answered 307,
+  // failing `test/e2e/app-dir/action-forward-loop`. `NextjsDistribution`
+  // forwards the header to container origins.
+  const forwardedProto = firstValue(
+    request.headers["cloudfront-forwarded-proto"] ??
+      request.headers["x-forwarded-proto"],
+  )
     ?.split(",")[0]
     .trim()
     .toLowerCase();

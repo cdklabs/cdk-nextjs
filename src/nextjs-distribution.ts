@@ -273,12 +273,19 @@ export class NextjsDistribution extends Construct {
   /**
    * Lambda Function URLs "expect the `Host` header to contain the origin domain
    * name, not the domain name of the CloudFront distribution."
+   *
+   * A container origin also gets CloudFront's own headers, for
+   * `CloudFront-Forwarded-Proto`: without a certificate CloudFront reaches the
+   * ALB over plain HTTP, so the ALB's `X-Forwarded-Proto` is `http`, and the
+   * runtime would build every absolute URL (`request.url`, the origin a server
+   * action is forwarded to) as `http://` behind a viewer on HTTPS.
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html#managed-origin-request-policy-all-viewer-except-host-header
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html#managed-origin-request-policy-all-viewer-and-cloudfront
    */
   private createDynamicOriginRequestPolicy(): IOriginRequestPolicy {
     return this.isFunctionCompute
       ? OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER
-      : OriginRequestPolicy.ALL_VIEWER;
+      : OriginRequestPolicy.ALL_VIEWER_AND_CLOUDFRONT_2022;
   }
   /**
    * Ensures Next.js `request.url` will be correct domain instead of URL of
