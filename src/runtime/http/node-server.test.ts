@@ -2,7 +2,11 @@ import type { IncomingMessage } from "node:http";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { NextjsRuntime } from "../core";
-import { createRuntimeServer, hasRequestBody } from "./node-server";
+import {
+  createRuntimeServer,
+  hasRequestBody,
+  viewerHeaders,
+} from "./node-server";
 
 type Handle = NextjsRuntime["handle"];
 
@@ -39,6 +43,34 @@ async function withServer<T>(
     server.close();
   }
 }
+
+describe("viewerHeaders", () => {
+  // Global Containers without a certificate: CloudFront reaches the ALB over
+  // HTTP, so the ALB says `http` while the viewer used HTTPS.
+  const behindCloudFront = {
+    host: "d111.cloudfront.net",
+    "x-forwarded-proto": "http",
+    "cloudfront-forwarded-proto": "https",
+  };
+
+  it("takes the viewer's protocol from CloudFront when every request comes through it", () => {
+    expect(viewerHeaders(behindCloudFront, true)["x-forwarded-proto"]).toBe(
+      "https",
+    );
+  });
+
+  it("ignores cloudfront-forwarded-proto a client could have sent the ALB itself", () => {
+    expect(viewerHeaders(behindCloudFront, false)["x-forwarded-proto"]).toBe(
+      "http",
+    );
+    expect(viewerHeaders(behindCloudFront, undefined)).toBe(behindCloudFront);
+  });
+
+  it("keeps x-forwarded-proto when CloudFront sent no protocol", () => {
+    const headers = { host: "alb.example.test", "x-forwarded-proto": "http" };
+    expect(viewerHeaders(headers, true)).toBe(headers);
+  });
+});
 
 describe("hasRequestBody", () => {
   const message = (method: string, headers: Record<string, string> = {}) =>

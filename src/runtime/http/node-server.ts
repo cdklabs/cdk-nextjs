@@ -5,7 +5,12 @@
  * starting the server that module starts on import.
  */
 import { createServer } from "node:http";
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import type {
+  IncomingHttpHeaders,
+  IncomingMessage,
+  Server,
+  ServerResponse,
+} from "node:http";
 import type { NextjsRuntime } from "../core";
 import { clientAbortSignal } from "./abort-signal";
 import { NodeResponseSink } from "./node-sink";
@@ -40,8 +45,20 @@ export interface RuntimeServer {
   shutdown(): Promise<void>;
 }
 
+export interface RuntimeServerOptions {
+  /**
+   * Whether every request comes through CloudFront, which sets
+   * `cloudfront-forwarded-proto` itself. True only on Global Containers, whose
+   * ALB is reachable through the distribution's VPC origin alone
+   * (`CDK_NEXTJS_TRUST_CLOUDFRONT_PROTO`, set by the construct). See
+   * {@link viewerHeaders}.
+   */
+  readonly trustCloudFrontProto?: boolean;
+}
+
 export function createRuntimeServer(
   runtime: Pick<NextjsRuntime, "handle">,
+  options: RuntimeServerOptions = {},
 ): RuntimeServer {
   // `handle` resolves only once the `waitUntil` work a request registered — ISR
   // revalidation, notably — has settled, which is after its response and its
@@ -49,7 +66,7 @@ export function createRuntimeServer(
   const inFlight = new Set<Promise<void>>();
 
   const server = createServer((req, res) => {
-    const handled = serve(runtime, req, res)
+    const handled = serve(runtime, req, res, options)
       .catch((error) => {
         // `NextjsRuntime.handle` answers 500 itself, so reaching this means the
         // shell's own translation failed.
@@ -80,16 +97,42 @@ export function createRuntimeServer(
   return { server, shutdown };
 }
 
+/**
+ * The request's headers, with `x-forwarded-proto` naming the viewer's protocol
+ * when that is known.
+ *
+ * Behind CloudFront without a certificate, CloudFront reaches the ALB over plain
+ * HTTP, so the ALB's `x-forwarded-proto` is `http` for an app every viewer
+ * reaches over HTTPS. The runtime builds absolute URLs from it - `request.url`,
+ * `req.nextUrl.origin`, and the origin Next.js forwards a server action to,
+ * where CloudFront then answered 307 and `test/e2e/app-dir/action-forward-loop`
+ * failed. CloudFront's own `cloudfront-forwarded-proto` is the viewer's, but it
+ * is trusted only when every request comes through CloudFront: anywhere else a
+ * client could send it straight to the ALB and pick the scheme of URLs a cached
+ * page then serves to everyone.
+ */
+export function viewerHeaders(
+  headers: IncomingHttpHeaders,
+  trustCloudFrontProto: boolean | undefined,
+): IncomingHttpHeaders {
+  const viewerProto = headers["cloudfront-forwarded-proto"];
+  if (!trustCloudFrontProto || typeof viewerProto !== "string") {
+    return headers;
+  }
+  return { ...headers, "x-forwarded-proto": viewerProto };
+}
+
 async function serve(
   runtime: Pick<NextjsRuntime, "handle">,
   req: IncomingMessage,
   res: ServerResponse,
+  options: RuntimeServerOptions,
 ): Promise<void> {
   await runtime.handle(
     {
       method: req.method ?? "GET",
       url: req.url ?? "/",
-      headers: req.headers,
+      headers: viewerHeaders(req.headers, options.trustCloudFrontProto),
       body: hasRequestBody(req) ? req : undefined,
       remoteAddress: req.socket.remoteAddress,
       // TLS terminates at the ALB (Regional) or CloudFront (Global); the hop to

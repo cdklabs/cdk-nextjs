@@ -539,17 +539,25 @@ describe("NextjsGlobalContainers", () => {
       buildDirectory: buildDir,
       healthCheckPath: "/api/health",
     });
-    Template.fromStack(stack).hasResourceProperties(
-      "AWS::CloudFront::Distribution",
-      {
-        DistributionConfig: Match.objectLike({
-          DefaultCacheBehavior: Match.objectLike({
-            // Managed-AllViewerAndCloudFrontHeaders-2022-06
-            OriginRequestPolicyId: "33f36d7e-f396-46d9-90e0-52428a34d9dc",
-          }),
+    const template = Template.fromStack(stack);
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        DefaultCacheBehavior: Match.objectLike({
+          // Managed-AllViewerAndCloudFrontHeaders-2022-06
+          OriginRequestPolicyId: "33f36d7e-f396-46d9-90e0-52428a34d9dc",
         }),
-      },
-    );
+      }),
+    });
+    // And only this construct tells the shell to trust it.
+    template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Environment: Match.arrayWith([
+            { Name: "CDK_NEXTJS_TRUST_CLOUDFRONT_PROTO", Value: "1" },
+          ]),
+        }),
+      ]),
+    });
   });
 
   it("grants the task role the cache and creates no Function URL", () => {
@@ -611,6 +619,13 @@ describe("NextjsRegionalContainers", () => {
     template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
     expectCacheActions(taskRoleActions(template));
     expectTableScopedDynamoGrants(template, taskRoleId(template));
+    // Its ALB is public, so a client can send `CloudFront-Forwarded-Proto`.
+    const [taskDefinition] = Object.values(
+      template.findResources("AWS::ECS::TaskDefinition"),
+    );
+    expect(JSON.stringify(taskDefinition)).not.toContain(
+      "CDK_NEXTJS_TRUST_CLOUDFRONT_PROTO",
+    );
   });
   // The regional Dockerfile copies `.next/static` and `public` under
   // RELATIVE_PROJECT_DIR; losing it puts them at the image root, and a monorepo

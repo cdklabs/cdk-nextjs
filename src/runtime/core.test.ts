@@ -442,30 +442,6 @@ describe("NextjsRuntime.handle", () => {
     expect(stubBody(sink).initURL).toBe("https://www.example.test/");
   });
 
-  it("takes the viewer's protocol from cloudfront-forwarded-proto over x-forwarded-proto", async () => {
-    // Global Containers without a certificate: CloudFront reaches the ALB over
-    // HTTP, so the ALB says `http` while the viewer used HTTPS.
-    const sink = await send({
-      url: "/",
-      headers: {
-        host: "d111.cloudfront.net",
-        "x-forwarded-proto": "http",
-        "cloudfront-forwarded-proto": "https",
-      },
-      encrypted: false,
-    });
-    expect(stubBody(sink).initURL).toBe("https://d111.cloudfront.net/");
-  });
-
-  it("keeps x-forwarded-proto when there is no cloudfront-forwarded-proto", async () => {
-    const sink = await send({
-      url: "/",
-      headers: { host: "alb.example.test", "x-forwarded-proto": "http" },
-      encrypted: false,
-    });
-    expect(stubBody(sink).initURL).toBe("http://alb.example.test/");
-  });
-
   it("ignores an x-forwarded-proto that is not http or https", async () => {
     const sink = await send({
       url: "/",

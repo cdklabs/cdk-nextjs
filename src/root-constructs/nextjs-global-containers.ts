@@ -123,6 +123,13 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       "CDK_NEXTJS_DISTRIBUTION_ID",
       distribution.distributionId,
     );
+    // The ALB is reachable through the distribution's VPC origin alone, so
+    // `CloudFront-Forwarded-Proto` is always CloudFront's own; see
+    // `viewerHeaders` in src/runtime/http/node-server.ts.
+    taskDefinition.defaultContainer?.addEnvironment(
+      "CDK_NEXTJS_TRUST_CLOUDFRONT_PROTO",
+      "1",
+    );
     this.nextjsPostDeploy = this.createNextjsPostDeploy(
       this.nextjsDistribution.distribution,
     );

@@ -24,7 +24,9 @@ async function main(): Promise<void> {
   const runtime = await loadRuntime(
     deploymentRootOf(dirname(fileURLToPath(import.meta.url))),
   );
-  const { server, shutdown } = createRuntimeServer(runtime);
+  const { server, shutdown } = createRuntimeServer(runtime, {
+    trustCloudFrontProto: process.env.CDK_NEXTJS_TRUST_CLOUDFRONT_PROTO === "1",
+  });
 
   // ECS sends SIGTERM and waits `stopTimeout` before SIGKILL. Without this the
   // process exits immediately and every in-flight response is truncated during
