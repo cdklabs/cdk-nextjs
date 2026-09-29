@@ -198,15 +198,17 @@ class HarnessStack extends Stack {
  * 404s and told that any answer means the server is up. They exist to tell a
  * running task from one that is not listening, and a 404 tells them that.
  *
- * Two segments deep, under `/_next/`. A top-level path is caught by any
- * single-segment dynamic route: `use-cache-metadata-route-handler`'s `/[slug]`
- * page took the old `/__cdk-nextjs-harness-health`, read `./posts/<slug>.txt`
- * and threw, and a 500 is past the ALB's 200-499 range - so the target group
- * kept replacing the task the test was running against, and every request
- * 404'd. A root catch-all or a two-segment dynamic route can still take this one
- * (`Dispatcher.dispatch`), so a fixture whose such route throws would repeat it.
+ * Under `/_next/static/`, which both this runtime and `next start` answer from
+ * the build's static files alone: a missing file there is a plain 404 before
+ * any app route is tried. Anywhere else a fixture's dynamic route can catch it.
+ * The top-level `/__cdk-nextjs-harness-health` was taken by
+ * `use-cache-metadata-route-handler`'s `/[slug]` page, which threw on it (a 500,
+ * past the ALB's 200-499 range, so the task under test kept being replaced);
+ * `/_next/__cdk-nextjs-harness-health` was taken by `sub-shell-generation`'s
+ * `/[lang]/[slug]` as `lang: "_next"`, and the health check's renders left
+ * `/es/*` served a runtime root layout instead of the build-time shell.
  */
-const HEALTH_CHECK_PATH = "/_next/__cdk-nextjs-harness-health";
+const HEALTH_CHECK_PATH = "/_next/static/__cdk-nextjs-harness-health";
 
 /**
  * The container types' own VPC, with one NAT gateway rather than the default of
