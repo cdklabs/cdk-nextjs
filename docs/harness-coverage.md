@@ -426,7 +426,8 @@ needs no flag (`.mts` is ESM either way) and is green.
   types, `rejected changes: DistributionConfig` in the log means a CloudFront
   update, which takes 8-10 minutes; if the next file logs `an earlier cdk deploy
   … is still running; waiting`, it is waiting on that update, not failing on its
-  own.
+  own. A wait that ends in `outlived 600s; stopping it` means the earlier deploy
+  hung: that file failed on it, and this one starts from a clean slate.
 - **A pass in under ~10s deployed nothing.** A real file spends 100s+ on
   `next build` plus a hotswap. `run-tests.js --timings` prints per-file duration —
   the only signal for a passing file, since output prints on failure only.

@@ -157,17 +157,53 @@ harness_stack_status() {
   return 1
 }
 
-# Wait, bounded at 30 minutes, for an orphaned `cdk deploy` of the named stack
-# to exit. A deploy that outran its caller's timeout was killed, but its
+# Wait for an orphaned `cdk deploy` of the named stack to exit, then stop it if
+# it has not. A deploy that outran its caller's timeout was killed, but its
 # `cdk deploy` can outlive it - and a hotswap runs in that process, invisible to
 # CloudFormation, so no stack status says it is still going.
+#
+# Bounded by HARNESS_ORPHAN_WAIT (10 minutes), then killed: the file that started
+# it has already failed, and waiting longer only fails the next one too. The
+# bound used to be 30 minutes with no kill, and one `cdk deploy` that hung after
+# synth (global-containers shard 11, 2026-09-29) failed every file behind it on
+# its 15-minute budget until the shard hit its step cap, 23 files unrun. What a
+# kill leaves server-side, the caller's stack-status wait covers.
 harness_wait_for_cdk() {
   local stack="$1"
-  for _ in $(seq 1 120); do
-    pgrep -f -- "deploy $stack --app" >/dev/null || return 0
+  local waited=0
+  local limit="${HARNESS_ORPHAN_WAIT:-600}"
+  while pgrep -f -- "deploy $stack --app" >/dev/null; do
+    if [ "$waited" -ge "$limit" ]; then
+      echo "harness: an earlier cdk deploy of $stack outlived ${limit}s; stopping it" >&2
+      pkill -TERM -f -- "deploy $stack --app" || true
+      sleep 10
+      pkill -KILL -f -- "deploy $stack --app" || true
+      return 0
+    fi
     echo "harness: an earlier cdk deploy of $stack is still running; waiting" >&2
     sleep 15
+    waited=$((waited + 15))
   done
+}
+
+# Run a command, stopping it after the given number of seconds. Portable, since
+# macOS has no `timeout(1)`. The watchdog writes nowhere, so a caller's pipe
+# (`| tee`) closes when the command does, not when the watchdog's sleep ends.
+harness_run_bounded() {
+  local seconds="$1"
+  shift
+  "$@" &
+  local pid=$!
+  (sleep "$seconds" && kill -TERM "$pid") </dev/null >/dev/null 2>&1 &
+  local watchdog=$!
+  local status=0
+  wait "$pid" || status=$?
+  pkill -P "$watchdog" 2>/dev/null || true
+  kill "$watchdog" 2>/dev/null || true
+  if [ "$status" -eq 143 ]; then
+    echo "harness: stopped after ${seconds}s: $1" >&2
+  fi
+  return "$status"
 }
 
 # True when the named stack exists and carries the harness tag. Read-only, and

@@ -43,7 +43,8 @@ echo "harness: app=$APP_DIR stack=$STACK_NAME"
 # A previous file's deploy that outran its per-file timeout was killed here, but
 # its `cdk deploy` can outlive it, and a full update keeps going server-side.
 # Deploying over either would fail or interleave two fixtures, so wait for both
-# to settle. Bounded at 30 minutes each; the status checks below and
+# to settle: the process for HARNESS_ORPHAN_WAIT (10 minutes) before it is
+# killed, the stack status for 30 minutes. The status checks below and
 # `cdk deploy` itself report what is left. (A change set that was never
 # executed, REVIEW_IN_PROGRESS, never settles by itself.)
 harness_wait_for_cdk "$STACK_NAME"
@@ -216,7 +217,12 @@ case "$(harness_nextjs_type)" in
     )
     ;;
 esac
-"$CDK_BIN" deploy "$STACK_NAME" \
+# Bounded by HARNESS_DEPLOY_TIMEOUT (30 minutes), which the slowest real deploy -
+# a Global Containers warm-up creating its distribution, ~20 minutes - fits
+# under. A deploy that hangs past it is stopped here instead of holding the
+# shard; see `harness_wait_for_cdk`.
+harness_run_bounded "${HARNESS_DEPLOY_TIMEOUT:-1800}" \
+  "$CDK_BIN" deploy "$STACK_NAME" \
   --app "node $HARNESS_DIR/app.js" \
   --output "$APP_DIR/$HARNESS_CDK_OUT" \
   "${HOTSWAP_ARGS[@]}" \
