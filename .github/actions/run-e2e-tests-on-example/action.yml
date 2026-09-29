@@ -25,6 +25,14 @@ runs:
     - name: Install Playwright browser
       shell: bash
       run: cd examples/e2e-tests && pnpm install-browser
+    - name: Log in to Amazon ECR Public
+      # The Containers examples build on `public.ecr.aws/docker/library/node`.
+      # Pulled anonymously from a shared GitHub runner IP it hit ECR Public's
+      # 429 rate limit (pr-271-rgnl-cntnrs, 2026-09-29); authenticated pulls have
+      # a far higher one.
+      if: ${{ endsWith(inputs.example_directory, '-containers') }}
+      shell: bash
+      run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
     - name: Deploy and Run Tests
       shell: bash
       # Several behaviours are answered by different infrastructure per deployment
