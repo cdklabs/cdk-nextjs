@@ -71,6 +71,24 @@ harness-only is what cannot coexist with the App Router fixture in one
 `next.config.ts` (`trailingSlash`, `assetPrefix`, `i18n`, the Pages Router) or has
 no per-type divergence (defect 25).
 
+### The 2026-09-29 runs, all four types
+
+The whole manifest, 15 shards per type, after the fixes of 2026-09-28/29:
+
+| Type                       | Result                                                                              |
+| -------------------------- | ----------------------------------------------------------------------------------- |
+| `NextjsRegionalContainers` | 437 / 437, no retries                                                               |
+| `NextjsRegionalFunctions`  | 434 / 435 (2 files in `excludeByType`); the one failure the `next-form` flake below |
+| `NextjsGlobalContainers`   | 411 / 414; all 3 failures and 23 unrun files on one shard, one hung `cdk deploy`    |
+
+What those fixes were, in the order the runs found them: the Global types'
+`NEXT_E2E_TEST_TIMEOUT` raised to 900000 for CloudFront updates; the Regional
+Functions runtime keeping `//` (`hydration`); the harness URL's host lowercased and
+the container health check moved to `/_next/static/` (it had been caught by
+fixtures' dynamic routes); and Global Containers building absolute URLs with the
+viewer's protocol (`action-forward-loop`: CloudFront reaches the ALB over HTTP
+without a certificate, so `x-forwarded-proto` said `http`).
+
 ### Running on `NextjsRegionalFunctions`
 
 Run once, on 2026-09-24, behind the local stage proxy (`scripts/e2e-harness/README.md`,
@@ -140,6 +158,13 @@ verdict below.
 | `app-dir/revalidate-path-with-rewrites`                            | 1 / 2      | `static page` — unsupported (async invalidation)                                                |
 | `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3's XML 404, unsupported |
 | `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason                                                                          |
+| `next-form/default/app-dir`                                        | 13 / 14    | `flakey`: `should soft-navigate on submit and show the prefetched loading state` — timing        |
+
+The `next-form` case submits right after the page loads and waits for the loading
+state the router prefetched; where the prefetch has not landed, `#loading` never
+renders. It failed both attempts on Regional Functions and on both Containers
+types at least once in the 2026-09-28/29 runs, and passed on each of them in
+another, with no cdk-nextjs error.
 
 ## Fixed
 

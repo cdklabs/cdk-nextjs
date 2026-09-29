@@ -516,6 +516,19 @@
     }
   },
   "suites": {
+    "test/e2e/next-form/default/app-dir.test.ts": {
+      "comment": [
+        "13 of 14 cases; one is flakey. It submits the form right after the page loads and waits for",
+        "the loading state the router prefetched; where that prefetch has not landed yet, `#loading`",
+        "never renders. Intermittent on every NextjsType in the 2026-09-28/29 harness runs - failed",
+        "both attempts on Regional Functions and both Containers types at least once, passed on each",
+        "of them in another run - with no cdk-nextjs error. See docs/harness-coverage.md."
+      ],
+      "failed": [],
+      "flakey": [
+        "next-form - app dir should soft-navigate on submit and show the prefetched loading state"
+      ]
+    },
     "test/e2e/app-dir/trailingslash/trailingslash.test.ts": {
       "comment": [
         "6 of 8 cases. A file in `suites` is included with its named cases skipped,",
@@ -861,7 +874,7 @@
     "next-version": "16.3.5",
     "e2e-files": 1134,
     "included": 427,
-    "included-in-part": 10,
+    "included-in-part": 11,
     "edge-free": 931,
     "candidates": 0,
     "disqualified-by": {
