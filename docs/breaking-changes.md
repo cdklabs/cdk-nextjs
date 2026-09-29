@@ -89,7 +89,10 @@ them — only the Containers types still build images.
   deploy, set a new name (e.g. `my-app-server-v2`) or remove it. To get the
   original name back afterwards, deploy again with it: that is a second
   replacement, which works now the name is free. On `NextjsGlobalFunctions` the
-  Function URL is replaced with it, and the distribution follows.
+  Function URL is replaced with it, and the distribution follows. Its log group
+  is replaced too, named after the new function; the old one is retained
+  (`UpdateReplacePolicy: Retain`), so server logs from before the upgrade stay in
+  `/aws/lambda/<old function name>`.
 - `NextjsFunctions.function` is a `lambda.Function`, not a
   `DockerImageFunction`.
 - `OptionalDockerImageFunctionProps` is no longer exported.
@@ -418,6 +421,21 @@ IAM-authenticated, so a Function URL overridden to `authType: NONE` builds its
 URLs from `Host`.
 
 The Containers types are unaffected: their origin sees the viewer's `Host`.
+
+### Behavior change: Global Containers builds absolute URLs with the viewer's protocol
+
+Without a certificate, CloudFront reaches the ALB over plain HTTP, so the ALB's
+`X-Forwarded-Proto` was `http`, and every absolute URL the app built from the
+request - `request.url`, `req.nextUrl.origin`, redirects, the origin a server
+action is forwarded to - came out as `http://` behind viewers on HTTPS.
+`NextjsGlobalContainers` now forwards CloudFront's own headers to the ALB (the
+managed `AllViewerAndCloudFrontHeaders-2022-06` origin request policy, which
+replaces `AllViewer`), and the container reads the viewer's protocol from
+`CloudFront-Forwarded-Proto`. The first deploy after upgrading updates the
+distribution, a CloudFront change of roughly ten minutes. An
+`overrides.nextjsDistribution.dynamicBehaviorOptions.originRequestPolicy` of
+your own still wins; if it does not forward `CloudFront-Forwarded-Proto`, the
+container falls back to `X-Forwarded-Proto` as before.
 
 ### Behavior change: narrower CloudFront grants
 
