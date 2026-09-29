@@ -228,6 +228,14 @@ if [ -z "$URL" ]; then
   echo "harness: deploy reported success but $STACK_NAME has no HarnessUrl output" >&2
   exit 1
 fi
+# The host in lowercase, as a browser reports it. An ALB's DNS name has capitals
+# (`hrns-r-Nextj-7SK6...`), and the suite compares `browser.url()` with
+# `next.url + path` exactly, so on the Containers types every such assertion
+# failed on the host alone. Only the host: the path (Regional Functions' stage)
+# is case-sensitive.
+URL_REST="${URL#*://}"
+URL_HOST="${URL_REST%%/*}"
+URL="${URL%%://*}://$(printf '%s' "$URL_HOST" | tr '[:upper:]' '[:lower:]')${URL_REST#"$URL_HOST"}"
 
 NEXTJS_TYPE="$(harness_nextjs_type)"
 case "$NEXTJS_TYPE" in
