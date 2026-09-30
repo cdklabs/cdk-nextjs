@@ -54,6 +54,9 @@ new NextjsGlobalFunctions(this, "Nextjs", {
 });
 ```
 
+With `skipBuild: true`, `buildCommand` doesn't run, so run the script yourself
+after your own build.
+
 `scripts/stage-native.mjs`, for `@valkey/valkey-glide` on Lambda. Edit the
 constants for your package; for Containers, use the `-musl` variant.
 
