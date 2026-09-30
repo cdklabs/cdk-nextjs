@@ -1,9 +1,13 @@
 export { NextjsType } from "./constants";
-export { NextjsApi, NextjsApiProps, NextjsApiOverrides } from "./nextjs-api";
+export {
+  NextjsApi,
+  NextjsApiProps,
+  NextjsApiOverrides,
+  NextjsApiFunctionGroup,
+} from "./nextjs-api";
 
 export {
   NextjsBaseConstructOverrides,
-  NextjsFunctionsConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
@@ -12,6 +16,9 @@ export {
 export {
   NextjsBuild,
   NextjsBuildProps,
+  NextjsDeploymentRoot,
+  NextjsFunctionGroupBehavior,
+  NextjsFunctionGroupRoutes,
   PublicDirEntry,
 } from "./nextjs-build/nextjs-build";
 export { NextjsComputeBaseProps } from "./nextjs-compute/nextjs-compute-base-props";
@@ -22,19 +29,17 @@ export {
 } from "./nextjs-compute/nextjs-containers";
 export {
   NextjsDistribution,
+  NextjsDistributionFunctionGroup,
   NextjsDistributionOverrides,
   NextjsDistributionProps,
 } from "./nextjs-distribution";
 export {
+  NextjsFunctionGroup,
+  NextjsFunctionGroupResources,
   NextjsFunctions,
   NextjsFunctionsOverrides,
   NextjsFunctionsProps,
 } from "./nextjs-compute/nextjs-functions";
-export {
-  NextjsImageFunction,
-  NextjsImageFunctionOverrides,
-  NextjsImageFunctionProps,
-} from "./nextjs-compute/nextjs-image-function";
 export {
   NextjsCache,
   NextjsCacheOverrides,
@@ -76,6 +81,7 @@ export {
   NextjsStaticAssetsProps,
 } from "./nextjs-static-assets";
 
+export { OptionalNextjsApiProps } from "./generated-structs/OptionalNextjsApiProps";
 export { OptionalNextjsBuildProps } from "./generated-structs/OptionalNextjsBuildProps";
 export { OptionalNextjsContainersProps } from "./generated-structs/OptionalNextjsContainersProps";
 export { OptionalNextjsDistributionProps } from "./generated-structs/OptionalNextjsDistributionProps";
@@ -85,7 +91,6 @@ export { OptionalCloudFrontFunctionProps } from "./generated-structs/OptionalClo
 export { OptionalClusterProps } from "./generated-structs/OptionalClusterProps";
 export { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 export { OptionalDockerImageAssetProps } from "./generated-structs/OptionalDockerImageAssetProps";
-export { OptionalDockerImageFunctionProps } from "./generated-structs/OptionalDockerImageFunctionProps";
 export { OptionalEdgeFunctionProps } from "./generated-structs/OptionalEdgeFunctionProps";
 export { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 export { OptionalFunctionUrlProps } from "./generated-structs/OptionalFunctionUrlProps";

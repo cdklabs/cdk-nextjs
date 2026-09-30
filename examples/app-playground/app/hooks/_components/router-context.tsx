@@ -8,8 +8,28 @@ import {
   useSelectedLayoutSegment,
   useSelectedLayoutSegments,
 } from 'next/navigation';
+import { Suspense } from 'react';
 
+/**
+ * Every hook below reads the URL, which a prerender does not have, so with
+ * `cacheComponents` they suspend. The shell gets the empty panel; the values
+ * stream in with the request.
+ */
 export function HooksClient() {
+  return (
+    <Suspense
+      fallback={
+        <Boundary labels={['Client Component Hooks']} size="small">
+          <div className="h-32" />
+        </Boundary>
+      }
+    >
+      <RouterHooks />
+    </Suspense>
+  );
+}
+
+function RouterHooks() {
   const pathname = usePathname();
   const params = useParams();
   const selectedLayoutSegment = useSelectedLayoutSegment();

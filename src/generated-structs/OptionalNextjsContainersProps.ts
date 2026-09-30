@@ -24,14 +24,37 @@ export interface OptionalNextjsContainersProps {
    */
   readonly alb?: aws_elasticloadbalancingv2.IApplicationLoadBalancer;
   /**
+   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo root.
+   * @stability stable
+   */
+  readonly relativeProjectDir?: string;
+  /**
    * @stability stable
    */
   readonly relativeEntrypointPath?: string;
   /**
-   * Relative path from buildDirectory to the package containing Next.js app.
+   * Path to an API Route Handler that returns HTTP 200, used by the ALB target group and the ECS container health check.
+   * Both hit the app directly, so this
+   * is the path including the app's `basePath` — the root constructs prefix their
+   * own `healthCheckPath` prop with it.
    * @stability stable
    */
-  readonly relativePathToPackage?: string;
+  readonly healthCheckPath?: string;
+  /**
+   * Directory where the Next.js application is located: the Docker build context, holding the `.next` directory and other build artifacts.
+   * @stability stable
+   */
+  readonly buildDirectory?: string;
+  /**
+   * Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys.
+   * @stability stable
+   */
+  readonly staticAssetsKeyPrefix?: string;
+  /**
+   * S3 bucket holding `.next/static` and `public`. On every type but `NextjsRegionalContainers` the runtime reads it: its image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and so does a rewrite that lands on a `public/` file. `NextjsRegionalContainers` carries both in its image, so it gets neither the bucket's environment nor read access to it. Read access is scoped to `staticAssetsKeyPrefix`.
+   * @stability stable
+   */
+  readonly staticAssetsBucket?: aws_s3.IBucket;
   /**
    * DynamoDB table for revalidation metadata.
    * @stability stable
@@ -42,10 +65,6 @@ export interface OptionalNextjsContainersProps {
    */
   readonly nextjsType?: NextjsType;
   /**
-   * @stability stable
-   */
-  readonly healthCheckPath?: string;
-  /**
    * S3 bucket for cache storage.
    * @stability stable
    */
@@ -55,9 +74,4 @@ export interface OptionalNextjsContainersProps {
    * @stability stable
    */
   readonly buildId?: string;
-  /**
-   * Directory where the Next.js application is located. This should contain the .next directory and other build artifacts. Required for local builds.
-   * @stability stable
-   */
-  readonly buildDirectory?: string;
 }

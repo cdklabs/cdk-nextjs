@@ -4,11 +4,23 @@ import React from 'react';
 import { CartCountProvider } from '../_components/cart-count-context';
 import { Header } from '../_components/header';
 
+/**
+ * This demo is about what the server streams at request time, and it starts by
+ * reading the cart cookie in the layout - so there is nothing to prerender above
+ * the product view. `instant = false` is `cacheComponents`' way of saying that on
+ * purpose: the route blocks on the request instead of being built from a shell.
+ */
+export const instant = false;
+
 export const metadata = {
   title: 'Streaming (Edge Runtime)',
 };
 
-export default async function Layout({ children }: { children: React.ReactNode }) {
+export default async function Layout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const cartCount = Number((await cookies()).get('_cart_count')?.value || '0');
 
   return (

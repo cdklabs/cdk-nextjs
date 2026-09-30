@@ -1,39 +1,32 @@
 import { Stack } from "aws-cdk-lib";
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
-import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { Function as LambdaFunction } from "aws-cdk-lib/aws-lambda";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
+import { DEFAULT_FUNCTION_GROUP } from "../adapter/function-groups";
 import { NextjsType } from "../constants";
 import {
-  NextjsFunctionsConstructOverrides,
+  NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
   NextjsBaseConstruct,
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
-import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
+  NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
 } from "../nextjs-compute/nextjs-functions";
 import {
-  NextjsImageFunction,
-  NextjsImageFunctionOverrides,
-} from "../nextjs-compute/nextjs-image-function";
-import {
   NextjsDistribution,
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
-import {
-  NextjsPostDeploy,
-  NextjsPostDeployOverrides,
-} from "../nextjs-post-deploy";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { joinPath } from "../utils/base-path";
-import { useDedicatedImageFunction } from "../utils/experimental-flags";
 
-export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctionsConstructOverrides {
+export interface NextjsGlobalFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
-  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -44,9 +37,7 @@ export interface NextjsGlobalFunctionsConstructOverrides extends NextjsFunctions
 export interface NextjsGlobalFunctionsOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalFunctions?: NextjsGlobalFunctionsConstructOverrides;
   readonly nextjsFunctions?: NextjsFunctionsOverrides;
-  readonly nextjsImageFunction?: NextjsImageFunctionOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
-  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
@@ -55,6 +46,19 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
    * apps on the same CloudFront distribution.
    */
   readonly distribution?: Distribution;
+  /**
+   * Package sets of routes into separate Lambda functions, each fronted by its
+   * own CloudFront behaviors.
+   *
+   * Reach for this when a single function exceeds Lambda's 250 MB unzipped
+   * limit — cdk-nextjs throws at synth with the measured size when it does. It is
+   * not a performance or isolation feature: every group ships the same Next.js
+   * runtime, so splitting only moves route-local code.
+   *
+   * @see NextjsFunctionGroup for the pattern grammar and its limits.
+   * @default - one function serves every route
+   */
+  readonly functionGroups?: NextjsFunctionGroup[];
   /**
    * Override props of any construct.
    */
@@ -69,12 +73,6 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
  */
 export class NextjsGlobalFunctions extends NextjsBaseConstruct {
   nextjsFunctions: NextjsFunctions;
-  /**
-   * Only created when the (experimental, unsupported) dedicated image
-   * optimization Lambda is enabled. `_next/image` is otherwise served by
-   * {@link nextjsFunctions}.
-   */
-  nextjsImageFunction?: NextjsImageFunction;
   nextjsDistribution: NextjsDistribution;
   nextjsPostDeploy: NextjsPostDeploy;
   /**
@@ -95,102 +93,83 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     super(scope, id, props, NextjsType.GLOBAL_FUNCTIONS);
     this.props = props;
 
-    this.nextjsFunctions = this.createNextjsFunctions(
-      this.props.overrides?.nextjsFunctions,
-    );
-    if (useDedicatedImageFunction()) {
-      this.nextjsImageFunction = this.createNextjsImageFunction(
-        this.props.overrides?.nextjsImageFunction,
-      );
-    }
+    this.nextjsFunctions = this.createNextjsFunctions();
     this.nextjsDistribution = this.createNextjsDistribution();
-    this.wireCloudFrontInvalidation();
-    this.nextjsPostDeploy = this.createNextjsPostDeploy();
+    // Every group, not just the default one: `revalidateTag`/`revalidatePath` can
+    // be called from any route handler, so any function may need to invalidate.
+    const functions = this.nextjsFunctions.functionGroups.map(
+      (group) => group.function,
+    );
+    this.wireCloudFrontInvalidation(functions);
+    this.nextjsPostDeploy = this.createNextjsPostDeploy(
+      this.nextjsDistribution.distribution,
+    );
   }
 
   /**
-   * Grants the function permission to invalidate the distribution and passes
-   * along a way to look up its ID, so on-demand revalidation
-   * (revalidateTag/revalidatePath) can evict stale responses from the CDN
-   * edge cache, not just the origin's S3/DynamoDB cache.
+   * Lets `functions` invalidate the distribution, so on-demand revalidation
+   * (revalidateTag/revalidatePath) can evict stale responses from the CDN edge
+   * cache, not just the origin's S3/DynamoDB cache.
    *
-   * The distribution ID can't be passed as a plain env var or scoped IAM
-   * resource ARN: the distribution's origin references this function's URL,
-   * so making the function's role/environment reference the distribution's
-   * ID in return would create a circular CloudFormation dependency. Instead,
-   * the ID is published to an SSM Parameter (whose *name* is static and safe
-   * to embed) that the function reads at runtime, and the IAM grant is
-   * scoped to all distributions in this account/region rather than this
-   * specific (not-yet-known-at-synth-time) distribution.
+   * The distribution's origin is the functions' URL, so a function naming the
+   * distribution back — in its environment, or in its role's default policy,
+   * which a function depends on — would be a circular CloudFormation
+   * dependency. So the ID is published to an SSM Parameter whose *name* is
+   * static, and the grants go in a separate policy that depends on the
+   * distribution while no function depends on it.
    */
-  private wireCloudFrontInvalidation(): void {
-    const stack = Stack.of(this);
-    const distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
-
+  private wireCloudFrontInvalidation(functions: LambdaFunction[]) {
+    const { distribution } = this.nextjsDistribution;
+    const parameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
     new StringParameter(this, "DistributionIdParameter", {
-      parameterName: distributionIdParameterName,
-      stringValue: this.nextjsDistribution.distribution.distributionId,
+      parameterName,
+      stringValue: distribution.distributionId,
     });
-
-    this.nextjsFunctions.function.addToRolePolicy(
-      new PolicyStatement({
-        actions: ["ssm:GetParameter"],
-        resources: [
-          stack.formatArn({
-            service: "ssm",
-            resource: "parameter",
-            resourceName: distributionIdParameterName,
-          }),
-        ],
-      }),
-    );
-    this.nextjsFunctions.function.addToRolePolicy(
-      new PolicyStatement({
-        actions: ["cloudfront:CreateInvalidation"],
-        // Can't scope this to the specific distribution: the distribution's
-        // origin already depends on this function (via its FunctionUrl), so
-        // referencing the distribution's ID here would create a circular
-        // CloudFormation dependency. Hence the SSM parameter indirection
-        // above for looking up the ID at runtime instead of synth time.
-        resources: [
-          stack.formatArn({
-            service: "cloudfront",
-            region: "",
-            resource: "distribution",
-            resourceName: "*",
-          }),
-        ],
-      }),
-    );
-    this.nextjsFunctions.function.addEnvironment(
-      "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
-      distributionIdParameterName,
+    new Policy(this, "InvalidationPolicy", {
+      // A `new Function` always has a role; only imported ones lack it.
+      roles: functions.map((fn) => fn.role!),
+      statements: [
+        new PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [
+            Stack.of(this).formatArn({
+              service: "ssm",
+              resource: "parameter",
+              resourceName: parameterName,
+            }),
+          ],
+        }),
+        new PolicyStatement({
+          actions: ["cloudfront:CreateInvalidation"],
+          resources: [distribution.distributionArn],
+        }),
+      ],
+    });
+    functions.forEach((fn) =>
+      fn.addEnvironment("CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME", parameterName),
     );
   }
 
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
+      assetPrefix: this.nextjsBuild.nextConfigAssetPrefixPath,
       basePath: this.resolvedBasePath,
+      distribution: this.props.distribution,
       functionUrl: this.nextjsFunctions.functionUrl,
-      imageFunctionUrl: this.nextjsImageFunction?.functionUrl,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      // The default group backs the default behavior, so only the rest need
+      // behaviors of their own.
+      functionGroups: this.nextjsFunctions.functionGroups
+        .filter((group) => group.name !== DEFAULT_FUNCTION_GROUP)
+        .map((group) => ({
+          name: group.name,
+          functionUrl: group.functionUrl!,
+        })),
+      functionGroupBehaviors: this.nextjsBuild.functionGroupBehaviors,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsDistributionProps,
-    });
-  }
-
-  private createNextjsPostDeploy(): NextjsPostDeploy {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
-      buildId: this.nextjsBuild.buildId,
-      distribution: this.nextjsDistribution.distribution,
-      cacheBucket: this.nextjsCache.cacheBucket,
-      revalidationTable: this.nextjsCache.revalidationTable,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
-      overrides: this.props.overrides?.nextjsPostDeploy,
-      ...this.props.overrides?.nextjsGlobalFunctions?.nextjsPostDeployProps,
     });
   }
 }

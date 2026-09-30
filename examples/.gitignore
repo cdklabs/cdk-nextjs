@@ -10,4 +10,3 @@ cdk.out
 # /*.Dockerfile only ignores .Dockerfiles in examples folder
 /*.Dockerfile
 cdk-nextjs-cache-handler.cjs
-load-tests/src/dist

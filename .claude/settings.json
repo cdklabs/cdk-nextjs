@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D=$(pwd); case \"$D\" in */.claude/worktrees/*) ;; *) exit 0 ;; esac; if [ ! -f \"$D/package.json\" ] || [ -d \"$D/node_modules\" ]; then exit 0; fi; LOG=/tmp/claude-worktree-setup.log; if pnpm install > \"$LOG\" 2>&1; then echo '{\"systemMessage\": \"Worktree deps installed: pnpm install\"}'; else echo \"{\\\"systemMessage\\\": \\\"Worktree dependency install failed - see $LOG\\\"}\"; fi",
+            "timeout": 600,
+            "statusMessage": "Installing worktree dependencies (pnpm install)..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D=$(pwd); case \"$D\" in */.claude/worktrees/*) ;; *) exit 0 ;; esac; if [ ! -f \"$D/package.json\" ] || [ -d \"$D/node_modules\" ]; then exit 0; fi; LOG=/tmp/claude-worktree-setup.log; if pnpm install > \"$LOG\" 2>&1; then echo '{\"systemMessage\": \"Worktree deps installed: pnpm install\"}'; else echo \"{\\\"systemMessage\\\": \\\"Worktree dependency install failed - see $LOG\\\"}\"; fi",
+            "timeout": 600,
+            "statusMessage": "Installing worktree dependencies (pnpm install)..."
+          }
+        ]
+      }
+    ]
+  }
+}

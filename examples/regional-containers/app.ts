@@ -80,7 +80,11 @@ export class RegionalContainersStack extends Stack {
     // Add the listener rule to check for cookie
     listener.addAction("CookieCheck", {
       priority: 10, // Lower number = higher priority
-      conditions: [ListenerCondition.httpHeader("cookie", [requiredCookie])],
+      // Wildcards, because the condition matches the *whole* `Cookie` header: an
+      // exact value 403s any request that carries a second cookie.
+      conditions: [
+        ListenerCondition.httpHeader("cookie", [`*${requiredCookie}*`]),
+      ],
       action: ListenerAction.forward([
         nextjs.nextjsContainers.albFargateService.targetGroup,
       ]),

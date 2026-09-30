@@ -10,12 +10,12 @@ catalog:
   '@tsconfig/next': 2.0.5
   '@tsconfig/node24': ^24.0.4
   '@tsconfig/strictest': ^2.0.8
+  '@types/k6': ^2.2.1
   '@types/ms': 0.7.34
   '@types/node': ^24.13.3
   '@types/react': 19.2.7
   '@types/react-dom': 19.2.3
   '@vercel/git-hooks': 1.0.0
-  artillery: ^2.0.33
   autoprefixer: 10.4.19
   aws-cdk: ^2.1129.0
   aws-cdk-lib: 2.261.0

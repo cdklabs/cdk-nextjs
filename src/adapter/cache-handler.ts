@@ -19,14 +19,11 @@ import type {
   SetIncrementalFetchCacheContext,
   SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
+import { getTags } from "./cache-utils";
 import { LocalFileCacheHandler } from "./local-file-cache-handler";
 import { MemoryCacheHandler } from "./memory-cache-handler";
 import { S3CacheHandler } from "./s3-cache-handler";
-
-// Helper to safely extract tags from context
-const getTags = (
-  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
-): string[] | undefined => ("tags" in ctx ? ctx.tags : undefined);
+import { isBuildPhase } from "./use-cache-common";
 
 /**
  * Orchestrator cache handler that conditionally instantiates handlers based on environment
@@ -45,44 +42,27 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
   private static sharedMemoryHandler: MemoryCacheHandler | null = null;
   private static sharedS3DynamoHandler: S3CacheHandler | null = null;
 
-  private readonly isBuildTime =
-    process.env.NEXT_PHASE === "phase-production-build";
+  private readonly isBuildTime = isBuildPhase();
   private readonly debug = getDebug("cdk-nextjs:cache-handler:orchestrator");
 
-  // Build-time handler
-  private localFileHandler: LocalFileCacheHandler | null = null;
+  // Set only at build time.
+  private localFileHandler!: LocalFileCacheHandler;
 
-  // Runtime handlers (shared across all instances)
-  private memoryHandler: MemoryCacheHandler | null = null;
-  private s3DynamoHandler: S3CacheHandler | null = null;
+  // Set only at runtime, shared across all instances.
+  private memoryHandler!: MemoryCacheHandler;
+  private s3DynamoHandler!: S3CacheHandler;
 
   constructor(options: CacheHandlerContext) {
     if (this.isBuildTime) {
-      // Build time: only local file cache
       this.localFileHandler = new LocalFileCacheHandler();
-
-      this.debug("Build-time mode: LocalFileCacheHandler initialized");
-      this.debug(`Cache directory: ${this.localFileHandler.getCacheDir()}`);
+      this.debug(
+        `Build-time cache directory: ${this.localFileHandler.getCacheDir()}`,
+      );
     } else {
-      // Runtime: reuse shared handlers (singleton pattern)
-      // Initialize once on first construction
-      if (!CdkNextjsCacheHandler.sharedS3DynamoHandler) {
-        CdkNextjsCacheHandler.sharedS3DynamoHandler = new S3CacheHandler({
-          context: options,
-        });
-        this.debug("Initialized shared S3/DynamoDB handler");
-      }
-
-      if (!CdkNextjsCacheHandler.sharedMemoryHandler) {
-        CdkNextjsCacheHandler.sharedMemoryHandler = new MemoryCacheHandler({
-          context: options,
-        });
-        this.debug("Initialized shared Memory handler");
-      }
-
-      // Reference shared instances
-      this.s3DynamoHandler = CdkNextjsCacheHandler.sharedS3DynamoHandler;
-      this.memoryHandler = CdkNextjsCacheHandler.sharedMemoryHandler;
+      this.s3DynamoHandler = CdkNextjsCacheHandler.sharedS3DynamoHandler ??=
+        new S3CacheHandler({ context: options });
+      this.memoryHandler = CdkNextjsCacheHandler.sharedMemoryHandler ??=
+        new MemoryCacheHandler();
     }
   }
 
@@ -96,30 +76,60 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
     ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null> {
     if (this.isBuildTime) {
-      // Build time doesn't read from cache
-      return null;
+      // Reads back what this build wrote, which `cacheComponents` prerendering
+      // requires; see {@link LocalFileCacheHandler.get}.
+      return this.localFileHandler.get(cacheKey);
     }
 
     // Runtime: try memory first
-    if (this.memoryHandler) {
-      const memoryResult = await this.memoryHandler.get(cacheKey, ctx);
-      if (memoryResult) {
-        this.debug(`Memory cache HIT: ${cacheKey}`);
-        return memoryResult;
-      }
+    const memoryResult = await this.memoryHandler.get(cacheKey);
+    // A memory hit is checked against the same tag markers an S3 read is.
+    // `revalidateTag` can only clear the memory of the instance that ran it,
+    // so skipping the check left every other instance answering from memory
+    // for the whole memory TTL - and CloudFront, whose copy that
+    // `revalidateTag` had just invalidated, cached the stale page again.
+    // The check is one DynamoDB `BatchGetItem`; what the memory layer still
+    // saves is the S3 read and the parse of the body. A revalidated entry is
+    // dropped and read from S3, which hands it back expired or as a miss.
+    if (
+      memoryResult &&
+      (await this.s3DynamoHandler.isRevalidated(
+        {
+          lastModified: memoryResult.lastModified,
+          value: memoryResult.value,
+        },
+        ctx,
+        cacheKey,
+      ))
+    ) {
+      this.debug(`Memory cache REVALIDATED: ${cacheKey}`);
+      await this.memoryHandler.set(cacheKey, null);
+    } else if (memoryResult) {
+      this.debug(`Memory cache HIT: ${cacheKey}`);
+      return memoryResult;
     }
 
     // Memory miss - try S3/DynamoDB
-    if (this.s3DynamoHandler) {
-      const s3Result = await this.s3DynamoHandler.get(cacheKey, ctx);
-      if (s3Result) {
-        this.debug(`S3 cache HIT: ${cacheKey}`);
-        // Populate memory cache for next time
-        if (this.memoryHandler) {
-          await this.memoryHandler.set(cacheKey, s3Result.value, ctx as any);
-        }
-        return s3Result;
+    const s3Result = await this.s3DynamoHandler.get(cacheKey, ctx);
+    if (s3Result) {
+      this.debug(`S3 cache HIT: ${cacheKey}`);
+      // Promoted with the S3 entry's own `lastModified`, not the time of the
+      // copy: Next.js ages the entry from it for time-based revalidation, and
+      // the tag markers are compared against it too. Stamping `Date.now()`
+      // made an entry that was due for regeneration look freshly rendered,
+      // and one a soft `revalidateTag` had made stale look newer than the
+      // stale mark, so memory hits served it as fresh for the whole memory
+      // TTL. An entry a tag revalidation expired (`lastModified: -1`) is not
+      // copied at all: the re-render it asks for writes the fresh entry to
+      // both layers.
+      if (s3Result.lastModified !== -1) {
+        await this.memoryHandler.set(
+          cacheKey,
+          s3Result.value,
+          s3Result.lastModified,
+        );
       }
+      return s3Result;
     }
 
     this.debug(`Cache MISS: ${cacheKey}`);
@@ -137,46 +147,19 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
     ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void> {
     if (this.isBuildTime) {
-      // Build time: write or delete from local file cache
-      if (this.localFileHandler) {
-        if (data) {
-          const tags = getTags(ctx);
-          await this.localFileHandler.set(cacheKey, data, tags);
-          this.debug(`Build cache write: ${cacheKey}`);
-        } else {
-          // Delete not implemented for local file cache (build-time only creates files)
-          this.debug(`Build cache delete ignored: ${cacheKey}`);
-        }
-      }
-    } else {
-      // Runtime: write or delete from memory and S3/DynamoDB
       if (data) {
-        // Write to memory
-        if (this.memoryHandler) {
-          await this.memoryHandler.set(cacheKey, data, ctx);
-          this.debug(`Memory cache write: ${cacheKey}`);
-        }
-
-        // Also write to S3/DynamoDB for persistence
-        if (this.s3DynamoHandler) {
-          await this.s3DynamoHandler.set(cacheKey, data, ctx);
-          this.debug(`S3 cache write: ${cacheKey}`);
-        }
+        await this.localFileHandler.set(cacheKey, data, getTags(ctx));
+        this.debug(`Build cache write: ${cacheKey}`);
       } else {
-        // Delete from both layers
-        this.debug(`Cache delete: ${cacheKey}`);
-
-        // Delete from memory (removes from cache Map)
-        if (this.memoryHandler) {
-          await this.memoryHandler.set(cacheKey, null, ctx);
-        }
-
-        // Delete from S3/DynamoDB
-        if (this.s3DynamoHandler) {
-          await this.s3DynamoHandler.set(cacheKey, null, ctx);
-        }
+        // Delete not implemented for local file cache (build-time only creates files)
+        this.debug(`Build cache delete ignored: ${cacheKey}`);
       }
+      return;
     }
+    // Runtime: both layers, where `null` is a delete.
+    this.debug(`Cache ${data ? "write" : "delete"}: ${cacheKey}`);
+    await this.memoryHandler.set(cacheKey, data);
+    await this.s3DynamoHandler.set(cacheKey, data, ctx);
   }
 
   /**
@@ -184,28 +167,26 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
    * - Build time: Not implemented
    * - Runtime: Delegate to S3/DynamoDB handler
    */
-  async revalidateTag(tag: string): Promise<void> {
+  async revalidateTag(
+    tag: string | string[],
+    durations?: { expire?: number },
+  ): Promise<void> {
     if (this.isBuildTime) {
       return;
     }
 
-    // Clear from memory
-    if (this.memoryHandler) {
-      await this.memoryHandler.revalidateTag(tag);
-    }
-
-    // Clear from S3/DynamoDB
-    if (this.s3DynamoHandler) {
-      await this.s3DynamoHandler.revalidateTag(tag);
-    }
+    // Memory hits are checked against the same markers (see `get`), so only
+    // the S3/DynamoDB handler has anything to record.
+    await this.s3DynamoHandler.revalidateTag(tag, durations);
   }
 
   /**
-   * Reset request cache (called between requests)
+   * Deliberately a no-op. Next.js calls `resetRequestCache` at the start of
+   * every request (`base-server`, `app-page`, `app-route`), and its own
+   * `FileSystemCache` - whose LRU is shared across requests the same way the
+   * memory layer is - leaves it empty: the hook is for state scoped to one
+   * request, and nothing here is. Clearing the memory layer in it meant no
+   * entry ever survived to a second request, so every read went to S3.
    */
-  async resetRequestCache(): Promise<void> {
-    if (this.memoryHandler) {
-      await this.memoryHandler.resetRequestCache();
-    }
-  }
+  async resetRequestCache(): Promise<void> {}
 }

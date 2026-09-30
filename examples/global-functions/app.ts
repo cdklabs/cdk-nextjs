@@ -20,17 +20,23 @@ import { join } from "node:path";
 
 const app = new App();
 
+// Not needed by this app - it fits in one Lambda. Declared so CI exercises the
+// split: the `function-groups` e2e asserts `/api/**` and `/` are served by
+// different functions. See `E2E_FUNCTION_GROUPS` in
+// `.github/workflows/e2e-tests.yml`.
+const functionGroups = [{ name: "api", routes: ["/api/**"] }];
+
 class GlobalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     const logsBucket = this.#getLogsBucket();
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
-      healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
       // skipBuild: true,
+      functionGroups,
       overrides: {
         nextjsFunctions: {
-          dockerImageFunctionProps: {
+          functionProps: {
             environment: {
               DEBUG: "cdk-nextjs:*",
             },
@@ -76,6 +82,9 @@ class GlobalFunctionsStack extends Stack {
 export const stack = new GlobalFunctionsStack(app, getStackName("glbl-fns"));
 suppressCommonNags(stack);
 suppressGlobalNags(stack);
-suppressLambdaNags(stack);
+suppressLambdaNags(
+  stack,
+  functionGroups.map((group) => group.name),
+);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));

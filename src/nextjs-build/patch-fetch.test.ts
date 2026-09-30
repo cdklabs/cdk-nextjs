@@ -9,9 +9,32 @@ function sha256(input: string | ArrayBuffer | Uint8Array) {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+class FakeXMLHttpRequest {
+  open(_method: string, _url: string) {}
+  send(_body?: unknown) {}
+  setRequestHeader(_name: string, _value: string) {}
+}
+
+/**
+ * The patch runs in a browser *and* in a web worker, where `window` does not
+ * exist — so the stub goes on `globalThis`, which is what both scopes are. Tests
+ * that want the main-thread scope also set `globalThis.window`, since real
+ * browser code reaches the patched `fetch` through it and `window === globalThis`
+ * there.
+ */
+function installScope({ withWindow = true, withXhr = true } = {}) {
+  (global as any).location = {
+    href: "https://example.com/",
+    hostname: "example.com",
+  };
+  if (withXhr) (global as any).XMLHttpRequest = FakeXMLHttpRequest;
+  if (withWindow) (global as any).window = global;
+}
+
 describe("patch-fetch", () => {
   let originalFetch: jest.Mock;
   let capturedInit: RequestInit | undefined;
+  const realFetch = global.fetch;
 
   beforeEach(() => {
     jest.resetModules();
@@ -21,23 +44,19 @@ describe("patch-fetch", () => {
       capturedInit = init;
       return Promise.resolve(new Response("ok"));
     });
+    (global as any).fetch = originalFetch;
 
-    (global as any).window = {
-      location: { href: "https://example.com/", hostname: "example.com" },
-      fetch: originalFetch,
-      XMLHttpRequest: class {
-        open(_method: string, _url: string) {}
-        send(_body?: unknown) {}
-        setRequestHeader(_name: string, _value: string) {}
-      },
-    };
+    installScope();
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- must re-execute against the fresh `window` stub each test
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- must re-execute against the fresh global stub each test
     require("./patch-fetch.js");
   });
 
   afterEach(() => {
     delete (global as any).window;
+    delete (global as any).location;
+    delete (global as any).XMLHttpRequest;
+    global.fetch = realFetch;
   });
 
   describe("fetch", () => {
@@ -125,6 +144,47 @@ describe("patch-fetch", () => {
       expect(headers.get("x-amz-content-sha256")).toBe(sha256(buffer));
     });
 
+    test("hashes a typed array body over the bytes it views", async () => {
+      const bytes = new TextEncoder().encode("xxtyped array contents");
+      const view = bytes.subarray(2);
+
+      await (global as any).window.fetch("https://example.com/api", {
+        method: "POST",
+        body: view,
+      });
+
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(
+        sha256("typed array contents"),
+      );
+    });
+
+    test("wraps fetch once when a second patched chunk loads in the same scope", async () => {
+      // Every entrypoint chunk carries a copy. Wrapped twice, the outer wrapper
+      // re-encoded a FormData body to bytes and the inner one overwrote the
+      // right hash with one of those bytes as JSON.
+      const patchedOnce = (global as any).fetch;
+      const patchedXhr = (global as any).XMLHttpRequest;
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the second chunk's copy
+      require("./patch-fetch.js");
+      expect((global as any).fetch).toBe(patchedOnce);
+      expect((global as any).XMLHttpRequest).toBe(patchedXhr);
+
+      const formData = new FormData();
+      formData.append("field", "value");
+      await (global as any).window.fetch("https://example.com/api", {
+        method: "POST",
+        body: formData,
+      });
+
+      expect(originalFetch).toHaveBeenCalledTimes(1);
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(
+        sha256(capturedInit!.body as Uint8Array),
+      );
+    });
+
     test("hashes an empty byte array when no body is present", async () => {
       await (global as any).window.fetch("https://example.com/api", {
         method: "POST",
@@ -134,6 +194,45 @@ describe("patch-fetch", () => {
       expect(headers.get("x-amz-content-sha256")).toBe(
         sha256(new Uint8Array(0)),
       );
+    });
+
+    test("hashes a Request's own body when init is omitted", async () => {
+      const request = new Request("https://example.com/api", {
+        method: "POST",
+        body: "request body",
+        headers: { "content-type": "text/plain" },
+      });
+
+      await (global as any).window.fetch(request);
+
+      const [sentInput] = originalFetch.mock.calls[0];
+      expect(sentInput).toBe(request);
+      // The body was read from a clone, so the request still has it to send.
+      expect(await (sentInput as Request).text()).toBe("request body");
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(sha256("request body"));
+      // `init.headers` replaces the request's own, so they must carry over.
+      expect(headers.get("content-type")).toBe("text/plain");
+    });
+
+    test("hashes init's body over a Request's own when both are set", async () => {
+      const request = new Request("https://example.com/api", {
+        method: "POST",
+        body: "request body",
+      });
+
+      await (global as any).window.fetch(request, { body: "init body" });
+
+      const headers = capturedInit!.headers as Headers;
+      expect(headers.get("x-amz-content-sha256")).toBe(sha256("init body"));
+    });
+
+    test("passes a GET Request through without hashing", async () => {
+      const request = new Request("https://example.com/api");
+
+      await (global as any).window.fetch(request);
+
+      expect(originalFetch).toHaveBeenCalledWith(request, undefined);
     });
 
     test("passes through untouched when init is omitted", async () => {
@@ -220,6 +319,50 @@ describe("patch-fetch", () => {
       expect(setRequestHeader).not.toHaveBeenCalled();
     });
 
+    test("hashes the bytes of a typed-array or Blob body, not their JSON", async () => {
+      const bytes = new Uint8Array([1, 2, 3, 250]);
+      for (const body of [bytes, new Blob([bytes])]) {
+        const setRequestHeader = jest.fn();
+        const xhr = new (global as any).window.XMLHttpRequest();
+        xhr.setRequestHeader = setRequestHeader;
+        xhr.open("POST", "https://example.com/api");
+        await xhr.send(body);
+
+        expect(setRequestHeader).toHaveBeenCalledWith(
+          "x-amz-content-sha256",
+          sha256(bytes),
+        );
+      }
+    });
+
+    test("sends a FormData body as the encoding it hashed, with its boundary", async () => {
+      const send = jest.spyOn(FakeXMLHttpRequest.prototype, "send");
+      const setRequestHeader = jest.fn();
+      const form = new FormData();
+      form.append("name", "value");
+      form.append("file", new Blob(["file-bytes"]), "a.txt");
+
+      const xhr = new (global as any).window.XMLHttpRequest();
+      xhr.setRequestHeader = setRequestHeader;
+      xhr.open("POST", "https://example.com/api");
+      await xhr.send(form);
+
+      const sent = send.mock.calls[0][0] as Uint8Array;
+      expect(sent).toBeInstanceOf(Uint8Array);
+      expect(setRequestHeader).toHaveBeenCalledWith(
+        "x-amz-content-sha256",
+        sha256(sent),
+      );
+      const contentType = setRequestHeader.mock.calls.find(
+        ([name]) => name === "content-type",
+      )?.[1];
+      expect(contentType).toMatch(/^multipart\/form-data; boundary=/);
+      expect(Buffer.from(sent).toString()).toContain(
+        contentType.split("boundary=")[1],
+      );
+      send.mockRestore();
+    });
+
     test("does not hash when there is no body", async () => {
       const setRequestHeader = jest.fn();
 
@@ -230,5 +373,59 @@ describe("patch-fetch", () => {
 
       expect(setRequestHeader).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * Turbopack's web-worker bootstrap is `static/chunks/turbopack-worker-*.js`,
+ * which `patchFetchInClientJs`'s `turbopack-` selector matches — so this file is
+ * prepended to a script that runs off the main thread. Reading `window` there
+ * threw before the worker's own module could run, which took out every
+ * `new Worker(new URL(…))` app (`worker-module-url`, `worker-relay-compiler`).
+ */
+describe("patch-fetch in a worker scope", () => {
+  let originalFetch: jest.Mock;
+  let capturedInit: RequestInit | undefined;
+  const realFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.resetModules();
+    capturedInit = undefined;
+    originalFetch = jest.fn((_input: unknown, init?: RequestInit) => {
+      capturedInit = init;
+      return Promise.resolve(new Response("ok"));
+    });
+    (global as any).fetch = originalFetch;
+    // No `window`, and no `XMLHttpRequest`: the narrowest scope the patch can
+    // land in.
+    installScope({ withWindow: false, withXhr: false });
+  });
+
+  afterEach(() => {
+    delete (global as any).window;
+    delete (global as any).location;
+    global.fetch = realFetch;
+  });
+
+  test("loads without a window and still signs a same-origin POST", async () => {
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- the point of the test is that requiring it does not throw
+      require("./patch-fetch.js");
+    }).not.toThrow();
+
+    await global.fetch("https://example.com/api", {
+      method: "POST",
+      body: "worker body",
+    });
+
+    const headers = capturedInit!.headers as Headers;
+    expect(headers.get("x-amz-content-sha256")).toBe(sha256("worker body"));
+  });
+
+  test("leaves XMLHttpRequest alone when the scope has none", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- re-executed against this scope
+    require("./patch-fetch.js");
+
+    expect((global as any).XMLHttpRequest).toBeUndefined();
   });
 });

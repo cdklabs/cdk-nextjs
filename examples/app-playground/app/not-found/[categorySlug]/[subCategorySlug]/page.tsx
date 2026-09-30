@@ -1,28 +1,23 @@
-import { getCategory } from '#/app/api/categories/getCategories';
-import { SkeletonCard } from '#/ui/skeleton-card';
+import { CategoryCards, CategoryCardsFallback } from '#/ui/category-content';
+import { Suspense } from 'react';
 
-export default async function Page(
-  props: {
-    params: Promise<{ categorySlug: string; subCategorySlug: string }>;
-  }
-) {
-  const params = await props.params;
-  // - `getCategory()` returns `notFound()` if the fetched data is `null` or `undefined`.
-  // - `notFound()` renders the closest `not-found.tsx` in the route segment hierarchy.
-  // - For `layout.js`, the closest `not-found.tsx` starts from the parent segment.
-  // - For `page.js`, the closest `not-found.tsx` starts from the same segment.
-  // - Learn more: https://nextjs.org/docs/app/building-your-application/routing#component-hierarchy.
-  const category = await getCategory({ slug: params.subCategorySlug });
-
+export default function Page(props: {
+  params: Promise<{ categorySlug: string; subCategorySlug: string }>;
+}) {
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-medium text-gray-400/80">{category.name}</h1>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {Array.from({ length: category.count }).map((_, i) => (
-          <SkeletonCard key={i} />
-        ))}
-      </div>
+      {/*
+       * `CategoryCards` calls `getCategory()`, which calls `notFound()` when the
+       * slug does not exist, rendering the closest `not-found.tsx` - here, the one
+       * in this same segment.
+       *
+       * Everything that depends on the slug in the URL streams in after the shell:
+       * with `cacheComponents` on, reading `params` outside a `<Suspense>`
+       * boundary would stop this route from being prerendered at all.
+       */}
+      <Suspense fallback={<CategoryCardsFallback />}>
+        <CategoryCards params={props.params} slugKey="subCategorySlug" />
+      </Suspense>
     </div>
   );
 }

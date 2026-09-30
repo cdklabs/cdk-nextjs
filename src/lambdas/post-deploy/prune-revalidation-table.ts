@@ -8,6 +8,7 @@ import {
 } from "@aws-sdk/client-dynamodb";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
+import { processBatch } from "./prune-s3";
 
 const debug = getDebug("cdk-nextjs:post-deploy:prune-revalidation-table");
 
@@ -24,6 +25,7 @@ interface PruneRevalidationTableProps {
  *
  * Schema:
  * - Revalidation entries: pk=buildId, sk=tag#cacheKey
+ * - Revalidation log rows: pk=buildId#log, sk=timestamp#tag
  * - Metadata entry: pk="METADATA", sk="CURRENT_BUILD", buildId=currentBuildId
  */
 export async function pruneRevalidationTable(
@@ -64,24 +66,26 @@ export async function pruneRevalidationTable(
 
   debug(`Pruning revalidation entries for previous build: ${previousBuildId}`);
 
-  // 2. Query all items for previous build ID (efficient partition query)
+  // 2. Query all items for previous build ID (efficient partition queries):
+  // its marker rows, and its revalidation log rows, which a table without TTL
+  // would otherwise keep forever.
   const itemsToDelete: Array<{ pk: { S: string }; sk: { S: string } }> = [];
-  let lastEvaluatedKey: Record<string, any> | undefined = undefined;
 
-  do {
-    const queryCommand: QueryCommand = new QueryCommand({
-      TableName: tableName,
-      KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: {
-        ":pk": { S: previousBuildId },
-      },
-      ExclusiveStartKey: lastEvaluatedKey,
-    });
+  for (const pk of [previousBuildId, `${previousBuildId}#log`]) {
+    let lastEvaluatedKey: Record<string, any> | undefined = undefined;
+    do {
+      const queryCommand: QueryCommand = new QueryCommand({
+        TableName: tableName,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: {
+          ":pk": { S: pk },
+        },
+        ExclusiveStartKey: lastEvaluatedKey,
+      });
 
-    const response = await dynamoClient.send(queryCommand);
+      const response = await dynamoClient.send(queryCommand);
 
-    if (response.Items && response.Items.length > 0) {
-      for (const item of response.Items) {
+      for (const item of response.Items ?? []) {
         if (item.pk?.S && item.sk?.S) {
           itemsToDelete.push({
             pk: { S: item.pk.S },
@@ -89,10 +93,10 @@ export async function pruneRevalidationTable(
           });
         }
       }
-    }
 
-    lastEvaluatedKey = response.LastEvaluatedKey;
-  } while (lastEvaluatedKey);
+      lastEvaluatedKey = response.LastEvaluatedKey;
+    } while (lastEvaluatedKey);
+  }
 
   debug(
     `Found ${itemsToDelete.length} revalidation entries to delete for build ${previousBuildId}`,
@@ -167,23 +171,4 @@ async function updateMetadata(
 
   await dynamoClient.send(putCommand);
   debug(`Updated metadata with current build ID: ${currentBuildId}`);
-}
-
-/**
- * Process items in batches to avoid overwhelming the system
- */
-async function processBatch<T, R>(
-  items: T[],
-  batchSize: number,
-  processFn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = [];
-
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(processFn));
-    results.push(...batchResults);
-  }
-
-  return results;
 }

@@ -14,8 +14,15 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 ### Deployment Time
 
 1. The `NextjsCache` construct checks for the `.next/cdk-nextjs-init-cache` directory
-2. If found, it uses `BucketDeployment` with a `{buildId}/` prefix to upload all pre-built cache files to S3
+2. If found, it copies the directory into a staging directory _under_ a `{buildId}/` directory and hands that to `BucketDeployment`
 3. Files are deployed to S3 with the path structure: `{buildId}/{cacheKey}.json`
+
+The build ID is in the staged paths rather than in `destinationKeyPrefix` on
+purpose: `BucketDeployment` tags its destination bucket with
+`aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>`, and an `AWS::S3::Bucket`'s `Tags`
+are not hotswappable, so a prefix that changes per build forced a full
+CloudFormation deployment every time. See the comment on `createStagingDirectory`
+in `src/nextjs-cache.ts`.
 
 ### Runtime
 
@@ -49,6 +56,30 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 - Tag associations for `revalidateTag()` functionality
 - Timestamps for revalidation checking
 - Proper JSON serialization with special handling for Map/Buffer
+
+## Sizing
+
+`BucketDeployment`'s Lambda downloads the asset zip into `/tmp` and extracts it
+beside itself, so it needs room for both at once — and CDK gives it 512 MiB of
+ephemeral storage and 128 MB of memory by default. An app with many large
+prerenders blows through that: 60 pages carrying ~1 MB of RSC each produce a
+664 MiB seed directory, and the handler dies with
+`OSError: [Errno 28] No space left on device`. Under `cdk deploy --hotswap` that
+failure is invisible, because the CLI invokes custom resources with placeholder
+response URLs and never reads the status they send — the app comes up serving a
+partially seeded cache.
+
+`NextjsCache` therefore sizes that Lambda from the seed directory: twice its size
+plus headroom, floored at CDK's 512 MiB and capped at Lambda's 10 GiB, with
+`memoryLimit: 1024` past 256 MiB. Above the 10 GiB ceiling it warns; pass
+`overrides.bucketDeploymentProps` with `useEfs: true` for a cache that large.
+
+Cache entries themselves serialize Buffers as base64 (`serializeCacheValue` in
+`src/adapter/cache-utils.ts`). That matters for size _and_ for read latency:
+the integer-array format `Buffer.toJSON()` produces is ~3 bytes of JSON per byte
+of payload and makes `JSON.parse`'s reviver run once per element, which cost 4.8s
+of Lambda time to answer a single 1 MiB segment prefetch before it was changed.
+Both integer-array spellings are still accepted on read.
 
 ## Implementation Details
 

@@ -60,6 +60,7 @@
           "**/test/**",
           "**/build-tools/**",
           "src/lambdas/post-deploy/post-deploy.lambda.ts",
+          "src/lambdas/redeploy-stage/redeploy-stage.lambda.ts",
           ".projenrc.ts",
           "projenrc/**/*.ts"
         ],

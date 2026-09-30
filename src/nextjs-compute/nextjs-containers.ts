@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join as joinPath } from "node:path";
 import { CfnOutput, CfnResource, Duration, Stack } from "aws-cdk-lib";
 import { GatewayVpcEndpointAwsService } from "aws-cdk-lib/aws-ec2";
@@ -23,7 +23,11 @@ import {
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { CfnElement } from "aws-cdk-lib/core";
 import { Construct } from "constructs";
-import { NextjsComputeBaseProps } from "./nextjs-compute-base-props";
+import {
+  grantRuntimeAccess,
+  NextjsComputeBaseProps,
+  runtimeEnvironment,
+} from "./nextjs-compute-base-props";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalApplicationLoadBalancedTaskImageOptions } from "../generated-structs/OptionalApplicationLoadBalancedTaskImageOptions";
 import { OptionalClusterProps } from "../generated-structs/OptionalClusterProps";
@@ -45,13 +49,32 @@ export interface NextjsContainersProps extends NextjsComputeBaseProps {
    */
   readonly alb?: IApplicationLoadBalancer;
   /**
+   * Directory where the Next.js application is located: the Docker build
+   * context, holding the `.next` directory and other build artifacts.
+   */
+  readonly buildDirectory: string;
+  /**
    * Bring your own ECS cluster. When provided, cdk-nextjs will skip creating
    * a new cluster and VPC gateway endpoints. The cluster is passed directly
    * to `ApplicationLoadBalancedFargateService`.
    */
   readonly ecsCluster?: ICluster;
+  /**
+   * Path to an API Route Handler that returns HTTP 200, used by the ALB target
+   * group and the ECS container health check. Both hit the app directly, so this
+   * is the path including the app's `basePath` — the root constructs prefix their
+   * own `healthCheckPath` prop with it.
+   * @example "/api/health"
+   */
+  readonly healthCheckPath: string;
   readonly overrides?: NextjsContainersOverrides;
   readonly relativeEntrypointPath: string;
+  /**
+   * From the deployment root to the Next.js project dir, POSIX, `""` at the repo
+   * root.
+   * @see NextjsBuild.relativeProjectDir
+   */
+  readonly relativeProjectDir: string;
 }
 
 /**
@@ -116,12 +139,21 @@ export class NextjsContainers extends Construct {
     return new DockerImageAsset(this, "DockerImageAsset", {
       directory: buildContext,
       file: dockerfileName,
-      buildArgs: {
-        RELATIVE_PATH_TO_PACKAGE: this.props.relativePathToPackage || ".",
-        ...this.props.overrides?.dockerImageAssetProps?.buildArgs,
-      },
       exclude: ["cdk.out"], // for common case where cdk deploy is run in same directory as nextjs app
       ...this.props.overrides?.dockerImageAssetProps,
+      // After the overrides spread, so a user's `buildArgs` adds to the
+      // required ones instead of replacing them.
+      buildArgs: {
+        // Where the regional image puts `.next/static` and `public` (the global
+        // one serves them from S3): the staged tree is keyed by
+        // repo-root-relative path, so in a monorepo the project dir is not the
+        // image's WORKDIR. "." keeps the `COPY` destinations valid when the app
+        // is at the repo root.
+        ...(this.props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+          ? {}
+          : { RELATIVE_PROJECT_DIR: this.props.relativeProjectDir || "." }),
+        ...this.props.overrides?.dockerImageAssetProps?.buildArgs,
+      },
     });
   }
 
@@ -138,26 +170,52 @@ export class NextjsContainers extends Construct {
   ): void {
     const targetDockerfile = joinPath(buildContext, dockerfileName);
 
-    // Check if Dockerfile already exists - if so, use the existing one (developer control)
-    if (existsSync(targetDockerfile)) {
+    // A Dockerfile the developer wrote is theirs; one cdk-nextjs generated is
+    // ours to keep current, and the header says as much. Without that check, a
+    // generated Dockerfile from an older version silently wins — and the ones
+    // this version replaces run `node server.js`, which no longer exists now
+    // that the build stages a deployment root instead of `.next/standalone`, so
+    // the container crash-loops on MODULE_NOT_FOUND until someone deletes it.
+    if (
+      existsSync(targetDockerfile) &&
+      !isGeneratedDockerfile(targetDockerfile)
+    ) {
       console.log(`${LOG_PREFIX} Using existing Dockerfile: ${dockerfileName}`);
-    } else {
-      const sourceDockerfile = joinPath(
-        __dirname,
-        "..",
-        "nextjs-build",
-        dockerfileName,
-      );
-
-      if (!existsSync(sourceDockerfile)) {
-        throw new Error(
-          `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
-        );
-      }
-
-      copyFileSync(sourceDockerfile, targetDockerfile);
-      console.log(`${LOG_PREFIX} Created ${targetDockerfile}.`);
+      return;
     }
+
+    const sourceDockerfile = joinPath(
+      __dirname,
+      "..",
+      "nextjs-build",
+      dockerfileName,
+    );
+
+    if (!existsSync(sourceDockerfile)) {
+      throw new Error(
+        `Source Dockerfile not found: ${sourceDockerfile}. Ensure the cdk-nextjs package is properly built.`,
+      );
+    }
+
+    const generated = readFileSync(sourceDockerfile, "utf-8");
+    if (existsSync(targetDockerfile)) {
+      const current = readFileSync(targetDockerfile, "utf-8");
+      if (current === generated) {
+        return;
+      }
+      // Replaced all the same — a generated file from an older version runs a
+      // server that no longer exists — but kept beside it, so an edit made under
+      // the header isn't lost without a word.
+      const backup = `${targetDockerfile}.bak`;
+      copyFileSync(targetDockerfile, backup);
+      console.warn(
+        `${LOG_PREFIX} Replaced the generated ${dockerfileName} with this version's; ` +
+          `the previous one is saved as ${backup}. To keep your own Dockerfile, ` +
+          `delete its "${GENERATED_DOCKERFILE_HEADER}" first line and cdk-nextjs will leave it alone.`,
+      );
+    }
+    writeFileSync(targetDockerfile, generated);
+    console.log(`${LOG_PREFIX} Created ${targetDockerfile}.`);
   }
 
   private createAlbFargateSevice(): ApplicationLoadBalancedFargateService {
@@ -205,11 +263,7 @@ export class NextjsContainers extends Construct {
           }),
           ...this.props.overrides?.taskImageOptions,
           environment: {
-            // Cache configuration environment variables
-            CDK_NEXTJS_CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName,
-            CDK_NEXTJS_REVALIDATION_TABLE_NAME:
-              this.props.revalidationTable.tableName,
-            CDK_NEXTJS_BUILD_ID: this.props.buildId,
+            ...runtimeEnvironment(this.props),
             // Merge with user-provided environment variables (user values take precedence)
             ...this.props.overrides?.taskImageOptions?.environment,
           },
@@ -224,13 +278,7 @@ export class NextjsContainers extends Construct {
       "0.0.0.0",
     );
 
-    // Grant cache access permissions
-    this.props.cacheBucket.grantReadWrite(
-      albFargateService.taskDefinition.taskRole,
-    );
-    this.props.revalidationTable.grantReadWriteData(
-      albFargateService.taskDefinition.taskRole,
-    );
+    grantRuntimeAccess(this.props, albFargateService.taskDefinition.taskRole);
 
     // speed up deployments by shortening deregistration delay
     // https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/load-balancer-connection-draining.html
@@ -367,4 +415,18 @@ export class NextjsContainers extends Construct {
       }
     }
   }
+}
+
+/** First line of every Dockerfile in `src/nextjs-build`. */
+const GENERATED_DOCKERFILE_HEADER = "# ~~ Generated by cdk-nextjs ~~";
+
+/**
+ * Whether cdk-nextjs wrote this Dockerfile, and may therefore replace it. Reads
+ * only the first line: the rest is free to have been edited, and an edit that
+ * keeps the header is an edit that asked to be overwritten.
+ */
+function isGeneratedDockerfile(path: string): boolean {
+  return readFileSync(path, "utf-8")
+    .split("\n", 1)[0]
+    .startsWith(GENERATED_DOCKERFILE_HEADER);
 }

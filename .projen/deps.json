@@ -5,6 +5,10 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-api-gateway",
+      "type": "build"
+    },
+    {
       "name": "@aws-sdk/client-cloudfront",
       "type": "build"
     },
@@ -26,6 +30,11 @@
     },
     {
       "name": "@mrgrain/jsii-struct-builder",
+      "type": "build"
+    },
+    {
+      "name": "@next/routing",
+      "version": "16.3.5",
       "type": "build"
     },
     {
@@ -61,6 +70,10 @@
     {
       "name": "@typescript-eslint/parser",
       "version": "^8",
+      "type": "build"
+    },
+    {
+      "name": "aws-cdk",
       "type": "build"
     },
     {

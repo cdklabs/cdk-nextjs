@@ -19,11 +19,17 @@ import { join } from "node:path";
 import {
   AccessLogFormat,
   LogGroupLogDestination,
-  ResponseTransferMode,
 } from "aws-cdk-lib/aws-apigateway";
+import { Architecture } from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
 const app = new App();
+
+// Not needed by this app - it fits in one Lambda. Declared so CI exercises the
+// split behind API Gateway too: the `function-groups` e2e asserts `/api/**` and
+// `/` are served by different functions. See `E2E_FUNCTION_GROUPS` in
+// `.github/workflows/e2e-tests.yml`.
+const functionGroups = [{ name: "api", routes: ["/api/**"] }];
 
 export class RegionalFunctionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -31,8 +37,8 @@ export class RegionalFunctionsStack extends Stack {
     process.env["NEXTJS_BASE_PATH"] = "/prod"; // default API Gateway stage name
     process.env["NEXT_PUBLIC_IMAGE_SRC_PREFIX"] = "/prod"; // prefix image paths for API Gateway deployments
     const nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
-      healthCheckPath: "/api/health",
       buildDirectory: join(import.meta.dirname, "..", "app-playground"),
+      functionGroups,
       overrides: {
         nextjsApi: {
           restApiProps: {
@@ -51,31 +57,14 @@ export class RegionalFunctionsStack extends Stack {
               metricsEnabled: true,
             },
           },
-          // Only applies to the server function's route: NextjsApi never lets
-          // this leak into the dedicated image Lambda's own (always
-          // streaming) integration. Must match AWS_LWA_INVOKE_MODE below.
-          dynamicIntegrationProps: {
-            responseTransferMode: ResponseTransferMode.BUFFERED,
-          },
         },
         nextjsFunctions: {
-          dockerImageFunctionProps: {
+          functionProps: {
+            // Its e2e job (rgnl-fns) runs on x86, so this deploy covers staging
+            // `sharp` for an architecture other than the build host's.
+            architecture: Architecture.ARM_64,
             environment: {
               DEBUG: "cdk-nextjs:*",
-              // Tell middleware to prepend API Gateway stage name since API Gateway strips it
-              PREPEND_APIGW_STAGE: "1",
-              // Fallback stage name for proxy.ts's re-prepend logic when a
-              // request has no x-amzn-request-context header to read it
-              // from, e.g. Next.js's own internal fetches for local
-              // `_next/image` sources.
-              API_GATEWAY_STAGE: process.env["NEXTJS_BASE_PATH"]!.replace(
-                /^\//,
-                "",
-              ),
-              // Lambda Web Adapter in this app doesn't support response
-              // streaming; must match dynamicIntegrationProps above or API
-              // Gateway returns a 500 for every request to this function.
-              AWS_LWA_INVOKE_MODE: "buffered",
             },
           },
         },
@@ -97,7 +86,10 @@ const stack = new RegionalFunctionsStack(app, getStackName("rgnl-fns"), {
 });
 
 suppressCommonNags(stack);
-suppressLambdaNags(stack);
+suppressLambdaNags(
+  stack,
+  functionGroups.map((group) => group.name),
+);
 suppressApiNags(stack);
 
 Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));

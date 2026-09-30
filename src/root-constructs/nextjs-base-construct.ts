@@ -1,3 +1,5 @@
+import { Token } from "aws-cdk-lib";
+import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { IBucket } from "aws-cdk-lib/aws-s3";
@@ -5,25 +7,31 @@ import { Construct } from "constructs";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
+import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
+import { NextjsApiOverrides } from "../nextjs-api";
 import { NextjsBuild } from "../nextjs-build/nextjs-build";
 import { NextjsCache, NextjsCacheOverrides } from "../nextjs-cache";
 import { NextjsComputeBaseProps } from "../nextjs-compute/nextjs-compute-base-props";
 import {
+  NextjsFunctionGroup,
   NextjsFunctions,
   NextjsFunctionsOverrides,
-  NextjsFunctionsProps,
 } from "../nextjs-compute/nextjs-functions";
 import {
-  NextjsImageFunction,
-  NextjsImageFunctionOverrides,
-  NextjsImageFunctionProps,
-} from "../nextjs-compute/nextjs-image-function";
+  NextjsPostDeploy,
+  NextjsPostDeployOverrides,
+} from "../nextjs-post-deploy";
 import {
   NextjsStaticAssets,
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
-import { prefixWithBasePath, resolveBasePath } from "../utils/base-path";
+import {
+  ApiGatewayPrefix,
+  isAssetPrefixUnserved,
+  prefixWithBasePath,
+  resolveBasePath,
+} from "../utils/base-path";
 
 /**
  * Base overrides for the props passed to constructs within root/top-level Next.js constructs
@@ -31,17 +39,8 @@ import { prefixWithBasePath, resolveBasePath } from "../utils/base-path";
 export interface NextjsBaseConstructOverrides {
   readonly nextjsBuildProps?: OptionalNextjsBuildProps;
   readonly nextjsCacheProps?: OptionalNextjsCacheProps;
+  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
   readonly nextjsStaticAssetsProps?: NextjsStaticAssetsProps;
-}
-
-/**
- * Adds the overrides that only apply to the two Functions `NextjsType`s. The
- * Containers types serve `_next/image` from the standalone server itself and
- * have no Lambda functions to configure, so they would silently ignore these.
- */
-export interface NextjsFunctionsConstructOverrides extends NextjsBaseConstructOverrides {
-  readonly nextjsFunctionsProps?: NextjsFunctionsProps;
-  readonly nextjsImageFunctionProps?: NextjsImageFunctionProps;
 }
 
 /**
@@ -49,6 +48,7 @@ export interface NextjsFunctionsConstructOverrides extends NextjsBaseConstructOv
  */
 export interface NextjsBaseOverrides {
   readonly nextjsCache?: NextjsCacheOverrides;
+  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
   readonly nextjsStaticAssets?: NextjsStaticAssetsOverrides;
 }
 
@@ -67,12 +67,18 @@ export interface NextjsBaseProps {
    *   static assets from S3 using the request path as the object key, so the two
    *   have to be identical and a mismatch 404s all of them. Setting a different
    *   value throws.
-   * - `NextjsRegionalFunctions`: if you set this, the app's `basePath` must end
-   *   with it — either equal to it, or prefixed by the stage or base path
-   *   mapping API Gateway strips before matching resources (`basePath:
-   *   "/prod/base"` with this set to `"/base"`). Leaving it unset while the app
-   *   sets one is correct and common — an app served at the default `prod` stage
-   *   sets `basePath: "/prod"` and leaves this alone.
+   * - `NextjsRegionalFunctions`: leave this unset and it follows your app's
+   *   `basePath` minus the prefix API Gateway strips before matching resources —
+   *   the stage (`deployOptions.stageName`, default `prod`), or the base path
+   *   mapping of a custom domain set in `restApiProps.domainName`. So
+   *   `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+   *   `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+   *   execute-api endpoint an app `basePath` that doesn't start with the stage
+   *   warns, since its links will miss the stage. If you set this, the app's
+   *   `basePath` must end with it. A domain attached later with
+   *   `addDomainName()` is not seen at synth; set this explicitly then — to
+   *   `"/"` when that domain's base path mapping strips your app's whole
+   *   `basePath`, which mounts every resource at the root.
    * - `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
    *   every path to the container, which serves its own static assets, so this
    *   is unconstrained.
@@ -93,28 +99,26 @@ export interface NextjsBaseProps {
   readonly buildDirectory: string;
   /**
    * Bring your own S3 bucket for cache storage. When provided, cdk-nextjs
-   * will use this bucket instead of creating a new one. Cache objects are
-   * prefixed with `buildId` so multiple deployments can safely share one bucket.
+   * will use this bucket instead of creating a new one.
+   *
+   * The bucket must be dedicated to this one deployment. Don't share it with
+   * another deployment (another branch, stage, or app): every deploy's
+   * post-deploy step deletes every object under a top-level prefix other than
+   * the current `buildId/`, which includes every other deployment's cache.
    */
   readonly cacheBucket?: IBucket;
-  /**
-   * Path to API Route Handler that returns HTTP 200 to ensure compute health.
-   * @example "/api/health"
-   * @example
-   * // api/health/route.ts
-   * import { NextResponse } from "next/server";
-   *
-   * export function GET() {
-   *   return NextResponse.json("");
-   * }
-   */
-  readonly healthCheckPath: string;
   /**
    * Bring your own DynamoDB table for revalidation metadata. When provided,
    * cdk-nextjs will use this table instead of creating a new one. The table
    * must have `pk` (String) as partition key and `sk` (String) as sort key.
-   * Entries are partitioned by `buildId` so multiple deployments can safely
-   * share one table.
+   * Enable TTL on its `ttl` attribute too: each tag revalidation writes a
+   * revalidation log row that expires through it, and without TTL those rows
+   * accumulate.
+   *
+   * The table must be dedicated to this one deployment. Don't share it with
+   * another deployment (another branch, stage, or app): every deploy's
+   * post-deploy step deletes the entries of the build it last recorded in the
+   * table, which with a shared table is another deployment's live build.
    */
   readonly revalidationTable?: ITableV2;
   /**
@@ -126,7 +130,13 @@ export interface NextjsBaseProps {
   /**
    * Bring your own S3 bucket for static assets. When provided, cdk-nextjs
    * will deploy static assets to this bucket instead of creating a new one.
-   * Use with `basePath` to isolate assets per branch when sharing a bucket.
+   *
+   * Unlike `cacheBucket`, this one can be shared, but only between deployments
+   * with different `basePath`s (so different S3 key prefixes). Pruning only
+   * touches `<basePath>/_next/`, so it leaves the others' assets alone. Two
+   * deployments under the same prefix overwrite each other's `public/` files
+   * and prune each other's `_next/` assets once they are past the prune
+   * TTL (30 days by default).
    */
   readonly staticAssetsBucket?: IBucket;
   /**
@@ -162,7 +172,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   protected readonly baseProps: NextjsBaseConstructProps;
   // Widest shape of the per-`NextjsType` overrides. The public interface each
   // root construct accepts is what actually gates which keys are settable.
-  protected readonly constructOverrides?: NextjsFunctionsConstructOverrides;
+  protected readonly constructOverrides?: NextjsBaseConstructOverrides;
   /**
    * The `basePath` everything downstream is built from: the `basePath` prop when
    * set, otherwise the app's own `basePath` for the `NextjsType`s where the two
@@ -190,17 +200,48 @@ export abstract class NextjsBaseConstruct extends Construct {
       nextjsType,
       props.basePath,
       this.nextjsBuild.nextConfigBasePath,
+      this.apiGatewayPrefix(),
     );
     this.nextjsCache = this.createNextjsCache();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
     this.validateStaticAssetsKeyPrefix();
+    this.warnUnservedAssetPrefix();
+  }
+
+  /**
+   * Warns when a path-style `assetPrefix` would 404 every bundle on this
+   * `NextjsType` — see {@link isAssetPrefixUnserved} for which combinations those
+   * are and why a prefix equal to the app's `basePath` is not one of them.
+   *
+   * Warn rather than throw: it is the app's config, the deployment otherwise
+   * works, and an absolute `assetPrefix` (already reduced to `""` by
+   * `relativeAssetPrefix`) is the supported way to serve assets from
+   * elsewhere.
+   */
+  private warnUnservedAssetPrefix(): void {
+    if (
+      !isAssetPrefixUnserved(
+        this.nextjsType,
+        this.nextjsBuild.nextConfigAssetPrefix,
+        this.nextjsBuild.nextConfigBasePath,
+      )
+    ) {
+      return;
+    }
+    console.warn(
+      `${LOG_PREFIX} your Next.js app sets \`assetPrefix: "${this.nextjsBuild.nextConfigAssetPrefix}"\`, ` +
+        `which NextjsType.${this.nextjsType} cannot serve: your bundles will be requested at ` +
+        `"${this.nextjsBuild.nextConfigAssetPrefix}/_next/static/..." and nothing answers there, so they will 404. ` +
+        "Drop `assetPrefix`, use an absolute one pointing at a CDN you front the assets bucket with, " +
+        "or deploy with NextjsGlobalFunctions/NextjsGlobalContainers.",
+    );
   }
 
   /**
    * For the Global `NextjsType`s the key prefix isn't a free choice: it has to be
    * `basePath` (see `resolveBasePath`). A `destinationKeyPrefix` override that
    * moves the objects elsewhere has no way to tell the distribution about it —
-   * unlike the image Lambda and `NextjsApi`, which read
+   * unlike the functions' image optimizer and `NextjsApi`, which read
    * `NextjsStaticAssets.keyPrefix` — so fail at synth rather than 404 every
    * static request.
    */
@@ -226,6 +267,35 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
+   * The prefix API Gateway will strip, read from the same `restApiProps`
+   * override `NextjsApi` builds its `RestApi` from. Only meaningful for
+   * `REGIONAL_FUNCTIONS`, and read before `NextjsApi` exists because the
+   * resolved `basePath` also decides the static assets' S3 key prefix.
+   *
+   * A domain attached later with `api.addDomainName()` is invisible here, the
+   * same limitation `NextjsApi.url` documents.
+   */
+  private apiGatewayPrefix(): ApiGatewayPrefix {
+    // `overrides.nextjsApi` is the only typed way to reach the `RestApi`'s
+    // props: `nextjsRegionalFunctions.nextjsApiProps` is
+    // `OptionalNextjsApiProps`, which has no `overrides`.
+    const apiOverrides = (
+      this.baseProps.overrides as { nextjsApi?: NextjsApiOverrides } | undefined
+    )?.nextjsApi;
+    const restApiProps = apiOverrides?.restApiProps;
+    const domainName = restApiProps?.domainName;
+    const strippedPrefix = domainName
+      ? (domainName.basePath ?? "")
+      : (restApiProps?.deployOptions?.stageName ?? "prod");
+    return {
+      strippedPrefix: Token.isUnresolved(strippedPrefix)
+        ? undefined
+        : strippedPrefix,
+      customDomain: domainName !== undefined,
+    };
+  }
+
+  /**
    * Finds construct overrides (if present) on props for any `NextjsType`
    */
   private getConstructOverrides(nextjsType: NextjsType) {
@@ -239,30 +309,58 @@ export abstract class NextjsBaseConstruct extends Construct {
     const overrides = this.baseProps.overrides as
       Record<string, unknown> | undefined;
     if (overrides && key in overrides) {
-      return overrides[key] as NextjsFunctionsConstructOverrides;
+      return overrides[key] as NextjsBaseConstructOverrides;
     }
     return;
   }
 
   /**
+   * `overrides.nextjsFunctions`, which only the two Functions root constructs
+   * declare. Cast for the same reason as {@link functionGroups}.
+   */
+  private get functionsOverrides(): NextjsFunctionsOverrides | undefined {
+    const overrides = this.baseProps.overrides as
+      { nextjsFunctions?: NextjsFunctionsOverrides } | undefined;
+    return overrides?.nextjsFunctions;
+  }
+
+  /**
+   * `functionGroups`, which only the two Functions root constructs accept —
+   * Containers deploy one task definition and have no 250 MB package limit to
+   * split around.
+   *
+   * Read off `baseProps` with a cast for the same reason as
+   * {@link getConstructOverrides}: `createNextjsBuild` and
+   * `createNextjsFunctions` are shared here, but the prop is declared on the
+   * subclasses, so nothing weaker than a cast can see it. Adding it to
+   * `NextjsBaseProps` would offer it to Containers, where it does nothing.
+   */
+  protected get functionGroups(): NextjsFunctionGroup[] | undefined {
+    const props = this.baseProps as { functionGroups?: NextjsFunctionGroup[] };
+    return props.functionGroups;
+  }
+
+  /**
    * The health check path as the running app actually serves it.
    *
-   * Every consumer of this hits the app directly — the ALB target group forwards
-   * the path to the container unchanged, and the Lambda Web Adapter readiness
-   * check and the container's `wget` probe both target the local server — so the
-   * prefix that matters is the app's own `basePath`, not `resolvedBasePath`
-   * (which for `REGIONAL_FUNCTIONS` omits the stage the app includes, and for
-   * `REGIONAL_CONTAINERS` is only an S3 namespace). Left unprefixed, an app with
-   * a `basePath` 404s every health check, so the target never turns healthy and
-   * the deployment rolls back. `healthCheckPath` is therefore the path as the
-   * app routes it, without `basePath`; one that carries the prefix already gets
-   * it twice, which is the 0.6.0 breaking change for anyone who prefixed by hand
-   * to work around this.
+   * Both consumers of this hit the app directly — the ALB target group forwards
+   * the path to the container unchanged, and the container's `wget` probe targets
+   * the local server — so the prefix that matters is the app's own `basePath`,
+   * not `resolvedBasePath` (which for `REGIONAL_CONTAINERS` is only an S3
+   * namespace). Left unprefixed, an app with a `basePath` 404s every health
+   * check, so the target never turns healthy and the deployment rolls back.
+   * `healthCheckPath` is therefore the path as the app routes it, without
+   * `basePath`; one that carries the prefix already gets it twice, which is the
+   * 0.6.2 breaking change for anyone who prefixed by hand to work around this.
+   *
+   * Takes the path as an argument rather than reading it off `baseProps`: only
+   * the two Containers root constructs declare `healthCheckPath`, since they're
+   * the only ones with something to health-check.
    */
-  private resolvedHealthCheckPath(): string {
+  protected resolvedHealthCheckPath(healthCheckPath: string): string {
     return prefixWithBasePath(
       this.nextjsBuild.nextConfigBasePath,
-      this.baseProps.healthCheckPath,
+      healthCheckPath,
     );
   }
 
@@ -271,14 +369,39 @@ export abstract class NextjsBaseConstruct extends Construct {
    */
   protected computeBaseProps(): NextjsComputeBaseProps {
     return {
-      healthCheckPath: this.resolvedHealthCheckPath(),
       cacheBucket: this.nextjsCache.cacheBucket,
       revalidationTable: this.nextjsCache.revalidationTable,
       buildId: this.nextjsBuild.buildId,
-      buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
-      relativePathToPackage: this.nextjsBuild.relativePathToPackage,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
     };
+  }
+
+  /**
+   * Runs after the init cache upload: invalidating the CDN before the new
+   * cache is in place would only re-cache the responses the invalidation was
+   * meant to drop, and CloudFormation infers no ordering between the two
+   * custom resources on its own.
+   */
+  protected createNextjsPostDeploy(
+    distribution?: IDistribution,
+  ): NextjsPostDeploy {
+    const postDeploy = new NextjsPostDeploy(this, "NextjsPostDeploy", {
+      basePath: this.resolvedBasePath,
+      buildId: this.nextjsBuild.buildId,
+      distribution,
+      cacheBucket: this.nextjsCache.cacheBucket,
+      revalidationTable: this.nextjsCache.revalidationTable,
+      staticAssetsBucket: this.nextjsStaticAssets.bucket,
+      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
+      overrides: this.baseProps.overrides?.nextjsPostDeploy,
+      ...this.constructOverrides?.nextjsPostDeployProps,
+    });
+    if (this.nextjsCache.bucketDeployment) {
+      postDeploy.node.addDependency(this.nextjsCache.bucketDeployment);
+    }
+    return postDeploy;
   }
 
   private createNextjsBuild(): NextjsBuild {
@@ -287,6 +410,14 @@ export abstract class NextjsBaseConstruct extends Construct {
       buildDirectory: this.baseProps.buildDirectory,
       nextjsType: this.nextjsType,
       skipBuild: this.baseProps.skipBuild,
+      // The build resolves the split, since only it knows the route templates;
+      // the constructs read the result back off the manifest.
+      functionGroups: this.functionGroups?.map(({ name, routes }) => ({
+        name,
+        routes,
+      })),
+      // What the Lambdas will run decides the `sharp` binaries staged for them.
+      architecture: this.functionsOverrides?.functionProps?.architecture,
       ...this.constructOverrides?.nextjsBuildProps,
     });
   }
@@ -316,45 +447,27 @@ export abstract class NextjsBaseConstruct extends Construct {
   /**
    * Shared by `NextjsGlobalFunctions` and `NextjsRegionalFunctions`.
    */
-  protected createNextjsFunctions(
-    overrides?: NextjsFunctionsOverrides,
-  ): NextjsFunctions {
+  protected createNextjsFunctions(): NextjsFunctions {
+    // The getter, not a parameter, so the build and the functions read the
+    // same `architecture`.
+    const overrides = this.functionsOverrides;
     return new NextjsFunctions(this, "NextjsFunctions", {
       ...this.computeBaseProps(),
+      deploymentRoots: this.nextjsBuild.deploymentRoots,
+      architecture: this.nextjsBuild.architecture,
+      functionGroups: this.functionGroups,
       overrides: {
         ...overrides,
-        dockerImageFunctionProps: {
-          ...overrides?.dockerImageFunctionProps,
-          vpc: this.baseProps.vpc,
+        functionProps: {
+          ...overrides?.functionProps,
+          // Spread conditionally rather than assigned: an unconditional
+          // `vpc: this.baseProps.vpc` writes `undefined` over an
+          // `overrides.nextjsFunctions.functionProps.vpc` the consumer supplied,
+          // so the Lambdas deploy outside the VPC and cannot reach a private
+          // RDS, ElastiCache, or VPC endpoint - with nothing said at synth.
+          ...(this.baseProps.vpc ? { vpc: this.baseProps.vpc } : {}),
         },
       },
-      ...this.constructOverrides?.nextjsFunctionsProps,
-    });
-  }
-
-  /**
-   * Shared by `NextjsGlobalFunctions` and `NextjsRegionalFunctions`, the only
-   * two `NextjsType`s for which `NextjsBuild` produces an image optimization
-   * asset. Only called when the dedicated image optimization Lambda is
-   * enabled, which is what makes the missing-asset check below an invariant
-   * violation rather than a supported configuration.
-   */
-  protected createNextjsImageFunction(
-    overrides?: NextjsImageFunctionOverrides,
-  ): NextjsImageFunction {
-    if (!this.nextjsBuild.imageOptimizationAssetPath) {
-      throw new Error(
-        `Missing NextjsBuild.imageOptimizationAssetPath for NextjsType.${this.nextjsType}`,
-      );
-    }
-    return new NextjsImageFunction(this, "NextjsImageFunction", {
-      nextjsType: this.nextjsType,
-      imageOptimizationAssetPath: this.nextjsBuild.imageOptimizationAssetPath,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
-      vpc: this.baseProps.vpc,
-      overrides,
-      ...this.constructOverrides?.nextjsImageFunctionProps,
     });
   }
 }

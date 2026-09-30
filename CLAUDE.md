@@ -22,7 +22,8 @@ pnpm test
 pnpm jest src/adapter/cache-handler.test.ts
 pnpm jest src/nextjs-cache.test.ts
 
-# Lint
+# Lint (the whole repo, with --fix; don't pass file args, and don't use
+# `npx eslint`: that's ESLint 9, which wants a flat config this repo lacks)
 pnpm eslint
 
 # Bundle adapter/lambdas (esbuild)

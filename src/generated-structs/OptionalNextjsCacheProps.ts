@@ -9,16 +9,25 @@ export interface OptionalNextjsCacheProps {
    * Bring your own DynamoDB table for revalidation metadata.
    * When provided,
    * cdk-nextjs will skip creating a new table. The table must have `pk` (String)
-   * as partition key and `sk` (String) as sort key. Entries are partitioned by
-   * `buildId` so multiple deployments can safely share one table.
+   * as partition key and `sk` (String) as sort key.
+   * Enabling TTL on its `ttl` attribute is recommended: each tag revalidation
+   * writes a revalidation log row that expires through it after 15 minutes.
+   * Without TTL those rows are kept until a deploy replaces their build, whose
+   * post-deploy step deletes them.
+   *
+   * The table must be dedicated to this one deployment. Don't share it with
+   * another deployment (another branch, stage, or app): every deploy's
+   * post-deploy step deletes the entries of the build it last recorded in the
+   * table, which with a shared table is another deployment's live build.
    * @stability stable
    */
   readonly revalidationTable?: aws_dynamodb.ITableV2;
   /**
-   * Bring your own S3 bucket for cache storage.
-   * When provided, cdk-nextjs
-   * will skip creating a new bucket. Cache objects are prefixed with `buildId`
-   * so multiple deployments can safely share one bucket.
+   * Bring your own S3 bucket for cache storage. When provided, cdk-nextjs will skip creating a new bucket.
+   * The bucket must be dedicated to this one deployment. Don't share it with
+   * another deployment (another branch, stage, or app): every deploy's
+   * post-deploy step deletes every object under a top-level prefix other than
+   * the current `buildId/`, which includes every other deployment's cache.
    * @stability stable
    */
   readonly cacheBucket?: aws_s3.IBucket;

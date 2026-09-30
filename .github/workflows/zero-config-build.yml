@@ -1,0 +1,46 @@
+# Builds a throwaway Next.js app against a packed-and-installed cdk-nextjs, with
+# no `adapterPath` in `next.config` — the `NEXT_ADAPTER_PATH` zero-config path the
+# README recommends.
+#
+# Its own workflow rather than a job in `e2e-tests.yml` because it needs neither
+# AWS nor `pull_request_target`: it is a build, so a fork PR can run it on
+# `pull_request` with a read-only token and no approval gate. See
+# scripts/zero-config-build.mjs for what it asserts and why a packed tarball is
+# the only shape that can assert it.
+name: zero-config-build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  zero-config-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # `--no-frozen-lockfile` to match `build.yml`, whose self-mutation step is
+      # what keeps the lockfile honest.
+      - run: pnpm i --no-frozen-lockfile
+
+      # `compile` for `lib/**/*.js` and `bundle` for the esbuild outputs the
+      # tarball's `./adapter` and `./cache-handler` exports point at. Not `build`,
+      # which also runs docgen and the CDK tests this job has no use for.
+      - run: pnpm projen compile
+      - run: pnpm projen bundle
+
+      - run: node scripts/zero-config-build.mjs

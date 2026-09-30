@@ -28,33 +28,19 @@ function suppressS3WildcardPermissions(
   path: string,
   reason: string,
   options: {
-    includeAbort?: boolean;
-    includeDelete?: boolean;
     includeStaticAssets?: boolean;
     includeCdkAssets?: boolean;
-    additionalResources?: Array<string | { regex: string }>;
   } = {},
 ) {
-  const {
-    includeAbort = true,
-    includeDelete = true,
-    includeStaticAssets = false,
-    includeCdkAssets = false,
-    additionalResources = [],
-  } = options;
+  const { includeStaticAssets = false, includeCdkAssets = false } = options;
 
   const actions: string[] = [
     "Action::s3:GetBucket*",
     "Action::s3:GetObject*",
     "Action::s3:List*",
+    "Action::s3:Abort*",
+    "Action::s3:DeleteObject*",
   ];
-
-  if (includeAbort) {
-    actions.push("Action::s3:Abort*");
-  }
-  if (includeDelete) {
-    actions.push("Action::s3:DeleteObject*");
-  }
 
   const resources: Array<string | { regex: string }> = [
     {
@@ -76,41 +62,11 @@ function suppressS3WildcardPermissions(
     );
   }
 
-  resources.push(...additionalResources);
-
   NagSuppressions.addResourceSuppressionsByPath(stack, path, [
     {
       id: "AwsSolutions-IAM5",
       reason,
       appliesTo: [...actions, ...resources],
-    },
-  ]);
-}
-
-/**
- * Helper function to suppress IAM5 for the wildcard `cloudfront:CreateInvalidation`
- * permission on-demand revalidation needs. It can't be scoped to the specific
- * distribution: the distribution's origin already depends on this compute (via
- * its function URL/ALB), so referencing the distribution's ID back in the
- * compute's IAM policy would create a circular CloudFormation dependency.
- */
-function suppressCloudFrontInvalidationWildcard(stack: Stack, path: string) {
-  NagSuppressions.addResourceSuppressionsByPath(stack, path, [
-    {
-      id: "AwsSolutions-IAM5",
-      reason:
-        "cloudfront:CreateInvalidation can't be scoped to the specific distribution because its ID isn't known until after this compute resource is created (the distribution depends on this compute's URL/ALB as its origin); scoping to it would create a circular CloudFormation dependency",
-      appliesTo: [
-        "Action::cloudfront:CreateInvalidation",
-        // Depending on whether the stack has an explicit env, CDK may resolve
-        // the account/partition pseudo params before cdk-nag sees the ARN, so
-        // match both the token and already-resolved forms.
-        "Resource::arn:<AWS::Partition>:cloudfront::<AWS::AccountId>:distribution/*",
-        {
-          regex:
-            "/^Resource::arn:(aws|aws-cn|aws-us-gov):cloudfront::\\d+:distribution\\/\\*$/",
-        },
-      ],
     },
   ]);
 }
@@ -227,39 +183,30 @@ export function suppressCommonNags(stack: Stack) {
   );
 }
 
-export function suppressLambdaNags(stack: Stack) {
-  suppressLambdaExecutionRole(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/Resource`,
-  );
-
-  suppressS3WildcardPermissions(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
-    "Lambda functions need wildcard S3 permissions to access cache and static assets",
-  );
-
-  // NextjsImageFunction only exists behind this experimental flag (see
-  // src/utils/experimental-flags.ts); suppressing a path with no matching
-  // resource throws.
-  if (process.env.CDK_NEXTJS_EXPERIMENTAL_DEDICATED_IMAGE_FUNCTION === "1") {
-    suppressLambdaExecutionRole(
-      stack,
-      `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/Resource`,
-    );
+/**
+ * @param functionGroupNames names of any `functionGroups` the stack declares.
+ * Each becomes its own Lambda function, at construct id `Functions-<name>`, and
+ * needs the same suppressions as the default one.
+ */
+export function suppressLambdaNags(
+  stack: Stack,
+  functionGroupNames: string[] = [],
+) {
+  const constructIds = [
+    "Functions",
+    ...functionGroupNames.map((name) => `Functions-${name}`),
+  ];
+  for (const constructId of constructIds) {
+    const role = `/${stack.stackName}/Nextjs/NextjsFunctions/${constructId}/ServiceRole`;
+    suppressLambdaExecutionRole(stack, `${role}/Resource`);
 
     suppressS3WildcardPermissions(
       stack,
-      `/${stack.stackName}/Nextjs/NextjsImageFunction/Fn/ServiceRole/DefaultPolicy/Resource`,
-      "Image optimization Lambda needs wildcard S3 permissions to read static assets",
-      { includeAbort: false, includeDelete: false, includeStaticAssets: true },
+      `${role}/DefaultPolicy/Resource`,
+      "Lambda functions need wildcard S3 permissions to access cache and static assets",
+      { includeStaticAssets: true },
     );
   }
-
-  suppressCloudFrontInvalidationWildcard(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsFunctions/Functions/ServiceRole/DefaultPolicy/Resource`,
-  );
 }
 
 export function suppressContainerNags(stack: Stack) {
@@ -296,27 +243,19 @@ export function suppressContainerNags(stack: Stack) {
       },
     ],
   );
-  NagSuppressions.addResourceSuppressionsByPath(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/ExecutionRole/DefaultPolicy/Resource`,
-    [
-      {
-        id: "AwsSolutions-IAM5",
-        // TODO: lock down to cdk hnb5 one?
-        reason: "ECS Task Execution Role can access any ECR repository",
-      },
-    ],
-  );
 
+  // Only NextjsGlobalContainers reads the static assets bucket, and only it has
+  // a distribution: NextjsRegionalContainers carries its assets in the image.
+  const includeStaticAssets = !!stack.node
+    .tryFindChild("Nextjs")
+    ?.node.tryFindChild("NextjsDistribution");
   suppressS3WildcardPermissions(
     stack,
     `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
-    "Container task role needs wildcard S3 permissions to access cache and static assets",
-  );
-
-  suppressCloudFrontInvalidationWildcard(
-    stack,
-    `/${stack.stackName}/Nextjs/NextjsContainers/AlbFargateService/TaskDef/TaskRole/DefaultPolicy/Resource`,
+    includeStaticAssets
+      ? "Container task role needs wildcard S3 permissions to access cache and static assets"
+      : "Container task role needs wildcard S3 permissions to access the cache",
+    { includeStaticAssets },
   );
 }
 
@@ -373,6 +312,23 @@ export function suppressApiNags(stack: Stack) {
         id: "AwsSolutions-IAM5",
         reason:
           "API Gateway has permission to read all objects in Static Assets bucket",
+      },
+    ],
+  );
+  // Redeploys the stage after each stack update; see `redeployAfterUpdate`.
+  suppressLambdaExecutionRole(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsApi/RedeployFn/ServiceRole/Resource`,
+    "AWSLambdaBasicExecutionRole is not overly permissive for the stage redeploy",
+  );
+  NagSuppressions.addResourceSuppressionsByPath(
+    stack,
+    `/${stack.stackName}/Nextjs/NextjsApi/RedeployFn/ServiceRole/DefaultPolicy/Resource`,
+    [
+      {
+        id: "AwsSolutions-IAM5",
+        reason:
+          "Deletes only its own earlier deployments of this REST API; their IDs aren't known in advance",
       },
     ],
   );

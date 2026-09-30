@@ -42,3 +42,14 @@ This steps are only needed if you want to connect cdk-nextjs GitHub Repo to an A
 
 2. Bootstrap AWS Account with `pnpm dotenv -- pnpm dlx cdk bootstrap aws://<AWS_ACCOUNT>/us-east-1 --cloudformation-execution-policies "arn:aws:iam::<AWS_ACCOUNT>:policy/cdk-nextjs-cfn-exec-policy"`
 3. Create IAM Role by running `pnpm deploy-iam-role`
+
+Re-run step 3 on an account whose role predates the 3h `MaxSessionDuration`
+`src/github-action-role.ts` now sets: `.github/workflows/e2e-harness.yml` asks
+STS for a 3h session, and STS rejects the request outright if the role still
+allows only the 1h default.
+
+Re-run it as well on an account whose role predates the harness policy the same
+file adds. The harness scripts call CloudFormation, CloudFront, Lambda and
+CloudWatch Logs directly as this role (reading stack outputs, invalidating after
+a hotswap, deleting orphaned `hrns-*` stacks). Without that policy, every deploy
+fails its invalidation and the cleanup step can't delete the shard's stack.

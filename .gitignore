@@ -40,6 +40,7 @@ ash_output
 ~$*.xlsx
 .kiro
 .claude/worktrees
+/nextjs/
 /test-reports/
 junit.xml
 /coverage/
@@ -60,6 +61,7 @@ junit.xml
 !/API.md
 /assets/
 !/src/lambdas/post-deploy/post-deploy-function.ts
+!/src/lambdas/redeploy-stage/redeploy-stage-function.ts
 .jsii.tabl.json
 !/rosetta/default.ts-fixture
 !/.github/workflows/retry-automerge.yml
@@ -68,6 +70,7 @@ junit.xml
 !/.github/workflows/upgrade-main.yml
 !/.github/workflows/upgrade-dev-deps-main.yml
 !/examples/**/tsconfig.json
+!/tsconfig.esm.json
 !/.projenrc.ts
 !/src/generated-structs/OptionalNextjsPostDeployProps.ts
 !/src/generated-structs/OptionalPostDeployCustomResourceProperties.ts
@@ -81,9 +84,9 @@ junit.xml
 !/src/generated-structs/OptionalNextjsBuildProps.ts
 !/src/generated-structs/OptionalNextjsCacheProps.ts
 !/src/generated-structs/OptionalNextjsDistributionProps.ts
+!/src/generated-structs/OptionalNextjsApiProps.ts
 !/src/generated-structs/OptionalNextjsContainersProps.ts
 !/src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts
 !/src/generated-structs/OptionalVpcProps.ts
 !/src/generated-structs/OptionalFunctionProps.ts
 !/src/generated-structs/OptionalFunctionUrlProps.ts
-!/src/generated-structs/OptionalDockerImageFunctionProps.ts

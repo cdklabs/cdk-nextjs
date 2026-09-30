@@ -1,27 +1,22 @@
-import { getCategory } from '#/app/api/categories/getCategories';
+import { CategoryCards, CategoryCardsFallback } from '#/ui/category-content';
 import BuggyButton from '#/ui/buggy-button';
-import { SkeletonCard } from '#/ui/skeleton-card';
-import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default async function Page(
-  props: {
-    params: Promise<{ categorySlug: string; subCategorySlug: string }>;
-  }
-) {
-  const params = await props.params;
-  const category = await getCategory({ slug: params.subCategorySlug });
-
+export default function Page(props: {
+  params: Promise<{ categorySlug: string; subCategorySlug: string }>;
+}) {
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-medium text-gray-400/80">{category.name}</h1>
-
       <BuggyButton />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {Array.from({ length: category.count }).map((_, i) => (
-          <SkeletonCard key={i} />
-        ))}
-      </div>
+      {/*
+       * Everything that depends on the slug in the URL streams in after the shell:
+       * with `cacheComponents` on, reading `params` outside a `<Suspense>`
+       * boundary would stop this route from being prerendered at all.
+       */}
+      <Suspense fallback={<CategoryCardsFallback />}>
+        <CategoryCards params={props.params} slugKey="subCategorySlug" />
+      </Suspense>
     </div>
   );
 }

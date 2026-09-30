@@ -1,20 +1,30 @@
 {
   "name": "cdk-nextjs-load-tests",
   "version": "1.0.0",
+  "type": "module",
+  "private": true,
   "scripts": {
-    "test:local": "dotenv -- artillery run src/load-tests.ts",
-    "_test-fargate:sm": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 7 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
-    "test-fargate:sm": "dotenv -- pnpm _test-fargate:sm",
-    "_test-fargate:md": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 32 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
-    "test-fargate:md": "dotenv -- pnpm _test-fargate:md",
-    "_test-fargate:lg": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 63 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
-    "test-fargate:lg": "dotenv -- pnpm _test-fargate:lg",
-    "_test-fargate:xl": "artillery run-fargate --region us-east-1 --cpu 16 --memory 32 --count 625 --launch-config '{\"environment\":[{\"name\":\"E2E_BASE_URL\",\"value\":\"'$E2E_BASE_URL'\"}]}' src/load-tests.ts",
-    "test-fargate:xl": "dotenv -- pnpm _test-fargate:xl"
+    "latency": "bash scripts/k6.sh latency",
+    "capacity": "bash scripts/k6.sh capacity",
+    "browser": "bash scripts/k6.sh browser",
+    "use-cache": "bash scripts/k6.sh use-cache",
+    "cold-start": "dotenv -- node scripts/cold-start.ts",
+    "report": "node scripts/report.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/tsconfig.json && tsc -p stacks/tsconfig.json --noEmit && tsc -p runner/tsconfig.json --noEmit",
+    "runner:deploy": "dotenv -- cdk deploy --require-approval never --outputs-file runner-outputs.json",
+    "runner:destroy": "dotenv -- cdk destroy --force",
+    "stack:deploy": "dotenv -- cdk deploy --app 'pnpm tsx stacks/app.ts' --output cdk.out.stacks --require-approval never --outputs-file stack-outputs.json",
+    "stack:destroy": "dotenv -- cdk destroy --app 'pnpm tsx stacks/app.ts' --output cdk.out.stacks --force"
   },
   "devDependencies": {
-    "@playwright/test": "catalog:",
-    "artillery": "catalog:",
-    "dotenv-cli": "catalog:"
+    "@types/k6": "catalog:",
+    "@types/node": "catalog:",
+    "aws-cdk": "catalog:",
+    "aws-cdk-lib": "catalog:",
+    "cdk-nextjs": "link:../..",
+    "constructs": "catalog:",
+    "dotenv-cli": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   }
 }

@@ -9,20 +9,15 @@ import {
   NextjsBaseProps,
 } from "./nextjs-base-construct";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
-import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsContainers,
   NextjsContainersOverrides,
 } from "../nextjs-compute/nextjs-containers";
-import {
-  NextjsPostDeploy,
-  NextjsPostDeployOverrides,
-} from "../nextjs-post-deploy";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { joinPath } from "../utils/base-path";
 
 export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainerProps?: OptionalNextjsContainersProps;
-  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -33,7 +28,6 @@ export interface NextjsRegionalContainersConstructOverrides extends NextjsBaseCo
 export interface NextjsRegionalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsRegionalContainers?: NextjsRegionalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
-  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsRegionalContainersProps extends NextjsBaseProps {
@@ -49,6 +43,23 @@ export interface NextjsRegionalContainersProps extends NextjsBaseProps {
    * a new cluster and VPC gateway endpoints.
    */
   readonly ecsCluster?: ICluster;
+  /**
+   * Path to API Route Handler that returns HTTP 200 to ensure compute health.
+   * Used by the ALB target group and the ECS container health check, both of
+   * which have to be able to tell a running task from a wedged one.
+   *
+   * Give the path as your app routes it, without your app's `basePath` —
+   * cdk-nextjs adds that prefix, since both checks hit the app directly.
+   * @example "/api/health"
+   * @example
+   * // api/health/route.ts
+   * import { NextResponse } from "next/server";
+   *
+   * export function GET() {
+   *   return NextResponse.json("");
+   * }
+   */
+  readonly healthCheckPath: string;
   /**
    * Override props of any construct.
    */
@@ -97,28 +108,21 @@ export class NextjsRegionalContainers extends NextjsBaseConstruct {
     return new NextjsContainers(this, "NextjsContainers", {
       ...this.computeBaseProps(),
       alb: this.props.alb,
+      buildDirectory: this.props.buildDirectory,
       ecsCluster: this.props.ecsCluster,
+      healthCheckPath: this.resolvedHealthCheckPath(this.props.healthCheckPath),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
+      relativeProjectDir: this.nextjsBuild.relativeProjectDir,
       overrides: {
         ...this.props.overrides?.nextjsContainers,
         ecsClusterProps: {
           ...this.props.overrides?.nextjsContainers?.ecsClusterProps,
-          vpc: this.baseProps.vpc,
+          // Conditional for the same reason as the Functions' `vpc`: assigned
+          // unconditionally, an unset `vpc` prop would erase the override's.
+          ...(this.baseProps.vpc ? { vpc: this.baseProps.vpc } : {}),
         },
       },
       ...this.props.overrides?.nextjsRegionalContainers?.nextjsContainerProps,
-    });
-  }
-
-  private createNextjsPostDeploy(): NextjsPostDeploy {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
-      buildId: this.nextjsBuild.buildId,
-      cacheBucket: this.nextjsCache.cacheBucket,
-      revalidationTable: this.nextjsCache.revalidationTable,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
-      overrides: this.props.overrides?.nextjsPostDeploy,
-      ...this.props.overrides?.nextjsRegionalContainers?.nextjsPostDeployProps,
     });
   }
 }

@@ -1,5 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+/**
+ * Pure `basePath` and URL path helpers. Nothing here imports `aws-cdk-lib` or
+ * touches the filesystem, so the adapter and runtime bundles can import it as
+ * well as the constructs.
+ */
 import { LOG_PREFIX, NextjsType } from "../constants";
 
 /**
@@ -9,6 +12,42 @@ import { LOG_PREFIX, NextjsType } from "../constants";
  */
 export function normalizeBasePath(basePath?: string): string {
   return (basePath || "").replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+/**
+ * Whether `path` is `prefix` or under it on a segment boundary, so `/docsearch`
+ * is not under `/docs`. An empty `prefix` matches nothing. Both sides must be in
+ * the same form (both with or both without the leading `/`).
+ */
+export function hasPathPrefix(path: string, prefix: string): boolean {
+  return !!prefix && (path === prefix || path.startsWith(`${prefix}/`));
+}
+
+/**
+ * A `basePath` as Next.js spells it and URLs start with it: one leading slash,
+ * no trailing one ("/base"), `""` for none. Accepts any spelling
+ * {@link normalizeBasePath} does.
+ */
+export function basePathPrefix(basePath?: string): string {
+  const bare = normalizeBasePath(basePath);
+  return bare ? `/${bare}` : "";
+}
+
+/**
+ * Invalidation paths covering every URI of the app: what a deploy invalidates,
+ * and what the cache handler's oversized batches, retries after a quota error,
+ * and tags whose routes could not all be named fall back to.
+ *
+ * `/*` is the whole app only without a `basePath`. `/base/*` matches neither the
+ * app's root, `/base`, nor its RSC payload, `/base?_rsc=…` - the same root the
+ * `revalidatePath("/")` that overflowed may have named - so those are spelled
+ * out. `/base*` would cover them for one wildcard, but also every sibling
+ * prefix (`/base2`, `/basement`), which may be another app on the same
+ * distribution.
+ */
+export function wholeAppInvalidationPaths(basePath?: string): string[] {
+  const prefix = basePathPrefix(basePath);
+  return prefix ? [prefix, `${prefix}?*`, `${prefix}/*`] : ["/*"];
 }
 
 /**
@@ -28,8 +67,8 @@ export function joinPath(...parts: (string | undefined)[]): string {
  * answers "/api/health" and "/api/health/" differently.
  *
  * Use this for paths handed to something that talks to the app directly — an ALB
- * target group health check, the Lambda Web Adapter readiness check — since the
- * app only answers under its own `basePath`.
+ * target group health check, the container's own health probe — since the app
+ * only answers under its own `basePath`.
  *
  * Prefixes unconditionally, so `path` has to arrive as the app routes it,
  * without `basePath`: for an app based at "/base", "/base/api/health" becomes
@@ -47,41 +86,197 @@ export function prefixWithBasePath(
   return normalized ? `/${normalized}${absolute}` : absolute;
 }
 
+/** Whether an `assetPrefix` names an origin rather than a path on this one. */
+function isAbsoluteAssetPrefix(assetPrefix: string): boolean {
+  return /^([a-z][a-z0-9+.-]*:)?\/\//i.test(assetPrefix);
+}
+
 /**
- * Read the Next.js app's own `basePath` out of `required-server-files.json`,
- * which `next build` writes into `.next` with the fully resolved config (so
- * this picks up a `basePath` computed in `next.config.js`, not only a literal
- * one). Normalized, empty when the app sets none.
+ * The app's own `assetPrefix` as a path with a leading and no trailing slash
+ * ("/cdn"), or `""` when the app sets none.
  *
- * Degrades to `""` rather than throwing, since an unreadable file shouldn't
- * fail a deployment that would otherwise work. It warns because `""` is
- * indistinguishable from an app that genuinely sets no `basePath`: the
- * `NextjsType`s that derive `basePath` from the app would quietly not derive
- * it and 404 every static asset.
+ * Returns `""` for an absolute `assetPrefix` ("https://cdn.example.com", or the
+ * protocol-relative "//cdn.example.com") too: that names an origin cdk-nextjs
+ * does not control, and it is the supported way to serve assets from elsewhere,
+ * so nothing about it is worth warning about. Use {@link assetPrefixPath} for
+ * what the *distribution* has to answer on, which includes the path an absolute
+ * prefix carries.
+ *
+ * Next.js applies `assetPrefix` on top of, not under, `basePath`, so the result
+ * is the whole prefix of a `_next/static` URL and must not be joined with
+ * `basePath`.
  */
-export function readNextConfigBasePath(dotNextPath: string): string {
-  const requiredServerFiles = join(dotNextPath, "required-server-files.json");
-  const fallback = (reason: string) => {
+export function relativeAssetPrefix(assetPrefix: string): string {
+  return isAbsoluteAssetPrefix(assetPrefix) ? "" : basePathPrefix(assetPrefix);
+}
+
+/**
+ * Whether a path-style `assetPrefix` would go unanswered on this `NextjsType`,
+ * i.e. whether every bundle would 404.
+ *
+ * `assetPrefix` moves every bundle URL to `<assetPrefix>/_next/static/...` while
+ * the objects keep their `<basePath>/_next/static/...` S3 keys. The Global
+ * `NextjsType`s answer that with a cache behavior of their own
+ * (`NextjsDistribution`); the regional ones have nothing that maps the prefix
+ * back — API Gateway's `_next/static` resource and the container's own files are
+ * both under the unprefixed path.
+ *
+ * A prefix equal to the app's own `basePath` is **not** unserved, because that is
+ * the value Next.js resolves `assetPrefix` to when `basePath` is set and
+ * `assetPrefix` is not: `.next/required-server-files.json` comes back as
+ * `{"assetPrefix":"/prod","basePath":"/prod"}` for an app that only ever set
+ * `basePath`. Without that exemption the warning fired on every regional
+ * deployment that sets a `basePath` at all — including `examples/regional-functions`
+ * — telling users their bundles would 404 at the one path that does serve them.
+ * `NextjsDistribution.resolveAssetPrefix` drops the prefix for the same reason.
+ *
+ * Both sides go through `normalizeBasePath` because they arrive in different
+ * shapes: `nextConfigAssetPrefix` carries a leading slash (`"/prod"`),
+ * `nextConfigBasePath` does not (`"prod"`).
+ */
+export function isAssetPrefixUnserved(
+  nextjsType: NextjsType,
+  nextConfigAssetPrefix: string,
+  nextConfigBasePath?: string,
+): boolean {
+  if (!nextConfigAssetPrefix) return false;
+  if (
+    nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
+    nextjsType === NextjsType.GLOBAL_CONTAINERS
+  ) {
+    return false;
+  }
+  return (
+    normalizeBasePath(nextConfigAssetPrefix) !==
+    normalizeBasePath(nextConfigBasePath)
+  );
+}
+
+/**
+ * The *path* every bundle URL carries, whichever form `assetPrefix` takes: "/cdn"
+ * for `assetPrefix: "/cdn"` and for `assetPrefix:
+ * "https://cdn.example.com/cdn"` alike, `""` when there is none (an absolute
+ * prefix with no path, or no prefix at all).
+ *
+ * An absolute prefix's path counts because `next build` compiles a `beforeFiles`
+ * rewrite of its own for it — `/cdn/_next/:path+ → /_next/:path+` — so `next
+ * start` serves every bundle under that path as well as under `/_next`. A CDN
+ * fronting this deployment at that path therefore has to be answered, and the
+ * distribution's `assetPrefix` behavior is what answers it. Measured against
+ * `test/e2e/app-dir/asset-prefix-absolute`; see `docs/harness-coverage.md`.
+ * Shared with `NextjsDistribution`, whose `assetPrefix` prop a user can also
+ * set by hand.
+ */
+export function assetPrefixPath(assetPrefix: string): string {
+  if (!assetPrefix) return "";
+  let path = assetPrefix;
+  if (isAbsoluteAssetPrefix(assetPrefix)) {
+    try {
+      // `//cdn.example.com/cdn` is protocol-relative, which `URL` only parses
+      // with a base — any base, since only the path is read off it.
+      path = new URL(assetPrefix, "https://asset-prefix.invalid").pathname;
+    } catch {
+      return "";
+    }
+  }
+  return basePathPrefix(path);
+}
+
+/**
+ * The path prefix API Gateway strips before matching resources, as far as synth
+ * can tell. Only read by `resolveBasePath` for `REGIONAL_FUNCTIONS`.
+ */
+export interface ApiGatewayPrefix {
+  /**
+   * The stage name on the execute-api endpoint, or the base path mapping on a
+   * custom domain (`""` when mapped at the root). `undefined` when it is not
+   * known at synth — a token — in which case nothing is derived.
+   */
+  readonly strippedPrefix?: string;
+  /** Whether a custom domain is configured through `restApiProps.domainName`. */
+  readonly customDomain: boolean;
+}
+
+/** `RestApi`'s own defaults: the `prod` stage, no custom domain. */
+export const DEFAULT_API_GATEWAY_PREFIX: ApiGatewayPrefix = {
+  strippedPrefix: "prod",
+  customDomain: false,
+};
+
+/**
+ * The resource path an app's `basePath` needs on `REGIONAL_FUNCTIONS` when the
+ * `basePath` prop is unset: the app's `basePath` with the prefix API Gateway
+ * strips taken off the front, or the whole of it when it does not start with
+ * that prefix.
+ *
+ * An app at the `prod` stage emits `/prod/...` and API Gateway strips `/prod`
+ * before matching, so `basePath: "/prod"` needs resources at the root and
+ * `basePath: "/prod/base"` needs them under `base`. An app whose `basePath` API
+ * Gateway does not strip — a custom domain mapped at the root, serving
+ * `basePath: "/docs"` — needs them under `docs`. Leaving that one at the root is
+ * what used to happen: `_next/static` and `public/` fell through to the
+ * `{proxy+}` catch-all, and every bundle 404'd with nothing said at synth.
+ */
+function deriveApiGatewayBasePath(
+  config: string,
+  { strippedPrefix, customDomain }: ApiGatewayPrefix,
+): string | undefined {
+  if (!config || strippedPrefix === undefined) {
+    return undefined;
+  }
+  const stripped = normalizeBasePath(strippedPrefix);
+  if (hasPathPrefix(config, stripped)) {
+    return config.slice(stripped.length + 1) || undefined;
+  }
+  warnUnstrippedBasePath(config, { strippedPrefix, customDomain });
+  return config;
+}
+
+/**
+ * Warn that an app mounted under its whole `basePath` is served somewhere its
+ * own links don't reach, when API Gateway strips a prefix that `basePath` lacks.
+ * Both ways of arriving there warn: the prop left unset (derived to the whole
+ * `basePath`) and the prop set to the same value.
+ */
+function warnUnstrippedBasePath(
+  config: string,
+  { strippedPrefix, customDomain }: ApiGatewayPrefix,
+): void {
+  const stripped = normalizeBasePath(strippedPrefix);
+  if (strippedPrefix === undefined || !stripped) {
+    // A token, or a custom domain mapped at the root: nothing is stripped that
+    // the app's links could miss.
+    return;
+  }
+  if (customDomain) {
+    // The same miss through a custom domain's base path mapping: served at
+    // `/<mapping>/<basePath>`, linking to `/<basePath>/...`, which no mapping
+    // covers.
     console.warn(
-      `${LOG_PREFIX} ${reason}. Assuming your Next.js app sets no \`basePath\`: ` +
-        "if it does set one, static assets will 404 and any `basePath` prop " +
-        "mismatch reported at synth will name the wrong value.",
+      `${LOG_PREFIX} your Next.js app's \`basePath\` is ${quote(config)}, which does not start with the custom domain's base path mapping "/${stripped}". ` +
+        "Its links and bundle URLs will be requested without the mapping, which the custom domain answers with 403. " +
+        `Set \`basePath: "/${joinPath(stripped, config)}"\` in your next.config, or map the domain at the root.`,
     );
-    return "";
-  };
-  if (!existsSync(requiredServerFiles)) {
-    return fallback(
-      `"required-server-files.json" not found at ${requiredServerFiles}`,
-    );
-  }
-  try {
-    const { config } = JSON.parse(readFileSync(requiredServerFiles, "utf-8"));
-    return normalizeBasePath(config?.basePath);
-  } catch (error) {
-    return fallback(
-      `Could not read basePath from ${requiredServerFiles}: ${error}`,
+  } else {
+    // Resources under the app's basePath serve it at `/<stage>/<basePath>`, but
+    // the app's own links are `/<basePath>/...`, which misses the stage. A
+    // warning, not an error: a domain attached after synth (`addDomainName`)
+    // makes it right, and synth cannot see that.
+    console.warn(
+      `${LOG_PREFIX} your Next.js app's \`basePath\` is ${quote(config)}, which does not start with the API Gateway stage "/${stripped}". ` +
+        "Its links and bundle URLs will be requested without the stage, which the execute-api endpoint answers with 403. " +
+        `Set \`basePath: "/${joinPath(stripped, config)}"\` in your next.config, or serve the app from a custom domain mapped at the root.`,
     );
   }
+}
+
+/** Whether API Gateway strips the front of `basePath` before matching resources. */
+function startsWithStrippedPrefix(
+  basePath: string,
+  { strippedPrefix }: ApiGatewayPrefix,
+): boolean {
+  const stripped = normalizeBasePath(strippedPrefix);
+  return !!basePath && hasPathPrefix(basePath, stripped);
 }
 
 function quote(basePath: string): string {
@@ -100,21 +295,54 @@ function quote(basePath: string): string {
  * land under), the config is the prefix the app emits its own links and asset
  * hrefs under — so how strictly they have to line up, and whether one can stand
  * in for the other, depends on how the `NextjsType` routes static requests.
+ *
+ * `apiGateway` is only read for `REGIONAL_FUNCTIONS`, and only when the prop is
+ * unset: see `deriveApiGatewayBasePath`.
  */
 export function resolveBasePath(
   nextjsType: NextjsType,
   propBasePath?: string,
   nextConfigBasePath?: string,
+  apiGateway: ApiGatewayPrefix = DEFAULT_API_GATEWAY_PREFIX,
 ): string | undefined {
   const prop = normalizeBasePath(propBasePath);
   const config = normalizeBasePath(nextConfigBasePath);
-  if (prop === config) {
-    return prop || undefined;
-  }
-
   const mismatch =
     `${LOG_PREFIX} basePath mismatch for NextjsType.${nextjsType}: the \`basePath\` prop is ${quote(prop)} ` +
     `but your Next.js app's config sets \`basePath\` to ${quote(config)}. `;
+  if (prop === config) {
+    if (
+      nextjsType === NextjsType.REGIONAL_FUNCTIONS &&
+      startsWithStrippedPrefix(prop, apiGateway)
+    ) {
+      // Agreeing is not enough here: API Gateway strips the stage (or base path
+      // mapping) before matching, so resources under the prop's "prod" are only
+      // reached at `/prod/prod/...`, and every link the app emits 403s.
+      const problem =
+        `API Gateway strips "/${normalizeBasePath(apiGateway.strippedPrefix)}" before matching resources, so a prop that repeats it nests every resource under a path no request reaches. ` +
+        "Leave the prop unset: it is derived from your app's `basePath` with that prefix taken off.";
+      if (apiGateway.customDomain) {
+        throw new Error(mismatch + problem);
+      }
+      // On the execute-api endpoint that is certain, but an explicit prop wins:
+      // a domain attached with `addDomainName()`, invisible here, can map the
+      // stage at its root, and then `/prod/...` does reach resources under
+      // "prod".
+      console.warn(
+        mismatch +
+          problem +
+          " (Ignore this if a domain attached with `addDomainName()` serves the app without stripping that prefix.)",
+      );
+      return prop;
+    }
+    if (nextjsType === NextjsType.REGIONAL_FUNCTIONS && prop) {
+      // Agreeing the other way round has the unset case's problem: resources
+      // under "docs" are reached at `/prod/docs/...`, the app links to
+      // `/docs/...`.
+      warnUnstrippedBasePath(config, apiGateway);
+    }
+    return prop || undefined;
+  }
 
   switch (nextjsType) {
     case NextjsType.GLOBAL_FUNCTIONS:
@@ -133,19 +361,44 @@ export function resolveBasePath(
           "Either set both to the same value, or drop the prop — left unset, it follows your app's `basePath`.",
       );
     case NextjsType.REGIONAL_FUNCTIONS:
-      // Deliberately not derived: API Gateway mounts resources below the stage
-      // and strips it before invoking the app, so an app whose basePath is the
-      // stage name (or a custom domain base path mapping that gets stripped the
-      // same way) is correct precisely because the prop stays unset.
       if (!prop) {
-        return undefined;
+        // A prop that is set but names no path ("/") is an explicit root
+        // mount, not "unset": it is how an app says the prefix is stripped by
+        // something synth can't see — a domain attached later with
+        // `addDomainName({ basePath })`, say — so deriving here would nest the
+        // resources under a path the stripped requests never reach.
+        if (propBasePath !== undefined) {
+          return undefined;
+        }
+        return deriveApiGatewayBasePath(config, apiGateway);
       }
       // The prop only has to be the tail of what the app emits, not all of it,
       // because the stripped prefix is part of the app's `basePath` but never
       // part of the resource path: an app at the `prod` stage nested under
-      // "/base" sets `basePath: "/prod/base"` and the prop to "/base". Checked
-      // on a path boundary so "/prod/base" doesn't accept a prop of "se".
-      if (config.endsWith(`/${prop}`)) {
+      // "/base" sets `basePath: "/prod/base"` and the prop to "/base". Exactly
+      // the stripped prefix and then the prop, not any tail: with a prop of
+      // "/base" an app at "/foo/base" is served at `/prod/base/...` and links
+      // to `/foo/base/...`, which 403s. Only a token stage, which synth can't
+      // read, falls back to a tail on a path boundary.
+      if (
+        apiGateway.strippedPrefix === undefined
+          ? config.endsWith(`/${prop}`)
+          : config === joinPath(apiGateway.strippedPrefix, prop)
+      ) {
+        return prop;
+      }
+      // Any tail on a path boundary is also what a domain attached with
+      // `addDomainName({ basePath: "v1" })` needs for an app at "/v1/base":
+      // synth only sees the stage, so it can't tell that setup from a mistake.
+      // An explicit prop wins, so that warns; a custom domain configured in
+      // `restApiProps.domainName` is visible, so there it still throws below.
+      if (!apiGateway.customDomain && config.endsWith(`/${prop}`)) {
+        const leading = config.slice(0, -prop.length - 1);
+        console.warn(
+          `${LOG_PREFIX} the \`basePath\` prop is ${quote(prop)} and your Next.js app's \`basePath\` is ${quote(config)}, ` +
+            `so the app is served at "/${joinPath(normalizeBasePath(apiGateway.strippedPrefix), prop)}" on the execute-api endpoint and links to "/${config}". ` +
+            `That only works through a custom domain whose base path mapping strips "/${leading}" (\`addDomainName({ basePath: "${leading}" })\`); otherwise every request 403s.`,
+        );
         return prop;
       }
       // Anything else never works: the prop moves every resource, including the
@@ -153,7 +406,7 @@ export function resolveBasePath(
       throw new Error(
         mismatch +
           "The `basePath` prop nests every API Gateway resource under that path, including the catch-all, so the app has to emit its links under the same prefix or every request 404s. " +
-          'Either set your app\'s `basePath` to end with the prop (optionally prefixed by the stage or base path mapping API Gateway strips, e.g. `basePath: "/prod/base"` with a prop of "/base"), or leave the prop unset — unset is what you want when the app\'s `basePath` is the API Gateway stage name, since the stage isn\'t part of the resource path.',
+          'Either set your app\'s `basePath` to the prop, or to the prop prefixed by the stage or base path mapping API Gateway strips (e.g. `basePath: "/prod/base"` with a prop of "/base"), or leave the prop unset — unset is what you want when the app\'s `basePath` is the API Gateway stage name, since the stage isn\'t part of the resource path.',
       );
     case NextjsType.REGIONAL_CONTAINERS:
       // The ALB forwards every path to the container, which serves its own

@@ -8,7 +8,7 @@ Next.js uses multiple caching layers to improve performance and reduce costs. cd
 
 ## Next.js Caching Mechanisms
 
-Next.js uses multiple caching layers, each with a specific `CachedRouteKind` that determines how cdk-nextjs organizes them in S3:
+Next.js uses multiple caching layers. Those the incremental cache stores each have a `CachedRouteKind`, recorded in the entry itself:
 
 ### 1. Request Memoization
 
@@ -25,7 +25,7 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Kind**: `FETCH`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
+- **Storage**: S3 bucket at `{buildId}/{cache-key}.json`
 - **Custom Cache Handler**: S3CacheHandler manages read/write operations
 - **Revalidation**: DynamoDB table tracks tag-based revalidation metadata
 
@@ -39,7 +39,8 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 - `APP_PAGE` - App Router pages
 - `APP_ROUTE` - App Router API routes
 - `PAGES` - Pages Router pages
-  **cdk-nextjs Implementation**:
+
+**cdk-nextjs Implementation**:
 
 - **ISR Support**: Files updated during Incremental Static Regeneration
 - **Revalidation**: Tag-based invalidation via DynamoDB tracking
@@ -52,15 +53,15 @@ Next.js uses multiple caching layers, each with a specific `CachedRouteKind` tha
 **Kind**: `IMAGE`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
+- **Storage**: S3 bucket at `{buildId}/{cache-key}.json`
 - **Optimization**: Cached resized, format-converted images
 - **Revalidation**: Time-based or on-demand revalidation
 
-This applies on every `NextjsType`, since `_next/image` is served by the Next.js
-server. If you replace that route with your own image optimization Lambda (via
-`NextjsApiProps.imageFunction` or `NextjsDistributionProps.imageFunctionUrl`),
-this cache kind is no longer written and you rely on HTTP caching instead
-(`Cache-Control`/`ETag` response headers, browser/CDN-cached).
+This applies on every `NextjsType`: `_next/image` is handled inside cdk-nextjs's
+runtime, which runs Next.js's own image optimizer and image cache over the cache
+handler, so a variant is optimized once and then served with
+`X-Nextjs-Cache: HIT`. Behind CloudFront (the Global types) that makes an edge
+miss an S3 read rather than a second optimization.
 
 ### 5. Redirect Cache (REDIRECT)
 
@@ -70,7 +71,7 @@ this cache kind is no longer written and you rely on HTTP caching instead
 **Kind**: `REDIRECT`
 **cdk-nextjs Implementation**:
 
-- **Storage**: S3 bucket at `/{buildId}/{cache-key}`
+- **Storage**: S3 bucket at `{buildId}/{cache-key}.json`
 - **Configuration**: Cached redirect rules and destinations
 
 ### 6. Router Cache (Client-side)
@@ -89,13 +90,23 @@ this cache kind is no longer written and you rely on HTTP caching instead
 
 ### S3 Cache Storage
 
-cdk-nextjs uses a dedicated S3 bucket for cache storage with BUILD_ID and kind prefixing for deployment isolation and organization:
+cdk-nextjs uses a dedicated S3 bucket for cache storage, with every key under the build's ID so deployments never read each other's entries:
 
 ```
 Cache Bucket Structure:
-/{buildId}/
-└── {cache-key}.json             # All cache entries (FETCH, IMAGE, APP_PAGE, APP_ROUTE, PAGES, REDIRECT)
+{buildId}/
+├── {cache-key}.json             # Incremental cache entries (FETCH, IMAGE, APP_PAGE, APP_ROUTE, PAGES, REDIRECT)
+└── _use-cache/{sha256}.entry    # 'use cache: remote' entries, keyed by a hash of the cache key
 ```
+
+Each instance also keeps an in-memory copy of the entries it read or wrote, in
+front of S3, for `CDK_NEXTJS_MEMORY_CACHE_TTL_MS` (1 hour by default; see the
+[README](../README.md#cdk_nextjs_memory_cache_ttl_ms)). A memory hit is still
+checked against its tags' revalidation markers, so a `revalidateTag` on any
+instance expires it. `'use cache'` and `'use cache: remote'` have their own
+handlers, described in the
+[README](../README.md#use-cache-and-use-cache-remote); they read the same
+revalidation markers.
 
 #### Examples
 
@@ -110,10 +121,8 @@ Cache Bucket Structure:
     "kind": "APP_PAGE",
     "html": "<!DOCTYPE html><html lang=\"en\" class=\"[color-scheme:dark]\">...</html>",
     "rscData": {
-      "type": "Buffer",
-      "data": [
-        49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, 109, ...
-      ]
+      "__type": "Buffer",
+      "base64": "MToiJFNyZWFjdC5mcmFnbQ..."
     },
     "headers": {
       "x-nextjs-stale-time": "300",
@@ -123,46 +132,32 @@ Cache Bucket Structure:
       "__type": "Map",
       "data": {
         "/_tree": {
-          "type": "Buffer",
-          "data": [
-            58, 72, 76, 91, 34, 47, 95, 110, 101, 120, 116, 47, 115, 116, 97, ...
-          ]
+          "__type": "Buffer",
+          "base64": "OkhMWyIvX25leHQvc3Rh..."
         },
         "/_full": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/isr/$d$id/__PAGE__": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/isr/$d$id": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/isr": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/_index": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         },
         "/_head": {
-          "type": "Buffer",
-          "data": [
-            49, 58, 34, 36, 83, 114, 101, 97, 99, 116, 46, 102, 114, 97, 103, ...
-          ]
+          "__type": "Buffer",
+          "base64": "MToiJFNyZWFjdC5mcmFn..."
         }
       }
     }
@@ -184,10 +179,8 @@ Cache Bucket Structure:
     "kind": "APP_ROUTE",
     "status": 200,
     "body": {
-      "type": "Buffer",
-      "data": [
-        0, 0, 1, 0, 3, 0, 48, 48, 0, 0, 1, 0, 32, 0, 168, 37, 0, 0, 54, 0, 0, 0, ...
-      ]
+      "__type": "Buffer",
+      "base64": "AAABAAMAMDAAAAEAIACoJQAANgAAAA..."
     },
     "headers": {
       "cache-control": "public, max-age=0, must-revalidate",
@@ -260,10 +253,8 @@ Cache Bucket Structure:
   "value": {
     "kind": "IMAGE",
     "buffer": {
-      "type": "Buffer",
-      "data": [
-        255, 216, 255, 219, 0, 67, 0, 8, 8, 8, 8, 9, 8, 9, 10, 10, 9, 13, 14, ...
-      ]
+      "__type": "Buffer",
+      "base64": "/9j/2wBDAAgICAgJCAkKCgkNDg..."
     },
     "etag": "J29FvqevmUxXsoXBJzPbJC-g_PiMBegRLXAFLl_ZfhE",
     "extension": "jpeg",
@@ -272,72 +263,114 @@ Cache Bucket Structure:
   },
   "tags": []
 }
-
 ```
 
 </details>
 
 **Key Features**:
 
-- **BUILD_ID Isolation**: All cache keys prefixed with `/{buildId}/`
+- **BUILD_ID Isolation**: All cache keys prefixed with `{buildId}/`
 - **Next.js Cache Key Passthrough**: Preserves Next.js internal cache key structure
 - **Cache Kind Metadata**: Cache type stored within each cache entry's metadata
+- **Binary Payloads as base64**: RSC payloads and image bodies are `Buffer`s, written as
+  `{ "__type": "Buffer", "base64": "..." }`. `JSON.stringify` on a `Buffer` would otherwise
+  produce `{ "type": "Buffer", "data": [97, 97, ...] }` — one JSON number per byte, roughly
+  3x the bytes and, on read, one `JSON.parse` reviver call per byte. A 1 MiB RSC payload
+  costs ~4.8s of Lambda time to parse that way against ~0.2s for base64. Entries written by
+  an older build in the integer-array format are still read correctly.
 
 ### DynamoDB Revalidation Tracking
 
-A DynamoDB table tracks tag-to-S3-key mappings for efficient revalidation:
+The revalidation table holds four kinds of item. Everything a build writes is
+under its `buildId`, so pruning a previous build is a query of its partitions,
+not a scan.
 
 ```typescript
-interface RevalidationItem {
-  pk: string; // Partition Key: buildId (e.g., "build-abc123")
-  sk: string; // Sort Key: "{tag}#{s3Key}" (e.g., "user-profile#build-abc123/fetch/api-users-123")
-  createdAt: number; // Creation timestamp
-  revalidatedAt: number; // Last revalidation timestamp
+// When a tag was last revalidated, and how. What every revalidation check
+// reads, and the source of truth.
+interface TagMarkerItem {
+  pk: string; // buildId, e.g. "build-abc123"
+  sk: string; // the tag, e.g. "user-profile"
+  revalidatedAt?: number; // expired outright: updateTag, or revalidateTag with no profile
+  staleAt?: number; // stale from here: revalidateTag(tag, profile)
+  expiredAt?: number; // when that profile's expire runs out
+}
+
+// One row per revalidation of a tag, so an instance can ask "what changed
+// since I last looked?" in one Query instead of re-reading every tag it keeps.
+interface RevalidationLogItem {
+  pk: string; // "{buildId}#log"
+  sk: string; // "{epoch ms, zero-padded to 15 digits}#{tag}": sorts by time
+  revalidatedAt?: number; // the same fields the marker got
+  staleAt?: number;
+  expiredAt?: number;
+  ttl: number; // epoch seconds, 15 minutes out; DynamoDB deletes it after
+}
+
+// Which cached pages a tag appears on, so revalidateTag can name their
+// CloudFront paths. Only written on the Global constructs.
+interface TagMappingItem {
+  pk: string; // buildId
+  sk: string; // "{tag}#{s3Key}"
+  createdAt: number;
 }
 
 interface MetadataItem {
-  pk: "METADATA"; // Special partition key for metadata
-  sk: "CURRENT_BUILD"; // Special sort key for tracking current build
-  buildId: string; // Current BUILD_ID for efficient pruning
-  updatedAt: number; // Last update timestamp
+  pk: "METADATA";
+  sk: "CURRENT_BUILD";
+  buildId: string; // the current build, so the next deploy knows what to prune
+  updatedAt: number;
 }
 ```
 
-**Example Data**:
+**Example Data**, after `revalidateTag("user-profile")`:
 
 ```
-PK: "build-abc123"    SK: "user-profile#build-abc123/api-users-123"
-PK: "build-abc123"    SK: "user-profile#build-abc123/users-profile"
-PK: "build-abc123"    SK: "product-data#build-abc123/products-electronics"
-PK: "build-abc123"    SK: "product-images#build-abc123/product-123-thumb"
-PK: "METADATA"        SK: "CURRENT_BUILD"    buildId: "build-abc123"
+PK: "build-abc123"        SK: "user-profile"                                revalidatedAt: 1790467483203
+PK: "build-abc123#log"    SK: "001790467483193#user-profile"                revalidatedAt: 1790467483193, ttl: 1790468384
+PK: "build-abc123"        SK: "user-profile#build-abc123/users-profile.json"  createdAt: 1790467248586
+PK: "build-abc123"        SK: "product-data#build-abc123/products.json"       createdAt: 1790467248586
+PK: "METADATA"            SK: "CURRENT_BUILD"                               buildId: "build-abc123"
 ```
 
 **Key Features**:
 
-- **Efficient Pruning**: Query previous build's partition to delete old entries (no table scan)
-- **Metadata Tracking**: Stores current BUILD_ID for identifying previous build during pruning
-- **Full S3 Key Storage**: Sort key contains complete S3 path for direct deletion
-- **Efficient Revalidation**: Query by buildId + tag prefix returns all related cache entries
+- **Checks read markers, not mappings**: an instance reads a tag's marker the
+  first time it needs it, then learns of other instances' revalidations from
+  one log `Query` per second (see
+  [On-Demand Revalidation](#on-demand-revalidation)).
+- **Log rows sort by time**: the sort key's timestamp is what makes "every
+  revalidation since my last query" one key range. Rows older than the query's
+  range are never read, so DynamoDB deleting expired rows late costs only
+  storage.
+- **Mapping rows name CloudFront paths**: `revalidateTag` queries
+  `begins_with(sk, "{tag}#")` for the S3 keys, and so the paths, to invalidate.
+  Runtime `set`s write them; build-time prerenders are named by the build's
+  tag manifest in the cache bucket instead.
+- **Efficient pruning**: the post-deploy step queries the previous build's
+  partition and deletes it. Log rows expire through TTL instead.
 
 ### Custom Cache Handler
 
-The S3CacheHandler implements Next.js's cache interface with comprehensive tag-based revalidation:
+The `cacheHandler` the adapter registers (`src/adapter/cache-handler.ts`) writes local files at build time and, at runtime, puts an in-memory handler in front of `S3CacheHandler`, which implements Next.js's incremental cache interface:
 
 ```typescript
 export class S3CacheHandler {
   async get(
     cacheKey: string,
-    ctx: { kind: CachedRouteKind },
+    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
   ): Promise<CacheHandlerValue | null>;
 
   async set(
     cacheKey: string,
-    data: IncrementalCacheValue,
-    ctx: { tags: string[] },
+    data: IncrementalCacheValue | null,
+    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
   ): Promise<void>;
 
-  async revalidateTag(tag: string): Promise<void>;
+  async revalidateTag(
+    tag: string | string[],
+    durations?: { expire?: number },
+  ): Promise<void>;
 }
 ```
 
@@ -365,9 +398,9 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 **Cache Retrieval Process**:
 
 1. **Fetch from S3**: Retrieve cache entry with embedded tags
-2. **Revalidation Check**: Query DynamoDB to check if any tag has been revalidated since cache creation
-3. **Timestamp Comparison**: Compare `revalidatedAt` with cache entry's `lastModified`
-4. **Invalidation**: If any tag was revalidated after cache creation, delete S3 entry and return cache miss
+2. **Revalidation Check**: Look up each tag's marker (see [On-Demand Revalidation](#on-demand-revalidation) for where it comes from)
+3. **Timestamp Comparison**: Compare the marker's `revalidatedAt`/`staleAt`/`expiredAt` with the entry's `lastModified`
+4. **Invalidation**: If a tag was revalidated after the entry was created, a `fetch` entry reads as a miss and a page entry comes back expired, so Next.js refetches or re-renders it. The S3 object is left for that write to replace.
 5. **Return**: If valid, return cached data without tags
 
 **Key Features**:
@@ -376,7 +409,6 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 - **Tag Storage**: Tags stored with cache entries for revalidation checking
 - **Timestamp Validation**: Prevents serving stale data after tag revalidation
 - **Graceful Error Handling**: Logs errors and returns cache miss on failures
-- **Bulletproof Consistency**: Even if S3 deletions fail, stale data won't be served
 
 ## Static Assets vs Cache Assets
 
@@ -388,13 +420,17 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 
 - `public/` folder contents
 - `.next/static/` build artifacts (JS, CSS, images)
-- BUILD_ID metadata for pruning
+- A `BUILD_ID` object metadata entry on each file, for pruning
 
-**CloudFront Integration**:
+**Serving** (Global constructs):
 
 - Requests to `/_next/static/*` → S3 bucket
-- Requests to `/public/*` → S3 bucket
-- Long-term caching headers for performance
+- Requests for `public/` files, at their own paths (one CloudFront behavior per top-level entry, e.g. `/favicon.ico`, `/images/*`) → S3 bucket
+- Cached at the edge with CloudFront's `CachingOptimized` policy
+
+On the Regional constructs there is no CDN: `NextjsRegionalFunctions` serves
+them through API Gateway's S3 integration, and `NextjsRegionalContainers` from
+the tasks.
 
 ### Cache Assets (S3CacheHandler)
 
@@ -412,46 +448,54 @@ Each cache entry stored in S3 includes both the cached data and associated tags 
 
 When `revalidateTag("user-profile")` is called:
 
-1. **Query DynamoDB**: Find all cache keys tagged with `pk = {buildId} and sk starts_with user-profile`
-2. **Update Timestamps**: Mark revalidation time in DynamoDB for each cache entry
-3. **Delete S3 Objects**: Remove corresponding cache files from S3
+1. **Write the marker**: Set `revalidatedAt` (or `staleAt`/`expiredAt` for a profile) on the tag's marker row, `pk = {buildId}, sk = user-profile`
+2. **Log it**: Put a revalidation log row, `pk = {buildId}#log, sk = {epoch ms}#user-profile`, for other instances to find
+3. **Find the pages** (Global constructs only): Query the mapping rows, `pk = {buildId} and begins_with(sk, "user-profile#")`, for the S3 keys, and so the paths, the tag appears on, plus the build-time prerenders the build's tag manifest (`{buildId}/_cdk-nextjs-tag-manifest.json` in the cache bucket, read once per instance) lists for it
 4. **Invalidate CloudFront** (`NextjsGlobalFunctions`/`NextjsGlobalContainers` only): Evict the corresponding paths from the CDN edge cache too, so the origin's now-fresh state isn't masked by a still-cached edge response. This is best-effort and asynchronous (`cloudfront:CreateInvalidation` has no bounded completion SLA), so a client may briefly still observe stale content immediately after revalidation.
 
-**Revalidation Safety**: Even if S3 deletions fail due to network issues or race conditions, the cache handler will detect stale data during the next `get()` operation by comparing timestamps and automatically remove invalid entries.
+No S3 object is deleted: the next `get()` of an entry the tag is on compares the marker with the entry's `lastModified` and treats it as revalidated, and the refetch or re-render that follows overwrites it.
 
 **Cache Retrieval After Revalidation**:
 
 1. **Fetch Cache Entry**: Retrieve from S3 with embedded tags
-2. **Check Revalidation**: Query DynamoDB for each tag's `revalidatedAt` timestamp
-3. **Compare Timestamps**: If any `revalidatedAt` > cache `lastModified`, cache is invalid
-4. **Auto-cleanup**: Delete stale S3 entry and return cache miss
-5. **Fresh Data**: Next request will fetch fresh data and create new cache entry
+2. **Check Revalidation**: Look up each tag's marker
+3. **Compare Timestamps**: If any `revalidatedAt` (or a past `expiredAt`) > the entry's `lastModified`, it is expired; a later `staleAt` alone makes it stale, served while it regenerates
+4. **Fresh Data**: The refetch or re-render writes a new entry over the old one
+
+**Marker reads are kept per instance, and caught up from a log.** Every cache hit checks its tags, in-memory hits included, and every marker of a deployment shares one partition key. So each instance reads a tag's marker the first time it needs it and keeps it. Once a second it sends one `Query` to the revalidation log (`pk = <buildId>#log`, one row per revalidated tag, expiring after 15 minutes) for what other instances revalidated since, instead of re-reading its tags. Concurrent checks share that query. It still re-reads each marker it keeps every 7.5 to 10 minutes (a random point per tag, so tags first read together don't come due together), since the marker rows are the source of truth, but at most 100 per second rather than all at once. An instance keeps up to 10,000 tags. The instance that calls `revalidateTag` sees it immediately; other instances see it up to 1 s later, which is within what CloudFront's invalidation already takes. ISR, the data cache and `'use cache'` share one copy of the markers per instance, and so one query. Set `CDK_NEXTJS_TAG_REFRESH_MS` on the functions or tasks (through `overrides`) to change the interval, or to `0` to query the log on every check.
 
 ### Time-based Revalidation
 
 For routes with time-based revalidation (e.g., `revalidate: 3600`):
 
-- Next.js checks cache age before serving
-- Triggers background regeneration when expired
-- Updates cache files in S3 automatically
+- Next.js checks the entry's age before serving
+- Past `revalidate`, serves the stale entry and regenerates it in the background
+- The regenerated entry is written to S3 (and memory) as usual
 
-**Known limitation on Lambda**: this background regeneration is Next.js's own fire-and-forget work, not something cdk-nextjs's cache handler is invoked to await — the same "no signal for when background work is complete" gap that led to `NextjsRevalidation` (an SQS-based workaround) being removed in favor of waiting for Next.js's [Deployment Adapters `waitFor` API](https://github.com/vercel/next.js/discussions/77740) (see `docs/breaking-changes.md` 0.4.0). Until cdk-nextjs adopts `waitFor`, time-based revalidation on Lambda may occasionally not complete before the execution environment spins down, unrelated to the CloudFront-edge-cache invalidation described below (which only fires for explicit tag/path revalidation, not time-based expiry).
+**On Lambda, background regeneration completes before the environment freezes.** Next.js hands this work to the runtime through the adapter API's `waitUntil`. The runtime awaits it after the response stream has closed, so it adds billed duration but no latency, and the function's timeout bounds it. The Containers constructs' server does the same. This is unrelated to the CloudFront edge-cache invalidation described below, which only fires for explicit tag or path revalidation, not time-based expiry.
 
 ### Tag-based Revalidation
 
 ```typescript
-// In your API route or Server Action
-import { revalidateTag } from "next/cache";
+"use server";
+// In a Server Action
+import { revalidateTag, updateTag } from "next/cache";
 
 export async function updateUser(userId: string) {
-  // Update user data
   await updateUserInDatabase(userId);
 
-  // Invalidate all cache entries tagged with this user
-  revalidateTag(`user-${userId}`);
-  revalidateTag("user-list");
+  // Expire at once, so this user sees their own change on the next render
+  updateTag(`user-${userId}`);
+  // Serve stale while every page listing users regenerates in the background
+  revalidateTag("user-list", "max");
 }
 ```
+
+`updateTag` (Server Actions only) sets the marker's `revalidatedAt`: entries
+expire immediately. `revalidateTag(tag, profile)` sets `staleAt`, and `expiredAt`
+from the profile's `expire`: entries are served stale while they regenerate,
+until that runs out (with `{ expire: 0 }`, at once). Route handlers can use
+`revalidateTag` but not `updateTag`.
 
 ## Performance Characteristics
 
@@ -465,7 +509,7 @@ export async function updateUser(userId: string) {
 ### DynamoDB Revalidation
 
 - **Query Latency**: ~1-5ms (single partition key lookup)
-- **Revalidation Check**: Additional 1-5ms per tag during cache retrieval
+- **Revalidation Check**: One `BatchGetItem` for tags an instance hasn't seen yet, then one revalidation log `Query` per second per instance, however many tags it keeps (`CDK_NEXTJS_TAG_REFRESH_MS`)
 - **Scalability**: Handles millions of cache entries
 - **Cost**: Minimal - only pays for actual reads/writes
 - **Consistency**: Eventually consistent (sufficient for cache invalidation)
@@ -481,7 +525,7 @@ export async function updateUser(userId: string) {
 
 ### Cache Not Working
 
-1. Check environment variables are set correctly
+1. Check the compute's environment has `CDK_NEXTJS_CACHE_BUCKET_NAME`, `CDK_NEXTJS_REVALIDATION_TABLE_NAME` and `CDK_NEXTJS_BUILD_ID` (the constructs set them)
 2. Verify S3 bucket and DynamoDB table exist
 3. Check Lambda/container permissions
 4. Review CloudWatch logs for errors
@@ -489,11 +533,11 @@ export async function updateUser(userId: string) {
 ### Revalidation Issues
 
 1. Verify tags are set correctly in fetch requests
-2. Check DynamoDB for tag-to-cache-key mappings
+2. Check the tag's marker row in DynamoDB (`pk = {buildId}, sk = {tag}`) and its log rows (`pk = {buildId}#log`)
 3. Ensure revalidateTag() calls are working
-4. Monitor S3 object deletions
-5. Check CloudWatch logs for "CACHE INVALIDATED BY TAG" messages
-6. Verify timestamp comparisons in DynamoDB revalidation entries
+4. On the Global constructs, check the tag's mapping rows (`sk` beginning `{tag}#`) and the build's tag manifest (`{buildId}/_cdk-nextjs-tag-manifest.json`), which name the CloudFront paths to invalidate
+5. With `DEBUG=cdk-nextjs:*`, check CloudWatch logs for "CACHE INVALIDATED BY TAG" messages
+6. Compare the marker's timestamps with the entry's `lastModified`
 
 ### Performance Problems
 

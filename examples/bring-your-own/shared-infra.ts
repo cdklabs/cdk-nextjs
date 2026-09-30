@@ -1,5 +1,4 @@
-import { RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
-import { AttributeType, Billing, TableV2 } from "aws-cdk-lib/aws-dynamodb";
+import { Stack, StackProps } from "aws-cdk-lib";
 import {
   GatewayVpcEndpointAwsService,
   SubnetType,
@@ -11,11 +10,6 @@ import {
   ApplicationProtocol,
   ListenerAction,
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import {
-  BlockPublicAccess,
-  Bucket,
-  BucketEncryption,
-} from "aws-cdk-lib/aws-s3";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 
@@ -26,6 +20,11 @@ export const SSM_PREFIX = "/cdk-nextjs/bring-your-own";
 
 /**
  * Shared infrastructure that is deployed once and reused by every branch stack.
+ *
+ * Only the network, cluster, and load balancer are shared. The cache bucket,
+ * revalidation table, and static assets bucket are not: cdk-nextjs's
+ * post-deploy step prunes everything in them that isn't from the deploying
+ * branch's current build, so each branch stack owns its own.
  *
  * Exports resource identifiers via SSM Parameter Store so branch stacks can
  * import them without cross-stack references or CfnOutputs.
@@ -77,41 +76,12 @@ export class SharedInfraStack extends Stack {
       }),
     });
 
-    // --- S3: Cache Bucket ---
-    const cacheBucket = new Bucket(this, "CacheBucket", {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-    });
-
-    // --- S3: Static Assets Bucket ---
-    const staticAssetsBucket = new Bucket(this, "StaticAssetsBucket", {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-    });
-
-    // --- DynamoDB: Revalidation Table ---
-    const revalidationTable = new TableV2(this, "RevalidationTable", {
-      partitionKey: { name: "pk", type: AttributeType.STRING },
-      sortKey: { name: "sk", type: AttributeType.STRING },
-      billing: Billing.onDemand(),
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
     // --- SSM Parameters ---
     const params: Record<string, string> = {
       VpcId: vpc.vpcId,
       ClusterName: cluster.clusterName,
       AlbArn: alb.loadBalancerArn,
       ListenerArn: listener.listenerArn,
-      CacheBucketName: cacheBucket.bucketName,
-      StaticAssetsBucketName: staticAssetsBucket.bucketName,
-      RevalidationTableName: revalidationTable.tableName,
     };
 
     for (const [key, value] of Object.entries(params)) {

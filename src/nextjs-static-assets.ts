@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RemovalPolicy } from "aws-cdk-lib";
+import { RemovalPolicy, Token } from "aws-cdk-lib";
 import {
   BlockPublicAccess,
   Bucket,
@@ -25,6 +25,20 @@ import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { normalizeBasePath } from "./utils/base-path";
 
+/**
+ * The S3 object key pattern covering every static asset uploaded under
+ * `keyPrefix` (`NextjsStaticAssets.keyPrefix`): `"base/*"`, or `"*"` at the
+ * bucket root. For scoping the compute's read grant to the app's own objects
+ * when several apps share one bucket.
+ */
+export function staticAssetsObjectsPattern(keyPrefix?: string): string {
+  if (keyPrefix && Token.isUnresolved(keyPrefix)) {
+    return "*";
+  }
+  const prefix = normalizeBasePath(keyPrefix);
+  return prefix ? `${prefix}/*` : "*";
+}
+
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;
   readonly bucketDeploymentProps?: BucketDeploymentProps;
@@ -34,7 +48,10 @@ export interface NextjsStaticAssetsProps {
   /**
    * Bring your own S3 bucket for static assets. When provided, cdk-nextjs
    * will skip creating a new bucket and deploy assets to this bucket instead.
-   * Use with `basePath` to isolate assets per branch when sharing a bucket.
+   * Can be shared only between deployments with different `basePath`s (S3 key
+   * prefixes): pruning is scoped to `<basePath>/_next/`, but two deployments
+   * under the same prefix overwrite each other's `public/` files and prune each
+   * other's older `_next/` assets.
    */
   readonly bucket?: IBucket;
   /**
@@ -64,10 +81,13 @@ export class NextjsStaticAssets extends Construct {
    * S3 key prefix the assets are actually uploaded under, normalized to a bare
    * path segment (empty when they live at the bucket root).
    *
-   * Consumers that read assets back out of the bucket (the image optimization
-   * Lambda, `NextjsApi`'s S3 integrations) must use this rather than the
+   * Consumers that read assets back out of the bucket (the runtime's image
+   * optimizer, `NextjsApi`'s S3 integrations) must use this rather than the
    * `basePath` prop, since `overrides.bucketDeploymentProps` can replace the
-   * prefix outright.
+   * prefix outright. Nor can they derive it from the app's own `basePath`: that
+   * is the prefix of the *URL* the app is served at, which for the API Gateway
+   * deployment types is the stage name and has nothing to do with where the
+   * bytes were uploaded.
    */
   readonly keyPrefix: string;
   private stagingDir?: string;

@@ -1,9 +1,6 @@
-import { Stack } from "aws-cdk-lib";
 import { Distribution } from "aws-cdk-lib/aws-cloudfront";
 import { ICluster } from "aws-cdk-lib/aws-ecs";
 import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { PolicyStatement } from "aws-cdk-lib/aws-iam";
-import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { NextjsType } from "../constants";
 import {
@@ -14,7 +11,6 @@ import {
 } from "./nextjs-base-construct";
 import { OptionalNextjsContainersProps } from "../generated-structs/OptionalNextjsContainersProps";
 import { OptionalNextjsDistributionProps } from "../generated-structs/OptionalNextjsDistributionProps";
-import { OptionalNextjsPostDeployProps } from "../generated-structs/OptionalNextjsPostDeployProps";
 import {
   NextjsContainers,
   NextjsContainersOverrides,
@@ -23,16 +19,12 @@ import {
   NextjsDistribution,
   NextjsDistributionOverrides,
 } from "../nextjs-distribution";
-import {
-  NextjsPostDeploy,
-  NextjsPostDeployOverrides,
-} from "../nextjs-post-deploy";
+import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { joinPath } from "../utils/base-path";
 
 export interface NextjsGlobalContainersConstructOverrides extends NextjsBaseConstructOverrides {
   readonly nextjsContainersProps?: OptionalNextjsContainersProps;
   readonly nextjsDistributionProps?: OptionalNextjsDistributionProps;
-  readonly nextjsPostDeployProps?: OptionalNextjsPostDeployProps;
 }
 
 /**
@@ -44,7 +36,6 @@ export interface NextjsGlobalContainersOverrides extends NextjsBaseOverrides {
   readonly nextjsGlobalContainers?: NextjsGlobalContainersConstructOverrides;
   readonly nextjsContainers?: NextjsContainersOverrides;
   readonly nextjsDistribution?: NextjsDistributionOverrides;
-  readonly nextjsPostDeploy?: NextjsPostDeployOverrides;
 }
 
 export interface NextjsGlobalContainersProps extends NextjsBaseProps {
@@ -65,6 +56,23 @@ export interface NextjsGlobalContainersProps extends NextjsBaseProps {
    * a new cluster and VPC gateway endpoints.
    */
   readonly ecsCluster?: ICluster;
+  /**
+   * Path to API Route Handler that returns HTTP 200 to ensure compute health.
+   * Used by the ALB target group and the ECS container health check, both of
+   * which have to be able to tell a running task from a wedged one.
+   *
+   * Give the path as your app routes it, without your app's `basePath` —
+   * cdk-nextjs adds that prefix, since both checks hit the app directly.
+   * @example "/api/health"
+   * @example
+   * // api/health/route.ts
+   * import { NextResponse } from "next/server";
+   *
+   * export function GET() {
+   *   return NextResponse.json("");
+   * }
+   */
+  readonly healthCheckPath: string;
   /**
    * Override props of any construct.
    */
@@ -105,68 +113,25 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
 
     this.nextjsContainers = this.createNextjsContainers();
     this.nextjsDistribution = this.createNextjsDistribution();
-    this.wireCloudFrontInvalidation();
-    this.nextjsPostDeploy = this.createNextjsPostDeploy();
-  }
-
-  /**
-   * Grants the task role permission to invalidate the distribution and passes
-   * along a way to look up its ID, so on-demand revalidation
-   * (revalidateTag/revalidatePath) can evict stale responses from the CDN
-   * edge cache, not just the origin's S3/DynamoDB cache.
-   *
-   * The distribution ID is published to an SSM Parameter (whose *name* is
-   * static and safe to embed in the task's environment) rather than passed
-   * directly, and the IAM grant is scoped to all distributions in this
-   * account/region rather than this specific one. See the equivalent method
-   * in `NextjsGlobalFunctions` for why: the same pattern is used here for
-   * consistency, even though containers' distribution (ALB-origin-based)
-   * doesn't hit the circular CloudFormation dependency functions' does.
-   */
-  private wireCloudFrontInvalidation(): void {
-    const stack = Stack.of(this);
     const { taskDefinition } = this.nextjsContainers.albFargateService;
-    const distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
-
-    new StringParameter(this, "DistributionIdParameter", {
-      parameterName: distributionIdParameterName,
-      stringValue: this.nextjsDistribution.distribution.distributionId,
-    });
-
-    taskDefinition.addToTaskRolePolicy(
-      new PolicyStatement({
-        actions: ["ssm:GetParameter"],
-        resources: [
-          stack.formatArn({
-            service: "ssm",
-            resource: "parameter",
-            resourceName: distributionIdParameterName,
-          }),
-        ],
-      }),
-    );
-    taskDefinition.addToTaskRolePolicy(
-      new PolicyStatement({
-        actions: ["cloudfront:CreateInvalidation"],
-        // Scoped to all distributions (not just this one) for consistency
-        // with NextjsGlobalFunctions, which can't scope this to its specific
-        // distribution due to a circular CloudFormation dependency (see the
-        // class doc comment above and the equivalent method there). Hence
-        // the SSM parameter indirection above for looking up the ID at
-        // runtime instead of synth time.
-        resources: [
-          stack.formatArn({
-            service: "cloudfront",
-            region: "",
-            resource: "distribution",
-            resourceName: "*",
-          }),
-        ],
-      }),
-    );
+    // Lets on-demand revalidation evict stale responses from the CDN edge, not
+    // just the origin's cache. The origin is the ALB, which the task doesn't
+    // depend on, so naming the distribution here makes no dependency cycle.
+    const { distribution } = this.nextjsDistribution;
+    distribution.grantCreateInvalidation(taskDefinition.taskRole);
     taskDefinition.defaultContainer?.addEnvironment(
-      "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
-      distributionIdParameterName,
+      "CDK_NEXTJS_DISTRIBUTION_ID",
+      distribution.distributionId,
+    );
+    // The ALB is reachable through the distribution's VPC origin alone, so
+    // `CloudFront-Forwarded-Proto` is always CloudFront's own; see
+    // `viewerHeaders` in src/runtime/http/node-server.ts.
+    taskDefinition.defaultContainer?.addEnvironment(
+      "CDK_NEXTJS_TRUST_CLOUDFRONT_PROTO",
+      "1",
+    );
+    this.nextjsPostDeploy = this.createNextjsPostDeploy(
+      this.nextjsDistribution.distribution,
     );
   }
 
@@ -175,13 +140,18 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     return new NextjsContainers(this, "NextjsContainers", {
       ...this.computeBaseProps(),
       alb: this.props.alb,
+      buildDirectory: this.props.buildDirectory,
       ecsCluster: this.props.ecsCluster,
+      healthCheckPath: this.resolvedHealthCheckPath(this.props.healthCheckPath),
       relativeEntrypointPath: this.nextjsBuild.relativePathToEntrypoint,
+      relativeProjectDir: this.nextjsBuild.relativeProjectDir,
       overrides: {
         ...this.props.overrides?.nextjsContainers,
         ecsClusterProps: {
           ...this.props.overrides?.nextjsContainers?.ecsClusterProps,
-          vpc: this.baseProps.vpc,
+          // Conditional for the same reason as the Functions' `vpc`: assigned
+          // unconditionally, an unset `vpc` prop would erase the override's.
+          ...(this.baseProps.vpc ? { vpc: this.baseProps.vpc } : {}),
         },
       },
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsContainersProps,
@@ -191,6 +161,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
   private createNextjsDistribution() {
     return new NextjsDistribution(this, "NextjsDistribution", {
       assetsBucket: this.nextjsStaticAssets.bucket,
+      assetPrefix: this.nextjsBuild.nextConfigAssetPrefixPath,
       basePath: this.resolvedBasePath,
       certificate: this.nextjsContainers.albFargateService.certificate,
       distribution: this.props.distribution,
@@ -199,19 +170,6 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsDistributionProps,
-    });
-  }
-
-  private createNextjsPostDeploy(): NextjsPostDeploy {
-    return new NextjsPostDeploy(this, "NextjsPostDeploy", {
-      buildId: this.nextjsBuild.buildId,
-      distribution: this.nextjsDistribution.distribution,
-      cacheBucket: this.nextjsCache.cacheBucket,
-      revalidationTable: this.nextjsCache.revalidationTable,
-      staticAssetsBucket: this.nextjsStaticAssets.bucket,
-      staticAssetsKeyPrefix: this.nextjsStaticAssets.keyPrefix,
-      overrides: this.props.overrides?.nextjsPostDeploy,
-      ...this.props.overrides?.nextjsGlobalContainers?.nextjsPostDeployProps,
     });
   }
 }

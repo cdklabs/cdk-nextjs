@@ -1,0 +1,185 @@
+# The adapter runtime
+
+How cdk-nextjs serves a Next.js app on all four deployment types: what runs at
+build time, what runs per request, where it knowingly differs from `next start`,
+and what each deployment type cannot do. The reasoning behind individual
+decisions lives in the code comments next to them; this is the map.
+
+Written against Next.js 16.3.5. `@next/routing` is exact-pinned to the `next`
+version and bumped with it.
+
+## Build time: `onBuildComplete`
+
+`src/adapter/adapter.mts` is the Next.js [deployment adapter][adapters]. Its
+`onBuildComplete` hook calls `buildAdapterManifest` in
+`src/adapter/build-outputs.ts`, which produces two things inside
+`<distDir>/cdk-nextjs-adapter/`:
+
+- **The staging tree** (`app/`, or `groups/<name>/` with `functionGroups`): the
+  union of every shipped output's traced `assets`, keyed by repo-root-relative
+  path. It replaces `output: "standalone"`, which cdk-nextjs no longer sets. This
+  directory is the _deployment root_: the Lambda zip and the container image's
+  `WORKDIR`. pnpm's symlinks are staged as symlinks, so `NextjsFunctions` zips
+  the root itself (`src/utils/zip-directory.ts`) rather than leaving it to
+  cdk-assets, which would dereference them.
+- **`manifest.json`** (`src/runtime/manifest.ts`): the only contract between
+  build, synth and runtime. It holds `ctx.routing` verbatim, the entrypoint for
+  every route template, the build's static files, middleware, and the config
+  fields the runtime needs. Every path in it is a repo-root-relative POSIX key,
+  never an absolute path.
+
+The same hook seeds the init cache for the S3 + DynamoDB cache handler, and it
+refuses any output whose runtime is not `nodejs` (`assertNodeRuntimes`).
+
+What is deliberately _not_ in the staging tree: `<distDir>/static` and
+`public/`. On the Lambda types, CloudFront or API Gateway answers them from S3,
+and `public/` alone can exceed the 250 MB unzipped Lambda limit.
+`NextjsGlobalContainers` leaves them out for the same reason CloudFront makes
+them unnecessary; only `NextjsRegionalContainers`, with no CDN in front of it,
+copies both into its image (`src/nextjs-build/regional-containers.Dockerfile`).
+
+## Request time
+
+```
+shell  ──►  NextjsRuntime.handle  ──►  Dispatcher.dispatch  ──►  one of:
+lambda.mts   (src/runtime/core.ts)      (dispatch.ts)             entrypoint
+server.mts                               @next/routing             static file
+                                         resolveRoutes             /_next/image
+                                         + middleware runner       redirect / external rewrite
+                                                                   middleware's own response
+                                                                   404 / 500 ladder
+```
+
+- **Shells.** `lambda.mts` (Lambda response streaming; Function URL events on
+  `NextjsGlobalFunctions`, API Gateway REST streaming events on
+  `NextjsRegionalFunctions`) and `server.mts` (`node:http`, both Containers
+  types). Each only translates its input into a `RuntimeRequest` and its output
+  into a `ResponseSink`. Both run the same core, so the container e2e suite
+  exercises the code Lambda runs.
+- **Core** (`core.ts`). It synthesizes `IncomingMessage`/`ServerResponse` shims
+  (`http/`), dispatches, and acts on the result. It gzips streamed responses
+  itself, because neither API Gateway in STREAM mode nor CloudFront compresses a
+  response without `Content-Length`. It awaits `waitUntil` work before
+  returning, since Lambda freezes on return.
+- **Dispatch** (`dispatch.ts`). Route matching is `@next/routing`'s
+  `resolveRoutes`, the library `next start`'s router was refactored to expose.
+  Dispatch adds what it gets wrong or leaves out, each with a comment:
+  `trailingSlash` variants, the i18n root, `nxtP` param repair, redirect-location
+  normalization. The routing table (pathnames plus every spelling of every
+  static file) is built once per cold start and cached.
+- **Middleware** (`middleware.ts`) runs through `resolveRoutes`'s
+  `invokeMiddleware` callback. Request bodies are teed so middleware and the
+  entrypoint both read them.
+- **Entrypoints** (`entrypoints.ts`) are required lazily, on first use, which is
+  most of the cold-start win over `server.js`.
+- **Static files** (`static-files.ts`) go through Next.js's own `serveStatic`
+  (`send`), called as `next start` calls it. `public/` is listed off disk at
+  cold start (`public-files.ts`) rather than from the manifest, so files a
+  `postbuild` writes are included. On the Lambda types the directory is not in
+  the package: the list comes from `public-files.json`, written at synth, and
+  the files are streamed from the static-assets bucket.
+- **Image optimization** (`image.ts`) runs inside the runtime, after middleware.
+  It reads local source images from the static-assets bucket, except on
+  `NextjsRegionalContainers`, which has them on disk. There
+  is no separate image Lambda any more, because middleware never ran for it.
+- **Cache** (`src/adapter/cache-handler.ts`): memory in front of S3 + DynamoDB
+  at runtime, local files at build time. It also creates the CloudFront
+  invalidations for on-demand revalidation on the Global types.
+- **`'use cache'` handlers** (`src/adapter/use-cache-{default,remote}-handler.ts`,
+  registered as `cacheHandlers`): `default` keeps entries in memory, `remote`
+  in S3 with memory in front, and both read tag revalidations from the same
+  DynamoDB marker rows as the cache handler (`src/adapter/aws-cache-store.ts`
+  is the plumbing all three share). Past a tag's first read, all three learn
+  about revalidations from the revalidation log (`RevalidationLog`, `pk =
+<buildId>#log`) through `TrackedTagMarkers`: one `Query` per refresh interval
+  instead of re-reading every tracked marker. The cache handler and the
+  `'use cache'` handlers share one manifest, so an instance sends one.
+
+### Invariants worth not breaking
+
+- **`process.cwd()` is the staged project dir.** Next.js inlines
+  `relative(buildCwd, projectDir)` into every entrypoint and resolves it against
+  the runtime cwd. `loadRuntime` chdirs and asserts this. `build-outputs.ts`
+  asserts the build ran from the project dir, so the inlined value is `""`.
+- **`minimalMode` is never set.** The non-minimal path keeps the incremental
+  cache inside the entrypoint, which the cache handler depends on.
+- **PPR is origin-only**, as in `next start`. The CDN-shell variant needs
+  CloudFront to splice an edge response with an origin stream, which it cannot
+  do.
+- **One Dispatcher serves every request**, concurrently on the container shell,
+  so per-request state (the middleware invoker, with its `waitUntil` and
+  `signal`) travels in the `DispatchRequest`, never on the Dispatcher.
+
+### Why `functionGroups` exists
+
+It's the largest feature here, and it's deliberate. One heavy dependency (a
+PDF renderer, a headless browser) can push a zip Lambda past 250 MB, and it
+makes every route pay its cold start. Splitting that route into its own
+function fixes both and gives it its own memory and timeout, as Vercel and
+OpenNext do. A container-image Lambda fixes only the size, and makes every
+cold start slower, so it isn't a replacement.
+
+Keep the cost in one place: the adapter decides the group edge (CloudFront
+behaviors, API Gateway resources) once, checks it reaches every file, and
+writes it to the manifest. The constructs read that list rather than
+recomputing it.
+
+## Where it differs from `next start`, knowingly
+
+| Behavior                                                     | `next start`                           | cdk-nextjs                                             | Why                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------ | -------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Edge runtime, legacy edge `middleware.ts`                    | supported                              | build fails                                            | Deprecated upstream. Node-runtime `proxy.ts` is supported.                                                                                                                                                                              |
+| `dynamicParams = false`                                      | concrete prerenders served, others 404 | every param 404s                                       | Next.js gates the route behind preview cookies and expects the platform to serve prerenders off the CDN. Supporting it is a design change.                                                                                              |
+| Rewrite destination with a repeated query key (`?a=1&a=2`)   | array                                  | last value only                                        | `@next/routing` bug ([vercel/next.js#99155](https://github.com/vercel/next.js/issues/99155)).                                                                                                                                           |
+| Static file requested with POST/PUT/DELETE                   | 405 rendered through `/_error`         | 405, plain text                                        | Same status and `Allow`; not worth an error-page render.                                                                                                                                                                                |
+| Response compression                                         | gzip or brotli                         | gzip only, in the runtime                              | Brotli's streaming throughput is poor at default quality.                                                                                                                                                                               |
+| `public/` under a locale prefix                              | default locales only                   | default locales only                                   | Same. Listed because it surprises people: `/fr/x.txt` 404s unless `fr` is a domain's default.                                                                                                                                           |
+| `X-Forwarded-Host`                                           | ignored                                | ignored, except on `NextjsGlobalFunctions`             | Same as `next start`. The Global Functions URL is reachable only through CloudFront, which overwrites the header with the viewer's host, and must see its own domain as `Host`. Trusted only on a request Lambda verified the SigV4 of. |
+| `If-Range` on a `public/` file reached by a rewrite          | range honored if the validator matches | whole file (200), except on `NextjsRegionalContainers` | Elsewhere the file is streamed from S3, which has no `If-Range`; sending the whole file is what HTTP allows. `Range` itself is honored.                                                                                                 |
+| Grouped route requested in the wrong case (`/API/reports/1`) | served                                 | 308 to the route's spelling (`/api/reports/1`)         | Edge path matching is case-sensitive, so the request reaches a function that doesn't carry the route. Only with `functionGroups`.                                                                                                       |
+| Missing `/_next/static/*` on the Global types                | 404, body `Not Found`                  | 404, S3's XML body                                     | S3 answers the Origin Access Control request itself; the body would need a Lambda@Edge rewrite.                                                                                                                                         |
+| `resume-data-cache` cases                                    | pass                                   | 2 cases fail                                           | A multi-instance cache can't give the per-process guarantee the fixture asserts.                                                                                                                                                        |
+| `config.maxDuration`, `preferredRegion`                      | honored on Vercel                      | dropped, with a warning                                | A Lambda timeout is per function, not per route; region is a stack-level choice.                                                                                                                                                        |
+
+The compatibility harness keeps the full record, with a verdict per excluded
+case: [`harness-coverage.md`](./harness-coverage.md).
+
+## Per-type limitations
+
+|                                                                                | Global Functions                                                                                 | Global Containers             | Regional Functions                                                                                     | Regional Containers    |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------- |
+| Front door                                                                     | CloudFront → Function URL (IAM, SigV4)                                                           | CloudFront → ALB (VPC origin) | API Gateway REST → Lambda                                                                              | ALB                    |
+| Static assets                                                                  | S3 via CloudFront                                                                                | S3 via CloudFront             | S3 via API Gateway                                                                                     | from disk in the image |
+| 75-behavior budget: top-level `public/` entries plus `functionGroups` patterns | yes                                                                                              | yes                           | no                                                                                                     | no                     |
+| Client `Authorization` header                                                  | used by SigV4; send credentials under another name                                               | passes                        | passes                                                                                                 | passes                 |
+| POST/PUT body from a non-browser client                                        | needs `x-amz-content-sha256`                                                                     | fine                          | fine                                                                                                   | fine                   |
+| HEAD `content-length`                                                          | always `0` (Function URL)                                                                        | declared                      | declared                                                                                               | declared               |
+| `public/` names                                                                | no CloudFront-spellable character → no behavior, warning; the server function streams it from S3 | same                          | outside `[a-zA-Z0-9:._-$]` at top level → no resource, warning; the server function streams it from S3 | any name               |
+| `functionGroups`                                                               | yes                                                                                              | no                            | yes                                                                                                    | no                     |
+| Stage prefix                                                                   | —                                                                                                | —                             | put back for a `basePath` that starts with it                                                          | —                      |
+
+Each of these is in the README's Limitations too, or in `breaking-changes.md`
+for anything that changed from an earlier release.
+
+## Debugging
+
+- **Compare with `next start` on the same build.** `scripts/e2e-offline.sh
+<next.js fixture>` builds one fixture through the adapter and serves it twice,
+  through our container shell and through `next start`. Most "why does the
+  deployment disagree" questions come down to diffing the two responses. For an
+  app in `examples/`, run `lib/runtime/server.mjs` from its
+  `.next/cdk-nextjs-adapter/app`, with `.next/static` and `public` copied in as
+  the regional containers Dockerfile does.
+- **Tell the CDN from the origin.** Behind CloudFront, `x-cache` says whether the
+  edge answered, and every other header is the one the _cached copy_ was stored
+  with. An `x-nextjs-cache: REVALIDATED` on a `Hit from cloudfront` is an old
+  origin response, not a fresh render. The dynamic cache policy caches only what
+  sends `Cache-Control` (`s-maxage`); everything else goes to the origin.
+- **Dispatch without AWS.** `src/runtime/dispatch.test.ts` runs the real
+  Dispatcher against manifests built from captured `onBuildComplete` contexts.
+  Add a case there before you deploy. Refresh the captures with
+  `scripts/capture-adapter-fixture.mjs` after a `next` upgrade.
+- **Logs.** Unhandled errors are logged by the core before the error page is
+  rendered. The cache handler logs under `DEBUG=cdk-nextjs:*`.
+
+[adapters]: https://nextjs.org/docs/app/api-reference/adapters

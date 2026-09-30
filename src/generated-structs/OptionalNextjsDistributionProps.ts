@@ -7,20 +7,22 @@ import type { NextjsType, PublicDirEntry } from '../';
  */
 export interface OptionalNextjsDistributionProps {
   /**
+   * The most cache behaviors the distribution may have, the default one included.
+   * cdk-nextjs counts what it adds against this at synth, so running
+   * out is a synth error naming what used them rather than a failed deploy.
+   *
+   * Raise it after raising the "Cache behaviors per distribution" quota for
+   * your account. Lower it by the behaviors a supplied {@link distribution}
+   * (or `overrides.distributionProps`) already has, which are not counted.
+   * @default 75 - CloudFront's default quota
+   * @stability stable
+   */
+  readonly maxCacheBehaviors?: number;
+  /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`.
    * @stability stable
    */
   readonly loadBalancer?: aws_elasticloadbalancingv2.IApplicationLoadBalancer;
-  /**
-   * Function URL of the dedicated image optimization Lambda.
-   * Only applicable
-   * to `NextjsType.GLOBAL_FUNCTIONS`, and only when the dedicated image
-   * function is enabled. When omitted, the `_next/image*` behavior points at
-   * the dynamic origin, which serves image optimization from the Next.js
-   * server itself.
-   * @stability stable
-   */
-  readonly imageFunctionUrl?: aws_lambda.IFunctionUrl;
   /**
    * Required if `NextjsType.GLOBAL_FUNCTIONS`.
    * @stability stable
@@ -42,6 +44,26 @@ export interface OptionalNextjsDistributionProps {
    * @stability stable
    */
   readonly basePath?: string;
+  /**
+   * The app's own `assetPrefix`.
+   * Next.js emits `<assetPrefix>/_next/static/...`
+   * for every bundle while the objects stay at `<basePath>/_next/static/...` in
+   * S3, so the prefix's path gets a cache behavior of its own that rewrites it
+   * away.
+   *
+   * Either form is accepted: a path ("/cdn"), or an absolute URL, in which case
+   * only its path counts ("https://cdn.example.com/cdn" behaves as "/cdn", and
+   * "https://cdn.example.com" needs no behavior at all). An absolute prefix's path
+   * matters because `next build` compiles a `/cdn/_next/:path+` rewrite of its
+   * own, so `next start` serves every bundle under it — a CDN fronting this
+   * distribution there has to be answered too.
+   *
+   * Applied on top of `basePath`, not under it, because that is how Next.js
+   * builds the URL.
+   * @default - none; pass `NextjsBuild.nextConfigAssetPrefixPath`
+   * @stability stable
+   */
+  readonly assetPrefix?: string;
   /**
    * Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
    * @stability stable
