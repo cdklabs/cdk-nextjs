@@ -1184,12 +1184,12 @@ export function nativeBinaryPlatform(file: string): string | undefined {
 }
 
 /**
- * The packages under `root` whose `.node` addons are all built for platforms
- * other than `target`, as `root`-relative paths.
+ * The packages under `root` that have `.node` addons but none built for
+ * `target`, so they'd fail to load there. Returned as `root`-relative paths.
  *
- * Judged per package, not per file: a prebuildify package ships every
- * platform's addon side by side and picks one at load, so a foreign addon only
- * matters when the package has none for the target.
+ * A package with addons for several platforms is fine as long as one of them
+ * is `target`: packages like `bufferutil` bundle a `darwin` and a
+ * `linux-x64` addon and load whichever matches the machine.
  */
 export function findForeignNativePackages(
   root: string,
