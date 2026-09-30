@@ -45,6 +45,7 @@ import {
 import { MiddlewareRunner } from "./middleware";
 import {
   loadEnvFiles,
+  registerInstrumentation,
   setupNodeEnvironment,
   useNextFrom,
 } from "./next-modules";
@@ -1148,6 +1149,9 @@ export async function loadRuntime(
   // Then, before any entrypoint (or middleware) can be loaded: Next's own
   // node-environment bootstrap. See `setupNodeEnvironment`.
   setupNodeEnvironment();
+  // And last, once the environment is ready: `register()`, before any entrypoint
+  // or middleware module is evaluated. See `registerInstrumentation`.
+  await registerInstrumentation(projectDir, manifest.config.distDir);
 
   return new NextjsRuntime({
     deploymentRoot,

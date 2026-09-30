@@ -616,6 +616,7 @@ describe("writeBuildOutputs", () => {
       "dist/shared/lib/image-config.js",
       "dist/server/image-optimizer.js",
       "dist/server/serve-static.js",
+      "dist/server/lib/router-utils/instrumentation-globals.external.js",
       // Reached only through the trace, i.e. the reason tracing is needed.
       "dist/shared/lib/match-remote-pattern.js",
     ];
@@ -1137,6 +1138,12 @@ describe("writeBuildOutputs", () => {
       }
       for (const name of ["default", "reports"]) {
         await expect(has(name, "server/serve-static.js")).resolves.toBe(true);
+        await expect(
+          has(
+            name,
+            "server/lib/router-utils/instrumentation-globals.external.js",
+          ),
+        ).resolves.toBe(true);
       }
     });
 

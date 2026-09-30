@@ -72,6 +72,31 @@ export function setupNodeEnvironment(): void {
 }
 
 /**
+ * Run the app's `instrumentation.register()` to completion, the way `next start`
+ * does in `NextNodeServer.prepareImpl()` before it loads any page or middleware.
+ *
+ * The built entrypoints and middleware do call this themselves, but only inside
+ * their `handler` — after the module, and everything it imports, has already
+ * been evaluated. So module-scope code (an auth client built from an env var
+ * `register()` fetches from Secrets Manager, say) would otherwise run first.
+ *
+ * Next memoizes the registration in this module, so the entrypoints' later
+ * calls await the same promise rather than registering again. That also makes
+ * this call's arguments the ones that count: `distDir` relative to `projectDir`,
+ * as `RouteModule.prepare()` passes it. An app with no instrumentation file is
+ * a no-op.
+ */
+export async function registerInstrumentation(
+  projectDir: string,
+  distDir: string,
+): Promise<void> {
+  const { ensureInstrumentationRegistered } = nextModule<
+    typeof import("next/dist/server/lib/router-utils/instrumentation-globals.external.js")
+  >("next/dist/server/lib/router-utils/instrumentation-globals.external.js");
+  await ensureInstrumentationRegistered(projectDir, distDir);
+}
+
+/**
  * Load the staged `.env` / `.env.production` into `process.env`, the way
  * `NextNodeServer` does when `next start` constructs it. Nothing else would:
  * the built entrypoints never call `loadEnvConfig`, and the runtime builds no
