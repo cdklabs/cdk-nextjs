@@ -18,8 +18,10 @@ import { Architecture } from "aws-cdk-lib/aws-lambda";
 import {
   deploymentArchitecture,
   deploymentBuildId,
+  findForeignNativePackages,
   isSharpBinaryPackage,
   listTree,
+  nativeBinaryPlatform,
   NextjsBuild,
   patchClientChunk,
   pickStagedSharpPackage,
@@ -430,6 +432,76 @@ describe("listTree", () => {
     expect(files.sort()).toEqual([
       join(dir, "packages/a"),
       join(dir, "packages/b"),
+    ]);
+  });
+});
+
+/** A `.node` file carrying just enough header to be read as `platform`. */
+function writeAddon(
+  path: string,
+  platform: "linux-arm64" | "linux-x64" | "darwin",
+) {
+  const header = Buffer.alloc(20);
+  if (platform === "darwin") {
+    header.writeUInt32BE(0xcffaedfe, 0);
+  } else {
+    header.writeUInt32BE(0x7f454c46, 0);
+    header[5] = 1;
+    header.writeUInt16LE(platform === "linux-arm64" ? 183 : 62, 18);
+  }
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, header);
+}
+
+describe("nativeBinaryPlatform", () => {
+  it.each(["linux-arm64", "linux-x64", "darwin"] as const)(
+    "reads %s from the header",
+    (platform) => {
+      writeAddon(join(dir, "a.node"), platform);
+      expect(nativeBinaryPlatform(join(dir, "a.node"))).toBe(platform);
+    },
+  );
+
+  it("returns undefined for a file that isn't a binary", () => {
+    write(join(dir, "a.node"), "not a binary");
+    expect(nativeBinaryPlatform(join(dir, "a.node"))).toBeUndefined();
+  });
+});
+
+describe("findForeignNativePackages", () => {
+  const pkg = (path: string) => write(join(dir, path, "package.json"), "{}");
+
+  it("names a package with only another platform's addon", () => {
+    const glide = "node_modules/@valkey/valkey-glide-darwin-arm64";
+    pkg(glide);
+    writeAddon(join(dir, glide, "build/glide.node"), "darwin");
+
+    expect(findForeignNativePackages(dir, "linux-arm64")).toEqual([glide]);
+  });
+
+  it("passes a package with the target's addon, even beside others", () => {
+    pkg("node_modules/ok");
+    writeAddon(join(dir, "node_modules/ok/a.node"), "linux-arm64");
+    pkg("node_modules/prebuilt");
+    writeAddon(
+      join(dir, "node_modules/prebuilt/prebuilds/darwin-arm64/a.node"),
+      "darwin",
+    );
+    writeAddon(
+      join(dir, "node_modules/prebuilt/prebuilds/linux-arm64/a.node"),
+      "linux-arm64",
+    );
+    write(join(dir, "node_modules/ok/notes.node"), "text");
+
+    expect(findForeignNativePackages(dir, "linux-arm64")).toEqual([]);
+  });
+
+  it("tells architectures apart", () => {
+    pkg("node_modules/x64");
+    writeAddon(join(dir, "node_modules/x64/a.node"), "linux-x64");
+
+    expect(findForeignNativePackages(dir, "linux-arm64")).toEqual([
+      "node_modules/x64",
     ]);
   });
 });
