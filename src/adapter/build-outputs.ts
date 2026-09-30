@@ -67,9 +67,14 @@ const ENV_FILES = [".env", ".env.production"];
  *
  * `serve-static` is in every group: `serveStaticFile`
  * (`src/runtime/static-files.ts`) serves prerendered and static results with it
- * wherever they land.
+ * wherever they land. `instrumentation-globals` is required by `loadRuntime`
+ * on every cold start (`registerInstrumentation`), so it is staged here rather
+ * than trusted to each group's entrypoint trace.
  */
-const RUNTIME_NEXT_MODULES = ["next/dist/server/serve-static.js"];
+const RUNTIME_NEXT_MODULES = [
+  "next/dist/server/serve-static.js",
+  "next/dist/server/lib/router-utils/instrumentation-globals.external.js",
+];
 
 /**
  * next's image optimizer and the config helpers around it
