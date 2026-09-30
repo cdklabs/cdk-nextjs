@@ -1,6 +1,6 @@
 # Breaking Changes
 
-## 0.7.0 (unreleased)
+## 0.7.0
 
 ### Requests are served through the adapter runtime, not `next start`
 
