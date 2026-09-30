@@ -26,6 +26,11 @@ The target is:
 `<arch>` is the Lambda's architecture for Functions (`arm64` or `x64`), and the
 synth machine's for Containers.
 
+The check reads only the OS and CPU of each addon, not its libc, so the wrong
+libc variant passes synth. A `-musl` package on a Functions Lambda passes synth,
+then fails at runtime with `ERR_DLOPEN_FAILED`. Use `-gnu` packages for
+Functions and `-musl` packages for Containers.
+
 There are three ways to fix it.
 
 ## 1. Build on the target platform
@@ -57,6 +62,16 @@ new NextjsGlobalFunctions(this, "Nextjs", {
 With `skipBuild: true`, `buildCommand` doesn't run, so run the script yourself
 after your own build.
 
+The warning checks the script's result: `NextjsBuild` runs the check after
+`buildCommand` and after it stages `sharp`. If the script stages nothing, for
+example because a cdk-nextjs release changed the staged layout, the foreign
+addon stays and synth warns. Run `cdk synth --strict` in CI so that a staging
+miss stops the deploy instead of shipping.
+
+`npm pack` fetches the tarball from the registry without your package manager's
+checks: it doesn't verify the lockfile's integrity hash, and it ignores rules
+such as pnpm's `minimumReleaseAge`.
+
 `scripts/stage-native.mjs`, for `@valkey/valkey-glide` on Lambda. Edit the
 constants for your package; for Containers, use the `-musl` variant.
 
@@ -64,6 +79,12 @@ constants for your package; for Containers, use the `-musl` variant.
 // Replaces a native package's platform variant in the cdk-nextjs staged build
 // with the one for the deploy target.
 // Usage: node scripts/stage-native.mjs <arm64|x64>
+//
+// Known limits:
+// - It downloads the tarball once for each root that uses the package.
+// - If a step fails, the temporary directory stays behind.
+// - If a root has more than one version of the main package, it stages the
+//   version from the last manifest it reads.
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
@@ -98,7 +119,8 @@ const isPlatformPackage = (parent, entry) =>
   (parent.endsWith(scope) || entry.startsWith(`${scope}+`));
 
 // One deployment root without `functionGroups`, one per group with them.
-const adapter = join(".next", "cdk-nextjs-adapter");
+// Relative to this script, which lives in `<project>/scripts/`.
+const adapter = join(import.meta.dirname, "..", ".next", "cdk-nextjs-adapter");
 const groups = join(adapter, "groups");
 const roots = [
   join(adapter, "app"),
@@ -115,6 +137,9 @@ for (const root of roots) {
       const path = join(dir, entry.name);
       if (isPlatformPackage(dir, entry.name)) {
         if (entry.isSymbolicLink()) {
+          // Not rmSync: the walk can remove a pnpm store directory before it
+          // reaches a link into it, and rmSync(path, { force: true }) leaves
+          // that dangling link in place without an error.
           unlinkSync(path);
         } else {
           rmSync(path, { recursive: true, force: true });
