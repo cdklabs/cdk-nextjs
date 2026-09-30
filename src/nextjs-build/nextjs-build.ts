@@ -483,12 +483,10 @@ export class NextjsBuild extends Construct {
         `built for a platform other than ${target}, which it runs on: ` +
         `${foreign.join(", ")}. \`next build\` traced them from this machine, ` +
         `so they fail on the first request that loads them unless the package ` +
-        `falls back without them. Build on ${target}, or install that ` +
-        `platform's variant (pnpm's \`supportedArchitectures\`, npm's ` +
-        `\`--os\`/\`--cpu\`) and add it with \`outputFileTracingIncludes\` in ` +
-        `your Next.js config, and drop a per-platform package such as ` +
-        `\`…-darwin-arm64\` with \`outputFileTracingExcludes\`, since it stays ` +
-        `traced beside the one you add.`,
+        `falls back without them. Build on ${target}, or replace each with ` +
+        `the ${target} variant after \`next build\` (e.g. \`npm pack\` it in ` +
+        `your \`buildCommand\`). See https://github.com/cdklabs/cdk-nextjs/` +
+        `blob/main/docs/native-dependencies-guide.md`,
     );
   }
 

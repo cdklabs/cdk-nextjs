@@ -108,13 +108,9 @@ them — only the Containers types still build images.
   that differs is a synth error. An x86 CI runner can deploy arm64 functions. Only
   `sharp` is staged for the target. Any other native dependency in your app is
   still traced from the build machine, and synth warns naming each package
-  whose addons are all built for another platform. Build on the platform you
-  deploy, or install the target's variant (pnpm's `supportedArchitectures`,
-  npm's `--os`/`--cpu`), add it with Next.js's `outputFileTracingIncludes`, and
-  drop the build machine's per-platform package (e.g. `…-darwin-arm64`) with
-  `outputFileTracingExcludes`. If the package is optional at runtime (`ws`'s
-  `bufferutil`, `fsevents`), acknowledge the warning with
-  `Annotations.of(scope).acknowledgeWarning("cdk-nextjs:foreignNativeBinaries")`.
+  whose addons are all built for another platform. See the
+  [Native Dependencies Guide](./native-dependencies-guide.md) to fix or
+  acknowledge it.
 - **The post-deploy Lambda is always arm64.** It has no native dependencies,
   so it no longer follows the synth machine. The first deploy after upgrading
   from an x86 machine updates it in place.
