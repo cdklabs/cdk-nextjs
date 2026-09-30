@@ -851,6 +851,7 @@ Browser, p75 in ms, under 50 req/s per route:
 
 - [Caching Guide](./docs/caching-guide.md)
 - [Pruning Guide](./docs/pruning-guide.md)
+- [Native Dependencies Guide](./docs/native-dependencies-guide.md)
 - [Next Build Output Guide](./docs/next-build-output-guide.ts)
 - [Development Guide](./docs/development-guide.ts)
 
