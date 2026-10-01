@@ -1,6 +1,7 @@
 import { execFileSync, execSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import {
+  closeSync,
   Dirent,
   existsSync,
   lstatSync,
@@ -10,6 +11,8 @@ import {
   rmSync,
   mkdirSync,
   cpSync,
+  openSync,
+  readSync,
   renameSync,
   realpathSync,
   statSync,
@@ -17,8 +20,9 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { join as joinPosix } from "node:path/posix";
+import { Annotations } from "aws-cdk-lib";
 import { Architecture } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -368,6 +372,10 @@ export class NextjsBuild extends Construct {
         join(root.path, this.relativeProjectDir),
         `${isFunctions ? "linux" : "linuxmusl"}-${toNodeArchitecture(this.architecture)}`,
       );
+      this.warnOnForeignNativeBinaries(
+        root,
+        `linux-${toNodeArchitecture(this.architecture)}`,
+      );
 
       if (isFunctions) {
         this.assertUnderLambdaLimit(root);
@@ -450,6 +458,36 @@ export class NextjsBuild extends Construct {
       }
     }
     return roots;
+  }
+
+  /**
+   * `next build` traces native addons from the machine it runs on, and only
+   * `sharp` is swapped for the target. Anything else built for another platform
+   * fails with MODULE_NOT_FOUND or ERR_DLOPEN_FAILED on the first request that
+   * loads it, so say which package at synth. A warning, not an error: some
+   * addons are optional (`ws`'s `bufferutil`, `fsevents`) and fall back to JS.
+   *
+   * Only the OS and CPU are checked: glibc and musl builds share a header.
+   */
+  private warnOnForeignNativeBinaries(
+    root: NextjsDeploymentRoot,
+    target: string,
+  ): void {
+    const foreign = findForeignNativePackages(root.path, target);
+    if (!foreign.length) {
+      return;
+    }
+    Annotations.of(this).addWarningV2(
+      "cdk-nextjs:foreignNativeBinaries",
+      `${LOG_PREFIX} Deployment root "${root.name}" has native binaries ` +
+        `built for a platform other than ${target}, which it runs on: ` +
+        `${foreign.join(", ")}. \`next build\` traced them from this machine, ` +
+        `so they fail on the first request that loads them unless the package ` +
+        `falls back without them. Build on ${target}, or replace each with ` +
+        `the ${target} variant after \`next build\` (e.g. \`npm pack\` it in ` +
+        `your \`buildCommand\`). See https://github.com/cdklabs/cdk-nextjs/` +
+        `blob/main/docs/native-dependencies-guide.md`,
+    );
   }
 
   /**
@@ -1109,6 +1147,87 @@ export function listTree(root: string): Dirent[] {
     }
   }
   return entries;
+}
+
+const ELF_MACHINES: Record<number, string> = { 62: "x64", 183: "arm64" };
+const MACH_O_MAGICS = [
+  0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe,
+];
+
+/**
+ * The platform a native addon was compiled for, read from its header:
+ * `linux-<arch>`, `darwin` or `win32`, or `undefined` for a file that is none
+ * of those.
+ */
+export function nativeBinaryPlatform(file: string): string | undefined {
+  const header = Buffer.alloc(20);
+  const fd = openSync(file, "r");
+  try {
+    readSync(fd, header, 0, header.length, 0);
+  } finally {
+    closeSync(fd);
+  }
+  const magic = header.readUInt32BE(0);
+  if (magic === 0x7f454c46) {
+    // e_machine, in the byte order EI_DATA names (2 is big-endian).
+    const machine =
+      header[5] === 2 ? header.readUInt16BE(18) : header.readUInt16LE(18);
+    return `linux-${ELF_MACHINES[machine] ?? `machine-${machine}`}`;
+  }
+  if (MACH_O_MAGICS.includes(magic)) {
+    return "darwin";
+  }
+  if (header.toString("latin1", 0, 2) === "MZ") {
+    return "win32";
+  }
+  return undefined;
+}
+
+/**
+ * The packages under `root` that have `.node` addons but none built for
+ * `target`, so they'd fail to load there. Returned as `root`-relative paths.
+ *
+ * A package with addons for several platforms is fine as long as one of them
+ * is `target`: packages like `bufferutil` bundle a `darwin` and a
+ * `linux-x64` addon and load whichever matches the machine.
+ */
+export function findForeignNativePackages(
+  root: string,
+  target: string,
+): string[] {
+  const packages = new Map<string, { matches: boolean; foreign: boolean }>();
+  for (const entry of listTree(root)) {
+    if (!entry.isFile() || !entry.name.endsWith(".node")) continue;
+    const platform = nativeBinaryPlatform(join(entry.parentPath, entry.name));
+    if (!platform) continue;
+    const pkg = packageDirOf(root, entry.parentPath);
+    const seen = packages.get(pkg) ?? { matches: false, foreign: false };
+    if (platform === target) {
+      seen.matches = true;
+    } else {
+      seen.foreign = true;
+    }
+    packages.set(pkg, seen);
+  }
+  return [...packages]
+    .filter(([, seen]) => seen.foreign && !seen.matches)
+    .map(([pkg]) => relative(root, pkg))
+    .sort();
+}
+
+/** The nearest directory from `dir` up to `root` with a `package.json`. */
+function packageDirOf(root: string, dir: string): string {
+  for (
+    let current = dir;
+    current.startsWith(root);
+    current = dirname(current)
+  ) {
+    if (existsSync(join(current, "package.json"))) {
+      return current;
+    }
+    if (current === root) break;
+  }
+  return dir;
 }
 
 /**

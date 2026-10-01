@@ -107,8 +107,10 @@ them — only the Containers types still build images.
   deployment: a function group's own `overrides.functionProps.architecture`
   that differs is a synth error. An x86 CI runner can deploy arm64 functions. Only
   `sharp` is staged for the target. Any other native dependency in your app is
-  still traced from the build machine, so build on the architecture you deploy
-  if you have one.
+  still traced from the build machine, and synth warns naming each package
+  whose addons are all built for another platform. See the
+  [Native Dependencies Guide](./native-dependencies-guide.md) to fix or
+  acknowledge it.
 - **The post-deploy Lambda is always arm64.** It has no native dependencies,
   so it no longer follows the synth machine. The first deploy after upgrading
   from an x86 machine updates it in place.

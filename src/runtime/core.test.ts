@@ -280,6 +280,12 @@ function stageDeployment(
   for (const [file, contents] of Object.entries(PUBLIC_FILES)) {
     write(join(root, manifest.relativeProjectDir, "public", file), contents);
   }
+  // Async on purpose: `loadRuntime` has to await `register()`, not just call it.
+  write(
+    join(root, manifest.relativeProjectDir, ".next/server/instrumentation.js"),
+    "exports.register = () => new Promise((resolve) => setTimeout(() => {" +
+      " process.env.CDK_NEXTJS_TEST_REGISTERED = 'yes'; resolve(); }, 10));\n",
+  );
   // `.env` rather than `.env.production`: `@next/env` picks the mode from
   // NODE_ENV, which jest sets to "test".
   write(
@@ -338,6 +344,12 @@ describe("loadRuntime", () => {
   it("loads the staged env files the way next start does, without overriding the function's environment", () => {
     expect(process.env.CDK_NEXTJS_TEST_FROM_ENV_FILE).toBe("from-file");
     expect(process.env.CDK_NEXTJS_TEST_SET_BY_LAMBDA).toBe("from-lambda");
+  });
+
+  it("awaits instrumentation register() before any entrypoint or middleware loads, as next start does", () => {
+    // Module-scope code in middleware and entrypoints reads what `register()`
+    // sets (#279), and nothing is loaded until `loadRuntime` has returned.
+    expect(process.env.CDK_NEXTJS_TEST_REGISTERED).toBe("yes");
   });
 
   it("explains a deployment package with no manifest", async () => {
