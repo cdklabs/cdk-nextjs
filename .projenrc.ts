@@ -38,7 +38,7 @@ const project = new CdklabsConstructLibrary({
     // Exact-pinned to `next` and bumped with it: it is first-party and versioned
     // in lockstep, so a mismatch is a routing behavior difference. Bundled into
     // the runtime by esbuild, not resolved from the deployment tree.
-    "@next/routing@16.3.5",
+    "@next/routing@16.3.6",
     "@smithy/signature-v4",
     // The CDK CLI the Next.js compatibility harness deploys with — it runs
     // `scripts/e2e-harness/app.js` from a temporary app directory outside
@@ -53,7 +53,7 @@ const project = new CdklabsConstructLibrary({
     "debug",
     "esbuild",
     "mime-types",
-    "next@^16.3.5", // bundled in src/nextjs-build/cache-handler.ts
+    "next@^16.3.6", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   setNodeEngineVersion: false,
@@ -632,8 +632,8 @@ function updatePackageJson() {
       browserslist: "^4.28.7",
       "js-yaml@3": "^3.15.1",
       "js-yaml@4": "^4.3.1",
-      "brace-expansion@1": "^1.1.18",
-      "brace-expansion@5": "^5.0.9",
+      "brace-expansion@1": "^1.1.21",
+      "brace-expansion@5": "^5.0.12",
       "@babel/core": "^7.29.6",
     }),
   );
