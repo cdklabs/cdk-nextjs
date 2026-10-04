@@ -871,7 +871,7 @@
       "be skipped upstream - so the values sum to more than `e2e-files` minus",
       "`candidates` minus `included`."
     ],
-    "next-version": "16.3.5",
+    "next-version": "16.3.6",
     "e2e-files": 1134,
     "included": 427,
     "included-in-part": 11,
