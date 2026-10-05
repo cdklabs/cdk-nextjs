@@ -9,7 +9,7 @@
  */
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import { CachedRouteKind } from "next/dist/server/response-cache/index.js";
@@ -18,6 +18,7 @@ import type { BuildCompleteContext } from "./build-outputs";
 import { cacheKindResolver } from "./cache-kinds";
 import {
   appPageCacheHeaders,
+  cacheObjectName,
   groupPrerenders,
   headerTags,
   INIT_CACHE_TAG_MANIFEST,
@@ -26,6 +27,10 @@ import {
   routeCacheKeyFromFilePath,
   serializeCacheValue,
 } from "./cache-utils";
+import {
+  isNextVersionAtLeast,
+  ROUTE_CACHE_KEYS_VERSION,
+} from "../utils/next-version";
 
 const debug = getDebug("cdk-nextjs:adapter");
 
@@ -53,7 +58,8 @@ export async function writeInitCache(
 
   // Routes seeded under their pathname by a `next` that reads route-cache keys:
   // see the `cacheKey` below.
-  const scopesKeysByRoute = isAtLeast16_3_8(ctx.nextVersion);
+  const scopesKeysByRoute =
+    isNextVersionAtLeast(ctx.nextVersion, ROUTE_CACHE_KEYS_VERSION) === true;
   const unscopedRoutes: string[] = [];
 
   // Process each group and create cache entries
@@ -231,12 +237,10 @@ export async function writeInitCache(
       const cacheKey =
         routeCacheKey ??
         prerenderPathToCacheKey(basePath, ctx.config.basePath || "");
-      const cacheFilePath = join(cacheDir, `${cacheKey}.json`);
+      const cacheFilePath = join(cacheDir, cacheObjectName(cacheKey));
 
       // Ensure parent directory exists
-      await mkdir(join(cacheDir, cacheKey.split("/").slice(0, -1).join("/")), {
-        recursive: true,
-      });
+      await mkdir(dirname(cacheFilePath), { recursive: true });
 
       await writeFile(cacheFilePath, serializeCacheValue(cacheEntry));
 
@@ -270,14 +274,6 @@ export async function writeInitCache(
     );
     debug(`Wrote ${INIT_CACHE_TAG_MANIFEST} with ${taggedKeys} tags`);
   }
-}
-
-/** Whether `nextVersion` is 16.3.8 or later, the first to scope keys by route. */
-function isAtLeast16_3_8(nextVersion: string | undefined): boolean {
-  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(nextVersion ?? "");
-  if (!match) return false;
-  const [major, minor, patch] = match.slice(1).map(Number);
-  return major !== 16 ? major > 16 : minor !== 3 ? minor > 3 : patch >= 8;
 }
 
 /** The file `next build` wrote a prerender to, if it wrote one. */

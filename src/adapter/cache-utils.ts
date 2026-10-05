@@ -1,6 +1,7 @@
 /*
   Shared cache utility functions
 */
+import { createHash } from "node:crypto";
 import { sep } from "node:path";
 import type { CacheHandler } from "next/dist/server/lib/incremental-cache";
 import { hasPathPrefix } from "../utils/base-path";
@@ -132,6 +133,55 @@ export function prerenderPathToCacheKey(
   return route === "" ? "index" : route;
 }
 
+/** `buildS3Key` under the build prefix: `{cacheKey}.json`. */
+export function cacheKeyFileName(cacheKey: string): string {
+  let cleanCacheKey = cacheKey;
+  if (cacheKey === "/" || cacheKey === "") {
+    cleanCacheKey = "index";
+  } else if (cacheKey.startsWith("/")) {
+    cleanCacheKey = cacheKey.slice(1);
+  }
+  return `${cleanCacheKey}.json`;
+}
+
+/** S3's limit on an object key, in UTF-8 bytes. */
+const MAX_S3_KEY_BYTES = 1024;
+
+/**
+ * What {@link cacheObjectName} leaves the `{buildId}/` in front of it: a Next.js
+ * build ID is 21 characters, and the `-<deploymentId>` cdk-nextjs appends is
+ * the app's own.
+ */
+const MAX_BUILD_PREFIX_BYTES = 128;
+
+/**
+ * The folder under the build prefix that entries with an over-long key are
+ * stored in. @see cacheObjectName
+ */
+export const LONG_KEY_PREFIX = "_long-key";
+
+/**
+ * Where the entry `buildS3Key` names is stored, under the build prefix:
+ * its own name, or `_long-key/{sha256}.long` for a name that would leave the
+ * whole object key past S3's 1024 bytes. next 16.3.8's route-scoped keys are
+ * ~88 bytes longer than a pathname, enough to push a long one over, and a
+ * rejected `PutObject` meant the page was never cached.
+ *
+ * Only the object is moved: `buildS3Key` stays the entry's name for tag
+ * mappings and CloudFront paths, since a hash names no route. Decided on the
+ * name alone rather than the whole key so the init cache, which is written
+ * without the build ID it is deployed under, files a seed where the runtime
+ * reads it. The `.long` suffix keeps these disjoint from every `.json` name.
+ */
+export function cacheObjectName(cacheKey: string): string {
+  const name = cacheKeyFileName(cacheKey);
+  if (Buffer.byteLength(name) <= MAX_S3_KEY_BYTES - MAX_BUILD_PREFIX_BYTES) {
+    return name;
+  }
+  const hash = createHash("sha256").update(name).digest("hex");
+  return `${LONG_KEY_PREFIX}/${hash}.long`;
+}
+
 /**
  * The response-cache key next >= 16.3.8 stores a prerender under, read back off
  * the file `next build` wrote it to, or `undefined` before 16.3.8.
@@ -165,6 +215,22 @@ export const ROUTE_CACHE_KEY_PREFIX = new RegExp(`^${ROUTE_CACHE_KEY_START}`);
 const ROUTE_CACHE_FILE_PATH = new RegExp(
   `/server/(${ROUTE_CACHE_KEY_START}.*)$`,
 );
+
+/**
+ * `denormalizePagePath` (`next/dist/shared/lib/page-path/denormalize-page-path.js`),
+ * the inverse of the `normalizePagePath` a route-cache key's pathname goes
+ * through: `/index` back to `/`, and `/index/...` - how `/index` itself and
+ * every path under it are spelled - back to `/...`. Restated without its
+ * dynamic-route check: `s3KeyToInvalidationPath` has dropped those already.
+ */
+export function denormalizePagePath(pagePath: string): string {
+  if (pagePath === "/index") {
+    return "/";
+  }
+  return pagePath.startsWith("/index/")
+    ? pagePath.slice("/index".length)
+    : pagePath;
+}
 
 /** The outputs one route contributes to `ctx.outputs.prerenders`. */
 export interface PrerenderVariants<T> {

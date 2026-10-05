@@ -26,6 +26,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { cacheKeyFileName, cacheObjectName } from "./cache-utils";
 
 /**
  * Where the cache lives, as the constructs pass it to the compute through the
@@ -61,13 +62,12 @@ export function resolveAwsCacheConfig(): AwsCacheConfig {
  * which is what keeps it disjoint from {@link useCacheS3Key}.
  */
 export function buildS3Key(buildId: string, cacheKey: string): string {
-  let cleanCacheKey = cacheKey;
-  if (cacheKey === "/" || cacheKey === "") {
-    cleanCacheKey = "index";
-  } else if (cacheKey.startsWith("/")) {
-    cleanCacheKey = cacheKey.slice(1);
-  }
-  return join(buildId, `${cleanCacheKey}.json`);
+  return join(buildId, cacheKeyFileName(cacheKey));
+}
+
+/** `{buildId}/` + {@link cacheObjectName}: the S3 object an entry is stored in. */
+export function s3ObjectKey(buildId: string, cacheKey: string): string {
+  return join(buildId, cacheObjectName(cacheKey));
 }
 
 /**
@@ -82,8 +82,9 @@ export const USE_CACHE_KEY_PREFIX = "_use-cache";
  * Hashed because a `'use cache'` key is the serialized arguments of the call and
  * has no length limit, where an S3 key stops at 1024 bytes. The `.entry` suffix
  * rather than `.json` is what makes a collision with the incremental cache
- * impossible rather than unlikely: every key {@link buildS3Key} writes ends in
- * `.json`, including one for a route that happens to be named `/_use-cache/…`.
+ * impossible rather than unlikely: every object {@link s3ObjectKey} names ends
+ * in `.json` or `.long`, including one for a route that happens to be named
+ * `/_use-cache/…`.
  * Still under the build prefix, so post-deploy pruning drops them with the build.
  */
 export function useCacheS3Key(buildId: string, keyHash: string): string {

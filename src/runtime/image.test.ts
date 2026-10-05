@@ -194,47 +194,36 @@ async function request(
 describe("newImageResponseCache", () => {
   type ResponseCacheClass = Parameters<typeof newImageResponseCache>[0];
 
+  /** A `ResponseCache` that records what it was constructed with. */
+  class ResponseCache {
+    constructor(readonly arg: unknown) {}
+  }
+  const construct = (nextVersion: string | undefined) =>
+    (
+      newImageResponseCache(
+        ResponseCache as unknown as ResponseCacheClass,
+        nextVersion,
+      ) as unknown as ResponseCache
+    ).arg;
+
   it("passes minimalMode alone to next before 16.3.8", () => {
-    class ResponseCache {
-      constructor(readonly minimalMode: unknown) {}
-    }
-    const cache = newImageResponseCache(
-      ResponseCache as unknown as ResponseCacheClass,
-    ) as unknown as ResponseCache;
-    expect(cache.minimalMode).toBe(false);
+    expect(construct("16.3.7")).toBe(false);
   });
 
-  it("passes { minimalMode, route: 'image' } to next 16.3.8, which throws without a route", () => {
-    class ResponseCache {
-      readonly options: { minimalMode: boolean; route: string };
-      constructor(options: { minimalMode: boolean; route?: string }) {
-        if (!options.route) {
-          throw new Error("Response cache requires a source route");
-        }
-        this.options = {
-          minimalMode: options.minimalMode,
-          route: options.route,
-        };
-      }
+  it("passes { minimalMode, route: 'image' } from next 16.3.8, which throws without a route", () => {
+    for (const version of ["16.3.8", "16.4.0-canary.1", "17.0.0"]) {
+      expect(construct(version)).toEqual({
+        minimalMode: false,
+        route: "image",
+      });
     }
-    const cache = newImageResponseCache(
-      ResponseCache as unknown as ResponseCacheClass,
-    ) as unknown as ResponseCache;
-    expect(cache.options).toEqual({ minimalMode: false, route: "image" });
   });
 
-  it("rethrows any other constructor error rather than retry it as minimal mode", () => {
-    const constructed: unknown[] = [];
-    class ResponseCache {
-      constructor(arg: unknown) {
-        constructed.push(arg);
-        throw new Error("boom");
-      }
-    }
-    expect(() =>
-      newImageResponseCache(ResponseCache as unknown as ResponseCacheClass),
-    ).toThrow("boom");
-    expect(constructed).toEqual([false]);
+  it("takes a version it cannot read as a newer next", () => {
+    expect(construct(undefined)).toEqual({
+      minimalMode: false,
+      route: "image",
+    });
   });
 });
 

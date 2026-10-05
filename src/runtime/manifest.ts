@@ -129,6 +129,8 @@ export function deployedManifestPath(deploymentRoot: string): string {
 export interface AdapterManifest {
   readonly version: 1;
   readonly buildId: string;
+  /** `ctx.nextVersion`: the `next` the app was built with, and so runs. */
+  readonly nextVersion: string;
   /**
    * From the deployment root to the Next.js project dir. "" when the app is at
    * the repo root.

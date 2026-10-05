@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { BuildCompleteContext } from "./build-outputs";
-import { INIT_CACHE_TAG_MANIFEST } from "./cache-utils";
+import { cacheObjectName, INIT_CACHE_TAG_MANIFEST } from "./cache-utils";
 import { writeInitCache } from "./init-cache";
 
 let dir: string;
@@ -231,6 +231,20 @@ describe("writeInitCache", () => {
       products: ["shop"],
       "_N_T_/shop": ["shop"],
     });
+  });
+
+  it("seeds a route whose S3 key would pass 1024 bytes where the handler reads it", async () => {
+    const pathname = `/${Array(10).fill("p".repeat(100)).join("/")}`;
+    const filePath = join(dir, "long.out");
+    await writeFile(filePath, "<rss/>");
+    const ctx = context([
+      { pathname, parentOutputId: "/feed.xml", fallback: { filePath } },
+    ]);
+    await writeInitCache(ctx, cacheDir);
+
+    const name = cacheObjectName(pathname);
+    expect(name).toMatch(/^_long-key\/[0-9a-f]{64}\.long$/);
+    expect(existsSync(join(cacheDir, name))).toBe(true);
   });
 
   it("writes no tag manifest when nothing is tagged", async () => {

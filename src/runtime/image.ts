@@ -19,6 +19,10 @@ import { fetchFromS3, resolveErrorResponse } from "./image-utils";
 import { AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
 import { firstValue, s3Client } from "./util";
+import {
+  isNextVersionAtLeast,
+  ROUTE_CACHE_KEYS_VERSION,
+} from "../utils/next-version";
 
 /**
  * Required through {@link nextModule} rather than imported, because `next` is
@@ -441,7 +445,10 @@ async function loadImageCache(
     });
   }
   return {
-    responses: newImageResponseCache(modules.responseCache.default),
+    responses: newImageResponseCache(
+      modules.responseCache.default,
+      manifest.nextVersion,
+    ),
     images: new next.optimizer.ImageOptimizerCache({
       distDir,
       nextConfig,
@@ -453,23 +460,22 @@ async function loadImageCache(
 /**
  * `new ResponseCache(...)` for images, on either side of next 16.3.8. Before
  * it the constructor took `minimalMode`; from it, `{ minimalMode, route }`, and
- * it throws without a `route` - `next-server.js` passes `"image"`. The options
- * object can't go first: an older `next` takes it as a truthy `minimalMode`.
+ * it throws without a `route` - `next-server.js` passes `"image"`. Neither form
+ * can stand in for the other: an older `next` takes the options object as a
+ * truthy `minimalMode`, and 16.3.8 rejects a bare `false`.
  */
 export function newImageResponseCache(
   ResponseCache: NextImageCacheModules["responseCache"]["default"],
+  nextVersion: string | undefined,
 ): InstanceType<NextImageCacheModules["responseCache"]["default"]> {
+  // A version that does not parse is a `next` newer than this code knows of.
+  if (isNextVersionAtLeast(nextVersion, ROUTE_CACHE_KEYS_VERSION) !== false) {
+    return new ResponseCache({ minimalMode: false, route: "image" });
+  }
   const Legacy = ResponseCache as unknown as new (
     minimalMode: boolean,
   ) => InstanceType<typeof ResponseCache>;
-  try {
-    return new Legacy(false);
-  } catch (error) {
-    // Only 16.3.8's missing-route invariant means "retry with the options":
-    // anything else from an older `next` would be retried as minimal mode.
-    if (!String(error).includes("requires a source route")) throw error;
-    return new ResponseCache({ minimalMode: false, route: "image" });
-  }
+  return new Legacy(false);
 }
 
 /**

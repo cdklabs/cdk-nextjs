@@ -922,6 +922,71 @@ describe("S3DynamoCacheHandler", () => {
       );
     });
 
+    it("hashes the tag into a mapping row's prefix when even a hashed row would pass 1024 bytes", async () => {
+      // An implicit tag is as long as its path.
+      const tag = `_N_T_/${"p".repeat(1000)}`;
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>tagged</html>",
+        rscData: undefined,
+        headers: {},
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set("/isr/1", testData, createSetContext([tag]));
+
+      const [input] = (UpdateItemCommand as unknown as jest.Mock).mock.calls[0];
+      const sk: string = input.Key.sk.S;
+      expect(sk).toMatch(/^#[0-9a-f]{64}#test-build-id\/isr\/1\.json$/);
+      expect(Buffer.byteLength(sk)).toBeLessThanOrEqual(1024);
+
+      // `revalidateTag` queries the same prefix.
+      dynamoResponses({ query: { Items: [] } });
+      await handler.revalidateTag(tag);
+      const queried = (QueryCommand as unknown as jest.Mock).mock.calls.map(
+        ([query]) => query.ExpressionAttributeValues[":skPrefix"]?.S,
+      );
+      expect(queried).toContain(sk.slice(0, 66));
+    });
+
+    it("stores an entry whose S3 key would pass 1024 bytes under a hashed object key", async () => {
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>long</html>",
+        rscData: undefined,
+        headers: {},
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const cacheKey = `/route-cache/APP_PAGE/${"a".repeat(64)}/$/${"p".repeat(950)}`;
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set(cacheKey, testData, createSetContext(["t"]));
+
+      const [put] = (PutObjectCommand as unknown as jest.Mock).mock.calls[0];
+      expect(put.Key).toMatch(/^test-build-id\/_long-key\/[0-9a-f]{64}\.long$/);
+      // The mapping keeps the name a CloudFront path is recovered from.
+      const [mapping] = (UpdateItemCommand as unknown as jest.Mock).mock
+        .calls[0];
+      expect(mapping.ExpressionAttributeValues[":s3Key"].S).toBe(
+        `test-build-id${cacheKey}.json`,
+      );
+
+      (GetObjectCommand as unknown as jest.Mock).mockClear();
+      await handler.get(cacheKey, {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      });
+      const [get] = (GetObjectCommand as unknown as jest.Mock).mock.calls[0];
+      expect(get.Key).toBe(put.Key);
+    });
+
     it("removes a deleted page's mapping rows, reading its tags from S3", async () => {
       // A response delete - a cached route that starts answering `notFound()` -
       // arrives as `set(key, null, { cacheControl, ... })` with no tags at all,
@@ -1208,6 +1273,26 @@ describe("S3DynamoCacheHandler", () => {
       expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
         "/long/page*",
       ]);
+    });
+
+    it("does not read a marker row one `#` longer as a mapping row", async () => {
+      // No build ID leaves no key prefix to tell the two apart by, and the
+      // marker row of tag `test-tag#` (sk `test-tag#`) matches `test-tag#`.
+      process.env.CDK_NEXTJS_BUILD_ID = "";
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+      dynamoResponses({ query: { Items: [{ sk: { S: "test-tag#" } }] } });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      expect(CreateInvalidationCommand).not.toHaveBeenCalled();
     });
 
     it("invalidates an older app's route named /route-cache", async () => {

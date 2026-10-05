@@ -1,5 +1,7 @@
 import {
   appPageCacheHeaders,
+  cacheObjectName,
+  denormalizePagePath,
   groupPrerenders,
   parseCacheValue,
   prerenderPathToCacheKey,
@@ -78,6 +80,37 @@ describe("routeCacheKeyFromFilePath", () => {
         "/app/.next/server/app/server/route-cache/x.html",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("cacheObjectName", () => {
+  it("is the key's own name while the whole S3 key fits", () => {
+    expect(cacheObjectName("/")).toBe("index.json");
+    expect(cacheObjectName("/isr/1")).toBe("isr/1.json");
+    expect(cacheObjectName(`/${"p".repeat(890)}`)).toBe(
+      `${"p".repeat(890)}.json`,
+    );
+  });
+
+  it("hashes a name that would leave the S3 key past 1024 bytes", () => {
+    const name = cacheObjectName(`/${"p".repeat(900)}`);
+    expect(name).toMatch(/^_long-key\/[0-9a-f]{64}\.long$/);
+    // Leading slash or not, one key names one object.
+    expect(cacheObjectName("p".repeat(900))).toBe(name);
+  });
+
+  it("counts bytes rather than characters", () => {
+    expect(cacheObjectName(`/${"é".repeat(450)}`)).toMatch(/^_long-key\//);
+  });
+});
+
+describe("denormalizePagePath", () => {
+  it("reverses normalizePagePath", () => {
+    expect(denormalizePagePath("/index")).toBe("/");
+    expect(denormalizePagePath("/index/index")).toBe("/index");
+    expect(denormalizePagePath("/index/index/a")).toBe("/index/a");
+    expect(denormalizePagePath("/about")).toBe("/about");
+    expect(denormalizePagePath("/indexes")).toBe("/indexes");
   });
 });
 

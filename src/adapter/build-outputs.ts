@@ -316,6 +316,7 @@ export function buildAdapterManifest(
   const manifest: AdapterManifest = {
     version: ADAPTER_MANIFEST_VERSION as 1,
     buildId: ctx.buildId,
+    nextVersion: ctx.nextVersion,
     relativeProjectDir: toPosix(relative(repoRoot, ctx.projectDir)),
     config: {
       basePath: ctx.config.basePath || "",

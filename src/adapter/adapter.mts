@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { writeBuildOutputs } from "./build-outputs.js";
 import { writeInitCache } from "./init-cache.js";
 import { LOG_PREFIX } from "../constants.js";
+import { isNextVersionAtLeast } from "../utils/next-version.js";
 import getDebug from "debug";
 
 const debug = getDebug("cdk-nextjs:adapter");
@@ -79,16 +80,11 @@ export default adapter;
  * `routing.middlewareMatchers` and `outputs.*.assetsHashes`. On 16.2 the build
  * dies with a `TypeError` deep in `onBuildComplete` instead of saying why.
  */
-const MIN_NEXT_VERSION = [16, 3] as const;
+const MIN_NEXT_VERSION = [16, 3, 0] as const;
 
 function assertSupportedNextVersion(nextVersion: string | undefined): void {
-  const match = /^(\d+)\.(\d+)\./.exec(nextVersion ?? "");
-  if (!match) {
-    return;
-  }
-  const [major, minor] = [Number(match[1]), Number(match[2])];
-  const [minMajor, minMinor] = MIN_NEXT_VERSION;
-  if (major < minMajor || (major === minMajor && minor < minMinor)) {
+  if (isNextVersionAtLeast(nextVersion, MIN_NEXT_VERSION) === false) {
+    const [minMajor, minMinor] = MIN_NEXT_VERSION;
     throw new Error(
       `${LOG_PREFIX} Next.js ${nextVersion} is not supported: cdk-nextjs needs ` +
         `Next.js ${minMajor}.${minMinor} or higher.`,
