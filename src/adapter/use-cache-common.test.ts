@@ -396,30 +396,30 @@ describe("TrackedTagMarkers with the revalidation log", () => {
 
   it("issues no read while the interval has not passed", async () => {
     const { clock, b } = instances();
-    // Nothing tracked: nothing to ask.
+    // Asked even with nothing tracked: `completeSince` relies on the log for
+    // every tag.
     clock.at += INTERVAL;
     await b.tags.refresh();
-    expect(b.log.query).not.toHaveBeenCalled();
+    expect(b.log.query).toHaveBeenCalledTimes(1);
 
     await b.tags.ensure(["posts"]);
 
     b.markers.read.mockClear();
-    // That refresh still counts: what is tracked since was read, or is new.
     await b.tags.refresh();
-    expect(b.log.query).not.toHaveBeenCalled();
+    expect(b.log.query).toHaveBeenCalledTimes(1);
 
     clock.at += INTERVAL;
     await Promise.all([b.tags.refresh(), b.tags.refresh()]);
-    expect(b.log.query).toHaveBeenCalledTimes(1);
+    expect(b.log.query).toHaveBeenCalledTimes(2);
 
     clock.at += INTERVAL - 1;
     await b.tags.refresh();
-    expect(b.log.query).toHaveBeenCalledTimes(1);
+    expect(b.log.query).toHaveBeenCalledTimes(2);
     expect(b.markers.read).not.toHaveBeenCalled();
 
     clock.at += 1;
     await b.tags.refresh();
-    expect(b.log.query).toHaveBeenCalledTimes(2);
+    expect(b.log.query).toHaveBeenCalledTimes(3);
   });
 
   it("applies a row read again inside the lookback only once", async () => {
@@ -696,6 +696,20 @@ describe("EntryLru", () => {
     lru.set("a", stored(10));
     lru.set("b", stored(200));
     expect(lru.size).toBe(2);
+  });
+
+  it("knows its oldest entry's timestamp as entries come and go", () => {
+    const lru = new EntryLru(250);
+    expect(lru.oldestTimestamp()).toBe(Infinity);
+    lru.set("a", stored(100, { timestamp: 2 }));
+    lru.set("b", stored(100, { timestamp: 1 }));
+    expect(lru.oldestTimestamp()).toBe(1);
+    lru.delete("b");
+    expect(lru.oldestTimestamp()).toBe(2);
+    // Evicted for space.
+    lru.set("c", stored(100, { timestamp: 3 }));
+    lru.set("d", stored(100, { timestamp: 4 }));
+    expect(lru.oldestTimestamp()).toBe(3);
   });
 });
 

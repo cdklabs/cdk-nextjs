@@ -18,11 +18,13 @@ import {
 import {
   buildS3Key,
   CacheBucket,
+  markerClock,
   markerFor,
   markerState,
   markerUpdate,
   mergeMarkers,
   resolveAwsCacheConfig,
+  MAX_REVALIDATION_LOG_GAP_MS,
   REVALIDATION_LOG_MAX_PAGES,
   REVALIDATION_LOG_TTL_MS,
   RevalidationLog,
@@ -386,6 +388,40 @@ describe("CacheBucket", () => {
 });
 
 describe("TrackedTagMarkers", () => {
+  it("moves completeSince past what it forgets", async () => {
+    let clock = 1_000_000;
+    const later = markerClock() + 60_000;
+    const rows: RevalidationLogRow[] = ["a", "b"].map((tag, i) => ({
+      sk: `${String(clock).padStart(15, "0")}#${tag}`,
+      at: clock,
+      tag,
+      marker: { revalidatedAt: later + i },
+    }));
+    const query = jest.fn(async () => ({ rows, truncated: false }));
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: { query } as unknown as RevalidationLog,
+      refreshIntervalMs: 0,
+      maxTrackedTags: 1,
+      clock: () => clock,
+    });
+    const start = markers.completeSince;
+    expect(start).toBeLessThanOrEqual(markerClock());
+
+    // Untracked tags' rows are known from the log alone, as far as they fit.
+    await markers.refresh();
+    expect(markers.state(["b"], later)).toBe("expired");
+    // "a" was dropped for space, and with it what it knew.
+    expect(markers.state(["a"], later)).toBe("fresh");
+    expect(markers.completeSince).toBe(later);
+
+    // Forgetting everything moves it to now - but never back past what a
+    // dropped marker may still expire.
+    clock += MAX_REVALIDATION_LOG_GAP_MS + 1;
+    await markers.refresh();
+    expect(markers.completeSince).toBe(later);
+  });
+
   it("does not skip a row for an untracked tag that its first read missed", async () => {
     // The writer puts the log row and the marker at the same time, and the
     // marker read is eventually consistent: `refresh` can see the row, then
@@ -413,13 +449,13 @@ describe("TrackedTagMarkers", () => {
       clock: () => clock,
       random: () => 0,
     });
-    // Something tracked, so the refresh queries the log.
     await markers.ensure(["other"]);
 
     clock += 1000;
     await markers.refresh();
+    // The row seen before the read is applied to what the read found.
     await markers.ensure(["posts"]);
-    expect(markers.get("posts")).toEqual({});
+    expect(markers.get("posts")).toEqual({ revalidatedAt });
 
     clock += 1000;
     await markers.refresh();

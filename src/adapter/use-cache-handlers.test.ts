@@ -377,7 +377,8 @@ describe("cacheHandlers.default", () => {
     const created = { timestamp: Date.now() - 1000 };
     await a.set("k", Promise.resolve(entry("a", created)));
     await b.set("k", Promise.resolve(entry("b", created)));
-    // Its first read of its own entry reads the tag's marker, once.
+    // Created before `b` started, so its first read reads the tag's marker,
+    // once.
     expect(await read(b, "k")).toBe("b");
 
     // What Next.js does for `revalidateTag`: `updateTags` on every handler of
@@ -390,6 +391,37 @@ describe("cacheHandlers.default", () => {
     // `b` learned of it from the log, not by re-reading its tags' markers.
     expect(dynamoCalls(QueryCommand)).toBeGreaterThan(0);
     expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
+  });
+
+  it("reads nothing to judge an entry stored since the instance started", async () => {
+    const a = defaultInstance();
+    const bTags = tagManifest();
+    const b = defaultInstance(bTags);
+    await b.set("k", Promise.resolve(entry("b")));
+    dynamoSend.mockClear();
+
+    // Next.js awaits both inside the `'use cache'` lookup, and a path the
+    // instance has not served before has implicit tags it has never read.
+    expect(await read(b, "k")).toBe("b");
+    expect(await b.getExpiration(["_N_T_/new-path"])).toBe(0);
+    expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
+
+    // Another instance's revalidation still reaches it, through the log.
+    await a.updateTags(["posts"]);
+    await bTags.refresh();
+    expect(await read(b, "k")).toBeUndefined();
+    expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
+  });
+
+  it("reads the implicit tags while it holds an entry older than the manifest's knowledge", async () => {
+    const b = defaultInstance();
+    await b.set(
+      "k",
+      Promise.resolve(entry("b", { timestamp: Date.now() - 1000 })),
+    );
+    dynamoSend.mockClear();
+    await b.getExpiration(["_N_T_/new-path"]);
+    expect(dynamoCalls(BatchGetItemCommand)).toBe(1);
   });
 
   it("does not hold a read for the revalidation log query", async () => {
@@ -459,8 +491,11 @@ describe("cacheHandlers.default", () => {
 
   it("answers getExpiration from another instance's revalidatePath", async () => {
     const a = defaultInstance();
-    const b = defaultInstance();
+    const bTags = tagManifest();
+    const b = defaultInstance(bTags);
     await a.updateTags(["_N_T_/blog/layout"]);
+    // From the log, as soon as `b` has read it.
+    await bTags.refresh();
     const expiration = await b.getExpiration(["_N_T_/", "_N_T_/blog/layout"]);
     expect(expiration).toBeGreaterThan(0);
     expect(await b.getExpiration(["_N_T_/other"])).toBe(0);

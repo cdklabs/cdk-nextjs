@@ -583,7 +583,8 @@ export type TrackedTagMarkersOptions = TagTable & {
  * The cost is bounded per instance, not per request:
  * - {@link ensure} reads a tag's marker the first time it is needed and not
  *   again until it is evicted, so a tag costs one read per instance, not one
- *   per request.
+ *   per request. An entry created since {@link completeSince} needs no read
+ *   at all.
  * - {@link refresh}, at most once per `refreshIntervalMs`, sends one `Query`
  *   for the log rows written since the last one, and applies those of tags
  *   this instance tracks. Concurrent callers share it. Alongside, it re-reads
@@ -619,6 +620,14 @@ export class TrackedTagMarkers {
    * result rather than dropped.
    */
   private readonly pendingRows = new Map<string, TagMarker>();
+  /**
+   * Log rows for tags not tracked and not being read, merged by tag, oldest
+   * first: what the log has said about them since {@link completeSince}. Taken
+   * into a tag's marker when it is read or written.
+   */
+  private readonly logOnly = new Map<string, TagMarker>();
+  /** See {@link completeSince}. */
+  private floor: number;
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
   private lastRefresh = -Infinity;
@@ -652,6 +661,7 @@ export class TrackedTagMarkers {
     const at = this.clock();
     this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
     this.lastLogRead = at;
+    this.floor = markerClock();
   }
 
   /** `tag`'s marker as this instance knows it, if it tracks `tag`. */
@@ -660,11 +670,30 @@ export class TrackedTagMarkers {
   }
 
   /**
+   * Since when (`markerClock()`) this instance knows of every revalidation of
+   * every tag, tracked or not: tracked ones from their markers and the log,
+   * the others from the log alone (`logOnly`). So an entry created at or after
+   * it can be judged by {@link state} and {@link expiration} without
+   * {@link ensure} reading anything - which matters inside a `'use cache'`
+   * lookup, where Next.js waits for the answer and a read pushes the entry out
+   * of the static stage of a staged render.
+   *
+   * Starts at construction: the log is followed from before it. Moves to now
+   * when the tracked markers are forgotten, and to the latest revalidation of
+   * a marker evicted for space, whose revalidations are no longer known.
+   */
+  get completeSince(): number {
+    return this.floor;
+  }
+
+  /**
    * Track `tag` with `marker`: what this instance just wrote, which it knows
    * without reading it back.
    */
   set(tag: string, marker: TagMarker): void {
-    this.remember(tag, marker);
+    const logged = this.logOnly.get(tag);
+    this.logOnly.delete(tag);
+    this.remember(tag, mergeMarkers(marker, logged));
     this.known(tag, this.clock());
   }
 
@@ -760,11 +789,8 @@ export class TrackedTagMarkers {
       return;
     }
     this.lastRefresh = at;
-    // Whatever gets tracked before the next refresh is read from its marker,
-    // so there is nothing to catch up on yet.
-    if (this.tags.size === 0) {
-      return;
-    }
+    // Even with nothing tracked: an entry judged by `completeSince` relies on
+    // the log for every tag.
     this.refreshing = this.sync(at, log).finally(() => {
       this.refreshing = undefined;
     });
@@ -812,7 +838,7 @@ export class TrackedTagMarkers {
     const at = markerClock();
     let state: RevalidationState = "fresh";
     for (const tag of tags) {
-      const marker = this.get(tag);
+      const marker = this.markerOf(tag);
       if (!marker) {
         continue;
       }
@@ -837,7 +863,7 @@ export class TrackedTagMarkers {
     const at = markerClock();
     let latest = 0;
     for (const tag of tags) {
-      const marker = this.get(tag);
+      const marker = this.markerOf(tag);
       if (!marker) {
         continue;
       }
@@ -977,6 +1003,12 @@ export class TrackedTagMarkers {
         // rolling re-read. Left unmarked, the next refresh applies it to
         // whatever that read found; it costs no read, only the row being
         // looked at again while it is inside the lookback.
+        //
+        // Kept meanwhile in `logOnly`, which is all `completeSince` needs.
+        this.rememberLogged(
+          row.tag,
+          mergeMarkers(this.logOnly.get(row.tag), row.marker),
+        );
         continue;
       }
       this.applied.set(row.sk, row.at);
@@ -1025,6 +1057,9 @@ export class TrackedTagMarkers {
     this.dueAt.clear();
     this.unread.clear();
     this.applied.clear();
+    this.logOnly.clear();
+    // Never back: a marker dropped earlier may have expired entries later.
+    this.floor = Math.max(this.floor, markerClock());
     this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
     this.lastLogRead = at;
   }
@@ -1088,8 +1123,44 @@ export class TrackedTagMarkers {
 
   private takePendingRows(tag: string): TagMarker | undefined {
     const pending = this.pendingRows.get(tag);
+    const logged = this.logOnly.get(tag);
     this.pendingRows.delete(tag);
-    return pending;
+    this.logOnly.delete(tag);
+    return logged ? mergeMarkers(logged, pending) : pending;
+  }
+
+  /** What this instance knows of `tag`, tracked or from the log alone. */
+  private markerOf(tag: string): TagMarker | undefined {
+    return this.tags.get(tag) ?? this.logOnly.get(tag);
+  }
+
+  /**
+   * Keep `tag`'s log rows in `logOnly`, as bounded as the tracked tags. One
+   * dropped for space takes what it knew with it, so `completeSince` moves
+   * past its latest revalidation.
+   */
+  private rememberLogged(tag: string, marker: TagMarker): void {
+    this.logOnly.delete(tag);
+    this.logOnly.set(tag, marker);
+    for (const [oldest, dropped] of this.logOnly) {
+      if (this.logOnly.size <= this.maxTrackedTags) {
+        break;
+      }
+      this.logOnly.delete(oldest);
+      this.raiseFloor(dropped);
+    }
+  }
+
+  /**
+   * Move `completeSince` past `marker`'s latest revalidation: what is no
+   * longer known about a tag once its marker is dropped.
+   */
+  private raiseFloor(marker: TagMarker): void {
+    for (const at of [marker.revalidatedAt, marker.staleAt, marker.expiredAt]) {
+      if (at !== undefined && at > this.floor) {
+        this.floor = at;
+      }
+    }
   }
 
   /** Record that `tag`'s marker was known from the table at `at`. */
@@ -1108,6 +1179,7 @@ export class TrackedTagMarkers {
       if (this.tags.size <= this.maxTrackedTags) {
         break;
       }
+      this.raiseFloor(this.tags.get(oldest)!);
       this.tags.delete(oldest);
       this.dueAt.delete(oldest);
       this.unread.delete(oldest);
