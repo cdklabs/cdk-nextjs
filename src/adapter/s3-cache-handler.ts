@@ -33,7 +33,9 @@ import {
   AwsCacheConfig,
   buildS3Key,
   CacheBucket,
+  hashedTag,
   markerClock,
+  MAX_SORT_KEY_BYTES,
   resolveAwsCacheConfig,
   RevalidateDurations,
   RevalidationState,
@@ -104,9 +106,6 @@ function isFetchCacheGet(
 ): ctx is GetIncrementalFetchCacheContext {
   return ctx.kind === "FETCH";
 }
-
-/** DynamoDB's limit on a sort key, in UTF-8 bytes. */
-const MAX_SORT_KEY_BYTES = 1024;
 
 /** A SHA-256 digest in hex. */
 const SHA256_HEX_LENGTH = 64;
@@ -1098,7 +1097,7 @@ export class S3CacheHandler implements CacheHandler {
 
   /**
    * What every mapping row of `tag` starts with, and so what
-   * {@link queryTagMappings} matches: `tag#`, or `#<sha256(tag)>#` for a tag too
+   * {@link queryTagMappings} matches: `tag#`, or {@link hashedTag}`#` for a tag too
    * long to leave a hashed row ({@link tagMappingSortKey}) under the limit. An
    * implicit `_N_T_/…` tag is as long as its path, which nothing caps.
    */
@@ -1111,7 +1110,7 @@ export class S3CacheHandler implements CacheHandler {
     if (hashedRowBytes <= MAX_SORT_KEY_BYTES) {
       return prefix;
     }
-    return `#${createHash("sha256").update(tag).digest("hex")}#`;
+    return `${hashedTag(tag)}#`;
   }
 
   private async storeDynamoDBTagMappings(
