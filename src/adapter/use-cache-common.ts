@@ -151,6 +151,8 @@ export class PendingSets {
 export class EntryLru {
   private readonly entries = new Map<string, StoredEntry>();
   private bytes = 0;
+  /** The oldest entry's `timestamp`, or `undefined` until it is recomputed. */
+  private oldest: number | undefined = Infinity;
 
   constructor(private readonly maxBytes: number) {}
 
@@ -172,20 +174,44 @@ export class EntryLru {
     }
     this.entries.set(key, entry);
     this.bytes += size;
+    if (this.oldest !== undefined) {
+      this.oldest = Math.min(this.oldest, entry.timestamp);
+    }
     for (const [oldestKey, oldest] of this.entries) {
       if (this.bytes <= this.maxBytes) {
         break;
       }
-      this.entries.delete(oldestKey);
-      this.bytes -= sizeOf(oldestKey, oldest);
+      this.remove(oldestKey, oldest);
     }
   }
 
   delete(key: string): void {
     const existing = this.entries.get(key);
     if (existing) {
-      this.entries.delete(key);
-      this.bytes -= sizeOf(key, existing);
+      this.remove(key, existing);
+    }
+  }
+
+  /**
+   * The `timestamp` of the oldest entry held, `Infinity` with none. Kept as
+   * entries come and recomputed only after the oldest one goes.
+   */
+  oldestTimestamp(): number {
+    if (this.oldest === undefined) {
+      let oldest = Infinity;
+      for (const entry of this.entries.values()) {
+        oldest = Math.min(oldest, entry.timestamp);
+      }
+      this.oldest = oldest;
+    }
+    return this.oldest;
+  }
+
+  private remove(key: string, entry: StoredEntry): void {
+    this.entries.delete(key);
+    this.bytes -= sizeOf(key, entry);
+    if (this.oldest !== undefined && entry.timestamp <= this.oldest) {
+      this.oldest = undefined;
     }
   }
 
