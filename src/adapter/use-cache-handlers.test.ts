@@ -392,6 +392,34 @@ describe("cacheHandlers.default", () => {
     expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
   });
 
+  it("does not hold a read for the revalidation log query", async () => {
+    const a = defaultInstance();
+    const b = defaultInstance();
+    const created = { timestamp: Date.now() - 1000 };
+    await b.set("k", Promise.resolve(entry("b", created)));
+    expect(await read(b, "k")).toBe("b");
+    await a.updateTags(["posts"], { expire: 0 });
+
+    // Hold the log query until the read is done.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const query = dynamoSend.getMockImplementation()!;
+    dynamoSend.mockImplementationOnce(async (command) => {
+      await held;
+      return query(command);
+    });
+
+    // Next.js awaits `refreshTags` inside the `'use cache'` lookup, so a read
+    // that waited for the query would leave the static stage of a staged
+    // render. This one answers from what the instance already knew.
+    expect(await read(b, "k")).toBe("b");
+    expect(dynamoCalls(QueryCommand)).toBeGreaterThan(0);
+
+    release();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await read(b, "k")).toBeUndefined();
+  });
+
   it("waits for the refresh interval before re-reading tags", async () => {
     const b = defaultInstance(tagManifest(60_000));
     await b.set(

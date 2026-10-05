@@ -630,8 +630,10 @@ export type TrackedTagMarkersOptions = TagTable & {
  *   the markers of up to {@link BATCH_GET_MAX_KEYS} tags not read for
  *   {@link DEFAULT_TAG_RESYNC_MS}, in one `BatchGetItem`.
  * A revalidation on another instance is therefore seen within
- * `refreshIntervalMs` (plus the query itself). The instance that ran it applies
- * it itself, at once, with {@link set}.
+ * `refreshIntervalMs` (plus the query itself) - by `'use cache'`, from the
+ * first request after the query returns, since its `refreshTags` does not wait
+ * for it (see `tagMethods`). The instance that ran it applies it itself, at
+ * once, with {@link set}.
  */
 export class TrackedTagMarkers {
   private readonly markers: TagMarkerTable | undefined;
