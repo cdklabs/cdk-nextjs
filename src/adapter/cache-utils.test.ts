@@ -3,6 +3,7 @@ import {
   groupPrerenders,
   parseCacheValue,
   prerenderPathToCacheKey,
+  routeCacheKeyFromFilePath,
   serializeCacheValue,
 } from "./cache-utils";
 
@@ -32,6 +33,33 @@ describe("prerenderPathToCacheKey", () => {
     expect(prerenderPathToCacheKey("/production/1", "/prod")).toBe(
       "production/1",
     );
+  });
+});
+
+describe("routeCacheKeyFromFilePath", () => {
+  const hash = "a".repeat(64);
+
+  it("reads the key next >= 16.3.8 filed a prerender under", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        `/app/.next/server/route-cache/APP_PAGE/${hash}/$/blog/a.b.html`,
+      ),
+    ).toBe(`route-cache/APP_PAGE/${hash}/$/blog/a.b`);
+  });
+
+  it("strips only the output's own extension", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        `/app/.next/server/route-cache/APP_ROUTE/${hash}/$/robots.txt.body`,
+      ),
+    ).toBe(`route-cache/APP_ROUTE/${hash}/$/robots.txt`);
+  });
+
+  it("is undefined for the pathname layout before 16.3.8", () => {
+    expect(
+      routeCacheKeyFromFilePath("/app/.next/server/app/blog/a.html"),
+    ).toBeUndefined();
+    expect(routeCacheKeyFromFilePath(undefined)).toBeUndefined();
   });
 });
 

@@ -22,6 +22,7 @@ import {
   INIT_CACHE_TAG_MANIFEST,
   InitCacheTagManifest,
   prerenderPathToCacheKey,
+  routeCacheKeyFromFilePath,
   serializeCacheValue,
 } from "./cache-utils";
 
@@ -211,12 +212,14 @@ export async function writeInitCache(
         continue;
       }
 
-      // Write cache entry to file, under the route rather than the URL it is
-      // served at - see `prerenderPathToCacheKey`.
-      const cacheKey = prerenderPathToCacheKey(
-        basePath,
-        ctx.config.basePath || "",
-      );
+      // Write cache entry to file, under the key Next.js reads it back with:
+      // from next 16.3.8 the one `next build` filed the prerender under (see
+      // `routeCacheKeyFromFilePath`), before that the route rather than the
+      // URL it is served at (see `prerenderPathToCacheKey`).
+      const cacheKey =
+        routeCacheKeyFromFilePath(
+          prerenderFilePath(htmlPrerender ?? dataPrerender ?? rscPrerender),
+        ) ?? prerenderPathToCacheKey(basePath, ctx.config.basePath || "");
       const cacheFilePath = join(cacheDir, `${cacheKey}.json`);
 
       // Ensure parent directory exists
@@ -244,6 +247,17 @@ export async function writeInitCache(
     );
     debug(`Wrote ${INIT_CACHE_TAG_MANIFEST} with ${taggedKeys} tags`);
   }
+}
+
+/** The file `next build` wrote a prerender to, if it wrote one. */
+function prerenderFilePath(
+  prerender:
+    | { fallback?: { filePath?: string } | { postponedState: string } }
+    | undefined,
+): string | undefined {
+  return prerender?.fallback && "filePath" in prerender.fallback
+    ? prerender.fallback.filePath
+    : undefined;
 }
 
 /**

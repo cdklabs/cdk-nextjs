@@ -1,7 +1,14 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { BuildCompleteContext } from "./build-outputs";
 import { INIT_CACHE_TAG_MANIFEST } from "./cache-utils";
 import { writeInitCache } from "./init-cache";
@@ -130,6 +137,36 @@ describe("writeInitCache", () => {
     const fallback = await readEntry("blog/[slug]");
     expect(fallback.value.kind).toBe("PAGES");
     expect(fallback.value.html).toBe("<html>fallback</html>");
+  });
+
+  /**
+   * next >= 16.3.8 reads a page's cache under a key scoped by its source route,
+   * and writes the prerender to `<distDir>/server/<that key><ext>`. Seeding under
+   * the pathname made every seeded prerender a MISS.
+   */
+  it("seeds under the route-cache key next 16.3.8 filed the prerender under", async () => {
+    const key = `route-cache/APP_PAGE/${"a".repeat(64)}/$/shop`;
+    const at = (ext: string) => join(dir, ".next", "server", `${key}${ext}`);
+    await mkdir(dirname(at("")), { recursive: true });
+    await writeFile(at(".html"), "<html>shop</html>");
+    await writeFile(at(".rsc"), "flight");
+    const ctx = context([
+      {
+        pathname: "/shop",
+        parentOutputId: "/shop",
+        fallback: { filePath: at(".html"), initialStatus: 200 },
+      },
+      {
+        pathname: "/shop.rsc",
+        parentOutputId: "/shop",
+        fallback: { filePath: at(".rsc") },
+      },
+    ]);
+
+    await writeInitCache(ctx, cacheDir);
+
+    expect((await readEntry(key)).value.html).toBe("<html>shop</html>");
+    expect(existsSync(join(cacheDir, "shop.json"))).toBe(false);
   });
 
   it("skips a Pages Router route prerendered with a non-200 status", async () => {

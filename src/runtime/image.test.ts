@@ -18,7 +18,11 @@ import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
 import { ShimIncomingMessage } from "./http/request";
 import { ResponseHead, ShimServerResponse } from "./http/response";
 import { pipeToSink } from "./http/sink";
-import { ImageOptimizerOptions, RuntimeImageOptimizer } from "./image";
+import {
+  ImageOptimizerOptions,
+  newImageResponseCache,
+  RuntimeImageOptimizer,
+} from "./image";
 import { AdapterManifest } from "./manifest";
 import { useNextFrom } from "./next-modules";
 
@@ -186,6 +190,39 @@ async function request(
   await Promise.allSettled(pending);
   return { head: head!, body: Buffer.concat(chunks).toString() };
 }
+
+describe("newImageResponseCache", () => {
+  type ResponseCacheClass = Parameters<typeof newImageResponseCache>[0];
+
+  it("passes minimalMode alone to next before 16.3.8", () => {
+    class ResponseCache {
+      constructor(readonly minimalMode: unknown) {}
+    }
+    const cache = newImageResponseCache(
+      ResponseCache as unknown as ResponseCacheClass,
+    ) as unknown as ResponseCache;
+    expect(cache.minimalMode).toBe(false);
+  });
+
+  it("passes { minimalMode, route: 'image' } to next 16.3.8, which throws without a route", () => {
+    class ResponseCache {
+      readonly options: { minimalMode: boolean; route: string };
+      constructor(options: { minimalMode: boolean; route?: string }) {
+        if (!options.route) {
+          throw new Error("Response cache requires a source route");
+        }
+        this.options = {
+          minimalMode: options.minimalMode,
+          route: options.route,
+        };
+      }
+    }
+    const cache = newImageResponseCache(
+      ResponseCache as unknown as ResponseCacheClass,
+    ) as unknown as ResponseCache;
+    expect(cache.options).toEqual({ minimalMode: false, route: "image" });
+  });
+});
 
 describe("RuntimeImageOptimizer.isEnabled", () => {
   const withImages = (images: Record<string, unknown>) =>

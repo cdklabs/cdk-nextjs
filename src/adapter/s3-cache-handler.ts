@@ -28,9 +28,9 @@ import {
 import {
   IncrementalCacheValue,
   GetIncrementalFetchCacheContext,
-  GetIncrementalResponseCacheContext,
+  GetIncrementalResponseCacheHandlerContext,
   SetIncrementalFetchCacheContext,
-  SetIncrementalResponseCacheContext,
+  SetIncrementalResponseCacheHandlerContext,
 } from "next/dist/server/response-cache";
 import {
   AwsCacheConfig,
@@ -48,6 +48,7 @@ import {
   getTags,
   headerTags,
   INIT_CACHE_TAG_MANIFEST,
+  ROUTE_CACHE_DIRECTORY,
 } from "./cache-utils";
 import { sharedTagManifest } from "./use-cache-common";
 import { REVALIDATED_PAGE_HOOK } from "../runtime/manifest";
@@ -98,7 +99,8 @@ const EXPIRED_LAST_MODIFIED = -1;
  * runtime representation to import anyway).
  */
 function isFetchCacheGet(
-  ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+  ctx:
+    GetIncrementalFetchCacheContext | GetIncrementalResponseCacheHandlerContext,
 ): ctx is GetIncrementalFetchCacheContext {
   return ctx.kind === "FETCH";
 }
@@ -473,7 +475,9 @@ export class S3CacheHandler implements CacheHandler {
 
   async get(
     cacheKey: string,
-    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+    ctx:
+      | GetIncrementalFetchCacheContext
+      | GetIncrementalResponseCacheHandlerContext,
   ): Promise<CacheHandlerValue | null> {
     try {
       if (!this.config.bucketName) {
@@ -554,7 +558,9 @@ export class S3CacheHandler implements CacheHandler {
    */
   async isRevalidated(
     entry: { lastModified?: number; tags?: string[]; value?: unknown },
-    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+    ctx:
+      | GetIncrementalFetchCacheContext
+      | GetIncrementalResponseCacheHandlerContext,
     cacheKey: string,
   ): Promise<boolean> {
     if (!this.config.tableName) {
@@ -599,7 +605,9 @@ export class S3CacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+    ctx:
+      | SetIncrementalFetchCacheContext
+      | SetIncrementalResponseCacheHandlerContext,
   ): Promise<void> {
     try {
       if (!data) {
@@ -913,6 +921,15 @@ export class S3CacheHandler implements CacheHandler {
     if (withoutSuffix.includes("[") || isFetchCacheKey(withoutSuffix)) {
       return undefined;
     }
+    // next >= 16.3.8: `route-cache/<kind>/<hash>/$<pathname>`, the pathname
+    // through `normalizePagePath` - `/` as `/index`, `/index` as `/index/index`.
+    if (withoutSuffix.startsWith(`${ROUTE_CACHE_DIRECTORY}/`)) {
+      const at = withoutSuffix.indexOf("/$/");
+      if (at === -1) return undefined;
+      const pathname = withoutSuffix.slice(at + 2);
+      if (pathname === "/index") return "/";
+      return pathname.startsWith("/index/") ? pathname.slice(6) : pathname;
+    }
     return withoutSuffix === "index" ? "/" : `/${withoutSuffix}`;
   }
 
@@ -1153,7 +1170,9 @@ export class S3CacheHandler implements CacheHandler {
    */
   private async storedEntryTags(
     s3Key: string,
-    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+    ctx:
+      | SetIncrementalFetchCacheContext
+      | SetIncrementalResponseCacheHandlerContext,
   ): Promise<string[]> {
     const ctxTags = getTags(ctx);
     if (ctxTags?.length) {

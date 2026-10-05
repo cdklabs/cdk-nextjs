@@ -1115,6 +1115,43 @@ describe("S3DynamoCacheHandler", () => {
       ]);
     });
 
+    /**
+     * next >= 16.3.8 scopes a page's key by its source route:
+     * `route-cache/<kind>/<hash>/$<pathname>`, the pathname through
+     * `normalizePagePath`. Read as a path, it named no URI the distribution has.
+     */
+    it("invalidates the pathname inside a next 16.3.8 route-cache key", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+      const key = (pathname: string) =>
+        `test-tag#test-build-id/route-cache/APP_PAGE/${"a".repeat(64)}/$${pathname}.json`;
+      dynamoResponses({
+        query: {
+          Items: [
+            { sk: { S: key("/isr/1") } },
+            { sk: { S: key("/index/index") } },
+          ],
+        },
+      });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/isr/1*",
+        "/index*",
+      ]);
+    });
+
     it("invalidates a distribution whose ID is in the environment without SSM", async () => {
       // NextjsGlobalContainers: the task can name the distribution directly.
       process.env.CDK_NEXTJS_DISTRIBUTION_ID = "direct-distribution-id";

@@ -5,7 +5,7 @@ build time, what runs per request, where it knowingly differs from `next start`,
 and what each deployment type cannot do. The reasoning behind individual
 decisions lives in the code comments next to them; this is the map.
 
-Written against Next.js 16.3.6. `@next/routing` is exact-pinned to the `next`
+Written against Next.js 16.3.8. `@next/routing` is exact-pinned to the `next`
 version and bumped with it.
 
 ## Build time: `onBuildComplete`

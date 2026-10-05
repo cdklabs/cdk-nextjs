@@ -1,9 +1,10 @@
 /*
   Shared cache utility functions
 */
+import { sep } from "node:path";
 import type {
   SetIncrementalFetchCacheContext,
-  SetIncrementalResponseCacheContext,
+  SetIncrementalResponseCacheHandlerContext,
 } from "next/dist/server/response-cache";
 import { hasPathPrefix } from "../utils/base-path";
 
@@ -133,6 +134,29 @@ export function prerenderPathToCacheKey(
     .replace(/^\/+/, "");
   return route === "" ? "index" : route;
 }
+
+/**
+ * The response-cache key next >= 16.3.8 stores a prerender under, read back off
+ * the file `next build` wrote it to, or `undefined` before 16.3.8.
+ *
+ * From 16.3.8 Next.js scopes every page's cache key by its source route -
+ * `/route-cache/<kind>/<sha256(sourceRoute)>/$<pathname>` (`getRouteCacheKey`
+ * in `next/dist/server/lib/route-cache-key.js`) - and, with an adapter, writes
+ * each prerender to `<distDir>/server/<key><ext>`. The file path is the only
+ * place an adapter is handed that key, and re-deriving it would mean re-picking
+ * the source route the way `build-complete.js` does.
+ */
+export function routeCacheKeyFromFilePath(
+  filePath: string | undefined,
+): string | undefined {
+  const path = filePath?.split(sep).join("/");
+  const at = path?.lastIndexOf(`/server/${ROUTE_CACHE_DIRECTORY}/`) ?? -1;
+  if (at === -1) return undefined;
+  return path!.slice(at + "/server/".length).replace(/\.[^./]+$/, "");
+}
+
+/** `ROUTE_CACHE_DIRECTORY` from `next/dist/server/lib/route-cache-key.js`. */
+export const ROUTE_CACHE_DIRECTORY = "route-cache";
 
 /** The outputs one route contributes to `ctx.outputs.prerenders`. */
 export interface PrerenderVariants<T> {
@@ -326,7 +350,8 @@ export type InitCacheTagManifest = Record<string, string[]>;
  * Helper to safely extract tags from context
  */
 export function getTags(
-  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+  ctx:
+    SetIncrementalFetchCacheContext | SetIncrementalResponseCacheHandlerContext,
 ): string[] | undefined {
   return "tags" in ctx ? ctx.tags : undefined;
 }

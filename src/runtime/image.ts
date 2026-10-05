@@ -441,13 +441,32 @@ async function loadImageCache(
     });
   }
   return {
-    responses: new modules.responseCache.default(false),
+    responses: newImageResponseCache(modules.responseCache.default),
     images: new next.optimizer.ImageOptimizerCache({
       distDir,
       nextConfig,
       cacheHandler,
     }),
   };
+}
+
+/**
+ * `new ResponseCache(...)` for images, on either side of next 16.3.8. Before
+ * it the constructor took `minimalMode`; from it, `{ minimalMode, route }`, and
+ * it throws without a `route` - `next-server.js` passes `"image"`. The options
+ * object can't go first: an older `next` takes it as a truthy `minimalMode`.
+ */
+export function newImageResponseCache(
+  ResponseCache: NextImageCacheModules["responseCache"]["default"],
+): InstanceType<NextImageCacheModules["responseCache"]["default"]> {
+  const Legacy = ResponseCache as unknown as new (
+    minimalMode: boolean,
+  ) => InstanceType<typeof ResponseCache>;
+  try {
+    return new Legacy(false);
+  } catch {
+    return new ResponseCache({ minimalMode: false, route: "image" });
+  }
 }
 
 /**

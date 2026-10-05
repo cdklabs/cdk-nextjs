@@ -449,7 +449,7 @@ cdk-nextjs rejects any build output whose runtime is not `nodejs`
 
 That is a product limitation and a deliberate one: the edge runtime is deprecated
 in Next.js, and cdk-nextjs supports Next.js 16's Node-runtime `proxy.ts` instead.
-931 of next.js's 1134 e2e files are edge-free, so it barely constrains widening
+933 of next.js's 1136 e2e files are edge-free, so it barely constrains widening
 the list - and `scripts/e2e-harness/screen.mjs` applies this screen and the three
 below for you, recording the funnel in the manifest's `screening` block:
 
