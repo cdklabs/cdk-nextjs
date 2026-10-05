@@ -225,7 +225,8 @@ How often, at most, in milliseconds, an instance asks the revalidation log what
 other instances revalidated: the longest a `revalidateTag` elsewhere goes unseen,
 for `'use cache'`, ISR and the data cache alike. It's one DynamoDB `Query`,
 however many tags the instance tracks, shared by every request on the instance
-during the window. `0` asks before every cache check.
+during the window. `0` asks before every cache check. `'use cache'` reads don't
+wait for the answer, which applies from the instance's next request.
 
 **Default**: `1000`
 
