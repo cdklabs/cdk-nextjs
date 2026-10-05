@@ -37,15 +37,19 @@ async function prerender(
   return { pathname, parentOutputId, fallback: { filePath, ...fallback } };
 }
 
-type Context = Pick<BuildCompleteContext, "config" | "outputs" | "nextVersion">;
+type Context = Pick<
+  BuildCompleteContext,
+  "config" | "outputs" | "nextVersion" | "projectDir"
+>;
 
 function context(
   prerenders: unknown[],
   basePath = "",
-  nextVersion = "16.3.7",
+  projectDir = dir,
 ): Context {
   return {
-    nextVersion,
+    nextVersion: "16.3.8",
+    projectDir,
     config: { basePath },
     outputs: {
       pages: [{ id: "/blog/[slug]" }, { id: "/gone" }],
@@ -173,14 +177,26 @@ describe("writeInitCache", () => {
     expect(existsSync(join(cacheDir, "shop.json"))).toBe(false);
   });
 
-  it("warns when next >= 16.3.8 files a prerender outside route-cache", async () => {
+  // Told by the module that derives the key, not the version: a canary's says
+  // nothing of what it contains.
+  it("warns when a next with route-cache keys files a prerender outside route-cache", async () => {
+    const scopedApp = join(dir, "scoped-app");
+    const routeCacheKeyModule = join(
+      scopedApp,
+      "node_modules/next/dist/server/lib/route-cache-key.js",
+    );
+    await mkdir(dirname(routeCacheKeyModule), { recursive: true });
+    await writeFile(routeCacheKeyModule, "");
+    const unscopedApp = join(dir, "unscoped-app");
+    await mkdir(unscopedApp);
+
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     try {
       await writeInitCache(
         context(
           [await prerender("/shop", "/shop", "<html>shop</html>")],
           "",
-          "16.4.0-canary.1",
+          scopedApp,
         ),
         cacheDir,
       );
@@ -191,7 +207,7 @@ describe("writeInitCache", () => {
         context(
           [await prerender("/shop", "/shop", "<html>shop</html>")],
           "",
-          "16.3.7",
+          unscopedApp,
         ),
         cacheDir,
       );

@@ -9,7 +9,6 @@
   kinds of handler, and they must read each other's markers the same way.
 */
 /* eslint-disable import/no-extraneous-dependencies */
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
   AttributeValue,
@@ -27,7 +26,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { cacheKeyFileName, cacheObjectName } from "./cache-utils";
+import { cacheKeyFileName, cacheObjectName, sha256Hex } from "./cache-utils";
 
 /**
  * Where the cache lives, as the constructs pass it to the compute through the
@@ -257,12 +256,26 @@ export const MAX_SORT_KEY_BYTES = 1024;
  * left `revalidatePath` on a long path recorded nowhere.
  */
 export function hashedTag(tag: string): string {
-  return `#${createHash("sha256").update(tag).digest("hex")}`;
+  return `#${sha256Hex(tag)}`;
+}
+
+/** The length of a {@link hashedTag}. */
+export const HASHED_TAG_BYTES = 65;
+
+/**
+ * `value` as part of a sort key with `reservedBytes` of other parts: itself,
+ * or {@link hashedTag} when it would push the key past {@link MAX_SORT_KEY_BYTES}.
+ * The one place that decides, so a row's writer and reader agree.
+ */
+export function sortKeyPart(value: string, reservedBytes = 0): string {
+  return Buffer.byteLength(value) + reservedBytes <= MAX_SORT_KEY_BYTES
+    ? value
+    : hashedTag(value);
 }
 
 /** A marker row's sort key: the tag, or {@link hashedTag} for one too long. */
 function markerSortKey(tag: string): string {
-  return Buffer.byteLength(tag) <= MAX_SORT_KEY_BYTES ? tag : hashedTag(tag);
+  return sortKeyPart(tag);
 }
 
 /**
@@ -427,14 +440,13 @@ export class RevalidationLog {
    * to {@link LOG_PUT_ATTEMPTS} times.
    */
   async put(tag: string, at: number, marker: TagMarker): Promise<void> {
-    const fits =
-      Buffer.byteLength(tag) <= MAX_SORT_KEY_BYTES - LOG_SK_DIGITS - 1;
+    const skTag = sortKeyPart(tag, LOG_SK_DIGITS + 1);
     for (let attempt = 1; ; attempt++) {
       const item: Record<string, AttributeValue> = {
         pk: { S: this.pk },
-        sk: { S: `${logSkPrefix(at)}#${fits ? tag : hashedTag(tag)}` },
+        sk: { S: `${logSkPrefix(at)}#${skTag}` },
         ttl: { N: String(Math.ceil((at + REVALIDATION_LOG_TTL_MS) / 1000)) },
-        ...(!fits && { longTag: { S: tag } }),
+        ...(skTag !== tag && { longTag: { S: tag } }),
       };
       for (const field of MARKER_FIELDS) {
         const value = marker[field];

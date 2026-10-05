@@ -20,6 +20,3 @@ export function isNextVersionAtLeast(
   const differs = version.findIndex((part, i) => part !== min[i]);
   return differs === -1 || version[differs] > min[differs];
 }
-
-/** The first Next.js to scope response-cache keys by source route. */
-export const ROUTE_CACHE_KEYS_VERSION = [16, 3, 8] as const;

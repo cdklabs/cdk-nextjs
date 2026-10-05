@@ -144,15 +144,21 @@ export function cacheKeyFileName(cacheKey: string): string {
   return `${cleanCacheKey}.json`;
 }
 
+/** `value`'s SHA-256 digest, in hex: 64 characters. */
+export function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 /** S3's limit on an object key, in UTF-8 bytes. */
 const MAX_S3_KEY_BYTES = 1024;
 
 /**
  * What {@link cacheObjectName} leaves the `{buildId}/` in front of it: a Next.js
  * build ID is 21 characters, and the `-<deploymentId>` cdk-nextjs appends is
- * the app's own.
+ * the app's own, so the adapter fails a build whose prefix is longer (see
+ * `assertBuildPrefixFits`) rather than leave long names unwritable.
  */
-const MAX_BUILD_PREFIX_BYTES = 128;
+export const MAX_BUILD_PREFIX_BYTES = 128;
 
 /**
  * The folder under the build prefix that entries with an over-long key are
@@ -178,8 +184,7 @@ export function cacheObjectName(cacheKey: string): string {
   if (Buffer.byteLength(name) <= MAX_S3_KEY_BYTES - MAX_BUILD_PREFIX_BYTES) {
     return name;
   }
-  const hash = createHash("sha256").update(name).digest("hex");
-  return `${LONG_KEY_PREFIX}/${hash}.long`;
+  return `${LONG_KEY_PREFIX}/${sha256Hex(name)}.long`;
 }
 
 /**

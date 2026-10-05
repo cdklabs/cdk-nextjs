@@ -10,7 +10,6 @@
   `'use cache'`.
 */
 /* eslint-disable import/no-extraneous-dependencies */
-import { createHash } from "node:crypto";
 import { S3Client } from "@aws-sdk/client-s3";
 import getDebug from "debug";
 import type {
@@ -23,7 +22,7 @@ import {
   TrackedTagMarkers,
   useCacheS3Key,
 } from "./aws-cache-store";
-import { parseCacheValue, serializeCacheValue } from "./cache-utils";
+import { parseCacheValue, serializeCacheValue, sha256Hex } from "./cache-utils";
 import {
   cacheEntryOf,
   DEFAULT_MEMORY_BYTES,
@@ -109,7 +108,7 @@ export function createRemoteUseCacheHandler(
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:remote");
 
   const s3Key = (cacheKey: string) =>
-    useCacheS3Key(buildId, createHash("sha256").update(cacheKey).digest("hex"));
+    useCacheS3Key(buildId, sha256Hex(cacheKey));
 
   async function readFromS3(
     cacheKey: string,

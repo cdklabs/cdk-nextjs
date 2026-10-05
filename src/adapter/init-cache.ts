@@ -9,6 +9,7 @@
  */
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
@@ -27,10 +28,6 @@ import {
   routeCacheKeyFromFilePath,
   serializeCacheValue,
 } from "./cache-utils";
-import {
-  isNextVersionAtLeast,
-  ROUTE_CACHE_KEYS_VERSION,
-} from "../utils/next-version";
 
 const debug = getDebug("cdk-nextjs:adapter");
 
@@ -39,7 +36,10 @@ const debug = getDebug("cdk-nextjs:adapter");
  * {@link INIT_CACHE_TAG_MANIFEST} when any entry carries tags.
  */
 export async function writeInitCache(
-  ctx: Pick<BuildCompleteContext, "config" | "outputs" | "nextVersion">,
+  ctx: Pick<
+    BuildCompleteContext,
+    "config" | "outputs" | "nextVersion" | "projectDir"
+  >,
   cacheDir: string,
 ): Promise<void> {
   // Ensure cache directory exists
@@ -58,8 +58,7 @@ export async function writeInitCache(
 
   // Routes seeded under their pathname by a `next` that reads route-cache keys:
   // see the `cacheKey` below.
-  const scopesKeysByRoute =
-    isNextVersionAtLeast(ctx.nextVersion, ROUTE_CACHE_KEYS_VERSION) === true;
+  const scopesKeysByRoute = nextScopesKeysByRoute(ctx.projectDir);
   const unscopedRoutes: string[] = [];
 
   // Process each group and create cache entries
@@ -273,6 +272,22 @@ export async function writeInitCache(
       JSON.stringify(tagManifest),
     );
     debug(`Wrote ${INIT_CACHE_TAG_MANIFEST} with ${taggedKeys} tags`);
+  }
+}
+
+/**
+ * Whether the app's `next` scopes response-cache keys by source route (16.3.8
+ * on), found by whether it has the module that derives them, since a canary's
+ * version says nothing of what it contains.
+ */
+function nextScopesKeysByRoute(projectDir: string): boolean {
+  try {
+    createRequire(join(projectDir, "package.json")).resolve(
+      "next/dist/server/lib/route-cache-key.js",
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 

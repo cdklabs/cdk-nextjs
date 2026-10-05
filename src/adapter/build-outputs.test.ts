@@ -212,6 +212,19 @@ describe("buildAdapterManifest edge cases", () => {
     expect(manifest.config.deploymentId).toBe("v1-2-main");
   });
 
+  // `cacheObjectName` leaves the `{buildId}/` prefix 128 bytes; past that a
+  // long enough cache name would be rejected by S3 and never cached.
+  it("throws when the build ID and deploymentId leave no room for cache names", () => {
+    const ctx = asContext(appPlayground);
+    const withDeploymentId = (deploymentId: string) =>
+      build({ ...ctx, config: { ...ctx.config, deploymentId } });
+    const room = 127 - ctx.buildId.length - 1;
+    expect(() => withDeploymentId("d".repeat(room))).not.toThrow();
+    expect(() => withDeploymentId("d".repeat(room + 1))).toThrow(
+      /Use a shorter deploymentId/,
+    );
+  });
+
   it("keys locale variants of one page to the same entrypoint file", () => {
     const { manifest } = build(asContext(pagesI18n));
     // i18n fans one page out into one output per locale, plus a

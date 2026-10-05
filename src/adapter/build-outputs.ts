@@ -12,6 +12,7 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { NextAdapter } from "next";
+import { MAX_BUILD_PREFIX_BYTES } from "./cache-utils";
 import {
   DEFAULT_FUNCTION_GROUP,
   FUNCTION_GROUPS_ENV_VAR,
@@ -316,7 +317,6 @@ export function buildAdapterManifest(
   const manifest: AdapterManifest = {
     version: ADAPTER_MANIFEST_VERSION as 1,
     buildId: ctx.buildId,
-    nextVersion: ctx.nextVersion,
     relativeProjectDir: toPosix(relative(repoRoot, ctx.projectDir)),
     config: {
       basePath: ctx.config.basePath || "",
@@ -347,6 +347,7 @@ export function buildAdapterManifest(
         }
       : {}),
   };
+  assertBuildPrefixFits(manifest);
 
   const groups: StagedGroup[] = assignment
     ? Object.entries(assignment.templates).map(([name, templates]) => ({
@@ -368,6 +369,26 @@ export function buildAdapterManifest(
       ];
 
   return { manifest, groups };
+}
+
+/**
+ * Fails the build when the `{buildId}/` prefix every cache object is stored
+ * under is longer than {@link MAX_BUILD_PREFIX_BYTES}, the room
+ * `cacheObjectName` leaves it. Past that, an entry with a long enough name would
+ * be rejected by S3 and never cached, with nothing to say why.
+ */
+function assertBuildPrefixFits(manifest: AdapterManifest): void {
+  const { buildId, config } = manifest;
+  // `deploymentBuildId`'s, restated: it lives with the constructs.
+  const prefix = `${config.deploymentId ? `${buildId}-${config.deploymentId}` : buildId}/`;
+  if (Buffer.byteLength(prefix) > MAX_BUILD_PREFIX_BYTES) {
+    throw new Error(
+      `${LOG_PREFIX} The build ID and deploymentId together are ` +
+        `${Buffer.byteLength(prefix) - 1} bytes; cdk-nextjs stores cache ` +
+        `entries under them and allows at most ${MAX_BUILD_PREFIX_BYTES - 1}. ` +
+        `Use a shorter deploymentId.`,
+    );
+  }
 }
 
 /**

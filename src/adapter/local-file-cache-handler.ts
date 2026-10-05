@@ -11,7 +11,11 @@ import { dirname, join } from "path";
 import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import type { IncrementalCacheValue } from "next/dist/server/response-cache";
-import { parseCacheValue, serializeCacheValue } from "./cache-utils";
+import {
+  cacheObjectName,
+  parseCacheValue,
+  serializeCacheValue,
+} from "./cache-utils";
 
 const debug = getDebug("cdk-nextjs:cache-handler:local-file");
 
@@ -37,12 +41,11 @@ export class LocalFileCacheHandler {
   }
 
   /**
-   * Build file path for cache entry
-   * Structure: {cacheKey}.json (BucketDeployment will add buildId prefix)
+   * Build file path for cache entry: {@link cacheObjectName}, the name the
+   * runtime reads it back under (BucketDeployment will add buildId prefix)
    */
   private buildFilePath(cacheKey: string): string {
-    const filePath = join(this.cacheDir, `${cacheKey}.json`);
-    return filePath;
+    return join(this.cacheDir, cacheObjectName(cacheKey));
   }
 
   /**

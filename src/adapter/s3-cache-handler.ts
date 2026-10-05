@@ -2,7 +2,7 @@
   S3 and DynamoDB cache handler for Next.js incremental cache
 */
 /* eslint-disable import/no-extraneous-dependencies */
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -33,12 +33,13 @@ import {
   AwsCacheConfig,
   buildS3Key,
   CacheBucket,
-  hashedTag,
+  HASHED_TAG_BYTES,
   markerClock,
   MAX_SORT_KEY_BYTES,
   resolveAwsCacheConfig,
   RevalidateDurations,
   RevalidationState,
+  sortKeyPart,
   s3ObjectKey,
   TrackedTagMarkers,
 } from "./aws-cache-store";
@@ -106,9 +107,6 @@ function isFetchCacheGet(
 ): ctx is GetIncrementalFetchCacheContext {
   return ctx.kind === "FETCH";
 }
-
-/** A SHA-256 digest in hex. */
-const SHA256_HEX_LENGTH = 64;
 
 /** `NEXT_CACHE_IMPLICIT_TAG_ID`, inlined so this file imports no Next.js internals. */
 const NEXT_CACHE_IMPLICIT_TAG_ID = "_N_T_";
@@ -1087,12 +1085,10 @@ export class S3CacheHandler implements CacheHandler {
     s3Key: string,
   ): { sk: string; hashed: boolean } {
     const prefix = this.tagMappingPrefix(tag);
-    const sk = `${prefix}${s3Key}`;
-    if (Buffer.byteLength(sk) <= MAX_SORT_KEY_BYTES) {
-      return { sk, hashed: false };
-    }
-    const hash = createHash("sha256").update(s3Key).digest("hex");
-    return { sk: `${prefix}${this.config.buildId}/#${hash}`, hashed: true };
+    const part = sortKeyPart(s3Key, Buffer.byteLength(prefix));
+    return part === s3Key
+      ? { sk: `${prefix}${s3Key}`, hashed: false }
+      : { sk: `${prefix}${this.config.buildId}/${part}`, hashed: true };
   }
 
   /**
@@ -1102,15 +1098,10 @@ export class S3CacheHandler implements CacheHandler {
    * implicit `_N_T_/…` tag is as long as its path, which nothing caps.
    */
   private tagMappingPrefix(tag: string): string {
-    const prefix = `${tag}#`;
-    const hashedRowBytes =
-      Buffer.byteLength(prefix) +
-      Buffer.byteLength(`${this.config.buildId}/#`) +
-      SHA256_HEX_LENGTH;
-    if (hashedRowBytes <= MAX_SORT_KEY_BYTES) {
-      return prefix;
-    }
-    return `${hashedTag(tag)}#`;
+    // Leaving room for the `#<buildId>/<hashedTag>` of a hashed row.
+    const reserved =
+      Buffer.byteLength(`#${this.config.buildId}/`) + HASHED_TAG_BYTES;
+    return `${sortKeyPart(tag, reserved)}#`;
   }
 
   private async storeDynamoDBTagMappings(

@@ -19,10 +19,6 @@ import { fetchFromS3, resolveErrorResponse } from "./image-utils";
 import { AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
 import { firstValue, s3Client } from "./util";
-import {
-  isNextVersionAtLeast,
-  ROUTE_CACHE_KEYS_VERSION,
-} from "../utils/next-version";
 
 /**
  * Required through {@link nextModule} rather than imported, because `next` is
@@ -445,10 +441,7 @@ async function loadImageCache(
     });
   }
   return {
-    responses: newImageResponseCache(
-      modules.responseCache.default,
-      manifest.nextVersion,
-    ),
+    responses: newImageResponseCache(modules.responseCache.default),
     images: new next.optimizer.ImageOptimizerCache({
       distDir,
       nextConfig,
@@ -463,14 +456,17 @@ async function loadImageCache(
  * it throws without a `route` - `next-server.js` passes `"image"`. Neither form
  * can stand in for the other: an older `next` takes the options object as a
  * truthy `minimalMode`, and 16.3.8 rejects a bare `false`.
+ *
+ * Told apart by what the constructor did with the options rather than by the
+ * version, which a canary does not order: each form stores its `minimalMode`
+ * as `minimal_mode`, so an older `next` is left holding the object.
  */
 export function newImageResponseCache(
   ResponseCache: NextImageCacheModules["responseCache"]["default"],
-  nextVersion: string | undefined,
 ): InstanceType<NextImageCacheModules["responseCache"]["default"]> {
-  // A version that does not parse is a `next` newer than this code knows of.
-  if (isNextVersionAtLeast(nextVersion, ROUTE_CACHE_KEYS_VERSION) !== false) {
-    return new ResponseCache({ minimalMode: false, route: "image" });
+  const cache = new ResponseCache({ minimalMode: false, route: "image" });
+  if ((cache as unknown as { minimal_mode: unknown }).minimal_mode === false) {
+    return cache;
   }
   const Legacy = ResponseCache as unknown as new (
     minimalMode: boolean,
