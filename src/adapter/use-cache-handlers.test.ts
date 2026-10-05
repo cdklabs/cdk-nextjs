@@ -393,24 +393,38 @@ describe("cacheHandlers.default", () => {
     expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
   });
 
-  it("reads nothing to judge an entry stored since the instance started", async () => {
+  it("waits on no marker read to judge an entry stored since the instance started", async () => {
     const a = defaultInstance();
     const bTags = tagManifest();
     const b = defaultInstance(bTags);
     await b.set("k", Promise.resolve(entry("b")));
-    dynamoSend.mockClear();
 
-    // Next.js awaits both inside the `'use cache'` lookup, and a path the
-    // instance has not served before has implicit tags it has never read.
-    expect(await read(b, "k")).toBe("b");
-    expect(await b.getExpiration(["_N_T_/new-path"])).toBe(0);
-    expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
+    // Hold every marker read: Next.js awaits both answers inside the
+    // `'use cache'` lookup, and a path the instance has not served before has
+    // implicit tags it has never read.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const send = dynamoSend.getMockImplementation()!;
+    dynamoSend.mockImplementation(async (command) => {
+      if (command instanceof BatchGetItemCommand) {
+        await held;
+      }
+      return send(command);
+    });
+    try {
+      expect(await read(b, "k")).toBe("b");
+      expect(await b.getExpiration(["_N_T_/new-path"])).toBe(0);
+      // Still read, in the background, so the tags join the rolling re-read.
+      expect(dynamoCalls(BatchGetItemCommand)).toBeGreaterThan(0);
 
-    // Another instance's revalidation still reaches it, through the log.
-    await a.updateTags(["posts"]);
-    await bTags.refresh();
-    expect(await read(b, "k")).toBeUndefined();
-    expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
+      // Another instance's revalidation still reaches it, through the log.
+      await a.updateTags(["posts"]);
+      await bTags.refresh();
+      expect(await read(b, "k")).toBeUndefined();
+    } finally {
+      release();
+      dynamoSend.mockImplementation(send);
+    }
   });
 
   it("reads the implicit tags while it holds an entry older than the manifest's knowledge", async () => {

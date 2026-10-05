@@ -60,6 +60,26 @@ export function createDefaultUseCacheHandler(
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
 
+  /**
+   * Read the markers of whichever of `tagList` are untracked: first, when the
+   * answer depends on them, or else in the background. Read either way, so
+   * the tags join the rolling re-read, which catches a revalidation whose log
+   * row failed to write.
+   */
+  async function ensureTags(
+    needed: boolean,
+    tagList: readonly string[],
+  ): Promise<void> {
+    const read = tags.ensure(tagList);
+    if (needed) {
+      await read;
+    } else {
+      read.catch((error) => {
+        console.error("Error reading cache tags:", error);
+      });
+    }
+  }
+
   return {
     async get(cacheKey: string): Promise<CacheEntry | undefined> {
       await pending.wait(cacheKey);
@@ -74,11 +94,9 @@ export function createDefaultUseCacheHandler(
         return undefined;
       }
       // Only an entry older than what the manifest fully knows needs its tags'
-      // markers read: see `completeSince`. Every entry stored since the
+      // markers read first: see `completeSince`. Every entry stored since the
       // instance started is newer, so its first read waits on nothing.
-      if (stored.timestamp < tags.completeSince) {
-        await tags.ensure(stored.tags);
-      }
+      await ensureTags(stored.timestamp < tags.completeSince, stored.tags);
       const state = tags.state(stored.tags, stored.timestamp);
       if (state === "expired") {
         debug(`EXPIRED BY TAG ${cacheKey}`);
@@ -122,9 +140,10 @@ export function createDefaultUseCacheHandler(
     // given without reading only while every entry held is new enough for the
     // manifest to answer alone.
     async getExpiration(implicitTags) {
-      if (memory.oldestTimestamp() < tags.completeSince) {
-        await tags.ensure(implicitTags);
-      }
+      await ensureTags(
+        memory.oldestTimestamp() < tags.completeSince,
+        implicitTags,
+      );
       return tags.expiration(implicitTags);
     },
   };

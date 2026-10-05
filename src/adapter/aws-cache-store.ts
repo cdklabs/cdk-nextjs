@@ -1129,9 +1129,18 @@ export class TrackedTagMarkers {
     return logged ? mergeMarkers(logged, pending) : pending;
   }
 
-  /** What this instance knows of `tag`, tracked or from the log alone. */
+  /**
+   * What this instance knows of `tag`: tracked, or from the log alone -
+   * including rows that arrived while its first read is in flight.
+   */
   private markerOf(tag: string): TagMarker | undefined {
-    return this.tags.get(tag) ?? this.logOnly.get(tag);
+    const tracked = this.tags.get(tag);
+    if (tracked) {
+      return tracked;
+    }
+    const logged = this.logOnly.get(tag);
+    const pending = this.pendingRows.get(tag);
+    return logged || pending ? mergeMarkers(logged, pending) : undefined;
   }
 
   /**
