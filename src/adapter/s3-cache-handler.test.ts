@@ -895,6 +895,33 @@ describe("S3DynamoCacheHandler", () => {
       expect(mappingKeys).toEqual(["ctx-tag#test-build-id/isr/1.json"]);
     });
 
+    it("hashes a mapping row's sort key past DynamoDB's 1024 bytes, keeping the key in s3Key", async () => {
+      const testData: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>tagged</html>",
+        rscData: undefined,
+        headers: {},
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const tag = "t".repeat(256);
+      const cacheKey = `/route-cache/APP_PAGE/${"a".repeat(64)}/$/${"p".repeat(700)}`;
+
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+
+      await handler.set(cacheKey, testData, createSetContext([tag]));
+
+      const [input] = (UpdateItemCommand as unknown as jest.Mock).mock.calls[0];
+      expect(input.Key.sk.S).toMatch(
+        new RegExp(`^${tag}#test-build-id/#[0-9a-f]{64}$`),
+      );
+      expect(input.ExpressionAttributeValues[":s3Key"].S).toBe(
+        `test-build-id${cacheKey}.json`,
+      );
+    });
+
     it("removes a deleted page's mapping rows, reading its tags from S3", async () => {
       // A response delete - a cached route that starts answering `notFound()` -
       // arrives as `set(key, null, { cacheControl, ... })` with no tags at all,
@@ -1149,6 +1176,63 @@ describe("S3DynamoCacheHandler", () => {
       expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
         "/isr/1*",
         "/index*",
+      ]);
+    });
+
+    it("invalidates the path of a mapping row whose key is in s3Key", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+      dynamoResponses({
+        query: {
+          Items: [
+            {
+              sk: { S: `test-tag#test-build-id/#${"b".repeat(64)}` },
+              s3Key: { S: "test-build-id/long/page.json" },
+            },
+          ],
+        },
+      });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/long/page*",
+      ]);
+    });
+
+    it("invalidates an older app's route named /route-cache", async () => {
+      process.env.CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME = "test-param-name";
+      const handlerWithDistribution = new S3CacheHandler({
+        context: mockContext,
+      });
+      dynamoResponses({
+        query: {
+          Items: [{ sk: { S: "test-tag#test-build-id/route-cache/foo.json" } }],
+        },
+      });
+      mockS3Send.mockResolvedValue({});
+      mockSsmSend.mockResolvedValue({
+        Parameter: { Value: "test-distribution-id" },
+      });
+      mockCloudFrontSend.mockResolvedValue({});
+
+      await handlerWithDistribution.revalidateTag("test-tag");
+
+      const [invalidationInput] = (
+        CreateInvalidationCommand as unknown as jest.Mock
+      ).mock.calls[0];
+      expect(invalidationInput.InvalidationBatch.Paths.Items).toEqual([
+        "/route-cache/foo*",
       ]);
     });
 

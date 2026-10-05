@@ -222,6 +222,20 @@ describe("newImageResponseCache", () => {
     ) as unknown as ResponseCache;
     expect(cache.options).toEqual({ minimalMode: false, route: "image" });
   });
+
+  it("rethrows any other constructor error rather than retry it as minimal mode", () => {
+    const constructed: unknown[] = [];
+    class ResponseCache {
+      constructor(arg: unknown) {
+        constructed.push(arg);
+        throw new Error("boom");
+      }
+    }
+    expect(() =>
+      newImageResponseCache(ResponseCache as unknown as ResponseCacheClass),
+    ).toThrow("boom");
+    expect(constructed).toEqual([false]);
+  });
 });
 
 describe("RuntimeImageOptimizer.isEnabled", () => {

@@ -61,6 +61,24 @@ describe("routeCacheKeyFromFilePath", () => {
     ).toBeUndefined();
     expect(routeCacheKeyFromFilePath(undefined)).toBeUndefined();
   });
+
+  it("reads the key off the first route-cache directory, not one in the route", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        `/app/.next/server/route-cache/APP_PAGE/${hash}/$/docs/server/route-cache/APP_PAGE/${hash}/$/x.html`,
+      ),
+    ).toBe(
+      `route-cache/APP_PAGE/${hash}/$/docs/server/route-cache/APP_PAGE/${hash}/$/x`,
+    );
+  });
+
+  it("is undefined for an older app's route named /server/route-cache", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        "/app/.next/server/app/server/route-cache/x.html",
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("groupPrerenders", () => {

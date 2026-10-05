@@ -464,7 +464,10 @@ export function newImageResponseCache(
   ) => InstanceType<typeof ResponseCache>;
   try {
     return new Legacy(false);
-  } catch {
+  } catch (error) {
+    // Only 16.3.8's missing-route invariant means "retry with the options":
+    // anything else from an older `next` would be retried as minimal mode.
+    if (!String(error).includes("requires a source route")) throw error;
     return new ResponseCache({ minimalMode: false, route: "image" });
   }
 }

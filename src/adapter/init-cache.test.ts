@@ -37,11 +37,15 @@ async function prerender(
   return { pathname, parentOutputId, fallback: { filePath, ...fallback } };
 }
 
+type Context = Pick<BuildCompleteContext, "config" | "outputs" | "nextVersion">;
+
 function context(
   prerenders: unknown[],
   basePath = "",
-): Pick<BuildCompleteContext, "config" | "outputs"> {
+  nextVersion = "16.3.7",
+): Context {
   return {
+    nextVersion,
     config: { basePath },
     outputs: {
       pages: [{ id: "/blog/[slug]" }, { id: "/gone" }],
@@ -51,7 +55,7 @@ function context(
       prerenders,
       staticFiles: [],
     },
-  } as unknown as Pick<BuildCompleteContext, "config" | "outputs">;
+  } as unknown as Context;
 }
 
 const readEntry = async (key: string) =>
@@ -167,6 +171,34 @@ describe("writeInitCache", () => {
 
     expect((await readEntry(key)).value.html).toBe("<html>shop</html>");
     expect(existsSync(join(cacheDir, "shop.json"))).toBe(false);
+  });
+
+  it("warns when next >= 16.3.8 files a prerender outside route-cache", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await writeInitCache(
+        context(
+          [await prerender("/shop", "/shop", "<html>shop</html>")],
+          "",
+          "16.4.0-canary.1",
+        ),
+        cacheDir,
+      );
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("/shop"));
+
+      warn.mockClear();
+      await writeInitCache(
+        context(
+          [await prerender("/shop", "/shop", "<html>shop</html>")],
+          "",
+          "16.3.7",
+        ),
+        cacheDir,
+      );
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("skips a Pages Router route prerendered with a non-200 status", async () => {

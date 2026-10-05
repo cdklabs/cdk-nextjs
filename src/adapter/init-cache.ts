@@ -13,6 +13,7 @@ import { join } from "node:path";
 import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import { CachedRouteKind } from "next/dist/server/response-cache/index.js";
+import { LOG_PREFIX } from "../constants";
 import type { BuildCompleteContext } from "./build-outputs";
 import { cacheKindResolver } from "./cache-kinds";
 import {
@@ -33,7 +34,7 @@ const debug = getDebug("cdk-nextjs:adapter");
  * {@link INIT_CACHE_TAG_MANIFEST} when any entry carries tags.
  */
 export async function writeInitCache(
-  ctx: Pick<BuildCompleteContext, "config" | "outputs">,
+  ctx: Pick<BuildCompleteContext, "config" | "outputs" | "nextVersion">,
   cacheDir: string,
 ): Promise<void> {
   // Ensure cache directory exists
@@ -49,6 +50,11 @@ export async function writeInitCache(
   // Tag -> cache keys, standing in for the mapping rows a runtime `set` writes.
   // See `INIT_CACHE_TAG_MANIFEST`.
   const tagManifest: InitCacheTagManifest = {};
+
+  // Routes seeded under their pathname by a `next` that reads route-cache keys:
+  // see the `cacheKey` below.
+  const scopesKeysByRoute = isAtLeast16_3_8(ctx.nextVersion);
+  const unscopedRoutes: string[] = [];
 
   // Process each group and create cache entries
   for (const [basePath, variants] of prerenderGroups) {
@@ -216,10 +222,15 @@ export async function writeInitCache(
       // from next 16.3.8 the one `next build` filed the prerender under (see
       // `routeCacheKeyFromFilePath`), before that the route rather than the
       // URL it is served at (see `prerenderPathToCacheKey`).
+      // Every kind seeded here has read its HTML prerender, so that is the
+      // file to read the key off.
+      const routeCacheKey = routeCacheKeyFromFilePath(
+        prerenderFilePath(htmlPrerender),
+      );
+      if (!routeCacheKey && scopesKeysByRoute) unscopedRoutes.push(basePath);
       const cacheKey =
-        routeCacheKeyFromFilePath(
-          prerenderFilePath(htmlPrerender ?? dataPrerender ?? rscPrerender),
-        ) ?? prerenderPathToCacheKey(basePath, ctx.config.basePath || "");
+        routeCacheKey ??
+        prerenderPathToCacheKey(basePath, ctx.config.basePath || "");
       const cacheFilePath = join(cacheDir, `${cacheKey}.json`);
 
       // Ensure parent directory exists
@@ -239,6 +250,18 @@ export async function writeInitCache(
     }
   }
 
+  // A pathname key is one 16.3.8+ never reads, so each of these is a MISS
+  // until it is first rendered - the regression the route-cache key fixed.
+  if (unscopedRoutes.length > 0) {
+    console.warn(
+      `${LOG_PREFIX} Next.js ${ctx.nextVersion} wrote ${unscopedRoutes.length} ` +
+        `prerender(s) outside <distDir>/server/route-cache/, so they were ` +
+        `seeded under their pathname, which it does not read: ` +
+        `${unscopedRoutes.slice(0, 5).join(", ")}` +
+        `${unscopedRoutes.length > 5 ? ", ..." : ""}`,
+    );
+  }
+
   const taggedKeys = Object.keys(tagManifest).length;
   if (taggedKeys > 0) {
     await writeFile(
@@ -247,6 +270,14 @@ export async function writeInitCache(
     );
     debug(`Wrote ${INIT_CACHE_TAG_MANIFEST} with ${taggedKeys} tags`);
   }
+}
+
+/** Whether `nextVersion` is 16.3.8 or later, the first to scope keys by route. */
+function isAtLeast16_3_8(nextVersion: string | undefined): boolean {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(nextVersion ?? "");
+  if (!match) return false;
+  const [major, minor, patch] = match.slice(1).map(Number);
+  return major !== 16 ? major > 16 : minor !== 3 ? minor > 3 : patch >= 8;
 }
 
 /** The file `next build` wrote a prerender to, if it wrote one. */
@@ -268,15 +299,10 @@ async function readPrerenderAsText(
     | { fallback?: { filePath?: string } | { postponedState: string } }
     | undefined,
 ): Promise<string | undefined> {
-  if (
-    prerender?.fallback &&
-    "filePath" in prerender.fallback &&
-    prerender.fallback.filePath &&
-    existsSync(prerender.fallback.filePath)
-  ) {
-    return readFile(prerender.fallback.filePath, "utf-8");
-  }
-  return undefined;
+  const filePath = prerenderFilePath(prerender);
+  return filePath && existsSync(filePath)
+    ? readFile(filePath, "utf-8")
+    : undefined;
 }
 
 /**
@@ -287,15 +313,8 @@ async function readPrerenderAsBuffer(
     | { fallback?: { filePath?: string } | { postponedState: string } }
     | undefined,
 ): Promise<Buffer | undefined> {
-  if (
-    prerender?.fallback &&
-    "filePath" in prerender.fallback &&
-    prerender.fallback.filePath &&
-    existsSync(prerender.fallback.filePath)
-  ) {
-    return readFile(prerender.fallback.filePath);
-  }
-  return undefined;
+  const filePath = prerenderFilePath(prerender);
+  return filePath && existsSync(filePath) ? readFile(filePath) : undefined;
 }
 
 /**
@@ -310,13 +329,9 @@ async function getSegmentData<
   const segmentData = new Map<string, Buffer>();
 
   for (const segmentPrerender of segmentPrerenders) {
-    if (
-      segmentPrerender.fallback &&
-      "filePath" in segmentPrerender.fallback &&
-      segmentPrerender.fallback.filePath &&
-      existsSync(segmentPrerender.fallback.filePath)
-    ) {
-      const segmentContent = await readFile(segmentPrerender.fallback.filePath);
+    const filePath = prerenderFilePath(segmentPrerender);
+    if (filePath && existsSync(filePath)) {
+      const segmentContent = await readFile(filePath);
       // Extract segment name from pathname
       const segmentName =
         "/" +

@@ -12,14 +12,12 @@ import {
   CacheHandlerValue,
   CacheHandlerContext,
 } from "next/dist/server/lib/incremental-cache";
-import type {
-  IncrementalCacheValue,
-  GetIncrementalFetchCacheContext,
-  GetIncrementalResponseCacheHandlerContext,
-  SetIncrementalFetchCacheContext,
-  SetIncrementalResponseCacheHandlerContext,
-} from "next/dist/server/response-cache";
-import { getTags } from "./cache-utils";
+import type { IncrementalCacheValue } from "next/dist/server/response-cache";
+import {
+  GetCacheHandlerContext,
+  getTags,
+  SetCacheHandlerContext,
+} from "./cache-utils";
 import { LocalFileCacheHandler } from "./local-file-cache-handler";
 import { MemoryCacheHandler } from "./memory-cache-handler";
 import { S3CacheHandler } from "./s3-cache-handler";
@@ -73,9 +71,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
    */
   async get(
     cacheKey: string,
-    ctx:
-      | GetIncrementalFetchCacheContext
-      | GetIncrementalResponseCacheHandlerContext,
+    ctx: GetCacheHandlerContext,
   ): Promise<CacheHandlerValue | null> {
     if (this.isBuildTime) {
       // Reads back what this build wrote, which `cacheComponents` prerendering
@@ -146,9 +142,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    ctx:
-      | SetIncrementalFetchCacheContext
-      | SetIncrementalResponseCacheHandlerContext,
+    ctx: SetCacheHandlerContext,
   ): Promise<void> {
     if (this.isBuildTime) {
       if (data) {

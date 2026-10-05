@@ -2,10 +2,7 @@
   Shared cache utility functions
 */
 import { sep } from "node:path";
-import type {
-  SetIncrementalFetchCacheContext,
-  SetIncrementalResponseCacheHandlerContext,
-} from "next/dist/server/response-cache";
+import type { CacheHandler } from "next/dist/server/lib/incremental-cache";
 import { hasPathPrefix } from "../utils/base-path";
 
 /**
@@ -149,14 +146,25 @@ export function prerenderPathToCacheKey(
 export function routeCacheKeyFromFilePath(
   filePath: string | undefined,
 ): string | undefined {
-  const path = filePath?.split(sep).join("/");
-  const at = path?.lastIndexOf(`/server/${ROUTE_CACHE_DIRECTORY}/`) ?? -1;
-  if (at === -1) return undefined;
-  return path!.slice(at + "/server/".length).replace(/\.[^./]+$/, "");
+  // The first match, anchored on the whole key prefix: a route's own pathname
+  // can contain `/server/route-cache/`, before 16.3.8 as well as after.
+  const match = filePath?.split(sep).join("/").match(ROUTE_CACHE_FILE_PATH);
+  return match?.[1].replace(/\.[^./]+$/, "");
 }
 
-/** `ROUTE_CACHE_DIRECTORY` from `next/dist/server/lib/route-cache-key.js`. */
-export const ROUTE_CACHE_DIRECTORY = "route-cache";
+const ROUTE_CACHE_KEY_START = String.raw`route-cache/[A-Z_]+/[0-9a-f]{64}/\$(?=/)`;
+
+/**
+ * The start of a next >= 16.3.8 response-cache key, leading slash dropped:
+ * `route-cache/<kind>/<sha256(sourceRoute)>/$` (`getRouteCacheKey`), followed
+ * by the pathname. Matched whole, so an older app's route that happens to be
+ * named `/route-cache/...` is not read as one.
+ */
+export const ROUTE_CACHE_KEY_PREFIX = new RegExp(`^${ROUTE_CACHE_KEY_START}`);
+
+const ROUTE_CACHE_FILE_PATH = new RegExp(
+  `/server/(${ROUTE_CACHE_KEY_START}.*)$`,
+);
 
 /** The outputs one route contributes to `ctx.outputs.prerenders`. */
 export interface PrerenderVariants<T> {
@@ -347,11 +355,18 @@ export const INIT_CACHE_TAG_MANIFEST = "_cdk-nextjs-tag-manifest.json";
 export type InitCacheTagManifest = Record<string, string[]>;
 
 /**
+ * The `ctx` Next.js passes a `CacheHandler`'s `get`, taken off its interface:
+ * the fetch cache's, a route response's, or - since this handler is also
+ * `ImageOptimizerCache`'s - an optimized image's.
+ */
+export type GetCacheHandlerContext = Parameters<CacheHandler["get"]>[1];
+
+/** The `ctx` Next.js passes a `CacheHandler`'s `set`. See {@link GetCacheHandlerContext}. */
+export type SetCacheHandlerContext = Parameters<CacheHandler["set"]>[2];
+
+/**
  * Helper to safely extract tags from context
  */
-export function getTags(
-  ctx:
-    SetIncrementalFetchCacheContext | SetIncrementalResponseCacheHandlerContext,
-): string[] | undefined {
+export function getTags(ctx: SetCacheHandlerContext): string[] | undefined {
   return "tags" in ctx ? ctx.tags : undefined;
 }
