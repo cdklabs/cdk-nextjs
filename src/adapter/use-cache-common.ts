@@ -192,7 +192,8 @@ export class EntryLru {
 
   /**
    * The `timestamp` of the oldest entry held, `Infinity` with none. A scan:
-   * asked once per revalidation log query, not per request.
+   * asked once per revalidation log query, not per request (`size` answers
+   * whether there is one).
    */
   oldestTimestamp(): number {
     let oldest = Infinity;

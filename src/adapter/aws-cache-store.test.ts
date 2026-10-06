@@ -602,6 +602,50 @@ describe("TrackedTagMarkers", () => {
     }
   });
 
+  it("merges a future expiredAt past its bound into the nearer span", async () => {
+    const at = markerClock();
+    const expiries = new Map([
+      ["a", at + 60_000],
+      ["b", at + 120_000],
+      ["c", at + 60_010],
+    ]);
+    const markers = new TrackedTagMarkers({
+      markers: {
+        read: jest.fn(
+          async (tags: string[]) =>
+            new Map<string, TagMarker>(
+              tags.map((tag) => [
+                tag,
+                { staleAt: at - 1000, expiredAt: expiries.get(tag) },
+              ]),
+            ),
+        ),
+      } as unknown as TagMarkerTable,
+      log: { query: jest.fn() } as unknown as RevalidationLog,
+      maxTrackedTags: 2,
+    });
+    // "a", "b", then "c" dropped for space: three expiredAts past a bound of
+    // two, and "c" is 10 ms from "a".
+    for (const tag of ["a", "b", "c", "d", "e"]) {
+      await markers.ensure([tag]);
+    }
+    const start = markers.completeSince;
+
+    const now = jest.spyOn(performance, "now");
+    try {
+      now.mockReturnValue(at + 59_999 - performance.timeOrigin);
+      expect(markers.completeSince).toBe(start);
+      now.mockReturnValue(at + 60_000 - performance.timeOrigin);
+      expect(markers.completeSince).toBe(at + 60_010);
+      now.mockReturnValue(at + 119_999 - performance.timeOrigin);
+      expect(markers.completeSince).toBe(at + 60_010);
+      now.mockReturnValue(at + 120_000 - performance.timeOrigin);
+      expect(markers.completeSince).toBe(at + 120_000);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("catches up only for an entry store holding entries, and not when every check asks anyway", async () => {
     let clock = 1_000_000;
     const instance = (refreshIntervalMs: number) => {
@@ -735,6 +779,76 @@ describe("TrackedTagMarkers", () => {
     queries.shift()!();
     await catchUp;
     expect(markers.behind).toBe(false);
+  });
+
+  describe("with a slow query, the process running throughout", () => {
+    let clock: number;
+    beforeEach(() => {
+      clock = 1_000_000;
+      jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+    });
+    afterEach(() => jest.useRealTimers());
+
+    /** Move the clock and the timers on together: no freeze. */
+    const run = (ms: number) => {
+      for (let step = 0; step < ms; step += 250) {
+        clock += 250;
+        jest.advanceTimersByTime(250);
+      }
+    };
+    const instance = (fails = false) => {
+      const queries: (() => void)[] = [];
+      const query = jest.fn(
+        () =>
+          new Promise<{ rows: RevalidationLogRow[]; truncated: boolean }>(
+            (resolve, reject) =>
+              queries.push(() =>
+                fails
+                  ? reject(new Error("throttled"))
+                  : resolve({ rows: [], truncated: false }),
+              ),
+          ),
+      );
+      const markers = new TrackedTagMarkers({
+        markers: { read: jest.fn() } as unknown as TagMarkerTable,
+        log: { query } as unknown as RevalidationLog,
+        refreshIntervalMs: 1000,
+        clock: () => clock,
+      });
+      markers.judgeEntriesOf(() => 0);
+      return { markers, query, queries };
+    };
+
+    it("is caught up once the catch-up's query returns, however long it took", async () => {
+      for (const fails of [false, true]) {
+        const { markers, queries } = instance(fails);
+        clock += 60_000;
+        expect(markers.behind).toBe(true);
+        const catchUp = markers.catchUp();
+        run(3000);
+        queries.shift()!();
+        await catchUp;
+        // Or the first `'use cache'` lookup would wait for another query,
+        // inside the render: one request, two waits.
+        expect(markers.behind).toBe(false);
+      }
+    });
+
+    it("waits only for the query in flight", async () => {
+      const { markers, query, queries } = instance();
+      clock += 60_000;
+      const first = markers.catchUp();
+      run(2500);
+      // Past the grace into the query, but the query is as fresh as any.
+      let caughtUp = false;
+      const second = markers.catchUp().then(() => (caughtUp = true));
+      queries.shift()!();
+      await first;
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(caughtUp).toBe(true);
+      await second;
+      expect(query).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("does not skip a row for an untracked tag that its first read missed", async () => {

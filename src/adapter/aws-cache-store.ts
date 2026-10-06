@@ -685,7 +685,10 @@ export class TrackedTagMarkers {
    */
   private readonly laterFloors: [number, number][] = [];
   /** The in-memory entry stores judged by {@link completeSince}. */
-  private readonly entryStores: (() => number)[] = [];
+  private readonly entryStores: {
+    oldestTimestamp: () => number;
+    holdsAny: () => boolean;
+  }[] = [];
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
   private lastRefresh = -Infinity;
@@ -696,8 +699,20 @@ export class TrackedTagMarkers {
    * that would bill every Lambda invocation for the query's tail.
    */
   private refreshing: Promise<void> | undefined;
-  /** When {@link refreshing} started. */
-  private refreshStartedAt = -Infinity;
+  /**
+   * When {@link refreshing} last showed the process running: a timer ticks
+   * while it is in flight, and a tick that comes late, or none at all, means
+   * the process was paused - frozen - since it started.
+   */
+  private lastTick = -Infinity;
+  /** Whether a tick came late since {@link refreshing} started. */
+  private pausedWhileRefreshing = false;
+  private ticker: ReturnType<typeof setInterval> | undefined;
+  /**
+   * When the last refresh settled, either way, unless it spanned a pause: what
+   * it knows is from then. See {@link behind}.
+   */
+  private settledAt: number;
   /**
    * Where the next log query starts (`clock()`): the last successful one's
    * start, less {@link REVALIDATION_LOG_LOOKBACK_MS}.
@@ -727,6 +742,7 @@ export class TrackedTagMarkers {
     const at = this.clock();
     this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
     this.lastLogRead = at;
+    this.settledAt = at;
     this.floor = markerClock();
   }
 
@@ -775,8 +791,11 @@ export class TrackedTagMarkers {
    * `logOnly` keeps the rows that could still apply to one of them, and no
    * others. With none registered it keeps nothing.
    */
-  judgeEntriesOf(oldestTimestamp: () => number): void {
-    this.entryStores.push(oldestTimestamp);
+  judgeEntriesOf(
+    oldestTimestamp: () => number,
+    holdsAny: () => boolean = () => oldestTimestamp() < Infinity,
+  ): void {
+    this.entryStores.push({ oldestTimestamp, holdsAny });
   }
 
   /**
@@ -866,10 +885,12 @@ export class TrackedTagMarkers {
   }
 
   /**
-   * Whether the log was last read successfully more than `refreshIntervalMs`
-   * plus {@link TAG_REFRESH_GRACE_MS} ago: after the instance sat idle or
-   * frozen, or its queries failed - or always, with a `refreshIntervalMs` of
-   * `0`. Answering from what it knows then could serve an entry revalidated
+   * Whether the last refresh settled more than `refreshIntervalMs` plus
+   * {@link TAG_REFRESH_GRACE_MS} ago, or spanned a freeze: after the instance
+   * sat idle or frozen - or always, with a `refreshIntervalMs` of `0`. From
+   * when it settled, not when it started, so a slow query the runtime waited
+   * for before the render does not leave the instance behind inside it; and
+   * a failed one counts, so one request does not wait for two. Answering from what it knows then could serve an entry revalidated
    * elsewhere since, however long ago that was, so `refreshTags` waits for the
    * refresh, and the runtime waits for it before a page render starts
    * ({@link catchUp}).
@@ -878,7 +899,7 @@ export class TrackedTagMarkers {
     return (
       this.log !== undefined &&
       // `0` asks before every check, so every check waits for the answer.
-      (this.refreshIntervalMs === 0 || this.overdue(this.lastLogRead))
+      (this.refreshIntervalMs === 0 || this.overdue(this.settledAt))
     );
   }
 
@@ -890,7 +911,7 @@ export class TrackedTagMarkers {
    * call of a process, which creates the handler inside the render.
    */
   get holdsEntries(): boolean {
-    return this.oldestEntry() < Infinity;
+    return this.entryStores.some((store) => store.holdsAny());
   }
 
   /**
@@ -927,8 +948,8 @@ export class TrackedTagMarkers {
     if (this.refreshing) {
       // One started before a freeze read the log as it was then, and says
       // nothing of what ran meanwhile: an instance behind waits for a fresh
-      // one, after it.
-      if (this.behind && this.overdue(this.refreshStartedAt)) {
+      // one, after it. One that is merely slow is as fresh as any.
+      if (this.behind && this.pausedSinceRefreshStarted()) {
         return this.refreshing.then(() => this.refresh());
       }
       return this.refreshing;
@@ -940,15 +961,53 @@ export class TrackedTagMarkers {
     this.lastRefresh = at;
     // Whatever gets tracked before the next refresh is read from its marker,
     // so there is nothing to catch up on yet - unless an entry is judged by
-    // `completeSince`, which relies on the log for every tag.
+    // `completeSince`, which relies on the log for every tag. Even with none
+    // held: a row let go of then moves `completeSince` past it, for an entry
+    // whose generation started before that revalidation and that is stored
+    // after it.
     if (this.tags.size === 0 && this.entryStores.length === 0) {
       return;
     }
-    this.refreshStartedAt = at;
+    this.startTicking();
     this.refreshing = this.sync(at, log).finally(() => {
+      if (!this.pausedSinceRefreshStarted()) {
+        this.settledAt = this.clock();
+      }
+      this.stopTicking();
       this.refreshing = undefined;
     });
     return this.refreshing;
+  }
+
+  private startTicking(): void {
+    this.lastTick = this.clock();
+    this.pausedWhileRefreshing = false;
+    this.ticker = setInterval(() => {
+      const at = this.clock();
+      if (at - this.lastTick > REFRESH_PAUSE_MS) {
+        this.pausedWhileRefreshing = true;
+      }
+      this.lastTick = at;
+    }, REFRESH_TICK_MS);
+    // Never what keeps a process alive.
+    this.ticker.unref?.();
+  }
+
+  private stopTicking(): void {
+    clearInterval(this.ticker);
+    this.ticker = undefined;
+  }
+
+  /**
+   * Whether the process was paused since {@link refreshing} started: a tick
+   * came late, or the next one is overdue (after a thaw, a request can run
+   * before the timer does).
+   */
+  private pausedSinceRefreshStarted(): boolean {
+    return (
+      this.pausedWhileRefreshing ||
+      this.clock() - this.lastTick > REFRESH_PAUSE_MS
+    );
   }
 
   /**
@@ -1351,7 +1410,7 @@ export class TrackedTagMarkers {
   /** The oldest entry timestamp of any registered store, `Infinity` with none. */
   private oldestEntry(): number {
     let oldest = Infinity;
-    for (const oldestTimestamp of this.entryStores) {
+    for (const { oldestTimestamp } of this.entryStores) {
       oldest = Math.min(oldest, oldestTimestamp());
     }
     return oldest;
@@ -1396,18 +1455,21 @@ export class TrackedTagMarkers {
     if ((low > 0 && floors[low - 1][1] >= time) || floors[low]?.[0] === time) {
       return;
     }
-    floors.splice(low, 0, [time, time]);
-    if (floors.length > this.maxTrackedTags) {
-      let merge = 0;
-      for (let i = 1; i < floors.length - 1; i++) {
-        if (
-          floors[i + 1][1] - floors[i][0] <
-          floors[merge + 1][1] - floors[merge][0]
-        ) {
-          merge = i;
-        }
-      }
-      floors.splice(merge, 2, [floors[merge][0], floors[merge + 1][1]]);
+    if (floors.length < this.maxTrackedTags || floors.length === 0) {
+      floors.splice(low, 0, [time, time]);
+      return;
+    }
+    // Full: into whichever neighbouring span it makes the shorter, rather
+    // than a scan for the closest pair on every insert past the bound.
+    const before = floors[low - 1];
+    const after = floors[low];
+    if (
+      after === undefined ||
+      (before && time - before[0] <= after[1] - time)
+    ) {
+      before[1] = time;
+    } else {
+      after[0] = time;
     }
   }
 
@@ -1461,6 +1523,16 @@ function knownBy(marker: TagMarker, at: number): number {
  * queries.
  */
 const MAX_LOG_PUT_MS = REVALIDATION_LOG_LOOKBACK_MS / 2;
+
+/** How often a refresh in flight checks the process is running. */
+const REFRESH_TICK_MS = 250;
+
+/**
+ * How late a tick may come before the process counts as paused (frozen)
+ * since the refresh in flight started. A busy event loop can delay one too,
+ * which only costs a second query.
+ */
+const REFRESH_PAUSE_MS = 1000;
 
 /**
  * A marker as read from the table or the log, keeping whatever this instance

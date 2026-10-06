@@ -60,7 +60,10 @@ export function createDefaultUseCacheHandler(
   );
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
-  tags.judgeEntriesOf(() => memory.oldestTimestamp());
+  tags.judgeEntriesOf(
+    () => memory.oldestTimestamp(),
+    () => memory.size > 0,
+  );
 
   /**
    * Read the markers of whichever of `tagList` are untracked: first, when the
