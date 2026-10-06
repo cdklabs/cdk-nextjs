@@ -22,6 +22,7 @@ import {
   DEFAULT_MEMORY_BYTES,
   EntryLru,
   isDynamicEntry,
+  isPastRevalidate,
   lazyHandler,
   now,
   numberFromEnv,
@@ -87,7 +88,7 @@ export function createDefaultUseCacheHandler(
         debug(`MISS ${cacheKey}`);
         return undefined;
       }
-      if (now() > stored.timestamp + stored.revalidate * 1000) {
+      if (isPastRevalidate(stored, now())) {
         debug(`EXPIRED ${cacheKey}`);
         memory.delete(cacheKey);
         return undefined;

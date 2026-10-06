@@ -29,6 +29,7 @@ import {
   EntryLru,
   isBuildPhase,
   isDynamicEntry,
+  isPastRevalidate,
   lazyHandler,
   now,
   numberFromEnv,
@@ -72,11 +73,6 @@ function bucketFromEnv(): CacheBucket | null {
     return null;
   }
   return new CacheBucket(new S3Client({ region }), bucketName);
-}
-
-/** Whether `stored` is past `revalidate`, so a fresher copy may exist. */
-function isPastRevalidate(stored: StoredEntry, at: number): boolean {
-  return at > stored.timestamp + stored.revalidate * 1000;
 }
 
 /** Whether `stored` is past `expire`, and may no longer be served at all. */

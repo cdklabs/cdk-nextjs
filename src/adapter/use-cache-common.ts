@@ -200,7 +200,7 @@ export class EntryLru {
   oldestTimestamp(at = -Infinity): number {
     let oldest = Infinity;
     for (const [key, entry] of this.entries) {
-      if (at > entry.timestamp + entry.revalidate * 1000) {
+      if (isPastRevalidate(entry, at)) {
         this.delete(key);
       } else {
         oldest = Math.min(oldest, entry.timestamp);
@@ -216,7 +216,7 @@ export class EntryLru {
    */
   holdsLive(at: number): boolean {
     for (const entry of this.entries.values()) {
-      if (at <= entry.timestamp + entry.revalidate * 1000) {
+      if (!isPastRevalidate(entry, at)) {
         return true;
       }
     }
@@ -230,6 +230,11 @@ export class EntryLru {
 
 function sizeOf(key: string, entry: StoredEntry): number {
   return entry.value.byteLength + key.length;
+}
+
+/** Whether `stored` is past `revalidate` at `at` (`now()`). */
+export function isPastRevalidate(stored: StoredEntry, at: number): boolean {
+  return at > stored.timestamp + stored.revalidate * 1000;
 }
 
 /** Default size of each handler's memory store: Next.js's default, 50 MB. */

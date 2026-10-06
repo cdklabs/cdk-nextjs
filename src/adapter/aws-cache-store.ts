@@ -889,18 +889,26 @@ export class TrackedTagMarkers {
       }
     }
     if (unread.length > 0) {
-      // `readInto` never rejects: a failed read leaves the tags tracked.
-      const read = this.readInto(unread).then(() => {
-        for (const tag of unread) {
-          this.reading.delete(tag);
-        }
-      });
-      for (const tag of unread) {
-        this.reading.set(tag, read);
-      }
-      waits.push(read);
+      waits.push(this.startRead(unread));
     }
     await Promise.all(waits);
+  }
+
+  /**
+   * {@link readInto} `tags`, as the read of each that whoever needs one of
+   * them next waits on ({@link reading}). Never rejects: a failed read leaves
+   * the tags tracked.
+   */
+  private startRead(tags: string[]): Promise<void> {
+    const read = this.readInto(tags).then(() => {
+      for (const tag of tags) {
+        this.reading.delete(tag);
+      }
+    });
+    for (const tag of tags) {
+      this.reading.set(tag, read);
+    }
+    return read;
   }
 
   /**
@@ -964,15 +972,20 @@ export class TrackedTagMarkers {
    * for ({@link behindInRender}). Rejects only as `render` does.
    */
   async catchUp<T>(render: () => Promise<T>): Promise<T> {
+    const log = (error: unknown) =>
+      console.error("Error refreshing cache tags:", error);
     if (this.refreshIntervalMs > 0 && this.behind) {
       if (!this.holdsEntries) {
         // Not caught up, so no grace: an entry stored meanwhile, by another
         // request, makes the render's lookups wait at the plain line.
         return render();
       }
-      await this.refresh().catch((error) => {
-        console.error("Error refreshing cache tags:", error);
-      });
+      await this.refresh().catch(log);
+    } else if (this.refreshIntervalMs > 0) {
+      // Started, not waited for, as `refreshTags` would: a page that reads
+      // no cache keeps the instance current too, rather than falling behind
+      // and making a later request wait.
+      void this.refresh().catch(log);
     }
     return this.caughtUpRender.run(true, render);
   }
@@ -1227,13 +1240,17 @@ export class TrackedTagMarkers {
       );
       return;
     }
-    const [result] = await Promise.all([
-      log.query(this.cursor).catch((error) => {
-        console.error("Error reading tag revalidation log:", error);
-        return undefined;
-      }),
-      this.readInto(this.due(at)),
-    ]);
+    // The rolling re-read runs alongside, not waited for: catching up needs
+    // only the log, and a throttled `BatchGetItem` should not hold the
+    // request `catchUp` makes wait. A forget meanwhile reads it again.
+    const due = this.due(at);
+    if (due.length > 0) {
+      void this.startRead(due);
+    }
+    const result = await log.query(this.cursor).catch((error) => {
+      console.error("Error reading tag revalidation log:", error);
+      return undefined;
+    });
     if (!result) {
       return;
     }
@@ -1244,7 +1261,11 @@ export class TrackedTagMarkers {
       );
       return;
     }
-    const oldest = this.oldestEntry();
+    // A scan of every entry held: only when there is something to judge by it.
+    const oldest =
+      result.rows.length > 0 || this.logOnly.size > 0
+        ? this.oldestEntry()
+        : Infinity;
     let applied = 0;
     for (const row of result.rows) {
       if (this.applied.has(row.sk)) {
@@ -1300,7 +1321,9 @@ export class TrackedTagMarkers {
     const due: string[] = [];
     for (const tag of this.unread) {
       if (due.length >= BATCH_GET_MAX_KEYS) return due;
-      due.push(tag);
+      if (!this.reading.has(tag)) {
+        due.push(tag);
+      }
     }
     // Known in time order, and each due at most `jitter` earlier than the
     // tags after it: past a tag due more than that from now, none is due.
@@ -1309,7 +1332,7 @@ export class TrackedTagMarkers {
       if (due.length >= BATCH_GET_MAX_KEYS || dueAt - jitter > at) {
         break;
       }
-      if (dueAt <= at && !this.unread.has(tag)) {
+      if (dueAt <= at && !this.unread.has(tag) && !this.reading.has(tag)) {
         due.push(tag);
       }
     }

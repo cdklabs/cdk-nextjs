@@ -476,6 +476,63 @@ describe("TrackedTagMarkers", () => {
     });
   });
 
+  it("starts a refresh for a page that is not behind, without waiting for it", async () => {
+    let clock = 1_000_000;
+    let release!: () => void;
+    const query = jest.fn(
+      () =>
+        new Promise<{ rows: RevalidationLogRow[]; truncated: boolean }>(
+          (resolve) =>
+            (release = () => resolve({ rows: [], truncated: false })),
+        ),
+    );
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: { query } as unknown as RevalidationLog,
+      refreshIntervalMs: 1000,
+      clock: () => clock,
+    });
+    markers.judgeEntriesOf(() => 0);
+    clock += 1000;
+    expect(markers.behind).toBe(false);
+    // A page that reads no cache still keeps the instance current.
+    await expect(markers.catchUp(async () => "page")).resolves.toBe("page");
+    expect(query).toHaveBeenCalledTimes(1);
+    release();
+  });
+
+  it("catches up on the log without waiting for the rolling re-read", async () => {
+    let clock = 1_000_000;
+    let release!: () => void;
+    const read = jest.fn(async (tags: string[]) => {
+      if (read.mock.calls.length > 1) {
+        await new Promise<void>((resolve) => (release = resolve));
+      }
+      return new Map<string, TagMarker>(tags.map((tag) => [tag, {}]));
+    });
+    const markers = new TrackedTagMarkers({
+      markers: { read } as unknown as TagMarkerTable,
+      log: {
+        query: jest.fn(async () => ({ rows: [], truncated: false })),
+      } as unknown as RevalidationLog,
+      refreshIntervalMs: 1000,
+      resyncIntervalMs: 1000,
+      random: () => 0,
+      clock: () => clock,
+    });
+    markers.judgeEntriesOf(() => 0);
+    await markers.ensure(["posts"]);
+    // Due for its re-read, and behind, as after a quiet spell.
+    clock += 5000;
+    expect(markers.behind).toBe(true);
+    let rendered = false;
+    await markers.catchUp(async () => (rendered = true));
+    // A throttled `BatchGetItem` would otherwise hold the page.
+    expect(rendered).toBe(true);
+    expect(read).toHaveBeenCalledTimes(2);
+    release();
+  });
+
   it("gives a route handler, which no catch-up precedes, no grace more", async () => {
     let clock = 1_000_000;
     const markers = new TrackedTagMarkers({
