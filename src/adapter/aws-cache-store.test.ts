@@ -440,6 +440,7 @@ describe("TrackedTagMarkers", () => {
     // Just short of the line as the request came in: `catchUp` lets it go.
     clock += 1000 + TAG_REFRESH_GRACE_MS;
     expect(markers.behind).toBe(false);
+    await markers.catchUp();
     // Past it by its first `'use cache'` lookup, which does not wait yet.
     clock += 100;
     expect(markers.behind).toBe(true);
@@ -448,13 +449,28 @@ describe("TrackedTagMarkers", () => {
     expect(markers.behindInRender).toBe(true);
   });
 
-  it("does not track what a read from before a forget found", async () => {
+  it("gives a route handler, which no catch-up precedes, no grace more", async () => {
+    let clock = 1_000_000;
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: { query: jest.fn() } as unknown as RevalidationLog,
+      refreshIntervalMs: 1000,
+      clock: () => clock,
+    });
+    clock += 1000 + TAG_REFRESH_GRACE_MS + 100;
+    expect(markers.behindInRender).toBe(true);
+  });
+
+  it("reads again what a read from before a forget found", async () => {
     let clock = 1_000_000;
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
+    let revalidatedAt: number | undefined;
     const read = jest.fn(async () => {
       await held;
-      return new Map<string, TagMarker>();
+      return new Map<string, TagMarker>(
+        revalidatedAt === undefined ? [] : [["posts", { revalidatedAt }]],
+      );
     });
     const markers = new TrackedTagMarkers({
       markers: { read } as unknown as TagMarkerTable,
@@ -470,11 +486,14 @@ describe("TrackedTagMarkers", () => {
     clock += MAX_REVALIDATION_LOG_GAP_MS + 1;
     await markers.refresh();
 
+    // Read again once the stale read returns: tracked, its marker would
+    // vouch for every entry with the tag, revalidated during the freeze or
+    // not; untracked, the request waiting on it would judge by nothing.
+    revalidatedAt = markerClock();
     release();
     await ensuring;
-    // Tracked, the pre-freeze marker would vouch for every entry with the
-    // tag, revalidated during the freeze or not.
-    expect(markers.get("posts")).toBeUndefined();
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(markers.get("posts")).toEqual({ revalidatedAt });
   });
 
   it("moves completeSince past what it forgets", async () => {

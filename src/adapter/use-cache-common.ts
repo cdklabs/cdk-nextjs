@@ -281,9 +281,11 @@ export function tagMethods(
     // the query finds applies from the next request. Awaited once the instance
     // is `behind`, which the runtime settles before a page render starts
     // (`catchUp`): the first request after an idle or frozen spell would
-    // otherwise serve whatever was revalidated elsewhere meanwhile. Not even
-    // then while the instance holds no entry the query could expire
-    // (`holdsEntries`), with a `refreshIntervalMs` of `0` too.
+    // otherwise serve whatever was revalidated elsewhere meanwhile. A page's
+    // render just after `catchUp` gets a grace more (`behindInRender`), so a
+    // request that came in just short of the line doesn't cross it inside
+    // the render. Not even then while the instance holds no entry the query
+    // could expire (`holdsEntries`), with a `refreshIntervalMs` of `0` too.
     refreshTags: () =>
       awaitIf(
         options.blocking === true || (tags.behindInRender && tags.holdsEntries),

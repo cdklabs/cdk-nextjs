@@ -697,10 +697,12 @@ export class TrackedTagMarkers {
     oldestTimestamp: () => number;
     holdsAny: () => boolean;
   }[] = [];
-  /** How many times {@link forget} ran: a read started before one is dropped. */
+  /** How many times {@link forget} ran: a read started before one is made again. */
   private forgotten = 0;
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
+  /** When {@link catchUp} last ran. See {@link behindInRender}. */
+  private lastCatchUp = -Infinity;
   /** When the last refresh started, or was skipped. */
   private lastRefresh = -Infinity;
   /**
@@ -921,18 +923,23 @@ export class TrackedTagMarkers {
   }
 
   /**
-   * {@link behind}, as a `'use cache'` lookup inside a render asks it: with
-   * the grace twice over, since the runtime already settled `behind` before
-   * the render started ({@link catchUp}). Otherwise a request that came in
+   * {@link behind}, as `refreshTags` asks it: inside a page's render, just
+   * after {@link catchUp}, with the grace twice over, since the runtime
+   * already settled `behind` before the render started. Otherwise a request that came in
    * just short of the line could cross it before its first lookup, and wait
    * for the query inside the render after all.
    */
   get behindInRender(): boolean {
+    if (!this.behind || this.refreshIntervalMs === 0) {
+      return this.behind;
+    }
+    // Only for a render `catchUp` just let go: a route handler, which it
+    // never sees, waits at the plain line. With concurrent requests (in a
+    // container) one just after another's page can get the grace too.
     return (
-      this.log !== undefined &&
-      (this.refreshIntervalMs === 0 ||
-        this.clock() - this.settledAt >
-          this.refreshIntervalMs + 2 * TAG_REFRESH_GRACE_MS)
+      this.clock() - this.lastCatchUp > TAG_REFRESH_GRACE_MS ||
+      this.clock() - this.settledAt >
+        this.refreshIntervalMs + 2 * TAG_REFRESH_GRACE_MS
     );
   }
 
@@ -957,6 +964,7 @@ export class TrackedTagMarkers {
    * `refreshTags` asks again regardless. Never rejects.
    */
   async catchUp(): Promise<void> {
+    this.lastCatchUp = this.clock();
     if (this.refreshIntervalMs > 0 && this.behind && this.holdsEntries) {
       await this.refresh().catch((error) => {
         console.error("Error refreshing cache tags:", error);
@@ -1362,9 +1370,10 @@ export class TrackedTagMarkers {
       const read = await this.markers!.read(tags);
       if (this.forgotten !== forgotten) {
         // Read before a forget - across a freeze, as like as not - so as
-        // stale as what it forgot: the tags stay untracked, and are read
-        // again when next needed.
-        return false;
+        // stale as what it forgot. Read again rather than leave the tags
+        // untracked: whoever waits on this read (`reading`) judges entries
+        // by it next, and an untracked tag counts for nothing.
+        return await this.readInto(tags);
       }
       for (const tag of tags) {
         this.unread.delete(tag);
@@ -1382,7 +1391,7 @@ export class TrackedTagMarkers {
     } catch (error) {
       console.error("Error reading tag markers:", error);
       if (this.forgotten !== forgotten) {
-        return false;
+        return this.readInto(tags);
       }
       this.trackUnread(tags);
       for (const tag of tags) {
