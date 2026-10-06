@@ -215,6 +215,14 @@ function sizeOf(key: string, entry: StoredEntry): number {
 export const DEFAULT_MEMORY_BYTES = 50 * 1024 * 1024;
 
 /**
+ * How long one revalidation table request may take, per attempt. The SDK sets
+ * no limit, and a refresh left in flight across a Lambda freeze can sit on a
+ * connection that died meanwhile without a reset: every request that waits
+ * for the refresh (an instance `behind`, ISR) would wait with it.
+ */
+export const TAG_TABLE_REQUEST_TIMEOUT_MS = 3000;
+
+/**
  * Wait for `work` if `wait`, or else let it run on: either way a rejection is
  * logged with `failure` rather than thrown.
  */
@@ -238,6 +246,15 @@ export interface TagMethodsOptions {
    * @default false
    */
   readonly blocking?: boolean;
+  /**
+   * Whether the handler holds any entry the refresh could expire. One that
+   * holds none has nothing to wait for even when the instance is `behind`:
+   * whatever it stores from here on is newer than what the log would say.
+   * Covers the first `'use cache'` call of a process, which creates the
+   * handler inside the render, after `catchUp` found no entries to protect.
+   * @default () => true
+   */
+  readonly holdsEntries?: () => boolean;
 }
 
 /**
@@ -260,7 +277,8 @@ export function tagMethods(
     // otherwise serve whatever was revalidated elsewhere meanwhile.
     refreshTags: () =>
       awaitIf(
-        options.blocking === true || tags.behind,
+        options.blocking === true ||
+          (tags.behind && (options.holdsEntries?.() ?? true)),
         tags.refresh(),
         "Error refreshing cache tags:",
       ),
@@ -311,7 +329,10 @@ export function sharedTagManifest(): TrackedTagMarkers {
       DEFAULT_TAG_REFRESH_MS,
     );
     if (config.tableName && !isBuildPhase()) {
-      const client = new DynamoDBClient({ region: config.region });
+      const client = new DynamoDBClient({
+        region: config.region,
+        requestHandler: { requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS },
+      });
       global[TAG_MANIFEST_SYMBOL] = new TrackedTagMarkers({
         markers: new TagMarkerTable(client, config.tableName, config.buildId),
         log: new RevalidationLog(client, config.tableName, config.buildId),

@@ -808,6 +808,10 @@ export class NextjsRuntime {
     if (target.kind === "entrypoint") {
       const handler = await this.entrypoints.load(target.entrypoint);
       req.url = requestedUrl ?? req.url;
+      // App Router's `/_not-found` is a page render too: see `route`.
+      if (target.entrypoint.type === "app-page") {
+        await catchUpTags();
+      }
       await handler(req, asServerResponse(res), { waitUntil });
       if (!res.writableEnded) {
         res.end();

@@ -139,7 +139,7 @@ export function createDefaultUseCacheHandler(
       }
     },
 
-    ...tagMethods(tags),
+    ...tagMethods(tags, { holdsEntries: () => memory.size > 0 }),
 
     // `Infinity` has Next.js pass the implicit tags to `get` instead, so they
     // are judged against the entry read: whether answering needs a marker

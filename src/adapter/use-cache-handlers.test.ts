@@ -556,6 +556,24 @@ describe("cacheHandlers.default", () => {
     }
   });
 
+  it("does not wait for the revalidation log query, idle, while it holds no entries", async () => {
+    const b = defaultInstance(tagManifest(1000));
+
+    // As for the first `'use cache'` call of a process, which creates the
+    // handler inside the render: nothing held, so nothing the query could
+    // expire.
+    const later = Date.now() + 1000 + TAG_REFRESH_GRACE_MS + 5000;
+    const now = jest.spyOn(Date, "now").mockReturnValue(later);
+    const queries = holdQueries();
+    try {
+      expect(await pending(b.refreshTags())).toBe(false);
+      expect(dynamoCalls(QueryCommand)).toBeGreaterThan(0);
+    } finally {
+      queries.restore();
+      now.mockRestore();
+    }
+  });
+
   it("waits for the revalidation log query when told to ask on every check", async () => {
     const a = defaultInstance();
     const b = defaultInstance(tagManifest(0));

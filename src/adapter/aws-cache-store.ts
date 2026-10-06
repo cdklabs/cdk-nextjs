@@ -1384,7 +1384,9 @@ export class TrackedTagMarkers {
       }
     }
     // Inside a merged span already: by its start, `completeSince` is past it.
-    if (low > 0 && floors[low - 1][1] >= time) {
+    // Or already there: a log row for an untracked tag is applied again by
+    // every query its lookback returns it to.
+    if ((low > 0 && floors[low - 1][1] >= time) || floors[low]?.[0] === time) {
       return;
     }
     floors.splice(low, 0, [time, time]);

@@ -529,6 +529,38 @@ describe("TrackedTagMarkers", () => {
     }
   });
 
+  it("queues a pruned row's future expiredAt once, however often the lookback returns it", async () => {
+    let clock = 1_000_000;
+    const staleAt = markerClock() + 1000;
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: {
+        query: jest.fn(async () => ({
+          rows: [
+            {
+              sk: `${String(1_000_000).padStart(15, "0")}#posts`,
+              at: 1_000_000,
+              tag: "posts",
+              marker: { staleAt, expiredAt: staleAt + 60_000 },
+            },
+          ],
+          truncated: false,
+        })),
+      } as unknown as RevalidationLog,
+      refreshIntervalMs: 0,
+      clock: () => clock,
+    });
+    markers.judgeEntriesOf(() => staleAt + 1);
+    for (let i = 0; i < 3; i++) {
+      await markers.refresh();
+      clock += 1000;
+    }
+    // Pruned rows are not marked applied, so each query applies it again.
+    expect(
+      (markers as unknown as { laterFloors: unknown[] }).laterFloors,
+    ).toHaveLength(1);
+  });
+
   it("merges future expiredAts past its bound without moving completeSince early", async () => {
     const at = markerClock();
     const expiries = new Map([
