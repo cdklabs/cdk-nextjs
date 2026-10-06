@@ -818,6 +818,7 @@ describe("sharedTagManifest", () => {
           requestHandler: {
             requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
             throwOnRequestTimeout: true,
+            socketTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
           },
         }),
       );

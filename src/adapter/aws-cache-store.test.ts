@@ -602,7 +602,7 @@ describe("TrackedTagMarkers", () => {
     }
   });
 
-  it("catches up only for an entry store, and not when every check asks anyway", async () => {
+  it("catches up only for an entry store holding entries, and not when every check asks anyway", async () => {
     let clock = 1_000_000;
     const instance = (refreshIntervalMs: number) => {
       const query = jest.fn(async () => ({ rows: [], truncated: false }));
@@ -617,15 +617,19 @@ describe("TrackedTagMarkers", () => {
     const noStore = instance(1000);
     const everyCheck = instance(0);
     everyCheck.markers.judgeEntriesOf(() => Infinity);
+    // A store, but holding nothing a refresh could expire.
+    const emptyStore = instance(1000);
+    emptyStore.markers.judgeEntriesOf(() => Infinity);
     const store = instance(1000);
-    store.markers.judgeEntriesOf(() => Infinity);
+    store.markers.judgeEntriesOf(() => 0);
     clock += 60_000;
-    for (const { markers } of [noStore, everyCheck, store]) {
+    for (const { markers } of [noStore, everyCheck, emptyStore, store]) {
       expect(markers.behind).toBe(true);
       await markers.catchUp();
     }
     expect(noStore.query).not.toHaveBeenCalled();
     expect(everyCheck.query).not.toHaveBeenCalled();
+    expect(emptyStore.query).not.toHaveBeenCalled();
     expect(store.query).toHaveBeenCalledTimes(1);
   });
 
@@ -715,7 +719,7 @@ describe("TrackedTagMarkers", () => {
       refreshIntervalMs: 1000,
       clock: () => clock,
     });
-    markers.judgeEntriesOf(() => Infinity);
+    markers.judgeEntriesOf(() => 0);
     clock += 1000;
     // Started, not waited for, and then the sandbox froze.
     void markers.refresh();

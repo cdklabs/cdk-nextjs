@@ -883,6 +883,17 @@ export class TrackedTagMarkers {
   }
 
   /**
+   * Whether a registered store ({@link judgeEntriesOf}) holds any entry: one
+   * a refresh could expire. With none there is nothing to wait for even when
+   * the instance is {@link behind}, since whatever is stored from here on is
+   * newer than what the log would say - which covers the first `'use cache'`
+   * call of a process, which creates the handler inside the render.
+   */
+  get holdsEntries(): boolean {
+    return this.oldestEntry() < Infinity;
+  }
+
+  /**
    * {@link refresh}, waited for when the instance is {@link behind}. The
    * runtime calls it before handing a page request to Next.js, outside the
    * staged render whose static stage a wait inside a `'use cache'` lookup
@@ -892,11 +903,7 @@ export class TrackedTagMarkers {
    * `refreshTags` asks again regardless. Never rejects.
    */
   async catchUp(): Promise<void> {
-    if (
-      this.entryStores.length > 0 &&
-      this.refreshIntervalMs > 0 &&
-      this.behind
-    ) {
+    if (this.refreshIntervalMs > 0 && this.behind && this.holdsEntries) {
       await this.refresh().catch((error) => {
         console.error("Error refreshing cache tags:", error);
       });

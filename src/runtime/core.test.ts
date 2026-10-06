@@ -546,6 +546,7 @@ describe("NextjsRuntime.handle", () => {
   it("catches up on cache tags before rendering a page or the /_not-found page", async () => {
     const global = globalThis as Record<symbol, unknown>;
     const catchUp = jest.fn(async () => {});
+    const previous = global[TAG_MANIFEST_SYMBOL];
     global[TAG_MANIFEST_SYMBOL] = { catchUp };
     try {
       await send({ url: "/" });
@@ -553,7 +554,7 @@ describe("NextjsRuntime.handle", () => {
       await send({ url: "/nope" });
       expect(catchUp).toHaveBeenCalledTimes(2);
     } finally {
-      delete global[TAG_MANIFEST_SYMBOL];
+      global[TAG_MANIFEST_SYMBOL] = previous;
     }
   });
 

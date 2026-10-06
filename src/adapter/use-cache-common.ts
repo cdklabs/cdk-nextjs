@@ -248,15 +248,6 @@ export interface TagMethodsOptions {
    * @default false
    */
   readonly blocking?: boolean;
-  /**
-   * Whether the handler holds any entry the refresh could expire. One that
-   * holds none has nothing to wait for even when the instance is `behind`:
-   * whatever it stores from here on is newer than what the log would say.
-   * Covers the first `'use cache'` call of a process, which creates the
-   * handler inside the render, after `catchUp` found no entries to protect.
-   * @default () => true
-   */
-  readonly holdsEntries?: () => boolean;
 }
 
 /**
@@ -276,11 +267,12 @@ export function tagMethods(
     // the query finds applies from the next request. Awaited once the instance
     // is `behind`, which the runtime settles before a page render starts
     // (`catchUp`): the first request after an idle or frozen spell would
-    // otherwise serve whatever was revalidated elsewhere meanwhile.
+    // otherwise serve whatever was revalidated elsewhere meanwhile. Not even
+    // then while the instance holds no entry the query could expire
+    // (`holdsEntries`), with a `refreshIntervalMs` of `0` too.
     refreshTags: () =>
       awaitIf(
-        options.blocking === true ||
-          (tags.behind && (options.holdsEntries?.() ?? true)),
+        options.blocking === true || (tags.behind && tags.holdsEntries),
         tags.refresh(),
         "Error refreshing cache tags:",
       ),
@@ -333,10 +325,13 @@ export function sharedTagManifest(): TrackedTagMarkers {
     if (config.tableName && !isBuildPhase()) {
       const client = new DynamoDBClient({
         region: config.region,
-        // Without `throwOnRequestTimeout` the timeout only logs a warning.
+        // Without `throwOnRequestTimeout` the timeout only logs a warning. It
+        // ends once the response headers arrive: `socketTimeout`, an
+        // inactivity timer kept until the request closes, covers the body.
         requestHandler: {
           requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
           throwOnRequestTimeout: true,
+          socketTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
         },
       });
       global[TAG_MANIFEST_SYMBOL] = new TrackedTagMarkers({
