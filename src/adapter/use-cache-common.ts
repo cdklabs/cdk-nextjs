@@ -210,14 +210,13 @@ export class EntryLru {
   }
 
   /**
-   * Whether an entry not past `revalidate` at `at` is held, dropping the
-   * expired ones it passes on the way: usually the first entry answers.
+   * Whether an entry not past `revalidate` at `at` is held. Usually the first
+   * entry answers; the expired ones it passes are dropped by the scan
+   * {@link oldestTimestamp} makes, not here, so asking changes nothing.
    */
   holdsLive(at: number): boolean {
-    for (const [key, entry] of this.entries) {
-      if (at > entry.timestamp + entry.revalidate * 1000) {
-        this.delete(key);
-      } else {
+    for (const entry of this.entries.values()) {
+      if (at <= entry.timestamp + entry.revalidate * 1000) {
         return true;
       }
     }

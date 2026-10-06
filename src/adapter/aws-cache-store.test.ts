@@ -429,7 +429,7 @@ describe("CacheBucket", () => {
 });
 
 describe("TrackedTagMarkers", () => {
-  it("leaves a render a grace past the runtime's catch-up before it counts as behind", async () => {
+  it("never counts a render the runtime caught up as behind", async () => {
     let clock = 1_000_000;
     const markers = new TrackedTagMarkers({
       markers: { read: jest.fn() } as unknown as TagMarkerTable,
@@ -441,15 +441,15 @@ describe("TrackedTagMarkers", () => {
     clock += 1000 + TAG_REFRESH_GRACE_MS;
     expect(markers.behind).toBe(false);
     await markers.catchUp(async () => {
-      // Past it by its first `'use cache'` lookup, which does not wait yet.
+      // However long the render takes, its lookups never wait: waiting is
+      // what the catch-up before it was for.
       clock += 100;
       expect(markers.behind).toBe(true);
       expect(markers.behindInRender).toBe(false);
-      clock += TAG_REFRESH_GRACE_MS;
-      expect(markers.behindInRender).toBe(true);
+      clock += 60_000;
+      expect(markers.behindInRender).toBe(false);
     });
-    // Outside it - a route handler alongside, in a container - no grace.
-    clock -= TAG_REFRESH_GRACE_MS;
+    // Outside it - a route handler alongside, in a container - it waits.
     expect(markers.behindInRender).toBe(true);
   });
 

@@ -927,21 +927,19 @@ export class TrackedTagMarkers {
   }
 
   /**
-   * {@link behind}, as `refreshTags` asks it: inside a page's render
-   * ({@link catchUp}), with the grace twice over, since the runtime already
-   * settled `behind` for this request before the render started. Otherwise a
-   * request that came in just short of the line could cross it before its
-   * first lookup, and wait for the query inside the render after all.
+   * {@link behind}, as `refreshTags` asks it: never inside a page's render
+   * {@link catchUp} caught up, since the runtime settled it for that request
+   * before the render started, and a wait inside a `'use cache'` lookup is
+   * what it settled it to avoid - a render crossing the line partway through
+   * would otherwise wait after all. So a revalidation elsewhere can go unseen
+   * for a render's duration on top of the usual window.
+   *
+   * A route handler, which no catch-up precedes, waits at the plain line.
    */
   get behindInRender(): boolean {
-    if (this.refreshIntervalMs === 0 || !this.caughtUpRender.getStore()) {
-      // A route handler, which no catch-up precedes, waits at the plain line.
-      return this.behind;
-    }
-    return (
-      this.log !== undefined &&
-      this.overdue(this.settledAt, 2 * TAG_REFRESH_GRACE_MS)
-    );
+    return this.refreshIntervalMs !== 0 && this.caughtUpRender.getStore()
+      ? false
+      : this.behind;
   }
 
   /**
@@ -979,9 +977,9 @@ export class TrackedTagMarkers {
     return this.caughtUpRender.run(true, render);
   }
 
-  /** Whether `at` is more than the interval and `grace` ago. */
-  private overdue(at: number, grace = TAG_REFRESH_GRACE_MS): boolean {
-    return this.clock() - at > this.refreshIntervalMs + grace;
+  /** Whether `at` is more than the interval and the grace ago. */
+  private overdue(at: number): boolean {
+    return this.clock() - at > this.refreshIntervalMs + TAG_REFRESH_GRACE_MS;
   }
 
   /**

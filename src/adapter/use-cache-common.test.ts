@@ -715,9 +715,9 @@ describe("EntryLru", () => {
     lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
     lru.set("new", stored(100, { timestamp: 1500, revalidate: 1 }));
     expect(lru.holdsLive(2001)).toBe(true);
-    expect(lru.size).toBe(1);
     expect(lru.holdsLive(2501)).toBe(false);
-    expect(lru.size).toBe(0);
+    // Asking is not a use: the entries go in `oldestTimestamp`'s scan.
+    expect(lru.size).toBe(2);
   });
 
   it("drops the entries past revalidate as it finds the oldest", () => {
