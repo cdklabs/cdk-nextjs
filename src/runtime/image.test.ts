@@ -214,7 +214,7 @@ describe("newImageResponseCache", () => {
       minimalMode: boolean;
       route?: unknown;
     }) {
-      if (!route) throw new Error("requires a source route");
+      if (!route) throw new Error("Response cache requires a source route");
       this.mode = minimalMode;
     }
   }
@@ -235,6 +235,15 @@ describe("newImageResponseCache", () => {
     const cache = construct(LegacyResponseCache);
     expect(cache).toBeInstanceOf(LegacyResponseCache);
     expect(cache.minimal_mode).toBe(false);
+  });
+
+  it("rethrows a constructor error that isn't the missing route", () => {
+    class BrokenResponseCache {
+      constructor() {
+        throw new Error("boom");
+      }
+    }
+    expect(() => construct(BrokenResponseCache)).toThrow("boom");
   });
 });
 

@@ -153,12 +153,13 @@ export function sha256Hex(value: string): string {
 const MAX_S3_KEY_BYTES = 1024;
 
 /**
- * What {@link cacheObjectName} leaves the `{buildId}/` in front of it: a Next.js
- * build ID is 21 characters, and the `-<deploymentId>` cdk-nextjs appends is
- * the app's own, so the adapter fails a build whose prefix is longer (see
- * `assertBuildPrefixFits`) rather than leave long names unwritable.
+ * The longest build ID cache entries are stored under, which
+ * {@link cacheObjectName} leaves room for in front of it with its `/`: a
+ * Next.js build ID is 21 characters, and the `-<deploymentId>` cdk-nextjs
+ * appends is the app's own, so the adapter fails a build whose ID is longer
+ * (see `assertBuildIdFits`) rather than leave long names unwritable.
  */
-export const MAX_BUILD_PREFIX_BYTES = 128;
+export const MAX_BUILD_ID_BYTES = 127;
 
 /**
  * The folder under the build prefix that entries with an over-long key are
@@ -181,7 +182,7 @@ export const LONG_KEY_PREFIX = "_long-key";
  */
 export function cacheObjectName(cacheKey: string): string {
   const name = cacheKeyFileName(cacheKey);
-  if (Buffer.byteLength(name) <= MAX_S3_KEY_BYTES - MAX_BUILD_PREFIX_BYTES) {
+  if (Buffer.byteLength(name) <= MAX_S3_KEY_BYTES - (MAX_BUILD_ID_BYTES + 1)) {
     return name;
   }
   return `${LONG_KEY_PREFIX}/${sha256Hex(name)}.long`;
@@ -201,13 +202,19 @@ export function cacheObjectName(cacheKey: string): string {
 export function routeCacheKeyFromFilePath(
   filePath: string | undefined,
 ): string | undefined {
-  // The first match, anchored on the whole key prefix: a route's own pathname
-  // can contain `/server/route-cache/`, before 16.3.8 as well as after.
-  const match = filePath?.split(sep).join("/").match(ROUTE_CACHE_FILE_PATH);
-  return match?.[1].replace(/\.[^./]+$/, "");
+  // The first `/server/route-cache/`: a route's own pathname can contain one
+  // after it. Before 16.3.8 a route of that name is all there is, which the
+  // prefix check below rejects.
+  const path = filePath?.split(sep).join("/");
+  const at = path?.indexOf(ROUTE_CACHE_DIR) ?? -1;
+  if (at < 0) {
+    return undefined;
+  }
+  const key = path!.slice(at + "/server/".length).replace(/\.[^./]+$/, "");
+  return ROUTE_CACHE_KEY_PREFIX.test(key) ? key : undefined;
 }
 
-const ROUTE_CACHE_KEY_START = String.raw`route-cache/[A-Z_]+/[0-9a-f]{64}/\$(?=/)`;
+const ROUTE_CACHE_DIR = "/server/route-cache/";
 
 /**
  * The start of a next >= 16.3.8 response-cache key, leading slash dropped:
@@ -215,11 +222,8 @@ const ROUTE_CACHE_KEY_START = String.raw`route-cache/[A-Z_]+/[0-9a-f]{64}/\$(?=/
  * by the pathname. Matched whole, so an older app's route that happens to be
  * named `/route-cache/...` is not read as one.
  */
-export const ROUTE_CACHE_KEY_PREFIX = new RegExp(`^${ROUTE_CACHE_KEY_START}`);
-
-const ROUTE_CACHE_FILE_PATH = new RegExp(
-  `/server/(${ROUTE_CACHE_KEY_START}.*)$`,
-);
+export const ROUTE_CACHE_KEY_PREFIX =
+  /^route-cache\/[A-Z_]+\/[0-9a-f]{64}\/\$(?=\/)/;
 
 /**
  * `denormalizePagePath` (`next/dist/shared/lib/page-path/denormalize-page-path.js`),

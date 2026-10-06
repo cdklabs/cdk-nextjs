@@ -12,7 +12,7 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { NextAdapter } from "next";
-import { MAX_BUILD_PREFIX_BYTES } from "./cache-utils";
+import { MAX_BUILD_ID_BYTES } from "./cache-utils";
 import {
   DEFAULT_FUNCTION_GROUP,
   FUNCTION_GROUPS_ENV_VAR,
@@ -348,7 +348,7 @@ export function buildAdapterManifest(
         }
       : {}),
   };
-  assertBuildPrefixFits(manifest);
+  assertBuildIdFits(manifest);
 
   const groups: StagedGroup[] = assignment
     ? Object.entries(assignment.templates).map(([name, templates]) => ({
@@ -373,24 +373,23 @@ export function buildAdapterManifest(
 }
 
 /**
- * Fails the build when the `{buildId}/` prefix every cache object is stored
- * under is longer than {@link MAX_BUILD_PREFIX_BYTES}, the room
- * `cacheObjectName` leaves it. Past that, an entry with a long enough name would
- * be rejected by S3 and never cached, with nothing to say why.
+ * Fails the build when the build ID every cache object is stored under is
+ * longer than {@link MAX_BUILD_ID_BYTES}, the room `cacheObjectName` leaves it.
+ * Past that, an entry with a long enough name would be rejected by S3 and
+ * never cached, with nothing to say why.
  */
-function assertBuildPrefixFits(manifest: AdapterManifest): void {
-  const prefixBytes = Buffer.byteLength(`${deploymentBuildId(manifest)}/`);
-  if (prefixBytes > MAX_BUILD_PREFIX_BYTES) {
-    const what = manifest.config.deploymentId
-      ? "The build ID and deploymentId together are"
-      : "The build ID is";
-    const fix = manifest.config.deploymentId
-      ? "Use a shorter deploymentId or generateBuildId."
-      : "Use a shorter generateBuildId.";
+function assertBuildIdFits(manifest: AdapterManifest): void {
+  const bytes = Buffer.byteLength(deploymentBuildId(manifest));
+  if (bytes > MAX_BUILD_ID_BYTES) {
+    const { what, fix } = manifest.config.deploymentId
+      ? {
+          what: "The build ID and deploymentId together are",
+          fix: "Use a shorter deploymentId or generateBuildId.",
+        }
+      : { what: "The build ID is", fix: "Use a shorter generateBuildId." };
     throw new Error(
-      `${LOG_PREFIX} ${what} ${prefixBytes - 1} bytes; cdk-nextjs stores ` +
-        `cache entries under it and allows at most ` +
-        `${MAX_BUILD_PREFIX_BYTES - 1}. ${fix}`,
+      `${LOG_PREFIX} ${what} ${bytes} bytes; cdk-nextjs stores cache ` +
+        `entries under it and allows at most ${MAX_BUILD_ID_BYTES}. ${fix}`,
     );
   }
 }

@@ -106,7 +106,7 @@ export async function writeInitCache(
 
       if (kind === CachedRouteKind.APP_PAGE) {
         // Read HTML file
-        const html = await readPrerenderAsText(htmlPrerender);
+        const html = (await readPrerender(htmlPrerender))?.toString();
 
         if (!html) {
           debug(`SKIP: No HTML content for APP_PAGE ${basePath}`);
@@ -114,7 +114,7 @@ export async function writeInitCache(
         }
 
         // Read RSC data
-        const rscData = await readPrerenderAsBuffer(rscPrerender);
+        const rscData = await readPrerender(rscPrerender);
 
         // Read segment data
         const segmentData = await getSegmentData(segmentPrerenders);
@@ -142,7 +142,7 @@ export async function writeInitCache(
           },
         };
       } else if (kind === CachedRouteKind.APP_ROUTE) {
-        const body = await readPrerenderAsBuffer(htmlPrerender);
+        const body = await readPrerender(htmlPrerender);
 
         if (!body) {
           debug(`SKIP: No body content for APP_ROUTE ${basePath}`);
@@ -186,7 +186,7 @@ export async function writeInitCache(
           continue;
         }
 
-        const html = await readPrerenderAsText(htmlPrerender);
+        const html = (await readPrerender(htmlPrerender))?.toString();
 
         if (!html) {
           debug(`SKIP: No HTML content for PAGES ${basePath}`);
@@ -199,7 +199,7 @@ export async function writeInitCache(
         // there are no params to run `getStaticProps` with yet - and
         // `FileSystemCache` skips the read for one too (`if (!ctx.isFallback)`),
         // leaving `pageData` an empty object.
-        const pageDataJson = await readPrerenderAsText(dataPrerender);
+        const pageDataJson = (await readPrerender(dataPrerender))?.toString();
 
         cacheEntry = {
           lastModified: Date.now(),
@@ -232,7 +232,11 @@ export async function writeInitCache(
       const routeCacheKey = routeCacheKeyFromFilePath(
         prerenderFilePath(htmlPrerender),
       );
-      if (!routeCacheKey && scopesKeysByRoute) unscopedRoutes.push(basePath);
+      if (!routeCacheKey && scopesKeysByRoute) {
+        // Never read under any other key; the build fails below.
+        unscopedRoutes.push(basePath);
+        continue;
+      }
       const cacheKey =
         routeCacheKey ??
         prerenderPathToCacheKey(basePath, ctx.config.basePath || "");
@@ -292,38 +296,20 @@ function nextScopesKeysByRoute(projectDir: string): boolean {
   }
 }
 
+/** A prerender output, of which only the file it was written to is read. */
+type PrerenderOutput =
+  { fallback?: { filePath?: string } | { postponedState: string } } | undefined;
+
 /** The file `next build` wrote a prerender to, if it wrote one. */
-function prerenderFilePath(
-  prerender:
-    | { fallback?: { filePath?: string } | { postponedState: string } }
-    | undefined,
-): string | undefined {
+function prerenderFilePath(prerender: PrerenderOutput): string | undefined {
   return prerender?.fallback && "filePath" in prerender.fallback
     ? prerender.fallback.filePath
     : undefined;
 }
 
-/**
- * Read file content from a prerender as UTF-8 string
- */
-async function readPrerenderAsText(
-  prerender:
-    | { fallback?: { filePath?: string } | { postponedState: string } }
-    | undefined,
-): Promise<string | undefined> {
-  const filePath = prerenderFilePath(prerender);
-  return filePath && existsSync(filePath)
-    ? readFile(filePath, "utf-8")
-    : undefined;
-}
-
-/**
- * Read file content from a prerender as Buffer
- */
-async function readPrerenderAsBuffer(
-  prerender:
-    | { fallback?: { filePath?: string } | { postponedState: string } }
-    | undefined,
+/** The content of the file `next build` wrote a prerender to, if it exists. */
+async function readPrerender(
+  prerender: PrerenderOutput,
 ): Promise<Buffer | undefined> {
   const filePath = prerenderFilePath(prerender);
   return filePath && existsSync(filePath) ? readFile(filePath) : undefined;
@@ -333,17 +319,13 @@ async function readPrerenderAsBuffer(
  * Read segment data from segment prerenders
  */
 async function getSegmentData<
-  T extends {
-    pathname: string;
-    fallback?: { filePath?: string } | { postponedState: string };
-  },
+  T extends { pathname: string } & NonNullable<PrerenderOutput>,
 >(segmentPrerenders: T[]): Promise<Map<string, Buffer>> {
   const segmentData = new Map<string, Buffer>();
 
   for (const segmentPrerender of segmentPrerenders) {
-    const filePath = prerenderFilePath(segmentPrerender);
-    if (filePath && existsSync(filePath)) {
-      const segmentContent = await readFile(filePath);
+    const segmentContent = await readPrerender(segmentPrerender);
+    if (segmentContent) {
       // Extract segment name from pathname
       const segmentName =
         "/" +

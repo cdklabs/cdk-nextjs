@@ -259,23 +259,23 @@ export function hashedTag(tag: string): string {
   return `#${sha256Hex(tag)}`;
 }
 
-/** The length of a {@link hashedTag}, which is the same for every tag. */
-export const HASHED_TAG_BYTES = hashedTag("").length;
-
 /**
- * `value` as part of a sort key with `reservedBytes` of other parts: itself,
- * or {@link hashedTag} when it would push the key past {@link MAX_SORT_KEY_BYTES}.
- * The one place that decides, so a row's writer and reader agree.
+ * The longest tag a sort key spells out; past it, {@link sortKeyTag} hashes
+ * it. One cap for every row the tag is in, so a row's writer and reader agree
+ * without each working out what else shares its key. It leaves room for the
+ * most any row puts beside the tag: a mapping row's `#<buildId>/#<sha256>`,
+ * with the build ID capped at `MAX_BUILD_ID_BYTES`.
  */
-export function sortKeyPart(value: string, reservedBytes = 0): string {
-  return Buffer.byteLength(value) + reservedBytes <= MAX_SORT_KEY_BYTES
-    ? value
-    : hashedTag(value);
+export const MAX_TAG_BYTES = 768;
+
+/** `tag` as a sort key spells it: itself, or {@link hashedTag} past {@link MAX_TAG_BYTES}. */
+export function sortKeyTag(tag: string): string {
+  return Buffer.byteLength(tag) <= MAX_TAG_BYTES ? tag : hashedTag(tag);
 }
 
 /**
  * The bare-tag marker rows of the revalidation table (`pk = buildId`,
- * `sk = tag`, or {@link hashedTag} past the limit), which record when a tag
+ * `sk = tag`, or {@link hashedTag} past {@link MAX_TAG_BYTES}), which record when a tag
  * was last revalidated and how.
  *
  * The table also holds the incremental cache's `tag#s3Key` mapping rows, which
@@ -307,7 +307,7 @@ export class TagMarkerTable {
         TableName: this.tableName,
         Key: {
           pk: { S: this.buildId },
-          sk: { S: sortKeyPart(tag) },
+          sk: { S: sortKeyTag(tag) },
         },
         ...markerUpdate(now, durations),
         ReturnValues: "ALL_NEW",
@@ -333,7 +333,7 @@ export class TagMarkerTable {
       const tagBySk = new Map(
         unique
           .slice(i, i + BATCH_GET_MAX_KEYS)
-          .map((tag) => [sortKeyPart(tag), tag]),
+          .map((tag) => [sortKeyTag(tag), tag]),
       );
       let keys: Record<string, AttributeValue>[] | undefined = Array.from(
         tagBySk.keys(),
@@ -401,7 +401,7 @@ export interface RevalidationLogRow {
 /**
  * The revalidation log: one row per tag revalidation (`pk = <buildId>#log`,
  * `sk = <Date.now(), zero-padded>#<tag>`), which expires after
- * {@link REVALIDATION_LOG_TTL_MS}. A tag too long for the sort key is
+ * {@link REVALIDATION_LOG_TTL_MS}. A tag past {@link MAX_TAG_BYTES} is
  * {@link hashedTag} there, and spelled out in the row's `longTag` instead.
  *
  * The marker rows stay the source of truth. The log exists so an instance
@@ -435,7 +435,7 @@ export class RevalidationLog {
    * to {@link LOG_PUT_ATTEMPTS} times.
    */
   async put(tag: string, at: number, marker: TagMarker): Promise<void> {
-    const skTag = sortKeyPart(tag, LOG_SK_DIGITS + 1);
+    const skTag = sortKeyTag(tag);
     for (let attempt = 1; ; attempt++) {
       const item: Record<string, AttributeValue> = {
         pk: { S: this.pk },
