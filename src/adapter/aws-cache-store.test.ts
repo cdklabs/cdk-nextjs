@@ -28,6 +28,7 @@ import {
   MAX_REVALIDATION_LOG_GAP_MS,
   REVALIDATION_LOG_MAX_PAGES,
   REVALIDATION_LOG_TTL_MS,
+  TAG_REFRESH_GRACE_MS,
   RevalidationLog,
   RevalidationLogRow,
   TagMarker,
@@ -428,6 +429,54 @@ describe("CacheBucket", () => {
 });
 
 describe("TrackedTagMarkers", () => {
+  it("leaves a render a grace past the runtime's catch-up before it counts as behind", async () => {
+    let clock = 1_000_000;
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: { query: jest.fn() } as unknown as RevalidationLog,
+      refreshIntervalMs: 1000,
+      clock: () => clock,
+    });
+    // Just short of the line as the request came in: `catchUp` lets it go.
+    clock += 1000 + TAG_REFRESH_GRACE_MS;
+    expect(markers.behind).toBe(false);
+    // Past it by its first `'use cache'` lookup, which does not wait yet.
+    clock += 100;
+    expect(markers.behind).toBe(true);
+    expect(markers.behindInRender).toBe(false);
+    clock += TAG_REFRESH_GRACE_MS;
+    expect(markers.behindInRender).toBe(true);
+  });
+
+  it("does not track what a read from before a forget found", async () => {
+    let clock = 1_000_000;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const read = jest.fn(async () => {
+      await held;
+      return new Map<string, TagMarker>();
+    });
+    const markers = new TrackedTagMarkers({
+      markers: { read } as unknown as TagMarkerTable,
+      log: {
+        query: jest.fn(async () => ({ rows: [], truncated: false })),
+      } as unknown as RevalidationLog,
+      refreshIntervalMs: 0,
+      clock: () => clock,
+    });
+    markers.judgeEntriesOf(() => 0);
+    // A background read in flight as the sandbox froze, past the log's TTL.
+    const ensuring = markers.ensure(["posts"]);
+    clock += MAX_REVALIDATION_LOG_GAP_MS + 1;
+    await markers.refresh();
+
+    release();
+    await ensuring;
+    // Tracked, the pre-freeze marker would vouch for every entry with the
+    // tag, revalidated during the freeze or not.
+    expect(markers.get("posts")).toBeUndefined();
+  });
+
   it("moves completeSince past what it forgets", async () => {
     let clock = 1_000_000;
     const later = markerClock() + 60_000;

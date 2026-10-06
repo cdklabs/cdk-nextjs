@@ -697,6 +697,8 @@ export class TrackedTagMarkers {
     oldestTimestamp: () => number;
     holdsAny: () => boolean;
   }[] = [];
+  /** How many times {@link forget} ran: a read started before one is dropped. */
+  private forgotten = 0;
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
   /** When the last refresh started, or was skipped. */
@@ -915,6 +917,22 @@ export class TrackedTagMarkers {
       this.log !== undefined &&
       // `0` asks before every check, so every check waits for the answer.
       (this.refreshIntervalMs === 0 || this.overdue(this.settledAt))
+    );
+  }
+
+  /**
+   * {@link behind}, as a `'use cache'` lookup inside a render asks it: with
+   * the grace twice over, since the runtime already settled `behind` before
+   * the render started ({@link catchUp}). Otherwise a request that came in
+   * just short of the line could cross it before its first lookup, and wait
+   * for the query inside the render after all.
+   */
+  get behindInRender(): boolean {
+    return (
+      this.log !== undefined &&
+      (this.refreshIntervalMs === 0 ||
+        this.clock() - this.settledAt >
+          this.refreshIntervalMs + 2 * TAG_REFRESH_GRACE_MS)
     );
   }
 
@@ -1292,6 +1310,7 @@ export class TrackedTagMarkers {
    */
   private forget(at: number, why: string): void {
     this.debug(`forgetting ${this.tags.size} tracked tags: ${why}`);
+    this.forgotten++;
     // What the markers expire later is still to apply once it is past.
     for (const marker of this.tags.values()) {
       this.raiseFloor(marker);
@@ -1338,8 +1357,15 @@ export class TrackedTagMarkers {
       return true;
     }
     const at = this.clock();
+    const forgotten = this.forgotten;
     try {
       const read = await this.markers!.read(tags);
+      if (this.forgotten !== forgotten) {
+        // Read before a forget - across a freeze, as like as not - so as
+        // stale as what it forgot: the tags stay untracked, and are read
+        // again when next needed.
+        return false;
+      }
       for (const tag of tags) {
         this.unread.delete(tag);
         this.remember(
@@ -1355,6 +1381,9 @@ export class TrackedTagMarkers {
       return true;
     } catch (error) {
       console.error("Error reading tag markers:", error);
+      if (this.forgotten !== forgotten) {
+        return false;
+      }
       this.trackUnread(tags);
       for (const tag of tags) {
         this.unread.add(tag);

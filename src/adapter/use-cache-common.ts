@@ -286,7 +286,7 @@ export function tagMethods(
     // (`holdsEntries`), with a `refreshIntervalMs` of `0` too.
     refreshTags: () =>
       awaitIf(
-        options.blocking === true || (tags.behind && tags.holdsEntries),
+        options.blocking === true || (tags.behindInRender && tags.holdsEntries),
         tags.refresh(),
         "Error refreshing cache tags:",
       ),

@@ -62,8 +62,8 @@ export function createDefaultUseCacheHandler(
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
   tags.judgeEntriesOf(
     // Asked once per revalidation log query: expired entries, which `get`
-    // drops anyway, neither hold `completeSince`'s pruning back nor count as
-    // held for a refresh to wait for.
+    // drops anyway, don't hold `completeSince`'s pruning back, and from that
+    // query on don't count as held for a refresh to wait for either.
     () => {
       memory.dropExpired(now());
       return memory.oldestTimestamp();

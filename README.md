@@ -227,7 +227,8 @@ other instances revalidated, for `'use cache'`, ISR and the data cache alike. A
 (2 s by default), since `'use cache'` doesn't wait for the answer, or for
 longer while DynamoDB queries fail. It's one DynamoDB `Query`,
 however many tags the instance tracks, shared by every request on the instance
-during the window. `0` asks before every cache check, and waits for the answer.
+during the window. `0` asks before every cache check, and waits for the answer
+(`'use cache'` only while the instance holds an entry the answer could expire).
 Otherwise `'use cache'` reads don't wait for it, and it applies from the
 instance's next request. The exception is an instance that hasn't caught up for
 over a second past the window (it sat idle or was frozen): it waits for the
