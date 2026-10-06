@@ -26,6 +26,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { cacheKeyFileName, cacheObjectName, sha256Hex } from "./cache-utils";
 
 /**
  * Where the cache lives, as the constructs pass it to the compute through the
@@ -61,13 +62,12 @@ export function resolveAwsCacheConfig(): AwsCacheConfig {
  * which is what keeps it disjoint from {@link useCacheS3Key}.
  */
 export function buildS3Key(buildId: string, cacheKey: string): string {
-  let cleanCacheKey = cacheKey;
-  if (cacheKey === "/" || cacheKey === "") {
-    cleanCacheKey = "index";
-  } else if (cacheKey.startsWith("/")) {
-    cleanCacheKey = cacheKey.slice(1);
-  }
-  return join(buildId, `${cleanCacheKey}.json`);
+  return join(buildId, cacheKeyFileName(cacheKey));
+}
+
+/** `{buildId}/` + {@link cacheObjectName}: the S3 object an entry is stored in. */
+export function s3ObjectKey(buildId: string, cacheKey: string): string {
+  return join(buildId, cacheObjectName(cacheKey));
 }
 
 /**
@@ -82,8 +82,9 @@ export const USE_CACHE_KEY_PREFIX = "_use-cache";
  * Hashed because a `'use cache'` key is the serialized arguments of the call and
  * has no length limit, where an S3 key stops at 1024 bytes. The `.entry` suffix
  * rather than `.json` is what makes a collision with the incremental cache
- * impossible rather than unlikely: every key {@link buildS3Key} writes ends in
- * `.json`, including one for a route that happens to be named `/_use-cache/…`.
+ * impossible rather than unlikely: every object {@link s3ObjectKey} names ends
+ * in `.json` or `.long`, including one for a route that happens to be named
+ * `/_use-cache/…`.
  * Still under the build prefix, so post-deploy pruning drops them with the build.
  */
 export function useCacheS3Key(buildId: string, keyHash: string): string {
@@ -245,9 +246,37 @@ export const BATCH_GET_MAX_KEYS = 100;
  */
 export const DEFAULT_TAG_REFRESH_MS = 1000;
 
+/** DynamoDB's limit on a sort key, in UTF-8 bytes. */
+export const MAX_SORT_KEY_BYTES = 1024;
+
+/**
+ * `#<sha256(tag)>`, standing in for a tag in a sort key it would push past
+ * {@link MAX_SORT_KEY_BYTES}. Next.js caps the tags an app names, but not an
+ * implicit `_N_T_/…` tag, which is as long as its path, and a rejected write
+ * left `revalidatePath` on a long path recorded nowhere.
+ */
+export function hashedTag(tag: string): string {
+  return `#${sha256Hex(tag)}`;
+}
+
+/**
+ * The longest tag a sort key spells out; past it, {@link sortKeyTag} hashes
+ * it. One cap for every row the tag is in, so a row's writer and reader agree
+ * without each working out what else shares its key. It leaves room for the
+ * most any row puts beside the tag: a mapping row's `#<buildId>/#<sha256>`,
+ * with the build ID capped at `MAX_BUILD_ID_BYTES`.
+ */
+export const MAX_TAG_BYTES = 768;
+
+/** `tag` as a sort key spells it: itself, or {@link hashedTag} past {@link MAX_TAG_BYTES}. */
+export function sortKeyTag(tag: string): string {
+  return Buffer.byteLength(tag) <= MAX_TAG_BYTES ? tag : hashedTag(tag);
+}
+
 /**
  * The bare-tag marker rows of the revalidation table (`pk = buildId`,
- * `sk = tag`), which record when a tag was last revalidated and how.
+ * `sk = tag`, or {@link hashedTag} past {@link MAX_TAG_BYTES}), which record when a tag
+ * was last revalidated and how.
  *
  * The table also holds the incremental cache's `tag#s3Key` mapping rows, which
  * are its own business and stay in `S3CacheHandler`: only the markers mean the
@@ -278,7 +307,7 @@ export class TagMarkerTable {
         TableName: this.tableName,
         Key: {
           pk: { S: this.buildId },
-          sk: { S: tag },
+          sk: { S: sortKeyTag(tag) },
         },
         ...markerUpdate(now, durations),
         ReturnValues: "ALL_NEW",
@@ -300,9 +329,16 @@ export class TagMarkerTable {
     const markers = new Map<string, TagMarker>();
 
     for (let i = 0; i < unique.length; i += BATCH_GET_MAX_KEYS) {
-      let keys: Record<string, AttributeValue>[] | undefined = unique
-        .slice(i, i + BATCH_GET_MAX_KEYS)
-        .map((tag) => ({ pk: { S: buildId }, sk: { S: tag } }));
+      // A hashed sort key names no tag, so each row is matched back by key.
+      const tagBySk = new Map(
+        unique
+          .slice(i, i + BATCH_GET_MAX_KEYS)
+          .map((tag) => [sortKeyTag(tag), tag]),
+      );
+      let keys: Record<string, AttributeValue>[] | undefined = Array.from(
+        tagBySk.keys(),
+        (sk) => ({ pk: { S: buildId }, sk: { S: sk } }),
+      );
       // `UnprocessedKeys` is DynamoDB declining part of the batch under load;
       // a marker left unread is a revalidation missed, so it is asked again.
       for (let attempt = 0; keys?.length && attempt < 3; attempt++) {
@@ -317,7 +353,7 @@ export class TagMarkerTable {
           }),
         );
         for (const item of response.Responses?.[tableName] ?? []) {
-          const tag = item.sk?.S;
+          const tag = tagBySk.get(item.sk?.S ?? "");
           if (tag !== undefined) {
             markers.set(tag, markerOf(item));
           }
@@ -365,7 +401,8 @@ export interface RevalidationLogRow {
 /**
  * The revalidation log: one row per tag revalidation (`pk = <buildId>#log`,
  * `sk = <Date.now(), zero-padded>#<tag>`), which expires after
- * {@link REVALIDATION_LOG_TTL_MS}.
+ * {@link REVALIDATION_LOG_TTL_MS}. A tag past {@link MAX_TAG_BYTES} is
+ * {@link hashedTag} there, and spelled out in the row's `longTag` instead.
  *
  * The marker rows stay the source of truth. The log exists so an instance
  * can ask "what was revalidated since I last looked?" in one `Query`, instead
@@ -398,11 +435,13 @@ export class RevalidationLog {
    * to {@link LOG_PUT_ATTEMPTS} times.
    */
   async put(tag: string, at: number, marker: TagMarker): Promise<void> {
+    const skTag = sortKeyTag(tag);
     for (let attempt = 1; ; attempt++) {
       const item: Record<string, AttributeValue> = {
         pk: { S: this.pk },
-        sk: { S: `${logSkPrefix(at)}#${tag}` },
+        sk: { S: `${logSkPrefix(at)}#${skTag}` },
         ttl: { N: String(Math.ceil((at + REVALIDATION_LOG_TTL_MS) / 1000)) },
+        ...(skTag !== tag && { longTag: { S: tag } }),
       };
       for (const field of MARKER_FIELDS) {
         const value = marker[field];
@@ -454,7 +493,8 @@ export class RevalidationLog {
             ":pk": { S: this.pk },
             ":since": { S: logSkPrefix(Math.max(0, since)) },
           },
-          ProjectionExpression: "sk, revalidatedAt, staleAt, expiredAt",
+          ProjectionExpression:
+            "sk, longTag, revalidatedAt, staleAt, expiredAt",
           ExclusiveStartKey: startKey,
         }),
       );
@@ -468,7 +508,7 @@ export class RevalidationLog {
         rows.push({
           sk,
           at: Number(sk.slice(0, LOG_SK_DIGITS)),
-          tag: sk.slice(LOG_SK_DIGITS + 1),
+          tag: item.longTag?.S ?? sk.slice(LOG_SK_DIGITS + 1),
           marker: markerOf(item),
         });
       }

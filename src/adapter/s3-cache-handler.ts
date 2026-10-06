@@ -28,26 +28,31 @@ import {
 import {
   IncrementalCacheValue,
   GetIncrementalFetchCacheContext,
-  GetIncrementalResponseCacheContext,
-  SetIncrementalFetchCacheContext,
-  SetIncrementalResponseCacheContext,
 } from "next/dist/server/response-cache";
 import {
   AwsCacheConfig,
   buildS3Key,
   CacheBucket,
+  hashedTag,
   markerClock,
+  MAX_SORT_KEY_BYTES,
   resolveAwsCacheConfig,
   RevalidateDurations,
   RevalidationState,
+  sortKeyTag,
+  s3ObjectKey,
   TrackedTagMarkers,
 } from "./aws-cache-store";
 import {
   serializeCacheValue,
   parseCacheValue,
+  denormalizePagePath,
   getTags,
+  GetCacheHandlerContext,
+  SetCacheHandlerContext,
   headerTags,
   INIT_CACHE_TAG_MANIFEST,
+  ROUTE_CACHE_KEY_PREFIX,
 } from "./cache-utils";
 import { sharedTagManifest } from "./use-cache-common";
 import { REVALIDATED_PAGE_HOOK } from "../runtime/manifest";
@@ -98,7 +103,7 @@ const EXPIRED_LAST_MODIFIED = -1;
  * runtime representation to import anyway).
  */
 function isFetchCacheGet(
-  ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+  ctx: GetCacheHandlerContext,
 ): ctx is GetIncrementalFetchCacheContext {
   return ctx.kind === "FETCH";
 }
@@ -473,16 +478,16 @@ export class S3CacheHandler implements CacheHandler {
 
   async get(
     cacheKey: string,
-    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+    ctx: GetCacheHandlerContext,
   ): Promise<CacheHandlerValue | null> {
     try {
       if (!this.config.bucketName) {
         return null;
       }
 
-      const s3Key = this.buildS3Key(cacheKey);
+      const objectKey = s3ObjectKey(this.config.buildId, cacheKey);
 
-      const response = await this.bucket.get(s3Key);
+      const response = await this.bucket.get(objectKey);
 
       if (!response) {
         this.debug(`S3 CACHE MISS: ${cacheKey}`);
@@ -512,7 +517,7 @@ export class S3CacheHandler implements CacheHandler {
           : { lastModified: EXPIRED_LAST_MODIFIED, value: parsedValue.value };
       }
 
-      this.debug(`S3 CACHE HIT: ${cacheKey} (${s3Key})`);
+      this.debug(`S3 CACHE HIT: ${cacheKey} (${objectKey})`);
 
       // Without the stored tags.
       return {
@@ -554,7 +559,7 @@ export class S3CacheHandler implements CacheHandler {
    */
   async isRevalidated(
     entry: { lastModified?: number; tags?: string[]; value?: unknown },
-    ctx: GetIncrementalFetchCacheContext | GetIncrementalResponseCacheContext,
+    ctx: GetCacheHandlerContext,
     cacheKey: string,
   ): Promise<boolean> {
     if (!this.config.tableName) {
@@ -599,8 +604,12 @@ export class S3CacheHandler implements CacheHandler {
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
-    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+    ctx: SetCacheHandlerContext,
   ): Promise<void> {
+    // The entry's name in tag mappings and CloudFront paths, and the object
+    // it is stored in, which differ for a name too long for S3.
+    const s3Key = buildS3Key(this.config.buildId, cacheKey);
+    const objectKey = s3ObjectKey(this.config.buildId, cacheKey);
     try {
       if (!data) {
         // Delete from S3 and DynamoDB
@@ -613,21 +622,18 @@ export class S3CacheHandler implements CacheHandler {
         // The entry is gone, so there is no regeneration left to wait for.
         this.softRevalidatedKeys.delete(cacheKey);
 
-        // Build S3 key without needing to know the kind
-        const s3Key = this.buildS3Key(cacheKey);
-
         // Read the entry's tags before the object is gone: they are the only
         // way to name its mapping rows, whose sort key is `tag#s3Key` and so
         // cannot be queried from the key side. See `storedEntryTags`.
-        const tags = await this.storedEntryTags(s3Key, ctx);
+        const tags = await this.storedEntryTags(objectKey, ctx);
 
         await this.s3Client.send(
           new DeleteObjectCommand({
             Bucket: this.config.bucketName,
-            Key: s3Key,
+            Key: objectKey,
           }),
         );
-        this.debug(`S3 CACHE DELETED: ${s3Key}`);
+        this.debug(`S3 CACHE DELETED: ${objectKey}`);
 
         await this.deleteDynamoDBTagMappings(s3Key, tags);
         return;
@@ -652,8 +658,6 @@ export class S3CacheHandler implements CacheHandler {
         return;
       }
 
-      const s3Key = this.buildS3Key(cacheKey);
-
       // Create CacheHandlerValue structure for S3 storage with tags
       const cacheHandlerValue: CacheHandlerValue = {
         // On the marker clock, since that is what it is compared with.
@@ -671,7 +675,7 @@ export class S3CacheHandler implements CacheHandler {
       const body = serializeCacheValue(cacheEntryWithTags);
 
       // Always JSON since we store CacheHandlerValue
-      await this.bucket.putJson(s3Key, body);
+      await this.bucket.putJson(objectKey, body);
 
       this.debug(`S3 CACHE STORED: ${cacheKey} (${data.kind})`);
 
@@ -766,8 +770,9 @@ export class S3CacheHandler implements CacheHandler {
   private async tagRoutes(
     tag: string,
   ): Promise<{ routes: string[]; truncated: boolean }> {
+    const skPrefix = this.tagMappingPrefix(tag);
     const [{ items, truncated }, buildTags] = await Promise.all([
-      this.queryTagMappings(tag),
+      this.queryTagMappings(tag, skPrefix),
       this.buildTagManifest(),
     ]);
     // Extract S3 keys from sort keys (format: "tag#s3Key"). Split at the tag's
@@ -782,17 +787,21 @@ export class S3CacheHandler implements CacheHandler {
     // mapping row of it (`user#42#<buildId>/…`). What is left after the prefix
     // is an S3 key only if it starts with the build's own prefix, which is how
     // `buildS3Key` writes every one.
-    const prefixLength = tag.length + 1;
+    //
+    // A row whose key would not fit a sort key has it hashed there, and every
+    // row carries it in `s3Key` (rows written before that attribute fall back
+    // to the sort key): see `tagMappingSortKey`. An empty remainder is never a
+    // mapping row: it is the marker row of a tag one `#` longer.
+    const prefixLength = skPrefix.length;
     const keyPrefix = this.config.buildId ? `${this.config.buildId}/` : "";
-    const s3Keys = items
-      .map((item) => item.sk?.S?.slice(prefixLength))
-      .filter((s3Key): s3Key is string =>
-        Boolean(s3Key && s3Key.startsWith(keyPrefix)),
-      );
+    const s3Keys = items.flatMap((item) => {
+      const rest = item.sk?.S?.slice(prefixLength);
+      return rest && rest.startsWith(keyPrefix) ? [item.s3Key?.S ?? rest] : [];
+    });
     // The build-time prerenders carrying the tag, which no `set` wrote a row
     // for.
     for (const cacheKey of buildTags?.get(tag) ?? []) {
-      s3Keys.push(this.buildS3Key(cacheKey));
+      s3Keys.push(buildS3Key(this.config.buildId, cacheKey));
     }
 
     this.debug(
@@ -846,7 +855,8 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
-   * Every mapping row for `tag`, following `LastEvaluatedKey`, and whether
+   * Every mapping row for `tag` - those whose sort key starts with
+   * `skPrefix`, its {@link tagMappingPrefix} - following `LastEvaluatedKey`, and whether
    * {@link MAX_TAG_QUERY_PAGES} cut the walk short.
    *
    * DynamoDB caps a Query at 1 MB of items regardless of how many match, and
@@ -857,6 +867,7 @@ export class S3CacheHandler implements CacheHandler {
    */
   private async queryTagMappings(
     tag: string,
+    skPrefix: string,
   ): Promise<{ items: Record<string, AttributeValue>[]; truncated: boolean }> {
     const items: Record<string, AttributeValue>[] = [];
     let exclusiveStartKey: Record<string, AttributeValue> | undefined;
@@ -869,7 +880,7 @@ export class S3CacheHandler implements CacheHandler {
           KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
           ExpressionAttributeValues: {
             ":pk": { S: this.config.buildId },
-            ":skPrefix": { S: `${tag}#` },
+            ":skPrefix": { S: skPrefix },
           },
           ExclusiveStartKey: exclusiveStartKey,
         }),
@@ -912,6 +923,12 @@ export class S3CacheHandler implements CacheHandler {
 
     if (withoutSuffix.includes("[") || isFetchCacheKey(withoutSuffix)) {
       return undefined;
+    }
+    // next >= 16.3.8: `route-cache/<kind>/<hash>/$<pathname>`, the pathname
+    // through `normalizePagePath`.
+    const routeCacheKey = ROUTE_CACHE_KEY_PREFIX.exec(withoutSuffix);
+    if (routeCacheKey) {
+      return denormalizePagePath(withoutSuffix.slice(routeCacheKey[0].length));
     }
     return withoutSuffix === "index" ? "/" : `/${withoutSuffix}`;
   }
@@ -1042,9 +1059,30 @@ export class S3CacheHandler implements CacheHandler {
     );
   }
 
-  /** `{buildId}/{cacheKey}.json`; see {@link buildS3Key}. */
-  private buildS3Key(cacheKey: string): string {
-    return buildS3Key(this.config.buildId, cacheKey);
+  /**
+   * The sort key of `tag`'s mapping row for `s3Key`: `<prefix>s3Key`, or, when
+   * that passes DynamoDB's 1024-byte sort key limit, `<prefix><buildId>/#<sha256>`.
+   * Either way the row carries the key itself in `s3Key`. next 16.3.8's
+   * route-scoped keys are ~88 bytes longer than a pathname, enough to push a
+   * long tag on a long path over - and a rejected `PutItem` left
+   * `revalidateTag` nothing to invalidate, so CloudFront kept the stale page.
+   * The prefix is {@link tagMappingPrefix}'s, which {@link MAX_TAG_BYTES} and
+   * the build ID's cap leave room for the hashed form after.
+   */
+  private tagMappingSortKey(tag: string, s3Key: string): string {
+    const prefix = this.tagMappingPrefix(tag);
+    const sk = `${prefix}${s3Key}`;
+    return Buffer.byteLength(sk) <= MAX_SORT_KEY_BYTES
+      ? sk
+      : `${prefix}${this.config.buildId}/${hashedTag(s3Key)}`;
+  }
+
+  /**
+   * What every mapping row of `tag` starts with, and so what
+   * {@link queryTagMappings} matches: `<sortKeyTag(tag)>#`.
+   */
+  private tagMappingPrefix(tag: string): string {
+    return `${sortKeyTag(tag)}#`;
   }
 
   private async storeDynamoDBTagMappings(
@@ -1053,12 +1091,12 @@ export class S3CacheHandler implements CacheHandler {
   ): Promise<void> {
     try {
       const updatePromises = tags.map(async (tag) => {
-        const tagCacheKey = `${tag}#${s3Key}`;
+        const sk = this.tagMappingSortKey(tag, s3Key);
         const updateCommand = new UpdateItemCommand({
           TableName: this.config.tableName,
           Key: {
             pk: { S: this.config.buildId },
-            sk: { S: tagCacheKey },
+            sk: { S: sk },
           },
           // Deliberately no `revalidatedAt`: a mapping row records only that an
           // entry carries the tag. Stamping it at write time made every tagged
@@ -1066,9 +1104,11 @@ export class S3CacheHandler implements CacheHandler {
           // row's timestamp is taken after the entry's `lastModified` — so
           // `checkIfRevalidated` deleted healthy entries and the page
           // re-rendered on every request.
-          UpdateExpression: "SET createdAt = if_not_exists(createdAt, :now)",
+          UpdateExpression:
+            "SET createdAt = if_not_exists(createdAt, :now), s3Key = :s3Key",
           ExpressionAttributeValues: {
             ":now": { N: Date.now().toString() },
+            ":s3Key": { S: s3Key },
           },
         });
 
@@ -1124,7 +1164,7 @@ export class S3CacheHandler implements CacheHandler {
               TableName: this.config.tableName,
               Key: {
                 pk: { S: this.config.buildId },
-                sk: { S: `${tag}#${s3Key}` },
+                sk: { S: this.tagMappingSortKey(tag, s3Key) },
               },
             }),
           );
@@ -1153,7 +1193,7 @@ export class S3CacheHandler implements CacheHandler {
    */
   private async storedEntryTags(
     s3Key: string,
-    ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
+    ctx: SetCacheHandlerContext,
   ): Promise<string[]> {
     const ctxTags = getTags(ctx);
     if (ctxTags?.length) {

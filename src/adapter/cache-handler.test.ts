@@ -1,5 +1,5 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { mkdtempSync } from "fs";
+import { existsSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { CacheHandlerContext } from "next/dist/server/lib/incremental-cache";
@@ -10,6 +10,7 @@ import {
 } from "next/dist/server/response-cache";
 import type { GetIncrementalFetchCacheContext } from "next/dist/server/response-cache";
 import CdkNextjsCacheHandler from "./cache-handler";
+import { cacheObjectName } from "./cache-utils";
 
 // Mock AWS SDK clients
 jest.mock("@aws-sdk/client-s3");
@@ -393,6 +394,41 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
           value: data,
         });
         expect(await otherWorker.get("never-written", getCtx)).toBeNull();
+      } finally {
+        delete process.env.NEXT_PHASE;
+        delete process.env.CDK_NEXTJS_INIT_CACHE_DIR;
+      }
+    });
+
+    // The seed is uploaded as written, so it must be filed under the name the
+    // runtime's `get` reads: for a name too long for S3, `cacheObjectName`'s.
+    it("files an over-long key where the runtime reads it", async () => {
+      process.env.NEXT_PHASE = "phase-production-build";
+      const cacheDir = mkdtempSync(join(tmpdir(), "cdk-nextjs-init-cache-"));
+      process.env.CDK_NEXTJS_INIT_CACHE_DIR = cacheDir;
+      try {
+        const key = `/route-cache/APP_PAGE/${"a".repeat(64)}/$/${"x".repeat(900)}`;
+        expect(cacheObjectName(key)).toMatch(/^_long-key\//);
+        const data: IncrementalCacheValue = {
+          kind: CachedRouteKind.FETCH,
+          data: { headers: {}, body: "e30=", status: 200, url: "" },
+          revalidate: 60,
+        };
+        const setCtx = { fetchCache: true as const, tags: [] };
+        await new CdkNextjsCacheHandler(createMockContext()).set(
+          key,
+          data,
+          setCtx,
+        );
+        expect(existsSync(join(cacheDir, cacheObjectName(key)))).toBe(true);
+        const getCtx: GetIncrementalFetchCacheContext = {
+          kind: IncrementalCacheKind.FETCH,
+          revalidate: 60,
+          tags: [],
+        };
+        expect(
+          await new CdkNextjsCacheHandler(createMockContext()).get(key, getCtx),
+        ).toMatchObject({ value: data });
       } finally {
         delete process.env.NEXT_PHASE;
         delete process.env.CDK_NEXTJS_INIT_CACHE_DIR;

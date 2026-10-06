@@ -1,8 +1,11 @@
 import {
   appPageCacheHeaders,
+  cacheObjectName,
+  denormalizePagePath,
   groupPrerenders,
   parseCacheValue,
   prerenderPathToCacheKey,
+  routeCacheKeyFromFilePath,
   serializeCacheValue,
 } from "./cache-utils";
 
@@ -32,6 +35,82 @@ describe("prerenderPathToCacheKey", () => {
     expect(prerenderPathToCacheKey("/production/1", "/prod")).toBe(
       "production/1",
     );
+  });
+});
+
+describe("routeCacheKeyFromFilePath", () => {
+  const hash = "a".repeat(64);
+
+  it("reads the key next >= 16.3.8 filed a prerender under", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        `/app/.next/server/route-cache/APP_PAGE/${hash}/$/blog/a.b.html`,
+      ),
+    ).toBe(`route-cache/APP_PAGE/${hash}/$/blog/a.b`);
+  });
+
+  it("strips only the output's own extension", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        `/app/.next/server/route-cache/APP_ROUTE/${hash}/$/robots.txt.body`,
+      ),
+    ).toBe(`route-cache/APP_ROUTE/${hash}/$/robots.txt`);
+  });
+
+  it("is undefined for the pathname layout before 16.3.8", () => {
+    expect(
+      routeCacheKeyFromFilePath("/app/.next/server/app/blog/a.html"),
+    ).toBeUndefined();
+    expect(routeCacheKeyFromFilePath(undefined)).toBeUndefined();
+  });
+
+  it("reads the key off the first route-cache directory, not one in the route", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        `/app/.next/server/route-cache/APP_PAGE/${hash}/$/docs/server/route-cache/APP_PAGE/${hash}/$/x.html`,
+      ),
+    ).toBe(
+      `route-cache/APP_PAGE/${hash}/$/docs/server/route-cache/APP_PAGE/${hash}/$/x`,
+    );
+  });
+
+  it("is undefined for an older app's route named /server/route-cache", () => {
+    expect(
+      routeCacheKeyFromFilePath(
+        "/app/.next/server/app/server/route-cache/x.html",
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("cacheObjectName", () => {
+  it("is the key's own name while the whole S3 key fits", () => {
+    expect(cacheObjectName("/")).toBe("index.json");
+    expect(cacheObjectName("/isr/1")).toBe("isr/1.json");
+    expect(cacheObjectName(`/${"p".repeat(890)}`)).toBe(
+      `${"p".repeat(890)}.json`,
+    );
+  });
+
+  it("hashes a name that would leave the S3 key past 1024 bytes", () => {
+    const name = cacheObjectName(`/${"p".repeat(900)}`);
+    expect(name).toMatch(/^_long-key\/[0-9a-f]{64}\.long$/);
+    // Leading slash or not, one key names one object.
+    expect(cacheObjectName("p".repeat(900))).toBe(name);
+  });
+
+  it("counts bytes rather than characters", () => {
+    expect(cacheObjectName(`/${"é".repeat(450)}`)).toMatch(/^_long-key\//);
+  });
+});
+
+describe("denormalizePagePath", () => {
+  it("reverses normalizePagePath", () => {
+    expect(denormalizePagePath("/index")).toBe("/");
+    expect(denormalizePagePath("/index/index")).toBe("/index");
+    expect(denormalizePagePath("/index/index/a")).toBe("/index/a");
+    expect(denormalizePagePath("/about")).toBe("/about");
+    expect(denormalizePagePath("/indexes")).toBe("/indexes");
   });
 });
 

@@ -1,10 +1,9 @@
 /*
   Shared cache utility functions
 */
-import type {
-  SetIncrementalFetchCacheContext,
-  SetIncrementalResponseCacheContext,
-} from "next/dist/server/response-cache";
+import { createHash } from "node:crypto";
+import { sep } from "node:path";
+import type { CacheHandler } from "next/dist/server/lib/incremental-cache";
 import { hasPathPrefix } from "../utils/base-path";
 
 /**
@@ -132,6 +131,114 @@ export function prerenderPathToCacheKey(
     // Leading slashes would make an S3 key with an empty first segment.
     .replace(/^\/+/, "");
   return route === "" ? "index" : route;
+}
+
+/** `buildS3Key` under the build prefix: `{cacheKey}.json`. */
+export function cacheKeyFileName(cacheKey: string): string {
+  let cleanCacheKey = cacheKey;
+  if (cacheKey === "/" || cacheKey === "") {
+    cleanCacheKey = "index";
+  } else if (cacheKey.startsWith("/")) {
+    cleanCacheKey = cacheKey.slice(1);
+  }
+  return `${cleanCacheKey}.json`;
+}
+
+/** `value`'s SHA-256 digest, in hex: 64 characters. */
+export function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/** S3's limit on an object key, in UTF-8 bytes. */
+const MAX_S3_KEY_BYTES = 1024;
+
+/**
+ * The longest build ID cache entries are stored under, which
+ * {@link cacheObjectName} leaves room for in front of it with its `/`: a
+ * Next.js build ID is 21 characters, and the `-<deploymentId>` cdk-nextjs
+ * appends is the app's own, so the adapter fails a build whose ID is longer
+ * (see `assertBuildIdFits`) rather than leave long names unwritable.
+ */
+export const MAX_BUILD_ID_BYTES = 127;
+
+/**
+ * The folder under the build prefix that entries with an over-long key are
+ * stored in. @see cacheObjectName
+ */
+export const LONG_KEY_PREFIX = "_long-key";
+
+/**
+ * Where the entry `buildS3Key` names is stored, under the build prefix:
+ * its own name, or `_long-key/{sha256}.long` for a name that would leave the
+ * whole object key past S3's 1024 bytes. next 16.3.8's route-scoped keys are
+ * ~88 bytes longer than a pathname, enough to push a long one over, and a
+ * rejected `PutObject` meant the page was never cached.
+ *
+ * Only the object is moved: `buildS3Key` stays the entry's name for tag
+ * mappings and CloudFront paths, since a hash names no route. Decided on the
+ * name alone rather than the whole key so the init cache, which is written
+ * without the build ID it is deployed under, files a seed where the runtime
+ * reads it. The `.long` suffix keeps these disjoint from every `.json` name.
+ */
+export function cacheObjectName(cacheKey: string): string {
+  const name = cacheKeyFileName(cacheKey);
+  if (Buffer.byteLength(name) <= MAX_S3_KEY_BYTES - (MAX_BUILD_ID_BYTES + 1)) {
+    return name;
+  }
+  return `${LONG_KEY_PREFIX}/${sha256Hex(name)}.long`;
+}
+
+/**
+ * The response-cache key next >= 16.3.8 stores a prerender under, read back off
+ * the file `next build` wrote it to, or `undefined` before 16.3.8.
+ *
+ * From 16.3.8 Next.js scopes every page's cache key by its source route -
+ * `/route-cache/<kind>/<sha256(sourceRoute)>/$<pathname>` (`getRouteCacheKey`
+ * in `next/dist/server/lib/route-cache-key.js`) - and, with an adapter, writes
+ * each prerender to `<distDir>/server/<key><ext>`. The file path is the only
+ * place an adapter is handed that key, and re-deriving it would mean re-picking
+ * the source route the way `build-complete.js` does.
+ */
+export function routeCacheKeyFromFilePath(
+  filePath: string | undefined,
+): string | undefined {
+  // The first `/server/route-cache/`: a route's own pathname can contain one
+  // after it. Before 16.3.8 a route of that name is all there is, which the
+  // prefix check below rejects.
+  const path = filePath?.split(sep).join("/");
+  const at = path?.indexOf(ROUTE_CACHE_DIR) ?? -1;
+  if (at < 0) {
+    return undefined;
+  }
+  const key = path!.slice(at + "/server/".length).replace(/\.[^./]+$/, "");
+  return ROUTE_CACHE_KEY_PREFIX.test(key) ? key : undefined;
+}
+
+const ROUTE_CACHE_DIR = "/server/route-cache/";
+
+/**
+ * The start of a next >= 16.3.8 response-cache key, leading slash dropped:
+ * `route-cache/<kind>/<sha256(sourceRoute)>/$` (`getRouteCacheKey`), followed
+ * by the pathname. Matched whole, so an older app's route that happens to be
+ * named `/route-cache/...` is not read as one.
+ */
+export const ROUTE_CACHE_KEY_PREFIX =
+  /^route-cache\/[A-Z_]+\/[0-9a-f]{64}\/\$(?=\/)/;
+
+/**
+ * `denormalizePagePath` (`next/dist/shared/lib/page-path/denormalize-page-path.js`),
+ * the inverse of the `normalizePagePath` a route-cache key's pathname goes
+ * through: `/index` back to `/`, and `/index/...` - how `/index` itself and
+ * every path under it are spelled - back to `/...`. Restated without its
+ * dynamic-route check: `s3KeyToInvalidationPath` has dropped those already.
+ */
+export function denormalizePagePath(pagePath: string): string {
+  if (pagePath === "/index") {
+    return "/";
+  }
+  return pagePath.startsWith("/index/")
+    ? pagePath.slice("/index".length)
+    : pagePath;
 }
 
 /** The outputs one route contributes to `ctx.outputs.prerenders`. */
@@ -323,10 +430,18 @@ export const INIT_CACHE_TAG_MANIFEST = "_cdk-nextjs-tag-manifest.json";
 export type InitCacheTagManifest = Record<string, string[]>;
 
 /**
+ * The `ctx` Next.js passes a `CacheHandler`'s `get`, taken off its interface:
+ * the fetch cache's, a route response's, or - since this handler is also
+ * `ImageOptimizerCache`'s - an optimized image's.
+ */
+export type GetCacheHandlerContext = Parameters<CacheHandler["get"]>[1];
+
+/** The `ctx` Next.js passes a `CacheHandler`'s `set`. See {@link GetCacheHandlerContext}. */
+export type SetCacheHandlerContext = Parameters<CacheHandler["set"]>[2];
+
+/**
  * Helper to safely extract tags from context
  */
-export function getTags(
-  ctx: SetIncrementalFetchCacheContext | SetIncrementalResponseCacheContext,
-): string[] | undefined {
+export function getTags(ctx: SetCacheHandlerContext): string[] | undefined {
   return "tags" in ctx ? ctx.tags : undefined;
 }

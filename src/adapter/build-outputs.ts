@@ -12,6 +12,7 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { NextAdapter } from "next";
+import { MAX_BUILD_ID_BYTES } from "./cache-utils";
 import {
   DEFAULT_FUNCTION_GROUP,
   FUNCTION_GROUPS_ENV_VAR,
@@ -33,6 +34,7 @@ import {
   RUNTIME_DIR_NAME,
   groupStagingDirName,
 } from "../runtime/manifest";
+import { deploymentBuildId } from "../utils/deployment-build-id";
 
 /**
  * The `onBuildComplete` argument. Derived from the `next` typings rather than
@@ -346,6 +348,7 @@ export function buildAdapterManifest(
         }
       : {}),
   };
+  assertBuildIdFits(manifest);
 
   const groups: StagedGroup[] = assignment
     ? Object.entries(assignment.templates).map(([name, templates]) => ({
@@ -367,6 +370,28 @@ export function buildAdapterManifest(
       ];
 
   return { manifest, groups };
+}
+
+/**
+ * Fails the build when the build ID every cache object is stored under is
+ * longer than {@link MAX_BUILD_ID_BYTES}, the room `cacheObjectName` leaves it.
+ * Past that, an entry with a long enough name would be rejected by S3 and
+ * never cached, with nothing to say why.
+ */
+function assertBuildIdFits(manifest: AdapterManifest): void {
+  const bytes = Buffer.byteLength(deploymentBuildId(manifest));
+  if (bytes > MAX_BUILD_ID_BYTES) {
+    const { what, fix } = manifest.config.deploymentId
+      ? {
+          what: "The build ID and deploymentId together are",
+          fix: "Use a shorter deploymentId or generateBuildId.",
+        }
+      : { what: "The build ID is", fix: "Use a shorter generateBuildId." };
+    throw new Error(
+      `${LOG_PREFIX} ${what} ${bytes} bytes; cdk-nextjs stores cache ` +
+        `entries under it and allows at most ${MAX_BUILD_ID_BYTES}. ${fix}`,
+    );
+  }
 }
 
 /**

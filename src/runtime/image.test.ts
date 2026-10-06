@@ -18,7 +18,11 @@ import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
 import { ShimIncomingMessage } from "./http/request";
 import { ResponseHead, ShimServerResponse } from "./http/response";
 import { pipeToSink } from "./http/sink";
-import { ImageOptimizerOptions, RuntimeImageOptimizer } from "./image";
+import {
+  ImageOptimizerOptions,
+  newImageResponseCache,
+  RuntimeImageOptimizer,
+} from "./image";
 import { AdapterManifest } from "./manifest";
 import { useNextFrom } from "./next-modules";
 
@@ -186,6 +190,62 @@ async function request(
   await Promise.allSettled(pending);
   return { head: head!, body: Buffer.concat(chunks).toString() };
 }
+
+describe("newImageResponseCache", () => {
+  type ResponseCacheClass = Parameters<typeof newImageResponseCache>[0];
+
+  /** next < 16.3.8's `ResponseCache`: `(minimal_mode, maxSize, ttl)`. */
+  class LegacyResponseCache {
+    readonly minimal_mode: unknown;
+    constructor(minimalMode: unknown) {
+      this.minimal_mode = minimalMode;
+    }
+  }
+  /**
+   * next >= 16.3.8's: `({ minimalMode, route, ... })`, throwing without a route.
+   * The field is renamed here to show the choice doesn't depend on it.
+   */
+  class RouteResponseCache {
+    readonly mode: unknown;
+    constructor({
+      minimalMode,
+      route,
+    }: {
+      minimalMode: boolean;
+      route?: unknown;
+    }) {
+      if (!route) throw new Error("Response cache requires a source route");
+      this.mode = minimalMode;
+    }
+  }
+  const construct = (ResponseCache: new (arg: never) => object) =>
+    newImageResponseCache(
+      ResponseCache as unknown as ResponseCacheClass,
+    ) as unknown as Record<string, unknown>;
+
+  it("passes { minimalMode, route: 'image' } to a next that takes it", () => {
+    const cache = construct(RouteResponseCache);
+    expect(cache).toBeInstanceOf(RouteResponseCache);
+    expect(cache.mode).toBe(false);
+  });
+
+  // By what the constructor accepts, not the version: a canary cut before
+  // 16.3.8's change reads as newer than it.
+  it("passes minimalMode alone to a next that took the options as minimalMode", () => {
+    const cache = construct(LegacyResponseCache);
+    expect(cache).toBeInstanceOf(LegacyResponseCache);
+    expect(cache.minimal_mode).toBe(false);
+  });
+
+  it("rethrows a constructor error that isn't the missing route", () => {
+    class BrokenResponseCache {
+      constructor() {
+        throw new Error("boom");
+      }
+    }
+    expect(() => construct(BrokenResponseCache)).toThrow("boom");
+  });
+});
 
 describe("RuntimeImageOptimizer.isEnabled", () => {
   const withImages = (images: Record<string, unknown>) =>

@@ -18,6 +18,7 @@ import {
 import {
   buildS3Key,
   CacheBucket,
+  hashedTag,
   markerFor,
   markerState,
   markerUpdate,
@@ -196,6 +197,31 @@ describe("TagMarkerTable", () => {
     });
   });
 
+  it("keys a tag past the sort key limit by its hash, and reads it back as the tag", async () => {
+    // `revalidatePath` on a long path: an implicit tag is as long as the path.
+    const tag = `_N_T_/${"p".repeat(1100)}`;
+    send.mockResolvedValue({});
+    await table.write(tag, 1000, undefined);
+    const written = commandInput(send.mock.calls[0][0], UpdateItemCommand);
+    expect(written.Key.sk.S).toBe(hashedTag(tag));
+    expect(hashedTag(tag)).toMatch(/^#[0-9a-f]{64}$/);
+
+    send.mockReset();
+    send.mockImplementation((command: unknown) => {
+      const { RequestItems } = commandInput(command, BatchGetItemCommand);
+      return Promise.resolve({
+        Responses: {
+          tbl: RequestItems.tbl.Keys.map(({ sk }: { sk: unknown }) => ({
+            sk,
+            revalidatedAt: { N: "7" },
+          })),
+        },
+      });
+    });
+    const markers = await table.read([tag, "short"]);
+    expect([...markers.keys()].sort()).toEqual(["short", tag].sort());
+  });
+
   // A read-back after the write is eventually consistent, so it can return
   // the marker from before it: the writer tracks what the write returned.
   it("returns the row as the write left it", async () => {
@@ -328,6 +354,20 @@ describe("RevalidationLog", () => {
         marker: { revalidatedAt: undefined, staleAt: 8, expiredAt: undefined },
       },
     ]);
+  });
+
+  it("hashes a tag too long for the sort key, carrying it in longTag", async () => {
+    const tag = `_N_T_/${"p".repeat(1100)}`;
+    send.mockResolvedValue({});
+    await log.put(tag, 1000, { revalidatedAt: 5 });
+    const { Item } = commandInput(send.mock.calls[0][0], PutItemCommand);
+    expect(Item.sk.S).toBe(`000000000001000#${hashedTag(tag)}`);
+    expect(Item.longTag).toEqual({ S: tag });
+
+    send.mockReset();
+    send.mockResolvedValueOnce({ Items: [{ ...Item }] });
+    const { rows } = await log.query(0);
+    expect(rows.map((row) => row.tag)).toEqual([tag]);
   });
 
   it("stops after its page bound and says so", async () => {

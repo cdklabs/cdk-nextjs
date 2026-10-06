@@ -1,9 +1,16 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { BuildCompleteContext } from "./build-outputs";
-import { INIT_CACHE_TAG_MANIFEST } from "./cache-utils";
+import { cacheObjectName, INIT_CACHE_TAG_MANIFEST } from "./cache-utils";
 import { writeInitCache } from "./init-cache";
 
 let dir: string;
@@ -30,11 +37,19 @@ async function prerender(
   return { pathname, parentOutputId, fallback: { filePath, ...fallback } };
 }
 
+type Context = Pick<
+  BuildCompleteContext,
+  "config" | "outputs" | "nextVersion" | "projectDir"
+>;
+
 function context(
   prerenders: unknown[],
   basePath = "",
-): Pick<BuildCompleteContext, "config" | "outputs"> {
+  projectDir = dir,
+): Context {
   return {
+    nextVersion: "16.3.8",
+    projectDir,
     config: { basePath },
     outputs: {
       pages: [{ id: "/blog/[slug]" }, { id: "/gone" }],
@@ -44,7 +59,7 @@ function context(
       prerenders,
       staticFiles: [],
     },
-  } as unknown as Pick<BuildCompleteContext, "config" | "outputs">;
+  } as unknown as Context;
 }
 
 const readEntry = async (key: string) =>
@@ -132,6 +147,72 @@ describe("writeInitCache", () => {
     expect(fallback.value.html).toBe("<html>fallback</html>");
   });
 
+  /**
+   * next >= 16.3.8 reads a page's cache under a key scoped by its source route,
+   * and writes the prerender to `<distDir>/server/<that key><ext>`. Seeding under
+   * the pathname made every seeded prerender a MISS.
+   */
+  it("seeds under the route-cache key next 16.3.8 filed the prerender under", async () => {
+    const key = `route-cache/APP_PAGE/${"a".repeat(64)}/$/shop`;
+    const at = (ext: string) => join(dir, ".next", "server", `${key}${ext}`);
+    await mkdir(dirname(at("")), { recursive: true });
+    await writeFile(at(".html"), "<html>shop</html>");
+    await writeFile(at(".rsc"), "flight");
+    const ctx = context([
+      {
+        pathname: "/shop",
+        parentOutputId: "/shop",
+        fallback: { filePath: at(".html"), initialStatus: 200 },
+      },
+      {
+        pathname: "/shop.rsc",
+        parentOutputId: "/shop",
+        fallback: { filePath: at(".rsc") },
+      },
+    ]);
+
+    await writeInitCache(ctx, cacheDir);
+
+    expect((await readEntry(key)).value.html).toBe("<html>shop</html>");
+    expect(existsSync(join(cacheDir, "shop.json"))).toBe(false);
+  });
+
+  // Told by the module that derives the key, not the version: a canary's says
+  // nothing of what it contains.
+  it("fails the build when a next with route-cache keys files a prerender outside route-cache", async () => {
+    const scopedApp = join(dir, "scoped-app");
+    const routeCacheKeyModule = join(
+      scopedApp,
+      "node_modules/next/dist/server/lib/route-cache-key.js",
+    );
+    await mkdir(dirname(routeCacheKeyModule), { recursive: true });
+    await writeFile(routeCacheKeyModule, "");
+    const unscopedApp = join(dir, "unscoped-app");
+    await mkdir(unscopedApp);
+
+    await expect(
+      writeInitCache(
+        context(
+          [await prerender("/shop", "/shop", "<html>shop</html>")],
+          "",
+          scopedApp,
+        ),
+        cacheDir,
+      ),
+    ).rejects.toThrow("/shop");
+
+    await expect(
+      writeInitCache(
+        context(
+          [await prerender("/shop", "/shop", "<html>shop</html>")],
+          "",
+          unscopedApp,
+        ),
+        cacheDir,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("skips a Pages Router route prerendered with a non-200 status", async () => {
     // A build-time `notFound: true`: seeding it would be a 200 HIT with the 404
     // page's HTML.
@@ -162,6 +243,20 @@ describe("writeInitCache", () => {
       products: ["shop"],
       "_N_T_/shop": ["shop"],
     });
+  });
+
+  it("seeds a route whose S3 key would pass 1024 bytes where the handler reads it", async () => {
+    const pathname = `/${Array(10).fill("p".repeat(100)).join("/")}`;
+    const filePath = join(dir, "long.out");
+    await writeFile(filePath, "<rss/>");
+    const ctx = context([
+      { pathname, parentOutputId: "/feed.xml", fallback: { filePath } },
+    ]);
+    await writeInitCache(ctx, cacheDir);
+
+    const name = cacheObjectName(pathname);
+    expect(name).toMatch(/^_long-key\/[0-9a-f]{64}\.long$/);
+    expect(existsSync(join(cacheDir, name))).toBe(true);
   });
 
   it("writes no tag manifest when nothing is tagged", async () => {

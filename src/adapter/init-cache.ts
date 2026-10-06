@@ -9,19 +9,23 @@
  */
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import getDebug from "debug";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import { CachedRouteKind } from "next/dist/server/response-cache/index.js";
+import { LOG_PREFIX } from "../constants";
 import type { BuildCompleteContext } from "./build-outputs";
 import { cacheKindResolver } from "./cache-kinds";
 import {
   appPageCacheHeaders,
+  cacheObjectName,
   groupPrerenders,
   headerTags,
   INIT_CACHE_TAG_MANIFEST,
   InitCacheTagManifest,
   prerenderPathToCacheKey,
+  routeCacheKeyFromFilePath,
   serializeCacheValue,
 } from "./cache-utils";
 
@@ -32,7 +36,10 @@ const debug = getDebug("cdk-nextjs:adapter");
  * {@link INIT_CACHE_TAG_MANIFEST} when any entry carries tags.
  */
 export async function writeInitCache(
-  ctx: Pick<BuildCompleteContext, "config" | "outputs">,
+  ctx: Pick<
+    BuildCompleteContext,
+    "config" | "outputs" | "nextVersion" | "projectDir"
+  >,
   cacheDir: string,
 ): Promise<void> {
   // Ensure cache directory exists
@@ -48,6 +55,11 @@ export async function writeInitCache(
   // Tag -> cache keys, standing in for the mapping rows a runtime `set` writes.
   // See `INIT_CACHE_TAG_MANIFEST`.
   const tagManifest: InitCacheTagManifest = {};
+
+  // Routes seeded under their pathname by a `next` that reads route-cache keys:
+  // see the `cacheKey` below.
+  const scopesKeysByRoute = nextScopesKeysByRoute(ctx.projectDir);
+  const unscopedRoutes: string[] = [];
 
   // Process each group and create cache entries
   for (const [basePath, variants] of prerenderGroups) {
@@ -94,7 +106,7 @@ export async function writeInitCache(
 
       if (kind === CachedRouteKind.APP_PAGE) {
         // Read HTML file
-        const html = await readPrerenderAsText(htmlPrerender);
+        const html = (await readPrerender(htmlPrerender))?.toString();
 
         if (!html) {
           debug(`SKIP: No HTML content for APP_PAGE ${basePath}`);
@@ -102,7 +114,7 @@ export async function writeInitCache(
         }
 
         // Read RSC data
-        const rscData = await readPrerenderAsBuffer(rscPrerender);
+        const rscData = await readPrerender(rscPrerender);
 
         // Read segment data
         const segmentData = await getSegmentData(segmentPrerenders);
@@ -130,7 +142,7 @@ export async function writeInitCache(
           },
         };
       } else if (kind === CachedRouteKind.APP_ROUTE) {
-        const body = await readPrerenderAsBuffer(htmlPrerender);
+        const body = await readPrerender(htmlPrerender);
 
         if (!body) {
           debug(`SKIP: No body content for APP_ROUTE ${basePath}`);
@@ -174,7 +186,7 @@ export async function writeInitCache(
           continue;
         }
 
-        const html = await readPrerenderAsText(htmlPrerender);
+        const html = (await readPrerender(htmlPrerender))?.toString();
 
         if (!html) {
           debug(`SKIP: No HTML content for PAGES ${basePath}`);
@@ -187,7 +199,7 @@ export async function writeInitCache(
         // there are no params to run `getStaticProps` with yet - and
         // `FileSystemCache` skips the read for one too (`if (!ctx.isFallback)`),
         // leaving `pageData` an empty object.
-        const pageDataJson = await readPrerenderAsText(dataPrerender);
+        const pageDataJson = (await readPrerender(dataPrerender))?.toString();
 
         cacheEntry = {
           lastModified: Date.now(),
@@ -211,18 +223,27 @@ export async function writeInitCache(
         continue;
       }
 
-      // Write cache entry to file, under the route rather than the URL it is
-      // served at - see `prerenderPathToCacheKey`.
-      const cacheKey = prerenderPathToCacheKey(
-        basePath,
-        ctx.config.basePath || "",
+      // Write cache entry to file, under the key Next.js reads it back with:
+      // from next 16.3.8 the one `next build` filed the prerender under (see
+      // `routeCacheKeyFromFilePath`), before that the route rather than the
+      // URL it is served at (see `prerenderPathToCacheKey`).
+      // Every kind seeded here has read its HTML prerender, so that is the
+      // file to read the key off.
+      const routeCacheKey = routeCacheKeyFromFilePath(
+        prerenderFilePath(htmlPrerender),
       );
-      const cacheFilePath = join(cacheDir, `${cacheKey}.json`);
+      if (!routeCacheKey && scopesKeysByRoute) {
+        // Never read under any other key; the build fails below.
+        unscopedRoutes.push(basePath);
+        continue;
+      }
+      const cacheKey =
+        routeCacheKey ??
+        prerenderPathToCacheKey(basePath, ctx.config.basePath || "");
+      const cacheFilePath = join(cacheDir, cacheObjectName(cacheKey));
 
       // Ensure parent directory exists
-      await mkdir(join(cacheDir, cacheKey.split("/").slice(0, -1).join("/")), {
-        recursive: true,
-      });
+      await mkdir(dirname(cacheFilePath), { recursive: true });
 
       await writeFile(cacheFilePath, serializeCacheValue(cacheEntry));
 
@@ -236,6 +257,19 @@ export async function writeInitCache(
     }
   }
 
+  // A pathname key is one 16.3.8+ never reads, so each of these would be a
+  // MISS until it is first rendered - the regression the route-cache key fixed
+  // - with a deploy that otherwise succeeds. Fail the build instead.
+  if (unscopedRoutes.length > 0) {
+    throw new Error(
+      `${LOG_PREFIX} Next.js ${ctx.nextVersion} wrote ${unscopedRoutes.length} ` +
+        `prerender(s) outside <distDir>/server/route-cache/, so cdk-nextjs ` +
+        `cannot tell the cache key it reads them back with: ` +
+        `${unscopedRoutes.slice(0, 5).join(", ")}` +
+        `${unscopedRoutes.length > 5 ? ", ..." : ""}`,
+    );
+  }
+
   const taggedKeys = Object.keys(tagManifest).length;
   if (taggedKeys > 0) {
     await writeFile(
@@ -247,62 +281,51 @@ export async function writeInitCache(
 }
 
 /**
- * Read file content from a prerender as UTF-8 string
+ * Whether the app's `next` scopes response-cache keys by source route (16.3.8
+ * on), found by whether it has the module that derives them, since a canary's
+ * version says nothing of what it contains.
  */
-async function readPrerenderAsText(
-  prerender:
-    | { fallback?: { filePath?: string } | { postponedState: string } }
-    | undefined,
-): Promise<string | undefined> {
-  if (
-    prerender?.fallback &&
-    "filePath" in prerender.fallback &&
-    prerender.fallback.filePath &&
-    existsSync(prerender.fallback.filePath)
-  ) {
-    return readFile(prerender.fallback.filePath, "utf-8");
+function nextScopesKeysByRoute(projectDir: string): boolean {
+  try {
+    createRequire(join(projectDir, "package.json")).resolve(
+      "next/dist/server/lib/route-cache-key.js",
+    );
+    return true;
+  } catch {
+    return false;
   }
-  return undefined;
 }
 
-/**
- * Read file content from a prerender as Buffer
- */
-async function readPrerenderAsBuffer(
-  prerender:
-    | { fallback?: { filePath?: string } | { postponedState: string } }
-    | undefined,
+/** A prerender output, of which only the file it was written to is read. */
+type PrerenderOutput =
+  { fallback?: { filePath?: string } | { postponedState: string } } | undefined;
+
+/** The file `next build` wrote a prerender to, if it wrote one. */
+function prerenderFilePath(prerender: PrerenderOutput): string | undefined {
+  return prerender?.fallback && "filePath" in prerender.fallback
+    ? prerender.fallback.filePath
+    : undefined;
+}
+
+/** The content of the file `next build` wrote a prerender to, if it exists. */
+async function readPrerender(
+  prerender: PrerenderOutput,
 ): Promise<Buffer | undefined> {
-  if (
-    prerender?.fallback &&
-    "filePath" in prerender.fallback &&
-    prerender.fallback.filePath &&
-    existsSync(prerender.fallback.filePath)
-  ) {
-    return readFile(prerender.fallback.filePath);
-  }
-  return undefined;
+  const filePath = prerenderFilePath(prerender);
+  return filePath && existsSync(filePath) ? readFile(filePath) : undefined;
 }
 
 /**
  * Read segment data from segment prerenders
  */
 async function getSegmentData<
-  T extends {
-    pathname: string;
-    fallback?: { filePath?: string } | { postponedState: string };
-  },
+  T extends { pathname: string } & NonNullable<PrerenderOutput>,
 >(segmentPrerenders: T[]): Promise<Map<string, Buffer>> {
   const segmentData = new Map<string, Buffer>();
 
   for (const segmentPrerender of segmentPrerenders) {
-    if (
-      segmentPrerender.fallback &&
-      "filePath" in segmentPrerender.fallback &&
-      segmentPrerender.fallback.filePath &&
-      existsSync(segmentPrerender.fallback.filePath)
-    ) {
-      const segmentContent = await readFile(segmentPrerender.fallback.filePath);
+    const segmentContent = await readPrerender(segmentPrerender);
+    if (segmentContent) {
       // Extract segment name from pathname
       const segmentName =
         "/" +

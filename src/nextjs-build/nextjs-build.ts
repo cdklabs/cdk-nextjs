@@ -50,6 +50,7 @@ import {
   normalizeBasePath,
   relativeAssetPrefix,
 } from "../utils/base-path";
+import { deploymentBuildId } from "../utils/deployment-build-id";
 import {
   getLambdaArchitecture,
   toNodeArchitecture,
@@ -160,17 +161,6 @@ export function deploymentArchitecture(props: NextjsBuildProps): Architecture {
     props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
     props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
   return (isFunctions && props.architecture) || getLambdaArchitecture();
-}
-
-/** {@link NextjsBuild.buildId}: Next.js's build ID, suffixed with the app's `deploymentId`. */
-export function deploymentBuildId(manifest: {
-  readonly buildId: string;
-  readonly config: { readonly deploymentId: string };
-}): string {
-  const { deploymentId } = manifest.config;
-  return deploymentId
-    ? `${manifest.buildId}-${deploymentId}`
-    : manifest.buildId;
 }
 
 export interface PublicDirEntry {

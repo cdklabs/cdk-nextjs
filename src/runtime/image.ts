@@ -441,13 +441,42 @@ async function loadImageCache(
     });
   }
   return {
-    responses: new modules.responseCache.default(false),
+    responses: newImageResponseCache(modules.responseCache.default),
     images: new next.optimizer.ImageOptimizerCache({
       distDir,
       nextConfig,
       cacheHandler,
     }),
   };
+}
+
+/**
+ * `new ResponseCache(...)` for images, on either side of next 16.3.8. Before
+ * it the constructor took `minimalMode`; from it, `{ minimalMode, route }`, and
+ * it throws without a `route` - `next-server.js` passes `"image"`. Neither form
+ * can stand in for the other: an older `next` takes the options object as a
+ * truthy `minimalMode`, and 16.3.8 rejects a bare `false`.
+ *
+ * Told apart by whether the constructor accepts the older form rather than by
+ * the version, which a canary does not order, or by its private fields: 16.3.8
+ * destructures a bare `false` into no `route` and throws. Only that throw
+ * selects the newer form; any other error from the constructor is rethrown
+ * rather than read as a version.
+ */
+export function newImageResponseCache(
+  ResponseCache: NextImageCacheModules["responseCache"]["default"],
+): InstanceType<NextImageCacheModules["responseCache"]["default"]> {
+  const Legacy = ResponseCache as unknown as new (
+    minimalMode: boolean,
+  ) => InstanceType<typeof ResponseCache>;
+  try {
+    return new Legacy(false);
+  } catch (err) {
+    if (!String((err as Error)?.message).includes("requires a source route")) {
+      throw err;
+    }
+    return new ResponseCache({ minimalMode: false, route: "image" });
+  }
 }
 
 /**
