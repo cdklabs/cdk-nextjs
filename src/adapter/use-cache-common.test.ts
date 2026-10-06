@@ -1,6 +1,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 jest.mock("@aws-sdk/client-dynamodb");
 
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { CacheEntry } from "next/dist/server/lib/cache-handlers/types";
 import {
   MAX_REVALIDATION_LOG_GAP_MS,
@@ -16,9 +17,12 @@ import {
   now,
   PendingSets,
   readStream,
+  sharedTagManifest,
   StoredEntry,
   storedEntryOf,
+  TAG_TABLE_REQUEST_TIMEOUT_MS,
 } from "./use-cache-common";
+import { TAG_MANIFEST_SYMBOL } from "../runtime/tag-manifest";
 
 /** A `TagMarkerTable` over a plain map, counting its calls. */
 function fakeMarkers(rows = new Map<string, TagMarker>()) {
@@ -798,5 +802,28 @@ describe("PendingSets", () => {
     // Nothing pending: no wait at all.
     await pending.wait("k");
     await pending.wait("other");
+  });
+});
+
+describe("sharedTagManifest", () => {
+  it("bounds each revalidation table request, failing it once timed out", () => {
+    const global = globalThis as Record<symbol, unknown>;
+    process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME = "table";
+    try {
+      sharedTagManifest();
+      // A timeout that only warns leaves a request on a dead connection, and
+      // every request waiting on the refresh, hanging.
+      expect(DynamoDBClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestHandler: {
+            requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
+            throwOnRequestTimeout: true,
+          },
+        }),
+      );
+    } finally {
+      delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
+      delete global[TAG_MANIFEST_SYMBOL];
+    }
   });
 });

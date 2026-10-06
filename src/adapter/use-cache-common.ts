@@ -218,7 +218,9 @@ export const DEFAULT_MEMORY_BYTES = 50 * 1024 * 1024;
  * How long one revalidation table request may take, per attempt. The SDK sets
  * no limit, and a refresh left in flight across a Lambda freeze can sit on a
  * connection that died meanwhile without a reset: every request that waits
- * for the refresh (an instance `behind`, ISR) would wait with it.
+ * for the refresh (an instance `behind`, ISR) would wait with it. The SDK
+ * retries a timed-out attempt, so a dead connection costs up to its attempts
+ * times this.
  */
 export const TAG_TABLE_REQUEST_TIMEOUT_MS = 3000;
 
@@ -331,7 +333,11 @@ export function sharedTagManifest(): TrackedTagMarkers {
     if (config.tableName && !isBuildPhase()) {
       const client = new DynamoDBClient({
         region: config.region,
-        requestHandler: { requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS },
+        // Without `throwOnRequestTimeout` the timeout only logs a warning.
+        requestHandler: {
+          requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
+          throwOnRequestTimeout: true,
+        },
       });
       global[TAG_MANIFEST_SYMBOL] = new TrackedTagMarkers({
         markers: new TagMarkerTable(client, config.tableName, config.buildId),
