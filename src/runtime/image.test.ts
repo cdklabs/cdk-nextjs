@@ -201,31 +201,36 @@ describe("newImageResponseCache", () => {
       this.minimal_mode = minimalMode;
     }
   }
-  /** next >= 16.3.8's: `({ minimalMode, route, ... })`, throwing without a route. */
+  /**
+   * next >= 16.3.8's: `({ minimalMode, route, ... })`, throwing without a route.
+   * The field is renamed here to show the choice doesn't depend on it.
+   */
   class RouteResponseCache {
-    readonly minimal_mode: unknown;
-    constructor(options: { minimalMode: boolean; route?: unknown }) {
-      if (!options.route) throw new Error("requires a source route");
-      this.minimal_mode = options.minimalMode;
+    readonly mode: unknown;
+    constructor({
+      minimalMode,
+      route,
+    }: {
+      minimalMode: boolean;
+      route?: unknown;
+    }) {
+      if (!route) throw new Error("requires a source route");
+      this.mode = minimalMode;
     }
   }
-  const construct = (
-    ResponseCache: new (arg: never) => { minimal_mode: unknown },
-  ) =>
+  const construct = (ResponseCache: new (arg: never) => object) =>
     newImageResponseCache(
       ResponseCache as unknown as ResponseCacheClass,
-    ) as unknown as {
-      minimal_mode: unknown;
-    };
+    ) as unknown as Record<string, unknown>;
 
   it("passes { minimalMode, route: 'image' } to a next that takes it", () => {
     const cache = construct(RouteResponseCache);
     expect(cache).toBeInstanceOf(RouteResponseCache);
-    expect(cache.minimal_mode).toBe(false);
+    expect(cache.mode).toBe(false);
   });
 
-  // By what the constructor did, not the version: a canary cut before 16.3.8's
-  // change reads as newer than it.
+  // By what the constructor accepts, not the version: a canary cut before
+  // 16.3.8's change reads as newer than it.
   it("passes minimalMode alone to a next that took the options as minimalMode", () => {
     const cache = construct(LegacyResponseCache);
     expect(cache).toBeInstanceOf(LegacyResponseCache);

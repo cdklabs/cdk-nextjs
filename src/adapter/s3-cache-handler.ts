@@ -35,7 +35,6 @@ import {
   CacheBucket,
   HASHED_TAG_BYTES,
   markerClock,
-  MAX_SORT_KEY_BYTES,
   resolveAwsCacheConfig,
   RevalidateDurations,
   RevalidationState,
@@ -772,8 +771,9 @@ export class S3CacheHandler implements CacheHandler {
   private async tagRoutes(
     tag: string,
   ): Promise<{ routes: string[]; truncated: boolean }> {
+    const skPrefix = this.tagMappingPrefix(tag);
     const [{ items, truncated }, buildTags] = await Promise.all([
-      this.queryTagMappings(tag),
+      this.queryTagMappings(tag, skPrefix),
       this.buildTagManifest(),
     ]);
     // Extract S3 keys from sort keys (format: "tag#s3Key"). Split at the tag's
@@ -792,7 +792,7 @@ export class S3CacheHandler implements CacheHandler {
     // A row whose key would not fit a sort key carries it in `s3Key` instead:
     // see `tagMappingSortKey`. An empty remainder is never one: it is the
     // marker row of a tag one `#` longer.
-    const prefixLength = this.tagMappingPrefix(tag).length;
+    const prefixLength = skPrefix.length;
     const keyPrefix = this.config.buildId ? `${this.config.buildId}/` : "";
     const s3Keys = items.flatMap((item) => {
       const rest = item.sk?.S?.slice(prefixLength);
@@ -855,7 +855,8 @@ export class S3CacheHandler implements CacheHandler {
   }
 
   /**
-   * Every mapping row for `tag`, following `LastEvaluatedKey`, and whether
+   * Every mapping row for `tag` - those whose sort key starts with
+   * `skPrefix`, its {@link tagMappingPrefix} - following `LastEvaluatedKey`, and whether
    * {@link MAX_TAG_QUERY_PAGES} cut the walk short.
    *
    * DynamoDB caps a Query at 1 MB of items regardless of how many match, and
@@ -866,6 +867,7 @@ export class S3CacheHandler implements CacheHandler {
    */
   private async queryTagMappings(
     tag: string,
+    skPrefix: string,
   ): Promise<{ items: Record<string, AttributeValue>[]; truncated: boolean }> {
     const items: Record<string, AttributeValue>[] = [];
     let exclusiveStartKey: Record<string, AttributeValue> | undefined;
@@ -878,7 +880,7 @@ export class S3CacheHandler implements CacheHandler {
           KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
           ExpressionAttributeValues: {
             ":pk": { S: this.config.buildId },
-            ":skPrefix": { S: this.tagMappingPrefix(tag) },
+            ":skPrefix": { S: skPrefix },
           },
           ExclusiveStartKey: exclusiveStartKey,
         }),
@@ -1073,7 +1075,7 @@ export class S3CacheHandler implements CacheHandler {
 
   /**
    * The sort key of `tag`'s mapping row for `s3Key`: `<prefix>s3Key`, or, when
-   * that passes DynamoDB's {@link MAX_SORT_KEY_BYTES}, `<prefix><buildId>/#<sha256>`
+   * that passes DynamoDB's 1024-byte sort key limit, `<prefix><buildId>/#<sha256>`
    * with the key itself in the row's `s3Key` attribute (`hashed`). next
    * 16.3.8's route-scoped keys are ~88 bytes longer than a pathname, enough to
    * push a long tag on a long path over - and a rejected `PutItem` left

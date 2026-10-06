@@ -17,7 +17,6 @@ import { App, Stack } from "aws-cdk-lib";
 import { Architecture } from "aws-cdk-lib/aws-lambda";
 import {
   deploymentArchitecture,
-  deploymentBuildId,
   findForeignNativePackages,
   isSharpBinaryPackage,
   listTree,
@@ -31,6 +30,7 @@ import {
   writePublicFileList,
 } from "./nextjs-build";
 import { NextjsType } from "../constants";
+import { deploymentBuildId } from "../utils/deployment-build-id";
 
 let dir: string;
 

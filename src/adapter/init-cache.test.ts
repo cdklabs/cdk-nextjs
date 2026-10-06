@@ -179,7 +179,7 @@ describe("writeInitCache", () => {
 
   // Told by the module that derives the key, not the version: a canary's says
   // nothing of what it contains.
-  it("warns when a next with route-cache keys files a prerender outside route-cache", async () => {
+  it("fails the build when a next with route-cache keys files a prerender outside route-cache", async () => {
     const scopedApp = join(dir, "scoped-app");
     const routeCacheKeyModule = join(
       scopedApp,
@@ -190,31 +190,27 @@ describe("writeInitCache", () => {
     const unscopedApp = join(dir, "unscoped-app");
     await mkdir(unscopedApp);
 
-    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      await writeInitCache(
+    await expect(
+      writeInitCache(
         context(
           [await prerender("/shop", "/shop", "<html>shop</html>")],
           "",
           scopedApp,
         ),
         cacheDir,
-      );
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("/shop"));
+      ),
+    ).rejects.toThrow("/shop");
 
-      warn.mockClear();
-      await writeInitCache(
+    await expect(
+      writeInitCache(
         context(
           [await prerender("/shop", "/shop", "<html>shop</html>")],
           "",
           unscopedApp,
         ),
         cacheDir,
-      );
-      expect(warn).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("skips a Pages Router route prerendered with a non-200 status", async () => {

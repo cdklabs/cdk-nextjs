@@ -253,13 +253,14 @@ export async function writeInitCache(
     }
   }
 
-  // A pathname key is one 16.3.8+ never reads, so each of these is a MISS
-  // until it is first rendered - the regression the route-cache key fixed.
+  // A pathname key is one 16.3.8+ never reads, so each of these would be a
+  // MISS until it is first rendered - the regression the route-cache key fixed
+  // - with a deploy that otherwise succeeds. Fail the build instead.
   if (unscopedRoutes.length > 0) {
-    console.warn(
+    throw new Error(
       `${LOG_PREFIX} Next.js ${ctx.nextVersion} wrote ${unscopedRoutes.length} ` +
-        `prerender(s) outside <distDir>/server/route-cache/, so they were ` +
-        `seeded under their pathname, which it does not read: ` +
+        `prerender(s) outside <distDir>/server/route-cache/, so cdk-nextjs ` +
+        `cannot tell the cache key it reads them back with: ` +
         `${unscopedRoutes.slice(0, 5).join(", ")}` +
         `${unscopedRoutes.length > 5 ? ", ..." : ""}`,
     );

@@ -457,21 +457,21 @@ async function loadImageCache(
  * can stand in for the other: an older `next` takes the options object as a
  * truthy `minimalMode`, and 16.3.8 rejects a bare `false`.
  *
- * Told apart by what the constructor did with the options rather than by the
- * version, which a canary does not order: each form stores its `minimalMode`
- * as `minimal_mode`, so an older `next` is left holding the object.
+ * Told apart by whether the constructor accepts the older form rather than by
+ * the version, which a canary does not order, or by its private fields: 16.3.8
+ * destructures a bare `false` into no `route` and throws.
  */
 export function newImageResponseCache(
   ResponseCache: NextImageCacheModules["responseCache"]["default"],
 ): InstanceType<NextImageCacheModules["responseCache"]["default"]> {
-  const cache = new ResponseCache({ minimalMode: false, route: "image" });
-  if ((cache as unknown as { minimal_mode: unknown }).minimal_mode === false) {
-    return cache;
-  }
   const Legacy = ResponseCache as unknown as new (
     minimalMode: boolean,
   ) => InstanceType<typeof ResponseCache>;
-  return new Legacy(false);
+  try {
+    return new Legacy(false);
+  } catch {
+    return new ResponseCache({ minimalMode: false, route: "image" });
+  }
 }
 
 /**

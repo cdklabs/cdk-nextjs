@@ -34,6 +34,7 @@ import {
   RUNTIME_DIR_NAME,
   groupStagingDirName,
 } from "../runtime/manifest";
+import { deploymentBuildId } from "../utils/deployment-build-id";
 
 /**
  * The `onBuildComplete` argument. Derived from the `next` typings rather than
@@ -378,15 +379,18 @@ export function buildAdapterManifest(
  * be rejected by S3 and never cached, with nothing to say why.
  */
 function assertBuildPrefixFits(manifest: AdapterManifest): void {
-  const { buildId, config } = manifest;
-  // `deploymentBuildId`'s, restated: it lives with the constructs.
-  const prefix = `${config.deploymentId ? `${buildId}-${config.deploymentId}` : buildId}/`;
-  if (Buffer.byteLength(prefix) > MAX_BUILD_PREFIX_BYTES) {
+  const prefixBytes = Buffer.byteLength(`${deploymentBuildId(manifest)}/`);
+  if (prefixBytes > MAX_BUILD_PREFIX_BYTES) {
+    const what = manifest.config.deploymentId
+      ? "The build ID and deploymentId together are"
+      : "The build ID is";
+    const fix = manifest.config.deploymentId
+      ? "Use a shorter deploymentId or generateBuildId."
+      : "Use a shorter generateBuildId.";
     throw new Error(
-      `${LOG_PREFIX} The build ID and deploymentId together are ` +
-        `${Buffer.byteLength(prefix) - 1} bytes; cdk-nextjs stores cache ` +
-        `entries under them and allows at most ${MAX_BUILD_PREFIX_BYTES - 1}. ` +
-        `Use a shorter deploymentId.`,
+      `${LOG_PREFIX} ${what} ${prefixBytes - 1} bytes; cdk-nextjs stores ` +
+        `cache entries under it and allows at most ` +
+        `${MAX_BUILD_PREFIX_BYTES - 1}. ${fix}`,
     );
   }
 }

@@ -225,6 +225,17 @@ describe("buildAdapterManifest edge cases", () => {
     );
   });
 
+  it("blames the build ID alone when the app sets no deploymentId", () => {
+    const ctx = asContext(appPlayground);
+    expect(() =>
+      build({
+        ...ctx,
+        buildId: "b".repeat(128),
+        config: { ...ctx.config, deploymentId: "" },
+      }),
+    ).toThrow(/The build ID is 128 bytes.*Use a shorter generateBuildId\./);
+  });
+
   it("keys locale variants of one page to the same entrypoint file", () => {
     const { manifest } = build(asContext(pagesI18n));
     // i18n fans one page out into one output per locale, plus a

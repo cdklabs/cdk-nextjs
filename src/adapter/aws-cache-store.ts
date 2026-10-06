@@ -259,8 +259,8 @@ export function hashedTag(tag: string): string {
   return `#${sha256Hex(tag)}`;
 }
 
-/** The length of a {@link hashedTag}. */
-export const HASHED_TAG_BYTES = 65;
+/** The length of a {@link hashedTag}, which is the same for every tag. */
+export const HASHED_TAG_BYTES = hashedTag("").length;
 
 /**
  * `value` as part of a sort key with `reservedBytes` of other parts: itself,
@@ -271,11 +271,6 @@ export function sortKeyPart(value: string, reservedBytes = 0): string {
   return Buffer.byteLength(value) + reservedBytes <= MAX_SORT_KEY_BYTES
     ? value
     : hashedTag(value);
-}
-
-/** A marker row's sort key: the tag, or {@link hashedTag} for one too long. */
-function markerSortKey(tag: string): string {
-  return sortKeyPart(tag);
 }
 
 /**
@@ -312,7 +307,7 @@ export class TagMarkerTable {
         TableName: this.tableName,
         Key: {
           pk: { S: this.buildId },
-          sk: { S: markerSortKey(tag) },
+          sk: { S: sortKeyPart(tag) },
         },
         ...markerUpdate(now, durations),
         ReturnValues: "ALL_NEW",
@@ -338,7 +333,7 @@ export class TagMarkerTable {
       const tagBySk = new Map(
         unique
           .slice(i, i + BATCH_GET_MAX_KEYS)
-          .map((tag) => [markerSortKey(tag), tag]),
+          .map((tag) => [sortKeyPart(tag), tag]),
       );
       let keys: Record<string, AttributeValue>[] | undefined = Array.from(
         tagBySk.keys(),
