@@ -224,7 +224,8 @@ time, after which S3's is used.
 How often, at most, in milliseconds, an instance asks the revalidation log what
 other instances revalidated, for `'use cache'`, ISR and the data cache alike. A
 `revalidateTag` elsewhere goes unseen for up to about the window plus a second
-(2 s by default), since `'use cache'` doesn't wait for the answer. It's one DynamoDB `Query`,
+(2 s by default), since `'use cache'` doesn't wait for the answer, or for
+longer while DynamoDB queries fail. It's one DynamoDB `Query`,
 however many tags the instance tracks, shared by every request on the instance
 during the window. `0` asks before every cache check, and waits for the answer.
 Otherwise `'use cache'` reads don't wait for it, and it applies from the

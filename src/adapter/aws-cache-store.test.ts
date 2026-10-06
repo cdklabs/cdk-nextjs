@@ -602,7 +602,45 @@ describe("TrackedTagMarkers", () => {
     }
   });
 
-  it("merges a future expiredAt past its bound into the nearer span", async () => {
+  it("does not join a near expiredAt to far ones past its bound", async () => {
+    const at = markerClock();
+    const year = 365 * 24 * 60 * 60 * 1000;
+    const expiries = new Map([
+      ["a", at + year],
+      ["b", at + year + 10],
+      ["c", at + 60_000],
+    ]);
+    const markers = new TrackedTagMarkers({
+      markers: {
+        read: jest.fn(
+          async (tags: string[]) =>
+            new Map<string, TagMarker>(
+              tags.map((tag) => [
+                tag,
+                { staleAt: at - 1000, expiredAt: expiries.get(tag) },
+              ]),
+            ),
+        ),
+      } as unknown as TagMarkerTable,
+      log: { query: jest.fn() } as unknown as RevalidationLog,
+      maxTrackedTags: 2,
+    });
+    for (const tag of ["a", "b", "c", "d", "e"]) {
+      await markers.ensure([tag]);
+    }
+    const now = jest
+      .spyOn(performance, "now")
+      .mockReturnValue(at + 60_000 - performance.timeOrigin);
+    try {
+      // "a" and "b" are merged, not "c" into "a": `completeSince` a year
+      // early would have every held entry read its markers first until then.
+      expect(markers.completeSince).toBe(at + 60_000);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("merges the closest future expiredAts past its bound", async () => {
     const at = markerClock();
     const expiries = new Map([
       ["a", at + 60_000],
@@ -762,6 +800,7 @@ describe("TrackedTagMarkers", () => {
       log: { query } as unknown as RevalidationLog,
       refreshIntervalMs: 1000,
       clock: () => clock,
+      canFreeze: true,
     });
     markers.judgeEntriesOf(() => 0);
     clock += 1000;
@@ -781,7 +820,7 @@ describe("TrackedTagMarkers", () => {
     expect(markers.behind).toBe(false);
   });
 
-  describe("with a slow query, the process running throughout", () => {
+  describe("with a refresh in flight", () => {
     let clock: number;
     beforeEach(() => {
       clock = 1_000_000;
@@ -796,7 +835,7 @@ describe("TrackedTagMarkers", () => {
         jest.advanceTimersByTime(250);
       }
     };
-    const instance = (fails = false) => {
+    const instance = (fails = false, canFreeze = true) => {
       const queries: (() => void)[] = [];
       const query = jest.fn(
         () =>
@@ -814,12 +853,48 @@ describe("TrackedTagMarkers", () => {
         log: { query } as unknown as RevalidationLog,
         refreshIntervalMs: 1000,
         clock: () => clock,
+        canFreeze,
       });
       markers.judgeEntriesOf(() => 0);
       return { markers, query, queries };
     };
 
-    it("is caught up once the catch-up's query returns, however long it took", async () => {
+    it("waits for a fresh query after a freeze, even once the late tick has run", async () => {
+      const { markers, query, queries } = instance();
+      clock += 1000;
+      void markers.refresh();
+      clock += 60_000;
+      // After the thaw the overdue tick can run before any request does.
+      jest.advanceTimersByTime(250);
+
+      let caughtUp = false;
+      const catchUp = markers.catchUp().then(() => (caughtUp = true));
+      queries.shift()!();
+      await new Promise((resolve) => setImmediate(resolve));
+      // What the first query knew predates the freeze.
+      expect(markers.behind).toBe(true);
+      expect(caughtUp).toBe(false);
+      expect(query).toHaveBeenCalledTimes(2);
+      queries.shift()!();
+      await catchUp;
+      expect(markers.behind).toBe(false);
+    });
+
+    it("in a container, which is never frozen, waits only for the query in flight", async () => {
+      const { markers, query, queries } = instance(false, false);
+      clock += 1000;
+      void markers.refresh();
+      // A long stall, not a freeze: no timer to tell them apart, none needed.
+      clock += 60_000;
+
+      const catchUp = markers.catchUp();
+      queries.shift()!();
+      await catchUp;
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(markers.behind).toBe(false);
+    });
+
+    it("is caught up once the catch-up's slow query returns, the process running throughout", async () => {
       for (const fails of [false, true]) {
         const { markers, queries } = instance(fails);
         clock += 60_000;
@@ -834,7 +909,7 @@ describe("TrackedTagMarkers", () => {
       }
     });
 
-    it("waits only for the query in flight", async () => {
+    it("waits only for a slow query in flight, the process running throughout", async () => {
       const { markers, query, queries } = instance();
       clock += 60_000;
       const first = markers.catchUp();

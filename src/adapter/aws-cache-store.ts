@@ -247,8 +247,8 @@ export const BATCH_GET_MAX_KEYS = 100;
 export const DEFAULT_TAG_REFRESH_MS = 1000;
 
 /**
- * How far past `refreshIntervalMs` the last successful log query may be before
- * a `'use cache'` request waits for the next one (see
+ * How far past `refreshIntervalMs` the last refresh may have settled before a
+ * `'use cache'` request waits for the next one (see
  * {@link TrackedTagMarkers.behind}). An instance serving steady traffic stays
  * inside it; one that sat idle, or frozen between Lambda invocations, does not.
  */
@@ -610,6 +610,14 @@ export type TrackedTagMarkersOptions = TagTable & {
   /** `Math.random`, for when each tag's re-read comes due. */
   random?: () => number;
   debug?: (message: string) => void;
+  /**
+   * Whether the process can be frozen with a refresh in flight, as a Lambda
+   * sandbox is between invocations: then a timer checks it kept running, and
+   * one that spanned a freeze does not count. A container is never frozen,
+   * so it skips the timer and waits for the refresh in flight, however slow.
+   * @default false
+   */
+  canFreeze?: boolean;
 };
 
 /**
@@ -708,6 +716,9 @@ export class TrackedTagMarkers {
   /** Whether a tick came late since {@link refreshing} started. */
   private pausedWhileRefreshing = false;
   private ticker: ReturnType<typeof setInterval> | undefined;
+  /** When {@link refreshing} started. */
+  private refreshStartedAt = -Infinity;
+  private readonly canFreeze: boolean;
   /**
    * When the last refresh settled, either way, unless it spanned a pause: what
    * it knows is from then. See {@link behind}.
@@ -737,6 +748,7 @@ export class TrackedTagMarkers {
     this.clock = options.clock ?? (() => Date.now());
     this.random = options.random ?? Math.random;
     this.debug = options.debug ?? (() => {});
+    this.canFreeze = options.canFreeze ?? false;
     // Nothing is tracked yet, so nothing before this can be missed: every tag
     // is read from its marker the first time it is needed.
     const at = this.clock();
@@ -886,14 +898,18 @@ export class TrackedTagMarkers {
 
   /**
    * Whether the last refresh settled more than `refreshIntervalMs` plus
-   * {@link TAG_REFRESH_GRACE_MS} ago, or spanned a freeze: after the instance
-   * sat idle or frozen - or always, with a `refreshIntervalMs` of `0`. From
-   * when it settled, not when it started, so a slow query the runtime waited
-   * for before the render does not leave the instance behind inside it; and
-   * a failed one counts, so one request does not wait for two. Answering from what it knows then could serve an entry revalidated
-   * elsewhere since, however long ago that was, so `refreshTags` waits for the
-   * refresh, and the runtime waits for it before a page render starts
-   * ({@link catchUp}).
+   * {@link TAG_REFRESH_GRACE_MS} ago - one that spanned a freeze counts from
+   * when it started: after the instance sat idle or frozen - or always, with
+   * a `refreshIntervalMs` of `0`. Answering from what it knows then could
+   * serve an entry revalidated elsewhere since, however long ago that was, so
+   * `refreshTags` waits for the refresh, and the runtime waits for it before
+   * a page render starts ({@link catchUp}).
+   *
+   * From when it settled, not when it started, so a slow query the runtime
+   * waited for before the render does not leave the instance behind inside
+   * it. A failed one counts too, so one request does not wait for two: the
+   * same "assume the entry is valid" a failed read answers with, until the
+   * next refresh, at most the interval and the grace later.
    */
   get behind(): boolean {
     return (
@@ -968,11 +984,16 @@ export class TrackedTagMarkers {
     if (this.tags.size === 0 && this.entryStores.length === 0) {
       return;
     }
+    this.refreshStartedAt = at;
     this.startTicking();
     this.refreshing = this.sync(at, log).finally(() => {
-      if (!this.pausedSinceRefreshStarted()) {
-        this.settledAt = this.clock();
-      }
+      // One that spanned a pause knows the log as of its start at best. So
+      // does one that only looked paused, its event loop held up: it counts
+      // as no older than its start, as if it had not settled since.
+      this.settledAt = Math.max(
+        this.settledAt,
+        this.pausedSinceRefreshStarted() ? this.refreshStartedAt : this.clock(),
+      );
       this.stopTicking();
       this.refreshing = undefined;
     });
@@ -980,6 +1001,9 @@ export class TrackedTagMarkers {
   }
 
   private startTicking(): void {
+    if (!this.canFreeze) {
+      return;
+    }
     this.lastTick = this.clock();
     this.pausedWhileRefreshing = false;
     this.ticker = setInterval(() => {
@@ -1005,8 +1029,9 @@ export class TrackedTagMarkers {
    */
   private pausedSinceRefreshStarted(): boolean {
     return (
-      this.pausedWhileRefreshing ||
-      this.clock() - this.lastTick > REFRESH_PAUSE_MS
+      this.canFreeze &&
+      (this.pausedWhileRefreshing ||
+        this.clock() - this.lastTick > REFRESH_PAUSE_MS)
     );
   }
 
@@ -1455,21 +1480,21 @@ export class TrackedTagMarkers {
     if ((low > 0 && floors[low - 1][1] >= time) || floors[low]?.[0] === time) {
       return;
     }
-    if (floors.length < this.maxTrackedTags || floors.length === 0) {
-      floors.splice(low, 0, [time, time]);
-      return;
-    }
-    // Full: into whichever neighbouring span it makes the shorter, rather
-    // than a scan for the closest pair on every insert past the bound.
-    const before = floors[low - 1];
-    const after = floors[low];
-    if (
-      after === undefined ||
-      (before && time - before[0] <= after[1] - time)
-    ) {
-      before[1] = time;
-    } else {
-      after[0] = time;
+    floors.splice(low, 0, [time, time]);
+    // A scan, but only once past the bound. Merging the new time into a
+    // neighbour instead could join an hour-out span with a year-out one, and
+    // hold `completeSince` a year early.
+    if (floors.length > this.maxTrackedTags) {
+      let merge = 0;
+      for (let i = 1; i < floors.length - 1; i++) {
+        if (
+          floors[i + 1][1] - floors[i][0] <
+          floors[merge + 1][1] - floors[merge][0]
+        ) {
+          merge = i;
+        }
+      }
+      floors.splice(merge, 2, [floors[merge][0], floors[merge + 1][1]]);
     }
   }
 
@@ -1529,8 +1554,9 @@ const REFRESH_TICK_MS = 250;
 
 /**
  * How late a tick may come before the process counts as paused (frozen)
- * since the refresh in flight started. A busy event loop can delay one too,
- * which only costs a second query.
+ * since the refresh in flight started. A busy event loop can delay one too:
+ * the refresh then counts as no fresher than its start, as before the pause
+ * check, so a request waits for the next one once that is past the grace.
  */
 const REFRESH_PAUSE_MS = 1000;
 

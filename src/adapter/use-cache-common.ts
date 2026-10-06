@@ -340,6 +340,8 @@ export function sharedTagManifest(): TrackedTagMarkers {
         log: new RevalidationLog(client, config.tableName, config.buildId),
         refreshIntervalMs,
         debug: getDebug("cdk-nextjs:cache-handler:tags"),
+        // Set in every Lambda runtime; a container is never frozen.
+        canFreeze: process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined,
       });
     } else {
       if (!isBuildPhase()) {
