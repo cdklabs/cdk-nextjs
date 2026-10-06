@@ -17,6 +17,7 @@ import type {
 } from "next/dist/server/lib/cache-handlers/types";
 import { TrackedTagMarkers } from "./aws-cache-store";
 import {
+  awaitIf,
   cacheEntryOf,
   DEFAULT_MEMORY_BYTES,
   EntryLru,
@@ -59,6 +60,7 @@ export function createDefaultUseCacheHandler(
   );
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
+  tags.judgeEntriesOf(() => memory.oldestTimestamp());
 
   /**
    * Read the markers of whichever of `tagList` are untracked: first, when the
@@ -66,19 +68,8 @@ export function createDefaultUseCacheHandler(
    * the tags join the rolling re-read, which catches a revalidation whose log
    * row failed to write.
    */
-  async function ensureTags(
-    needed: boolean,
-    tagList: readonly string[],
-  ): Promise<void> {
-    const read = tags.ensure(tagList);
-    if (needed) {
-      await read;
-    } else {
-      read.catch((error) => {
-        console.error("Error reading cache tags:", error);
-      });
-    }
-  }
+  const ensureTags = (needed: boolean, tagList: readonly string[]) =>
+    awaitIf(needed, tags.ensure(tagList), "Error reading cache tags:");
 
   return {
     async get(cacheKey: string): Promise<CacheEntry | undefined> {
@@ -122,6 +113,11 @@ export function createDefaultUseCacheHandler(
         }
         memory.set(cacheKey, stored);
         tags.track(stored.tags);
+        // In the background, now rather than at the first `get`: a
+        // revalidation from before the log's first lookback with an `expire`
+        // still to come expires this entry when it comes, and only the marker
+        // says so. See `completeSince`.
+        void ensureTags(false, stored.tags);
         debug(`SET ${cacheKey}`);
       } catch (error) {
         // The stream errored: store nothing rather than a partial entry.

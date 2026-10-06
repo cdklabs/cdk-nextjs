@@ -641,8 +641,9 @@ export type TrackedTagMarkersOptions = TagTable & {
  * A revalidation on another instance is therefore seen within
  * `refreshIntervalMs` (plus the query itself) - by `'use cache'`, from the
  * first request after the query returns, since its `refreshTags` does not wait
- * for it (see `tagMethods`) unless the instance is {@link behind}. The
- * instance that ran it applies it itself, at once, with {@link set}.
+ * for it (see `tagMethods`) unless the instance is {@link behind}, which the
+ * runtime settles before the request starts ({@link catchUp}). The instance
+ * that ran it applies it itself, at once, with {@link set}.
  */
 export class TrackedTagMarkers {
   private readonly markers: TagMarkerTable | undefined;
@@ -676,10 +677,20 @@ export class TrackedTagMarkers {
   private readonly logOnly = new Map<string, TagMarker>();
   /** See {@link completeSince}. */
   private floor: number;
+  /**
+   * The future `expiredAt`s of markers dropped since, ascending: each moves
+   * {@link completeSince} once it is past, and not before, since only then
+   * does it expire anything.
+   */
+  private readonly laterFloors: number[] = [];
+  /** The in-memory entry stores judged by {@link completeSince}. */
+  private readonly entryStores: (() => number)[] = [];
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
   private lastRefresh = -Infinity;
   private refreshing: Promise<void> | undefined;
+  /** When {@link refreshing} started. */
+  private refreshStartedAt = -Infinity;
   /**
    * Where the next log query starts (`clock()`): the last successful one's
    * start, less {@link REVALIDATION_LOG_LOOKBACK_MS}.
@@ -728,10 +739,32 @@ export class TrackedTagMarkers {
    *
    * Starts at construction: the log is followed from before it. Moves to now
    * when the tracked markers are forgotten, and to the latest revalidation of
-   * a marker evicted for space, whose revalidations are no longer known.
+   * a marker evicted for space, whose revalidations are no longer known - its
+   * `expiredAt` only once that is past: a profile's `expire` can be a year
+   * out, and moving there at once would turn the read-free path off for the
+   * instance's life.
+   *
+   * It does not cover a revalidation older than the log's first lookback
+   * whose `expiredAt` is still to come, which would expire an entry created
+   * after it. So the `'use cache'` handler reads an entry's tags in the
+   * background as it stores it.
    */
   get completeSince(): number {
+    const at = markerClock();
+    while (this.laterFloors.length > 0 && this.laterFloors[0] <= at) {
+      this.floor = Math.max(this.floor, this.laterFloors.shift()!);
+    }
     return this.floor;
+  }
+
+  /**
+   * Register an in-memory store whose entries are judged by
+   * {@link completeSince}, by the `timestamp` of the oldest entry it holds:
+   * `logOnly` keeps the rows that could still apply to one of them, and no
+   * others. With none registered it keeps nothing.
+   */
+  judgeEntriesOf(oldestTimestamp: () => number): void {
+    this.entryStores.push(oldestTimestamp);
   }
 
   /**
@@ -823,16 +856,46 @@ export class TrackedTagMarkers {
   /**
    * Whether the log was last read successfully more than `refreshIntervalMs`
    * plus {@link TAG_REFRESH_GRACE_MS} ago: after the instance sat idle or
-   * frozen, or its queries failed. Answering from what it knows then could
-   * serve an entry revalidated elsewhere since, however long ago that was, so
-   * `refreshTags` waits for the refresh instead of only starting it.
+   * frozen, or its queries failed - or always, with a `refreshIntervalMs` of
+   * `0`. Answering from what it knows then could serve an entry revalidated
+   * elsewhere since, however long ago that was, so the runtime waits for the
+   * refresh before the request reaches Next.js ({@link catchUp}), and
+   * `refreshTags` waits too should it still be behind there.
    */
   get behind(): boolean {
     return (
       this.log !== undefined &&
-      this.clock() - this.lastLogRead >
-        this.refreshIntervalMs + TAG_REFRESH_GRACE_MS
+      // `0` asks before every check, so every check waits for the answer.
+      (this.refreshIntervalMs === 0 || this.overdue(this.lastLogRead))
     );
+  }
+
+  /**
+   * {@link refresh}, waited for only when the instance is {@link behind}. The
+   * runtime calls it before handing a request to Next.js, outside the staged
+   * render whose static stage a wait inside a `'use cache'` lookup would cut
+   * short. Never rejects.
+   */
+  async catchUp(): Promise<void> {
+    if (this.behind) {
+      await this.refresh().catch((error) => {
+        console.error("Error refreshing cache tags:", error);
+      });
+    }
+  }
+
+  /**
+   * Resolves once no {@link refresh} is in flight. The Lambda runtime waits
+   * for it after the response: a query left open as the sandbox freezes comes
+   * back after the thaw with what it read before the freeze. Never rejects.
+   */
+  async settled(): Promise<void> {
+    await this.refreshing?.catch(() => {});
+  }
+
+  /** Whether `at` is more than the interval and the grace ago. */
+  private overdue(at: number): boolean {
+    return this.clock() - at > this.refreshIntervalMs + TAG_REFRESH_GRACE_MS;
   }
 
   /**
@@ -845,6 +908,12 @@ export class TrackedTagMarkers {
       return;
     }
     if (this.refreshing) {
+      // One started before a freeze read the log as it was then, and says
+      // nothing of what ran meanwhile: an instance behind waits for a fresh
+      // one, after it.
+      if (this.behind && this.overdue(this.refreshStartedAt)) {
+        return this.refreshing.then(() => this.refresh());
+      }
       return this.refreshing;
     }
     const at = this.clock();
@@ -852,6 +921,7 @@ export class TrackedTagMarkers {
       return;
     }
     this.lastRefresh = at;
+    this.refreshStartedAt = at;
     // Even with nothing tracked: an entry judged by `completeSince` relies on
     // the log for every tag.
     this.refreshing = this.sync(at, log).finally(() => {
@@ -1077,6 +1147,7 @@ export class TrackedTagMarkers {
       this.applied.set(row.sk, row.at);
       applied++;
     }
+    this.pruneLogged();
     this.lastLogRead = at;
     this.advance(at - REVALIDATION_LOG_LOOKBACK_MS);
     this.debug(
@@ -1116,6 +1187,13 @@ export class TrackedTagMarkers {
    */
   private forget(at: number, why: string): void {
     this.debug(`forgetting ${this.tags.size} tracked tags: ${why}`);
+    // What the markers expire later is still to apply once it is past.
+    for (const marker of this.tags.values()) {
+      this.raiseFloor(marker);
+    }
+    for (const marker of this.logOnly.values()) {
+      this.raiseFloor(marker);
+    }
     this.tags.clear();
     this.dueAt.clear();
     this.unread.clear();
@@ -1207,12 +1285,16 @@ export class TrackedTagMarkers {
   }
 
   /**
-   * Keep `tag`'s log rows in `logOnly`, as bounded as the tracked tags. One
+   * Keep `tag`'s log rows in `logOnly`, unless they cannot apply to any entry
+   * held (see {@link pruneLogged}), as bounded as the tracked tags. One
    * dropped for space takes what it knew with it, so `completeSince` moves
    * past its latest revalidation.
    */
   private rememberLogged(tag: string, marker: TagMarker): void {
     this.logOnly.delete(tag);
+    if (latestOf(marker) <= this.oldestEntry()) {
+      return;
+    }
     this.logOnly.set(tag, marker);
     for (const [oldest, dropped] of this.logOnly) {
       if (this.logOnly.size <= this.maxTrackedTags) {
@@ -1224,14 +1306,72 @@ export class TrackedTagMarkers {
   }
 
   /**
+   * Drop the `logOnly` rows that cannot apply to an entry any registered
+   * store holds: every time they name is no later than the oldest one's
+   * `timestamp`, and an entry stored from now on is newer still. Without
+   * this, a deployment revalidating many distinct tags filled `logOnly` with
+   * tags no entry here carries, and the evictions past its bound kept moving
+   * `completeSince` up to the present.
+   */
+  private pruneLogged(): void {
+    const oldest = this.oldestEntry();
+    for (const [tag, marker] of this.logOnly) {
+      if (latestOf(marker) <= oldest) {
+        this.logOnly.delete(tag);
+      }
+    }
+  }
+
+  /** The oldest entry timestamp of any registered store, `Infinity` with none. */
+  private oldestEntry(): number {
+    let oldest = Infinity;
+    for (const oldestTimestamp of this.entryStores) {
+      oldest = Math.min(oldest, oldestTimestamp());
+    }
+    return oldest;
+  }
+
+  /**
    * Move `completeSince` past `marker`'s latest revalidation: what is no
-   * longer known about a tag once its marker is dropped.
+   * longer known about a tag once its marker is dropped. A future `expiredAt`
+   * waits in `laterFloors` until it is past.
    */
   private raiseFloor(marker: TagMarker): void {
-    for (const at of [marker.revalidatedAt, marker.staleAt, marker.expiredAt]) {
-      if (at !== undefined && at > this.floor) {
-        this.floor = at;
+    for (const time of [marker.revalidatedAt, marker.staleAt]) {
+      if (time !== undefined && time > this.floor) {
+        this.floor = time;
       }
+    }
+    const { expiredAt } = marker;
+    if (expiredAt === undefined || expiredAt <= this.floor) {
+      return;
+    }
+    if (expiredAt > markerClock()) {
+      this.laterFloor(expiredAt);
+    } else {
+      this.floor = expiredAt;
+    }
+  }
+
+  /**
+   * Add `time` to `laterFloors`, in order. Past the tracked-tag bound the
+   * earliest is applied at once instead: early, which only costs reads.
+   */
+  private laterFloor(time: number): void {
+    const floors = this.laterFloors;
+    let low = 0;
+    let high = floors.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (floors[mid] < time) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    floors.splice(low, 0, time);
+    if (floors.length > this.maxTrackedTags) {
+      this.floor = Math.max(this.floor, floors.shift()!);
     }
   }
 
@@ -1264,6 +1404,15 @@ export class TrackedTagMarkers {
       this.remember(tag, marker);
     }
   }
+}
+
+/** The latest time `marker` names, `-Infinity` with none. */
+function latestOf(marker: TagMarker): number {
+  return Math.max(
+    marker.revalidatedAt ?? -Infinity,
+    marker.staleAt ?? -Infinity,
+    marker.expiredAt ?? -Infinity,
+  );
 }
 
 /**

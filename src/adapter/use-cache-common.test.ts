@@ -711,6 +711,30 @@ describe("EntryLru", () => {
     lru.set("d", stored(100, { timestamp: 4 }));
     expect(lru.oldestTimestamp()).toBe(3);
   });
+
+  it("knows its oldest entry's timestamp under eviction churn", () => {
+    const lru = new EntryLru(1000);
+    const held = new Map<string, number>();
+    let seed = 1;
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 2000; i++) {
+      const key = `k${Math.floor(random() * 50)}`;
+      const timestamp = Math.floor(random() * 10_000);
+      if (random() < 0.2) {
+        lru.delete(key);
+        held.delete(key);
+      } else {
+        lru.set(key, stored(100, { timestamp }));
+        held.delete(key);
+        held.set(key, timestamp);
+        // Evicted least recently used first, as the store does.
+        while (held.size > lru.size) {
+          held.delete(held.keys().next().value!);
+        }
+      }
+      expect(lru.oldestTimestamp()).toBe(Math.min(Infinity, ...held.values()));
+    }
+  });
 });
 
 describe("entries", () => {

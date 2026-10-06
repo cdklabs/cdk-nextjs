@@ -445,6 +445,8 @@ describe("TrackedTagMarkers", () => {
       maxTrackedTags: 1,
       clock: () => clock,
     });
+    // An entry store holding something older than every row.
+    markers.judgeEntriesOf(() => 0);
     const start = markers.completeSince;
     expect(start).toBeLessThanOrEqual(markerClock());
 
@@ -455,11 +457,113 @@ describe("TrackedTagMarkers", () => {
     expect(markers.state(["a"], later)).toBe("fresh");
     expect(markers.completeSince).toBe(later);
 
-    // Forgetting everything moves it to now - but never back past what a
-    // dropped marker may still expire.
+    // Forgetting everything moves it to now, or past what it forgot: "b".
     clock += MAX_REVALIDATION_LOG_GAP_MS + 1;
     await markers.refresh();
-    expect(markers.completeSince).toBe(later);
+    expect(markers.completeSince).toBe(later + 1);
+  });
+
+  it("moves completeSince to a dropped marker's future expiredAt only once it is past", async () => {
+    const at = markerClock();
+    const read = jest.fn(
+      async (tags: string[]) =>
+        new Map<string, TagMarker>(
+          tags.map((tag) => [
+            tag,
+            { staleAt: at - 1000, expiredAt: at + 60_000 },
+          ]),
+        ),
+    );
+    const markers = new TrackedTagMarkers({
+      markers: { read } as unknown as TagMarkerTable,
+      log: { query: jest.fn() } as unknown as RevalidationLog,
+      maxTrackedTags: 1,
+    });
+    const start = markers.completeSince;
+    await markers.ensure(["a"]);
+    // "a" is dropped for space: a year-long `expire` would otherwise keep
+    // every entry reading its markers first for as long.
+    await markers.ensure(["b"]);
+    expect(markers.completeSince).toBe(start);
+
+    const clock = jest
+      .spyOn(performance, "now")
+      .mockReturnValue(at + 60_001 - performance.timeOrigin);
+    try {
+      expect(markers.completeSince).toBe(at + 60_000);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("keeps only the log rows that could apply to an entry held", async () => {
+    let clock = 1_000_000;
+    const later = markerClock() + 60_000;
+    const rows: RevalidationLogRow[] = ["old", "new"].map((tag, i) => ({
+      sk: `${String(clock).padStart(15, "0")}#${tag}`,
+      at: clock,
+      tag,
+      marker: { revalidatedAt: i === 0 ? 1 : later },
+    }));
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: {
+        query: jest.fn(async () => ({ rows, truncated: false })),
+      } as unknown as RevalidationLog,
+      refreshIntervalMs: 0,
+      maxTrackedTags: 1,
+      clock: () => clock,
+    });
+    let oldest = 2;
+    markers.judgeEntriesOf(() => oldest);
+    const start = markers.completeSince;
+
+    // "old" can expire nothing held, so it takes no room, and "new" is
+    // kept without dropping anything for space.
+    await markers.refresh();
+    expect(markers.state(["new"], later - 1)).toBe("expired");
+    expect(markers.completeSince).toBe(start);
+
+    // Once every entry held is newer than it, "new" goes too.
+    oldest = later;
+    clock += 1000;
+    await markers.refresh();
+    expect(markers.state(["new"], later - 1)).toBe("fresh");
+    expect(markers.completeSince).toBe(start);
+  });
+
+  it("waits for a fresh query rather than one started before a freeze", async () => {
+    let clock = 1_000_000;
+    const queries: (() => void)[] = [];
+    const query = jest.fn(
+      () =>
+        new Promise<{ rows: RevalidationLogRow[]; truncated: boolean }>(
+          (resolve) =>
+            queries.push(() => resolve({ rows: [], truncated: false })),
+        ),
+    );
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: { query } as unknown as RevalidationLog,
+      refreshIntervalMs: 1000,
+      clock: () => clock,
+    });
+    clock += 1000;
+    // Started, not waited for, and then the sandbox froze.
+    void markers.refresh();
+    clock += 60_000;
+    expect(markers.behind).toBe(true);
+
+    let caughtUp = false;
+    const catchUp = markers.catchUp().then(() => (caughtUp = true));
+    queries.shift()!();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(caughtUp).toBe(false);
+    expect(query).toHaveBeenCalledTimes(2);
+    queries.shift()!();
+    await catchUp;
+    expect(markers.behind).toBe(false);
+    await markers.settled();
   });
 
   it("does not skip a row for an untracked tag that its first read missed", async () => {
@@ -489,6 +593,7 @@ describe("TrackedTagMarkers", () => {
       clock: () => clock,
       random: () => 0,
     });
+    markers.judgeEntriesOf(() => 0);
     await markers.ensure(["other"]);
 
     clock += 1000;

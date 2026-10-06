@@ -151,8 +151,12 @@ export class PendingSets {
 export class EntryLru {
   private readonly entries = new Map<string, StoredEntry>();
   private bytes = 0;
-  /** The oldest entry's `timestamp`, or `undefined` until it is recomputed. */
-  private oldest: number | undefined = Infinity;
+  /**
+   * Every entry by `timestamp`, a binary min-heap. An entry deleted or
+   * replaced stays in it until it reaches the top, where
+   * {@link oldestTimestamp} drops it.
+   */
+  private heap: [number, string, StoredEntry][] = [];
 
   constructor(private readonly maxBytes: number) {}
 
@@ -174,9 +178,7 @@ export class EntryLru {
     }
     this.entries.set(key, entry);
     this.bytes += size;
-    if (this.oldest !== undefined) {
-      this.oldest = Math.min(this.oldest, entry.timestamp);
-    }
+    this.push([entry.timestamp, key, entry]);
     for (const [oldestKey, oldest] of this.entries) {
       if (this.bytes <= this.maxBytes) {
         break;
@@ -193,25 +195,61 @@ export class EntryLru {
   }
 
   /**
-   * The `timestamp` of the oldest entry held, `Infinity` with none. Kept as
-   * entries come and recomputed only after the oldest one goes.
+   * The `timestamp` of the oldest entry held, `Infinity` with none. On the
+   * request path, so a heap rather than a scan: under eviction the entry
+   * leaving is usually the oldest.
    */
   oldestTimestamp(): number {
-    if (this.oldest === undefined) {
-      let oldest = Infinity;
-      for (const entry of this.entries.values()) {
-        oldest = Math.min(oldest, entry.timestamp);
-      }
-      this.oldest = oldest;
+    const heap = this.heap;
+    while (heap.length > 0 && this.entries.get(heap[0][1]) !== heap[0][2]) {
+      this.pop();
     }
-    return this.oldest;
+    return heap.length > 0 ? heap[0][0] : Infinity;
   }
 
   private remove(key: string, entry: StoredEntry): void {
     this.entries.delete(key);
     this.bytes -= sizeOf(key, entry);
-    if (this.oldest !== undefined && entry.timestamp <= this.oldest) {
-      this.oldest = undefined;
+    // Rebuilt once mostly entries no longer held, so it stays O(entries).
+    if (this.heap.length > 2 * this.entries.size + 64) {
+      this.heap = [];
+      for (const [k, e] of this.entries) {
+        this.push([e.timestamp, k, e]);
+      }
+    }
+  }
+
+  private push(item: [number, string, StoredEntry]): void {
+    const heap = this.heap;
+    heap.push(item);
+    for (let i = heap.length - 1; i > 0;) {
+      const parent = Math.floor((i - 1) / 2);
+      if (heap[parent][0] <= heap[i][0]) {
+        break;
+      }
+      [heap[parent], heap[i]] = [heap[i], heap[parent]];
+      i = parent;
+    }
+  }
+
+  private pop(): void {
+    const heap = this.heap;
+    const last = heap.pop()!;
+    if (heap.length === 0) {
+      return;
+    }
+    heap[0] = last;
+    for (let i = 0; ;) {
+      const left = 2 * i + 1;
+      const right = left + 1;
+      let least = i;
+      if (left < heap.length && heap[left][0] < heap[least][0]) least = left;
+      if (right < heap.length && heap[right][0] < heap[least][0]) least = right;
+      if (least === i) {
+        break;
+      }
+      [heap[least], heap[i]] = [heap[i], heap[least]];
+      i = least;
     }
   }
 
@@ -228,30 +266,55 @@ function sizeOf(key: string, entry: StoredEntry): number {
 export const DEFAULT_MEMORY_BYTES = 50 * 1024 * 1024;
 
 /**
+ * Wait for `work` if `wait`, or else let it run on: either way a rejection is
+ * logged with `failure` rather than thrown.
+ */
+export async function awaitIf(
+  wait: boolean,
+  work: Promise<void>,
+  failure: string,
+): Promise<void> {
+  const logged = work.catch((error) => {
+    console.error(failure, error);
+  });
+  if (wait) {
+    await logged;
+  }
+}
+
+export interface TagMethodsOptions {
+  /**
+   * Whether `refreshTags` always waits for the revalidation log query, rather
+   * than only when the instance is `behind`.
+   * @default false
+   */
+  readonly blocking?: boolean;
+}
+
+/**
  * The `cacheHandlers` methods that only go through `tags`, the same for the
  * `default` and `remote` handlers.
  */
 export function tagMethods(
   tags: TrackedTagMarkers,
+  options: TagMethodsOptions = {},
 ): Pick<CacheHandler, "refreshTags" | "getExpiration" | "updateTags"> {
   return {
-    // Started, not awaited, while the instance keeps up. Next.js awaits
-    // `refreshTags` inside the first `'use cache'` lookup of a request
-    // (`use-cache-wrapper`), and a staged render ends its static stage on a
-    // timer: a log `Query` there pushed the entry out of the static stage, so a
-    // cached navigation stored the page segment without it. What the query
-    // finds applies from the next request. Awaited once the instance is
-    // `behind`: the first request after an idle or frozen spell would
+    // Started, not awaited, while the instance keeps up, unless `blocking`.
+    // Next.js awaits `refreshTags` inside the first `'use cache'` lookup of a
+    // request (`use-cache-wrapper`), and a staged render ends its static stage
+    // on a timer: a log `Query` there pushed the entry out of the static
+    // stage, so a cached navigation stored the page segment without it. What
+    // the query finds applies from the next request. Awaited once the instance
+    // is `behind`, which the runtime settles before the request starts
+    // (`catchUp`): the first request after an idle or frozen spell would
     // otherwise serve whatever was revalidated elsewhere meanwhile.
-    refreshTags: async () => {
-      const behind = tags.behind;
-      const refreshing = tags.refresh().catch((error) => {
-        console.error("Error refreshing cache tags:", error);
-      });
-      if (behind) {
-        await refreshing;
-      }
-    },
+    refreshTags: () =>
+      awaitIf(
+        options.blocking === true || tags.behind,
+        tags.refresh(),
+        "Error refreshing cache tags:",
+      ),
     async getExpiration(implicitTags) {
       await tags.ensure(implicitTags);
       return tags.expiration(implicitTags);

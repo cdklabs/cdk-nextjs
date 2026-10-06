@@ -245,7 +245,9 @@ export function createRemoteUseCacheHandler(
       await writeToS3(cacheKey, stored);
     },
 
-    ...tagMethods(tags),
+    // Waits for the log query on every request: an entry read from S3 may
+    // predate this instance, so what the query says applies to it at once.
+    ...tagMethods(tags, { blocking: true }),
   };
 }
 

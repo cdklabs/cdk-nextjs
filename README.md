@@ -225,10 +225,11 @@ How often, at most, in milliseconds, an instance asks the revalidation log what
 other instances revalidated: the longest a `revalidateTag` elsewhere goes unseen,
 for `'use cache'`, ISR and the data cache alike. It's one DynamoDB `Query`,
 however many tags the instance tracks, shared by every request on the instance
-during the window. `0` asks before every cache check. `'use cache'` reads don't
-wait for the answer, which applies from the instance's next request, unless the
-instance hasn't caught up for over a second past the window (it sat idle or was
-frozen).
+during the window. `0` asks before every cache check, and waits for the answer.
+Otherwise `'use cache'` reads don't wait for it, and it applies from the
+instance's next request. The exception is an instance that hasn't caught up for
+over a second past the window (it sat idle or was frozen): it waits for the
+answer before handing the request to Next.js. `'use cache: remote'` always waits.
 
 **Default**: `1000`
 
