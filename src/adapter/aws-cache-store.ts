@@ -699,6 +699,7 @@ export class TrackedTagMarkers {
   }[] = [];
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
+  /** When the last refresh started, or was skipped. */
   private lastRefresh = -Infinity;
   /**
    * The refresh in flight. One left open across a freeze comes back after the
@@ -716,8 +717,6 @@ export class TrackedTagMarkers {
   /** Whether a tick came late since {@link refreshing} started. */
   private pausedWhileRefreshing = false;
   private ticker: ReturnType<typeof setInterval> | undefined;
-  /** When {@link refreshing} started. */
-  private refreshStartedAt = -Infinity;
   private readonly canFreeze: boolean;
   /**
    * When the last refresh settled, either way, unless it spanned a pause: what
@@ -984,7 +983,6 @@ export class TrackedTagMarkers {
     if (this.tags.size === 0 && this.entryStores.length === 0) {
       return;
     }
-    this.refreshStartedAt = at;
     this.startTicking();
     this.refreshing = this.sync(at, log).finally(() => {
       // One that spanned a pause knows the log as of its start at best. So
@@ -992,7 +990,7 @@ export class TrackedTagMarkers {
       // as no older than its start, as if it had not settled since.
       this.settledAt = Math.max(
         this.settledAt,
-        this.pausedSinceRefreshStarted() ? this.refreshStartedAt : this.clock(),
+        this.pausedSinceRefreshStarted() ? this.lastRefresh : this.clock(),
       );
       this.stopTicking();
       this.refreshing = undefined;

@@ -203,6 +203,19 @@ export class EntryLru {
     return oldest;
   }
 
+  /**
+   * Drop the entries past `revalidate` at `at` (`now()`): a handler that drops
+   * them when next read would otherwise hold them until then, and they would
+   * count towards `size` and `oldestTimestamp` meanwhile.
+   */
+  dropExpired(at: number): void {
+    for (const [key, entry] of this.entries) {
+      if (at > entry.timestamp + entry.revalidate * 1000) {
+        this.delete(key);
+      }
+    }
+  }
+
   get size(): number {
     return this.entries.size;
   }

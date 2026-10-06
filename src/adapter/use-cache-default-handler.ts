@@ -61,7 +61,13 @@ export function createDefaultUseCacheHandler(
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
   tags.judgeEntriesOf(
-    () => memory.oldestTimestamp(),
+    // Asked once per revalidation log query: expired entries, which `get`
+    // drops anyway, neither hold `completeSince`'s pruning back nor count as
+    // held for a refresh to wait for.
+    () => {
+      memory.dropExpired(now());
+      return memory.oldestTimestamp();
+    },
     () => memory.size > 0,
   );
 

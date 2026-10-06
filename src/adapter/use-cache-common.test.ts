@@ -710,6 +710,15 @@ describe("EntryLru", () => {
     expect(lru.size).toBe(2);
   });
 
+  it("drops the entries past revalidate", () => {
+    const lru = new EntryLru(1000);
+    lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
+    lru.set("new", stored(100, { timestamp: 1500, revalidate: 1 }));
+    lru.dropExpired(2001);
+    expect(lru.size).toBe(1);
+    expect(lru.oldestTimestamp()).toBe(1500);
+  });
+
   it("knows its oldest entry's timestamp as entries come and go", () => {
     const lru = new EntryLru(250);
     expect(lru.oldestTimestamp()).toBe(Infinity);
