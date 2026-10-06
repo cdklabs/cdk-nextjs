@@ -440,12 +440,16 @@ describe("TrackedTagMarkers", () => {
     // Just short of the line as the request came in: `catchUp` lets it go.
     clock += 1000 + TAG_REFRESH_GRACE_MS;
     expect(markers.behind).toBe(false);
-    await markers.catchUp();
-    // Past it by its first `'use cache'` lookup, which does not wait yet.
-    clock += 100;
-    expect(markers.behind).toBe(true);
-    expect(markers.behindInRender).toBe(false);
-    clock += TAG_REFRESH_GRACE_MS;
+    await markers.catchUp(async () => {
+      // Past it by its first `'use cache'` lookup, which does not wait yet.
+      clock += 100;
+      expect(markers.behind).toBe(true);
+      expect(markers.behindInRender).toBe(false);
+      clock += TAG_REFRESH_GRACE_MS;
+      expect(markers.behindInRender).toBe(true);
+    });
+    // Outside it - a route handler alongside, in a container - no grace.
+    clock -= TAG_REFRESH_GRACE_MS;
     expect(markers.behindInRender).toBe(true);
   });
 
@@ -775,7 +779,7 @@ describe("TrackedTagMarkers", () => {
     clock += 60_000;
     for (const { markers } of [noStore, everyCheck, emptyStore, store]) {
       expect(markers.behind).toBe(true);
-      await markers.catchUp();
+      await markers.catchUp(async () => {});
     }
     expect(noStore.query).not.toHaveBeenCalled();
     expect(everyCheck.query).not.toHaveBeenCalled();
@@ -878,7 +882,9 @@ describe("TrackedTagMarkers", () => {
     expect(markers.behind).toBe(true);
 
     let caughtUp = false;
-    const catchUp = markers.catchUp().then(() => (caughtUp = true));
+    const catchUp = markers
+      .catchUp(async () => {})
+      .then(() => (caughtUp = true));
     queries.shift()!();
     await new Promise((resolve) => setImmediate(resolve));
     expect(caughtUp).toBe(false);
@@ -936,7 +942,9 @@ describe("TrackedTagMarkers", () => {
       jest.advanceTimersByTime(250);
 
       let caughtUp = false;
-      const catchUp = markers.catchUp().then(() => (caughtUp = true));
+      const catchUp = markers
+        .catchUp(async () => {})
+        .then(() => (caughtUp = true));
       queries.shift()!();
       await new Promise((resolve) => setImmediate(resolve));
       // What the first query knew predates the freeze.
@@ -955,7 +963,7 @@ describe("TrackedTagMarkers", () => {
       // A long stall, not a freeze: no timer to tell them apart, none needed.
       clock += 60_000;
 
-      const catchUp = markers.catchUp();
+      const catchUp = markers.catchUp(async () => {});
       queries.shift()!();
       await catchUp;
       expect(query).toHaveBeenCalledTimes(1);
@@ -967,7 +975,7 @@ describe("TrackedTagMarkers", () => {
         const { markers, queries } = instance(fails);
         clock += 60_000;
         expect(markers.behind).toBe(true);
-        const catchUp = markers.catchUp();
+        const catchUp = markers.catchUp(async () => {});
         run(3000);
         queries.shift()!();
         await catchUp;
@@ -980,11 +988,13 @@ describe("TrackedTagMarkers", () => {
     it("waits only for a slow query in flight, the process running throughout", async () => {
       const { markers, query, queries } = instance();
       clock += 60_000;
-      const first = markers.catchUp();
+      const first = markers.catchUp(async () => {});
       run(2500);
       // Past the grace into the query, but the query is as fresh as any.
       let caughtUp = false;
-      const second = markers.catchUp().then(() => (caughtUp = true));
+      const second = markers
+        .catchUp(async () => {})
+        .then(() => (caughtUp = true));
       queries.shift()!();
       await first;
       await new Promise((resolve) => setImmediate(resolve));

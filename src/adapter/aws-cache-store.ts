@@ -9,6 +9,7 @@
   kinds of handler, and they must read each other's markers the same way.
 */
 /* eslint-disable import/no-extraneous-dependencies */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import {
   AttributeValue,
@@ -701,8 +702,11 @@ export class TrackedTagMarkers {
   private forgotten = 0;
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
-  /** When {@link catchUp} last ran. See {@link behindInRender}. */
-  private lastCatchUp = -Infinity;
+  /**
+   * Set inside a page render {@link catchUp} let go, for that render alone.
+   * See {@link behindInRender}.
+   */
+  private readonly caughtUpRender = new AsyncLocalStorage<true>();
   /** When the last refresh started, or was skipped. */
   private lastRefresh = -Infinity;
   /**
@@ -923,23 +927,20 @@ export class TrackedTagMarkers {
   }
 
   /**
-   * {@link behind}, as `refreshTags` asks it: inside a page's render, just
-   * after {@link catchUp}, with the grace twice over, since the runtime
-   * already settled `behind` before the render started. Otherwise a request that came in
-   * just short of the line could cross it before its first lookup, and wait
-   * for the query inside the render after all.
+   * {@link behind}, as `refreshTags` asks it: inside a page's render
+   * ({@link catchUp}), with the grace twice over, since the runtime already
+   * settled `behind` for this request before the render started. Otherwise a
+   * request that came in just short of the line could cross it before its
+   * first lookup, and wait for the query inside the render after all.
    */
   get behindInRender(): boolean {
-    if (!this.behind || this.refreshIntervalMs === 0) {
+    if (this.refreshIntervalMs === 0 || !this.caughtUpRender.getStore()) {
+      // A route handler, which no catch-up precedes, waits at the plain line.
       return this.behind;
     }
-    // Only for a render `catchUp` just let go: a route handler, which it
-    // never sees, waits at the plain line. With concurrent requests (in a
-    // container) one just after another's page can get the grace too.
     return (
-      this.clock() - this.lastCatchUp > TAG_REFRESH_GRACE_MS ||
-      this.clock() - this.settledAt >
-        this.refreshIntervalMs + 2 * TAG_REFRESH_GRACE_MS
+      this.log !== undefined &&
+      this.overdue(this.settledAt, 2 * TAG_REFRESH_GRACE_MS)
     );
   }
 
@@ -961,20 +962,21 @@ export class TrackedTagMarkers {
    * would cut short. Only for the `'use cache'` handler's entries
    * ({@link judgeEntriesOf}): the other caches wait for the refresh where they
    * read anyway. Not with a `refreshIntervalMs` of `0` either, where
-   * `refreshTags` asks again regardless. Never rejects.
+   * `refreshTags` asks again regardless. Then `render`, marked as caught up
+   * for ({@link behindInRender}). Rejects only as `render` does.
    */
-  async catchUp(): Promise<void> {
-    this.lastCatchUp = this.clock();
+  async catchUp<T>(render: () => Promise<T>): Promise<T> {
     if (this.refreshIntervalMs > 0 && this.behind && this.holdsEntries) {
       await this.refresh().catch((error) => {
         console.error("Error refreshing cache tags:", error);
       });
     }
+    return this.caughtUpRender.run(true, render);
   }
 
-  /** Whether `at` is more than the interval and the grace ago. */
-  private overdue(at: number): boolean {
-    return this.clock() - at > this.refreshIntervalMs + TAG_REFRESH_GRACE_MS;
+  /** Whether `at` is more than the interval and `grace` ago. */
+  private overdue(at: number, grace = TAG_REFRESH_GRACE_MS): boolean {
+    return this.clock() - at > this.refreshIntervalMs + grace;
   }
 
   /**
@@ -1100,7 +1102,7 @@ export class TrackedTagMarkers {
     const at = markerClock();
     let state: RevalidationState = "fresh";
     for (const tag of tags) {
-      const marker = this.markerOf(tag);
+      const marker = this.knownMarker(tag);
       if (!marker) {
         continue;
       }
@@ -1125,7 +1127,7 @@ export class TrackedTagMarkers {
     const at = markerClock();
     let latest = 0;
     for (const tag of tags) {
-      const marker = this.markerOf(tag);
+      const marker = this.knownMarker(tag);
       if (!marker) {
         continue;
       }
@@ -1417,7 +1419,7 @@ export class TrackedTagMarkers {
    * What this instance knows of `tag`: tracked, or from the log alone -
    * including rows that arrived while its first read is in flight.
    */
-  private markerOf(tag: string): TagMarker | undefined {
+  private knownMarker(tag: string): TagMarker | undefined {
     const tracked = this.tags.get(tag);
     if (tracked) {
       return tracked;

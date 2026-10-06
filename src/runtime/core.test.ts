@@ -545,7 +545,7 @@ describe("NextjsRuntime.handle", () => {
 
   it("catches up on cache tags before rendering a page or the /_not-found page", async () => {
     const global = globalThis as Record<symbol, unknown>;
-    const catchUp = jest.fn(async () => {});
+    const catchUp = jest.fn(async (render: () => Promise<unknown>) => render());
     const previous = global[TAG_MANIFEST_SYMBOL];
     global[TAG_MANIFEST_SYMBOL] = { catchUp };
     try {

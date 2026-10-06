@@ -7,14 +7,16 @@ afterEach(() => {
 });
 
 describe("catchUpTags", () => {
-  it("does nothing before a cache handler creates the manifest", async () => {
-    await expect(catchUpTags()).resolves.toBeUndefined();
+  it("just renders before a cache handler creates the manifest", async () => {
+    await expect(catchUpTags(async () => "page")).resolves.toBe("page");
   });
 
-  it("reaches the manifest the cache handlers share", async () => {
-    const manifest = { catchUp: jest.fn(async () => {}) };
+  it("renders through the manifest the cache handlers share", async () => {
+    const manifest = {
+      catchUp: jest.fn(async (render: () => Promise<string>) => render()),
+    };
     global[TAG_MANIFEST_SYMBOL] = manifest;
-    await catchUpTags();
+    await expect(catchUpTags(async () => "page")).resolves.toBe("page");
     expect(manifest.catchUp).toHaveBeenCalledTimes(1);
   });
 });
