@@ -60,16 +60,10 @@ export function createDefaultUseCacheHandler(
   );
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
-  tags.judgeEntriesOf(
-    // Asked once per revalidation log query: expired entries, which `get`
-    // drops anyway, don't hold `completeSince`'s pruning back, and from that
-    // query on don't count as held for a refresh to wait for either.
-    () => {
-      memory.dropExpired(now());
-      return memory.oldestTimestamp();
-    },
-    () => memory.size > 0,
-  );
+  // Expired entries, which `get` drops anyway, neither hold `completeSince`'s
+  // pruning back nor count as held for a refresh to wait for.
+  const oldestLive = () => memory.oldestTimestamp(now());
+  tags.judgeEntriesOf(oldestLive, () => oldestLive() < Infinity);
 
   /**
    * Read the markers of whichever of `tagList` are untracked: first, when the
@@ -133,7 +127,6 @@ export function createDefaultUseCacheHandler(
           return;
         }
         memory.set(cacheKey, stored);
-        tags.track(stored.tags);
         // In the background, now rather than at the first `get`: a
         // revalidation from before the log's first lookback with an `expire`
         // still to come expires this entry when it comes, and only the marker

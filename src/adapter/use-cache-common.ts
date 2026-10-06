@@ -191,29 +191,22 @@ export class EntryLru {
   }
 
   /**
-   * The `timestamp` of the oldest entry held, `Infinity` with none. A scan:
-   * asked once per revalidation log query, not per request (`size` answers
-   * whether there is one).
+   * The `timestamp` of the oldest entry held, `Infinity` with none, dropping
+   * on the way the entries past `revalidate` at `at` (`now()`): a handler
+   * that drops them when next read would otherwise hold them until then, and
+   * they would count here meanwhile. A scan, asked only once per revalidation
+   * log query and when the instance is behind.
    */
-  oldestTimestamp(): number {
+  oldestTimestamp(at = -Infinity): number {
     let oldest = Infinity;
-    for (const entry of this.entries.values()) {
-      oldest = Math.min(oldest, entry.timestamp);
-    }
-    return oldest;
-  }
-
-  /**
-   * Drop the entries past `revalidate` at `at` (`now()`): a handler that drops
-   * them when next read would otherwise hold them until then, and they would
-   * count towards `size` and `oldestTimestamp` meanwhile.
-   */
-  dropExpired(at: number): void {
     for (const [key, entry] of this.entries) {
       if (at > entry.timestamp + entry.revalidate * 1000) {
         this.delete(key);
+      } else {
+        oldest = Math.min(oldest, entry.timestamp);
       }
     }
+    return oldest;
   }
 
   get size(): number {
@@ -271,7 +264,7 @@ export interface TagMethodsOptions {
 export function tagMethods(
   tags: TrackedTagMarkers,
   options: TagMethodsOptions = {},
-): Pick<CacheHandler, "refreshTags" | "getExpiration" | "updateTags"> {
+): Pick<CacheHandler, "refreshTags" | "updateTags"> {
   return {
     // Started, not awaited, while the instance keeps up, unless `blocking`.
     // Next.js awaits `refreshTags` inside the first `'use cache'` lookup of a
@@ -292,10 +285,6 @@ export function tagMethods(
         tags.refresh(),
         "Error refreshing cache tags:",
       ),
-    async getExpiration(implicitTags) {
-      await tags.ensure(implicitTags);
-      return tags.expiration(implicitTags);
-    },
     async updateTags(revalidatedTags, durations) {
       await tags.update(revalidatedTags, durations);
     },

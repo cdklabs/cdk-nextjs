@@ -714,7 +714,7 @@ describe("EntryLru", () => {
     const lru = new EntryLru(1000);
     lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
     lru.set("new", stored(100, { timestamp: 1500, revalidate: 1 }));
-    lru.dropExpired(2001);
+    expect(lru.oldestTimestamp(2001)).toBe(1500);
     expect(lru.size).toBe(1);
     expect(lru.oldestTimestamp()).toBe(1500);
   });

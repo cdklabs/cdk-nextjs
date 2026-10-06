@@ -248,6 +248,11 @@ export function createRemoteUseCacheHandler(
     // Waits for the log query on every request: an entry read from S3 may
     // predate this instance, so what the query says applies to it at once.
     ...tagMethods(tags, { blocking: true }),
+
+    async getExpiration(implicitTags) {
+      await tags.ensure(implicitTags);
+      return tags.expiration(implicitTags);
+    },
   };
 }
 

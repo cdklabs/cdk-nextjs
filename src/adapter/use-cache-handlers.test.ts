@@ -574,6 +574,26 @@ describe("cacheHandlers.default", () => {
     }
   });
 
+  it("does not wait for the revalidation log query, idle, while it holds only expired entries", async () => {
+    const b = defaultInstance(tagManifest(1000));
+    const created = performance.timeOrigin + performance.now() - 5000;
+    await b.set(
+      "k",
+      Promise.resolve(entry("b", { timestamp: created, revalidate: 1 })),
+    );
+
+    const later = Date.now() + 1000 + TAG_REFRESH_GRACE_MS + 5000;
+    const now = jest.spyOn(Date, "now").mockReturnValue(later);
+    const queries = holdQueries();
+    try {
+      // `get` would drop it: nothing the query could expire.
+      expect(await pending(b.refreshTags())).toBe(false);
+    } finally {
+      queries.restore();
+      now.mockRestore();
+    }
+  });
+
   it("waits for the revalidation log query when told to ask on every check", async () => {
     const a = defaultInstance();
     const b = defaultInstance(tagManifest(0));
