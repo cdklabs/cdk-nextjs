@@ -229,7 +229,8 @@ during the window. `0` asks before every cache check, and waits for the answer.
 Otherwise `'use cache'` reads don't wait for it, and it applies from the
 instance's next request. The exception is an instance that hasn't caught up for
 over a second past the window (it sat idle or was frozen): it waits for the
-answer before handing the request to Next.js. `'use cache: remote'` always waits.
+answer, before rendering the page for a page request. `'use cache: remote'`
+always waits.
 
 **Default**: `1000`
 

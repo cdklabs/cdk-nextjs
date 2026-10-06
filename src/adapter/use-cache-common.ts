@@ -19,6 +19,7 @@ import {
   TagMarkerTable,
   TrackedTagMarkers,
 } from "./aws-cache-store";
+import { TAG_MANIFEST_SYMBOL } from "../runtime/tag-manifest";
 
 export { markerClock as now } from "./aws-cache-store";
 
@@ -151,12 +152,6 @@ export class PendingSets {
 export class EntryLru {
   private readonly entries = new Map<string, StoredEntry>();
   private bytes = 0;
-  /**
-   * Every entry by `timestamp`, a binary min-heap. An entry deleted or
-   * replaced stays in it until it reaches the top, where
-   * {@link oldestTimestamp} drops it.
-   */
-  private heap: [number, string, StoredEntry][] = [];
 
   constructor(private readonly maxBytes: number) {}
 
@@ -178,79 +173,33 @@ export class EntryLru {
     }
     this.entries.set(key, entry);
     this.bytes += size;
-    this.push([entry.timestamp, key, entry]);
     for (const [oldestKey, oldest] of this.entries) {
       if (this.bytes <= this.maxBytes) {
         break;
       }
-      this.remove(oldestKey, oldest);
+      this.entries.delete(oldestKey);
+      this.bytes -= sizeOf(oldestKey, oldest);
     }
   }
 
   delete(key: string): void {
     const existing = this.entries.get(key);
     if (existing) {
-      this.remove(key, existing);
+      this.entries.delete(key);
+      this.bytes -= sizeOf(key, existing);
     }
   }
 
   /**
-   * The `timestamp` of the oldest entry held, `Infinity` with none. On the
-   * request path, so a heap rather than a scan: under eviction the entry
-   * leaving is usually the oldest.
+   * The `timestamp` of the oldest entry held, `Infinity` with none. A scan:
+   * asked once per revalidation log query, not per request.
    */
   oldestTimestamp(): number {
-    const heap = this.heap;
-    while (heap.length > 0 && this.entries.get(heap[0][1]) !== heap[0][2]) {
-      this.pop();
+    let oldest = Infinity;
+    for (const entry of this.entries.values()) {
+      oldest = Math.min(oldest, entry.timestamp);
     }
-    return heap.length > 0 ? heap[0][0] : Infinity;
-  }
-
-  private remove(key: string, entry: StoredEntry): void {
-    this.entries.delete(key);
-    this.bytes -= sizeOf(key, entry);
-    // Rebuilt once mostly entries no longer held, so it stays O(entries).
-    if (this.heap.length > 2 * this.entries.size + 64) {
-      this.heap = [];
-      for (const [k, e] of this.entries) {
-        this.push([e.timestamp, k, e]);
-      }
-    }
-  }
-
-  private push(item: [number, string, StoredEntry]): void {
-    const heap = this.heap;
-    heap.push(item);
-    for (let i = heap.length - 1; i > 0;) {
-      const parent = Math.floor((i - 1) / 2);
-      if (heap[parent][0] <= heap[i][0]) {
-        break;
-      }
-      [heap[parent], heap[i]] = [heap[i], heap[parent]];
-      i = parent;
-    }
-  }
-
-  private pop(): void {
-    const heap = this.heap;
-    const last = heap.pop()!;
-    if (heap.length === 0) {
-      return;
-    }
-    heap[0] = last;
-    for (let i = 0; ;) {
-      const left = 2 * i + 1;
-      const right = left + 1;
-      let least = i;
-      if (left < heap.length && heap[left][0] < heap[least][0]) least = left;
-      if (right < heap.length && heap[right][0] < heap[least][0]) least = right;
-      if (least === i) {
-        break;
-      }
-      [heap[least], heap[i]] = [heap[i], heap[least]];
-      i = least;
-    }
+    return oldest;
   }
 
   get size(): number {
@@ -306,7 +255,7 @@ export function tagMethods(
     // on a timer: a log `Query` there pushed the entry out of the static
     // stage, so a cached navigation stored the page segment without it. What
     // the query finds applies from the next request. Awaited once the instance
-    // is `behind`, which the runtime settles before the request starts
+    // is `behind`, which the runtime settles before a page render starts
     // (`catchUp`): the first request after an idle or frozen spell would
     // otherwise serve whatever was revalidated elsewhere meanwhile.
     refreshTags: () =>
@@ -341,8 +290,6 @@ export function lazyHandler(create: () => CacheHandler): CacheHandler {
     updateTags: (tags, durations) => instance().updateTags(tags, durations),
   };
 }
-
-const TAG_MANIFEST_SYMBOL = Symbol.for("cdk-nextjs.use-cache.tag-manifest");
 
 /**
  * The process's one {@link TrackedTagMarkers}, from the environment.

@@ -51,7 +51,7 @@ import {
 } from "./next-modules";
 import { publicDirKey, resolvePublicFiles } from "./public-files";
 import { serveS3PublicFile, serveStaticFile } from "./static-files";
-import { catchUpTags, tagRefreshSettled } from "./tag-manifest";
+import { catchUpTags } from "./tag-manifest";
 import { drained, firstValue, toSearch, withoutPathPrefix } from "./util";
 
 /** One request, normalized by a shell. */
@@ -256,11 +256,6 @@ export class NextjsRuntime {
         }
       }
     }
-
-    // Likewise the revalidation log query `refreshTags` started without
-    // waiting for it, the request's or its background work's: left open
-    // across a freeze, it returns after the thaw with what it read before.
-    await tagRefreshSettled();
   }
 
   private async route(
@@ -345,7 +340,11 @@ export class NextjsRuntime {
         req.headers = toIncomingHttpHeaders(result.requestHeaders);
         // Here, not in `refreshTags`: Next.js awaits that inside the first
         // `'use cache'` lookup, and a wait there cuts the static stage short.
-        await catchUpTags();
+        // Only for a page: nothing else has a static stage to protect, and a
+        // route handler that reads the cache waits in `refreshTags` instead.
+        if (result.entrypoint.type === "app-page") {
+          await catchUpTags();
+        }
         await handler(req, asServerResponse(res), {
           waitUntil,
           requestMeta: {

@@ -469,8 +469,9 @@ describe("cacheHandlers.default", () => {
       return send(command);
     });
     try {
-      expect(await read(b, "k")).toBe("b");
-      expect(await b.getExpiration(["_N_T_/new-path"])).toBe(0);
+      expect(await b.getExpiration(["_N_T_/new-path"])).toBe(Infinity);
+      await b.refreshTags();
+      expect(await textOf(await b.get("k", ["_N_T_/new-path"]))).toBe("b");
       // Still read, in the background, so the tags join the rolling re-read.
       expect(dynamoCalls(BatchGetItemCommand)).toBeGreaterThan(0);
 
@@ -484,15 +485,23 @@ describe("cacheHandlers.default", () => {
     }
   });
 
-  it("reads the implicit tags while it holds an entry older than the manifest's knowledge", async () => {
+  it("reads the implicit tags first for an entry older than the manifest's knowledge", async () => {
     const b = defaultInstance();
     await b.set(
       "k",
       Promise.resolve(entry("b", { timestamp: Date.now() - 1000 })),
     );
+    await b.set("new", Promise.resolve(entry("new")));
+    await new Promise((resolve) => setImmediate(resolve));
+    rows.set("_N_T_/old-path", {
+      sk: { S: "_N_T_/old-path" },
+      revalidatedAt: { N: String(Date.now() - 500) },
+    });
+    // Judged per entry: the new one is not held up by the old one.
     dynamoSend.mockClear();
-    await b.getExpiration(["_N_T_/new-path"]);
-    expect(dynamoCalls(BatchGetItemCommand)).toBe(1);
+    expect(await textOf(await b.get("new", ["_N_T_/new-path"]))).toBe("new");
+    expect(await textOf(await b.get("k", ["_N_T_/old-path"]))).toBeUndefined();
+    expect(dynamoCalls(BatchGetItemCommand)).toBe(2);
   });
 
   it("does not hold a read for the revalidation log query", async () => {
@@ -633,18 +642,31 @@ describe("cacheHandlers.default", () => {
     expect(result?.revalidate).toBe(-1);
   });
 
-  it("answers getExpiration from another instance's revalidatePath", async () => {
+  it("expires an entry by another instance's revalidatePath", async () => {
     const a = defaultInstance();
     const bTags = tagManifest();
     const b = defaultInstance(bTags);
-    // Next.js asks only once `get` has returned an entry, which `b` holds.
     await b.set("k", Promise.resolve(entry("b")));
+    await b.set("other", Promise.resolve(entry("other")));
     await a.updateTags(["_N_T_/blog/layout"]);
     // From the log, as soon as `b` has read it.
     await bTags.refresh();
-    const expiration = await b.getExpiration(["_N_T_/", "_N_T_/blog/layout"]);
-    expect(expiration).toBeGreaterThan(0);
-    expect(await b.getExpiration(["_N_T_/other"])).toBe(0);
+    expect(await textOf(await b.get("other", ["_N_T_/other"]))).toBe("other");
+    expect(
+      await textOf(await b.get("k", ["_N_T_/", "_N_T_/blog/layout"])),
+    ).toBeUndefined();
+  });
+
+  it("does not expire an entry by an implicit tag marked only stale", async () => {
+    const a = defaultInstance();
+    const b = defaultInstance();
+    await b.set(
+      "k",
+      Promise.resolve(entry("b", { timestamp: Date.now() - 1000 })),
+    );
+    await a.updateTags(["_N_T_/blog"], { expire: 3600 });
+    const result = await b.get("k", ["_N_T_/blog"]);
+    expect(result?.revalidate).toBe(900);
   });
 
   it("stores nothing from a stream that errors, and releases the pending get", async () => {

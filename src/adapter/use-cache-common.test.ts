@@ -396,30 +396,38 @@ describe("TrackedTagMarkers with the revalidation log", () => {
 
   it("issues no read while the interval has not passed", async () => {
     const { clock, b } = instances();
-    // Asked even with nothing tracked: `completeSince` relies on the log for
-    // every tag.
+    // Nothing tracked: nothing to ask.
     clock.at += INTERVAL;
     await b.tags.refresh();
-    expect(b.log.query).toHaveBeenCalledTimes(1);
+    expect(b.log.query).not.toHaveBeenCalled();
 
     await b.tags.ensure(["posts"]);
 
     b.markers.read.mockClear();
+    // That refresh still counts: what is tracked since was read, or is new.
     await b.tags.refresh();
-    expect(b.log.query).toHaveBeenCalledTimes(1);
+    expect(b.log.query).not.toHaveBeenCalled();
 
     clock.at += INTERVAL;
     await Promise.all([b.tags.refresh(), b.tags.refresh()]);
-    expect(b.log.query).toHaveBeenCalledTimes(2);
+    expect(b.log.query).toHaveBeenCalledTimes(1);
 
     clock.at += INTERVAL - 1;
     await b.tags.refresh();
-    expect(b.log.query).toHaveBeenCalledTimes(2);
+    expect(b.log.query).toHaveBeenCalledTimes(1);
     expect(b.markers.read).not.toHaveBeenCalled();
 
     clock.at += 1;
     await b.tags.refresh();
-    expect(b.log.query).toHaveBeenCalledTimes(3);
+    expect(b.log.query).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks with nothing tracked once an entry store relies on the log", async () => {
+    const { clock, b } = instances();
+    b.tags.judgeEntriesOf(() => Infinity);
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    expect(b.log.query).toHaveBeenCalledTimes(1);
   });
 
   it("applies a row read again inside the lookback only once", async () => {

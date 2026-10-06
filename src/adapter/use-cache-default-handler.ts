@@ -72,7 +72,10 @@ export function createDefaultUseCacheHandler(
     awaitIf(needed, tags.ensure(tagList), "Error reading cache tags:");
 
   return {
-    async get(cacheKey: string): Promise<CacheEntry | undefined> {
+    async get(
+      cacheKey: string,
+      softTags: string[] = [],
+    ): Promise<CacheEntry | undefined> {
       await pending.wait(cacheKey);
       const stored = memory.get(cacheKey);
       if (!stored) {
@@ -86,9 +89,18 @@ export function createDefaultUseCacheHandler(
       }
       // Only an entry older than what the manifest fully knows needs its tags'
       // markers read first: see `completeSince`. Every entry stored since the
-      // instance started is newer, so its first read waits on nothing.
-      await ensureTags(stored.timestamp < tags.completeSince, stored.tags);
-      const state = tags.state(stored.tags, stored.timestamp);
+      // instance started is newer, so its first read waits on nothing - nor
+      // does a new path's, whose implicit tags it has never read.
+      await ensureTags(stored.timestamp < tags.completeSince, [
+        ...stored.tags,
+        ...softTags,
+      ]);
+      // Implicit tags count once expired, not stale, as Next.js compares
+      // `getExpiration`'s answer.
+      const state =
+        tags.expiration(softTags) >= stored.timestamp
+          ? "expired"
+          : tags.state(stored.tags, stored.timestamp);
       if (state === "expired") {
         debug(`EXPIRED BY TAG ${cacheKey}`);
         memory.delete(cacheKey);
@@ -129,19 +141,10 @@ export function createDefaultUseCacheHandler(
 
     ...tagMethods(tags),
 
-    // Next.js awaits this inside the `'use cache'` lookup, with the implicit
-    // tags of the request's path: on a new instance, every new path was a
-    // marker read there, and the entry missed the static stage of a staged
-    // render. The answer judges whichever entry this request reads, so it is
-    // given without reading only while every entry held is new enough for the
-    // manifest to answer alone.
-    async getExpiration(implicitTags) {
-      await ensureTags(
-        memory.oldestTimestamp() < tags.completeSince,
-        implicitTags,
-      );
-      return tags.expiration(implicitTags);
-    },
+    // `Infinity` has Next.js pass the implicit tags to `get` instead, so they
+    // are judged against the entry read: whether answering needs a marker
+    // read depends on that entry's `timestamp`, which this does not know.
+    getExpiration: async () => Infinity,
   };
 }
 
