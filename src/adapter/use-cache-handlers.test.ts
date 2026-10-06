@@ -23,6 +23,7 @@ import type {
 import {
   CacheBucket,
   RevalidationLog,
+  TAG_REFRESH_GRACE_MS,
   TagMarkerTable,
   TrackedTagMarkers,
 } from "./aws-cache-store";
@@ -464,6 +465,37 @@ describe("cacheHandlers.default", () => {
     release();
     await new Promise((resolve) => setImmediate(resolve));
     expect(await read(b, "k")).toBeUndefined();
+  });
+
+  it("waits for the revalidation log query after the instance sat idle", async () => {
+    const a = defaultInstance();
+    const b = defaultInstance();
+    const created = { timestamp: Date.now() - 1000 };
+    await b.set("k", Promise.resolve(entry("b", created)));
+    expect(await read(b, "k")).toBe("b");
+    await a.updateTags(["posts"], { expire: 0 });
+
+    // No log query for longer than the interval plus the grace, as for a
+    // Lambda frozen between invocations.
+    const later = Date.now() + TAG_REFRESH_GRACE_MS + 5000;
+    const now = jest.spyOn(Date, "now").mockReturnValue(later);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const query = dynamoSend.getMockImplementation()!;
+    dynamoSend.mockImplementationOnce(async (command) => {
+      await held;
+      return query(command);
+    });
+
+    // Answered only once the query returns, and then without the entry the
+    // other instance revalidated while this one sat idle.
+    let settled = false;
+    const answer = read(b, "k").finally(() => (settled = true));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    release();
+    expect(await answer).toBeUndefined();
+    now.mockRestore();
   });
 
   it("waits for the refresh interval before re-reading tags", async () => {

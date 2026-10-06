@@ -226,7 +226,9 @@ other instances revalidated: the longest a `revalidateTag` elsewhere goes unseen
 for `'use cache'`, ISR and the data cache alike. It's one DynamoDB `Query`,
 however many tags the instance tracks, shared by every request on the instance
 during the window. `0` asks before every cache check. `'use cache'` reads don't
-wait for the answer, which applies from the instance's next request.
+wait for the answer, which applies from the instance's next request, unless the
+instance hasn't caught up for over a second past the window (it sat idle or was
+frozen).
 
 **Default**: `1000`
 

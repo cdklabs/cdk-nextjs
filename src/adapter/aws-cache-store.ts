@@ -246,6 +246,14 @@ export const BATCH_GET_MAX_KEYS = 100;
  */
 export const DEFAULT_TAG_REFRESH_MS = 1000;
 
+/**
+ * How far past `refreshIntervalMs` the last successful log query may be before
+ * a `'use cache'` request waits for the next one (see
+ * {@link TrackedTagMarkers.behind}). An instance serving steady traffic stays
+ * inside it; one that sat idle, or frozen between Lambda invocations, does not.
+ */
+export const TAG_REFRESH_GRACE_MS = 1000;
+
 /** DynamoDB's limit on a sort key, in UTF-8 bytes. */
 export const MAX_SORT_KEY_BYTES = 1024;
 
@@ -633,8 +641,8 @@ export type TrackedTagMarkersOptions = TagTable & {
  * A revalidation on another instance is therefore seen within
  * `refreshIntervalMs` (plus the query itself) - by `'use cache'`, from the
  * first request after the query returns, since its `refreshTags` does not wait
- * for it (see `tagMethods`). The instance that ran it applies it itself, at
- * once, with {@link set}.
+ * for it (see `tagMethods`) unless the instance is {@link behind}. The
+ * instance that ran it applies it itself, at once, with {@link set}.
  */
 export class TrackedTagMarkers {
   private readonly markers: TagMarkerTable | undefined;
@@ -810,6 +818,21 @@ export class TrackedTagMarkers {
       waits.push(read);
     }
     await Promise.all(waits);
+  }
+
+  /**
+   * Whether the log was last read successfully more than `refreshIntervalMs`
+   * plus {@link TAG_REFRESH_GRACE_MS} ago: after the instance sat idle or
+   * frozen, or its queries failed. Answering from what it knows then could
+   * serve an entry revalidated elsewhere since, however long ago that was, so
+   * `refreshTags` waits for the refresh instead of only starting it.
+   */
+  get behind(): boolean {
+    return (
+      this.log !== undefined &&
+      this.clock() - this.lastLogRead >
+        this.refreshIntervalMs + TAG_REFRESH_GRACE_MS
+    );
   }
 
   /**

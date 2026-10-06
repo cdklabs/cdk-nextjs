@@ -235,15 +235,22 @@ export function tagMethods(
   tags: TrackedTagMarkers,
 ): Pick<CacheHandler, "refreshTags" | "getExpiration" | "updateTags"> {
   return {
-    // Started, not awaited. Next.js awaits `refreshTags` inside the first
-    // `'use cache'` lookup of a request (`use-cache-wrapper`), and a staged
-    // render ends its static stage on a timer: a log `Query` there pushed the
-    // entry out of the static stage, so a cached navigation stored the page
-    // segment without it. What the query finds applies from the next request.
+    // Started, not awaited, while the instance keeps up. Next.js awaits
+    // `refreshTags` inside the first `'use cache'` lookup of a request
+    // (`use-cache-wrapper`), and a staged render ends its static stage on a
+    // timer: a log `Query` there pushed the entry out of the static stage, so a
+    // cached navigation stored the page segment without it. What the query
+    // finds applies from the next request. Awaited once the instance is
+    // `behind`: the first request after an idle or frozen spell would
+    // otherwise serve whatever was revalidated elsewhere meanwhile.
     refreshTags: async () => {
-      void tags.refresh().catch((error) => {
+      const behind = tags.behind;
+      const refreshing = tags.refresh().catch((error) => {
         console.error("Error refreshing cache tags:", error);
       });
+      if (behind) {
+        await refreshing;
+      }
     },
     async getExpiration(implicitTags) {
       await tags.ensure(implicitTags);
