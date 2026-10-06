@@ -714,6 +714,16 @@ describe("EntryLru", () => {
     const lru = new EntryLru(1000);
     lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
     lru.set("new", stored(100, { timestamp: 1500, revalidate: 1 }));
+    expect(lru.holdsLive(2001)).toBe(true);
+    expect(lru.size).toBe(1);
+    expect(lru.holdsLive(2501)).toBe(false);
+    expect(lru.size).toBe(0);
+  });
+
+  it("drops the entries past revalidate as it finds the oldest", () => {
+    const lru = new EntryLru(1000);
+    lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
+    lru.set("new", stored(100, { timestamp: 1500, revalidate: 1 }));
     expect(lru.oldestTimestamp(2001)).toBe(1500);
     expect(lru.size).toBe(1);
     expect(lru.oldestTimestamp()).toBe(1500);

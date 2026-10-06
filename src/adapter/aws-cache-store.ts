@@ -966,7 +966,12 @@ export class TrackedTagMarkers {
    * for ({@link behindInRender}). Rejects only as `render` does.
    */
   async catchUp<T>(render: () => Promise<T>): Promise<T> {
-    if (this.refreshIntervalMs > 0 && this.behind && this.holdsEntries) {
+    if (this.refreshIntervalMs > 0 && this.behind) {
+      if (!this.holdsEntries) {
+        // Not caught up, so no grace: an entry stored meanwhile, by another
+        // request, makes the render's lookups wait at the plain line.
+        return render();
+      }
       await this.refresh().catch((error) => {
         console.error("Error refreshing cache tags:", error);
       });
@@ -1362,7 +1367,7 @@ export class TrackedTagMarkers {
    * always answered with, rather than a read on every request while DynamoDB
    * is unavailable.
    */
-  private async readInto(tags: string[]): Promise<boolean> {
+  private async readInto(tags: string[], again = false): Promise<boolean> {
     if (tags.length === 0) {
       return true;
     }
@@ -1370,12 +1375,14 @@ export class TrackedTagMarkers {
     const forgotten = this.forgotten;
     try {
       const read = await this.markers!.read(tags);
-      if (this.forgotten !== forgotten) {
+      if (this.forgotten !== forgotten && !again) {
         // Read before a forget - across a freeze, as like as not - so as
         // stale as what it forgot. Read again rather than leave the tags
         // untracked: whoever waits on this read (`reading`) judges entries
-        // by it next, and an untracked tag counts for nothing.
-        return await this.readInto(tags);
+        // by it next, and an untracked tag counts for nothing. Once: a run
+        // of forgets (a truncated log, query after query) would otherwise
+        // keep them waiting, and the second read began after the first.
+        return await this.readInto(tags, true);
       }
       for (const tag of tags) {
         this.unread.delete(tag);
@@ -1392,8 +1399,8 @@ export class TrackedTagMarkers {
       return true;
     } catch (error) {
       console.error("Error reading tag markers:", error);
-      if (this.forgotten !== forgotten) {
-        return this.readInto(tags);
+      if (this.forgotten !== forgotten && !again) {
+        return this.readInto(tags, true);
       }
       this.trackUnread(tags);
       for (const tag of tags) {

@@ -209,6 +209,21 @@ export class EntryLru {
     return oldest;
   }
 
+  /**
+   * Whether an entry not past `revalidate` at `at` is held, dropping the
+   * expired ones it passes on the way: usually the first entry answers.
+   */
+  holdsLive(at: number): boolean {
+    for (const [key, entry] of this.entries) {
+      if (at > entry.timestamp + entry.revalidate * 1000) {
+        this.delete(key);
+      } else {
+        return true;
+      }
+    }
+    return false;
+  }
+
   get size(): number {
     return this.entries.size;
   }

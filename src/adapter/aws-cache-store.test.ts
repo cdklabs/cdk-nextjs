@@ -453,6 +453,29 @@ describe("TrackedTagMarkers", () => {
     expect(markers.behindInRender).toBe(true);
   });
 
+  it("gives a render no grace when catchUp, holding nothing, did not catch up", async () => {
+    let clock = 1_000_000;
+    let held = false;
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      log: {
+        query: jest.fn(async () => ({ rows: [], truncated: false })),
+      } as unknown as RevalidationLog,
+      refreshIntervalMs: 1000,
+      clock: () => clock,
+    });
+    markers.judgeEntriesOf(
+      () => (held ? 0 : Infinity),
+      () => held,
+    );
+    clock += 1000 + TAG_REFRESH_GRACE_MS + 100;
+    await markers.catchUp(async () => {
+      // Another request stores an entry before this render's first lookup.
+      held = true;
+      expect(markers.behindInRender).toBe(true);
+    });
+  });
+
   it("gives a route handler, which no catch-up precedes, no grace more", async () => {
     let clock = 1_000_000;
     const markers = new TrackedTagMarkers({
@@ -463,6 +486,39 @@ describe("TrackedTagMarkers", () => {
     });
     clock += 1000 + TAG_REFRESH_GRACE_MS + 100;
     expect(markers.behindInRender).toBe(true);
+  });
+
+  it("reads again only once, however many forgets land meanwhile", async () => {
+    let clock = 1_000_000;
+    const releases: (() => void)[] = [];
+    const read = jest.fn(async () => {
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return new Map<string, TagMarker>([["posts", { revalidatedAt: 1 }]]);
+    });
+    const markers = new TrackedTagMarkers({
+      markers: { read } as unknown as TagMarkerTable,
+      log: {
+        query: jest.fn(async () => ({ rows: [], truncated: false })),
+      } as unknown as RevalidationLog,
+      refreshIntervalMs: 0,
+      clock: () => clock,
+    });
+    markers.judgeEntriesOf(() => 0);
+    const forget = async () => {
+      clock += MAX_REVALIDATION_LOG_GAP_MS + 1;
+      await markers.refresh();
+    };
+    const ensuring = markers.ensure(["posts"]);
+    await forget();
+    releases.shift()!();
+    await new Promise((resolve) => setImmediate(resolve));
+    await forget();
+    releases.shift()!();
+    await ensuring;
+    // A truncated log forgets on every query: waiting for a read no forget
+    // overtook would keep the requests waiting on this one for as long.
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(markers.get("posts")).toEqual({ revalidatedAt: 1 });
   });
 
   it("reads again what a read from before a forget found", async () => {

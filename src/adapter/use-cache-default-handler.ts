@@ -62,8 +62,10 @@ export function createDefaultUseCacheHandler(
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
   // Expired entries, which `get` drops anyway, neither hold `completeSince`'s
   // pruning back nor count as held for a refresh to wait for.
-  const oldestLive = () => memory.oldestTimestamp(now());
-  tags.judgeEntriesOf(oldestLive, () => oldestLive() < Infinity);
+  tags.judgeEntriesOf(
+    () => memory.oldestTimestamp(now()),
+    () => memory.holdsLive(now()),
+  );
 
   /**
    * Read the markers of whichever of `tagList` are untracked: first, when the
