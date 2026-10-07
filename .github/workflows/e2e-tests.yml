@@ -4,7 +4,26 @@ on:
     branches: [main]
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    # `ready_for_review`: a draft runs nothing (see `check-if-should-run`), so
+    # marking it ready is what starts its first run.
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    # A PR that changes only these runs nothing: no example deploys differently.
+    # GitHub matches them against the whole PR diff on every event, so the first
+    # push that touches anything else starts a run. Docs, and what only the
+    # e2e-harness workflow reads. Not YAML in general: the examples' pnpm
+    # catalog (the `next` they deploy) and these jobs' actions are YAML.
+    # GitHub only reads the first 300 changed files, so a larger PR can be
+    # skipped wrongly - the run after merge, on main, still catches it.
+    # Pushes to main always run.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/workflows/e2e-harness.yml"
+      - ".github/actions/build-nextjs/**"
+      - "scripts/e2e-harness/**"
+      - "scripts/e2e-*.sh"
+      - "test/deploy-tests-manifest.json"
+      - "test/harness-smoke-manifest.json"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -20,7 +39,8 @@ jobs:
     runs-on: ubuntu-24.04-arm
     # `github.event_name == 'push'` -> will run after merge to main
     # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
-    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
+    # `!github.event.pull_request.draft` -> won't run for a draft PR; every deploy job needs this one, so they are skipped too
+    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
     steps:
       - run: echo "Workflow should run"
 
