@@ -1426,6 +1426,10 @@ function fileOfTemplate(entries: readonly RouteEntry[]): Map<string, string> {
  * case-insensitively, as `resolveRoutes` does. `dynamicRoutes` is in Next.js's
  * priority order (static segment before `[param]` before `[...catchAll]`
  * before `[[...optional]]`), Pages Router data URLs included.
+ *
+ * A destination's positional captures are filled in from the match first: next
+ * 16.4's `collapseAdapterRoutes` folds a run of fallback shells (`/en/[slug]`,
+ * `/fr/[slug]`) into one rule whose destination is `/$1/[slug]`.
  */
 function resolveFile(
   pathname: string,
@@ -1436,8 +1440,11 @@ function resolveFile(
     return exact;
   }
   for (const route of routing.dynamicRoutes ?? []) {
-    if (new RegExp(route.sourceRegex, "i").test(pathname)) {
-      const template = route.destination?.split("?")[0];
+    const match = new RegExp(route.sourceRegex, "i").exec(pathname);
+    if (match) {
+      const template = route.destination
+        ?.split("?")[0]
+        .replace(/\$(\d+)/g, (_, index: string) => match[Number(index)] ?? "");
       return template === undefined ? undefined : files.get(template);
     }
   }

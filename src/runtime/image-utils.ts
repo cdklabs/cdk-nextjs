@@ -8,6 +8,7 @@
  * would be hoisted into the bundle where it cannot resolve. `image.ts` requires
  * it through `./next-modules` instead.
  */
+import { createHash } from "node:crypto";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { safeDecode, withoutPathPrefix } from "./util";
 
@@ -139,6 +140,23 @@ export class ImageTooLargeError extends Error {
     super(`S3 object ${key} is over images.maximumResponseBody`);
     this.name = "ImageTooLargeError";
   }
+}
+
+/**
+ * `extractEtag` from next's image optimizer, restated: next 16.4 moved it out
+ * of `next/dist/server/image-optimizer.js` (into `image-optimizer/extract-etag`),
+ * so the old export is `undefined` there and the new path is absent before it.
+ * The upstream etag is base64url-encoded, because it is weak-signed and ends up
+ * in a cache entry's name; without one the etag is the image's own hash.
+ */
+export function extractEtag(
+  etag: string | null | undefined,
+  imageBuffer: Buffer,
+): string {
+  if (etag) {
+    return Buffer.from(etag).toString("base64url");
+  }
+  return createHash("sha256").update(imageBuffer).digest("base64url");
 }
 
 /** `ImageError` from `next/dist/server/image-optimizer.js`. */

@@ -882,6 +882,28 @@ describe("what the edge routes, checked against what was packaged", () => {
       ).toThrow(/CloudFront sends "\/old" to the "default" group/);
     });
 
+    it("resolves a destination through a rule for a run of fallback shells", () => {
+      // next 16.4's `collapseAdapterRoutes` folds `/en/[slug]` and
+      // `/fr/[slug]` into one rule, with the matched prefix as `$1`.
+      const routing = {
+        beforeFiles: [{ source: "/old", destination: "/en/hello" }],
+        dynamicRoutes: [
+          {
+            sourceRegex: "^/(en|fr)/(?<nxtPslug>[^/]+?)(?:/)?$",
+            destination: "/$1/[slug]?nxtPslug=$nxtPslug",
+          },
+        ],
+      };
+      expect(() =>
+        assign(
+          [{ name: "en", routes: ["/en/**"] }],
+          routes("/en/[slug]", "/fr/[slug]"),
+          "",
+          { routing },
+        ),
+      ).toThrow(/CloudFront sends "\/old" to the "default" group/);
+    });
+
     it("skips an afterFiles source a route already serves, and parameterized destinations", () => {
       const routing = {
         // Never applied: `/pricing` is a route, and afterFiles yields to it.
