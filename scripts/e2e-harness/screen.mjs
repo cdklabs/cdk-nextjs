@@ -17,7 +17,8 @@
  *
  * - **edge / middleware** — cdk-nextjs throws during `next build` for any
  *   non-`nodejs` runtime (`assertNodeRuntimes`), so the fixture is unbuildable
- *   and no per-case `failed` entry can rescue it.
+ *   and no per-case `failed` entry can rescue it. A `middleware.*` counts as
+ *   edge, its default, unless it opts into `runtime: "nodejs"`.
  * - **skipped-upstream** — `describe.skip`, so the file reports "passing" in
  *   seconds without deploying anything. Adding it claims coverage that does not
  *   exist. This one over-reports, because the match is textual and some skips are
@@ -30,6 +31,10 @@
  *   The costliest screen to have been missing — it covers 236 of what were
  *   otherwise counted as candidates, and two files had already been added to
  *   `rules.include` on the strength of a 4s "pass".
+ * - **force-gate** — next.js 16.4's spelling of `skipDeployment`:
+ *   `// @force-gate !deploy` on a `describe`, which skips the suite. Only a file
+ *   whose every top-level suite is gated out in deploy mode is disqualified,
+ *   since one that keeps a suite still deploys it.
  * - **mode-gated** — the third spelling of the same trap, and the one that cost a
  *   deploy slot to find: the file's real cases sit inside `if (isNextStart)` or
  *   `if (isNextDev)`, and every other mode gets an empty
@@ -75,6 +80,8 @@ const TEST_RE = /\.test\.[tj]sx?$/;
  * first undercounts by ~17 files.
  */
 const EDGE_RUNTIME_RE = /runtime\s*[:=]\s*['"](experimental-)?edge['"]/;
+/** A middleware file's opt-in to the Node runtime: `config = { runtime: "nodejs" }`. */
+const NODE_RUNTIME_RE = /runtime\s*:\s*['"]nodejs['"]/;
 /**
  * An empty `it('should skip …', () => {})` — next.js's stub for the modes a
  * mode-gated file does not cover. `dev` in the title means dev is the excluded
@@ -82,6 +89,106 @@ const EDGE_RUNTIME_RE = /runtime\s*[:=]\s*['"](experimental-)?edge['"]/;
  */
 const MODE_GATED_STUB_RE =
   /it\(\s*(['"`])should skip (?!.*\bdev\b)[^'"`]*\1\s*,\s*\(\s*\)\s*=>\s*\{\s*\}\s*\)/;
+
+/**
+ * The `test/lib/gate/conditions.ts` values the harness runs under:
+ * `NEXT_TEST_MODE=deploy`, `IS_TURBOPACK_TEST=1` and `NEXT_ENABLE_ADAPTER=1`
+ * (`.github/workflows/e2e-harness.yml`), and none of the other env flags. A
+ * condition missing here (`cacheComponents`, read off the fixture's config) is
+ * unknown, which never disqualifies.
+ */
+const DEPLOY_GATE_CONDITIONS = {
+  mode: "deploy",
+  dev: false,
+  start: false,
+  deploy: true,
+  prod: true,
+  prefetching: true,
+  bundler: "turbopack",
+  turbopack: true,
+  rspack: false,
+  webpack: false,
+  adapter: true,
+  nodeMiddleware: false,
+  standaloneOutput: false,
+  turbopackDev: false,
+  turbopackBuild: false,
+  FIXME: false,
+};
+
+/**
+ * A `@force-gate` expression (`test/lib/gate/expr.ts`'s grammar: `!`, `&&`,
+ * `||`, `==`/`!=`/`===`/`!==`, parentheses, names, quoted strings, booleans)
+ * under {@link DEPLOY_GATE_CONDITIONS}: `true`, `false`, or `undefined` when it
+ * turns on a condition that isn't known up front.
+ */
+function evaluateGate(source) {
+  const tokens = source.match(/&&|\|\||[!=]==?|[!()]|'[^']*'|"[^"]*"|[A-Za-z_$][\w$]*/g) ?? [];
+  let i = 0;
+  const and = (a, b) => (a === false || b === false ? false : a === true && b === true ? true : undefined);
+  const or = (a, b) => (a === true || b === true ? true : a === false && b === false ? false : undefined);
+  const primary = () => {
+    const token = tokens[i++];
+    if (token === "(") {
+      const value = expression();
+      i++; // ")"
+      return value;
+    }
+    if (token === "!") {
+      const value = primary();
+      return value === undefined ? undefined : !value;
+    }
+    if (token === "true" || token === "false") return token === "true";
+    if (/^['"]/.test(token)) return token.slice(1, -1);
+    return DEPLOY_GATE_CONDITIONS[token];
+  };
+  const binary = () => {
+    let left = primary();
+    while (/^[!=]==?$/.test(tokens[i] ?? "")) {
+      const negate = tokens[i++].startsWith("!");
+      const right = primary();
+      left = left === undefined || right === undefined ? undefined : (left === right) !== negate;
+    }
+    return left;
+  };
+  const expression = () => {
+    let left = binary();
+    while (tokens[i] === "&&" || tokens[i] === "||") {
+      const op = tokens[i++];
+      const right = binary();
+      left = op === "&&" ? and(left, right) : or(left, right);
+    }
+    return left;
+  };
+  return expression();
+}
+
+/**
+ * Whether `@force-gate` pragmas skip every top-level `describe` in `text` under
+ * deploy mode. next.js 16.4 moved deploy exclusions from
+ * `nextTestSetup({ skipDeployment: true })` to `// @force-gate !deploy` on the
+ * suite, and a gated-out suite is skipped rather than failed: a file whose every
+ * suite is gated out reports a pass having deployed nothing, the
+ * `skipDeployment` trap again. A file with one suite left still deploys it, so
+ * it stays a candidate.
+ */
+function forceGatedOutOfDeploy(text) {
+  const lines = text.split("\n");
+  let suites = 0;
+  let gatedOut = 0;
+  for (let index = 0; index < lines.length; index++) {
+    if (!/^describe\b/.test(lines[index])) continue;
+    suites++;
+    for (let above = index - 1; above >= 0 && /^\s*\/\//.test(lines[above]); above--) {
+      const pragma = /^\s*\/\/\s*@force-gate\s+(.+?)\s*$/.exec(lines[above]);
+      if (pragma && evaluateGate(pragma[1]) === false) {
+        gatedOut++;
+        break;
+      }
+    }
+  }
+  return suites > 0 && gatedOut === suites;
+}
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -175,7 +282,14 @@ function screen(testFile, decided = []) {
   const fixture = walk(fixtureRoot(testFile));
   const sources = fixture.filter((p) => SOURCE_RE.test(p));
 
-  if (fixture.some((p) => /\/middleware\.[tj]sx?$/.test(p))) {
+  // `middleware.*` builds for the edge runtime unless it exports
+  // `config = { runtime: "nodejs" }`, which cdk-nextjs deploys like `proxy.*`.
+  if (
+    fixture.some(
+      (p) =>
+        /\/middleware\.[tj]sx?$/.test(p) && !NODE_RUNTIME_RE.test(read(p)),
+    )
+  ) {
     reasons.push("middleware");
   }
   if (sources.some((p) => EDGE_RUNTIME_RE.test(read(p)))) reasons.push("edge");
@@ -195,6 +309,9 @@ function screen(testFile, decided = []) {
   // branch may cover only some of a file's cases.
   if (/skipDeployment:\s*true/.test(testSourceText(testFile))) {
     reasons.push("skipDeployment");
+  }
+  if (forceGatedOutOfDeploy(testSourceText(testFile))) {
+    reasons.push("force-gate");
   }
   // `test/e2e/**/test-template/{{ toFileName name }}/…` is a scaffold for
   // `pnpm new-test`, not a test.
