@@ -1442,9 +1442,13 @@ function resolveFile(
   for (const route of routing.dynamicRoutes ?? []) {
     const match = new RegExp(route.sourceRegex, "i").exec(pathname);
     if (match) {
-      const template = route.destination
-        ?.split("?")[0]
-        .replace(/\$(\d+)/g, (_, index: string) => match[Number(index)] ?? "");
+      const template = route.destination?.split("?")[0].replace(
+        /\$([1-9]\d*)/g,
+        // A group that matched nothing (an absent `.rsc` suffix) is "", as
+        // in `replaceDestination`; an index past the last group stays as is.
+        (literal, index: string) =>
+          Number(index) < match.length ? (match[Number(index)] ?? "") : literal,
+      );
       const file = template === undefined ? undefined : files.get(template);
       // A destination that names no file is passed over, as `resolveRoutes`
       // does: a collapsed rule matched case-insensitively fills in `/EN/[slug]`.

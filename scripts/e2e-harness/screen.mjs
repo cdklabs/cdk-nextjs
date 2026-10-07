@@ -83,7 +83,8 @@ const EDGE_RUNTIME_RE = /runtime\s*[:=]\s*['"](experimental-)?edge['"]/;
 /** A middleware file's opt-in to the Node runtime: `config = { runtime: "nodejs" }`. */
 const NODE_RUNTIME_RE = /runtime\s*:\s*['"]nodejs['"]/;
 /** `source` less its comments, so a commented-out opt-in doesn't count. */
-const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\/|(^|[^:])\/\/.*$/gm, "$1");
+// A block comment only where a line starts one: `/*` is common inside a matcher.
+const withoutComments = (source) => source.replace(/^\s*\/\*[\s\S]*?\*\/|(^|[^:])\/\/.*$/gm, "$1");
 /**
  * An empty `it('should skip …', () => {})` — next.js's stub for the modes a
  * mode-gated file does not cover. `dev` in the title means dev is the excluded

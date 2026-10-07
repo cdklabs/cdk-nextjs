@@ -346,7 +346,8 @@ export class RuntimeImageOptimizer {
           buffer: result.buffer,
           contentType: result.contentType,
           cacheControl: null,
-          etag: result.etag,
+          // Encoded as for a route's response: `fetchInternalImage` does too.
+          etag: extractEtag(result.etag, result.buffer),
         };
       } catch (error) {
         const missing = error instanceof Error && error.name === "NoSuchKey";
