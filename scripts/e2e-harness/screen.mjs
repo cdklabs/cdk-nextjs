@@ -151,12 +151,20 @@ function evaluateGate(source) {
     }
     return left;
   };
-  const expression = () => {
+  // `&&` binds tighter than `||`, as in JS.
+  const conjunction = () => {
     let left = binary();
-    while (tokens[i] === "&&" || tokens[i] === "||") {
-      const op = tokens[i++];
-      const right = binary();
-      left = op === "&&" ? and(left, right) : or(left, right);
+    while (tokens[i] === "&&") {
+      i++;
+      left = and(left, binary());
+    }
+    return left;
+  };
+  const expression = () => {
+    let left = conjunction();
+    while (tokens[i] === "||") {
+      i++;
+      left = or(left, conjunction());
     }
     return left;
   };
