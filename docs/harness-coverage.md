@@ -37,7 +37,7 @@ verify, which every e2e-harness run does in shard 1).
 | Of next.js's 1213 e2e files   | Count   |
 | ----------------------------- | ------- |
 | edge-free (the hard ceiling)  | 1009    |
-| candidates after every screen | **166** |
+| candidates after every screen | **165** |
 | deployed and screened         | 472     |
 | in `rules.include`            | 425     |
 | plus, per-case, in `suites`   | 10      |
@@ -46,7 +46,7 @@ verify, which every e2e-harness run does in shard 1).
 calls with `// @force-gate !deploy` pragmas, and in doing so dropped the deploy
 exclusion from about 110 files that had carried it, so those now run in deploy
 mode upstream. With about 30 files new in 16.4 and some 25 whose deploy
-exclusion now covers only some of their suites, that makes 166 candidates, none
+exclusion now covers only some of their suites, that makes 165 candidates, none
 deployed yet. One more is `app-dir/treeshake-mw`: its `middleware.ts` opts into
 the Node runtime, and the middleware screen used to count every `middleware.*`
 as edge. Two included files, `prefetch-app-shell-cached-gsp` and

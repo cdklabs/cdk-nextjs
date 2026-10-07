@@ -113,7 +113,10 @@ const DEPLOY_GATE_CONDITIONS = {
   standaloneOutput: false,
   turbopackDev: false,
   turbopackBuild: false,
+  react18: false,
+  wasm: false,
   FIXME: false,
+  TODO: false,
 };
 
 /**
@@ -125,8 +128,16 @@ const DEPLOY_GATE_CONDITIONS = {
 function evaluateGate(source) {
   const tokens = source.match(/&&|\|\||[!=]==?|[!()]|'[^']*'|"[^"]*"|[A-Za-z_$][\w$]*/g) ?? [];
   let i = 0;
-  const and = (a, b) => (a === false || b === false ? false : a === true && b === true ? true : undefined);
-  const or = (a, b) => (a === true || b === true ? true : a === false && b === false ? false : undefined);
+  // Condition values are coerced by truthiness, as next.js does (`mode` is a string).
+  const truth = (value) => (value === undefined ? undefined : Boolean(value));
+  const and = (a, b) => {
+    const [x, y] = [truth(a), truth(b)];
+    return x === false || y === false ? false : x && y ? true : undefined;
+  };
+  const or = (a, b) => {
+    const [x, y] = [truth(a), truth(b)];
+    return x === true || y === true ? true : x === false && y === false ? false : undefined;
+  };
   const primary = () => {
     const token = tokens[i++];
     if (token === "(") {
@@ -151,24 +162,17 @@ function evaluateGate(source) {
     }
     return left;
   };
-  // `&&` binds tighter than `||`, as in JS.
-  const conjunction = () => {
-    let left = binary();
-    while (tokens[i] === "&&") {
-      i++;
-      left = and(left, binary());
-    }
-    return left;
-  };
+  // `&&` and `||` share one precedence level, left to right, as in expr.ts.
   const expression = () => {
-    let left = conjunction();
-    while (tokens[i] === "||") {
-      i++;
-      left = or(left, conjunction());
+    let left = binary();
+    while (tokens[i] === "&&" || tokens[i] === "||") {
+      const op = tokens[i++];
+      const right = binary();
+      left = op === "&&" ? and(left, right) : or(left, right);
     }
     return left;
   };
-  return expression();
+  return truth(expression());
 }
 
 /**
@@ -182,10 +186,14 @@ function evaluateGate(source) {
  */
 function forceGatedOutOfDeploy(text) {
   const lines = text.split("\n");
+  // The outermost suites: column 0 usually, but some files declare theirs inside
+  // a loop (`filesystem-cache` does, in a `for (const cacheEnabled of …)`).
+  const indents = lines.flatMap((line) => /^(\s*)describe\b/.exec(line)?.[1].length ?? []);
+  const outer = Math.min(...indents);
   let suites = 0;
   let gatedOut = 0;
   for (let index = 0; index < lines.length; index++) {
-    if (!/^describe\b/.test(lines[index])) continue;
+    if (/^(\s*)describe\b/.exec(lines[index])?.[1].length !== outer) continue;
     suites++;
     for (let above = index - 1; above >= 0 && /^\s*\/\//.test(lines[above]); above--) {
       const pragma = /^\s*\/\/\s*@force-gate\s+(.+?)\s*$/.exec(lines[above]);
@@ -311,14 +319,16 @@ function screen(testFile, decided = []) {
   // early-returns, and jest reports it as passing in ~4s having deployed
   // nothing. next.js declaring a file out of scope for deploy mode is the same
   // signal as `isNextDeploy`, just spelled in the setup call.
-  // Read through relative imports for this one screen only. `skipDeployment: true`
-  // in a shared helper replaces every file that calls it, so following the import
-  // cannot over-report; the mode gates above can, since a helper's `isNextDev`
-  // branch may cover only some of a file's cases.
-  if (/skipDeployment:\s*true/.test(testSourceText(testFile))) {
+  // Read through relative imports for this screen and the `@force-gate` one.
+  // `skipDeployment: true` in a shared helper replaces every file that calls it,
+  // so following the import cannot over-report; the mode gates above can, since a
+  // helper's `isNextDev` branch may cover only some of a file's cases. A helper's
+  // suites are the file's suites, so `@force-gate` counts them too.
+  const sourceText = testSourceText(testFile);
+  if (/skipDeployment:\s*true/.test(sourceText)) {
     reasons.push("skipDeployment");
   }
-  if (forceGatedOutOfDeploy(testSourceText(testFile))) {
+  if (forceGatedOutOfDeploy(sourceText)) {
     reasons.push("force-gate");
   }
   // `test/e2e/**/test-template/{{ toFileName name }}/…` is a scaffold for

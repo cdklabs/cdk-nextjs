@@ -874,9 +874,9 @@
     "included": 425,
     "included-in-part": 11,
     "edge-free": 1009,
-    "candidates": 166,
+    "candidates": 165,
     "disqualified-by": {
-      "force-gate": 250,
+      "force-gate": 252,
       "middleware": 128,
       "edge": 126,
       "skipped-upstream": 109,
