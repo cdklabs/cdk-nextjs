@@ -28,11 +28,11 @@ on:
         default: "../test/deploy-tests-manifest.json"
         type: string
       shard_total:
-        description: "How many parallel shards to split the test files across (one stack each). 1 reproduces the old serial run."
-        default: "10"
+        description: "How many shards to split each type's test files across (one stack each). Empty means the type's default: 15 for global-containers, 10 for the others. 1 reproduces the old serial run."
+        default: ""
         type: string
       nextjs_type:
-        description: "Which root construct to deploy the fixtures with. The schedule always runs global-functions."
+        description: "Which root construct to deploy the fixtures with. `all` runs every type, as the schedule does."
         default: global-functions
         type: choice
         options:
@@ -40,6 +40,7 @@ on:
           - regional-functions
           - global-containers
           - regional-containers
+          - all
   schedule:
     # Every sixth day of the month at 14:00 UTC — morning on both US coasts, and
     # the run's ceiling leaves the result the same day. Not daily, because a run
@@ -72,7 +73,8 @@ concurrency:
   # idle-looking shard stack just as that run's shard warms into it.
   #
   # GitHub keeps one *pending* run per group and cancels an older pending one, so
-  # dispatch a second type only once the first has started. A cancelled pending
+  # dispatch a second type only once the first has started - or dispatch `all`,
+  # which runs every type in one run, as the schedule does. A cancelled pending
   # run - the scheduled one included - loses no sweep: every run sweeps.
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -95,8 +97,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      shards: ${{ steps.plan.outputs.shards }}
-      total: ${{ steps.plan.outputs.total }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      max-parallel: ${{ steps.plan.outputs.max-parallel }}
       nextjs-ref: ${{ steps.plan.outputs.nextjs-ref }}
       cache-key: ${{ steps.plan.outputs.cache-key }}
     steps:
@@ -140,11 +142,34 @@ jobs:
       - name: Plan the shards and the cache key
         id: plan
         env:
-          SHARD_TOTAL: ${{ inputs.shard_total || '10' }}
+          # Empty on the schedule, which has no inputs: every type, at each
+          # type's default shard count.
+          NEXTJS_TYPE: ${{ inputs.nextjs_type || 'all' }}
+          SHARD_TOTAL: ${{ inputs.shard_total }}
           NEXTJS_REF: ${{ steps.resolve.outputs.sha }}
-        # `shard_total` is bounded above because every shard is a CloudFront
-        # distribution and a runner of its own: past a couple of dozen the setup
-        # cost dominates and the account starts to notice.
+        # One matrix entry per (type, shard). `shard_total` is bounded above
+        # because every shard is a runner and, on the Global types, a CloudFront
+        # distribution of its own: past a couple of dozen the setup cost dominates
+        # and the account starts to notice.
+        #
+        # Global Containers defaults to 15 shards: ~4.3 minutes a file, so 10 do
+        # not fit the run step's 150-minute cap. The others fit in 10.
+        #
+        # `all` lists the types in the order their results matter most - Global
+        # Functions first, the type a release is checked on - and caps the run at
+        # MAX_PARALLEL jobs at once, so a free slot goes to the next entry rather
+        # than waiting for a whole type to finish. 10 is today's single-type peak:
+        # at most 10 CloudFront distributions and ECR pulls at any moment, under
+        # the account's CloudFront response-headers-policy quota (3 per
+        # distribution), and the org's concurrent-job limit is not one run's to
+        # take. Shards of different types never share a stack: every type but
+        # Global Functions has a stack infix (`harness_stack_name`). One type runs
+        # all its shards at once, as before.
+        #
+        # `stagger` spaces the first wave's warm-ups 20s apart, which CloudFront's
+        # API rate limit needs; an entry that starts later, in a slot another
+        # freed, is spaced by when that slot freed. `screen` marks the one entry
+        # that checks the manifest's screening counts.
         #
         # The cache key pins everything the cached tree was built by and for: the
         # next.js commit, and the runner image and node major that its node_modules
@@ -152,14 +177,32 @@ jobs:
         # every entry at once.
         run: |
           node -e '
-            const total = Number(process.env.SHARD_TOTAL);
-            if (!Number.isInteger(total) || total < 1 || total > 20) {
-              throw new Error(`shard_total must be an integer in 1..20, got ${process.env.SHARD_TOTAL}`);
+            const TYPES = ["global-functions", "regional-functions", "regional-containers", "global-containers"];
+            const DEFAULT_SHARDS = { "global-containers": 15 };
+            const MAX_PARALLEL = 10;
+            const requested = process.env.NEXTJS_TYPE;
+            const types = requested === "all" ? TYPES : [requested];
+            if (!types.every((type) => TYPES.includes(type))) {
+              throw new Error(`nextjs_type must be one of ${TYPES.join(", ")} or all, got ${requested}`);
             }
+            const include = [];
+            for (const type of types) {
+              const total = Number(process.env.SHARD_TOTAL || DEFAULT_SHARDS[type] || 10);
+              if (!Number.isInteger(total) || total < 1 || total > 20) {
+                throw new Error(`shard_total must be an integer in 1..20, got ${process.env.SHARD_TOTAL}`);
+              }
+              for (let shard = 1; shard <= total; shard++) {
+                include.push({ type, shard, total });
+              }
+            }
+            const maxParallel = types.length === 1 ? include.length : MAX_PARALLEL;
+            include.forEach((entry, index) => {
+              entry.stagger = index < maxParallel ? index * 20 : 0;
+              entry.screen = index === 0;
+            });
             const ref = process.env.NEXTJS_REF;
-            const shards = Array.from({ length: total }, (_, i) => i + 1);
-            console.log(`shards=${JSON.stringify(shards)}`);
-            console.log(`total=${total}`);
+            console.log(`matrix=${JSON.stringify({ include })}`);
+            console.log(`max-parallel=${maxParallel}`);
             console.log(`nextjs-ref=${ref}`);
             console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref}`);
           ' >>"$GITHUB_OUTPUT"
@@ -221,6 +264,7 @@ jobs:
           key: ${{ needs.plan.outputs.cache-key }}
 
   harness:
+    name: harness (${{ matrix.type }} ${{ matrix.shard }}/${{ matrix.total }})
     needs: [plan, nextjs]
     runs-on: ubuntu-24.04
     # The sum of the capped steps below - warm 25, run 150, delete 65 - plus ~50
@@ -236,13 +280,15 @@ jobs:
       # that its own `always()` step is what deletes. Cancelling the others would
       # leave those to the age-floored sweep a week later.
       fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+      # See the `plan` job: every shard of one type at once, or 10 jobs at a
+      # time across all of them.
+      max-parallel: ${{ fromJSON(needs.plan.outputs.max-parallel) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       TEST_FILTERS: ${{ inputs.test_filters || '../test/deploy-tests-manifest.json' }}
       # Read by every harness script, through common.sh. Job-wide, so that warm,
       # deploy and sweep all resolve the same type's stack name.
-      HARNESS_NEXTJS_TYPE: ${{ inputs.nextjs_type || 'global-functions' }}
+      HARNESS_NEXTJS_TYPE: ${{ matrix.type }}
       # The per-file budget `createNext` - build, deploy and all - runs inside. The
       # Containers types add an image build and push and an ECS rollout to every
       # deploy, which the Functions types' 240s does not fit. The Global types
@@ -251,11 +297,12 @@ jobs:
       # hotswap cannot apply, and the full update then waits on CloudFront -
       # 8-10 minutes measured on 2026-09-28. At 240s such a file failed wholesale,
       # and its retry spent its own 240s waiting for that same update to finish.
-      NEXT_E2E_TEST_TIMEOUT: ${{ startsWith(inputs.nextjs_type || 'global-functions', 'global-') && '900000' || (endsWith(inputs.nextjs_type || 'global-functions', '-containers') && '480000' || '240000') }}
+      NEXT_E2E_TEST_TIMEOUT: ${{ startsWith(matrix.type, 'global-') && '900000' || (endsWith(matrix.type, '-containers') && '480000' || '240000') }}
       # The stack this shard owns, read by `harness_stack_name` in
       # scripts/e2e-harness/common.sh. Every step below that touches AWS - warm,
       # deploy, sweep - resolves the same name from it, which is the whole of what
-      # keeps two shards from deploying into each other.
+      # keeps two shards from deploying into each other. With the type's infix,
+      # which keeps shard N of two types apart in an `all` run.
       HARNESS_SHARED_STACK_SUFFIX: shard-${{ matrix.shard }}
     steps:
       - name: Checkout cdk-nextjs
@@ -327,11 +374,12 @@ jobs:
         # Staggered, and retried once. Ten shards creating a distribution in the
         # same minute trip CloudFront's API rate limit (`CreateFunction`: "Rate
         # exceeded"), and a failed create rolls back, so that shard runs nothing.
+        # The plan job computes the delay (`stagger`).
         # A retry redeploys over the ROLLBACK_COMPLETE stack, which `cdk deploy`
         # deletes and recreates.
         timeout-minutes: 25
         run: |
-          sleep $(( (${{ matrix.shard }} - 1) * 20 ))
+          sleep ${{ matrix.stagger }}
           ./scripts/e2e-warm.sh || { echo "::warning::warming failed once; retrying"; sleep 60; ./scripts/e2e-warm.sh; }
         env:
           ADAPTER_DIR: ${{ github.workspace }}
@@ -379,7 +427,7 @@ jobs:
         # `--retries 1` explicitly: `run-tests.js` defaults to 2, and every retry
         # is a full build and deploy, so a consistently failing slow file would
         # otherwise take three of them out of the job's time budget.
-        run: node run-tests.js --timings -c 1 --retries 1 --type e2e -g ${{ matrix.shard }}/${{ needs.plan.outputs.total }}
+        run: node run-tests.js --timings -c 1 --retries 1 --type e2e -g ${{ matrix.shard }}/${{ matrix.total }}
 
       # Re-assumed rather than relied on: this is the step that deletes a stack
       # holding a CloudFront distribution, and it runs under `always()` - after a
@@ -418,7 +466,7 @@ jobs:
         # Once per run, in a job that already has the next.js checkout, and only
         # against the default ref - the counts are recorded for that one. Without
         # it, the counts the README quotes go stale silently on a `next` upgrade.
-        if: ${{ !cancelled() && matrix.shard == 1 && !inputs.nextjs_ref }}
+        if: ${{ !cancelled() && matrix.screen && !inputs.nextjs_ref }}
         run: node scripts/e2e-harness/screen.mjs --next nextjs --check
 
   sweep:
