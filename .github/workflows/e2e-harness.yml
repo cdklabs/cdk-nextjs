@@ -6,8 +6,8 @@
 # correctness signal that no fixture app of ours could give. See
 # scripts/e2e-harness/README.md.
 #
-# The test files are split across `shard_total` parallel jobs, each with a shared
-# stack of its own (`hrns-shard-<n>`). A stack can only hold one app at a time, so
+# Each type's test files are split across `shard_total` parallel jobs, each with
+# a shared stack of its own (`hrns-shard-<n>`, with the type's infix). A stack can only hold one app at a time, so
 # parallelism has to come from more stacks - see "Sharding" in the README.
 #
 # Every shard needs a built vercel/next.js checkout, which sharding multiplies
@@ -28,7 +28,7 @@ on:
         default: "../test/deploy-tests-manifest.json"
         type: string
       shard_total:
-        description: "How many shards to split each type's test files across (one stack each). Empty means the type's default: 15 for global-containers, 10 for the others. 1 reproduces the old serial run."
+        description: "How many shards to split each type's test files across (one stack each). Empty means the type's default: 15 for global-containers, 10 for the others. With `all` it applies to every type, and under 15 Global Containers' slices outrun the run step's cap. 1 reproduces the old serial run."
         default: ""
         type: string
       nextjs_type:
@@ -43,7 +43,7 @@ on:
           - all
   schedule:
     # Every sixth day of the month at 14:00 UTC — morning on both US coasts, and
-    # the run's ceiling leaves the result the same day. Not daily, because a run
+    # the run's ~11 hours land the result that evening, US time. Not daily, because a run
     # ships a deployment per test file and nothing in the suite changes between two
     # consecutive days that a run would catch; `e2e-tests.yml` is still the
     # per-commit gate.
@@ -152,24 +152,29 @@ jobs:
         # distribution of its own: past a couple of dozen the setup cost dominates
         # and the account starts to notice.
         #
-        # Global Containers defaults to 15 shards: ~4.3 minutes a file, so 10 do
-        # not fit the run step's 150-minute cap. The others fit in 10.
+        # TYPES holds every per-type setting, which the harness job reads from its
+        # matrix entry: `shards`, the default shard count; `timeout`, the
+        # NEXT_E2E_TEST_TIMEOUT (see that job); `containers`, whether it builds
+        # images. Global Containers defaults to 15 shards: ~4.3 minutes a file,
+        # so 10 do not fit the run step's 150-minute cap. The others fit in 10.
         #
         # `all` lists the types in the order their results matter most - Global
         # Functions first, the type a release is checked on - and caps the run at
         # MAX_PARALLEL jobs at once, so a free slot goes to the next entry rather
-        # than waiting for a whole type to finish. 10 is today's single-type peak:
-        # at most 10 CloudFront distributions and ECR pulls at any moment, under
-        # the account's CloudFront response-headers-policy quota (3 per
-        # distribution), and the org's concurrent-job limit is not one run's to
-        # take. Shards of different types never share a stack: every type but
-        # Global Functions has a stack infix (`harness_stack_name`). One type runs
-        # all its shards at once, as before.
+        # than waiting for a whole type to finish. 10 is what a run of any other
+        # single type peaks at: at most 10 CloudFront distributions and ECR pulls
+        # at any moment, under the account's CloudFront response-headers-policy
+        # quota (3 per distribution), and the org's concurrent-job limit is not
+        # one run's to take. Shards of different types never share a stack: every
+        # type but Global Functions has a stack infix (`harness_stack_name`). One
+        # type runs all its shards at once, as before - 15 for Global Containers,
+        # whose 45 policies fit the account's raised quota of 100.
         #
-        # `stagger` spaces the first wave's warm-ups 20s apart, which CloudFront's
-        # API rate limit needs; an entry that starts later, in a slot another
-        # freed, is spaced by when that slot freed. `screen` marks the one entry
-        # that checks the manifest's screening counts.
+        # `stagger` spaces warm-ups 20s apart, which CloudFront's API rate limit
+        # needs. It repeats every MAX_PARALLEL entries: the shards of one wave end
+        # within minutes of each other, so the next wave's entries start nearly
+        # together too. `screen` marks the one entry that checks the manifest's
+        # screening counts.
         #
         # The cache key pins everything the cached tree was built by and for: the
         # next.js commit, and the runner image and node major that its node_modules
@@ -177,27 +182,32 @@ jobs:
         # every entry at once.
         run: |
           node -e '
-            const TYPES = ["global-functions", "regional-functions", "regional-containers", "global-containers"];
-            const DEFAULT_SHARDS = { "global-containers": 15 };
+            const TYPES = {
+              "global-functions": { shards: 10, timeout: 900000, containers: false },
+              "regional-functions": { shards: 10, timeout: 240000, containers: false },
+              "regional-containers": { shards: 10, timeout: 480000, containers: true },
+              "global-containers": { shards: 15, timeout: 900000, containers: true },
+            };
             const MAX_PARALLEL = 10;
             const requested = process.env.NEXTJS_TYPE;
-            const types = requested === "all" ? TYPES : [requested];
-            if (!types.every((type) => TYPES.includes(type))) {
-              throw new Error(`nextjs_type must be one of ${TYPES.join(", ")} or all, got ${requested}`);
+            const types = requested === "all" ? Object.keys(TYPES) : [requested];
+            if (!types.every((type) => Object.hasOwn(TYPES, type))) {
+              throw new Error(`nextjs_type must be one of ${Object.keys(TYPES).join(", ")} or all, got ${requested}`);
             }
             const include = [];
             for (const type of types) {
-              const total = Number(process.env.SHARD_TOTAL || DEFAULT_SHARDS[type] || 10);
+              const { shards, timeout, containers } = TYPES[type];
+              const total = Number(process.env.SHARD_TOTAL || shards);
               if (!Number.isInteger(total) || total < 1 || total > 20) {
                 throw new Error(`shard_total must be an integer in 1..20, got ${process.env.SHARD_TOTAL}`);
               }
               for (let shard = 1; shard <= total; shard++) {
-                include.push({ type, shard, total });
+                include.push({ type, shard, total, timeout, containers });
               }
             }
             const maxParallel = types.length === 1 ? include.length : MAX_PARALLEL;
             include.forEach((entry, index) => {
-              entry.stagger = index < maxParallel ? index * 20 : 0;
+              entry.stagger = (index % maxParallel) * 20;
               entry.screen = index === 0;
             });
             const ref = process.env.NEXTJS_REF;
@@ -210,8 +220,8 @@ jobs:
 
   nextjs:
     # Builds vercel/next.js once for the whole run, into a cache every shard
-    # restores. Sharding multiplies this cost rather than dividing it - ten shards
-    # start at the same instant, so none can benefit from another's save - and it
+    # restores. Sharding multiplies this cost rather than dividing it - a run's
+    # first shards start at the same instant, so none can benefit from another's save - and it
     # is the largest fixed cost left in a run, so it has to happen exactly once.
     #
     # On a hit this job is a lookup and nothing else: `lookup-only` skips the
@@ -297,7 +307,8 @@ jobs:
       # hotswap cannot apply, and the full update then waits on CloudFront -
       # 8-10 minutes measured on 2026-09-28. At 240s such a file failed wholesale,
       # and its retry spent its own 240s waiting for that same update to finish.
-      NEXT_E2E_TEST_TIMEOUT: ${{ startsWith(matrix.type, 'global-') && '900000' || (endsWith(matrix.type, '-containers') && '480000' || '240000') }}
+      # The values are in the plan job's TYPES.
+      NEXT_E2E_TEST_TIMEOUT: ${{ matrix.timeout }}
       # The stack this shard owns, read by `harness_stack_name` in
       # scripts/e2e-harness/common.sh. Every step below that touches AWS - warm,
       # deploy, sweep - resolves the same name from it, which is the whole of what
@@ -360,7 +371,7 @@ jobs:
         # warming at once hit ECR Public's rate limit (429 Too Many Requests) on
         # both of the warm step's attempts, and two shards ran nothing. An
         # authenticated pull has a far higher limit. The token lasts 12 hours.
-        if: ${{ endsWith(env.HARNESS_NEXTJS_TYPE, '-containers') }}
+        if: ${{ matrix.containers }}
         run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
 
       - name: Warm this shard's stack
@@ -380,7 +391,7 @@ jobs:
         timeout-minutes: 25
         run: |
           sleep ${{ matrix.stagger }}
-          ./scripts/e2e-warm.sh || { echo "::warning::warming failed once; retrying"; sleep 60; ./scripts/e2e-warm.sh; }
+          ./scripts/e2e-warm.sh || { echo "::warning::warming failed once; retrying"; sleep $((60 + ${{ matrix.stagger }})); ./scripts/e2e-warm.sh; }
         env:
           ADAPTER_DIR: ${{ github.workspace }}
 

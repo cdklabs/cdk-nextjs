@@ -151,9 +151,10 @@ running its own slice of that type's file list.
 
 A run of one type starts all its shards at once. A run of `all` (the schedule)
 lists 45 jobs, Global Functions first, then Regional Functions, Regional
-Containers and Global Containers, and runs at most 10 at a time, which is 9 to 10
+Containers and Global Containers, and runs at most 10 at a time, which is about 11
 hours end to end (about 95 shard-hours: Global Containers' 15 shards take about
-2.5 hours each, the others about 2). Ten is the single-type peak the account already handles: no
+2.5 hours each, the others about 2; the shards of one type end together, so the
+last five Global Containers shards run with half the slots idle). Ten is the single-type peak the account already handles: no
 more CloudFront distributions or ECR pulls at once than a Global Functions run,
 under the CloudFront response-headers-policy quota (3 per distribution), and
 no more of the org's concurrent jobs than the schedule has always taken. A slot goes to the next job as soon as
@@ -163,7 +164,8 @@ Global Functions regression shows up first, about 2 hours in.
 
 To check the workflow itself rather than compatibility, dispatch `all` with
 `shard_total: 1` and `test_filters: ../test/harness-smoke-manifest.json`: one
-file on each type, four jobs, about half an hour.
+file on each type, four jobs, about an hour (Global Containers' ~15-minute warm-up
+and its delete are most of it).
 
 The slice comes from next.js's own `run-tests.js -g <n>/<N>`, which splits
 **after** `NEXT_EXTERNAL_TESTS_FILTERS` has been applied — `run-tests.js` filters
@@ -200,7 +202,7 @@ cancels. It is one group for every type, not one per type: each run's
 account-wide sweep could otherwise delete another type's idle-looking shard stack
 as that run warms into it. GitHub keeps only one _pending_ run per group, so
 dispatch a second type once the first has started, not while one is queued, or
-dispatch `all`. A dispatch on a schedule day waits behind the schedule's 9 to 10
+dispatch `all`. A dispatch on a schedule day waits behind the schedule's ~11
 hours. A
 pending run that gets cancelled that way, the scheduled one included, loses no
 sweep: every run sweeps, not just the scheduled one.
@@ -544,7 +546,8 @@ pass.
 each screen, and how many are already included. Regenerate it with `--write`
 whenever `next` is upgraded; `--check` exits nonzero if it has drifted, which is
 the only thing that keeps those numbers worth quoting. The workflow runs it in
-shard 1 of every run against the default next.js ref.
+the first job of every run against the default next.js ref (Global Functions
+shard 1 in an `all` run).
 
 Passing every screen makes a file a _candidate_, not a pass. It still has to
 be deployed and watched, and anything that fails gets root-caused and given a

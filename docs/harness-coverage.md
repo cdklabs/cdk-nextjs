@@ -61,8 +61,8 @@ each scheduled run re-runs what is already included.
 
 ### Which types the harness proves
 
-The harness runs on all four types: the schedule on `NextjsGlobalFunctions`, the
-other three by `workflow_dispatch` (`nextjs_type`) or by hand, with
+The harness runs on all four types, on the schedule and by `workflow_dispatch`
+(`nextjs_type`, `all` for every type) or by hand, with
 `NextjsRegionalFunctions` behind `scripts/e2e-harness/stage-proxy.mjs`, which puts
 back the stage prefix the harness would otherwise drop. The findings whose
 plumbing differs per deployment type are also back-filled into
