@@ -3,6 +3,7 @@
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
+import type { CacheControl } from "next/dist/server/lib/cache-control";
 import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import { IncrementalCacheValue } from "next/dist/server/response-cache";
 import { markerClock } from "./aws-cache-store";
@@ -126,11 +127,15 @@ export class MemoryCacheHandler {
    * `Date.now()` drifts from it for as long as the process lives: an entry
    * stamped ahead of it looked newer than a `revalidateTag` run within the
    * drift, and was served for the whole memory TTL.
+   *
+   * `cacheControl` is the lifetime the entry was rendered with, handed back
+   * from {@link get} as the S3 layer does; see `getCacheControl`.
    */
   async set(
     cacheKey: string,
     data: IncrementalCacheValue | null,
     lastModified?: number,
+    cacheControl?: CacheControl,
   ): Promise<void> {
     if (!data) {
       // Delete from memory cache
@@ -146,6 +151,7 @@ export class MemoryCacheHandler {
     const cacheHandlerValue: CacheHandlerValue = {
       lastModified: lastModified ?? markerClock(),
       value: data,
+      cacheControl,
     };
 
     const entry: MemoryCacheEntry = {

@@ -15,6 +15,7 @@ import {
 import type { IncrementalCacheValue } from "next/dist/server/response-cache";
 import {
   GetCacheHandlerContext,
+  getCacheControl,
   getTags,
   SetCacheHandlerContext,
 } from "./cache-utils";
@@ -125,6 +126,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
           cacheKey,
           s3Result.value,
           s3Result.lastModified,
+          s3Result.cacheControl,
         );
       }
       return s3Result;
@@ -156,7 +158,12 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
     }
     // Runtime: both layers, where `null` is a delete.
     this.debug(`Cache ${data ? "write" : "delete"}: ${cacheKey}`);
-    await this.memoryHandler.set(cacheKey, data);
+    await this.memoryHandler.set(
+      cacheKey,
+      data,
+      undefined,
+      getCacheControl(ctx),
+    );
     await this.s3DynamoHandler.set(cacheKey, data, ctx);
   }
 

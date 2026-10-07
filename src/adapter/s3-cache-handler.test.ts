@@ -229,6 +229,50 @@ describe("S3DynamoCacheHandler", () => {
       expect(mockS3Send).toHaveBeenCalledWith(expect.any(GetObjectCommand));
     });
 
+    it("hands back the lifetime the entry was stored with", async () => {
+      // next 16.4 ages an entry by this over its own per-process lifetimes, so
+      // an instance that never rendered the page still revalidates it on time.
+      const stored = (cacheControl: unknown) =>
+        mockS3Send.mockResolvedValueOnce({
+          Body: {
+            transformToString: jest.fn().mockResolvedValue(
+              JSON.stringify({
+                lastModified: 1,
+                value: { kind: CachedRouteKind.APP_PAGE, html: "<p/>" },
+                cacheControl,
+              }),
+            ),
+          },
+        });
+      const get = () =>
+        handler.get("/isr/1", {
+          kind: IncrementalCacheKind.APP_PAGE,
+          isFallback: false,
+        });
+
+      stored({ revalidate: 60, expire: 300 });
+      expect((await get())?.cacheControl).toEqual({
+        revalidate: 60,
+        expire: 300,
+      });
+      stored({ revalidate: false });
+      expect((await get())?.cacheControl).toEqual({
+        revalidate: false,
+        expire: undefined,
+      });
+      // An entry stored before this, or a malformed one, leaves Next.js on the
+      // lifetime it knows.
+      for (const malformed of [
+        undefined,
+        { revalidate: 0 },
+        { expire: 5 },
+        "60",
+      ]) {
+        stored(malformed);
+        expect((await get())?.cacheControl).toBeUndefined();
+      }
+    });
+
     it("should return null when S3 object not found", async () => {
       mockS3Send.mockResolvedValueOnce({
         Body: null,
@@ -817,6 +861,35 @@ describe("S3DynamoCacheHandler", () => {
       expect(mockDynamoSend).toHaveBeenCalledWith(
         expect.any(UpdateItemCommand),
       );
+    });
+
+    it("stores a response entry's lifetime, and none for a fetch entry", async () => {
+      const page: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<p/>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      mockS3Send.mockResolvedValue({});
+      mockDynamoSend.mockResolvedValue({});
+      const storedBodies = () =>
+        (PutObjectCommand as unknown as jest.Mock).mock.calls.map(([input]) =>
+          JSON.parse(input.Body),
+        );
+
+      await handler.set("/isr/1", page, {
+        cacheControl: { revalidate: 60, expire: 300 },
+        isRoutePPREnabled: false,
+        isFallback: false,
+      });
+      await handler.set("fetch-key", page, createSetContext([]));
+
+      const [response, fetch] = storedBodies().slice(-2);
+      expect(response.cacheControl).toEqual({ revalidate: 60, expire: 300 });
+      expect(fetch).not.toHaveProperty("cacheControl");
     });
 
     it("should not store when S3 bucket is not configured", async () => {

@@ -47,12 +47,14 @@ import {
   serializeCacheValue,
   parseCacheValue,
   denormalizePagePath,
+  getCacheControl,
   getTags,
   GetCacheHandlerContext,
   SetCacheHandlerContext,
   headerTags,
   INIT_CACHE_TAG_MANIFEST,
   ROUTE_CACHE_KEY_PREFIX,
+  storedCacheControl,
 } from "./cache-utils";
 import { sharedTagManifest } from "./use-cache-common";
 import { REVALIDATED_PAGE_HOOK } from "../runtime/manifest";
@@ -514,15 +516,21 @@ export class S3CacheHandler implements CacheHandler {
         // the last good copy rather than from a shell.
         return isFetchCacheGet(ctx)
           ? null
-          : { lastModified: EXPIRED_LAST_MODIFIED, value: parsedValue.value };
+          : {
+              lastModified: EXPIRED_LAST_MODIFIED,
+              value: parsedValue.value,
+              cacheControl: storedCacheControl(parsedValue.cacheControl),
+            };
       }
 
       this.debug(`S3 CACHE HIT: ${cacheKey} (${objectKey})`);
 
-      // Without the stored tags.
+      // Without the stored tags. With the stored lifetime: see
+      // `getCacheControl`.
       return {
         lastModified: parsedValue.lastModified,
         value: parsedValue.value,
+        cacheControl: storedCacheControl(parsedValue.cacheControl),
       };
     } catch (error) {
       // Log actual errors (a cache miss is not one: see `CacheBucket.get`)
@@ -663,6 +671,7 @@ export class S3CacheHandler implements CacheHandler {
         // On the marker clock, since that is what it is compared with.
         lastModified: markerClock(),
         value: data,
+        cacheControl: getCacheControl(ctx),
       };
 
       // Store tags with the cache entry for revalidation checking

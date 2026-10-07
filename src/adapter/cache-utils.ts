@@ -3,6 +3,7 @@
 */
 import { createHash } from "node:crypto";
 import { sep } from "node:path";
+import type { CacheControl } from "next/dist/server/lib/cache-control";
 import type { CacheHandler } from "next/dist/server/lib/incremental-cache";
 import { hasPathPrefix } from "../utils/base-path";
 
@@ -444,4 +445,48 @@ export type SetCacheHandlerContext = Parameters<CacheHandler["set"]>[2];
  */
 export function getTags(ctx: SetCacheHandlerContext): string[] | undefined {
   return "tags" in ctx ? ctx.tags : undefined;
+}
+
+/**
+ * The lifetime a response entry was rendered with: `ctx.cacheControl`, which
+ * `ResponseCache.set` passes and a `fetch` entry's `set` does not (its
+ * `revalidate` is inside the value).
+ *
+ * Stored with the entry and handed back from `get`, because next 16.4 prefers
+ * it there over its own per-process `SharedCacheControls`. Without it a fresh
+ * instance only knows what the prerender manifest recorded at build time, so a
+ * page whose lifetime was decided at render (`cacheLife`, a `fetch`'s
+ * `revalidate`, `getStaticProps` returning another `revalidate`) was aged by
+ * the build-time value until that instance rendered it itself, and a path the
+ * manifest does not cover by Next.js's default of 1 second: every cold Lambda
+ * served it stale and regenerated it. Older `next` ignores the field.
+ */
+export function getCacheControl(
+  ctx: SetCacheHandlerContext,
+): CacheControl | undefined {
+  return "cacheControl" in ctx
+    ? storedCacheControl(ctx.cacheControl)
+    : undefined;
+}
+
+/**
+ * `value` if it is a {@link CacheControl}, as read back off a stored entry.
+ * Anything else is dropped rather than handed to Next.js, which ages the entry
+ * by it: Next.js then falls back to the lifetime it knows, as before 16.4.
+ */
+export function storedCacheControl(value: unknown): CacheControl | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const { revalidate, expire } = value as Partial<CacheControl>;
+  if (
+    revalidate !== false &&
+    !(typeof revalidate === "number" && revalidate > 0)
+  ) {
+    return undefined;
+  }
+  if (expire !== undefined && typeof expire !== "number") {
+    return undefined;
+  }
+  return { revalidate, expire };
 }
