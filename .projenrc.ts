@@ -105,6 +105,7 @@ const project = new CdklabsConstructLibrary({
     "~$*.xlsx",
     ".kiro",
     ".claude/worktrees",
+    ".claude/pr-review", // pr-review skill ledgers
     // Where .github/workflows/e2e-harness.yml checks out vercel/next.js, and
     // where the README tells you to put it locally. `actions/checkout` cannot
     // write outside the workspace, so it lands in the repo.
