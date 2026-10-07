@@ -571,6 +571,9 @@ describe("TrackedTagMarkers with the revalidation log", () => {
 
     await b.tags.refresh();
     expect(b.markers.read).toHaveBeenLastCalledWith(["posts"]);
+    // The re-read runs alongside the query, not waited for by `refresh`.
+    await b.markers.read.mock.results.at(-1)!.value;
+    await new Promise((resolve) => setImmediate(resolve));
     expect(b.tags.state(["posts"], createdAt())).toBe("expired");
     error.mockRestore();
   });

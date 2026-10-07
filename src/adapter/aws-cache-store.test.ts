@@ -530,6 +530,17 @@ describe("TrackedTagMarkers", () => {
     // A throttled `BatchGetItem` would otherwise hold the page.
     expect(rendered).toBe(true);
     expect(read).toHaveBeenCalledTimes(2);
+
+    // Nor does a lookup of the tracked tag wait on it.
+    let ensured = false;
+    void markers.ensure(["posts"]).then(() => (ensured = true));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(ensured).toBe(true);
+
+    // Still in flight an interval later: not read a second time meanwhile.
+    clock += 1000;
+    await markers.refresh();
+    expect(read).toHaveBeenCalledTimes(2);
     release();
   });
 

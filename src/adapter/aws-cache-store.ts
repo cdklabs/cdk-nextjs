@@ -707,6 +707,8 @@ export class TrackedTagMarkers {
    * See {@link behindInRender}.
    */
   private readonly caughtUpRender = new AsyncLocalStorage<true>();
+  /** When `sync` last scanned the entry stores ({@link oldestEntry}). */
+  private lastEntryScan = -Infinity;
   /** When the last refresh started, or was skipped. */
   private lastRefresh = -Infinity;
   /**
@@ -879,11 +881,13 @@ export class TrackedTagMarkers {
     const waits: Promise<void>[] = [];
     const unread: string[] = [];
     for (const tag of new Set(tags)) {
+      // Tracked first: a tracked tag in `reading` is only being re-read in
+      // the background (`sync`), which nothing needs to wait for.
       const inFlight = this.reading.get(tag);
-      if (inFlight) {
-        waits.push(inFlight);
-      } else if (this.tags.has(tag)) {
+      if (this.tags.has(tag)) {
         this.touch(tag);
+      } else if (inFlight) {
+        waits.push(inFlight);
       } else {
         unread.push(tag);
       }
@@ -1261,11 +1265,17 @@ export class TrackedTagMarkers {
       );
       return;
     }
-    // A scan of every entry held: only when there is something to judge by it.
-    const oldest =
-      result.rows.length > 0 || this.logOnly.size > 0
-        ? this.oldestEntry()
-        : Infinity;
+    // A scan of every entry held, which also drops the expired ones: when
+    // there is something to judge by it, and otherwise once in a while, so
+    // expired entries never read again don't pile up ahead of live ones.
+    const scan =
+      result.rows.length > 0 ||
+      this.logOnly.size > 0 ||
+      at - this.lastEntryScan > ENTRY_SCAN_INTERVAL_MS;
+    if (scan) {
+      this.lastEntryScan = at;
+    }
+    const oldest = scan ? this.oldestEntry() : Infinity;
     let applied = 0;
     for (const row of result.rows) {
       if (this.applied.has(row.sk)) {
@@ -1614,6 +1624,12 @@ function knownBy(marker: TagMarker, at: number): number {
  * queries.
  */
 const MAX_LOG_PUT_MS = REVALIDATION_LOG_LOOKBACK_MS / 2;
+
+/**
+ * How often, at most, a refresh with no log rows to judge still scans the
+ * entry stores, to drop expired entries no request reads again.
+ */
+const ENTRY_SCAN_INTERVAL_MS = 60_000;
 
 /** How often a refresh in flight checks the process is running. */
 const REFRESH_TICK_MS = 250;
