@@ -27,7 +27,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
 | `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
-| `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in minutes (`test_filters`).                          |
+| `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in about an hour (`test_filters`).                   |
 | `.github/workflows/e2e-harness.yml` | Every six days (all four types) + `workflow_dispatch`. A matrix of (type, shard) jobs, one stack each.             |
 
 ## One shared stack, not one per test file
@@ -154,13 +154,14 @@ lists 45 jobs, Global Functions first, then Regional Functions, Regional
 Containers and Global Containers, and runs at most 10 at a time, which is about 11
 hours end to end (about 95 shard-hours: Global Containers' 15 shards take about
 2.5 hours each, the others about 2; the shards of one type end together, so the
-last five Global Containers shards run with half the slots idle). Ten is the single-type peak the account already handles: no
-more CloudFront distributions or ECR pulls at once than a Global Functions run,
-under the CloudFront response-headers-policy quota (3 per distribution), and
-no more of the org's concurrent jobs than the schedule has always taken. A slot goes to the next job as soon as
-one frees, so types overlap where one ends and the next begins; that is safe,
-because no two entries share a stack name. Results arrive in that order: a
-Global Functions regression shows up first, about 2 hours in.
+last five Global Containers shards run with half the slots idle). Ten is the peak
+a single-type run of the other three already reaches: no more CloudFront
+distributions or ECR pulls at once than a Global Functions run, under the
+CloudFront response-headers-policy quota (3 per distribution), and no more of the
+org's concurrent jobs than the schedule has always taken. A slot goes to the next
+job as soon as one frees, so types overlap where one ends and the next begins;
+that is safe, because no two entries share a stack name. Results arrive in that
+order: a Global Functions regression shows up first, about 2 hours in.
 
 To check the workflow itself rather than compatibility, dispatch `all` with
 `shard_total: 1` and `test_filters: ../test/harness-smoke-manifest.json`: one
@@ -182,7 +183,7 @@ Each shard is self-contained, which is what makes this safe:
 
 - `e2e-warm.sh` warms _its_ stack, so the ~4-minute distribution create is paid
   once per shard but in parallel — the same ~4 minutes of wall clock however many
-  shards there are.
+  shards start together (in an `all` run, once per wave of 10).
 - `e2e-sweep.sh --apply --shared` in an `always()` step deletes _its_ stack, since
   `--shared` resolves the same suffix. Nothing lowers the age floor account-wide,
   so one shard finishing early cannot delete another's stack out from under it.
@@ -203,9 +204,8 @@ account-wide sweep could otherwise delete another type's idle-looking shard stac
 as that run warms into it. GitHub keeps only one _pending_ run per group, so
 dispatch a second type once the first has started, not while one is queued, or
 dispatch `all`. A dispatch on a schedule day waits behind the schedule's ~11
-hours. A
-pending run that gets cancelled that way, the scheduled one included, loses no
-sweep: every run sweeps, not just the scheduled one.
+hours. A pending run that gets cancelled that way, the scheduled one included,
+loses no sweep: every run sweeps, not just the scheduled one.
 
 ## Caching the next.js build
 

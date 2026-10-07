@@ -7,8 +7,9 @@
 # scripts/e2e-harness/README.md.
 #
 # Each type's test files are split across `shard_total` parallel jobs, each with
-# a shared stack of its own (`hrns-shard-<n>`, with the type's infix). A stack can only hold one app at a time, so
-# parallelism has to come from more stacks - see "Sharding" in the README.
+# a shared stack of its own (`hrns-shard-<n>`, with the type's infix). A stack
+# can only hold one app at a time, so parallelism has to come from more stacks -
+# see "Sharding" in the README.
 #
 # Every shard needs a built vercel/next.js checkout, which sharding multiplies
 # rather than divides. So the `nextjs` job below builds it once, into a cache the
@@ -173,7 +174,9 @@ jobs:
         # `stagger` spaces warm-ups 20s apart, which CloudFront's API rate limit
         # needs. It repeats every MAX_PARALLEL entries: the shards of one wave end
         # within minutes of each other, so the next wave's entries start nearly
-        # together too. `screen` marks the one entry that checks the manifest's
+        # together too. That holds while waves stay aligned to multiples of 10;
+        # once they drift, two entries with one stagger collide only if their
+        # slots free in the same minute, and the warm step's retry covers that. `screen` marks the one entry that checks the manifest's
         # screening counts.
         #
         # The cache key pins everything the cached tree was built by and for: the
@@ -221,8 +224,9 @@ jobs:
   nextjs:
     # Builds vercel/next.js once for the whole run, into a cache every shard
     # restores. Sharding multiplies this cost rather than dividing it - a run's
-    # first shards start at the same instant, so none can benefit from another's save - and it
-    # is the largest fixed cost left in a run, so it has to happen exactly once.
+    # first shards start at the same instant, so none can benefit from another's
+    # save - and it is the largest fixed cost left in a run, so it has to happen
+    # exactly once.
     #
     # On a hit this job is a lookup and nothing else: `lookup-only` skips the
     # download, which the shards are about to do anyway. On a miss it builds and
@@ -379,19 +383,22 @@ jobs:
         # runs `createNext` inside jest's `beforeAll` - so without this the first
         # test file is charged that wait against NEXT_E2E_TEST_TIMEOUT above,
         # fails wholesale, and only passes on retry. Pay it once, here, where
-        # nothing is timing us. Once per shard, but all in parallel, so the wall
-        # clock is the same ~4 minutes however many shards there are.
+        # nothing is timing us. Once per shard, but in parallel, so the wall
+        # clock is the same ~4 minutes however many shards start together.
         #
         # Staggered, and retried once. Ten shards creating a distribution in the
         # same minute trip CloudFront's API rate limit (`CreateFunction`: "Rate
         # exceeded"), and a failed create rolls back, so that shard runs nothing.
-        # The plan job computes the delay (`stagger`).
+        # The plan job computes the delay (`stagger`). The retry's 60s is not
+        # staggered again: first attempts fail at staggered times, and adding the
+        # stagger twice would leave Global Containers' ~15-minute warm-up no room
+        # for a retry inside the step's cap.
         # A retry redeploys over the ROLLBACK_COMPLETE stack, which `cdk deploy`
         # deletes and recreates.
         timeout-minutes: 25
         run: |
           sleep ${{ matrix.stagger }}
-          ./scripts/e2e-warm.sh || { echo "::warning::warming failed once; retrying"; sleep $((60 + ${{ matrix.stagger }})); ./scripts/e2e-warm.sh; }
+          ./scripts/e2e-warm.sh || { echo "::warning::warming failed once; retrying"; sleep 60; ./scripts/e2e-warm.sh; }
         env:
           ADAPTER_DIR: ${{ github.workspace }}
 
