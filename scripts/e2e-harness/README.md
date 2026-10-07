@@ -38,8 +38,8 @@ one deployment — every file genuinely has different code to ship. What there i
 way to do is ship it into infrastructure that already exists.
 
 Every test file in a run deploys into the same stack (`hrns-shared` by default,
-`hrns-shard-<n>` under the workflow's matrix — see "Sharding" below) with
-`cdk deploy --hotswap-fallback`. Creating and propagating the CloudFront
+`hrns-shard-<n>`, with the type's infix, under the workflow's matrix — see
+"Sharding" below) with `cdk deploy --hotswap-fallback`. Creating and propagating the CloudFront
 distribution costs ~4 minutes once per stack; every test file reuses it. That is
 the whole saving, and it is most of the cost of a run.
 
@@ -182,9 +182,10 @@ prints per-file durations to build one from.
 
 Each shard is self-contained, which is what makes this safe:
 
-- `e2e-warm.sh` warms _its_ stack, so the ~4-minute distribution create is paid
-  once per shard but in parallel — the same ~4 minutes of wall clock however many
-  shards start together (in an `all` run, once per wave of 10).
+- `e2e-warm.sh` warms _its_ stack, so the ~4-minute distribution create (Global
+  types only) is paid once per shard but in parallel — the same ~4 minutes of
+  wall clock however many shards start together (in an `all` run, once per wave
+  of 10 Global shards).
 - `e2e-sweep.sh --apply --shared` in an `always()` step deletes _its_ stack, since
   `--shared` resolves the same suffix. Nothing lowers the age floor account-wide,
   so one shard finishing early cannot delete another's stack out from under it.
