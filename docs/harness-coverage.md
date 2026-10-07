@@ -172,7 +172,7 @@ another, with no cdk-nextjs error.
 `#` labels a row for the rest of this doc. **23**, **37** and **38** were found by
 the four-type suite (`examples/e2e-tests`) rather than the harness: 23 is under
 "Stale-while-revalidate after a tag revalidation", 37 and 38 follow the table.
-There is no **28**: the number was skipped, not withdrawn. So 34 of the 37 fixed
+There is no **28**: the number was skipped, not withdrawn. So 35 of the 38 fixed
 defects came from the harness and 3 from the four-type suite.
 
 "4-type spec" names the `examples/e2e-tests/src/*.test.ts` file guarding it on all
@@ -214,6 +214,7 @@ four deployment types; `—` means harness or unit tests only.
 | 34  | Untagged `force-cache` fetch is never evicted by `revalidatePath`/`revalidateTag`                            | Fetch entries were checked against their stored tags, not the request's `ctx.tags` + `ctx.softTags`                                 | `isFetchCacheGet` split in `S3CacheHandler.get`                                                                       | —                                                              |
 | 35  | Catch-all capture containing `%2F` → 500 ("Requested and resolved page mismatch")                            | The `nxtP` query contract decodes twice and splits on `/`                                                                           | `outOfBandRouteParams` (dispatch.ts) passes `requestMeta.params`. Verified offline; the file is upstream              | —                                                              |
 | 36  | Regional Functions: every redirect drops the stage prefix, following it → 403                                | API Gateway strips the stage before invoking the Lambda                                                                             | `src/runtime/api-gateway-path.ts` uses `requestContext.path` when `basePath` starts with the stage                    | `url-normalization` (where it was found)                       |
+| 39  | `cached-navigations`: a cached navigation shows params or lacks `'use cache'` content in its static stage    | `refreshTags` awaited the revalidation log `Query`, which Next awaits in the `'use cache'` lookup, past the stage timer             | `tagMethods` starts the refresh unawaited (`use-cache-common.ts`); `use-cache-handlers.test.ts`                       | —                                                              |
 
 Found by the four-type suite:
 

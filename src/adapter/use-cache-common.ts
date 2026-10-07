@@ -19,6 +19,7 @@ import {
   TagMarkerTable,
   TrackedTagMarkers,
 } from "./aws-cache-store";
+import { TAG_MANIFEST_SYMBOL } from "../runtime/tag-manifest";
 
 export { markerClock as now } from "./aws-cache-store";
 
@@ -151,6 +152,12 @@ export class PendingSets {
 export class EntryLru {
   private readonly entries = new Map<string, StoredEntry>();
   private bytes = 0;
+  /**
+   * No later than the oldest entry's `timestamp`: the last scan's answer, less
+   * whatever was set since. Entries dropped since only make it early. See
+   * {@link oldestBound}.
+   */
+  private lowest = Infinity;
 
   constructor(private readonly maxBytes: number) {}
 
@@ -172,6 +179,7 @@ export class EntryLru {
     }
     this.entries.set(key, entry);
     this.bytes += size;
+    this.lowest = Math.min(this.lowest, entry.timestamp);
     for (const [oldestKey, oldest] of this.entries) {
       if (this.bytes <= this.maxBytes) {
         break;
@@ -186,7 +194,61 @@ export class EntryLru {
     if (existing) {
       this.entries.delete(key);
       this.bytes -= sizeOf(key, existing);
+      if (this.entries.size === 0) {
+        this.lowest = Infinity;
+      }
     }
+  }
+
+  /**
+   * The `timestamp` of the oldest entry held, `Infinity` with none, dropping
+   * on the way the entries past `revalidate` at `at` (`now()`): a handler
+   * that drops them when next read would otherwise hold them until then, and
+   * they would count here meanwhile. A scan, so asked once in a while: in
+   * between, {@link oldestBound} answers.
+   */
+  oldestTimestamp(at = -Infinity): number {
+    let oldest = Infinity;
+    for (const [key, entry] of this.entries) {
+      if (isPastRevalidate(entry, at)) {
+        this.delete(key);
+      } else {
+        oldest = Math.min(oldest, entry.timestamp);
+      }
+    }
+    this.lowest = oldest;
+    return oldest;
+  }
+
+  /**
+   * No later than {@link oldestTimestamp}, without its scan: as of the last
+   * one, less the entries set since. `Infinity` with none held. Drops the
+   * entries past `revalidate` at `at` from the least recently used end, up to
+   * the first that isn't, so {@link holdsLive} doesn't walk past them on every
+   * request until the next scan.
+   */
+  oldestBound(at = -Infinity): number {
+    for (const [key, entry] of this.entries) {
+      if (!isPastRevalidate(entry, at)) {
+        break;
+      }
+      this.delete(key);
+    }
+    return this.entries.size === 0 ? Infinity : this.lowest;
+  }
+
+  /**
+   * Whether an entry not past `revalidate` at `at` is held. Usually the first
+   * entry answers; the expired ones it passes are dropped by the scan
+   * {@link oldestTimestamp} makes, not here, so asking changes nothing.
+   */
+  holdsLive(at: number): boolean {
+    for (const entry of this.entries.values()) {
+      if (!isPastRevalidate(entry, at)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   get size(): number {
@@ -198,8 +260,49 @@ function sizeOf(key: string, entry: StoredEntry): number {
   return entry.value.byteLength + key.length;
 }
 
+/** Whether `stored` is past `revalidate` at `at` (`now()`). */
+export function isPastRevalidate(stored: StoredEntry, at: number): boolean {
+  return at > stored.timestamp + stored.revalidate * 1000;
+}
+
 /** Default size of each handler's memory store: Next.js's default, 50 MB. */
 export const DEFAULT_MEMORY_BYTES = 50 * 1024 * 1024;
+
+/**
+ * How long one revalidation table request may take, per attempt. The SDK sets
+ * no limit, and a refresh left in flight across a Lambda freeze can sit on a
+ * connection that died meanwhile without a reset: every request that waits
+ * for the refresh (an instance `behind`, ISR) would wait with it. The SDK
+ * retries a timed-out attempt, so a dead connection costs up to its attempts
+ * times this.
+ */
+export const TAG_TABLE_REQUEST_TIMEOUT_MS = 3000;
+
+/**
+ * Wait for `work` if `wait`, or else let it run on: either way a rejection is
+ * logged with `failure` rather than thrown.
+ */
+export async function awaitIf(
+  wait: boolean,
+  work: Promise<void>,
+  failure: string,
+): Promise<void> {
+  const logged = work.catch((error) => {
+    console.error(failure, error);
+  });
+  if (wait) {
+    await logged;
+  }
+}
+
+export interface TagMethodsOptions {
+  /**
+   * Whether `refreshTags` always waits for the revalidation log query, rather
+   * than only when the instance is `behind`.
+   * @default false
+   */
+  readonly blocking?: boolean;
+}
 
 /**
  * The `cacheHandlers` methods that only go through `tags`, the same for the
@@ -207,13 +310,28 @@ export const DEFAULT_MEMORY_BYTES = 50 * 1024 * 1024;
  */
 export function tagMethods(
   tags: TrackedTagMarkers,
-): Pick<CacheHandler, "refreshTags" | "getExpiration" | "updateTags"> {
+  options: TagMethodsOptions = {},
+): Pick<CacheHandler, "refreshTags" | "updateTags"> {
   return {
-    refreshTags: () => tags.refresh(),
-    async getExpiration(implicitTags) {
-      await tags.ensure(implicitTags);
-      return tags.expiration(implicitTags);
-    },
+    // Started, not awaited, while the instance keeps up, unless `blocking`.
+    // Next.js awaits `refreshTags` inside the first `'use cache'` lookup of a
+    // request (`use-cache-wrapper`), and a staged render ends its static stage
+    // on a timer: a log `Query` there pushed the entry out of the static
+    // stage, so a cached navigation stored the page segment without it. What
+    // the query finds applies from the next request. Awaited once the instance
+    // is `behind`, which the runtime settles before a page render starts
+    // (`catchUp`): the first request after an idle or frozen spell would
+    // otherwise serve whatever was revalidated elsewhere meanwhile. A page's
+    // render just after `catchUp` gets a grace more (`behindInRender`), so a
+    // request that came in just short of the line doesn't cross it inside
+    // the render. Not even then while the instance holds no entry the query
+    // could expire (`holdsEntries`), with a `refreshIntervalMs` of `0` too.
+    refreshTags: () =>
+      awaitIf(
+        options.blocking === true || (tags.behindInRender && tags.holdsEntries),
+        tags.refresh(),
+        "Error refreshing cache tags:",
+      ),
     async updateTags(revalidatedTags, durations) {
       await tags.update(revalidatedTags, durations);
     },
@@ -237,8 +355,6 @@ export function lazyHandler(create: () => CacheHandler): CacheHandler {
   };
 }
 
-const TAG_MANIFEST_SYMBOL = Symbol.for("cdk-nextjs.use-cache.tag-manifest");
-
 /**
  * The process's one {@link TrackedTagMarkers}, from the environment.
  *
@@ -259,12 +375,24 @@ export function sharedTagManifest(): TrackedTagMarkers {
       DEFAULT_TAG_REFRESH_MS,
     );
     if (config.tableName && !isBuildPhase()) {
-      const client = new DynamoDBClient({ region: config.region });
+      const client = new DynamoDBClient({
+        region: config.region,
+        // Without `throwOnRequestTimeout` the timeout only logs a warning. It
+        // ends once the response headers arrive: `socketTimeout`, an
+        // inactivity timer kept until the request closes, covers the body.
+        requestHandler: {
+          requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
+          throwOnRequestTimeout: true,
+          socketTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
+        },
+      });
       global[TAG_MANIFEST_SYMBOL] = new TrackedTagMarkers({
         markers: new TagMarkerTable(client, config.tableName, config.buildId),
         log: new RevalidationLog(client, config.tableName, config.buildId),
         refreshIntervalMs,
         debug: getDebug("cdk-nextjs:cache-handler:tags"),
+        // Set in every Lambda runtime; a container is never frozen.
+        canFreeze: process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined,
       });
     } else {
       if (!isBuildPhase()) {

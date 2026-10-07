@@ -35,6 +35,7 @@ import {
   REVALIDATED_PAGE_HOOK,
   RUNTIME_DIR_NAME,
 } from "./manifest";
+import { TAG_MANIFEST_SYMBOL } from "./tag-manifest";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
 
 /**
@@ -540,6 +541,21 @@ describe("NextjsRuntime.handle", () => {
     // payload as the canonical URL, so rendering the module against its own
     // pathname would hand the client the wrong `usePathname()` and history entry.
     expect(stubBody(sink).url).toBe("/nope?q=1");
+  });
+
+  it("catches up on cache tags before rendering a page or the /_not-found page", async () => {
+    const global = globalThis as Record<symbol, unknown>;
+    const catchUp = jest.fn(async (render: () => Promise<unknown>) => render());
+    const previous = global[TAG_MANIFEST_SYMBOL];
+    global[TAG_MANIFEST_SYMBOL] = { catchUp };
+    try {
+      await send({ url: "/" });
+      expect(catchUp).toHaveBeenCalledTimes(1);
+      await send({ url: "/nope" });
+      expect(catchUp).toHaveBeenCalledTimes(2);
+    } finally {
+      global[TAG_MANIFEST_SYMBOL] = previous;
+    }
   });
 
   it("answers an unknown path no-store, whatever the /_not-found entry sends", async () => {

@@ -222,10 +222,19 @@ time, after which S3's is used.
 #### `CDK_NEXTJS_TAG_REFRESH_MS`
 
 How often, at most, in milliseconds, an instance asks the revalidation log what
-other instances revalidated: the longest a `revalidateTag` elsewhere goes unseen,
-for `'use cache'`, ISR and the data cache alike. It's one DynamoDB `Query`,
+other instances revalidated, for `'use cache'`, ISR and the data cache alike. A
+`revalidateTag` elsewhere goes unseen for up to about the window plus a second
+(2 s by default), since `'use cache'` doesn't wait for the answer - and for
+longer while a query is slow or failing, or for a page render that started
+inside the window, which reads what the instance knew when it began. It's one DynamoDB `Query`,
 however many tags the instance tracks, shared by every request on the instance
-during the window. `0` asks before every cache check.
+during the window. `0` asks before every cache check, and waits for the answer
+(`'use cache'` only while the instance holds an entry the answer could expire).
+Otherwise `'use cache'` reads don't wait for it, and it applies from the
+instance's next request. The exception is an instance that hasn't caught up for
+over a second past the window (it sat idle or was frozen): it waits for the
+answer, before rendering the page for a page request. `'use cache: remote'`
+always waits.
 
 **Default**: `1000`
 

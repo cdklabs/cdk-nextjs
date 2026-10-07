@@ -17,10 +17,12 @@ import type {
 } from "next/dist/server/lib/cache-handlers/types";
 import { TrackedTagMarkers } from "./aws-cache-store";
 import {
+  awaitIf,
   cacheEntryOf,
   DEFAULT_MEMORY_BYTES,
   EntryLru,
   isDynamicEntry,
+  isPastRevalidate,
   lazyHandler,
   now,
   numberFromEnv,
@@ -59,22 +61,54 @@ export function createDefaultUseCacheHandler(
   );
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
+  // Expired entries, which `get` drops anyway, don't count as held for a
+  // refresh to wait for, nor hold `completeSince`'s pruning back past the
+  // next scan.
+  tags.judgeEntriesOf(
+    (scan) =>
+      scan ? memory.oldestTimestamp(now()) : memory.oldestBound(now()),
+    () => memory.holdsLive(now()),
+  );
+
+  /**
+   * Read the markers of whichever of `tagList` are untracked: first, when the
+   * answer depends on them, or else in the background. Read either way, so
+   * the tags join the rolling re-read, which catches a revalidation whose log
+   * row failed to write.
+   */
+  const ensureTags = (needed: boolean, tagList: readonly string[]) =>
+    awaitIf(needed, tags.ensure(tagList), "Error reading cache tags:");
 
   return {
-    async get(cacheKey: string): Promise<CacheEntry | undefined> {
+    async get(
+      cacheKey: string,
+      softTags: string[] = [],
+    ): Promise<CacheEntry | undefined> {
       await pending.wait(cacheKey);
       const stored = memory.get(cacheKey);
       if (!stored) {
         debug(`MISS ${cacheKey}`);
         return undefined;
       }
-      if (now() > stored.timestamp + stored.revalidate * 1000) {
+      if (isPastRevalidate(stored, now())) {
         debug(`EXPIRED ${cacheKey}`);
         memory.delete(cacheKey);
         return undefined;
       }
-      await tags.ensure(stored.tags);
-      const state = tags.state(stored.tags, stored.timestamp);
+      // Only an entry older than what the manifest fully knows needs its tags'
+      // markers read first: see `completeSince`. Every entry stored since the
+      // instance started is newer, so its first read waits on nothing - nor
+      // does a new path's, whose implicit tags it has never read.
+      await ensureTags(stored.timestamp < tags.completeSince, [
+        ...stored.tags,
+        ...softTags,
+      ]);
+      // Implicit tags count once expired, not stale, as Next.js compares
+      // `getExpiration`'s answer.
+      const state =
+        tags.expiration(softTags) >= stored.timestamp
+          ? "expired"
+          : tags.state(stored.tags, stored.timestamp);
       if (state === "expired") {
         debug(`EXPIRED BY TAG ${cacheKey}`);
         memory.delete(cacheKey);
@@ -98,7 +132,11 @@ export function createDefaultUseCacheHandler(
           return;
         }
         memory.set(cacheKey, stored);
-        tags.track(stored.tags);
+        // In the background, now rather than at the first `get`: a
+        // revalidation from before the log's first lookback with an `expire`
+        // still to come expires this entry when it comes, and only the marker
+        // says so. See `completeSince`.
+        void ensureTags(false, stored.tags);
         debug(`SET ${cacheKey}`);
       } catch (error) {
         // The stream errored: store nothing rather than a partial entry.
@@ -109,6 +147,11 @@ export function createDefaultUseCacheHandler(
     },
 
     ...tagMethods(tags),
+
+    // `Infinity` has Next.js pass the implicit tags to `get` instead, so they
+    // are judged against the entry read: whether answering needs a marker
+    // read depends on that entry's `timestamp`, which this does not know.
+    getExpiration: async () => Infinity,
   };
 }
 

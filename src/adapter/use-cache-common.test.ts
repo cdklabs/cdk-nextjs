@@ -1,6 +1,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 jest.mock("@aws-sdk/client-dynamodb");
 
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { CacheEntry } from "next/dist/server/lib/cache-handlers/types";
 import {
   MAX_REVALIDATION_LOG_GAP_MS,
@@ -16,9 +17,12 @@ import {
   now,
   PendingSets,
   readStream,
+  sharedTagManifest,
   StoredEntry,
   storedEntryOf,
+  TAG_TABLE_REQUEST_TIMEOUT_MS,
 } from "./use-cache-common";
+import { TAG_MANIFEST_SYMBOL } from "../runtime/tag-manifest";
 
 /** A `TagMarkerTable` over a plain map, counting its calls. */
 function fakeMarkers(rows = new Map<string, TagMarker>()) {
@@ -422,6 +426,14 @@ describe("TrackedTagMarkers with the revalidation log", () => {
     expect(b.log.query).toHaveBeenCalledTimes(2);
   });
 
+  it("asks with nothing tracked once an entry store relies on the log", async () => {
+    const { clock, b } = instances();
+    b.tags.judgeEntriesOf(() => Infinity);
+    clock.at += INTERVAL;
+    await b.tags.refresh();
+    expect(b.log.query).toHaveBeenCalledTimes(1);
+  });
+
   it("applies a row read again inside the lookback only once", async () => {
     const { clock, logRows, b } = instances();
     await b.tags.ensure(["posts"]);
@@ -559,6 +571,9 @@ describe("TrackedTagMarkers with the revalidation log", () => {
 
     await b.tags.refresh();
     expect(b.markers.read).toHaveBeenLastCalledWith(["posts"]);
+    // The re-read runs alongside the query, not waited for by `refresh`.
+    await b.markers.read.mock.results.at(-1)!.value;
+    await new Promise((resolve) => setImmediate(resolve));
     expect(b.tags.state(["posts"], createdAt())).toBe("expired");
     error.mockRestore();
   });
@@ -697,6 +712,114 @@ describe("EntryLru", () => {
     lru.set("b", stored(200));
     expect(lru.size).toBe(2);
   });
+
+  it("drops the entries past revalidate", () => {
+    const lru = new EntryLru(1000);
+    lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
+    lru.set("new", stored(100, { timestamp: 1500, revalidate: 1 }));
+    expect(lru.holdsLive(2001)).toBe(true);
+    expect(lru.holdsLive(2501)).toBe(false);
+    // Asking is not a use: the entries go in `oldestTimestamp`'s scan.
+    expect(lru.size).toBe(2);
+  });
+
+  it("drops the entries past revalidate as it finds the oldest", () => {
+    const lru = new EntryLru(1000);
+    lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
+    lru.set("new", stored(100, { timestamp: 1500, revalidate: 1 }));
+    expect(lru.oldestTimestamp(2001)).toBe(1500);
+    expect(lru.size).toBe(1);
+    expect(lru.oldestTimestamp()).toBe(1500);
+  });
+
+  it("knows its oldest entry's timestamp as entries come and go", () => {
+    const lru = new EntryLru(250);
+    expect(lru.oldestTimestamp()).toBe(Infinity);
+    lru.set("a", stored(100, { timestamp: 2 }));
+    lru.set("b", stored(100, { timestamp: 1 }));
+    expect(lru.oldestTimestamp()).toBe(1);
+    lru.delete("b");
+    expect(lru.oldestTimestamp()).toBe(2);
+    // Evicted for space.
+    lru.set("c", stored(100, { timestamp: 3 }));
+    lru.set("d", stored(100, { timestamp: 4 }));
+    expect(lru.oldestTimestamp()).toBe(3);
+  });
+
+  it("starts its bound afresh once emptied", () => {
+    const lru = new EntryLru(1000);
+    lru.set("a", stored(100, { timestamp: 100 }));
+    lru.delete("a");
+    lru.set("b", stored(100, { timestamp: 5000 }));
+    expect(lru.oldestBound()).toBe(5000);
+  });
+
+  it("drops the expired entries least recently used as it bounds", () => {
+    const lru = new EntryLru(1000);
+    lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
+    lru.set("live", stored(100, { timestamp: 1500, revalidate: 10 }));
+    lru.set("behind", stored(100, { timestamp: 1200, revalidate: 1 }));
+    // Up to the first live entry: no scan past it.
+    expect(lru.oldestBound(2300)).toBe(1000);
+    expect(lru.size).toBe(2);
+    expect(lru.oldestTimestamp(2300)).toBe(1500);
+  });
+
+  it("bounds its oldest entry's timestamp from below between scans", () => {
+    const lru = new EntryLru(1000);
+    const held = new Map<string, number>();
+    let seed = 7;
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 2000; i++) {
+      const key = `k${Math.floor(random() * 50)}`;
+      const timestamp = Math.floor(random() * 10_000);
+      if (random() < 0.2) {
+        lru.delete(key);
+        held.delete(key);
+      } else {
+        lru.set(key, stored(100, { timestamp }));
+        held.delete(key);
+        held.set(key, timestamp);
+        while (held.size > lru.size) {
+          held.delete(held.keys().next().value!);
+        }
+      }
+      const oldest = Math.min(Infinity, ...held.values());
+      expect(lru.oldestBound()).toBeLessThanOrEqual(oldest);
+      if (i % 100 === 0) {
+        expect(lru.oldestTimestamp()).toBe(oldest);
+        expect(lru.oldestBound()).toBe(oldest);
+      }
+    }
+    for (const key of held.keys()) {
+      lru.delete(key);
+    }
+    expect(lru.oldestBound()).toBe(Infinity);
+  });
+
+  it("knows its oldest entry's timestamp under eviction churn", () => {
+    const lru = new EntryLru(1000);
+    const held = new Map<string, number>();
+    let seed = 1;
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 2000; i++) {
+      const key = `k${Math.floor(random() * 50)}`;
+      const timestamp = Math.floor(random() * 10_000);
+      if (random() < 0.2) {
+        lru.delete(key);
+        held.delete(key);
+      } else {
+        lru.set(key, stored(100, { timestamp }));
+        held.delete(key);
+        held.set(key, timestamp);
+        // Evicted least recently used first, as the store does.
+        while (held.size > lru.size) {
+          held.delete(held.keys().next().value!);
+        }
+      }
+      expect(lru.oldestTimestamp()).toBe(Math.min(Infinity, ...held.values()));
+    }
+  });
 });
 
 describe("entries", () => {
@@ -752,5 +875,29 @@ describe("PendingSets", () => {
     // Nothing pending: no wait at all.
     await pending.wait("k");
     await pending.wait("other");
+  });
+});
+
+describe("sharedTagManifest", () => {
+  it("bounds each revalidation table request, failing it once timed out", () => {
+    const global = globalThis as Record<symbol, unknown>;
+    process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME = "table";
+    try {
+      sharedTagManifest();
+      // A timeout that only warns leaves a request on a dead connection, and
+      // every request waiting on the refresh, hanging.
+      expect(DynamoDBClient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestHandler: {
+            requestTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
+            throwOnRequestTimeout: true,
+            socketTimeout: TAG_TABLE_REQUEST_TIMEOUT_MS,
+          },
+        }),
+      );
+    } finally {
+      delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
+      delete global[TAG_MANIFEST_SYMBOL];
+    }
   });
 });

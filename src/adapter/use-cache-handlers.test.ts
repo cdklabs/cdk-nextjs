@@ -23,6 +23,7 @@ import type {
 import {
   CacheBucket,
   RevalidationLog,
+  TAG_REFRESH_GRACE_MS,
   TagMarkerTable,
   TrackedTagMarkers,
 } from "./aws-cache-store";
@@ -173,6 +174,37 @@ async function textOf(result: CacheEntry | undefined) {
     : undefined;
 }
 
+/**
+ * Hold every revalidation log `Query` until `release`; `restore` puts the
+ * table back as it was.
+ */
+function holdQueries() {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const send = dynamoSend.getMockImplementation()!;
+  dynamoSend.mockImplementation(async (command) => {
+    if (command instanceof QueryCommand) {
+      await held;
+    }
+    return send(command);
+  });
+  return {
+    release,
+    restore: () => {
+      release();
+      dynamoSend.mockImplementation(send);
+    },
+  };
+}
+
+/** Whether `promise` is still pending once pending I/O has had a turn. */
+async function pending(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false;
+  void promise.finally(() => (settled = true));
+  await new Promise((resolve) => setImmediate(resolve));
+  return !settled;
+}
+
 /** A request's worth of what Next.js does before reading an entry. */
 async function read(handler: CacheHandler, key: string) {
   await handler.refreshTags();
@@ -223,6 +255,31 @@ describe("cacheHandlers.remote", () => {
     expect(await read(b, "k")).toBeUndefined();
     // A fresh instance reading the stale object from S3 misses too.
     expect(await read(remoteInstance(), "k")).toBeUndefined();
+  });
+
+  it("waits for the revalidation log query", async () => {
+    const a = remoteInstance();
+    const b = remoteInstance(tagManifest(1000));
+    await a.set(
+      "k",
+      Promise.resolve(entry("old", { timestamp: Date.now() - 1000 })),
+    );
+    expect(await read(b, "k")).toBe("old");
+    await a.updateTags(["posts"]);
+
+    // An entry read from S3 may predate the instance, so its refresh is
+    // waited for even while the instance keeps up.
+    const now = jest.spyOn(Date, "now").mockReturnValue(Date.now() + 1000);
+    const queries = holdQueries();
+    try {
+      const answer = read(b, "k");
+      expect(await pending(answer)).toBe(true);
+      queries.release();
+      expect(await answer).toBeUndefined();
+    } finally {
+      queries.restore();
+      now.mockRestore();
+    }
   });
 
   it("serves a profile-revalidated entry stale, for Next.js to regenerate", async () => {
@@ -377,7 +434,8 @@ describe("cacheHandlers.default", () => {
     const created = { timestamp: Date.now() - 1000 };
     await a.set("k", Promise.resolve(entry("a", created)));
     await b.set("k", Promise.resolve(entry("b", created)));
-    // Its first read of its own entry reads the tag's marker, once.
+    // Created before `b` started, so its first read reads the tag's marker,
+    // once.
     expect(await read(b, "k")).toBe("b");
 
     // What Next.js does for `revalidateTag`: `updateTags` on every handler of
@@ -390,6 +448,199 @@ describe("cacheHandlers.default", () => {
     // `b` learned of it from the log, not by re-reading its tags' markers.
     expect(dynamoCalls(QueryCommand)).toBeGreaterThan(0);
     expect(dynamoCalls(BatchGetItemCommand)).toBe(0);
+  });
+
+  it("waits on no marker read to judge an entry stored since the instance started", async () => {
+    const a = defaultInstance();
+    const bTags = tagManifest();
+    const b = defaultInstance(bTags);
+    await b.set("k", Promise.resolve(entry("b")));
+
+    // Hold every marker read: Next.js awaits both answers inside the
+    // `'use cache'` lookup, and a path the instance has not served before has
+    // implicit tags it has never read.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const send = dynamoSend.getMockImplementation()!;
+    dynamoSend.mockImplementation(async (command) => {
+      if (command instanceof BatchGetItemCommand) {
+        await held;
+      }
+      return send(command);
+    });
+    try {
+      expect(await b.getExpiration(["_N_T_/new-path"])).toBe(Infinity);
+      await b.refreshTags();
+      expect(await textOf(await b.get("k", ["_N_T_/new-path"]))).toBe("b");
+      // Still read, in the background, so the tags join the rolling re-read.
+      expect(dynamoCalls(BatchGetItemCommand)).toBeGreaterThan(0);
+
+      // Another instance's revalidation still reaches it, through the log.
+      await a.updateTags(["posts"]);
+      await bTags.refresh();
+      expect(await read(b, "k")).toBeUndefined();
+    } finally {
+      release();
+      dynamoSend.mockImplementation(send);
+    }
+  });
+
+  it("reads the implicit tags first for an entry older than the manifest's knowledge", async () => {
+    const b = defaultInstance();
+    await b.set(
+      "k",
+      Promise.resolve(entry("b", { timestamp: Date.now() - 1000 })),
+    );
+    await b.set("new", Promise.resolve(entry("new")));
+    await new Promise((resolve) => setImmediate(resolve));
+    rows.set("_N_T_/old-path", {
+      sk: { S: "_N_T_/old-path" },
+      revalidatedAt: { N: String(Date.now() - 500) },
+    });
+    // Judged per entry: the new one is not held up by the old one.
+    dynamoSend.mockClear();
+    expect(await textOf(await b.get("new", ["_N_T_/new-path"]))).toBe("new");
+    expect(await textOf(await b.get("k", ["_N_T_/old-path"]))).toBeUndefined();
+    expect(dynamoCalls(BatchGetItemCommand)).toBe(2);
+  });
+
+  it("does not hold a read for the revalidation log query", async () => {
+    const a = defaultInstance();
+    const b = defaultInstance(tagManifest(1000));
+    const created = { timestamp: Date.now() - 1000 };
+    await b.set("k", Promise.resolve(entry("b", created)));
+    expect(await read(b, "k")).toBe("b");
+    await a.updateTags(["posts"], { expire: 0 });
+
+    // Next.js awaits `refreshTags` inside the `'use cache'` lookup, so a read
+    // that waited for the query would leave the static stage of a staged
+    // render. This one answers from what the instance already knew.
+    const now = jest.spyOn(Date, "now").mockReturnValue(Date.now() + 1000);
+    const queries = holdQueries();
+    try {
+      expect(await read(b, "k")).toBe("b");
+      expect(dynamoCalls(QueryCommand)).toBeGreaterThan(0);
+
+      queries.release();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(await read(b, "k")).toBeUndefined();
+    } finally {
+      queries.restore();
+      now.mockRestore();
+    }
+  });
+
+  it("waits for the revalidation log query after the instance sat idle", async () => {
+    const a = defaultInstance();
+    const b = defaultInstance(tagManifest(1000));
+    const created = { timestamp: Date.now() - 1000 };
+    await b.set("k", Promise.resolve(entry("b", created)));
+    expect(await read(b, "k")).toBe("b");
+    await a.updateTags(["posts"], { expire: 0 });
+
+    // No log query for longer than the interval plus the grace, as for a
+    // Lambda frozen between invocations.
+    const later = Date.now() + 1000 + TAG_REFRESH_GRACE_MS + 5000;
+    const now = jest.spyOn(Date, "now").mockReturnValue(later);
+    const queries = holdQueries();
+    try {
+      // Answered only once the query returns, and then without the entry the
+      // other instance revalidated while this one sat idle.
+      const answer = read(b, "k");
+      expect(await pending(answer)).toBe(true);
+      queries.release();
+      expect(await answer).toBeUndefined();
+    } finally {
+      queries.restore();
+      now.mockRestore();
+    }
+  });
+
+  it("does not wait for the revalidation log query, idle, while it holds no entries", async () => {
+    const b = defaultInstance(tagManifest(1000));
+
+    // As for the first `'use cache'` call of a process, which creates the
+    // handler inside the render: nothing held, so nothing the query could
+    // expire.
+    const later = Date.now() + 1000 + TAG_REFRESH_GRACE_MS + 5000;
+    const now = jest.spyOn(Date, "now").mockReturnValue(later);
+    const queries = holdQueries();
+    try {
+      expect(await pending(b.refreshTags())).toBe(false);
+      expect(dynamoCalls(QueryCommand)).toBeGreaterThan(0);
+    } finally {
+      queries.restore();
+      now.mockRestore();
+    }
+  });
+
+  it("does not wait for the revalidation log query, idle, while it holds only expired entries", async () => {
+    const b = defaultInstance(tagManifest(1000));
+    const created = performance.timeOrigin + performance.now() - 5000;
+    await b.set(
+      "k",
+      Promise.resolve(entry("b", { timestamp: created, revalidate: 1 })),
+    );
+
+    const later = Date.now() + 1000 + TAG_REFRESH_GRACE_MS + 5000;
+    const now = jest.spyOn(Date, "now").mockReturnValue(later);
+    const queries = holdQueries();
+    try {
+      // `get` would drop it: nothing the query could expire.
+      expect(await pending(b.refreshTags())).toBe(false);
+    } finally {
+      queries.restore();
+      now.mockRestore();
+    }
+  });
+
+  it("waits for the revalidation log query when told to ask on every check", async () => {
+    const a = defaultInstance();
+    const b = defaultInstance(tagManifest(0));
+    const created = { timestamp: Date.now() - 1000 };
+    await b.set("k", Promise.resolve(entry("b", created)));
+    expect(await read(b, "k")).toBe("b");
+    await a.updateTags(["posts"], { expire: 0 });
+
+    const queries = holdQueries();
+    try {
+      const answer = read(b, "k");
+      expect(await pending(answer)).toBe(true);
+      queries.release();
+      expect(await answer).toBeUndefined();
+    } finally {
+      queries.restore();
+    }
+  });
+
+  it("reads an entry's tags as it stores it", async () => {
+    const b = defaultInstance();
+    dynamoSend.mockClear();
+    await b.set("k", Promise.resolve(entry("b", { tags: ["posts"] })));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(dynamoCalls(BatchGetItemCommand)).toBe(1);
+  });
+
+  it("expires an entry stored after a revalidation whose expire it outlives", async () => {
+    // Revalidated with a profile before `b` started, outside its log's first
+    // lookback: the marker alone knows the entry expires.
+    const expiredAt = performance.timeOrigin + performance.now() + 60_000;
+    rows.set("posts", {
+      sk: { S: "posts" },
+      staleAt: { N: String(expiredAt - 120_000) },
+      expiredAt: { N: String(expiredAt) },
+    });
+    const b = defaultInstance();
+    await b.set("k", Promise.resolve(entry("b")));
+    await new Promise((resolve) => setImmediate(resolve));
+    const clock = jest
+      .spyOn(performance, "now")
+      .mockReturnValue(expiredAt - performance.timeOrigin + 1);
+    try {
+      expect(await textOf(await b.get("k", []))).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("waits for the refresh interval before re-reading tags", async () => {
@@ -429,13 +680,31 @@ describe("cacheHandlers.default", () => {
     expect(result?.revalidate).toBe(-1);
   });
 
-  it("answers getExpiration from another instance's revalidatePath", async () => {
+  it("expires an entry by another instance's revalidatePath", async () => {
+    const a = defaultInstance();
+    const bTags = tagManifest();
+    const b = defaultInstance(bTags);
+    await b.set("k", Promise.resolve(entry("b")));
+    await b.set("other", Promise.resolve(entry("other")));
+    await a.updateTags(["_N_T_/blog/layout"]);
+    // From the log, as soon as `b` has read it.
+    await bTags.refresh();
+    expect(await textOf(await b.get("other", ["_N_T_/other"]))).toBe("other");
+    expect(
+      await textOf(await b.get("k", ["_N_T_/", "_N_T_/blog/layout"])),
+    ).toBeUndefined();
+  });
+
+  it("does not expire an entry by an implicit tag marked only stale", async () => {
     const a = defaultInstance();
     const b = defaultInstance();
-    await a.updateTags(["_N_T_/blog/layout"]);
-    const expiration = await b.getExpiration(["_N_T_/", "_N_T_/blog/layout"]);
-    expect(expiration).toBeGreaterThan(0);
-    expect(await b.getExpiration(["_N_T_/other"])).toBe(0);
+    await b.set(
+      "k",
+      Promise.resolve(entry("b", { timestamp: Date.now() - 1000 })),
+    );
+    await a.updateTags(["_N_T_/blog"], { expire: 3600 });
+    const result = await b.get("k", ["_N_T_/blog"]);
+    expect(result?.revalidate).toBe(900);
   });
 
   it("stores nothing from a stream that errors, and releases the pending get", async () => {

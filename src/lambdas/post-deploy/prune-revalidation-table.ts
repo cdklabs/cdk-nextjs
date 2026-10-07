@@ -5,6 +5,8 @@ import {
   GetItemCommand,
   PutItemCommand,
   BatchWriteItemCommand,
+  BatchWriteItemCommandOutput,
+  WriteRequest,
 } from "@aws-sdk/client-dynamodb";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import getDebug from "debug";
@@ -13,6 +15,15 @@ import { processBatch } from "./prune-s3";
 const debug = getDebug("cdk-nextjs:post-deploy:prune-revalidation-table");
 
 const dynamoClient = new DynamoDBClient();
+
+/** How many times a delete batch is sent, counting the first. */
+const DELETE_ATTEMPTS = 4;
+/** The pause before the first resend; it doubles for each one after. */
+const DELETE_RETRY_BASE_MS = 100;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 interface PruneRevalidationTableProps {
   tableName: string;
@@ -24,7 +35,8 @@ interface PruneRevalidationTableProps {
  * and delete them efficiently. Uses metadata entry to track current build ID.
  *
  * Schema:
- * - Revalidation entries: pk=buildId, sk=tag#cacheKey
+ * - Tag marker rows: pk=buildId, sk=tag (hashed past a length limit)
+ * - Tag mapping rows: pk=buildId, sk=tag#s3Key
  * - Revalidation log rows: pk=buildId#log, sk=timestamp#tag
  * - Metadata entry: pk="METADATA", sk="CURRENT_BUILD", buildId=currentBuildId
  */
@@ -115,30 +127,49 @@ export async function pruneRevalidationTable(
       deleteBatches,
       5, // Process up to 5 delete batches in parallel
       async (batch) => {
+        let requests: WriteRequest[] | undefined = batch.map((item) => ({
+          DeleteRequest: {
+            Key: item,
+          },
+        }));
         try {
-          const deleteRequests = batch.map((item) => ({
-            DeleteRequest: {
-              Key: item,
-            },
-          }));
-
           debug(
             `Deleting revalidation entries: ${batch.map((b) => `${b.pk.S}/${b.sk.S}`).join(", ")} from ${tableName}`,
           );
 
-          await dynamoClient.send(
-            new BatchWriteItemCommand({
-              RequestItems: {
-                [tableName]: deleteRequests,
-              },
-            }),
-          );
+          // `UnprocessedItems` is DynamoDB declining part of the batch under
+          // load, so those are sent again after a pause.
+          for (
+            let attempt = 0;
+            requests?.length && attempt < DELETE_ATTEMPTS;
+            attempt++
+          ) {
+            if (attempt > 0) {
+              await sleep(DELETE_RETRY_BASE_MS * 2 ** (attempt - 1));
+            }
+            const response: BatchWriteItemCommandOutput =
+              await dynamoClient.send(
+                new BatchWriteItemCommand({
+                  RequestItems: {
+                    [tableName]: requests,
+                  },
+                }),
+              );
+            requests = response.UnprocessedItems?.[tableName];
+          }
+        } catch (error) {
+          console.error("Error deleting revalidation entries:", error);
+          return;
+        }
 
+        if (requests?.length) {
+          console.error(
+            `DynamoDB left ${requests.length} revalidation entries undeleted after retrying`,
+          );
+        } else {
           debug(
             `Deleted ${batch.length} revalidation entries from ${tableName}`,
           );
-        } catch (error) {
-          console.error("Error deleting revalidation entries:", error);
         }
       },
     );

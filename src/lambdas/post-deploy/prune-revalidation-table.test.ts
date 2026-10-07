@@ -90,4 +90,29 @@ describe("pruneRevalidationTable", () => {
     );
     expect(sent(PutItemCommand)[0].input.Item!.buildId.S).toBe("current");
   });
+
+  it("sends the rows DynamoDB left unprocessed again", async () => {
+    stubTable("old", { old: ["tag-a", "tag-b"] });
+    const stub = holder.send.getMockImplementation()!;
+    let writes = 0;
+    holder.send.mockImplementation((command: unknown) => {
+      if (command instanceof BatchWriteItemCommand && writes++ === 0) {
+        const [, second] = command.input.RequestItems!.table;
+        return Promise.resolve({ UnprocessedItems: { table: [second] } });
+      }
+      return stub(command);
+    });
+
+    await pruneRevalidationTable({
+      tableName: "table",
+      currentBuildId: "current",
+    });
+
+    const batches = sent(BatchWriteItemCommand).map((command) =>
+      command.input.RequestItems!.table.map(
+        (request) => request.DeleteRequest!.Key!.sk.S,
+      ),
+    );
+    expect(batches).toEqual([["tag-a", "tag-b"], ["tag-b"]]);
+  });
 });

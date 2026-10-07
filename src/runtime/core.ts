@@ -51,6 +51,7 @@ import {
 } from "./next-modules";
 import { publicDirKey, resolvePublicFiles } from "./public-files";
 import { serveS3PublicFile, serveStaticFile } from "./static-files";
+import { catchUpTags } from "./tag-manifest";
 import { drained, firstValue, toSearch, withoutPathPrefix } from "./util";
 
 /** One request, normalized by a shell. */
@@ -337,7 +338,7 @@ export class NextjsRuntime {
         // Middleware may have rewritten request headers via
         // `NextResponse.next({ request: { headers } })`.
         req.headers = toIncomingHttpHeaders(result.requestHeaders);
-        await handler(req, asServerResponse(res), {
+        const options: Parameters<typeof handler>[2] = {
           waitUntil,
           requestMeta: {
             // The resolved query, stated rather than left to be re-derived.
@@ -413,7 +414,16 @@ export class NextjsRuntime {
             revalidate: (config: RevalidateConfig) =>
               this.revalidate(config, request),
           },
-        });
+        };
+        const render = () => handler(req, asServerResponse(res), options);
+        // Caught up here, not in `refreshTags`: Next.js awaits that inside the
+        // first `'use cache'` lookup, and a wait there cuts the static stage
+        // short. Only for a page: nothing else has a static stage to protect,
+        // and a route handler that reads the cache waits in `refreshTags`
+        // instead.
+        await (result.entrypoint.type === "app-page"
+          ? catchUpTags(render)
+          : render());
         // A Pages API route owns the end of its response: `stream.pipe(res)`,
         // an `externalResolver` proxy, or a callback that calls `res.json()`
         // later all return from the handler before they are done writing, and
@@ -800,7 +810,11 @@ export class NextjsRuntime {
     if (target.kind === "entrypoint") {
       const handler = await this.entrypoints.load(target.entrypoint);
       req.url = requestedUrl ?? req.url;
-      await handler(req, asServerResponse(res), { waitUntil });
+      const render = () => handler(req, asServerResponse(res), { waitUntil });
+      // App Router's `/_not-found` is a page render too: see `route`.
+      await (target.entrypoint.type === "app-page"
+        ? catchUpTags(render)
+        : render());
       if (!res.writableEnded) {
         res.end();
       }

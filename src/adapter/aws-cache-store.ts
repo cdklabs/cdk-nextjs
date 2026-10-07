@@ -9,6 +9,7 @@
   kinds of handler, and they must read each other's markers the same way.
 */
 /* eslint-disable import/no-extraneous-dependencies */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import {
   AttributeValue,
@@ -245,6 +246,14 @@ export const BATCH_GET_MAX_KEYS = 100;
  * revalidation log, the reads scale with instances instead of requests or tags.
  */
 export const DEFAULT_TAG_REFRESH_MS = 1000;
+
+/**
+ * How far past `refreshIntervalMs` the last refresh may have settled before a
+ * `'use cache'` request waits for the next one (see
+ * {@link TrackedTagMarkers.behind}). An instance serving steady traffic stays
+ * inside it; one that sat idle, or frozen between Lambda invocations, does not.
+ */
+export const TAG_REFRESH_GRACE_MS = 1000;
 
 /** DynamoDB's limit on a sort key, in UTF-8 bytes. */
 export const MAX_SORT_KEY_BYTES = 1024;
@@ -602,6 +611,14 @@ export type TrackedTagMarkersOptions = TagTable & {
   /** `Math.random`, for when each tag's re-read comes due. */
   random?: () => number;
   debug?: (message: string) => void;
+  /**
+   * Whether the process can be frozen with a refresh in flight, as a Lambda
+   * sandbox is between invocations: then a timer checks it kept running, and
+   * one that spanned a freeze does not count. A container is never frozen,
+   * so it skips the timer and waits for the refresh in flight, however slow.
+   * @default false
+   */
+  canFreeze?: boolean;
 };
 
 /**
@@ -623,15 +640,19 @@ export type TrackedTagMarkersOptions = TagTable & {
  * The cost is bounded per instance, not per request:
  * - {@link ensure} reads a tag's marker the first time it is needed and not
  *   again until it is evicted, so a tag costs one read per instance, not one
- *   per request.
+ *   per request. An entry created since {@link completeSince} needs no read
+ *   at all.
  * - {@link refresh}, at most once per `refreshIntervalMs`, sends one `Query`
  *   for the log rows written since the last one, and applies those of tags
  *   this instance tracks. Concurrent callers share it. Alongside, it re-reads
  *   the markers of up to {@link BATCH_GET_MAX_KEYS} tags not read for
  *   {@link DEFAULT_TAG_RESYNC_MS}, in one `BatchGetItem`.
  * A revalidation on another instance is therefore seen within
- * `refreshIntervalMs` (plus the query itself). The instance that ran it applies
- * it itself, at once, with {@link set}.
+ * `refreshIntervalMs` (plus the query itself) - by `'use cache'`, from the
+ * first request after the query returns, since its `refreshTags` does not wait
+ * for it (see `tagMethods`) unless the instance is {@link behind}, which the
+ * runtime settles before a page render starts ({@link catchUp}). The instance
+ * that ran it applies it itself, at once, with {@link set}.
  */
 export class TrackedTagMarkers {
   private readonly markers: TagMarkerTable | undefined;
@@ -657,10 +678,67 @@ export class TrackedTagMarkers {
    * result rather than dropped.
    */
   private readonly pendingRows = new Map<string, TagMarker>();
+  /**
+   * Log rows for tags not tracked and not being read, merged by tag, oldest
+   * first: what the log has said about them since {@link completeSince}. Taken
+   * into a tag's marker when it is read or written.
+   */
+  private readonly logOnly = new Map<string, TagMarker>();
+  /** See {@link completeSince}. */
+  private floor: number;
+  /**
+   * The future `expiredAt`s of markers dropped since, as `[from, to]`, in
+   * order: once `from` is past, {@link completeSince} moves to `to`, and not
+   * before, since only then does it expire anything. `from` and `to` are the
+   * same until spans are merged for space ({@link laterFloor}).
+   */
+  private readonly laterFloors: [number, number][] = [];
+  /** The in-memory entry stores judged by {@link completeSince}. */
+  private readonly entryStores: {
+    oldestTimestamp: (scan: boolean) => number;
+    holdsAny: () => boolean;
+  }[] = [];
+  /** How many times {@link forget} ran: a read started before one is made again. */
+  private forgotten = 0;
   /** Tracked tags whose read failed, for the next refresh to read again. */
   private readonly unread = new Set<string>();
+  /**
+   * Set inside a page render {@link catchUp} let go, for that render alone.
+   * See {@link behindInRender}.
+   */
+  private readonly caughtUpRender = new AsyncLocalStorage<true>();
+  /** When `sync` last scanned the entry stores ({@link oldestEntry}). */
+  private lastEntryScan = -Infinity;
+  /**
+   * No `logOnly` row is known by it or earlier, so a {@link pruneLogged}
+   * against it or earlier drops nothing: a marker is only ever known by later,
+   * as its `expiredAt` passes.
+   */
+  private prunedAgainst = -Infinity;
+  /** When the last refresh started, or was skipped. */
   private lastRefresh = -Infinity;
+  /**
+   * The refresh in flight. One left open across a freeze comes back after the
+   * thaw with what it read before, so {@link refresh} waits for it and then
+   * for a fresh one, rather than the runtime waiting for it before the freeze:
+   * that would bill every Lambda invocation for the query's tail.
+   */
   private refreshing: Promise<void> | undefined;
+  /**
+   * When {@link refreshing} last showed the process running: a timer ticks
+   * while it is in flight, and a tick that comes late, or none at all, means
+   * the process was paused - frozen - since it started.
+   */
+  private lastTick = -Infinity;
+  /** Whether a tick came late since {@link refreshing} started. */
+  private pausedWhileRefreshing = false;
+  private ticker: ReturnType<typeof setInterval> | undefined;
+  private readonly canFreeze: boolean;
+  /**
+   * When the last refresh settled, either way, unless it spanned a pause: what
+   * it knows is from then. See {@link behind}.
+   */
+  private settledAt: number;
   /**
    * Where the next log query starts (`clock()`): the last successful one's
    * start, less {@link REVALIDATION_LOG_LOOKBACK_MS}.
@@ -685,11 +763,14 @@ export class TrackedTagMarkers {
     this.clock = options.clock ?? (() => Date.now());
     this.random = options.random ?? Math.random;
     this.debug = options.debug ?? (() => {});
+    this.canFreeze = options.canFreeze ?? false;
     // Nothing is tracked yet, so nothing before this can be missed: every tag
     // is read from its marker the first time it is needed.
     const at = this.clock();
     this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
     this.lastLogRead = at;
+    this.settledAt = at;
+    this.floor = markerClock();
   }
 
   /** `tag`'s marker as this instance knows it, if it tracks `tag`. */
@@ -698,11 +779,61 @@ export class TrackedTagMarkers {
   }
 
   /**
+   * Since when (`markerClock()`) this instance knows of every revalidation of
+   * every tag, tracked or not: tracked ones from their markers and the log,
+   * the others from the log alone (`logOnly`). So an entry created at or after
+   * it can be judged by {@link state} and {@link expiration} without
+   * {@link ensure} reading anything - which matters inside a `'use cache'`
+   * lookup, where Next.js waits for the answer and a read pushes the entry out
+   * of the static stage of a staged render.
+   *
+   * Starts at construction: the log is followed from before it. Moves to now
+   * when the tracked markers are forgotten, and past the revalidations of
+   * whatever else it lets go of - a marker evicted for space, a log row
+   * pruned - which are no longer known: to its `expiredAt` only once that is
+   * past, since a profile's `expire` can be a year out, and moving there at
+   * once would turn the read-free path off for the instance's life.
+   *
+   * A row is pruned only once it is no later than every entry held, so that
+   * costs those entries nothing. An entry stored afterwards with an older
+   * `timestamp` - Next.js stamps the start of its generation, which can
+   * outlast a lookback - is older than this too, and is read first.
+   *
+   * It does not cover a revalidation older than the log's first lookback
+   * whose `expiredAt` is still to come, which would expire an entry created
+   * after it. So the `'use cache'` handler reads an entry's tags in the
+   * background as it stores it.
+   */
+  get completeSince(): number {
+    const at = markerClock();
+    while (this.laterFloors.length > 0 && this.laterFloors[0][0] <= at) {
+      this.floor = Math.max(this.floor, this.laterFloors.shift()![1]);
+    }
+    return this.floor;
+  }
+
+  /**
+   * Register an in-memory store whose entries are judged by
+   * {@link completeSince}, by the `timestamp` of the oldest entry it holds:
+   * `logOnly` keeps the rows that could still apply to one of them, and no
+   * others. With none registered it keeps nothing. Asked with `scan` false,
+   * `oldestTimestamp` may answer early, but never late, without a scan.
+   */
+  judgeEntriesOf(
+    oldestTimestamp: (scan: boolean) => number,
+    holdsAny: () => boolean = () => oldestTimestamp(false) < Infinity,
+  ): void {
+    this.entryStores.push({ oldestTimestamp, holdsAny });
+  }
+
+  /**
    * Track `tag` with `marker`: what this instance just wrote, which it knows
    * without reading it back.
    */
   set(tag: string, marker: TagMarker): void {
-    this.remember(tag, marker);
+    const logged = this.logOnly.get(tag);
+    this.logOnly.delete(tag);
+    this.remember(tag, mergeMarkers(marker, logged));
     this.known(tag, this.clock());
   }
 
@@ -757,28 +888,122 @@ export class TrackedTagMarkers {
     const waits: Promise<void>[] = [];
     const unread: string[] = [];
     for (const tag of new Set(tags)) {
+      // Tracked first: a tracked tag in `reading` is only being re-read in
+      // the background (`sync`), which nothing needs to wait for.
       const inFlight = this.reading.get(tag);
-      if (inFlight) {
-        waits.push(inFlight);
-      } else if (this.tags.has(tag)) {
+      if (this.tags.has(tag)) {
         this.touch(tag);
+      } else if (inFlight) {
+        waits.push(inFlight);
       } else {
         unread.push(tag);
       }
     }
     if (unread.length > 0) {
-      // `readInto` never rejects: a failed read leaves the tags tracked.
-      const read = this.readInto(unread).then(() => {
-        for (const tag of unread) {
-          this.reading.delete(tag);
-        }
-      });
-      for (const tag of unread) {
-        this.reading.set(tag, read);
-      }
-      waits.push(read);
+      waits.push(this.startRead(unread));
     }
     await Promise.all(waits);
+  }
+
+  /**
+   * {@link readInto} `tags`, as the read of each that whoever needs one of
+   * them next waits on ({@link reading}). Never rejects: a failed read leaves
+   * the tags tracked.
+   */
+  private startRead(tags: string[]): Promise<void> {
+    const read = this.readInto(tags).then(() => {
+      for (const tag of tags) {
+        this.reading.delete(tag);
+      }
+    });
+    for (const tag of tags) {
+      this.reading.set(tag, read);
+    }
+    return read;
+  }
+
+  /**
+   * Whether the last refresh settled more than `refreshIntervalMs` plus
+   * {@link TAG_REFRESH_GRACE_MS} ago - one that spanned a freeze counts from
+   * when it started: after the instance sat idle or frozen - or always, with
+   * a `refreshIntervalMs` of `0`. Answering from what it knows then could
+   * serve an entry revalidated elsewhere since, however long ago that was, so
+   * `refreshTags` waits for the refresh, and the runtime waits for it before
+   * a page render starts ({@link catchUp}).
+   *
+   * From when it settled, not when it started, so a slow query the runtime
+   * waited for before the render does not leave the instance behind inside
+   * it. A failed one counts too, so one request does not wait for two: the
+   * same "assume the entry is valid" a failed read answers with, until the
+   * next refresh, at most the interval and the grace later.
+   */
+  get behind(): boolean {
+    return (
+      this.log !== undefined &&
+      // `0` asks before every check, so every check waits for the answer.
+      (this.refreshIntervalMs === 0 || this.overdue(this.settledAt))
+    );
+  }
+
+  /**
+   * {@link behind}, as `refreshTags` asks it: never inside a page's render
+   * {@link catchUp} caught up, since the runtime settled it for that request
+   * before the render started, and a wait inside a `'use cache'` lookup is
+   * what it settled it to avoid - a render crossing the line partway through
+   * would otherwise wait after all. So a revalidation elsewhere can go unseen
+   * for a render's duration on top of the usual window.
+   *
+   * A route handler, which no catch-up precedes, waits at the plain line.
+   */
+  get behindInRender(): boolean {
+    return this.refreshIntervalMs !== 0 && this.caughtUpRender.getStore()
+      ? false
+      : this.behind;
+  }
+
+  /**
+   * Whether a registered store ({@link judgeEntriesOf}) holds any entry: one
+   * a refresh could expire. With none there is nothing to wait for even when
+   * the instance is {@link behind}, since whatever is stored from here on is
+   * newer than what the log would say - which covers the first `'use cache'`
+   * call of a process, which creates the handler inside the render.
+   */
+  get holdsEntries(): boolean {
+    return this.entryStores.some((store) => store.holdsAny());
+  }
+
+  /**
+   * {@link refresh}, waited for when the instance is {@link behind}. The
+   * runtime calls it before handing a page request to Next.js, outside the
+   * staged render whose static stage a wait inside a `'use cache'` lookup
+   * would cut short. Only for the `'use cache'` handler's entries
+   * ({@link judgeEntriesOf}): the other caches wait for the refresh where they
+   * read anyway. Not with a `refreshIntervalMs` of `0` either, where
+   * `refreshTags` asks again regardless. Then `render`, marked as caught up
+   * for ({@link behindInRender}). Rejects only as `render` does.
+   */
+  async catchUp<T>(render: () => Promise<T>): Promise<T> {
+    const log = (error: unknown) =>
+      console.error("Error refreshing cache tags:", error);
+    if (this.refreshIntervalMs > 0 && this.behind) {
+      if (!this.holdsEntries) {
+        // Not caught up, so no grace: an entry stored meanwhile, by another
+        // request, makes the render's lookups wait at the plain line.
+        return render();
+      }
+      await this.refresh().catch(log);
+    } else if (this.refreshIntervalMs > 0) {
+      // Started, not waited for, as `refreshTags` would: a page that reads
+      // no cache keeps the instance current too, rather than falling behind
+      // and making a later request wait.
+      void this.refresh().catch(log);
+    }
+    return this.caughtUpRender.run(true, render);
+  }
+
+  /** Whether `at` is more than the interval and the grace ago. */
+  private overdue(at: number): boolean {
+    return this.clock() - at > this.refreshIntervalMs + TAG_REFRESH_GRACE_MS;
   }
 
   /**
@@ -791,6 +1016,12 @@ export class TrackedTagMarkers {
       return;
     }
     if (this.refreshing) {
+      // One started before a freeze read the log as it was then, and says
+      // nothing of what ran meanwhile: an instance behind waits for a fresh
+      // one, after it. One that is merely slow is as fresh as any.
+      if (this.behind && this.pausedSinceRefreshStarted()) {
+        return this.refreshing.then(() => this.refresh());
+      }
       return this.refreshing;
     }
     const at = this.clock();
@@ -799,14 +1030,62 @@ export class TrackedTagMarkers {
     }
     this.lastRefresh = at;
     // Whatever gets tracked before the next refresh is read from its marker,
-    // so there is nothing to catch up on yet.
-    if (this.tags.size === 0) {
+    // so there is nothing to catch up on yet - unless an entry is judged by
+    // `completeSince`, which relies on the log for every tag. Even with none
+    // held: a row let go of then moves `completeSince` past it, for an entry
+    // whose generation started before that revalidation and that is stored
+    // after it.
+    if (this.tags.size === 0 && this.entryStores.length === 0) {
       return;
     }
+    this.startTicking();
     this.refreshing = this.sync(at, log).finally(() => {
+      // One that spanned a pause knows the log as of its start at best. So
+      // does one that only looked paused, its event loop held up: it counts
+      // as no older than its start, as if it had not settled since.
+      this.settledAt = Math.max(
+        this.settledAt,
+        this.pausedSinceRefreshStarted() ? this.lastRefresh : this.clock(),
+      );
+      this.stopTicking();
       this.refreshing = undefined;
     });
     return this.refreshing;
+  }
+
+  private startTicking(): void {
+    if (!this.canFreeze) {
+      return;
+    }
+    this.lastTick = this.clock();
+    this.pausedWhileRefreshing = false;
+    this.ticker = setInterval(() => {
+      const at = this.clock();
+      if (at - this.lastTick > REFRESH_PAUSE_MS) {
+        this.pausedWhileRefreshing = true;
+      }
+      this.lastTick = at;
+    }, REFRESH_TICK_MS);
+    // Never what keeps a process alive.
+    this.ticker.unref?.();
+  }
+
+  private stopTicking(): void {
+    clearInterval(this.ticker);
+    this.ticker = undefined;
+  }
+
+  /**
+   * Whether the process was paused since {@link refreshing} started: a tick
+   * came late, or the next one is overdue (after a thaw, a request can run
+   * before the timer does).
+   */
+  private pausedSinceRefreshStarted(): boolean {
+    return (
+      this.canFreeze &&
+      (this.pausedWhileRefreshing ||
+        this.clock() - this.lastTick > REFRESH_PAUSE_MS)
+    );
   }
 
   /**
@@ -850,7 +1129,7 @@ export class TrackedTagMarkers {
     const at = markerClock();
     let state: RevalidationState = "fresh";
     for (const tag of tags) {
-      const marker = this.get(tag);
+      const marker = this.knownMarker(tag);
       if (!marker) {
         continue;
       }
@@ -875,7 +1154,7 @@ export class TrackedTagMarkers {
     const at = markerClock();
     let latest = 0;
     for (const tag of tags) {
-      const marker = this.get(tag);
+      const marker = this.knownMarker(tag);
       if (!marker) {
         continue;
       }
@@ -972,13 +1251,17 @@ export class TrackedTagMarkers {
       );
       return;
     }
-    const [result] = await Promise.all([
-      log.query(this.cursor).catch((error) => {
-        console.error("Error reading tag revalidation log:", error);
-        return undefined;
-      }),
-      this.readInto(this.due(at)),
-    ]);
+    // The rolling re-read runs alongside, not waited for: catching up needs
+    // only the log, and a throttled `BatchGetItem` should not hold the
+    // request `catchUp` makes wait. A forget meanwhile reads it again.
+    const due = this.due(at);
+    if (due.length > 0) {
+      void this.startRead(due);
+    }
+    const result = await log.query(this.cursor).catch((error) => {
+      console.error("Error reading tag revalidation log:", error);
+      return undefined;
+    });
     if (!result) {
       return;
     }
@@ -989,6 +1272,15 @@ export class TrackedTagMarkers {
       );
       return;
     }
+    // A scan of every entry held, which also drops the expired ones, once in
+    // a while: so expired entries never read again don't pile up ahead of
+    // live ones. In between, the stores answer early without one, which only
+    // keeps rows in `logOnly` a little longer.
+    const scan = at - this.lastEntryScan > ENTRY_SCAN_INTERVAL_MS;
+    if (scan) {
+      this.lastEntryScan = at;
+    }
+    const oldest = this.oldestEntry(scan);
     let applied = 0;
     for (const row of result.rows) {
       if (this.applied.has(row.sk)) {
@@ -1015,11 +1307,23 @@ export class TrackedTagMarkers {
         // rolling re-read. Left unmarked, the next refresh applies it to
         // whatever that read found; it costs no read, only the row being
         // looked at again while it is inside the lookback.
+        //
+        // Kept meanwhile in `logOnly`, which is all `completeSince` needs.
+        this.rememberLogged(
+          row.tag,
+          mergeMarkers(this.logOnly.get(row.tag), row.marker),
+          oldest,
+        );
         continue;
       }
       this.applied.set(row.sk, row.at);
       applied++;
     }
+    if (oldest > this.prunedAgainst) {
+      this.pruneLogged(oldest);
+    }
+    // The rows just kept are known by later than `oldest` too.
+    this.prunedAgainst = oldest;
     this.lastLogRead = at;
     this.advance(at - REVALIDATION_LOG_LOOKBACK_MS);
     this.debug(
@@ -1036,7 +1340,9 @@ export class TrackedTagMarkers {
     const due: string[] = [];
     for (const tag of this.unread) {
       if (due.length >= BATCH_GET_MAX_KEYS) return due;
-      due.push(tag);
+      if (!this.reading.has(tag)) {
+        due.push(tag);
+      }
     }
     // Known in time order, and each due at most `jitter` earlier than the
     // tags after it: past a tag due more than that from now, none is due.
@@ -1045,7 +1351,7 @@ export class TrackedTagMarkers {
       if (due.length >= BATCH_GET_MAX_KEYS || dueAt - jitter > at) {
         break;
       }
-      if (dueAt <= at && !this.unread.has(tag)) {
+      if (dueAt <= at && !this.unread.has(tag) && !this.reading.has(tag)) {
         due.push(tag);
       }
     }
@@ -1059,10 +1365,21 @@ export class TrackedTagMarkers {
    */
   private forget(at: number, why: string): void {
     this.debug(`forgetting ${this.tags.size} tracked tags: ${why}`);
+    this.forgotten++;
+    // What the markers expire later is still to apply once it is past.
+    for (const marker of this.tags.values()) {
+      this.raiseFloor(marker);
+    }
+    for (const marker of this.logOnly.values()) {
+      this.raiseFloor(marker);
+    }
     this.tags.clear();
     this.dueAt.clear();
     this.unread.clear();
     this.applied.clear();
+    this.logOnly.clear();
+    // Never back: a marker dropped earlier may have expired entries later.
+    this.floor = Math.max(this.floor, markerClock());
     this.cursor = at - REVALIDATION_LOG_LOOKBACK_MS;
     this.lastLogRead = at;
   }
@@ -1090,13 +1407,23 @@ export class TrackedTagMarkers {
    * always answered with, rather than a read on every request while DynamoDB
    * is unavailable.
    */
-  private async readInto(tags: string[]): Promise<boolean> {
+  private async readInto(tags: string[], again = false): Promise<boolean> {
     if (tags.length === 0) {
       return true;
     }
     const at = this.clock();
+    const forgotten = this.forgotten;
     try {
       const read = await this.markers!.read(tags);
+      if (this.forgotten !== forgotten && !again) {
+        // Read before a forget - across a freeze, as like as not - so as
+        // stale as what it forgot. Read again rather than leave the tags
+        // untracked: whoever waits on this read (`reading`) judges entries
+        // by it next, and an untracked tag counts for nothing. Once: a run
+        // of forgets (a truncated log, query after query) would otherwise
+        // keep them waiting, and the second read began after the first.
+        return await this.readInto(tags, true);
+      }
       for (const tag of tags) {
         this.unread.delete(tag);
         this.remember(
@@ -1112,6 +1439,9 @@ export class TrackedTagMarkers {
       return true;
     } catch (error) {
       console.error("Error reading tag markers:", error);
+      if (this.forgotten !== forgotten && !again) {
+        return this.readInto(tags, true);
+      }
       this.trackUnread(tags);
       for (const tag of tags) {
         this.unread.add(tag);
@@ -1126,8 +1456,134 @@ export class TrackedTagMarkers {
 
   private takePendingRows(tag: string): TagMarker | undefined {
     const pending = this.pendingRows.get(tag);
+    const logged = this.logOnly.get(tag);
     this.pendingRows.delete(tag);
-    return pending;
+    this.logOnly.delete(tag);
+    return logged ? mergeMarkers(logged, pending) : pending;
+  }
+
+  /**
+   * What this instance knows of `tag`: tracked, or from the log alone -
+   * including rows that arrived while its first read is in flight.
+   */
+  private knownMarker(tag: string): TagMarker | undefined {
+    const tracked = this.tags.get(tag);
+    if (tracked) {
+      return tracked;
+    }
+    const logged = this.logOnly.get(tag);
+    const pending = this.pendingRows.get(tag);
+    return logged || pending ? mergeMarkers(logged, pending) : undefined;
+  }
+
+  /**
+   * Keep `tag`'s log rows in `logOnly`, unless they cannot apply to an entry
+   * held, `oldest` or newer (see {@link pruneLogged}), as bounded as the
+   * tracked tags. Either way a row let go of takes what it knew with it, so
+   * `completeSince` moves past it.
+   */
+  private rememberLogged(tag: string, marker: TagMarker, oldest: number): void {
+    this.logOnly.delete(tag);
+    if (knownBy(marker, markerClock()) <= oldest) {
+      this.raiseFloor(marker);
+      return;
+    }
+    this.logOnly.set(tag, marker);
+    for (const [first, dropped] of this.logOnly) {
+      if (this.logOnly.size <= this.maxTrackedTags) {
+        break;
+      }
+      this.logOnly.delete(first);
+      this.raiseFloor(dropped);
+    }
+  }
+
+  /**
+   * Drop the `logOnly` rows that cannot apply to an entry held, `oldest` or
+   * newer: every revalidation they name so far is no later than it. That
+   * moves `completeSince` no further than `oldest`, which costs the entries
+   * held nothing, and a profile's `expiredAt` still to come waits in
+   * `laterFloors`. Without this, a deployment revalidating many distinct tags
+   * filled `logOnly` with tags no entry here carries, and the evictions past
+   * its bound kept moving `completeSince` up to the present.
+   */
+  private pruneLogged(oldest: number): void {
+    const at = markerClock();
+    for (const [tag, marker] of this.logOnly) {
+      if (knownBy(marker, at) <= oldest) {
+        this.logOnly.delete(tag);
+        this.raiseFloor(marker);
+      }
+    }
+  }
+
+  /**
+   * The oldest entry timestamp of any registered store, `Infinity` with none:
+   * early, never late, unless `scan`.
+   */
+  private oldestEntry(scan: boolean): number {
+    let oldest = Infinity;
+    for (const { oldestTimestamp } of this.entryStores) {
+      oldest = Math.min(oldest, oldestTimestamp(scan));
+    }
+    return oldest;
+  }
+
+  /**
+   * Move `completeSince` past `marker`'s revalidations: what is no longer
+   * known about a tag once its marker is dropped. A future `expiredAt` waits
+   * in `laterFloors` until it is past.
+   */
+  private raiseFloor(marker: TagMarker): void {
+    const at = markerClock();
+    this.floor = Math.max(this.floor, knownBy(marker, at));
+    const { expiredAt } = marker;
+    if (expiredAt !== undefined && expiredAt > Math.max(at, this.floor)) {
+      this.laterFloor(expiredAt);
+    }
+  }
+
+  /**
+   * Add `time` to `laterFloors`, in order. Past the tracked-tag bound the two
+   * spans closest together are merged: from the first's start,
+   * `completeSince` is the second's end, early - which only costs reads, and
+   * for as short a time as any merge allows. Never later than its time, which
+   * would let an entry expire unseen.
+   */
+  private laterFloor(time: number): void {
+    const floors = this.laterFloors;
+    let low = 0;
+    let high = floors.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (floors[mid][0] < time) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    // Inside a merged span already: by its start, `completeSince` is past it.
+    // Or already there: a log row for an untracked tag is applied again by
+    // every query its lookback returns it to.
+    if ((low > 0 && floors[low - 1][1] >= time) || floors[low]?.[0] === time) {
+      return;
+    }
+    floors.splice(low, 0, [time, time]);
+    // A scan, but only once past the bound. Merging the new time into a
+    // neighbour instead could join an hour-out span with a year-out one, and
+    // hold `completeSince` a year early.
+    if (floors.length > this.maxTrackedTags) {
+      let merge = 0;
+      for (let i = 1; i < floors.length - 1; i++) {
+        if (
+          floors[i + 1][1] - floors[i][0] <
+          floors[merge + 1][1] - floors[merge][0]
+        ) {
+          merge = i;
+        }
+      }
+      floors.splice(merge, 2, [floors[merge][0], floors[merge + 1][1]]);
+    }
   }
 
   /** Record that `tag`'s marker was known from the table at `at`. */
@@ -1146,6 +1602,7 @@ export class TrackedTagMarkers {
       if (this.tags.size <= this.maxTrackedTags) {
         break;
       }
+      this.raiseFloor(this.tags.get(oldest)!);
       this.tags.delete(oldest);
       this.dueAt.delete(oldest);
       this.unread.delete(oldest);
@@ -1161,11 +1618,41 @@ export class TrackedTagMarkers {
 }
 
 /**
+ * The latest revalidation `marker` has made known by `at`, `-Infinity` with
+ * none: a future `expiredAt` is still to come.
+ */
+function knownBy(marker: TagMarker, at: number): number {
+  const { revalidatedAt, staleAt, expiredAt } = marker;
+  return Math.max(
+    revalidatedAt ?? -Infinity,
+    staleAt ?? -Infinity,
+    expiredAt !== undefined && expiredAt <= at ? expiredAt : -Infinity,
+  );
+}
+
+/**
  * The longest a log row's put may take and still be seen by every reader: half
  * the lookback, leaving the rest for writers' clocks and eventually consistent
  * queries.
  */
 const MAX_LOG_PUT_MS = REVALIDATION_LOG_LOOKBACK_MS / 2;
+
+/**
+ * How often a refresh scans the entry stores for their oldest entry, dropping
+ * the expired ones no request reads again.
+ */
+const ENTRY_SCAN_INTERVAL_MS = 60_000;
+
+/** How often a refresh in flight checks the process is running. */
+const REFRESH_TICK_MS = 250;
+
+/**
+ * How late a tick may come before the process counts as paused (frozen)
+ * since the refresh in flight started. A busy event loop can delay one too:
+ * the refresh then counts as no fresher than its start, as before the pause
+ * check, so a request waits for the next one once that is past the grace.
+ */
+const REFRESH_PAUSE_MS = 1000;
 
 /**
  * A marker as read from the table or the log, keeping whatever this instance
