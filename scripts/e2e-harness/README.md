@@ -159,10 +159,10 @@ a single-type run of the other three already reaches: no more CloudFront
 distributions at once than a Global Functions run, under the CloudFront
 response-headers-policy quota (3 per distribution), no more ECR pulls than a
 Regional Containers run, and no more of the org's concurrent jobs than the
-schedule has always taken. A slot goes to the next
-job as soon as one frees, so types overlap where one ends and the next begins;
-that is safe, because no two entries share a stack name. Results arrive in that
-order: a Global Functions regression shows up first, about 2 hours in.
+schedule has always taken. A slot goes to the next job as soon as one frees, so
+types overlap where one ends and the next begins; that is safe, because no two
+entries share a stack name. Results arrive in that order: a Global Functions
+regression shows up first, about 2 hours in.
 
 To check the workflow itself rather than compatibility, dispatch `all` with
 `shard_total: 1` and `test_filters: ../test/harness-smoke-manifest.json`: one
@@ -309,8 +309,7 @@ assigns `pathname` outright — so any prefix in the deployment URL is dropped.
 `NextjsRegionalFunctions`'s API Gateway REST URL always ends in `/<stage>`, so it
 runs behind `stage-proxy.mjs`, a local proxy that puts the stage back (see
 "Running on `NextjsRegionalFunctions`") — a second front door, not the one users
-deploy. A CloudFront distribution is served
-at the origin root.
+deploy. A CloudFront distribution is served at the origin root.
 
 It is also the front door the suite was written for. `NEXT_TEST_MODE=deploy` is
 the mode Vercel validates edge-fronted deployments with, so its tests tolerate a

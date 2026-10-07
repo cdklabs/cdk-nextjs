@@ -176,9 +176,9 @@ jobs:
         # within minutes of each other, so the next wave's entries start nearly
         # together too. That holds while waves stay aligned to multiples of 10;
         # once they drift, two entries with one stagger collide only if their
-        # slots free in the same minute, and two creates at once stay well under
-        # the burst that trips the limit. `screen` marks the one entry that checks
-        # the manifest's screening counts.
+        # slots free in the same minute, and two creates at once are far fewer
+        # than the ten that tripped the limit. `screen` marks the one entry that
+        # checks the manifest's screening counts.
         #
         # The cache key pins everything the cached tree was built by and for: the
         # next.js commit, and the runner image and node major that its node_modules
