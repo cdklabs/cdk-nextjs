@@ -64,7 +64,7 @@ export function createDefaultUseCacheHandler(
   // Expired entries, which `get` drops anyway, neither hold `completeSince`'s
   // pruning back nor count as held for a refresh to wait for.
   tags.judgeEntriesOf(
-    () => memory.oldestTimestamp(now()),
+    (scan) => (scan ? memory.oldestTimestamp(now()) : memory.oldestBound()),
     () => memory.holdsLive(now()),
   );
 

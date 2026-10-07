@@ -746,6 +746,38 @@ describe("EntryLru", () => {
     expect(lru.oldestTimestamp()).toBe(3);
   });
 
+  it("bounds its oldest entry's timestamp from below between scans", () => {
+    const lru = new EntryLru(1000);
+    const held = new Map<string, number>();
+    let seed = 7;
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 2000; i++) {
+      const key = `k${Math.floor(random() * 50)}`;
+      const timestamp = Math.floor(random() * 10_000);
+      if (random() < 0.2) {
+        lru.delete(key);
+        held.delete(key);
+      } else {
+        lru.set(key, stored(100, { timestamp }));
+        held.delete(key);
+        held.set(key, timestamp);
+        while (held.size > lru.size) {
+          held.delete(held.keys().next().value!);
+        }
+      }
+      const oldest = Math.min(Infinity, ...held.values());
+      expect(lru.oldestBound()).toBeLessThanOrEqual(oldest);
+      if (i % 100 === 0) {
+        expect(lru.oldestTimestamp()).toBe(oldest);
+        expect(lru.oldestBound()).toBe(oldest);
+      }
+    }
+    for (const key of held.keys()) {
+      lru.delete(key);
+    }
+    expect(lru.oldestBound()).toBe(Infinity);
+  });
+
   it("knows its oldest entry's timestamp under eviction churn", () => {
     const lru = new EntryLru(1000);
     const held = new Map<string, number>();

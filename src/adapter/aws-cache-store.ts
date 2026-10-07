@@ -695,7 +695,7 @@ export class TrackedTagMarkers {
   private readonly laterFloors: [number, number][] = [];
   /** The in-memory entry stores judged by {@link completeSince}. */
   private readonly entryStores: {
-    oldestTimestamp: () => number;
+    oldestTimestamp: (scan: boolean) => number;
     holdsAny: () => boolean;
   }[] = [];
   /** How many times {@link forget} ran: a read started before one is made again. */
@@ -709,6 +709,12 @@ export class TrackedTagMarkers {
   private readonly caughtUpRender = new AsyncLocalStorage<true>();
   /** When `sync` last scanned the entry stores ({@link oldestEntry}). */
   private lastEntryScan = -Infinity;
+  /**
+   * No `logOnly` row is known by it or earlier, so a {@link pruneLogged}
+   * against it or earlier drops nothing: a marker is only ever known by later,
+   * as its `expiredAt` passes.
+   */
+  private prunedAgainst = -Infinity;
   /** When the last refresh started, or was skipped. */
   private lastRefresh = -Infinity;
   /**
@@ -810,11 +816,12 @@ export class TrackedTagMarkers {
    * Register an in-memory store whose entries are judged by
    * {@link completeSince}, by the `timestamp` of the oldest entry it holds:
    * `logOnly` keeps the rows that could still apply to one of them, and no
-   * others. With none registered it keeps nothing.
+   * others. With none registered it keeps nothing. Asked with `scan` false,
+   * `oldestTimestamp` may answer early, but never late, without a scan.
    */
   judgeEntriesOf(
-    oldestTimestamp: () => number,
-    holdsAny: () => boolean = () => oldestTimestamp() < Infinity,
+    oldestTimestamp: (scan: boolean) => number,
+    holdsAny: () => boolean = () => oldestTimestamp(true) < Infinity,
   ): void {
     this.entryStores.push({ oldestTimestamp, holdsAny });
   }
@@ -1265,17 +1272,15 @@ export class TrackedTagMarkers {
       );
       return;
     }
-    // A scan of every entry held, which also drops the expired ones: when
-    // there is something to judge by it, and otherwise once in a while, so
-    // expired entries never read again don't pile up ahead of live ones.
-    const scan =
-      result.rows.length > 0 ||
-      this.logOnly.size > 0 ||
-      at - this.lastEntryScan > ENTRY_SCAN_INTERVAL_MS;
+    // A scan of every entry held, which also drops the expired ones, once in
+    // a while: so expired entries never read again don't pile up ahead of
+    // live ones. In between, the stores answer early without one, which only
+    // keeps rows in `logOnly` a little longer.
+    const scan = at - this.lastEntryScan > ENTRY_SCAN_INTERVAL_MS;
     if (scan) {
       this.lastEntryScan = at;
     }
-    const oldest = scan ? this.oldestEntry() : Infinity;
+    const oldest = this.oldestEntry(scan);
     let applied = 0;
     for (const row of result.rows) {
       if (this.applied.has(row.sk)) {
@@ -1314,7 +1319,11 @@ export class TrackedTagMarkers {
       this.applied.set(row.sk, row.at);
       applied++;
     }
-    this.pruneLogged(oldest);
+    if (oldest > this.prunedAgainst) {
+      this.pruneLogged(oldest);
+    }
+    // The rows just kept are known by later than `oldest` too.
+    this.prunedAgainst = oldest;
     this.lastLogRead = at;
     this.advance(at - REVALIDATION_LOG_LOOKBACK_MS);
     this.debug(
@@ -1508,11 +1517,14 @@ export class TrackedTagMarkers {
     }
   }
 
-  /** The oldest entry timestamp of any registered store, `Infinity` with none. */
-  private oldestEntry(): number {
+  /**
+   * The oldest entry timestamp of any registered store, `Infinity` with none:
+   * early, never late, unless `scan`.
+   */
+  private oldestEntry(scan: boolean): number {
     let oldest = Infinity;
     for (const { oldestTimestamp } of this.entryStores) {
-      oldest = Math.min(oldest, oldestTimestamp());
+      oldest = Math.min(oldest, oldestTimestamp(scan));
     }
     return oldest;
   }
@@ -1626,8 +1638,8 @@ function knownBy(marker: TagMarker, at: number): number {
 const MAX_LOG_PUT_MS = REVALIDATION_LOG_LOOKBACK_MS / 2;
 
 /**
- * How often, at most, a refresh with no log rows to judge still scans the
- * entry stores, to drop expired entries no request reads again.
+ * How often a refresh scans the entry stores for their oldest entry, dropping
+ * the expired ones no request reads again.
  */
 const ENTRY_SCAN_INTERVAL_MS = 60_000;
 

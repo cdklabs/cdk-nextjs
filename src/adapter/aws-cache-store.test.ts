@@ -981,6 +981,66 @@ describe("TrackedTagMarkers", () => {
     expect(markers.completeSince).toBe(later);
   });
 
+  it("scans the entry stores once a minute, pruning only when the oldest moves", async () => {
+    let clock = 1_000_000;
+    const later = markerClock() + 60_000;
+    const rows: RevalidationLogRow[] = [
+      {
+        sk: `${String(clock).padStart(15, "0")}#new`,
+        at: clock,
+        tag: "new",
+        marker: { revalidatedAt: later },
+      },
+    ];
+    const markers = new TrackedTagMarkers({
+      markers: { read: jest.fn() } as unknown as TagMarkerTable,
+      // The row leaves the lookback after the first query: only the prune
+      // can let it go.
+      log: {
+        query: jest
+          .fn()
+          .mockResolvedValueOnce({ rows, truncated: false })
+          .mockResolvedValue({ rows: [], truncated: false }),
+      } as unknown as RevalidationLog,
+      refreshIntervalMs: 0,
+      clock: () => clock,
+    });
+    let bound = 2;
+    let exact = 2;
+    const oldest = jest.fn((scan: boolean) => (scan ? exact : bound));
+    markers.judgeEntriesOf(oldest);
+    const prune = jest.spyOn(
+      markers as unknown as { pruneLogged: (oldest: number) => void },
+      "pruneLogged",
+    );
+
+    await markers.refresh();
+    expect(oldest).toHaveBeenLastCalledWith(true);
+    expect(prune).toHaveBeenCalledTimes(1);
+
+    // Within the minute: the bound, and no prune while it stays put.
+    clock += 1000;
+    exact = later;
+    await markers.refresh();
+    expect(oldest).toHaveBeenLastCalledWith(false);
+    expect(prune).toHaveBeenCalledTimes(1);
+    expect(markers.state(["new"], later - 1)).toBe("expired");
+
+    // The minute's scan finds every entry newer than the row: it goes.
+    clock += 60_000;
+    await markers.refresh();
+    expect(oldest).toHaveBeenLastCalledWith(true);
+    expect(prune).toHaveBeenCalledTimes(2);
+    expect(markers.state(["new"], later - 1)).toBe("fresh");
+    expect(markers.completeSince).toBe(later);
+
+    // An entry set since moves the bound back: nothing to prune.
+    clock += 1000;
+    bound = 1;
+    await markers.refresh();
+    expect(prune).toHaveBeenCalledTimes(2);
+  });
+
   it("waits for a fresh query rather than one started before a freeze", async () => {
     let clock = 1_000_000;
     const queries: (() => void)[] = [];

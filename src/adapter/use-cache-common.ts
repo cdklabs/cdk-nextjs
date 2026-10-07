@@ -152,6 +152,12 @@ export class PendingSets {
 export class EntryLru {
   private readonly entries = new Map<string, StoredEntry>();
   private bytes = 0;
+  /**
+   * No later than the oldest entry's `timestamp`: the last scan's answer, less
+   * whatever was set since. Entries dropped since only make it early. See
+   * {@link oldestBound}.
+   */
+  private lowest = Infinity;
 
   constructor(private readonly maxBytes: number) {}
 
@@ -173,6 +179,7 @@ export class EntryLru {
     }
     this.entries.set(key, entry);
     this.bytes += size;
+    this.lowest = Math.min(this.lowest, entry.timestamp);
     for (const [oldestKey, oldest] of this.entries) {
       if (this.bytes <= this.maxBytes) {
         break;
@@ -194,8 +201,8 @@ export class EntryLru {
    * The `timestamp` of the oldest entry held, `Infinity` with none, dropping
    * on the way the entries past `revalidate` at `at` (`now()`): a handler
    * that drops them when next read would otherwise hold them until then, and
-   * they would count here meanwhile. A scan, asked only once per revalidation
-   * log query and when the instance is behind.
+   * they would count here meanwhile. A scan, so asked once in a while: in
+   * between, {@link oldestBound} answers.
    */
   oldestTimestamp(at = -Infinity): number {
     let oldest = Infinity;
@@ -206,7 +213,16 @@ export class EntryLru {
         oldest = Math.min(oldest, entry.timestamp);
       }
     }
+    this.lowest = oldest;
     return oldest;
+  }
+
+  /**
+   * No later than {@link oldestTimestamp}, without its scan: as of the last
+   * one, less the entries set since. `Infinity` with none held.
+   */
+  oldestBound(): number {
+    return this.entries.size === 0 ? Infinity : this.lowest;
   }
 
   /**
