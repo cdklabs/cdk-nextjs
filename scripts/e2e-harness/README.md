@@ -265,10 +265,9 @@ the `v1` in it to discard every entry). Two things to know:
   comparing against is whatever the other workflows are using at the time.
 - **The Playwright _browser_ is cached; its system libraries are not.** Those are
   apt packages outside any cacheable path, so
-  `playwright install --with-deps chromium` still runs in each shard. It is a
-  no-op for the download on a hit. It runs through `scripts/playwright-install.sh`,
-  which sets apt network timeouts and retries a hung or failed attempt, because
-  apt on its own can hang on a stalled mirror until the job times out.
+  `scripts/playwright-install-deps.sh` (`playwright install-deps chromium`)
+  still runs in each shard. It caps and retries each attempt, because apt on its
+  own can hang on a stalled mirror until the job times out.
 
 A `workflow_dispatch` from a branch writes to that branch's own cache scope, so
 the first dispatched run on a new branch pays the build once. It can still _read_

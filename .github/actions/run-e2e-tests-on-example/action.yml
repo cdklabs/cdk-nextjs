@@ -24,9 +24,12 @@ runs:
         aws_account: ${{ inputs.aws_account }}
     - name: Install Playwright browser
       shell: bash
-      # apt (via --with-deps) can hang indefinitely on a stalled mirror; the
-      # script bounds and retries it.
-      run: cd examples/e2e-tests && ../../scripts/playwright-install.sh pnpm install-browser
+      # Not `pnpm install-browser`: its `--with-deps` runs apt, which can hang
+      # indefinitely on a stalled mirror. The script bounds and retries it.
+      run: |
+        cd examples/e2e-tests
+        ../../scripts/playwright-install-deps.sh
+        pnpm exec playwright install --no-shell chromium
     - name: Log in to Amazon ECR Public
       # The Containers examples build on `public.ecr.aws/docker/library/node`.
       # Pulled anonymously from a shared GitHub runner IP it hit ECR Public's

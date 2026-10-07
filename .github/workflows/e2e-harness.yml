@@ -351,11 +351,10 @@ jobs:
       - name: Install the Playwright system dependencies
         working-directory: nextjs
         # The browser itself came out of the cache; these are apt packages, which
-        # no cache can hold, so this runs on the hit path too. It is a no-op for
-        # the download in that case. apt can hang indefinitely on a stalled
-        # mirror; the script bounds and retries it.
-        timeout-minutes: 20
-        run: ${{ github.workspace }}/scripts/playwright-install.sh pnpm playwright install --with-deps chromium
+        # no cache can hold, so this runs on every shard. apt can hang
+        # indefinitely on a stalled mirror; the script bounds and retries it.
+        timeout-minutes: 25
+        run: ${{ github.workspace }}/scripts/playwright-install-deps.sh
 
       - uses: aws-actions/configure-aws-credentials@v4.2.1
         with:
