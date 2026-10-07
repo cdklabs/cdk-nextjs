@@ -746,6 +746,25 @@ describe("EntryLru", () => {
     expect(lru.oldestTimestamp()).toBe(3);
   });
 
+  it("starts its bound afresh once emptied", () => {
+    const lru = new EntryLru(1000);
+    lru.set("a", stored(100, { timestamp: 100 }));
+    lru.delete("a");
+    lru.set("b", stored(100, { timestamp: 5000 }));
+    expect(lru.oldestBound()).toBe(5000);
+  });
+
+  it("drops the expired entries least recently used as it bounds", () => {
+    const lru = new EntryLru(1000);
+    lru.set("old", stored(100, { timestamp: 1000, revalidate: 1 }));
+    lru.set("live", stored(100, { timestamp: 1500, revalidate: 10 }));
+    lru.set("behind", stored(100, { timestamp: 1200, revalidate: 1 }));
+    // Up to the first live entry: no scan past it.
+    expect(lru.oldestBound(2300)).toBe(1000);
+    expect(lru.size).toBe(2);
+    expect(lru.oldestTimestamp(2300)).toBe(1500);
+  });
+
   it("bounds its oldest entry's timestamp from below between scans", () => {
     const lru = new EntryLru(1000);
     const held = new Map<string, number>();

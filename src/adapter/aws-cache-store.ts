@@ -821,7 +821,7 @@ export class TrackedTagMarkers {
    */
   judgeEntriesOf(
     oldestTimestamp: (scan: boolean) => number,
-    holdsAny: () => boolean = () => oldestTimestamp(true) < Infinity,
+    holdsAny: () => boolean = () => oldestTimestamp(false) < Infinity,
   ): void {
     this.entryStores.push({ oldestTimestamp, holdsAny });
   }

@@ -194,6 +194,9 @@ export class EntryLru {
     if (existing) {
       this.entries.delete(key);
       this.bytes -= sizeOf(key, existing);
+      if (this.entries.size === 0) {
+        this.lowest = Infinity;
+      }
     }
   }
 
@@ -219,9 +222,18 @@ export class EntryLru {
 
   /**
    * No later than {@link oldestTimestamp}, without its scan: as of the last
-   * one, less the entries set since. `Infinity` with none held.
+   * one, less the entries set since. `Infinity` with none held. Drops the
+   * entries past `revalidate` at `at` from the least recently used end, up to
+   * the first that isn't, so {@link holdsLive} doesn't walk past them on every
+   * request until the next scan.
    */
-  oldestBound(): number {
+  oldestBound(at = -Infinity): number {
+    for (const [key, entry] of this.entries) {
+      if (!isPastRevalidate(entry, at)) {
+        break;
+      }
+      this.delete(key);
+    }
     return this.entries.size === 0 ? Infinity : this.lowest;
   }
 

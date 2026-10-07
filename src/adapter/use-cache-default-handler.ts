@@ -61,10 +61,12 @@ export function createDefaultUseCacheHandler(
   );
   const pending = new PendingSets();
   const debug = getDebug("cdk-nextjs:cache-handler:use-cache:default");
-  // Expired entries, which `get` drops anyway, neither hold `completeSince`'s
-  // pruning back nor count as held for a refresh to wait for.
+  // Expired entries, which `get` drops anyway, don't count as held for a
+  // refresh to wait for, nor hold `completeSince`'s pruning back past the
+  // next scan.
   tags.judgeEntriesOf(
-    (scan) => (scan ? memory.oldestTimestamp(now()) : memory.oldestBound()),
+    (scan) =>
+      scan ? memory.oldestTimestamp(now()) : memory.oldestBound(now()),
     () => memory.holdsLive(now()),
   );
 
