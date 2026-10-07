@@ -16,7 +16,8 @@ Arguments: optional PR number (defaults to the current branch's PR), and `--roun
 2. Resolve the PR: `gh pr view [PR#] --json number,title,baseRefName,headRefName`. Run `git fetch origin <baseRefName>`.
 3. `FULL_BASE=$(git merge-base origin/<baseRefName> HEAD)`.
 4. Ledger: `.claude/pr-review/<branch-with-slashes-as-dashes>.md` (gitignored). If it exists, **resume**: read it, continue the round numbering, and keep every recorded outcome. Otherwise create it from the template at the bottom.
-5. Collect **recorded decisions**: read the project memory index (`MEMORY.md`) and every memory describing a deliberate design choice (e.g. "X chosen over Y", "X is kept", "Y rejected"). Add a one-line summary of each to the ledger's *Recorded decisions* section. The triage step checks findings against these.
+5. **Dependency sources** (`DEP_SOURCES`): if the branch tracks a dependency's behaviour (a next.js upgrade, a mirrored upstream function), have that dependency's sources available at the pinned version. Its built code is in `node_modules/<pkg>`. Sources the package doesn't ship (next.js's `test/` tree) need a shallow clone, for example `git clone --depth 1 --branch v<version> https://github.com/vercel/next.js /tmp/nextjs-<version>`. Reuse a clone that already exists. Record the paths in the ledger header.
+6. Collect **recorded decisions**: read the project memory index (`MEMORY.md`) and every memory describing a deliberate design choice (e.g. "X chosen over Y", "X is kept", "Y rejected"). Add a one-line summary of each to the ledger's *Recorded decisions* section. The triage step checks findings against these.
 
 ## 1. Review (fresh subagent every round)
 
@@ -28,7 +29,8 @@ Spawn **one new** `general-purpose` subagent each round. Never reuse an earlier 
 
 > Review the changes in `<RANGE>` on branch `<branch>` (PR #<n>: <title>) for correctness bugs.
 > Invoke the `code-review` skill with args `high`. **Do not pass `--comment` or `--fix`.**
-> That skill may pick its own diff range (it tends to use `@{upstream}...HEAD`, or the remote PR, which lacks local commits). Compare the files it reviewed with `git diff --name-only <RANGE>`. If they differ, also review `git diff <RANGE>` yourself at the same rigor: read the surrounding code, not just the hunks. Don't wait for the skill to finish: report when your own review is done. If the skill returns later, send its results as a follow-up message.
+> That skill may pick its own diff range (it tends to use `@{upstream}...HEAD`, or the remote PR, which lacks local commits). Compare the files it reviewed with `git diff --name-only <RANGE>`. If they differ, or the skill doesn't say, also review `git diff <RANGE>` yourself at the same rigor: read the surrounding code, not just the hunks. Do that review while the skill runs, then **wait for the skill's results before you report**. You can't send anything after you hand back, so results that arrive later are lost.
+> Dependency sources at the pinned version: <DEP_SOURCES>. A finding about how a dependency behaves must cite its code there. Don't infer the behaviour ("presumably", "as in JS").
 > Filter the skill's findings; don't discard them wholesale:
 > - **In range:** on lines `<RANGE>` changes. Verify each against the code and report it with your own findings.
 > - **Outside range:** elsewhere in code this branch changes (`git diff <FULL_BASE>..HEAD`). Verify each one too, and report it in a separate "outside range" list.
@@ -38,17 +40,18 @@ Spawn **one new** `general-purpose` subagent each round. Never reuse an earlier 
 > <paste ledger rows (ID, location, finding, status) + Recorded decisions>
 > Return a list. For each finding give: `file:line`, a one-sentence defect, a concrete failure scenario, severity (high/medium/low), and the ledger ID it relates to (if any). Make no edits. If you find nothing, say so explicitly.
 
-Record in the ledger: the round number, range type, range SHAs, and the raw count of findings. Outside-range findings, and ones that arrive in a follow-up message, are triaged in the same round as the rest and count toward its totals.
+Record in the ledger: the round number, range type, range SHAs, and the raw count of findings. Outside-range findings are triaged in the same round as the rest and count toward its totals. If a reviewer reports without the skill's results anyway, note it in the ledger and make the next review a FULL pass.
 
 ## 2. Triage (main agent)
 
-Read the cited code for every finding before you classify it. Then give it exactly one status:
+Read the cited code for every finding before you classify it. If a finding rests on how a dependency behaves (its grammar, its precedence, what it passes to a hook), check that dependency's source in `DEP_SOURCES` before you mark it `fix`. A wrong fix costs a revert and another round. Then give it exactly one status:
 
 | Status | When | Action |
 |---|---|---|
 | `duplicate` | Same issue as an existing ledger row, with nothing new | Drop. Note the ID only |
 | `invalid` | The code shows the claim is false | Record the reason |
 | `escalated` | Contradicts a recorded decision; or would reverse a fix from an earlier round (oscillation); or the same location has already been fixed in 2+ rounds; or needs a product/API decision (public API break, new dependency, behaviour change users would notice) | Record it. Don't implement. Keep looping |
+| `fix` (revert) | Would reverse an earlier round's fix, and the code (yours, or a dependency's in `DEP_SOURCES`) shows that fix was wrong. This isn't oscillation, because the earlier fix had no valid basis | Revert it. Mark the earlier row `invalid` (citing the code that proves it wrong) and this one `fix` |
 | `fix` | Everything else, at any severity: correctness, performance, simplification, style, test and docs findings | Implement |
 
 Default to `fix`: the user has said "implement it all." Escalate only for the reasons in the table, not because a finding is minor: low-severity fixes rarely break anything, the next review catches it when one does, and unfixed ones add up.
@@ -95,6 +98,7 @@ After each round, count the **blocking** findings: those triaged `fix` or `escal
 # pr-review ledger: PR #<n> <title>
 
 Branch: <branch> · Base: origin/<base> @ <FULL_BASE short sha>
+Dependency sources: <DEP_SOURCES, or "none">
 
 ## Recorded decisions
 - <memory slug>: <one line>
