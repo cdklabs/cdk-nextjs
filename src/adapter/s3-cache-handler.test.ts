@@ -685,8 +685,10 @@ describe("S3DynamoCacheHandler", () => {
 
         it("keeps waiting when a failed re-render writes the stale value back", async () => {
           // next 16.4's `retainPreviousCacheEntry`: the object `get` returned,
-          // stored again with a 3-30 s lifetime.
+          // stored again with a 3-30 s lifetime. A second read in between
+          // parses its own copy; the write-back still carries the first.
           const served = await cdnHandler.get("posts", getCtx);
+          await cdnHandler.get("posts", getCtx);
           await cdnHandler.set("posts", served!.value, {
             cacheControl: { revalidate: 3, expire: undefined },
             isRoutePPREnabled: false,

@@ -493,7 +493,7 @@ To check one candidate by hand instead:
 # in the next.js checkout, against the fixture root (usually the test file's dir
 # or its parent)
 # a middleware.* is edge unless it sets `runtime: "nodejs"` in its config
-find <fixture> -name "middleware.*" -exec grep -L "runtime: *.nodejs." {} +
+find <fixture> -name "middleware.*" -exec grep -LE "runtime\s*:\s*.nodejs." {} +
 grep -rlE "runtime\s*[:=]\s*.(experimental-)?edge." <fixture>
 ```
 

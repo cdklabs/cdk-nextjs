@@ -82,6 +82,8 @@ const TEST_RE = /\.test\.[tj]sx?$/;
 const EDGE_RUNTIME_RE = /runtime\s*[:=]\s*['"](experimental-)?edge['"]/;
 /** A middleware file's opt-in to the Node runtime: `config = { runtime: "nodejs" }`. */
 const NODE_RUNTIME_RE = /runtime\s*:\s*['"]nodejs['"]/;
+/** `source` less its comments, so a commented-out opt-in doesn't count. */
+const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\/|(^|[^:])\/\/.*$/gm, "$1");
 /**
  * An empty `it('should skip …', () => {})` — next.js's stub for the modes a
  * mode-gated file does not cover. `dev` in the title means dev is the excluded
@@ -304,7 +306,8 @@ function screen(testFile, decided = []) {
   if (
     fixture.some(
       (p) =>
-        /\/middleware\.[tj]sx?$/.test(p) && !NODE_RUNTIME_RE.test(read(p)),
+        /\/middleware\.[tj]sx?$/.test(p) &&
+        !NODE_RUNTIME_RE.test(withoutComments(read(p))),
     )
   ) {
     reasons.push("middleware");
