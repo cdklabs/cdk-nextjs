@@ -339,6 +339,16 @@ PK: "METADATA"            SK: "CURRENT_BUILD"                               buil
   first time it needs it, then learns of other instances' revalidations from
   one log `Query` per second (see
   [On-Demand Revalidation](#on-demand-revalidation)).
+- **Why a marker and a log**: the marker is a tag's state, the log is what
+  changed lately. Say instance A has read the `products` marker and keeps it.
+  Instance B calls `revalidateTag("products")`, which updates the marker and
+  puts a log row. Within about a second A's log `Query` returns that row, and
+  A updates its copy. Markers alone would mean every instance re-reading every
+  tag it keeps each second, all on the one `{buildId}` partition. The log
+  alone forgets anything older than 15 minutes, so it can't say whether a tag
+  was revalidated yesterday. That's why a new instance reads markers, and
+  why an instance that has gone more than about 10 minutes without a query
+  forgets the markers it kept and reads them again.
 - **Log rows sort by time**: the sort key's timestamp is what makes "every
   revalidation since my last query" one key range. Rows older than the query's
   range are never read, so DynamoDB deleting expired rows late costs only
