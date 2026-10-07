@@ -6,9 +6,10 @@ write, because the tests were written by the people who define the behavior.
 
 `examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
 is the scheduled one — every sixth day of the month at 14:00 UTC, so the day of
-the week drifts — on `NextjsGlobalFunctions` only. The other three run by
-`workflow_dispatch` (its `nextjs_type` input) or by hand; see "Running on the
-other `NextjsType`s".
+the week drifts — on all four types in one run, `NextjsGlobalFunctions` first
+(see "Sharding"). A `workflow_dispatch` runs one type (its `nextjs_type` input,
+`NextjsGlobalFunctions` by default) or `all`; see "Running on the other
+`NextjsType`s".
 
 What has actually been run, what failed, and whether each failure is a bug or
 acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
@@ -26,7 +27,8 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
 | `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
-| `.github/workflows/e2e-harness.yml` | Every six days + `workflow_dispatch`. A matrix of `shard_total` jobs, one stack each.                              |
+| `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in about an hour (`test_filters`).                    |
+| `.github/workflows/e2e-harness.yml` | Every six days (all four types) + `workflow_dispatch`. A matrix of (type, shard) jobs, one stack each.             |
 
 ## One shared stack, not one per test file
 
@@ -36,8 +38,8 @@ one deployment — every file genuinely has different code to ship. What there i
 way to do is ship it into infrastructure that already exists.
 
 Every test file in a run deploys into the same stack (`hrns-shared` by default,
-`hrns-shard-<n>` under the workflow's matrix — see "Sharding" below) with
-`cdk deploy --hotswap-fallback`. Creating and propagating the CloudFront
+`hrns-shard-<n>`, with the type's infix, under the workflow's matrix — see
+"Sharding" below) with `cdk deploy --hotswap-fallback`. Creating and propagating the CloudFront
 distribution costs ~4 minutes once per stack; every test file reuses it. That is
 the whole saving, and it is most of the cost of a run.
 
@@ -141,9 +143,31 @@ of them at once locally" — and delete it afterwards with
 
 A stack holds one app at a time, so the only way to run two test files at once is
 to give them two stacks. `HARNESS_SHARED_STACK_SUFFIX` is that knob, and
-`.github/workflows/e2e-harness.yml` turns it into a matrix: `shard_total` jobs
-(10 by default), each with a shared stack named `hrns-shard-<n>` and each running
-its own slice of the file list.
+`.github/workflows/e2e-harness.yml` turns it into a matrix of (type, shard) jobs:
+`shard_total` per type (by default 15 for Global Containers, whose ~4.3 minutes a
+file do not fit 10 shards into the run step's cap, and 10 for the others), each
+with a shared stack named `hrns-shard-<n>` (with the type's infix) and each
+running its own slice of that type's file list.
+
+A run of one type starts all its shards at once. A run of `all` (the schedule)
+lists 45 jobs, Global Functions first, then Regional Functions, Regional
+Containers and Global Containers, and runs at most 10 at a time, which is about 11
+hours end to end (about 95 shard-hours: Global Containers' 15 shards take about
+2.5 hours each, the others about 2; the shards of one type end together, so the
+last five Global Containers shards run with half the slots idle). Ten is the peak
+a single-type run of the other three already reaches: no more CloudFront
+distributions at once than a Global Functions run, under the CloudFront
+response-headers-policy quota (3 per distribution), no more ECR pulls than a
+Regional Containers run, and no more of the org's concurrent jobs than the
+schedule has always taken. A slot goes to the next job as soon as one frees, so
+types overlap where one ends and the next begins; that is safe, because no two
+entries share a stack name. Results arrive in that order: a Global Functions
+regression shows up first, about 2 hours in.
+
+To check the workflow itself rather than compatibility, dispatch `all` with
+`shard_total: 1` and `test_filters: ../test/harness-smoke-manifest.json`: one
+file on each type, four jobs, about an hour (Global Containers' ~15-minute warm-up
+and its delete are most of it).
 
 The slice comes from next.js's own `run-tests.js -g <n>/<N>`, which splits
 **after** `NEXT_EXTERNAL_TESTS_FILTERS` has been applied — `run-tests.js` filters
@@ -158,9 +182,10 @@ prints per-file durations to build one from.
 
 Each shard is self-contained, which is what makes this safe:
 
-- `e2e-warm.sh` warms _its_ stack, so the ~4-minute distribution create is paid
-  once per shard but in parallel — the same ~4 minutes of wall clock however many
-  shards there are.
+- `e2e-warm.sh` warms _its_ stack, so the ~4-minute distribution create (Global
+  types only) is paid once per shard but in parallel — the same ~4 minutes of
+  wall clock however many shards start together (in an `all` run, once per wave
+  of 10 Global shards).
 - `e2e-sweep.sh --apply --shared` in an `always()` step deletes _its_ stack, since
   `--shared` resolves the same suffix. Nothing lowers the age floor account-wide,
   so one shard finishing early cannot delete another's stack out from under it.
@@ -179,9 +204,10 @@ workflow's `concurrency` group is what guarantees that, and it queues rather tha
 cancels. It is one group for every type, not one per type: each run's
 account-wide sweep could otherwise delete another type's idle-looking shard stack
 as that run warms into it. GitHub keeps only one _pending_ run per group, so
-dispatch a second type once the first has started, not while one is queued. A
-pending run that gets cancelled that way, the scheduled one included, loses no
-sweep: every run sweeps, not just the scheduled one.
+dispatch a second type once the first has started, not while one is queued, or
+dispatch `all`. A dispatch on a schedule day waits behind the schedule's ~11
+hours. A pending run that gets cancelled that way, the scheduled one included,
+loses no sweep: every run sweeps, not just the scheduled one.
 
 ## Caching the next.js build
 
@@ -239,8 +265,9 @@ the `v1` in it to discard every entry). Two things to know:
   comparing against is whatever the other workflows are using at the time.
 - **The Playwright _browser_ is cached; its system libraries are not.** Those are
   apt packages outside any cacheable path, so
-  `playwright install --with-deps chromium` still runs in each shard. It is a
-  no-op for the download on a hit.
+  `scripts/playwright-install-deps.sh` (`playwright install-deps chromium`)
+  still runs in each shard. It caps and retries each attempt, because apt on its
+  own can hang on a stalled mirror until the job times out.
 
 A `workflow_dispatch` from a branch writes to that branch's own cache scope, so
 the first dispatched run on a new branch pays the build once. It can still _read_
@@ -275,16 +302,16 @@ last. A session that must have its own working tree wants a `git worktree` _and_
 its own next.js checkout _and_ its own stack suffix; three of those is usually the
 point at which running one at a time is the cheaper answer.
 
-## Why the schedule runs `NextjsGlobalFunctions`
+## Why `NextjsGlobalFunctions` is the default
 
-All four types run (see "Running on the other `NextjsType`s"); the schedule picks
-one. The harness builds every request URL as `new URL(path, deploymentUrl)` —
-`getFullUrl` in `test/lib/next-test-utils.ts` assigns `pathname` outright — so any
-prefix in the deployment URL is dropped. `NextjsRegionalFunctions`'s API Gateway
-REST URL always ends in `/<stage>`, so it runs behind `stage-proxy.mjs`, a local
-proxy that puts the stage back (see "Running on `NextjsRegionalFunctions`") — a
-second front door, not the one users deploy. A CloudFront distribution is served
-at the origin root.
+All four types run on the schedule (see "Sharding"); this one runs first, and is
+what a dispatch runs unless told otherwise. The harness builds every request URL
+as `new URL(path, deploymentUrl)` — `getFullUrl` in `test/lib/next-test-utils.ts`
+assigns `pathname` outright — so any prefix in the deployment URL is dropped.
+`NextjsRegionalFunctions`'s API Gateway REST URL always ends in `/<stage>`, so it
+runs behind `stage-proxy.mjs`, a local proxy that puts the stage back (see
+"Running on `NextjsRegionalFunctions`") — a second front door, not the one users
+deploy. A CloudFront distribution is served at the origin root.
 
 It is also the front door the suite was written for. `NEXT_TEST_MODE=deploy` is
 the mode Vercel validates edge-fronted deployments with, so its tests tolerate a
@@ -308,17 +335,18 @@ Two caveats worth knowing before reading a failure as a regression:
   limitation documented at `src/nextjs-distribution.ts`. A test that varies on a
   header outside that list can be served a wrong cached response. That is a real
   product limitation, not a harness artifact — and not a regression either.
-- The other three types are not on the schedule; see "Running on the other
-  `NextjsType`s". `examples/e2e-tests` is the per-commit gate on all three.
+- The schedule runs the other three types too, after this one, so their results
+  land hours later in the same run; see "Sharding".
 
 ## Running on the other `NextjsType`s
 
 `HARNESS_NEXTJS_TYPE` picks the root construct: `global-functions` (the default),
 `regional-functions`, `global-containers` or `regional-containers`. Each type but
 the default gets a stack infix of its own — `hrns-rf-*`, `hrns-gc-*`,
-`hrns-rc-*` — so no run can deploy into another type's stack. In CI, runs of two
-types still queue behind each other (see "Sharding"). The workflow's
-`nextjs_type` input sets it for every shard.
+`hrns-rc-*` — so no run can deploy into another type's stack, and shards of all
+four types can share one run. In CI, two *runs* still queue behind each other
+(see "Sharding"). The workflow's `nextjs_type` input sets the type, or `all`
+runs every type, as the schedule does.
 
 ```bash
 ADAPTER_DIR=$PWD HARNESS_NEXTJS_TYPE=global-containers ./scripts/e2e-warm.sh
@@ -396,7 +424,7 @@ reason alone.
 
 `HARNESS_NEXTJS_TYPE=regional-functions` deploys `NextjsRegionalFunctions`
 instead, into `hrns-rf-<suffix>` stacks so it can never land in a Global run's.
-By hand or `workflow_dispatch`; the schedule runs `NextjsGlobalFunctions` only.
+By hand, by `workflow_dispatch`, or on the schedule with the other three types.
 
 The stage is the whole problem, and `stage-proxy.mjs` is the whole answer. The
 suite discards any path in the deployment URL (above), and a REST API's is always
@@ -521,7 +549,8 @@ pass.
 each screen, and how many are already included. Regenerate it with `--write`
 whenever `next` is upgraded; `--check` exits nonzero if it has drifted, which is
 the only thing that keeps those numbers worth quoting. The workflow runs it in
-shard 1 of every run against the default next.js ref.
+the first job of every run against the default next.js ref (Global Functions
+shard 1 in an `all` run).
 
 Passing every screen makes a file a _candidate_, not a pass. It still has to
 be deployed and watched, and anything that fails gets root-caused and given a

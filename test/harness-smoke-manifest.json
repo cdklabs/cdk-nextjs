@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "comment": [
+    "One file the harness passes on every NextjsType, for checking the workflow's own plumbing",
+    "(planning, per-type settings, warm, deploy, delete, sweep) in about an hour rather than eleven:",
+    "dispatch e2e-harness with `test_filters: ../test/harness-smoke-manifest.json`, `nextjs_type: all`",
+    "and `shard_total: 1`. Says nothing about compatibility; that is test/deploy-tests-manifest.json."
+  ],
+  "suites": {},
+  "rules": {
+    "include": ["test/e2e/app-dir/hello-world/hello-world.test.ts"],
+    "exclude": []
+  }
+}
