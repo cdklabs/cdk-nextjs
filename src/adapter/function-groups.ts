@@ -1445,7 +1445,12 @@ function resolveFile(
       const template = route.destination
         ?.split("?")[0]
         .replace(/\$(\d+)/g, (_, index: string) => match[Number(index)] ?? "");
-      return template === undefined ? undefined : files.get(template);
+      const file = template === undefined ? undefined : files.get(template);
+      // A destination that names no file is passed over, as `resolveRoutes`
+      // does: a collapsed rule matched case-insensitively fills in `/EN/[slug]`.
+      if (file !== undefined) {
+        return file;
+      }
     }
   }
   return undefined;

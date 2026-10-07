@@ -397,15 +397,20 @@ export class S3CacheHandler implements CacheHandler {
    * request is answered from the stale entry - stale-while-revalidate - and that
    * response carries the entry's original `s-maxage`, so the edge caches the
    * stale body again. The background render that replaces it runs in this same
-   * process, so `set` checks this set and invalidates the key's paths a second
+   * process, so `set` checks for the key here and invalidates the key's paths a second
    * time once the fresh entry is in S3. Without that, the edge kept serving the
    * pre-revalidation page for the whole `s-maxage`.
    *
    * Expiring soft-revalidated entries outright instead would also keep the edge
    * right, but it turns every `revalidateTag(tag, "max")` into a blocking render
    * at the origin, which is the thing a profile asks not to happen.
+   *
+   * Each key maps to the value it was served stale with. When the re-render
+   * fails, next 16.4's `retainPreviousCacheEntry` writes that same object back
+   * with a short lifetime: that is no regeneration, so it keeps the key waiting
+   * rather than invalidating the edge for a page that has not changed.
    */
-  private softRevalidatedKeys = new Set<string>();
+  private softRevalidatedKeys = new Map<string, unknown>();
 
   /** @see buildTagManifest */
   private buildTags: Promise<Map<string, string[]>> | undefined;
@@ -584,7 +589,7 @@ export class S3CacheHandler implements CacheHandler {
       checkTags,
     );
     if (state === "stale" && !isFetchCacheGet(ctx)) {
-      this.noteSoftRevalidated(cacheKey);
+      this.noteSoftRevalidated(cacheKey, entry.value);
     }
     return state === "expired";
   }
@@ -594,19 +599,19 @@ export class S3CacheHandler implements CacheHandler {
    * whose copy of it will need invalidating again. See
    * {@link softRevalidatedKeys}.
    */
-  private noteSoftRevalidated(cacheKey: string): void {
+  private noteSoftRevalidated(cacheKey: string, value: unknown): void {
     if (!this.invalidatesCdn) {
       return;
     }
     this.softRevalidatedKeys.delete(cacheKey);
     if (this.softRevalidatedKeys.size >= MAX_SOFT_REVALIDATED_KEYS) {
       // Insertion order: the first key is the one waiting longest.
-      const oldest = this.softRevalidatedKeys.values().next().value;
+      const oldest = this.softRevalidatedKeys.keys().next().value;
       if (oldest !== undefined) {
         this.softRevalidatedKeys.delete(oldest);
       }
     }
-    this.softRevalidatedKeys.add(cacheKey);
+    this.softRevalidatedKeys.set(cacheKey, value);
   }
 
   async set(
@@ -691,7 +696,11 @@ export class S3CacheHandler implements CacheHandler {
       // The regeneration of an entry served stale: CloudFront may have cached
       // that stale response after `revalidateTag`'s invalidation, so the key's
       // paths go once more now that S3 holds the fresh one.
-      if (this.softRevalidatedKeys.delete(cacheKey)) {
+      if (
+        this.softRevalidatedKeys.has(cacheKey) &&
+        this.softRevalidatedKeys.get(cacheKey) !== data
+      ) {
+        this.softRevalidatedKeys.delete(cacheKey);
         const route = this.s3KeyToInvalidationPath(s3Key);
         if (route !== undefined) {
           this.debug(`SOFT REVALIDATION REGENERATED: ${cacheKey}`);

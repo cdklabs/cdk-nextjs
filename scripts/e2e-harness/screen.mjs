@@ -151,7 +151,7 @@ function evaluateGate(source) {
     }
     if (token === "true" || token === "false") return token === "true";
     if (/^['"]/.test(token)) return token.slice(1, -1);
-    return DEPLOY_GATE_CONDITIONS[token];
+    return Object.hasOwn(DEPLOY_GATE_CONDITIONS, token) ? DEPLOY_GATE_CONDITIONS[token] : undefined;
   };
   const binary = () => {
     let left = primary();
@@ -176,7 +176,7 @@ function evaluateGate(source) {
 }
 
 /**
- * Whether `@force-gate` pragmas skip every top-level `describe` in `text` under
+ * Whether `@force-gate` pragmas skip every top-level suite in `text` under
  * deploy mode. next.js 16.4 moved deploy exclusions from
  * `nextTestSetup({ skipDeployment: true })` to `// @force-gate !deploy` on the
  * suite, and a gated-out suite is skipped rather than failed: a file whose every
@@ -186,14 +186,15 @@ function evaluateGate(source) {
  */
 function forceGatedOutOfDeploy(text) {
   const lines = text.split("\n");
-  // The outermost suites: column 0 usually, but some files declare theirs inside
-  // a loop (`filesystem-cache` does, in a `for (const cacheEnabled of …)`).
-  const indents = lines.flatMap((line) => /^(\s*)describe\b/.exec(line)?.[1].length ?? []);
-  const outer = Math.min(...indents);
+  // The outermost suites, a top-level `it`/`test` among them: column 0 usually,
+  // but some files declare theirs inside a loop (`filesystem-cache` does, in a
+  // `for (const cacheEnabled of …)`).
+  const indentOf = (line) => /^(\s*)(?:describe|it|test)\b/.exec(line)?.[1].length;
+  const outer = Math.min(...lines.flatMap((line) => indentOf(line) ?? []));
   let suites = 0;
   let gatedOut = 0;
   for (let index = 0; index < lines.length; index++) {
-    if (/^(\s*)describe\b/.exec(lines[index])?.[1].length !== outer) continue;
+    if (indentOf(lines[index]) !== outer) continue;
     suites++;
     for (let above = index - 1; above >= 0 && /^\s*\/\//.test(lines[above]); above--) {
       const pragma = /^\s*\/\/\s*@force-gate\s+(.+?)\s*$/.exec(lines[above]);

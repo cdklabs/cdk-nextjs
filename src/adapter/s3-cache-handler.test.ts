@@ -619,7 +619,10 @@ describe("S3DynamoCacheHandler", () => {
         // `s-maxage`: CloudFront caches it again. Only the regeneration's `set`
         // knows when the fresh entry exists to be fetched instead.
         let cdnHandler: S3CacheHandler;
-        const regenerated = stored.value as unknown as IncrementalCacheValue;
+        // A fresh render: a new object, not the stale one `get` handed out.
+        const regenerated = {
+          ...stored.value,
+        } as unknown as IncrementalCacheValue;
         const invalidatedPaths = (): string[][] =>
           (CreateInvalidationCommand as unknown as jest.Mock).mock.calls.map(
             ([input]) => input.InvalidationBatch.Paths.Items,
@@ -678,6 +681,24 @@ describe("S3DynamoCacheHandler", () => {
           } as any);
 
           expect(invalidatedPaths()).toEqual([]);
+        });
+
+        it("keeps waiting when a failed re-render writes the stale value back", async () => {
+          // next 16.4's `retainPreviousCacheEntry`: the object `get` returned,
+          // stored again with a 3-30 s lifetime.
+          const served = await cdnHandler.get("posts", getCtx);
+          await cdnHandler.set("posts", served!.value, {
+            cacheControl: { revalidate: 3, expire: undefined },
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+          expect(invalidatedPaths()).toEqual([]);
+
+          await cdnHandler.set("posts", regenerated, {
+            isRoutePPREnabled: false,
+            isFallback: false,
+          } as any);
+          expect(invalidatedPaths()).toEqual([["/posts*"]]);
         });
 
         it("forgets a stale page that is deleted instead of regenerated", async () => {

@@ -481,11 +481,16 @@ export function storedCacheControl(value: unknown): CacheControl | undefined {
   const { revalidate, expire } = value as Partial<CacheControl>;
   if (
     revalidate !== false &&
-    !(typeof revalidate === "number" && revalidate > 0)
+    !(
+      typeof revalidate === "number" &&
+      Number.isFinite(revalidate) &&
+      revalidate > 0
+    )
   ) {
     return undefined;
   }
-  if (expire !== undefined && typeof expire !== "number") {
+  // Finite: JSON writes `Infinity` and `NaN` as `null`.
+  if (expire !== undefined && !Number.isFinite(expire)) {
     return undefined;
   }
   return { revalidate, expire };
