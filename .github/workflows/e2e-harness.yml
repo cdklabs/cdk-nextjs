@@ -44,10 +44,10 @@ on:
           - all
   schedule:
     # Every sixth day of the month at 14:00 UTC — morning on both US coasts, and
-    # the run's ~11 hours land the result that evening, US time. Not daily, because a run
-    # ships a deployment per test file and nothing in the suite changes between two
-    # consecutive days that a run would catch; `e2e-tests.yml` is still the
-    # per-commit gate.
+    # the run's ~11 hours land the result that evening, US time. Not daily,
+    # because a run ships a deployment per test file and nothing in the suite
+    # changes between two consecutive days that a run would catch;
+    # `e2e-tests.yml` is still the per-commit gate.
     #
     # Every six days rather than weekly, and by day-of-month rather than
     # day-of-week, to stay inside GitHub's cache eviction window: it drops an entry
@@ -176,8 +176,9 @@ jobs:
         # within minutes of each other, so the next wave's entries start nearly
         # together too. That holds while waves stay aligned to multiples of 10;
         # once they drift, two entries with one stagger collide only if their
-        # slots free in the same minute, and the warm step's retry covers that. `screen` marks the one entry that checks the manifest's
-        # screening counts.
+        # slots free in the same minute, and two creates at once stay well under
+        # the burst that trips the limit. `screen` marks the one entry that checks
+        # the manifest's screening counts.
         #
         # The cache key pins everything the cached tree was built by and for: the
         # next.js commit, and the runner image and node major that its node_modules

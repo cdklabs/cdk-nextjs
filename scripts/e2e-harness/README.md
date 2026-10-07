@@ -27,7 +27,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
 | `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
-| `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in about an hour (`test_filters`).                   |
+| `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in about an hour (`test_filters`).                    |
 | `.github/workflows/e2e-harness.yml` | Every six days (all four types) + `workflow_dispatch`. A matrix of (type, shard) jobs, one stack each.             |
 
 ## One shared stack, not one per test file
@@ -156,9 +156,10 @@ hours end to end (about 95 shard-hours: Global Containers' 15 shards take about
 2.5 hours each, the others about 2; the shards of one type end together, so the
 last five Global Containers shards run with half the slots idle). Ten is the peak
 a single-type run of the other three already reaches: no more CloudFront
-distributions or ECR pulls at once than a Global Functions run, under the
-CloudFront response-headers-policy quota (3 per distribution), and no more of the
-org's concurrent jobs than the schedule has always taken. A slot goes to the next
+distributions at once than a Global Functions run, under the CloudFront
+response-headers-policy quota (3 per distribution), no more ECR pulls than a
+Regional Containers run, and no more of the org's concurrent jobs than the
+schedule has always taken. A slot goes to the next
 job as soon as one frees, so types overlap where one ends and the next begins;
 that is safe, because no two entries share a stack name. Results arrive in that
 order: a Global Functions regression shows up first, about 2 hours in.
@@ -302,12 +303,13 @@ point at which running one at a time is the cheaper answer.
 ## Why `NextjsGlobalFunctions` is the default
 
 All four types run on the schedule (see "Sharding"); this one runs first, and is
-what a dispatch runs unless told otherwise. The harness builds every request URL as `new URL(path, deploymentUrl)` —
-`getFullUrl` in `test/lib/next-test-utils.ts` assigns `pathname` outright — so any
-prefix in the deployment URL is dropped. `NextjsRegionalFunctions`'s API Gateway
-REST URL always ends in `/<stage>`, so it runs behind `stage-proxy.mjs`, a local
-proxy that puts the stage back (see "Running on `NextjsRegionalFunctions`") — a
-second front door, not the one users deploy. A CloudFront distribution is served
+what a dispatch runs unless told otherwise. The harness builds every request URL
+as `new URL(path, deploymentUrl)` — `getFullUrl` in `test/lib/next-test-utils.ts`
+assigns `pathname` outright — so any prefix in the deployment URL is dropped.
+`NextjsRegionalFunctions`'s API Gateway REST URL always ends in `/<stage>`, so it
+runs behind `stage-proxy.mjs`, a local proxy that puts the stage back (see
+"Running on `NextjsRegionalFunctions`") — a second front door, not the one users
+deploy. A CloudFront distribution is served
 at the origin root.
 
 It is also the front door the suite was written for. `NEXT_TEST_MODE=deploy` is
