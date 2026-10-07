@@ -5,6 +5,7 @@ import {
   GetItemCommand,
   PutItemCommand,
   BatchWriteItemCommand,
+  BatchWriteItemCommandOutput,
   WriteRequest,
 } from "@aws-sdk/client-dynamodb";
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -146,13 +147,14 @@ export async function pruneRevalidationTable(
             if (attempt > 0) {
               await sleep(DELETE_RETRY_BASE_MS * 2 ** (attempt - 1));
             }
-            const response = await dynamoClient.send(
-              new BatchWriteItemCommand({
-                RequestItems: {
-                  [tableName]: requests,
-                },
-              }),
-            );
+            const response: BatchWriteItemCommandOutput =
+              await dynamoClient.send(
+                new BatchWriteItemCommand({
+                  RequestItems: {
+                    [tableName]: requests,
+                  },
+                }),
+              );
             requests = response.UnprocessedItems?.[tableName];
           }
         } catch (error) {
