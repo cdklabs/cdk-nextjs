@@ -191,8 +191,9 @@ function forceGatedOutOfDeploy(text) {
   const lines = text.split("\n");
   // The outermost suites, a top-level `it`/`test` among them: column 0 usually,
   // but some files declare theirs inside a loop (`filesystem-cache` does, in a
-  // `for (const cacheEnabled of …)`).
-  const indentOf = (line) => /^(\s*)(?:describe|it|test)\b/.exec(line)?.[1].length;
+  // `for (const cacheEnabled of …)`). A `.skip` or `.todo` never runs, so it is
+  // no suite left to deploy.
+  const indentOf = (line) => /^(\s*)(?:describe|it|test)\b(?!\.(?:skip|todo)\b)/.exec(line)?.[1].length;
   const outer = Math.min(...lines.flatMap((line) => indentOf(line) ?? []));
   let suites = 0;
   let gatedOut = 0;
