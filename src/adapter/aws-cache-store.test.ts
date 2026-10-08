@@ -2,6 +2,7 @@
 jest.mock("@aws-sdk/client-s3");
 jest.mock("@aws-sdk/client-dynamodb");
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   BatchGetItemCommand,
   DynamoDBClient,
@@ -36,6 +37,10 @@ import {
   TrackedTagMarkers,
   useCacheS3Key,
 } from "./aws-cache-store";
+import {
+  captureOutsideRequest,
+  OUTSIDE_REQUEST_SYMBOL,
+} from "../runtime/tag-manifest";
 
 /** The input an automocked SDK command was constructed with. */
 const commandInput = (command: unknown, type: unknown) => {
@@ -451,6 +456,39 @@ describe("TrackedTagMarkers", () => {
     });
     // Outside it - a route handler alongside, in a container - it waits.
     expect(markers.behindInRender).toBe(true);
+  });
+
+  it("runs handler work outside the request, still caught up", async () => {
+    const global = globalThis as { [OUTSIDE_REQUEST_SYMBOL]?: unknown };
+    captureOutsideRequest();
+    try {
+      let clock = 1_000_000;
+      const markers = new TrackedTagMarkers({
+        markers: { read: jest.fn() } as unknown as TagMarkerTable,
+        log: { query: jest.fn() } as unknown as RevalidationLog,
+        refreshIntervalMs: 1000,
+        clock: () => clock,
+      });
+      // Stands in for Next.js's request store, which its `Date.now()` patch
+      // reads to decide whether the call ends a static stage.
+      const request = new AsyncLocalStorage<string>();
+      clock += 1000 + TAG_REFRESH_GRACE_MS;
+      await request.run("page render", () =>
+        markers.catchUp(async () => {
+          clock += 100;
+          expect(
+            markers.outsideRender(() => ({
+              store: request.getStore(),
+              behindInRender: markers.behindInRender,
+            })),
+          ).toEqual({ store: undefined, behindInRender: false });
+        }),
+      );
+      // A route handler, not caught up, is still behind once outside.
+      expect(markers.outsideRender(() => markers.behindInRender)).toBe(true);
+    } finally {
+      delete global[OUTSIDE_REQUEST_SYMBOL];
+    }
   });
 
   it("gives a render no grace when catchUp, holding nothing, did not catch up", async () => {

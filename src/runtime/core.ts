@@ -51,8 +51,11 @@ import {
 } from "./next-modules";
 import { publicDirKey, resolvePublicFiles } from "./public-files";
 import { serveS3PublicFile, serveStaticFile } from "./static-files";
-import { catchUpTags } from "./tag-manifest";
+import { captureOutsideRequest, catchUpTags } from "./tag-manifest";
 import { drained, firstValue, toSearch, withoutPathPrefix } from "./util";
+
+// At load, before any request: the context cache handler work escapes to.
+captureOutsideRequest();
 
 /** One request, normalized by a shell. */
 export interface RuntimeRequest {

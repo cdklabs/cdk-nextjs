@@ -1,6 +1,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 jest.mock("@aws-sdk/client-dynamodb");
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { CacheEntry } from "next/dist/server/lib/cache-handlers/types";
 import {
@@ -14,6 +15,7 @@ import {
 import {
   cacheEntryOf,
   EntryLru,
+  lazyHandler,
   now,
   PendingSets,
   readStream,
@@ -22,7 +24,11 @@ import {
   storedEntryOf,
   TAG_TABLE_REQUEST_TIMEOUT_MS,
 } from "./use-cache-common";
-import { TAG_MANIFEST_SYMBOL } from "../runtime/tag-manifest";
+import {
+  captureOutsideRequest,
+  OUTSIDE_REQUEST_SYMBOL,
+  TAG_MANIFEST_SYMBOL,
+} from "../runtime/tag-manifest";
 
 /** A `TagMarkerTable` over a plain map, counting its calls. */
 function fakeMarkers(rows = new Map<string, TagMarker>()) {
@@ -897,6 +903,41 @@ describe("sharedTagManifest", () => {
       );
     } finally {
       delete process.env.CDK_NEXTJS_REVALIDATION_TABLE_NAME;
+      delete global[TAG_MANIFEST_SYMBOL];
+    }
+  });
+});
+
+describe("lazyHandler", () => {
+  it("creates the handler, and runs every method, outside the request", async () => {
+    const global = globalThis as Record<symbol, unknown>;
+    captureOutsideRequest();
+    // Stands in for Next.js's request store: see `outsideRender`.
+    const request = new AsyncLocalStorage<string>();
+    const seen: Array<string | undefined> = [];
+    const saw = () => seen.push(request.getStore());
+    try {
+      const handler = lazyHandler(() => {
+        saw();
+        return {
+          get: async () => (saw(), undefined),
+          set: async () => void saw(),
+          refreshTags: async () => void saw(),
+          getExpiration: async () => (saw(), 0),
+          updateTags: async () => void saw(),
+        };
+      });
+      await request.run("page render", async () => {
+        await handler.get("key", []);
+        await handler.set("key", Promise.resolve({} as CacheEntry));
+        await handler.refreshTags();
+        await handler.getExpiration([]);
+        await handler.updateTags([]);
+      });
+      // The create, and the five methods.
+      expect(seen).toEqual(Array(6).fill(undefined));
+    } finally {
+      delete global[OUTSIDE_REQUEST_SYMBOL];
       delete global[TAG_MANIFEST_SYMBOL];
     }
   });
