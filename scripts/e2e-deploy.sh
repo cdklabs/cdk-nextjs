@@ -74,8 +74,13 @@ PM="$(node -e 'const f=require("path").join(process.argv[1],"package.json");let 
 case "$PM" in
   pnpm)
     if command -v corepack >/dev/null 2>&1; then PM_CMD=(corepack pnpm); else PM_CMD=(pnpm); fi
-    # Without it pnpm walks up out of /tmp looking for a workspace root.
-    INSTALL_ARGS=(--ignore-workspace --prefer-offline)
+    INSTALL_ARGS=(--prefer-offline)
+    # Without it pnpm walks up out of /tmp looking for a workspace root. But a
+    # fixture with its own pnpm-workspace.yaml is that root, and the flag would
+    # also drop the file's settings: test/e2e/app-dir/turbopack-reports approves
+    # its native addon's node-gyp build there (`allowBuilds`), and with the flag
+    # pnpm skips the build, so `next build` can't load the binary.
+    [ -f "$APP_DIR/pnpm-workspace.yaml" ] || INSTALL_ARGS+=(--ignore-workspace)
     ;;
   *)
     PM_CMD=("$PM")

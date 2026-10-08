@@ -4,6 +4,7 @@ jest.mock("@aws-sdk/client-s3");
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ImageError } from "next/dist/server/image-optimizer.js";
 import {
+  extractEtag,
   fetchFromS3,
   ImageTooLargeError,
   resolveErrorResponse,
@@ -355,6 +356,22 @@ describe("fetchFromS3", () => {
     await expect(
       fetchFromS3(s3, "my-bucket", "/missing.png", ROOT, Infinity),
     ).rejects.toThrow(/Empty response from S3/);
+  });
+});
+
+describe("extractEtag", () => {
+  const image = Buffer.from("not really a png");
+
+  // What next's own `extractEtag` returns for these inputs, recorded from
+  // 16.4's `image-optimizer/extract-etag.js`: a literal, so the test runs on
+  // every supported `next`, including those without that module.
+  it("matches next's own, with and without an upstream etag", () => {
+    expect(extractEtag('W/"abc"', image)).toBe("Vy8iYWJjIg");
+    for (const missing of ["", null, undefined]) {
+      expect(extractEtag(missing, image)).toBe(
+        "6QE3053jBO77vniLxTXH6C8nq7-AaVBfu9ip3NxPICQ",
+      );
+    }
   });
 });
 

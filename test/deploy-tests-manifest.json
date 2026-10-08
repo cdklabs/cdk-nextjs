@@ -127,7 +127,6 @@
       "test/e2e/app-dir/metadata-static-file/metadata-static-file-parallel-route.test.ts",
       "test/e2e/app-dir/metadata-static-file/metadata-static-file-root-route.test.ts",
       "test/e2e/app-dir/metadata-static-file/metadata-static-file-static-route.test.ts",
-      "test/e2e/app-dir/metadata-streaming-parallel-routes/metadata-streaming-parallel-routes.test.ts",
       "test/e2e/app-dir/metadata-streaming/metadata-streaming-customized-rule.test.ts",
       "test/e2e/app-dir/metadata-streaming/metadata-streaming.test.ts",
       "test/e2e/app-dir/metadata-svg-icon/metadata-svg-icon.test.ts",
@@ -210,7 +209,6 @@
       "test/e2e/app-dir/parallel-routes-use-selected-layout-segment/parallel-routes-use-selected-layout-segment.test.ts",
       "test/e2e/app-dir/params-hooks-compat/index.test.ts",
       "test/e2e/app-dir/partial-fallback-root-blocking/partial-fallback-root-blocking.test.ts",
-      "test/e2e/app-dir/partial-fallback-shell-upgrade/partial-fallback-shell-upgrade.test.ts",
       "test/e2e/app-dir/partial-prefetching-config/partial-prefetching-config.test.ts",
       "test/e2e/app-dir/partial-prefetching-deep-propagation/partial-prefetching-deep-propagation.test.ts",
       "test/e2e/app-dir/partial-prefetching-segment-config/partial-prefetching-segment-config.test.ts",
@@ -276,7 +274,6 @@
       "test/e2e/app-dir/segment-cache/basic/segment-cache-basic.test.ts",
       "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations-global-runtime.test.ts",
       "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations-partial-prefetching.test.ts",
-      "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations.test.ts",
       "test/e2e/app-dir/segment-cache/client-params/client-params.test.ts",
       "test/e2e/app-dir/segment-cache/deployment-skew/deployment-skew.test.ts",
       "test/e2e/app-dir/segment-cache/dynamic-on-hover/dynamic-on-hover.test.ts",
@@ -285,14 +282,11 @@
       "test/e2e/app-dir/segment-cache/headers-keyed-caches/headers-keyed-caches.test.ts",
       "test/e2e/app-dir/segment-cache/max-prefetch-inlining/max-prefetch-inlining.test.ts",
       "test/e2e/app-dir/segment-cache/memory-pressure/segment-cache-memory-pressure.test.ts",
-      "test/e2e/app-dir/segment-cache/metadata/segment-cache-metadata.test.ts",
       "test/e2e/app-dir/segment-cache/mpa-navigations/mpa-navigations.test.ts",
       "test/e2e/app-dir/segment-cache/no-prefetch/no-prefetch.test.ts",
       "test/e2e/app-dir/segment-cache/optimistic-route-cache-keying-regression/optimistic-route-cache-keying-regression.test.ts",
       "test/e2e/app-dir/segment-cache/optimistic-routing-parallel-slot-catchall-regression/optimistic-routing-parallel-slot-catchall-regression.test.ts",
       "test/e2e/app-dir/segment-cache/optimistic-routing-rewrite-detection-regression/optimistic-routing-rewrite-detection-regression.test.ts",
-      "test/e2e/app-dir/segment-cache/prefetch-app-shell-cached-gsp/prefetch-app-shell-cached-gsp.test.ts",
-      "test/e2e/app-dir/segment-cache/prefetch-app-shell-global-eager/prefetch-app-shell-global-eager.test.ts",
       "test/e2e/app-dir/segment-cache/prefetch-app-shell/prefetch-app-shell.test.ts",
       "test/e2e/app-dir/segment-cache/prefetch-auto/prefetch-auto.test.ts",
       "test/e2e/app-dir/segment-cache/prefetch-inlining/prefetch-inlining.test.ts",
@@ -511,11 +505,31 @@
           "failed": [
             "invalid-static-asset-404-pages-asset-prefix should return correct output with status 200 on valid asset path"
           ]
+        },
+        "test/e2e/app-dir/asset-prefix/asset-prefix.test.ts": {
+          "comment": "Nothing serves assetPrefix on Regional Functions; cdk-nextjs warns at synth (isAssetPrefixUnserved). The case's un-awaited forEach fetches reject after it ends, so jest charges the 404s to the next case (the rewrite one); skipping it drops those.",
+          "failed": [
+            "app-dir assetPrefix handling bundles should return 200 on served assetPrefix"
+          ]
         }
       }
     }
   },
   "suites": {
+    "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations.test.ts": {
+      "comment": [
+        "1 of 20 cases skipped. It is new in 16.4, and its deploy branch asserts Vercel's",
+        "minimal-mode serving: a repeat navigation to an on-demand param of a fully static page",
+        "makes no request, because the platform answers the RSC navigation with a completed",
+        "prerender ('#'-marked). cdk-nextjs runs Next.js like `next start`, which answers it with",
+        "a live render (unmarked, so partial) - the case's own non-deploy branch expects exactly",
+        "that request. Unsupported (next start serving model); see docs/harness-coverage.md."
+      ],
+      "failed": [
+        "cached navigations caches a fully static on-demand param for repeated navigations"
+      ],
+      "flakey": []
+    },
     "test/e2e/next-form/default/app-dir.test.ts": {
       "comment": [
         "13 of 14 cases; one is flakey. It submits the form right after the page loads and waits for",
@@ -556,6 +570,22 @@
       "failed": [
         "resume-data-cache should have consistent data between static and dynamic renders with use cache",
         "resume-data-cache should have consistent data between static and dynamic renders with fetch cache"
+      ],
+      "flakey": []
+    },
+    "test/e2e/app-dir/partial-fallback-shell-upgrade/partial-fallback-shell-upgrade.test.ts": {
+      "comment": [
+        "10 of 13 cases. The three skipped ones are next.js 16.4's, and in deploy mode",
+        "(`isNextDeploy`) each waits for `x-vercel-cache: HIT` - Vercel's own CDN cache",
+        "header, which no cdk-nextjs deployment emits - so they time out on `null`",
+        "before their cache-reuse checks run. Failed both attempts on Global Functions",
+        "in the 2026-10-07 run. Unsupported (Vercel's response header); see",
+        "docs/harness-coverage.md."
+      ],
+      "failed": [
+        "partial-fallback-shell-upgrade - partialPrefetching disabled shares an on-demand shell across params without generateStaticParams",
+        "partial-fallback-shell-upgrade - partialPrefetching disabled keeps params without generateStaticParams dynamic after explicit revalidation of an on-demand shell",
+        "partial-fallback-shell-upgrade - partialPrefetching disabled reuses generated optional catch-all pages before and after explicit revalidation"
       ],
       "flakey": []
     },
@@ -683,6 +713,33 @@
       ],
       "failed": [
         "invalid-static-asset-404-pages-base-path should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/app-dir/metadata-streaming-parallel-routes/metadata-streaming-parallel-routes.test.ts": {
+      "comment": [
+        "2 of its cases (one per `parallelRouteMetadata` describe) skipped.",
+        "New in 16.4 and `// @gate !deploy`: in deploy mode next.js runs it as `.failing`, because Vercel's deploy harness does not expose the emitted server bundle; ours builds in the test dir, so it does.",
+        "cdk-nextjs passes it, so jest reports \"Failing test passed even though it was supposed to fail\"",
+        "on both attempts, on every NextjsType (2026-10-08 run). Skipped as a gate inversion, not a",
+        "defect; see docs/harness-coverage.md."
+      ],
+      "failed": [
+        "app-dir - metadata-streaming (parallelRouteMetadata: false) should only bundle the selected metadata resolution implementation",
+        "app-dir - metadata-streaming (parallelRouteMetadata: true) should only bundle the selected metadata resolution implementation"
+      ],
+      "flakey": []
+    },
+    "test/e2e/app-dir/segment-cache/metadata/segment-cache-metadata.test.ts": {
+      "comment": [
+        "1 of 3 cases skipped.",
+        "New in 16.4 and `// @gate !deploy`: in deploy mode next.js runs it as `.failing`, because on Vercel a cold ISR path is served from a completed static prerender that also sends the page body; cdk-nextjs serves it the `next start` way and requests only the head, as the case asserts.",
+        "cdk-nextjs passes it, so jest reports \"Failing test passed even though it was supposed to fail\"",
+        "on both attempts, on every NextjsType (2026-10-08 run). Skipped as a gate inversion, not a",
+        "defect; see docs/harness-coverage.md."
+      ],
+      "failed": [
+        "segment cache (metadata) requests only the head when the page segments are cached"
       ],
       "flakey": []
     }
@@ -871,21 +928,22 @@
       "be skipped upstream - so the values sum to more than `e2e-files` minus",
       "`candidates` minus `included`."
     ],
-    "next-version": "16.3.8",
-    "e2e-files": 1136,
-    "included": 427,
-    "included-in-part": 11,
-    "edge-free": 933,
-    "candidates": 1,
+    "next-version": "16.4.0",
+    "e2e-files": 1213,
+    "included": 421,
+    "included-in-part": 15,
+    "edge-free": 1009,
+    "candidates": 165,
     "disqualified-by": {
-      "skipDeployment": 417,
-      "middleware": 127,
+      "force-gate": 253,
+      "middleware": 128,
       "edge": 126,
-      "skipped-upstream": 121,
-      "isNextDeploy-gate": 120,
+      "skipped-upstream": 109,
+      "isNextDeploy-gate": 107,
       "verdict": 33,
-      "output-export": 29,
-      "mode-gated": 25,
+      "output-export": 31,
+      "mode-gated": 10,
+      "skipDeployment": 8,
       "scaffold": 2
     }
   }

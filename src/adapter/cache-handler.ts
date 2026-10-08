@@ -15,13 +15,14 @@ import {
 import type { IncrementalCacheValue } from "next/dist/server/response-cache";
 import {
   GetCacheHandlerContext,
+  getCacheControl,
   getTags,
   SetCacheHandlerContext,
 } from "./cache-utils";
 import { LocalFileCacheHandler } from "./local-file-cache-handler";
 import { MemoryCacheHandler } from "./memory-cache-handler";
 import { S3CacheHandler } from "./s3-cache-handler";
-import { isBuildPhase } from "./use-cache-common";
+import { isBuildPhase, outsideRender } from "./use-cache-common";
 
 /**
  * Orchestrator cache handler that conditionally instantiates handlers based on environment
@@ -58,7 +59,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       );
     } else {
       this.s3DynamoHandler = CdkNextjsCacheHandler.sharedS3DynamoHandler ??=
-        new S3CacheHandler({ context: options });
+        outsideRender(() => new S3CacheHandler({ context: options }));
       this.memoryHandler = CdkNextjsCacheHandler.sharedMemoryHandler ??=
         new MemoryCacheHandler();
     }
@@ -67,7 +68,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
   /**
    * Get cache entry
    * - Build time: Not implemented (build doesn't read cache)
-   * - Runtime: Try memory first, then S3/DynamoDB
+   * - Runtime: Try memory first, then S3/DynamoDB, {@link outsideRender}
    */
   async get(
     cacheKey: string,
@@ -78,7 +79,13 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       // requires; see {@link LocalFileCacheHandler.get}.
       return this.localFileHandler.get(cacheKey);
     }
+    return outsideRender(() => this.getAtRuntime(cacheKey, ctx));
+  }
 
+  private async getAtRuntime(
+    cacheKey: string,
+    ctx: GetCacheHandlerContext,
+  ): Promise<CacheHandlerValue | null> {
     // Runtime: try memory first
     const memoryResult = await this.memoryHandler.get(cacheKey);
     // A memory hit is checked against the same tag markers an S3 read is.
@@ -125,6 +132,7 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
           cacheKey,
           s3Result.value,
           s3Result.lastModified,
+          s3Result.cacheControl,
         );
       }
       return s3Result;
@@ -137,7 +145,8 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
   /**
    * Set cache entry
    * - Build time: Write to local file cache only (or delete if data is null)
-   * - Runtime: Write to both memory and S3/DynamoDB (or delete if data is null)
+   * - Runtime: Write to both memory and S3/DynamoDB (or delete if data is null),
+   *   {@link outsideRender}
    */
   async set(
     cacheKey: string,
@@ -155,15 +164,22 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
       return;
     }
     // Runtime: both layers, where `null` is a delete.
-    this.debug(`Cache ${data ? "write" : "delete"}: ${cacheKey}`);
-    await this.memoryHandler.set(cacheKey, data);
-    await this.s3DynamoHandler.set(cacheKey, data, ctx);
+    await outsideRender(async () => {
+      this.debug(`Cache ${data ? "write" : "delete"}: ${cacheKey}`);
+      await this.memoryHandler.set(
+        cacheKey,
+        data,
+        undefined,
+        getCacheControl(ctx),
+      );
+      await this.s3DynamoHandler.set(cacheKey, data, ctx);
+    });
   }
 
   /**
    * Revalidate tags
    * - Build time: Not implemented
-   * - Runtime: Delegate to S3/DynamoDB handler
+   * - Runtime: Delegate to S3/DynamoDB handler, {@link outsideRender}
    */
   async revalidateTag(
     tag: string | string[],
@@ -175,7 +191,9 @@ export default class CdkNextjsCacheHandler implements CacheHandler {
 
     // Memory hits are checked against the same markers (see `get`), so only
     // the S3/DynamoDB handler has anything to record.
-    await this.s3DynamoHandler.revalidateTag(tag, durations);
+    await outsideRender(() =>
+      this.s3DynamoHandler.revalidateTag(tag, durations),
+    );
   }
 
   /**

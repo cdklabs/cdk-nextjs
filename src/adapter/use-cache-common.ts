@@ -19,7 +19,7 @@ import {
   TagMarkerTable,
   TrackedTagMarkers,
 } from "./aws-cache-store";
-import { TAG_MANIFEST_SYMBOL } from "../runtime/tag-manifest";
+import { outsideRequest, TAG_MANIFEST_SYMBOL } from "../runtime/tag-manifest";
 
 export { markerClock as now } from "./aws-cache-store";
 
@@ -339,19 +339,39 @@ export function tagMethods(
 }
 
 /**
+ * Run a cache handler method's work outside the request that called it
+ * ({@link TrackedTagMarkers.outsideRender}). Next.js awaits these methods
+ * inside a staged render, and 16.4 ends the render's static stage on any
+ * `Date.now()`, `new Date()`, `Math.random()` or `crypto` random call made in
+ * the request's context during it: ours, the AWS SDK's (request signing,
+ * invocation ids) and `debug`'s alike. A draft mode page, rendered whole at
+ * request time, lost its static stage that way to `refreshTags`, so the client
+ * cached nothing from its HTML. Creating the manifest is in here too: the
+ * first handler call of a process does it, inside a render.
+ */
+export function outsideRender<T>(fn: () => T): T {
+  return outsideRequest(sharedTagManifest).outsideRender(fn);
+}
+
+/**
  * A handler built by `create` on first use rather than on import, so loading
  * the module - which jest, and Next.js's config validation, do without using
  * it - neither constructs AWS clients nor warns about missing configuration.
+ * Every method runs {@link outsideRender}.
  */
 export function lazyHandler(create: () => CacheHandler): CacheHandler {
   let handler: CacheHandler | undefined;
   const instance = () => (handler ??= create());
   return {
-    get: (cacheKey, softTags) => instance().get(cacheKey, softTags),
-    set: (cacheKey, pendingEntry) => instance().set(cacheKey, pendingEntry),
-    refreshTags: () => instance().refreshTags(),
-    getExpiration: (tags) => instance().getExpiration(tags),
-    updateTags: (tags, durations) => instance().updateTags(tags, durations),
+    get: (cacheKey, softTags) =>
+      outsideRender(() => instance().get(cacheKey, softTags)),
+    set: (cacheKey, pendingEntry) =>
+      outsideRender(() => instance().set(cacheKey, pendingEntry)),
+    refreshTags: () => outsideRender(() => instance().refreshTags()),
+    getExpiration: (tags) =>
+      outsideRender(() => instance().getExpiration(tags)),
+    updateTags: (tags, durations) =>
+      outsideRender(() => instance().updateTags(tags, durations)),
   };
 }
 

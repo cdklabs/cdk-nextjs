@@ -15,7 +15,7 @@ import type { NextConfigComplete } from "next/dist/server/config-shared.js";
 import type { CachedRouteKind } from "next/dist/server/response-cache/types.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
-import { fetchFromS3, resolveErrorResponse } from "./image-utils";
+import { extractEtag, fetchFromS3, resolveErrorResponse } from "./image-utils";
 import { AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
 import { firstValue, s3Client } from "./util";
@@ -266,6 +266,11 @@ export class RuntimeImageOptimizer {
           waitUntil,
         } as unknown as Parameters<ImageCache["responses"]["get"]>[2],
       );
+      // A failed render, from next 16.4; `next-server.js` rethrows it the same
+      // way. The generator above throws instead, so this is the type's case.
+      if (entry && "error" in entry) {
+        throw entry.error;
+      }
       const value = entry?.value as
         | {
             kind: string;
@@ -341,7 +346,8 @@ export class RuntimeImageOptimizer {
           buffer: result.buffer,
           contentType: result.contentType,
           cacheControl: null,
-          etag: result.etag,
+          // Encoded as for a route's response: `fetchInternalImage` does too.
+          etag: extractEtag(result.etag, result.buffer),
         };
       } catch (error) {
         const missing = error instanceof Error && error.name === "NoSuchKey";
@@ -377,7 +383,7 @@ export class RuntimeImageOptimizer {
       buffer: response.body,
       contentType: firstValue(response.headers["content-type"]) ?? null,
       cacheControl: firstValue(response.headers["cache-control"]) ?? null,
-      etag: optimizer.extractEtag(
+      etag: extractEtag(
         firstValue(response.headers.etag) ?? null,
         response.body,
       ),

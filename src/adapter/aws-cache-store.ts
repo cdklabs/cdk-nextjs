@@ -28,6 +28,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { cacheKeyFileName, cacheObjectName, sha256Hex } from "./cache-utils";
+import { outsideRequest } from "../runtime/tag-manifest";
 
 /**
  * Where the cache lives, as the constructs pass it to the compute through the
@@ -999,6 +1000,19 @@ export class TrackedTagMarkers {
       void this.refresh().catch(log);
     }
     return this.caughtUpRender.run(true, render);
+  }
+
+  /**
+   * Run `fn` outside the request's context (`outsideRequest`), keeping only
+   * whether the render was {@link catchUp caught up}: a cache handler method
+   * called from inside a staged render, whose clock reads and AWS SDK calls
+   * would otherwise end its static stage.
+   */
+  outsideRender<T>(fn: () => T): T {
+    const caughtUp = this.caughtUpRender.getStore();
+    return outsideRequest(() =>
+      caughtUp ? this.caughtUpRender.run(caughtUp, fn) : fn(),
+    );
   }
 
   /** Whether `at` is more than the interval and the grace ago. */

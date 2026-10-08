@@ -259,6 +259,52 @@ describe("CdkNextjsCacheHandler - Orchestrator Pattern", () => {
       );
     });
 
+    it("serves a memory hit with the lifetime it was rendered or stored with", async () => {
+      const value: IncrementalCacheValue = {
+        kind: CachedRouteKind.APP_PAGE,
+        html: "<html>isr</html>",
+        rscData: undefined,
+        headers: undefined,
+        postponed: undefined,
+        segmentData: undefined,
+        status: undefined,
+      };
+      const getCtx = {
+        kind: IncrementalCacheKind.APP_PAGE,
+        isFallback: false,
+      } as const;
+      const s3 = {
+        set: jest.fn().mockResolvedValue(undefined),
+        get: jest.fn().mockResolvedValue({
+          lastModified: Date.now(),
+          value,
+          cacheControl: { revalidate: 30, expire: undefined },
+        }),
+        isRevalidated: jest.fn().mockResolvedValue(false),
+      };
+      (cacheHandler as any).s3DynamoHandler = s3;
+
+      // Rendered here: the lifetime `ResponseCache.set` passed.
+      await cacheHandler.set("isr/4", value, {
+        cacheControl: { revalidate: 60, expire: 300 },
+        isRoutePPREnabled: false,
+        isFallback: false,
+      });
+      expect((await cacheHandler.get("isr/4", getCtx))?.cacheControl).toEqual({
+        revalidate: 60,
+        expire: 300,
+      });
+
+      // Copied in from S3: the lifetime S3 stored.
+      await cacheHandler.get("isr/5", getCtx);
+      s3.get.mockClear();
+      expect((await cacheHandler.get("isr/5", getCtx))?.cacheControl).toEqual({
+        revalidate: 30,
+        expire: undefined,
+      });
+      expect(s3.get).not.toHaveBeenCalled();
+    });
+
     it("does not serve a memory hit another instance's revalidateTag expired", async () => {
       // `revalidateTag` clears only the memory of the instance that ran it. Any
       // other instance holding the page in memory answered from it for the

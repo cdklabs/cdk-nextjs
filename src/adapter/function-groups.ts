@@ -1426,6 +1426,10 @@ function fileOfTemplate(entries: readonly RouteEntry[]): Map<string, string> {
  * case-insensitively, as `resolveRoutes` does. `dynamicRoutes` is in Next.js's
  * priority order (static segment before `[param]` before `[...catchAll]`
  * before `[[...optional]]`), Pages Router data URLs included.
+ *
+ * A destination's positional captures are filled in from the match first: next
+ * 16.4's `collapseAdapterRoutes` folds a run of fallback shells (`/en/[slug]`,
+ * `/fr/[slug]`) into one rule whose destination is `/$1/[slug]`.
  */
 function resolveFile(
   pathname: string,
@@ -1436,9 +1440,21 @@ function resolveFile(
     return exact;
   }
   for (const route of routing.dynamicRoutes ?? []) {
-    if (new RegExp(route.sourceRegex, "i").test(pathname)) {
-      const template = route.destination?.split("?")[0];
-      return template === undefined ? undefined : files.get(template);
+    const match = new RegExp(route.sourceRegex, "i").exec(pathname);
+    if (match) {
+      const template = route.destination?.split("?")[0].replace(
+        /\$([1-9]\d*)/g,
+        // A group that matched nothing (an absent `.rsc` suffix) is "", as
+        // in `replaceDestination`; an index past the last group stays as is.
+        (literal, index: string) =>
+          Number(index) < match.length ? (match[Number(index)] ?? "") : literal,
+      );
+      const file = template === undefined ? undefined : files.get(template);
+      // A destination that names no file is passed over, as `resolveRoutes`
+      // does: a collapsed rule matched case-insensitively fills in `/EN/[slug]`.
+      if (file !== undefined) {
+        return file;
+      }
     }
   }
   return undefined;

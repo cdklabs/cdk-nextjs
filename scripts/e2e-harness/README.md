@@ -492,7 +492,8 @@ To check one candidate by hand instead:
 ```bash
 # in the next.js checkout, against the fixture root (usually the test file's dir
 # or its parent)
-find <fixture> -name "middleware.*"
+# a middleware.* is edge unless it sets `runtime: "nodejs"` in its config
+find <fixture> -name "middleware.*" -exec grep -LE "runtime\s*:\s*.nodejs." {} +
 grep -rlE "runtime\s*[:=]\s*.(experimental-)?edge." <fixture>
 ```
 
@@ -504,7 +505,7 @@ Mind the "or its parent": for a `test/e2e/<name>/test/index.test.ts` the fixture
 lives a directory _above_ the test file, and screening only the test file's own
 directory quietly misses its `middleware.js`.
 
-Six more screens are worth running before spending a deploy on a candidate, all
+Seven more screens are worth running before spending a deploy on a candidate, all
 against the test file rather than the fixture:
 
 - `skipDeployment: true` in the `nextTestSetup` call — next.js replaces the whole
@@ -512,6 +513,13 @@ against the test file rather than the fixture:
   early-returns (`test/lib/e2e-utils/index.ts`). The costliest screen to have been
   missing: it accounts for a third of what was previously counted as the candidate
   pool, and two files reached `rules.include` on the strength of a 4s "pass".
+- `// @force-gate <expr>` on every top-level `describe`, where `<expr>` is false
+  in deploy mode — next.js 16.4's spelling of the same exclusion, which replaced
+  most `skipDeployment: true` calls. A gated-out suite is skipped, so a file whose
+  every suite is gated out "passes" having deployed nothing. `screen.mjs`
+  evaluates the expression with the harness's own conditions (`deploy`,
+  `adapter`, `turbopack`); one it cannot know up front (`cacheComponents`) never
+  disqualifies, and a file with one suite left still deploys it.
 - `describe.skip` / `(isNextDev ? describe : describe.skip)` — a file skipped
   upstream reports as passing in a few seconds without deploying anything, and
   adding it to `rules.include` claims coverage that does not exist. This screen
