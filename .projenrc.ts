@@ -636,6 +636,8 @@ function updatePackageJson() {
       "brace-expansion@1": "^1.1.21",
       "brace-expansion@5": "^5.0.12",
       "@babel/core": "^7.29.6",
+      sharp: "^0.35.5",
+      "source-map-js": "^1.2.2",
     }),
   );
   packageJson?.patch(JsonPatch.add("/packageManager", `pnpm@${pnpmVersion}`));
