@@ -39,8 +39,8 @@ verify, which every e2e-harness run does in shard 1).
 | edge-free (the hard ceiling)  | 1009    |
 | candidates after every screen | **165** |
 | deployed and screened         | 472     |
-| in `rules.include`            | 423     |
-| plus, per-case, in `suites`   | 12      |
+| in `rules.include`            | 421     |
+| plus, per-case, in `suites`   | 14      |
 
 16.4 reopened the candidate pool. next.js replaced most `skipDeployment: true`
 calls with `// @force-gate !deploy` pragmas, and in doing so dropped the deploy
@@ -55,16 +55,16 @@ as edge. Two included files, `prefetch-app-shell-cached-gsp` and
 verdict below. The job now is working through the candidates, and keeping the
 included files passing on each scheduled run.
 
-| Verdict       | Files                                                                                                                                                                                                                |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| pass          | 423 whole files, plus the passing cases of the 12 `suites` files                                                                                                                                                     |
-| fixed         | the defects in the table below                                                                                                                                                                                       |
-| bug           | none open                                                                                                                                                                                                            |
-| upstream      | 2 — `rewrites-destination-query-array`, `incremental-cache-path-traversal`                                                                                                                                           |
+| Verdict       | Files                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| pass          | 421 whole files, plus the passing cases of the 14 `suites` files                                                                                                                                                                                                                                                                                                             |
+| fixed         | the defects in the table below                                                                                                                                                                                                                                                                                                                                               |
+| bug           | 1 open, not yet root-caused: `cached-navigations`' draft-mode case (Functions types only)                                                                                                                                                                                                                                                                                    |
+| upstream      | 2 — `rewrites-destination-query-array`, `incremental-cache-path-traversal`                                                                                                                                                                                                                                                                                                   |
 | unsupported   | 4 whole files (`prerender-encoding`, `middleware-fetches-with-any-http-method`, `revalidate-dynamic`, `proxy-readable-toweb`), plus the skipped cases of `trailingslash`, `revalidate-path-with-rewrites`, `partial-fallback-shell-upgrade`, `cached-navigations` and the 6 `invalid-static-asset-404-*` files, and 203 files the edge screen disqualifies without deploying |
-| CDN-inherent  | the 4 skipped cases of `dynamic-route-interpolation`                                                                                                                                                                 |
-| architectural | the 2 skipped `resume-data-cache` cases                                                                                                                                                                              |
-| no signal     | 49 — 2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files that cannot be built here                                                                                |
+| CDN-inherent  | the 4 skipped cases of `dynamic-route-interpolation`                                                                                                                                                                                                                                                                                                                         |
+| architectural | the 2 skipped `resume-data-cache` cases                                                                                                                                                                                                                                                                                                                                      |
+| no signal     | 49 — 2 gated by next.js (plus 3 cases next.js runs as `.failing` in deploy mode), 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files that cannot be built here                                                                                                                                                                               |
 
 ### Which types the harness proves
 
@@ -158,17 +158,19 @@ A `suites` file is included with the cases in its `failed` array skipped
 Use this instead of dropping a whole file when the residual failures have a
 verdict below.
 
-| File                                                               | Cases      | Skipped, and why                                                                                |
-| ------------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------------------------- |
-| `app-dir/trailingslash`                                            | 6 / 8      | 2 `should revalidate a page with generated static params` — unsupported (async invalidation)    |
-| `app-dir/resume-data-cache`                                        | 3 / 5      | 2 `should have consistent data between static and dynamic renders` — architectural              |
-| `dynamic-route-interpolation`                                      | 3 / 7      | 4 requesting unencoded `[`/`]` — CDN-inherent                                                   |
-| `app-dir/revalidate-path-with-rewrites`                            | 1 / 2      | `static page` — unsupported (async invalidation)                                                |
-| `app-dir/partial-fallback-shell-upgrade`                           | 10 / 13    | 3 waiting for `x-vercel-cache: HIT` — unsupported (Vercel's response header)                    |
-| `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3's XML 404, unsupported |
-| `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason                                                                          |
-| `next-form/default/app-dir`                                        | 13 / 14    | `flakey`: `should soft-navigate on submit and show the prefetched loading state` — timing        |
-| `app-dir/segment-cache/cached-navigations`                         | 19 / 20    | `caches a fully static on-demand param for repeated navigations` — unsupported (`next start` serving) |
+| File                                                               | Cases      | Skipped, and why                                                                                               |
+| ------------------------------------------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------- |
+| `app-dir/trailingslash`                                            | 6 / 8      | 2 `should revalidate a page with generated static params` — unsupported (async invalidation)                   |
+| `app-dir/resume-data-cache`                                        | 3 / 5      | 2 `should have consistent data between static and dynamic renders` — architectural                             |
+| `dynamic-route-interpolation`                                      | 3 / 7      | 4 requesting unencoded `[`/`]` — CDN-inherent                                                                  |
+| `app-dir/revalidate-path-with-rewrites`                            | 1 / 2      | `static page` — unsupported (async invalidation)                                                               |
+| `app-dir/partial-fallback-shell-upgrade`                           | 10 / 13    | 3 waiting for `x-vercel-cache: HIT` — unsupported (Vercel's response header)                                   |
+| `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3's XML 404, unsupported               |
+| `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason                                                                                         |
+| `next-form/default/app-dir`                                        | 13 / 14    | `flakey`: `should soft-navigate on submit and show the prefetched loading state` — timing                      |
+| `app-dir/metadata-streaming-parallel-routes`                       | 4 / 6      | 2 `should only bundle the selected metadata resolution implementation` — no signal (`@gate !deploy` inversion) |
+| `app-dir/segment-cache/metadata`                                   | 2 / 3      | `requests only the head when the page segments are cached` — no signal (`@gate !deploy` inversion)             |
+| `app-dir/segment-cache/cached-navigations`                         | 19 / 20    | `caches a fully static on-demand param for repeated navigations` — unsupported (`next start` serving)          |
 
 The `next-form` case submits right after the page loads and waits for the loading
 state the router prefetched; where the prefetch has not landed, `#loading` never
@@ -197,7 +199,7 @@ four deployment types; `—` means harness or unit tests only.
 | 6   | `trailingSlash: true` — every canonical `/a/` URL 404s                                                       | Output pathnames never carry the slash; `@next/routing` matches exactly                                                             | `withTrailingSlashVariants`, `Dispatcher.normalizePathname`                                                           | —                                                              |
 | 7   | `next build` fails: "encountered uncached or runtime data during prerendering" (`cacheComponents` + handler) | Build-time cache handler was write-only; the final prerender pass re-issued fetches                                                 | `LocalFileCacheHandler.get`; `cache-handler.test.ts`                                                                  | —                                                              |
 | 8   | `revalidateTag` never reaches a build-time prerender; tagged entries evicted right after storing             | Handler read a `tags` array only runtime `set` writes, not `x-next-cache-tags`; mapping rows stamped `revalidatedAt = now`          | `entryTags`, `checkIfRevalidated`, per-tag marker row — `src/adapter/s3-cache-handler.ts`                             | —                                                              |
-| 9   | Origin re-renders after `revalidatePath`, browser still gets the old page (`x-cache: Hit from cloudfront`)   | Invalidation paths came only from tag mapping rows, which build-time prerenders lack                                                | `implicitTagPath`/`invalidationVariants`; the build's tag manifest (s3-cache-handler)                          | —                                                              |
+| 9   | Origin re-renders after `revalidatePath`, browser still gets the old page (`x-cache: Hit from cloudfront`)   | Invalidation paths came only from tag mapping rows, which build-time prerenders lack                                                | `implicitTagPath`/`invalidationVariants`; the build's tag manifest (s3-cache-handler)                                 | —                                                              |
 | 10  | Fixture _n+1_ serves fixture _n_'s pages (another app's `/_not-found`)                                       | With `NEXT_DEPLOYMENT_ID` set, next's `BUILD_ID` is the constant `build-TfctsWXpff2fKS`; our cache is partitioned by build id       | `NextjsBuild.buildId` suffixes the manifest's `deploymentId` (`src/nextjs-build/nextjs-build.ts`)                     | —                                                              |
 | 11  | Unmatched optional catchall renders a segment `"undefined"`                                                  | `@next/routing` reports an unfilled param as a present key with value `undefined`                                                   | `repairRouteParamQuery` second pass; `dispatch.test.ts`                                                               | `routing-params`                                               |
 | 12  | `robots.txt`, `sitemap.xml`, `manifest.webmanifest` served as `application/octet-stream`                     | Static metadata staged as `<route>.body`; `send` types by extension                                                                 | `setBodyFileContentType`, `src/runtime/static-files.ts`                                                               | `metadata-routes`                                              |
@@ -470,6 +472,26 @@ payload — the problem next.js's `cdn-cache-busting` gates out itself.
 | `invalid-server-options`                                                | Calls `next()` in-process and asserts on option-validation errors. Nothing built or deployed. 3.5s.          |
 | `next-dynamic-lazy-compilation`                                         | Returns early under `shouldUseTurbopack()`, and the harness sets `IS_TURBOPACK_TEST=1`. Webpack-only. 5.1s.  |
 | `skipDeployment: true` files (manifest key `skipDeployment, 236 files`) | See "The `skipDeployment` traps" below.                                                                      |
+
+### A `@gate !deploy` case that passes is reported as a failure
+
+16.4's case-level `// @gate !deploy` does not skip the case in deploy mode: it
+runs it as jest's `.failing` (`test/lib/gate/runtime.ts`), on the assumption that
+it cannot pass on Vercel. Where cdk-nextjs passes it, jest reports _"Failing test
+passed even though it was supposed to fail"_ on every attempt and every type. So
+the skip is in `suites`, and the case says nothing either way:
+
+- `metadata-streaming-parallel-routes`, its bundle case (in both
+  `parallelRouteMetadata` describes): it reads `.next/server` from the test dir,
+  which Vercel's deploy harness doesn't expose and ours, building in place, does.
+- `segment-cache/metadata`, its head-only case: on Vercel a cold ISR path is a
+  completed static prerender that sends the page body along with the head.
+  cdk-nextjs serves it the `next start` way (see "An on-demand param's RSC
+  navigation is a live render" above), so only the head is requested, which is
+  what the case asserts.
+
+Found on the 2026-10-08 run. `screen.mjs` doesn't flag case-level `@gate`; a new
+one surfaces as this error on the first run that includes it.
 
 ## No signal — the fixture cannot be built here
 
