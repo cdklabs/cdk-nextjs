@@ -8,8 +8,14 @@ const nextConfig: NextConfig = {
   // Partial Prerendering. `experimental.ppr` was merged into this in Next.js
   // 16.3, so this is also what the PPR e2e exercises.
   cacheComponents: true,
+  // Next.js 16.4: `<Link prefetch>` prefetches only a route's static parts.
+  // The S3 cache handler answers those requests differently (see
+  // `s3-cache-handler.ts`), so the PR e2e exercises that path here.
+  partialPrefetching: true,
   experimental: {
     turbopackFileSystemCacheForBuild: true,
+    // Next.js 16.4's Rust port of the React compiler (`reactCompiler` below).
+    turbopackRustReactCompiler: true,
   },
   // cdk-nextjs sets `NEXT_ADAPTER_PATH` on the build it runs, so an app
   // installed from npm needs none of this. The examples can't rely on it: they
