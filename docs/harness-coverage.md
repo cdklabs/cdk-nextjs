@@ -123,6 +123,13 @@ manifest's `rules.excludeByType["regional-functions"]`:
 | `app-dir/action-forward-loop`                                         | fails  | Action forwarding fetches the request's own origin (`createForwardedActionResponse`, from `initURL`) — `127.0.0.1`. Same cause.                                                                |
 | `hydration`                                                           | 1 / 3  | **Defect, fixed:** API Gateway collapses `//` to `/` in `event.path`, so Next.js never redirected it and the page failed to hydrate at `//`. `apiGatewayRequestPath` now restores the slashes. |
 
+`app-dir/asset-prefix` joined them on 2026-10-08, for the same unserved
+`assetPrefix`. It had passed until then by timing: its bundles case fetches
+inside an un-awaited `forEach`, so the 404s reject after the case ends and jest
+charges them to whichever case is running, usually none. That run they landed
+in `rewrites that do not start with assetPrefix should still work`. Excluding
+the bundles case removes the stray rejections too.
+
 ## Passing — in `rules.include`
 
 The list is the manifest's `rules.include`; it is not duplicated here. Notes worth

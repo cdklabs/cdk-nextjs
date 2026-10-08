@@ -505,6 +505,12 @@
           "failed": [
             "invalid-static-asset-404-pages-asset-prefix should return correct output with status 200 on valid asset path"
           ]
+        },
+        "test/e2e/app-dir/asset-prefix/asset-prefix.test.ts": {
+          "comment": "Nothing serves assetPrefix on Regional Functions; cdk-nextjs warns at synth (isAssetPrefixUnserved). The case's un-awaited forEach fetches reject after it ends, so jest charges the 404s to the next case (the rewrite one); skipping it drops those.",
+          "failed": [
+            "app-dir assetPrefix handling bundles should return 200 on served assetPrefix"
+          ]
         }
       }
     }
