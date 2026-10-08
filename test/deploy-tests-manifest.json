@@ -210,7 +210,6 @@
       "test/e2e/app-dir/parallel-routes-use-selected-layout-segment/parallel-routes-use-selected-layout-segment.test.ts",
       "test/e2e/app-dir/params-hooks-compat/index.test.ts",
       "test/e2e/app-dir/partial-fallback-root-blocking/partial-fallback-root-blocking.test.ts",
-      "test/e2e/app-dir/partial-fallback-shell-upgrade/partial-fallback-shell-upgrade.test.ts",
       "test/e2e/app-dir/partial-prefetching-config/partial-prefetching-config.test.ts",
       "test/e2e/app-dir/partial-prefetching-deep-propagation/partial-prefetching-deep-propagation.test.ts",
       "test/e2e/app-dir/partial-prefetching-segment-config/partial-prefetching-segment-config.test.ts",
@@ -557,6 +556,22 @@
       ],
       "flakey": []
     },
+    "test/e2e/app-dir/partial-fallback-shell-upgrade/partial-fallback-shell-upgrade.test.ts": {
+      "comment": [
+        "10 of 13 cases. The three skipped ones are next.js 16.4's, and in deploy mode",
+        "(`isNextDeploy`) each waits for `x-vercel-cache: HIT` - Vercel's own CDN cache",
+        "header, which no cdk-nextjs deployment emits - so they time out on `null`",
+        "before their cache-reuse checks run. Failed both attempts on Global Functions",
+        "in the 2026-10-07 run. Unsupported (Vercel's response header); see",
+        "docs/harness-coverage.md."
+      ],
+      "failed": [
+        "partial-fallback-shell-upgrade - partialPrefetching disabled shares an on-demand shell across params without generateStaticParams",
+        "partial-fallback-shell-upgrade - partialPrefetching disabled keeps params without generateStaticParams dynamic after explicit revalidation of an on-demand shell",
+        "partial-fallback-shell-upgrade - partialPrefetching disabled reuses generated optional catch-all pages before and after explicit revalidation"
+      ],
+      "flakey": []
+    },
     "test/e2e/dynamic-route-interpolation/index.test.ts": {
       "comment": [
         "3 of 7 cases. The four skipped ones request a path with *unencoded* square",
@@ -871,8 +886,8 @@
     ],
     "next-version": "16.4.0",
     "e2e-files": 1213,
-    "included": 425,
-    "included-in-part": 11,
+    "included": 424,
+    "included-in-part": 12,
     "edge-free": 1009,
     "candidates": 165,
     "disqualified-by": {

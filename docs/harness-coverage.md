@@ -39,8 +39,8 @@ verify, which every e2e-harness run does in shard 1).
 | edge-free (the hard ceiling)  | 1009    |
 | candidates after every screen | **165** |
 | deployed and screened         | 472     |
-| in `rules.include`            | 425     |
-| plus, per-case, in `suites`   | 10      |
+| in `rules.include`            | 424     |
+| plus, per-case, in `suites`   | 11      |
 
 16.4 reopened the candidate pool. next.js replaced most `skipDeployment: true`
 calls with `// @force-gate !deploy` pragmas, and in doing so dropped the deploy
@@ -57,11 +57,11 @@ included files passing on each scheduled run.
 
 | Verdict       | Files                                                                                                                                                                                                                |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| pass          | 425 whole files, plus the passing cases of the 10 `suites` files                                                                                                                                                     |
+| pass          | 424 whole files, plus the passing cases of the 11 `suites` files                                                                                                                                                     |
 | fixed         | the defects in the table below                                                                                                                                                                                       |
 | bug           | none open                                                                                                                                                                                                            |
 | upstream      | 2 — `rewrites-destination-query-array`, `incremental-cache-path-traversal`                                                                                                                                           |
-| unsupported   | 4 whole files (`prerender-encoding`, `middleware-fetches-with-any-http-method`, `revalidate-dynamic`, `proxy-readable-toweb`), plus the skipped cases of `trailingslash`, `revalidate-path-with-rewrites` and the 6 `invalid-static-asset-404-*` files, and 203 files the edge screen disqualifies without deploying |
+| unsupported   | 4 whole files (`prerender-encoding`, `middleware-fetches-with-any-http-method`, `revalidate-dynamic`, `proxy-readable-toweb`), plus the skipped cases of `trailingslash`, `revalidate-path-with-rewrites`, `partial-fallback-shell-upgrade` and the 6 `invalid-static-asset-404-*` files, and 203 files the edge screen disqualifies without deploying |
 | CDN-inherent  | the 4 skipped cases of `dynamic-route-interpolation`                                                                                                                                                                 |
 | architectural | the 2 skipped `resume-data-cache` cases                                                                                                                                                                              |
 | no signal     | 49 — 2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files that cannot be built here                                                                                |
@@ -164,6 +164,7 @@ verdict below.
 | `app-dir/resume-data-cache`                                        | 3 / 5      | 2 `should have consistent data between static and dynamic renders` — architectural              |
 | `dynamic-route-interpolation`                                      | 3 / 7      | 4 requesting unencoded `[`/`]` — CDN-inherent                                                   |
 | `app-dir/revalidate-path-with-rewrites`                            | 1 / 2      | `static page` — unsupported (async invalidation)                                                |
+| `app-dir/partial-fallback-shell-upgrade`                           | 10 / 13    | 3 waiting for `x-vercel-cache: HIT` — unsupported (Vercel's response header)                    |
 | `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3's XML 404, unsupported |
 | `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason                                                                          |
 | `next-form/default/app-dir`                                        | 13 / 14    | `flakey`: `should soft-navigate on submit and show the prefetched loading state` — timing        |
@@ -365,6 +366,20 @@ Making them pass would mean blocking every revalidation on an invalidation.
 **Tell for a real regression instead:** the _same_ random value across every
 attempt, on a case with no prerender to invalidate. That was defect 34 — the
 `dynamic page` case of `revalidate-path-with-rewrites` had passed once by luck.
+
+### `x-vercel-cache` is Vercel's header
+
+`app-dir/partial-fallback-shell-upgrade`, 3 of 13 (the other 10 via `suites`),
+all new in 16.4 and all in the `partialPrefetching disabled` describe. Under
+`isNextDeploy` each polls for `x-vercel-cache: HIT`, the header Vercel's CDN adds
+to a response it served from cache. Nothing in cdk-nextjs emits it, so the poll
+times out on `null` before the case's own checks (the shell's `data-rendered-at`
+reused across params and across a revalidation) run. Those checks are the
+coverage being given up; the passing `prefix` cases cover shell sharing and
+revalidation for a fallback shell, but not for an on-demand shell (no
+`generateStaticParams`). Emitting the header would mean claiming a CDN hit
+cdk-nextjs can't vouch for. Failed both attempts on Global Functions in
+the 2026-10-07 run, with no deploy error.
 
 ### A test's `env` reaches `next build`, not the deployed app
 
