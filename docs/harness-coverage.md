@@ -39,8 +39,8 @@ verify, which every e2e-harness run does in shard 1).
 | edge-free (the hard ceiling)  | 1009    |
 | candidates after every screen | **165** |
 | deployed and screened         | 472     |
-| in `rules.include`            | 424     |
-| plus, per-case, in `suites`   | 11      |
+| in `rules.include`            | 423     |
+| plus, per-case, in `suites`   | 12      |
 
 16.4 reopened the candidate pool. next.js replaced most `skipDeployment: true`
 calls with `// @force-gate !deploy` pragmas, and in doing so dropped the deploy
@@ -57,11 +57,11 @@ included files passing on each scheduled run.
 
 | Verdict       | Files                                                                                                                                                                                                                |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| pass          | 424 whole files, plus the passing cases of the 11 `suites` files                                                                                                                                                     |
+| pass          | 423 whole files, plus the passing cases of the 12 `suites` files                                                                                                                                                     |
 | fixed         | the defects in the table below                                                                                                                                                                                       |
 | bug           | none open                                                                                                                                                                                                            |
 | upstream      | 2 — `rewrites-destination-query-array`, `incremental-cache-path-traversal`                                                                                                                                           |
-| unsupported   | 4 whole files (`prerender-encoding`, `middleware-fetches-with-any-http-method`, `revalidate-dynamic`, `proxy-readable-toweb`), plus the skipped cases of `trailingslash`, `revalidate-path-with-rewrites`, `partial-fallback-shell-upgrade` and the 6 `invalid-static-asset-404-*` files, and 203 files the edge screen disqualifies without deploying |
+| unsupported   | 4 whole files (`prerender-encoding`, `middleware-fetches-with-any-http-method`, `revalidate-dynamic`, `proxy-readable-toweb`), plus the skipped cases of `trailingslash`, `revalidate-path-with-rewrites`, `partial-fallback-shell-upgrade`, `cached-navigations` and the 6 `invalid-static-asset-404-*` files, and 203 files the edge screen disqualifies without deploying |
 | CDN-inherent  | the 4 skipped cases of `dynamic-route-interpolation`                                                                                                                                                                 |
 | architectural | the 2 skipped `resume-data-cache` cases                                                                                                                                                                              |
 | no signal     | 49 — 2 gated by next.js, 29 `skipDeployment` or stubbed in deploy mode, 18 `next-config-ts-native-ts` files that cannot be built here                                                                                |
@@ -168,6 +168,7 @@ verdict below.
 | `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3's XML 404, unsupported |
 | `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason                                                                          |
 | `next-form/default/app-dir`                                        | 13 / 14    | `flakey`: `should soft-navigate on submit and show the prefetched loading state` — timing        |
+| `app-dir/segment-cache/cached-navigations`                         | 19 / 20    | `caches a fully static on-demand param for repeated navigations` — unsupported (`next start` serving) |
 
 The `next-form` case submits right after the page loads and waits for the loading
 state the router prefetched; where the prefetch has not landed, `#loading` never
@@ -380,6 +381,33 @@ revalidation for a fallback shell, but not for an on-demand shell (no
 `generateStaticParams`). Emitting the header would mean claiming a CDN hit
 cdk-nextjs can't vouch for. Failed both attempts on Global Functions in
 the 2026-10-07 run, with no deploy error.
+
+### An on-demand param's RSC navigation is a live render, not a prerender
+
+`app-dir/segment-cache/cached-navigations` (1 of 20, via `suites`), new in 16.4:
+`caches a fully static on-demand param for repeated navigations`. Its
+`isNextDeploy` branch navigates to `/fully-static-params/t4` (not in
+`generateStaticParams`) and expects a repeat visit a minute later to make no
+request, because "the platform serves a completed static prerender". On Vercel,
+Next.js runs in minimal mode: an RSC navigation without postponed state is not a
+dynamic RSC request (`isDynamicRSCRequest` in `app-page-runtime.js`), so the
+function prerenders `t4` and the edge caches the result, which starts with the
+`#` "complete" marker byte (`prependIsPartialByteToChunks`). cdk-nextjs runs
+Next.js the way `next start` does, where the same request is a dynamic RSC
+request: a live render, without a marker, which the client reads as partial
+(`stripIsPartialByte`) and so fetches again. The response we sent was exactly
+that: `cache-control: private, no-store`, no marker, `"l"` set to its 2666-byte
+static stage. The case's own non-`isNextDeploy` branch asserts this request for
+`next start`. Matching Vercel would mean minimal mode, with the runtime doing the
+platform's prerender routing and caching. Not done.
+
+The file's other case new in 16.4 that fails, `reuses cached page segment across
+fallback params after a draft mode HTML load`, has a different cause and is not
+skipped. On the 2026-10-07 Global Functions run it failed both attempts, but
+`scripts/e2e-offline.sh` replays of it pass, with or without draft mode, on our
+container shell and on `next start` built the same way. Its draft-mode HTML
+is the same on both, apart from timestamps. Still open: it needs a deployed
+repro.
 
 ### A test's `env` reaches `next build`, not the deployed app
 

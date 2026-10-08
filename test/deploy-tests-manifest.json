@@ -275,7 +275,6 @@
       "test/e2e/app-dir/segment-cache/basic/segment-cache-basic.test.ts",
       "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations-global-runtime.test.ts",
       "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations-partial-prefetching.test.ts",
-      "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations.test.ts",
       "test/e2e/app-dir/segment-cache/client-params/client-params.test.ts",
       "test/e2e/app-dir/segment-cache/deployment-skew/deployment-skew.test.ts",
       "test/e2e/app-dir/segment-cache/dynamic-on-hover/dynamic-on-hover.test.ts",
@@ -513,6 +512,20 @@
     }
   },
   "suites": {
+    "test/e2e/app-dir/segment-cache/cached-navigations/cached-navigations.test.ts": {
+      "comment": [
+        "1 of 20 cases skipped. It is new in 16.4, and its deploy branch asserts Vercel's",
+        "minimal-mode serving: a repeat navigation to an on-demand param of a fully static page",
+        "makes no request, because the platform answers the RSC navigation with a completed",
+        "prerender ('#'-marked). cdk-nextjs runs Next.js like `next start`, which answers it with",
+        "a live render (unmarked, so partial) - the case's own non-deploy branch expects exactly",
+        "that request. Unsupported (next start serving model); see docs/harness-coverage.md."
+      ],
+      "failed": [
+        "cached navigations caches a fully static on-demand param for repeated navigations"
+      ],
+      "flakey": []
+    },
     "test/e2e/next-form/default/app-dir.test.ts": {
       "comment": [
         "13 of 14 cases; one is flakey. It submits the form right after the page loads and waits for",
@@ -886,8 +899,8 @@
     ],
     "next-version": "16.4.0",
     "e2e-files": 1213,
-    "included": 424,
-    "included-in-part": 12,
+    "included": 423,
+    "included-in-part": 13,
     "edge-free": 1009,
     "candidates": 165,
     "disqualified-by": {
