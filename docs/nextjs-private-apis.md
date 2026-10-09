@@ -7,7 +7,7 @@ Keep it short and current:
 - Use a public interface wherever one exists.
 - A PR that adds a private dependency adds it here and says why. A PR that removes one deletes its entry.
 
-Written against Next.js **16.4.0**. Discussion and upstream progress: the pinned [tracking issue](https://github.com/cdklabs/cdk-nextjs/issues).
+Written against Next.js **16.4.0**.
 
 ## What is public
 
