@@ -173,6 +173,10 @@ const __captureAdapter = {
           trailingSlash: config.trailingSlash,
           assetPrefix: config.assetPrefix,
           i18n: config.i18n,
+          images: config.images,
+          experimental: config.experimental,
+          cacheHandler: config.cacheHandler,
+          cacheMaxMemorySize: config.cacheMaxMemorySize,
         },
       }),
     );

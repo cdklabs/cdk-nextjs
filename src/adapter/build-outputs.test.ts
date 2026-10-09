@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import appPlaygroundBasePath from "./__fixtures__/app-playground-base-path.json";
 import appPlayground from "./__fixtures__/app-playground.json";
 import pagesI18n from "./__fixtures__/pages-i18n.json";
@@ -90,6 +91,10 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
         generateEtags: true,
         i18n: ctx.config.i18n ?? null,
         deploymentId: "",
+        images: ctx.config.images,
+        experimental: ctx.config.experimental ?? {},
+        cacheHandler: null,
+        cacheMaxMemorySize: ctx.config.cacheMaxMemorySize,
       });
     });
 
@@ -199,6 +204,32 @@ describe("buildAdapterManifest edge cases", () => {
     expect(() => buildAdapterManifest(asContext(appPlayground))).toThrow(
       /must run from the Next.js project directory/,
     );
+  });
+
+  it("records cacheHandler relative to the dist dir, as required-server-files.json does", () => {
+    const ctx = asContext(appPlayground);
+    const handler = join(ctx.repoRoot, "node_modules/cdk-nextjs/cache.mjs");
+    for (const cacheHandler of [handler, pathToFileURL(handler).href]) {
+      const { manifest } = build({
+        ...ctx,
+        config: { ...ctx.config, cacheHandler },
+      });
+      expect(manifest.config.cacheHandler).toBe(
+        relative(ctx.distDir, handler).split(sep).join("/"),
+      );
+    }
+  });
+
+  it("copies experimental as JSON, dropping function-valued entries", () => {
+    const ctx = asContext(appPlayground);
+    const { manifest } = build({
+      ...ctx,
+      config: {
+        ...ctx.config,
+        experimental: { imgOptConcurrency: 2, someHook: () => undefined },
+      } as unknown as BuildCompleteContext["config"],
+    });
+    expect(manifest.config.experimental).toEqual({ imgOptConcurrency: 2 });
   });
 
   it("records the deploymentId, reduced to what a cache key prefix can hold", () => {

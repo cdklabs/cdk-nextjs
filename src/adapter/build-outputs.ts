@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NextAdapter } from "next";
 import { MAX_BUILD_ID_BYTES } from "./cache-utils";
 import {
@@ -331,6 +332,10 @@ export function buildAdapterManifest(
         /[^A-Za-z0-9_-]/g,
         "-",
       ),
+      images: ctx.config.images,
+      experimental: JSON.parse(JSON.stringify(ctx.config.experimental ?? {})),
+      cacheHandler: distRelativeCacheHandler(ctx),
+      cacheMaxMemorySize: ctx.config.cacheMaxMemorySize,
     },
     routing: ctx.routing,
     pathnames,
@@ -972,6 +977,21 @@ function buildMiddleware(
  * Nothing may dereference them afterwards: the Functions zip keeps them as
  * links (`zipDirectory`), and the Containers `COPY` does too.
  */
+/**
+ * `cacheHandler` relative to the dist dir, as `next build` writes it into
+ * `required-server-files.json` (`build/index.js`, via
+ * `resolveCacheHandlerPathToFilesystem`): `ctx.config` has the build machine's
+ * absolute path, and the runtime resolves this against its own dist dir.
+ */
+function distRelativeCacheHandler(ctx: BuildCompleteContext): string | null {
+  const { cacheHandler } = ctx.config;
+  if (!cacheHandler) return null;
+  const path = cacheHandler.startsWith("file://")
+    ? fileURLToPath(cacheHandler)
+    : cacheHandler;
+  return toPosix(relative(ctx.distDir, resolve(ctx.projectDir, path)));
+}
+
 /** Bounded so a large app doesn't exhaust file descriptors. */
 const STAGING_CONCURRENCY = 32;
 

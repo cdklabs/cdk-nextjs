@@ -7,7 +7,7 @@ jest.mock("next/dist/server/image-optimizer.js", () => ({
   imageOptimizer: jest.fn(),
 }));
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { validateHeaderValue } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,21 +29,10 @@ import { useNextFrom } from "./next-modules";
 const PNG = Buffer.from("optimized-bytes");
 const ETAG = "abc123";
 
-/** Just what `loadImageRuntime` reads: where `required-server-files.json` is. */
-function stage(extraConfig: Record<string, unknown> = {}): string {
+/** A deployment root, which the dist dir the image cache uses sits under. */
+function stage(): string {
   const root = mkdtempSync(join(tmpdir(), "cdk-nextjs-image-"));
   mkdirSync(join(root, ".next"));
-  writeFileSync(
-    join(root, ".next/required-server-files.json"),
-    JSON.stringify({
-      config: {
-        basePath: "",
-        experimental: {},
-        images: { ...imageConfigDefault, localPatterns: undefined },
-        ...extraConfig,
-      },
-    }),
-  );
   return root;
 }
 
@@ -83,22 +72,24 @@ function optimizerFor(
   } = {},
 ): RuntimeImageOptimizer {
   const via = new RuntimeImageOptimizer({
-    deploymentRoot: stage({
-      cacheHandler: "../node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
-      cacheMaxMemorySize: 0,
-      ...(options.images
-        ? {
-            images: {
-              ...imageConfigDefault,
-              localPatterns: undefined,
-              ...options.images,
-            },
-          }
-        : {}),
-    }),
+    deploymentRoot: stage(),
+    // Just the fields `loadImageRuntime` reads.
     manifest: {
       relativeProjectDir: "",
-      config: { distDir: ".next" },
+      config: {
+        basePath: "",
+        assetPrefix: "",
+        distDir: ".next",
+        experimental: {},
+        images: {
+          ...imageConfigDefault,
+          localPatterns: undefined,
+          ...options.images,
+        },
+        cacheHandler:
+          "../node_modules/cdk-nextjs/lib/adapter/cache-handler.mjs",
+        cacheMaxMemorySize: 0,
+      },
     } as unknown as AdapterManifest,
     bucket: options.bucket ?? "assets",
     bucketKeyPrefix: "",
@@ -501,7 +492,7 @@ describe("RuntimeImageOptimizer cache", () => {
     expect(imageOptimizer).toHaveBeenCalledTimes(1);
   });
 
-  // `required-server-files.json` names it relative to the dist dir.
+  // The manifest names it relative to the dist dir.
   it("loads the app's cacheHandler from where next start would", async () => {
     await request("/photos/cached.png", { via: optimizerFor() });
     expect(imported).toMatch(
