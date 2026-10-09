@@ -23,7 +23,8 @@ import {
   newImageResponseCache,
   RuntimeImageOptimizer,
 } from "./image";
-import { ADAPTER_MANIFEST_VERSION, AdapterManifest } from "./manifest";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
+import { AdapterManifest } from "./manifest";
 import { useNextFrom } from "./next-modules";
 
 const PNG = Buffer.from("optimized-bytes");
@@ -75,7 +76,7 @@ function optimizerFor(
     deploymentRoot: stage(),
     // Just the fields `loadImageRuntime` reads.
     manifest: {
-      version: ADAPTER_MANIFEST_VERSION,
+      cdkNextjsVersion: CDK_NEXTJS_VERSION,
       relativeProjectDir: "",
       config: {
         basePath: "",
@@ -255,10 +256,10 @@ describe("RuntimeImageOptimizer.isEnabled", () => {
   it("names a manifest from an older cdk-nextjs instead of a TypeError", () => {
     const via = optimizerFor();
     const { manifest } = (
-      via as unknown as { options: { manifest: { version: number } } }
+      via as unknown as { options: { manifest: { cdkNextjsVersion: string } } }
     ).options;
-    manifest.version = 1;
-    expect(() => via.isEnabled()).toThrow(/manifest is version 1/);
+    manifest.cdkNextjsVersion = "0.6.2";
+    expect(() => via.isEnabled()).toThrow(/written by cdk-nextjs 0\.6\.2/);
   });
 });
 

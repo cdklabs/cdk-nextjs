@@ -17,10 +17,8 @@ import {
   buildAdapterManifest,
   writeBuildOutputs,
 } from "./build-outputs";
-import {
-  ADAPTER_MANIFEST_VERSION,
-  RUNTIME_DIR_NAME,
-} from "../runtime/manifest";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
+import { RUNTIME_DIR_NAME } from "../runtime/manifest";
 
 /**
  * The fixtures are real `onBuildComplete` contexts captured by
@@ -76,8 +74,8 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
       groups: [{ staging }],
     } = build(ctx);
 
-    it("stamps the manifest version and build identity", () => {
-      expect(manifest.version).toBe(ADAPTER_MANIFEST_VERSION);
+    it("stamps the cdk-nextjs version and build identity", () => {
+      expect(manifest.cdkNextjsVersion).toBe(CDK_NEXTJS_VERSION);
       expect(manifest.buildId).toBe(ctx.buildId);
       expect(manifest.relativeProjectDir).toBe(
         name.startsWith("pages-i18n") ? "pages-i18n" : "app-playground",

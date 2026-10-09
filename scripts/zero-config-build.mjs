@@ -329,7 +329,11 @@ function check(appDir, adapterPath, { label, distDir, buildArgs, forbid }) {
   // `output: "standalone"`.
   const adapterDir = join(dist, "cdk-nextjs-adapter");
   const manifest = readJson(join(adapterDir, "manifest.json"));
-  assert(manifest.version === 2, `manifest version ${manifest.version}`);
+  const { version } = readJson(join(repoRoot, "package.json"));
+  assert(
+    manifest.cdkNextjsVersion === version,
+    `manifest stamped cdk-nextjs ${manifest.cdkNextjsVersion}, not ${version}`,
+  );
   for (const route of ["/", "/isr/[id]"]) {
     assert(
       manifest.entrypoints[route],

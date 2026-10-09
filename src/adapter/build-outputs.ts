@@ -22,10 +22,10 @@ import {
   assignRoutesToGroups,
   parseFunctionGroupsEnv,
 } from "./function-groups";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { LOG_PREFIX } from "../constants";
 import {
   ADAPTER_DIR_NAME,
-  ADAPTER_MANIFEST_VERSION,
   AdapterEntrypoint,
   AdapterEntrypointType,
   AdapterManifest,
@@ -313,7 +313,7 @@ export function buildAdapterManifest(
     : undefined;
 
   const manifest: AdapterManifest = {
-    version: ADAPTER_MANIFEST_VERSION as 2,
+    cdkNextjsVersion: CDK_NEXTJS_VERSION,
     buildId: ctx.buildId,
     relativeProjectDir: toPosix(relative(repoRoot, ctx.projectDir)),
     config: {

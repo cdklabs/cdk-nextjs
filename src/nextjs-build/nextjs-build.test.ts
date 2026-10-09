@@ -29,6 +29,7 @@ import {
   storedSize,
   writePublicFileList,
 } from "./nextjs-build";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { NextjsType } from "../constants";
 import { deploymentBuildId } from "../utils/deployment-build-id";
 
@@ -597,6 +598,25 @@ describe("NextjsBuild with skipBuild and no build output", () => {
   });
 });
 
+describe("NextjsBuild with a build from another cdk-nextjs", () => {
+  it("rejects a manifest stamped with a different cdk-nextjs version", () => {
+    write(join(dir, ".next", "BUILD_ID"), "b1");
+    write(
+      join(dir, ".next", "cdk-nextjs-adapter", "manifest.json"),
+      JSON.stringify({ cdkNextjsVersion: "0.6.2", buildId: "b1" }),
+    );
+    expect(
+      () =>
+        new NextjsBuild(new Stack(new App(), "Stack"), "Build", {
+          buildCommand: "true",
+          buildDirectory: dir,
+          nextjsType: NextjsType.REGIONAL_FUNCTIONS,
+          skipBuild: true,
+        }),
+    ).toThrow(/written by\s+cdk-nextjs 0\.6\.2/);
+  });
+});
+
 describe("NextjsBuild with a build split by other functionGroups", () => {
   it("rejects a build whose groups kept their names but not their routes", () => {
     // Moving `/reports/**` into `api` keeps the group names, and a names-only
@@ -605,7 +625,7 @@ describe("NextjsBuild with a build split by other functionGroups", () => {
     write(
       join(dir, ".next", "cdk-nextjs-adapter", "manifest.json"),
       JSON.stringify({
-        version: 2,
+        cdkNextjsVersion: CDK_NEXTJS_VERSION,
         buildId: "b1",
         relativeProjectDir: "",
         config: { basePath: "", assetPrefix: "", trailingSlash: false },
@@ -632,7 +652,7 @@ describe("NextjsBuild with a build split by other functionGroups", () => {
     write(
       join(dir, ".next", "cdk-nextjs-adapter", "manifest.json"),
       JSON.stringify({
-        version: 2,
+        cdkNextjsVersion: CDK_NEXTJS_VERSION,
         buildId: "b1",
         relativeProjectDir: "",
         config: { basePath: "", assetPrefix: "", trailingSlash: false },

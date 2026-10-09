@@ -22,9 +22,6 @@
  */
 import { join } from "node:path";
 
-/** Current {@link AdapterManifest.version}. Bump on any breaking shape change. */
-export const ADAPTER_MANIFEST_VERSION = 2;
-
 /**
  * Directory written inside `distDir` (`.next`), matching the existing
  * `cdk-nextjs-init-cache` convention.
@@ -131,7 +128,13 @@ export function deployedManifestPath(deploymentRoot: string): string {
 }
 
 export interface AdapterManifest {
-  readonly version: 2;
+  /**
+   * The cdk-nextjs that wrote this (`CDK_NEXTJS_VERSION`). Whatever reads the
+   * manifest requires its own version here, rather than a hand-bumped shape
+   * version: the adapter and its readers ship in one package, so a mismatch is
+   * always a stale build or a second cdk-nextjs install.
+   */
+  readonly cdkNextjsVersion: string;
   readonly buildId: string;
   /**
    * From the deployment root to the Next.js project dir. "" when the app is at

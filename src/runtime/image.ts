@@ -15,7 +15,8 @@ import type { CachedRouteKind } from "next/dist/server/response-cache/types.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { extractEtag, fetchFromS3, resolveErrorResponse } from "./image-utils";
-import { ADAPTER_MANIFEST_VERSION, AdapterManifest } from "./manifest";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
+import { AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
 import { firstValue, s3Client } from "./util";
 
@@ -527,19 +528,19 @@ function sendText(
 }
 
 /**
- * `manifest.config.images`, once the manifest is known to be one that has it
- * (and `experimental`, …). The fields are typed `unknown`, so only the version
- * catches a manifest an older cdk-nextjs wrote; `NextjsBuild` rejects one at
- * synth, which a hand-wired function skips.
+ * `manifest.config.images`, once the manifest is known to be one this runtime
+ * reads (with `experimental`, …). The fields are typed `unknown`, so only the
+ * version catches a manifest another cdk-nextjs wrote; `NextjsBuild` rejects one
+ * at synth, which a hand-wired function skips.
  */
 function manifestImages(
   manifest: AdapterManifest,
 ): NextConfigComplete["images"] {
-  if (manifest.version !== ADAPTER_MANIFEST_VERSION) {
+  if (manifest.cdkNextjsVersion !== CDK_NEXTJS_VERSION) {
     throw new Error(
-      `The adapter manifest is version ${manifest.version}, but this runtime ` +
-        `reads version ${ADAPTER_MANIFEST_VERSION}. Rebuild the app with this ` +
-        `version of cdk-nextjs.`,
+      `The adapter manifest was written by cdk-nextjs ` +
+        `${manifest.cdkNextjsVersion ?? "(unknown)"}, but this runtime is ` +
+        `cdk-nextjs ${CDK_NEXTJS_VERSION}. Rebuild the app with this version.`,
     );
   }
   return manifest.config.images as NextConfigComplete["images"];
