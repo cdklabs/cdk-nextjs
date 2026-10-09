@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import getDebug from "debug";
-import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
+import type { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import type { IncrementalCacheValue } from "next/dist/server/response-cache";
 import {
   cacheObjectName,

@@ -4,8 +4,8 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
 import type { CacheControl } from "next/dist/server/lib/cache-control";
-import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
-import { IncrementalCacheValue } from "next/dist/server/response-cache";
+import type { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
+import type { IncrementalCacheValue } from "next/dist/server/response-cache";
 import { markerClock } from "./aws-cache-store";
 import { numberFromEnv } from "./use-cache-common";
 

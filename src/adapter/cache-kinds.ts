@@ -1,6 +1,18 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { CachedRouteKind } from "next/dist/server/response-cache/index.js";
+import type { CachedRouteKind } from "next/dist/server/response-cache/index.js";
 import type { PrerenderVariants } from "./cache-utils";
+
+/**
+ * The `CachedRouteKind` members the init cache seeds, as their own string
+ * values. The enum is a `const enum`, which esbuild can't inline, so using it
+ * as a value put a runtime `import` of `next/dist/server/response-cache` in the
+ * adapter bundle; only its type is imported now.
+ */
+export const CACHED_ROUTE_KIND = {
+  APP_PAGE: "APP_PAGE" as CachedRouteKind.APP_PAGE,
+  APP_ROUTE: "APP_ROUTE" as CachedRouteKind.APP_ROUTE,
+  PAGES: "PAGES" as CachedRouteKind.PAGES,
+} as const;
 
 /** The fields of `ctx.outputs` a cache kind is read from. */
 export interface CacheKindOutputs {
@@ -31,13 +43,13 @@ export function cacheKindResolver(
 ) => CachedRouteKind | undefined {
   const kindById = new Map<string, CachedRouteKind>();
   for (const { id } of outputs.pages) {
-    kindById.set(id, CachedRouteKind.PAGES);
+    kindById.set(id, CACHED_ROUTE_KIND.PAGES);
   }
   for (const { id } of outputs.appPages) {
-    kindById.set(id, CachedRouteKind.APP_PAGE);
+    kindById.set(id, CACHED_ROUTE_KIND.APP_PAGE);
   }
   for (const { id } of outputs.appRoutes) {
-    kindById.set(id, CachedRouteKind.APP_ROUTE);
+    kindById.set(id, CACHED_ROUTE_KIND.APP_ROUTE);
   }
   return (variants) => {
     const source =

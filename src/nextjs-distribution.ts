@@ -990,10 +990,8 @@ const DYNAMIC_CACHE_KEY: CacheKeyProps = {
     "next-router-prefetch", // prefetch behavior
     "next-router-segment-prefetch", // segment-level prefetching
     "x-prerender-revalidate", // on-demand ISR revalidation
-    "x-prerender-bypass", // draft mode
-    // "x-nextjs-stale-time", // stale-while-revalidate behavior
-    // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)
-    // "x-nextjs-postponed", // Partial Prerendering (experimental feature)
+    // Draft mode needs no header: it is the `__prerender_bypass` cookie, which
+    // `cookieBehavior.all()` already keys on.
     // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
   ),
   cookieBehavior: CacheCookieBehavior.all(),
