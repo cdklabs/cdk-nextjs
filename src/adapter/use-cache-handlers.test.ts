@@ -16,10 +16,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import type {
-  CacheEntry,
-  CacheHandler,
-} from "next/dist/server/lib/cache-handlers/types";
+import type { CacheEntry, CacheHandler } from "next/cache";
 import {
   CacheBucket,
   RevalidationLog,

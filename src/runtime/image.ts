@@ -8,14 +8,14 @@
  * makes `NextResponse.rewrite()` onto an image work. That is also why there is no
  * longer a dedicated image optimization Lambda — middleware never ran for it.
  */
-import { readFileSync } from "node:fs";
 import { isAbsolute as isAbsolutePath, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import type { NextConfigComplete } from "next/dist/server/config-shared.js";
 import type { CachedRouteKind } from "next/dist/server/response-cache/types.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { extractEtag, fetchFromS3, resolveErrorResponse } from "./image-utils";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
 import { firstValue, s3Client } from "./util";
@@ -26,8 +26,6 @@ import { firstValue, s3Client } from "./util";
  * type here is still the real one: `typeof import(...)` is erased.
  */
 interface NextImageModules {
-  readonly configShared: typeof import("next/dist/server/config-shared.js");
-  readonly imageConfig: typeof import("next/dist/shared/lib/image-config.js");
   readonly optimizer: typeof import("next/dist/server/image-optimizer.js");
   readonly serveStatic: typeof import("next/dist/server/serve-static.js");
 }
@@ -102,11 +100,6 @@ export interface InternalImageResponse {
   readonly tooLarge?: boolean;
 }
 
-/** What `required-server-files.json` is read for. */
-interface RequiredServerFiles {
-  config: NextConfigComplete;
-}
-
 export class RuntimeImageOptimizer {
   private readonly s3 = s3Client();
   private loaded?: ReturnType<typeof loadImageRuntime>;
@@ -122,9 +115,10 @@ export class RuntimeImageOptimizer {
    * off.
    */
   public isEnabled(): boolean {
-    this.loaded ??= loadImageRuntime(this.options);
-    const { imagesConfig } = this.loaded;
-    return imagesConfig.loader === "default" && !imagesConfig.unoptimized;
+    // From the manifest alone: an app that turned images off shouldn't load the
+    // optimizer (and `sharp`) just to answer 404.
+    const images = manifestImages(this.options.manifest);
+    return images.loader === "default" && !images.unoptimized;
   }
 
   public async handle(
@@ -134,10 +128,10 @@ export class RuntimeImageOptimizer {
     waitUntil: (promise: Promise<unknown>) => void,
   ): Promise<void> {
     // Resolved on the first image request rather than at cold start: an app with
-    // no `<Image>` should pay neither the `next` module loads nor the
-    // `required-server-files.json` parse.
+    // no `<Image>` should not pay for the `next` module loads.
     this.loaded ??= loadImageRuntime(this.options);
-    const { next, nextConfig, imagesConfig } = this.loaded;
+    const { next, nextConfig } = this.loaded;
+    const imagesConfig = nextConfig.images;
     const {
       ImageError,
       ImageOptimizerCache,
@@ -414,8 +408,8 @@ interface ImageCache {
 /**
  * The app's `cacheHandler`, constructed the way `next start` constructs it for
  * images (`next-server.js`, `handleNextImageRequest`): once, and kept, so its
- * in-memory layer lasts across requests. Its path in `required-server-files.json`
- * is relative to the dist dir; see {@link cacheHandlerUrl}.
+ * in-memory layer lasts across requests. Its path in the manifest is relative
+ * to the dist dir; see {@link cacheHandlerUrl}.
  */
 async function loadImageCache(
   { deploymentRoot, manifest, importModule }: ImageOptimizerOptions,
@@ -488,14 +482,12 @@ export function newImageResponseCache(
 /**
  * `formatDynamicImportPath` from `next/dist/lib/format-dynamic-import-path.js`,
  * restated: `next build` doesn't trace that module into the deployment, so
- * loading it failed every image request with the cache on.
+ * loading it failed every image request with the cache on. No `file://` case:
+ * the adapter already turned one into a path (`distRelativeCacheHandler`).
  */
 function cacheHandlerUrl(distDir: string, cacheHandler: string): string {
-  const path = cacheHandler.startsWith("file://")
-    ? fileURLToPath(cacheHandler)
-    : cacheHandler;
   return pathToFileURL(
-    isAbsolutePath(path) ? path : join(distDir, path),
+    isAbsolutePath(cacheHandler) ? cacheHandler : join(distDir, cacheHandler),
   ).toString();
 }
 
@@ -536,32 +528,44 @@ function sendText(
 }
 
 /**
- * The image config comes from the app's own `required-server-files.json`, not the
- * adapter manifest: `imageOptimizer` reads whole `experimental` and `images`
- * objects, and mirroring those into the manifest would be a second definition of
- * the same thing that silently goes stale on a `next` minor.
+ * `manifest.config.images`, once the manifest is known to be one this runtime
+ * reads (with `experimental`, …). The fields are typed `unknown`, so only the
+ * version catches a manifest another cdk-nextjs wrote; `NextjsBuild` rejects one
+ * at synth, which a hand-wired function skips.
  */
-function loadImageRuntime({ deploymentRoot, manifest }: ImageOptimizerOptions) {
+function manifestImages(
+  manifest: AdapterManifest,
+): NextConfigComplete["images"] {
+  if (manifest.cdkNextjsVersion !== CDK_NEXTJS_VERSION) {
+    throw new Error(
+      `The adapter manifest was written by cdk-nextjs ` +
+        `${manifest.cdkNextjsVersion ?? "(unknown)"}, but this runtime is ` +
+        `cdk-nextjs ${CDK_NEXTJS_VERSION}. Rebuild the app with this version.`,
+    );
+  }
+  return manifest.config.images as NextConfigComplete["images"];
+}
+
+/**
+ * The optimizer's `nextConfig`, from the adapter manifest, which copied it out
+ * of the build's `ctx.config` (`AdapterManifestConfig.images`): already resolved
+ * and defaulted, so neither `getNextConfigRuntime` nor `imageConfigDefault` is
+ * needed. Only the fields Next's image code reads; the cast is because the
+ * manifest stores them as JSON.
+ */
+function loadImageRuntime({ manifest }: ImageOptimizerOptions) {
   const next: NextImageModules = {
-    configShared: nextModule("next/dist/server/config-shared.js"),
-    imageConfig: nextModule("next/dist/shared/lib/image-config.js"),
     optimizer: nextModule("next/dist/server/image-optimizer.js"),
     serveStatic: nextModule("next/dist/server/serve-static.js"),
   };
-  const path = join(
-    deploymentRoot,
-    manifest.relativeProjectDir,
-    manifest.config.distDir,
-    "required-server-files.json",
-  );
-  const required: RequiredServerFiles = JSON.parse(readFileSync(path, "utf-8"));
-  const nextConfig = next.configShared.getNextConfigRuntime(required.config);
-  return {
-    next,
-    nextConfig,
-    imagesConfig: {
-      ...next.imageConfig.imageConfigDefault,
-      ...nextConfig.images,
-    },
-  };
+  const { config } = manifest;
+  const nextConfig = {
+    basePath: config.basePath,
+    assetPrefix: config.assetPrefix,
+    images: manifestImages(manifest),
+    experimental: config.experimental,
+    cacheHandler: config.cacheHandler ?? undefined,
+    cacheMaxMemorySize: config.cacheMaxMemorySize,
+  } as NextConfigComplete;
+  return { next, nextConfig };
 }

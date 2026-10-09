@@ -3,7 +3,7 @@ jest.mock("@aws-sdk/client-dynamodb");
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import type { CacheEntry } from "next/dist/server/lib/cache-handlers/types";
+import type { CacheEntry } from "next/cache";
 import {
   MAX_REVALIDATION_LOG_GAP_MS,
   RevalidationLog,
