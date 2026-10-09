@@ -117,9 +117,32 @@
           "method"
         ]
       }
+    ],
+    "@typescript-eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "next",
+              "next/*"
+            ],
+            "allowTypeImports": true,
+            "message": "Import only types from next; the bundles can't import it at runtime."
+          }
+        ]
+      }
     ]
   },
   "overrides": [
+    {
+      "files": [
+        "**/*.test.ts"
+      ],
+      "rules": {
+        "@typescript-eslint/no-restricted-imports": "off"
+      }
+    },
     {
       "files": [
         ".projenrc.ts"

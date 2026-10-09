@@ -1,5 +1,5 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { NextAdapter } from "next";
+import type { NextAdapter } from "next";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeBuildOutputs } from "./build-outputs.js";

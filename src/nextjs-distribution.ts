@@ -981,7 +981,8 @@ const DYNAMIC_CACHE_KEY: CacheKeyProps = {
   headerBehavior: CacheHeaderBehavior.allowList(
     // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
     // cdk-nextjs includes the most essential headers for Next.js functionality
-    // but it's recommended to request quota increase to include all headers (commented out ones below)
+    // and leaves out the one commented out below; keying on it as well needs a
+    // quota increase
     // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
     "accept", // content negotiation (HTML vs RSC payload)
     "rsc", // React Server Components requests

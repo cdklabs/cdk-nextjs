@@ -195,6 +195,7 @@ typeCheckEsmSources();
 updateGitHubWorkflows();
 generateStructs();
 updatePackageJson();
+restrictNextValueImports();
 
 project.synth();
 
@@ -616,6 +617,34 @@ function generateStructs() {
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.FunctionUrlProps"))
     .allOptional();
+}
+
+/**
+ * The adapter and runtime bundles must not import `next` at runtime: esbuild
+ * can't inline a `const enum` such as `CachedRouteKind`, so a value import
+ * left a real `import` of `next/dist/...` in the bundle. Types are fine.
+ * Tests run under ts-jest against the installed `next`, so they're exempt.
+ */
+function restrictNextValueImports() {
+  project.eslint?.addRules({
+    "@typescript-eslint/no-restricted-imports": [
+      "error",
+      {
+        patterns: [
+          {
+            group: ["next", "next/*"],
+            allowTypeImports: true,
+            message:
+              "Import only types from next; the bundles can't import it at runtime.",
+          },
+        ],
+      },
+    ],
+  });
+  project.eslint?.addOverride({
+    files: ["**/*.test.ts"],
+    rules: { "@typescript-eslint/no-restricted-imports": "off" },
+  });
 }
 
 function updatePackageJson() {

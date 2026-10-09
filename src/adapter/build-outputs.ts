@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { NextAdapter } from "next";
+import type { NextAdapter } from "next";
 import { MAX_BUILD_ID_BYTES } from "./cache-utils";
 import {
   DEFAULT_FUNCTION_GROUP,
