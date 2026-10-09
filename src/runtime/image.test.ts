@@ -23,7 +23,7 @@ import {
   newImageResponseCache,
   RuntimeImageOptimizer,
 } from "./image";
-import { AdapterManifest } from "./manifest";
+import { ADAPTER_MANIFEST_VERSION, AdapterManifest } from "./manifest";
 import { useNextFrom } from "./next-modules";
 
 const PNG = Buffer.from("optimized-bytes");
@@ -75,6 +75,7 @@ function optimizerFor(
     deploymentRoot: stage(),
     // Just the fields `loadImageRuntime` reads.
     manifest: {
+      version: ADAPTER_MANIFEST_VERSION,
       relativeProjectDir: "",
       config: {
         basePath: "",
@@ -251,15 +252,13 @@ describe("RuntimeImageOptimizer.isEnabled", () => {
     ).toBe(false);
   });
 
-  it("names a manifest without the images config instead of a TypeError", () => {
+  it("names a manifest from an older cdk-nextjs instead of a TypeError", () => {
     const via = optimizerFor();
     const { manifest } = (
-      via as unknown as {
-        options: { manifest: { config: Record<string, unknown> } };
-      }
+      via as unknown as { options: { manifest: { version: number } } }
     ).options;
-    delete manifest.config.images;
-    expect(() => via.isEnabled()).toThrow(/no images config/);
+    manifest.version = 1;
+    expect(() => via.isEnabled()).toThrow(/manifest is version 1/);
   });
 });
 

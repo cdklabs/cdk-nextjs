@@ -1,6 +1,6 @@
 # Next.js private APIs
 
-The first [design principle](../README.md#design-principles) of cdk-nextjs is to integrate through Next.js's official interfaces, meaning the [Deployment Adapter API](https://nextjs.org/docs/app/guides/deployment-adapters) and [`@next/routing`](https://www.npmjs.com/package/@next/routing), and not through Next.js internals. This page lists every place cdk-nextjs still depends on something Next.js doesn't document, why, and what would let us remove it. It is the code that breaks first on a Next.js upgrade, which is why `next` and `@next/routing` are exact-pinned and bumped together.
+The first [design principle](../README.md#design-principles) of cdk-nextjs is to integrate through Next.js's official interfaces, meaning the [Deployment Adapter API](https://nextjs.org/docs/app/guides/deployment-adapters) and [`@next/routing`](https://www.npmjs.com/package/@next/routing), and not through Next.js internals. This page lists every place cdk-nextjs still depends on something Next.js doesn't document, why, and what would let us remove it. It is the code that breaks first on a Next.js upgrade, which is why `@next/routing` is exact-pinned and `next`'s minimum is bumped with it.
 
 Keep it short and current:
 

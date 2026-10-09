@@ -15,7 +15,7 @@ import type { CachedRouteKind } from "next/dist/server/response-cache/types.js";
 import type { ShimIncomingMessage } from "./http/request";
 import { asServerResponse, ShimServerResponse } from "./http/response";
 import { extractEtag, fetchFromS3, resolveErrorResponse } from "./image-utils";
-import { AdapterManifest } from "./manifest";
+import { ADAPTER_MANIFEST_VERSION, AdapterManifest } from "./manifest";
 import { nextModule } from "./next-modules";
 import { firstValue, s3Client } from "./util";
 
@@ -114,8 +114,9 @@ export class RuntimeImageOptimizer {
    * off.
    */
   public isEnabled(): boolean {
-    this.loaded ??= loadImageRuntime(this.options);
-    const { images } = this.loaded.nextConfig;
+    // From the manifest alone: an app that turned images off shouldn't load the
+    // optimizer (and `sharp`) just to answer 404.
+    const images = manifestImages(this.options.manifest);
     return images.loader === "default" && !images.unoptimized;
   }
 
@@ -526,6 +527,25 @@ function sendText(
 }
 
 /**
+ * `manifest.config.images`, once the manifest is known to be one that has it
+ * (and `experimental`, …). The fields are typed `unknown`, so only the version
+ * catches a manifest an older cdk-nextjs wrote; `NextjsBuild` rejects one at
+ * synth, which a hand-wired function skips.
+ */
+function manifestImages(
+  manifest: AdapterManifest,
+): NextConfigComplete["images"] {
+  if (manifest.version !== ADAPTER_MANIFEST_VERSION) {
+    throw new Error(
+      `The adapter manifest is version ${manifest.version}, but this runtime ` +
+        `reads version ${ADAPTER_MANIFEST_VERSION}. Rebuild the app with this ` +
+        `version of cdk-nextjs.`,
+    );
+  }
+  return manifest.config.images as NextConfigComplete["images"];
+}
+
+/**
  * The optimizer's `nextConfig`, from the adapter manifest, which copied it out
  * of the build's `ctx.config` (`AdapterManifestConfig.images`): already resolved
  * and defaulted, so neither `getNextConfigRuntime` nor `imageConfigDefault` is
@@ -538,17 +558,10 @@ function loadImageRuntime({ manifest }: ImageOptimizerOptions) {
     serveStatic: nextModule("next/dist/server/serve-static.js"),
   };
   const { config } = manifest;
-  if (!config.images) {
-    // `images` is typed `unknown`, so only this catches a manifest without it.
-    throw new Error(
-      "The adapter manifest has no images config: it predates this version of " +
-        "cdk-nextjs. Rebuild the app.",
-    );
-  }
   const nextConfig = {
     basePath: config.basePath,
     assetPrefix: config.assetPrefix,
-    images: config.images,
+    images: manifestImages(manifest),
     experimental: config.experimental,
     cacheHandler: config.cacheHandler ?? undefined,
     cacheMaxMemorySize: config.cacheMaxMemorySize,
