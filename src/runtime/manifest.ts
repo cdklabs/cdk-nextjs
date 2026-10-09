@@ -10,7 +10,11 @@
  * build-machine absolute path: absolute paths work on the build machine and
  * fail in Lambda. The staging tree those keys index into is
  * `<distDir>/cdk-nextjs-adapter/app`; the runtime calls that directory the
- * *deployment root* and resolves every key against it.
+ * *deployment root* and resolves every key against it. The exceptions are the
+ * Next.js config copied into {@link AdapterManifestConfig}: `cacheHandler` is
+ * relative to the dist dir, as Next's own `required-server-files.json` has it,
+ * and `images` is copied whole, so `images.loaderFile` stays the build machine's
+ * absolute path (nothing in the runtime reads it).
  *
  * This file is intentionally not exported from `src/index.ts`: it is an
  * internal contract, not public construct API, so it is exempt from the JSII
@@ -19,7 +23,7 @@
 import { join } from "node:path";
 
 /** Current {@link AdapterManifest.version}. Bump on any breaking shape change. */
-export const ADAPTER_MANIFEST_VERSION = 1;
+export const ADAPTER_MANIFEST_VERSION = 2;
 
 /**
  * Directory written inside `distDir` (`.next`), matching the existing
@@ -127,7 +131,7 @@ export function deployedManifestPath(deploymentRoot: string): string {
 }
 
 export interface AdapterManifest {
-  readonly version: 1;
+  readonly version: 2;
   readonly buildId: string;
   /**
    * From the deployment root to the Next.js project dir. "" when the app is at

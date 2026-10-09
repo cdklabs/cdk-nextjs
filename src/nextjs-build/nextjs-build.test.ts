@@ -605,7 +605,7 @@ describe("NextjsBuild with a build split by other functionGroups", () => {
     write(
       join(dir, ".next", "cdk-nextjs-adapter", "manifest.json"),
       JSON.stringify({
-        version: 1,
+        version: 2,
         buildId: "b1",
         relativeProjectDir: "",
         config: { basePath: "", assetPrefix: "", trailingSlash: false },
@@ -632,7 +632,7 @@ describe("NextjsBuild with a build split by other functionGroups", () => {
     write(
       join(dir, ".next", "cdk-nextjs-adapter", "manifest.json"),
       JSON.stringify({
-        version: 1,
+        version: 2,
         buildId: "b1",
         relativeProjectDir: "",
         config: { basePath: "", assetPrefix: "", trailingSlash: false },

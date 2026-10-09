@@ -118,6 +118,8 @@ const project = new CdklabsConstructLibrary({
   eslintOptions: {
     prettier: true,
     dirs: ["src"],
+    // `.mts` too: the adapter and runtime entrypoints are ESM.
+    fileExtensions: [".ts", ".tsx", ".mts"],
     ignorePatterns: ["generated-structs/", "**/*-function.ts", "examples/"],
   },
   sampleCode: false,
@@ -332,6 +334,13 @@ function typeCheckEsmSources() {
     },
   });
   project.compileTask.exec(`tsc -p ${tsconfig.fileName}`);
+  // `tsconfig.json` doesn't include the `.mts` entrypoints, so ESLint's project
+  // service can't find them; lint them under this config instead.
+  // (`EslintOverride` has no `parserOptions`, hence the raw file edit.)
+  project.tryFindObjectFile(".eslintrc.json")?.addToArray("overrides", {
+    files: ["**/*.mts"],
+    parserOptions: { projectService: false, project: `./${tsconfig.fileName}` },
+  });
 }
 
 /**

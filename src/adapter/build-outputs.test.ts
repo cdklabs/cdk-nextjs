@@ -17,7 +17,10 @@ import {
   buildAdapterManifest,
   writeBuildOutputs,
 } from "./build-outputs";
-import { RUNTIME_DIR_NAME } from "../runtime/manifest";
+import {
+  ADAPTER_MANIFEST_VERSION,
+  RUNTIME_DIR_NAME,
+} from "../runtime/manifest";
 
 /**
  * The fixtures are real `onBuildComplete` contexts captured by
@@ -74,7 +77,7 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
     } = build(ctx);
 
     it("stamps the manifest version and build identity", () => {
-      expect(manifest.version).toBe(1);
+      expect(manifest.version).toBe(ADAPTER_MANIFEST_VERSION);
       expect(manifest.buildId).toBe(ctx.buildId);
       expect(manifest.relativeProjectDir).toBe(
         name.startsWith("pages-i18n") ? "pages-i18n" : "app-playground",
@@ -1184,8 +1187,6 @@ describe("writeBuildOutputs", () => {
         );
       for (const file of [
         "server/image-optimizer.js",
-        "shared/lib/image-config.js",
-        "server/config-shared.js",
         "shared/lib/match-remote-pattern.js",
       ]) {
         await expect(has("default", file)).resolves.toBe(true);

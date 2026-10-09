@@ -80,15 +80,11 @@ const RUNTIME_NEXT_MODULES = [
 ];
 
 /**
- * next's image optimizer and the config helpers around it
- * (`src/runtime/image.ts`), whose closure is what brings `sharp` in. Only the
- * `default` group gets them: the edge sends every `/_next/image` request there.
+ * next's image optimizer (`src/runtime/image.ts`), whose closure is what brings
+ * `sharp` in. Only the `default` group gets it: the edge sends every
+ * `/_next/image` request there.
  */
-const IMAGE_NEXT_MODULES = [
-  "next/dist/server/config-shared.js",
-  "next/dist/shared/lib/image-config.js",
-  "next/dist/server/image-optimizer.js",
-];
+const IMAGE_NEXT_MODULES = ["next/dist/server/image-optimizer.js"];
 
 /**
  * The file tracer `next build` itself uses, reached through the app's own `next`
@@ -317,7 +313,7 @@ export function buildAdapterManifest(
     : undefined;
 
   const manifest: AdapterManifest = {
-    version: ADAPTER_MANIFEST_VERSION as 1,
+    version: ADAPTER_MANIFEST_VERSION as 2,
     buildId: ctx.buildId,
     relativeProjectDir: toPosix(relative(repoRoot, ctx.projectDir)),
     config: {
@@ -958,6 +954,21 @@ function buildMiddleware(
 }
 
 /**
+ * `cacheHandler` relative to the dist dir, as `next build` writes it into
+ * `required-server-files.json` (`build/index.js`, via
+ * `resolveCacheHandlerPathToFilesystem`): `ctx.config` has the build machine's
+ * absolute path, and the runtime resolves this against its own dist dir.
+ */
+function distRelativeCacheHandler(ctx: BuildCompleteContext): string | null {
+  const { cacheHandler } = ctx.config;
+  if (!cacheHandler) return null;
+  const path = cacheHandler.startsWith("file://")
+    ? fileURLToPath(cacheHandler)
+    : cacheHandler;
+  return toPosix(relative(ctx.distDir, resolve(ctx.projectDir, path)));
+}
+
+/**
  * Copy the staging plan into `stagingDir`.
  *
  * **Symlinks are recreated as symlinks, not dereferenced**, which is what
@@ -977,21 +988,6 @@ function buildMiddleware(
  * Nothing may dereference them afterwards: the Functions zip keeps them as
  * links (`zipDirectory`), and the Containers `COPY` does too.
  */
-/**
- * `cacheHandler` relative to the dist dir, as `next build` writes it into
- * `required-server-files.json` (`build/index.js`, via
- * `resolveCacheHandlerPathToFilesystem`): `ctx.config` has the build machine's
- * absolute path, and the runtime resolves this against its own dist dir.
- */
-function distRelativeCacheHandler(ctx: BuildCompleteContext): string | null {
-  const { cacheHandler } = ctx.config;
-  if (!cacheHandler) return null;
-  const path = cacheHandler.startsWith("file://")
-    ? fileURLToPath(cacheHandler)
-    : cacheHandler;
-  return toPosix(relative(ctx.distDir, resolve(ctx.projectDir, path)));
-}
-
 /** Bounded so a large app doesn't exhaust file descriptors. */
 const STAGING_CONCURRENCY = 32;
 
@@ -1160,9 +1156,8 @@ async function addRuntimeNextClosure(
  * static files, and the distribution's catch-all.
  *
  * Its absence is not a partial failure: `loadRuntime` probes for exactly this file
- * before it will serve anything, and `image.ts` reads the image config out of it,
- * so the whole root answers "the deployment package is incomplete". Cheap to make
- * unconditional, so make it unconditional.
+ * before it will serve anything, so the whole root answers "the deployment package
+ * is incomplete". Cheap to make unconditional, so make it unconditional.
  *
  * Not traced like {@link RUNTIME_NEXT_MODULES}, because it is data rather than a
  * module: nothing `require`s it, so no file tracer can find it.

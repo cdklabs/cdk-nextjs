@@ -151,6 +151,15 @@
         "@typescript-eslint/no-require-imports": "off",
         "import/no-extraneous-dependencies": "off"
       }
+    },
+    {
+      "files": [
+        "**/*.mts"
+      ],
+      "parserOptions": {
+        "projectService": false,
+        "project": "./tsconfig.esm.json"
+      }
     }
   ]
 }

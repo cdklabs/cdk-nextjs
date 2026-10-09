@@ -312,7 +312,15 @@ function trim(raw, { app, name }) {
     distDir: rewrite(raw.distDir),
     nextVersion: raw.nextVersion,
     buildId: raw.buildId,
-    config: raw.config,
+    // The adapter's `cacheHandler` and Next's `images.loaderFile` are absolute.
+    config: {
+      ...raw.config,
+      cacheHandler: rewrite(raw.config.cacheHandler),
+      images: raw.config.images && {
+        ...raw.config.images,
+        loaderFile: rewrite(raw.config.images.loaderFile),
+      },
+    },
   };
 }
 

@@ -1,11 +1,11 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import type { NextAdapter } from "next";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import getDebug from "debug";
+import type { NextAdapter } from "next";
 import { writeBuildOutputs } from "./build-outputs.js";
 import { writeInitCache } from "./init-cache.js";
 import { LOG_PREFIX } from "../constants.js";
-import getDebug from "debug";
 
 const debug = getDebug("cdk-nextjs:adapter");
 

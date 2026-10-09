@@ -9,7 +9,7 @@
  * longer a dedicated image optimization Lambda — middleware never ran for it.
  */
 import { isAbsolute as isAbsolutePath, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import type { NextConfigComplete } from "next/dist/server/config-shared.js";
 import type { CachedRouteKind } from "next/dist/server/response-cache/types.js";
 import type { ShimIncomingMessage } from "./http/request";
@@ -115,8 +115,8 @@ export class RuntimeImageOptimizer {
    */
   public isEnabled(): boolean {
     this.loaded ??= loadImageRuntime(this.options);
-    const { imagesConfig } = this.loaded;
-    return imagesConfig.loader === "default" && !imagesConfig.unoptimized;
+    const { images } = this.loaded.nextConfig;
+    return images.loader === "default" && !images.unoptimized;
   }
 
   public async handle(
@@ -128,7 +128,8 @@ export class RuntimeImageOptimizer {
     // Resolved on the first image request rather than at cold start: an app with
     // no `<Image>` should not pay for the `next` module loads.
     this.loaded ??= loadImageRuntime(this.options);
-    const { next, nextConfig, imagesConfig } = this.loaded;
+    const { next, nextConfig } = this.loaded;
+    const imagesConfig = nextConfig.images;
     const {
       ImageError,
       ImageOptimizerCache,
@@ -479,14 +480,12 @@ export function newImageResponseCache(
 /**
  * `formatDynamicImportPath` from `next/dist/lib/format-dynamic-import-path.js`,
  * restated: `next build` doesn't trace that module into the deployment, so
- * loading it failed every image request with the cache on.
+ * loading it failed every image request with the cache on. No `file://` case:
+ * the adapter already turned one into a path (`distRelativeCacheHandler`).
  */
 function cacheHandlerUrl(distDir: string, cacheHandler: string): string {
-  const path = cacheHandler.startsWith("file://")
-    ? fileURLToPath(cacheHandler)
-    : cacheHandler;
   return pathToFileURL(
-    isAbsolutePath(path) ? path : join(distDir, path),
+    isAbsolutePath(cacheHandler) ? cacheHandler : join(distDir, cacheHandler),
   ).toString();
 }
 
@@ -547,5 +546,5 @@ function loadImageRuntime({ manifest }: ImageOptimizerOptions) {
     cacheHandler: config.cacheHandler ?? undefined,
     cacheMaxMemorySize: config.cacheMaxMemorySize,
   } as NextConfigComplete;
-  return { next, nextConfig, imagesConfig: nextConfig.images };
+  return { next, nextConfig };
 }
