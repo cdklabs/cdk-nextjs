@@ -96,7 +96,11 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
         deploymentId: "",
         images: ctx.config.images,
         experimental: ctx.config.experimental ?? {},
-        cacheHandler: null,
+        // Dist-dir-relative when set (the adapter always sets one at build);
+        // see the cacheHandler test below for the path itself.
+        cacheHandler: ctx.config.cacheHandler
+          ? expect.stringMatching(/^[^/]/)
+          : null,
         cacheMaxMemorySize: ctx.config.cacheMaxMemorySize,
       });
     });
@@ -670,8 +674,6 @@ describe("writeBuildOutputs", () => {
       );
     }
     const files = [
-      "dist/server/config-shared.js",
-      "dist/shared/lib/image-config.js",
       "dist/server/image-optimizer.js",
       "dist/server/serve-static.js",
       "dist/server/lib/router-utils/instrumentation-globals.external.js",

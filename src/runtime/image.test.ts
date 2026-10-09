@@ -250,6 +250,17 @@ describe("RuntimeImageOptimizer.isEnabled", () => {
       withImages({ loader: "custom", loaderFile: "./loader.js" }).isEnabled(),
     ).toBe(false);
   });
+
+  it("names a manifest without the images config instead of a TypeError", () => {
+    const via = optimizerFor();
+    const { manifest } = (
+      via as unknown as {
+        options: { manifest: { config: Record<string, unknown> } };
+      }
+    ).options;
+    delete manifest.config.images;
+    expect(() => via.isEnabled()).toThrow(/no images config/);
+  });
 });
 
 describe("RuntimeImageOptimizer response", () => {

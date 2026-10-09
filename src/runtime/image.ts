@@ -538,6 +538,13 @@ function loadImageRuntime({ manifest }: ImageOptimizerOptions) {
     serveStatic: nextModule("next/dist/server/serve-static.js"),
   };
   const { config } = manifest;
+  if (!config.images) {
+    // `images` is typed `unknown`, so only this catches a manifest without it.
+    throw new Error(
+      "The adapter manifest has no images config: it predates this version of " +
+        "cdk-nextjs. Rebuild the app.",
+    );
+  }
   const nextConfig = {
     basePath: config.basePath,
     assetPrefix: config.assetPrefix,
