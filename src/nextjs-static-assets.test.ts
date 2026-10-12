@@ -95,10 +95,17 @@ describe("NextjsStaticAssets", () => {
   describe("Cache-Control", () => {
     const IMMUTABLE = "public, max-age=31536000, immutable";
 
-    function deployments() {
-      return Object.values(
-        Template.fromStack(stack).findResources("Custom::CDKBucketDeployment"),
-      ).map((resource) => resource.Properties);
+    /** The deployment resources' properties, by construct ID. */
+    function deployments(): Record<string, any> {
+      const resources = Template.fromStack(stack).findResources(
+        "Custom::CDKBucketDeployment",
+      );
+      return Object.fromEntries(
+        Object.entries(resources).map(([logicalId, resource]) => [
+          logicalId.match(/NextjsStaticAssets(\w+?)CustomResource/)![1],
+          resource.Properties,
+        ]),
+      );
     }
 
     function writePublicFile() {
@@ -115,7 +122,8 @@ describe("NextjsStaticAssets", () => {
 
       expect(staticAssets.staticDeployment).toBeDefined();
       expect(staticAssets.publicDeployment).toBeDefined();
-      const [staticUpload, publicUpload] = deployments();
+      const { Deployment: staticUpload, PublicDeployment: publicUpload } =
+        deployments();
       expect(staticUpload.SystemMetadata).toEqual({
         "cache-control": IMMUTABLE,
       });
@@ -137,7 +145,8 @@ describe("NextjsStaticAssets", () => {
         },
       });
 
-      const [staticUpload, publicUpload] = deployments();
+      const { Deployment: staticUpload, PublicDeployment: publicUpload } =
+        deployments();
       expect(staticUpload.SystemMetadata).toEqual({
         "cache-control": IMMUTABLE,
       });
@@ -151,8 +160,19 @@ describe("NextjsStaticAssets", () => {
 
       expect(staticAssets.publicDeployment).toBeUndefined();
       expect(staticAssets.deployment).toBe(staticAssets.staticDeployment);
-      expect(deployments()).toHaveLength(1);
-      expect(deployments()[0].DestinationBucketKeyPrefix).toBe("base");
+      const uploads = deployments();
+      expect(Object.keys(uploads)).toEqual(["Deployment"]);
+      expect(uploads.Deployment.DestinationBucketKeyPrefix).toBe("base");
+    });
+
+    it("falls back to the public/ upload for a build without .next/static", () => {
+      rmSync(join(buildDirectory, ".next"), { recursive: true, force: true });
+      writePublicFile();
+      const staticAssets = createStaticAssets({});
+
+      expect(staticAssets.staticDeployment).toBeUndefined();
+      expect(staticAssets.deployment).toBe(staticAssets.publicDeployment);
+      expect(Object.keys(deployments())).toEqual(["PublicDeployment"]);
     });
   });
 });

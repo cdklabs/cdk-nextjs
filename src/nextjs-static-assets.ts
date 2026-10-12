@@ -45,7 +45,9 @@ export interface NextjsStaticAssetsOverrides {
   /**
    * Applied to both uploads, `public/` and `_next/static/`, except that
    * `_next/static/` always keeps its year-long `immutable` `Cache-Control`. So a
-   * `cacheControl` here sets the header for `public/` files only.
+   * `cacheControl` here sets the header for `public/` files only, while
+   * anything else, such as `sources` or a `distribution` to invalidate, applies
+   * to each upload in turn.
    */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
@@ -140,13 +142,11 @@ export class NextjsStaticAssets extends Construct {
     // `Cache-Control` there is. A `BucketDeployment`'s `cacheControl` applies to
     // every object it uploads, hence two.
     this.staticDeployment = staticDir
-      ? this.createDeployment("Deployment", staticDir, {
-          cacheControl: [
-            CacheControl.setPublic(),
-            CacheControl.maxAge(Duration.days(365)),
-            CacheControl.immutable(),
-          ],
-        })
+      ? this.createDeployment("Deployment", staticDir, [
+          CacheControl.setPublic(),
+          CacheControl.maxAge(Duration.days(365)),
+          CacheControl.immutable(),
+        ])
       : undefined;
     this.publicDeployment = publicDir
       ? this.createDeployment("PublicDeployment", publicDir)
@@ -191,7 +191,7 @@ export class NextjsStaticAssets extends Construct {
   private createDeployment(
     id: string,
     stagingDir: string,
-    fixedProps: Partial<BucketDeploymentProps> = {},
+    cacheControl?: CacheControl[],
   ) {
     return new BucketDeployment(this, id, {
       sources: [Source.asset(stagingDir)],
@@ -203,7 +203,7 @@ export class NextjsStaticAssets extends Construct {
       prune: false, // Don't delete existing assets to prevent 404s during deployment, pruning will be handled by post-deploy
       // S3Deployment automatically detects content types based on file extensions
       ...this.props.overrides?.bucketDeploymentProps,
-      ...fixedProps,
+      ...(cacheControl && { cacheControl }),
       // Set after the spread: `resolveKeyPrefix` already folded in any
       // `destinationKeyPrefix` override, so this is the normalized form of it.
       // Letting the raw override through here would upload the assets somewhere
@@ -234,9 +234,9 @@ export class NextjsStaticAssets extends Construct {
     } catch (error) {
       // Thrown rather than skipped, which would deploy without these assets.
       rmSync(stagingDir, { recursive: true, force: true });
-      throw new Error(
-        `${LOG_PREFIX} Could not stage ${sourceDir} for upload: ${error}`,
-      );
+      throw new Error(`${LOG_PREFIX} Could not stage ${sourceDir} for upload`, {
+        cause: error,
+      });
     }
   }
 
