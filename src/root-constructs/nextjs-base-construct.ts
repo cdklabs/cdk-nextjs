@@ -379,10 +379,11 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * Runs after the init cache upload: invalidating the CDN before the new
-   * cache is in place would only re-cache the responses the invalidation was
-   * meant to drop, and CloudFormation infers no ordering between the two
-   * custom resources on its own.
+   * Runs after the init cache and static asset uploads: invalidating the CDN
+   * before the new files are in place would only re-cache the responses the
+   * invalidation was meant to drop, and pruning before them could delete an
+   * object the upload is about to re-tag with this build's ID. CloudFormation
+   * infers no ordering between these custom resources on its own.
    */
   protected createNextjsPostDeploy(
     distribution?: IDistribution,
@@ -398,8 +399,17 @@ export abstract class NextjsBaseConstruct extends Construct {
       overrides: this.baseProps.overrides?.nextjsPostDeploy,
       ...this.constructOverrides?.nextjsPostDeployProps,
     });
-    if (this.nextjsCache.bucketDeployment) {
-      postDeploy.node.addDependency(this.nextjsCache.bucketDeployment);
+    const { staticDeployment, serviceWorkerDeployment, publicDeployment } =
+      this.nextjsStaticAssets;
+    for (const upload of [
+      this.nextjsCache.bucketDeployment,
+      staticDeployment,
+      serviceWorkerDeployment,
+      publicDeployment,
+    ]) {
+      if (upload) {
+        postDeploy.node.addDependency(upload);
+      }
     }
     return postDeploy;
   }
