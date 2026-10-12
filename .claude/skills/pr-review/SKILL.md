@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Review the current PR branch and fix the findings in rounds until reviews come back clean. Each round, a fresh reviewer runs /code-review high, findings are triaged against a ledger and recorded decisions, accepted ones are fixed, verified and committed. Use when asked to review a PR to convergence, "review and implement it all", or to resume a previous pr-review run.
+description: Review the current PR branch and fix the findings in rounds until reviews come back clean. Each round, a fresh reviewer runs /code-review high (and, on full passes, a separate reviewer checks the branch against the PR's spec), findings are triaged against a ledger and recorded decisions, accepted ones are fixed, verified and committed. Use when asked to review a PR to convergence, "review and implement it all", or to resume a previous pr-review run.
 argument-hint: "[PR#] [--rounds N]"
 ---
 
@@ -14,47 +14,84 @@ Arguments: optional PR number (defaults to the current branch's PR), and `--roun
 
 1. Refuse to run on `main`. The working tree must be clean. If it isn't, stop and ask; do **not** `git stash` (the user keeps real work in the stash).
 2. Resolve the PR: `gh pr view [PR#] --json number,title,baseRefName,headRefName`. Run `git fetch origin <baseRefName>`.
-3. `FULL_BASE=$(git merge-base origin/<baseRefName> HEAD)`.
+3. `FULL_BASE=$(git merge-base origin/<baseRefName> HEAD)`. If `git diff --quiet FULL_BASE..HEAD` reports no changes, stop: there's nothing to review.
 4. Ledger: `.claude/pr-review/<branch-with-slashes-as-dashes>.md` (gitignored). If it exists, **resume**: read it, continue the round numbering, and keep every recorded outcome. Otherwise create it from the template at the bottom.
 5. **Upstream sources** (`UPSTREAM_SOURCES`): if the branch mirrors, parses or calls code that lives outside this repo, have that code available at the version the branch targets. That covers a package's runtime (`next` itself, `@next/routing`), a restated upstream function (`extractEtag`), and upstream code no package ships, such as the next.js test harness whose `@force-gate` pragmas `screen.mjs` evaluates. Packages are in `node_modules/<pkg>`. Anything else needs a shallow clone at the matching tag, for example `git clone --depth 1 --branch v<version> https://github.com/vercel/next.js /tmp/nextjs-<version>`. Reuse a clone that already exists. Record the paths in the ledger header.
-6. Collect **recorded decisions**: read the project memory index (`MEMORY.md`) and every memory describing a deliberate design choice (e.g. "X chosen over Y", "X is kept", "Y rejected"). Add a one-line summary of each to the ledger's *Recorded decisions* section. The triage step checks findings against these.
+6. Collect **recorded decisions**: read the project memory index (`MEMORY.md`) and every memory describing a deliberate design choice (e.g. "X chosen over Y", "X is kept", "Y rejected"). Add a one-line summary of each to the ledger's _Recorded decisions_ section. The triage step checks findings against these.
+7. Collect the **spec** (`SPEC_SOURCES`): what the branch is supposed to do. Use the PR body and its linked issues (`gh pr view <n> --json body,closingIssuesReferences`), plus any issues referenced in `git log FULL_BASE..HEAD` commit messages (`gh issue view <n>`). Save them to `.claude/pr-review/<branch>-spec.md` and record the path in the ledger header. If none of these state any requirements (an empty body, or one that only restates the title), record "none": the spec reviewer is skipped and the report says "no spec available". Don't make up requirements from the diff.
 
-## 1. Review (fresh subagent every round)
+## 1. Review (fresh subagents every round)
 
 Pick the range:
+
 - **Round 1, and the final pass:** FULL, i.e. `FULL_BASE..HEAD`.
 - **Rounds in between:** DELTA, i.e. `<HEAD sha when the previous review started>..HEAD`, which covers just the fix commits.
 
-Spawn **one new** `general-purpose` subagent each round. Never reuse an earlier reviewer, because it would anchor on its own earlier findings. Give it this prompt, filled in:
+Reviews are split into two **axes**, each run by its own subagent so neither sees the other's reasoning:
+
+- **bugs**: every round.
+- **spec**: FULL rounds only, and only if `SPEC_SOURCES` isn't "none". DELTA rounds only touch fix commits, which don't change what the branch delivers.
+
+On FULL rounds, spawn both in the same message so they run in parallel. Every reviewer is a **new** `general-purpose` subagent. Never reuse an earlier one, because it would anchor on its own earlier findings.
+
+### Bugs reviewer
+
+Give it this prompt, filled in:
 
 > Review the changes in `<RANGE>` on branch `<branch>` (PR #<n>: <title>) for correctness bugs.
-> Invoke the `code-review` skill with args `high`. **Do not pass `--comment` or `--fix`.**
+> Invoke the `code-review` skill with args `high`. **Do not pass `--comment` or `--fix`.** Don't invoke `pr-review` or spawn reviewers of your own; the `code-review` skill's own agents are the only ones allowed.
 > That skill may pick its own diff range (it tends to use `@{upstream}...HEAD`, or the remote PR, which lacks local commits). Compare the files it reviewed with `git diff --name-only <RANGE>`. If they differ, or the skill doesn't say, also review `git diff <RANGE>` yourself at the same rigor: read the surrounding code, not just the hunks. Do that review while the skill runs, then **wait for the skill's results before you report**. You can't send anything after you hand back, so results that arrive later are lost.
 > Upstream sources, at the version this branch targets: <UPSTREAM_SOURCES>. A finding about how code outside this repo behaves must cite that code. Don't infer the behaviour ("presumably", "as in JS").
 > Filter the skill's findings; don't discard them wholesale:
+>
 > - **In range:** on lines `<RANGE>` changes. Verify each against the code and report it with your own findings.
 > - **Outside range:** elsewhere in code this branch changes (`git diff <FULL_BASE>..HEAD`). Verify each one too, and report it in a separate "outside range" list.
 > - **Noise:** in uncommitted or unrelated files. Drop these.
+>
 > For a DELTA range: also check that each fix actually resolves the ledger finding it cites, and doesn't break callers outside the diff.
+>
 > **Already decided. Don't re-raise these unless the code shows the fix is wrong or incomplete; if so, cite the ledger ID:**
 > <paste ledger rows (ID, location, finding, status) + Recorded decisions>
 > Return a list. For each finding give: `file:line`, a one-sentence defect, a concrete failure scenario, severity (high/medium/low), and the ledger ID it relates to (if any). Make no edits. If you find nothing, say so explicitly.
 
-Record in the ledger: the round number, range type, range SHAs, and the raw count of findings. Outside-range findings are triaged in the same round as the rest and count toward its totals. If a reviewer reports without the skill's results anyway, note it in the ledger and make the next review a FULL pass.
+### Spec reviewer
+
+Give it this prompt, filled in:
+
+> Check whether the changes in `FULL_BASE..HEAD` on branch `<branch>` (PR #<n>: <title>) do what their spec asks. The spec is in `<SPEC_SOURCES>`. Read it first, then `git diff FULL_BASE..HEAD` and the code around it. Don't hunt for bugs; another reviewer covers that. Do this review yourself: don't invoke `code-review`, `pr-review`, or any other agent.
+> Report:
+>
+> - **Missing or partial:** a requirement with no implementation, or only part of one.
+> - **Wrong:** a requirement implemented differently from what the spec says.
+> - **Scope creep:** a behaviour change the spec doesn't ask for. Leave out refactors that change no behaviour, tests, and docs.
+> - **Stale spec:** the PR body describes something the branch no longer does.
+>
+> **Already decided. Don't re-raise these unless the code shows they're wrong:**
+> <paste ledger rows (ID, location, finding, status) + Recorded decisions>
+> Return a list. For each finding give: its kind (from the list above), the spec line it rests on (quoted), `file:line` (or "absent" for a missing requirement), a one-sentence gap, severity (high/medium/low), and the ledger ID it relates to (if any). Don't report a finding without a spec line to cite. Make no edits. If the branch meets the spec, say so explicitly.
+
+Record in the ledger: the round number, range type, range SHAs, and the raw count of findings for each axis. Outside-range findings are triaged in the same round as the rest and count toward its totals. If the bugs reviewer reports without the skill's results anyway, note it in the ledger and make the next review a FULL pass.
 
 ## 2. Triage (main agent)
 
 Read the cited code for every finding before you classify it. If a finding rests on how code outside this repo behaves (a grammar's precedence, what Next.js passes to a hook), check that code in `UPSTREAM_SOURCES` before you mark it `fix`. A wrong fix costs a revert and another round. Then give it exactly one status:
 
-| Status | When | Action |
-|---|---|---|
-| `duplicate` | Same issue as an existing ledger row, with nothing new | Drop. Note the ID only |
-| `invalid` | The code shows the claim is false | Record the reason |
-| `escalated` | Contradicts a recorded decision; or would reverse a fix from an earlier round (oscillation); or the same location has already been fixed in 2+ rounds; or needs a product/API decision (public API break, new dependency, behaviour change users would notice) | Record it. Don't implement. Keep looping |
-| `fix` (revert) | Would reverse an earlier round's fix, and the code (this repo's, or upstream code in `UPSTREAM_SOURCES`) shows that fix was wrong. This isn't oscillation, because the earlier fix had no valid basis | Revert it. Mark the earlier row `invalid` (citing the code that proves it wrong) and this one `fix` |
-| `fix` | Everything else, at any severity: correctness, performance, simplification, style, test and docs findings | Implement |
+| Status         | When                                                                                                                                                                                                                                                           | Action                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `duplicate`    | Same issue as an existing ledger row, with nothing new                                                                                                                                                                                                         | Drop. Note the ID only                                                                              |
+| `invalid`      | The code shows the claim is false                                                                                                                                                                                                                              | Record the reason                                                                                   |
+| `escalated`    | Contradicts a recorded decision; or would reverse a fix from an earlier round (oscillation); or the same location has already been fixed in 2+ rounds; or needs a product/API decision (public API break, new dependency, behaviour change users would notice) | Record it. Don't implement. Keep looping                                                            |
+| `fix` (revert) | Would reverse an earlier round's fix, and the code (this repo's, or upstream code in `UPSTREAM_SOURCES`) shows that fix was wrong. This isn't oscillation, because the earlier fix had no valid basis                                                          | Revert it. Mark the earlier row `invalid` (citing the code that proves it wrong) and this one `fix` |
+| `fix`          | Everything else, at any severity: correctness, performance, simplification, style, test and docs findings                                                                                                                                                      | Implement                                                                                           |
 
 Default to `fix`: the user has said "implement it all." Escalate only for the reasons in the table, not because a finding is minor: low-severity fixes rarely break anything, the next review catches it when one does, and unfixed ones add up.
+
+Spec findings follow the same table, with two fixed outcomes:
+
+- **Scope creep** → `escalated`. The author may have added it on purpose; whether it stays is their call.
+- **Stale spec** → `escalated`, with the PR body edit you propose. Editing the PR is outward-facing.
+
+A spec line that's vague or contradicts itself is `invalid` (record which reading the code follows), not a bug to fix.
 
 ## 3. Fix and verify
 
@@ -74,7 +111,7 @@ Default to `fix`: the user has said "implement it all." Escalate only for the re
 
 ## 5. Convergence
 
-After each round, count the **blocking** findings: those triaged `fix` or `escalated` with severity **medium or high**. Low-severity findings are still fixed (or escalated) and recorded, but don't keep the loop going on their own. `duplicate` and `invalid` don't count.
+After each round, count the **blocking** findings on both axes: those triaged `fix` or `escalated` with severity **medium or high**. Low-severity findings are still fixed (or escalated) and recorded, but don't keep the loop going on their own. `duplicate` and `invalid` don't count.
 
 - A DELTA round with 0 blocking findings → fix any lows, then run the **final FULL pass** next (it reviews those fixes too). If that FULL pass was already the last review, you've converged.
 - A FULL round with 0 blocking findings → fix any lows; **converged**. Say in the report that those last fixes weren't reviewed.
@@ -86,6 +123,7 @@ After each round, count the **blocking** findings: those triaged `fix` or `escal
 1. Run the full `pnpm test` once.
 2. Report to the user:
    - Converged or not, and how many rounds
+   - The worst open finding on each axis, separately: `bugs: <ID or "none">`, `spec: <ID, "none", or "no spec available">`. Don't merge them into a single verdict; a clean bugs axis doesn't make up for a spec gap.
    - A per-round table: range type, raw findings, new, blocking, fixed, escalated
    - **Escalations needing a decision**: each with ledger ID, `file:line`, the finding, why it was escalated, and your recommendation
    - Any test failures, with their output
@@ -99,16 +137,20 @@ After each round, count the **blocking** findings: those triaged `fix` or `escal
 
 Branch: <branch> · Base: origin/<base> @ <FULL_BASE short sha>
 Upstream sources: <UPSTREAM_SOURCES, or "none">
+Spec: <SPEC_SOURCES path, or "none">
 
 ## Recorded decisions
+
 - <memory slug>: <one line>
 
 ## Rounds
-| Round | Range | SHAs | Raw | New | Blocking | Fixed | Escalated | Commit |
-|---|---|---|---|---|---|---|---|---|
+
+| Round | Range | SHAs | Raw (bugs/spec) | New | Blocking | Fixed | Escalated | Commit |
+| ----- | ----- | ---- | --------------- | --- | -------- | ----- | --------- | ------ |
 
 ## Findings
-| ID | Round | Location | Finding | Status | Detail |
-|---|---|---|---|---|---|
-| R1-1 | 1 | src/adapter/cache-handler.ts:120 | … | fixed | a1b2c3d |
+
+| ID   | Round | Axis | Location                         | Finding | Status | Detail  |
+| ---- | ----- | ---- | -------------------------------- | ------- | ------ | ------- |
+| R1-1 | 1     | bugs | src/adapter/cache-handler.ts:120 | …       | fixed  | a1b2c3d |
 ```
