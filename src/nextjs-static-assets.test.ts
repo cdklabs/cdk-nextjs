@@ -14,6 +14,7 @@ import { App, AssetStaging, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
 import { BucketDeployment, CacheControl } from "aws-cdk-lib/aws-s3-deployment";
+import { DISABLE_ASSET_STAGING_CONTEXT } from "aws-cdk-lib/cx-api";
 import { NextjsStaticAssets } from "./nextjs-static-assets";
 
 describe("NextjsStaticAssets", () => {
@@ -174,6 +175,17 @@ describe("NextjsStaticAssets", () => {
       expect(uploads.Deployment.DestinationBucketKeyPrefix).toBe("base");
     });
 
+    /**
+     * Keeps the staging directories, which are otherwise removed once CDK has
+     * copied them into `cdk.out`, so `stagedDir` can look inside them.
+     */
+    function keepStaging() {
+      stack = new Stack(
+        new App({ context: { [DISABLE_ASSET_STAGING_CONTEXT]: true } }),
+        "TestStack",
+      );
+    }
+
     /** The directory a deployment uploads, for checking what was staged. */
     function stagedDir(deployment: BucketDeployment): string {
       // The deployment's own source asset, not the AWS CLI layer's.
@@ -187,6 +199,7 @@ describe("NextjsStaticAssets", () => {
     // `next start` serves the built file over a public/ one at the same path,
     // and the public/ one everywhere else.
     it("leaves out only the public/_next/static files a built file shadows", () => {
+      keepStaging();
       writePublicFile();
       const shadowDir = join(buildDirectory, "public", "_next", "static");
       mkdirSync(shadowDir, { recursive: true });
@@ -206,6 +219,7 @@ describe("NextjsStaticAssets", () => {
 
     // Next.js and S3 keys are case-sensitive, even where the filesystem isn't.
     it("doesn't treat a public/_next/static file as shadowed by another case", () => {
+      keepStaging();
       const shadowDir = join(buildDirectory, "public", "_next", "static");
       mkdirSync(shadowDir, { recursive: true });
       writeFileSync(join(shadowDir, "Chunk.js"), "// public only");
@@ -218,6 +232,7 @@ describe("NextjsStaticAssets", () => {
     });
 
     it("uploads a .next/static/service-worker file with the other assets", () => {
+      keepStaging();
       writeFileSync(
         join(buildDirectory, ".next", "static", "service-worker"),
         "// not a directory",
@@ -244,6 +259,7 @@ describe("NextjsStaticAssets", () => {
     // A service worker keeps its URL across builds, so Next.js serves it
     // revalidated rather than immutable.
     it("uploads service workers with max-age=0, must-revalidate", () => {
+      keepStaging();
       const swDir = join(buildDirectory, ".next", "static", "service-worker");
       mkdirSync(swDir, { recursive: true });
       writeFileSync(join(swDir, "sw.js"), "// sw");
@@ -270,6 +286,26 @@ describe("NextjsStaticAssets", () => {
       expect(
         existsSync(join(staticStaged, "_next", "static", "service-worker")),
       ).toBe(false);
+    });
+
+    it("removes its staging directories once CDK has copied them", () => {
+      writePublicFile();
+      const staticAssets = createStaticAssets({});
+
+      for (const upload of [
+        staticAssets.staticDeployment!,
+        staticAssets.publicDeployment!,
+      ]) {
+        expect(existsSync(stagedDir(upload))).toBe(false);
+      }
+    });
+
+    // The asset manifest then points at the staging directory itself.
+    it("keeps them when asset staging is disabled", () => {
+      keepStaging();
+      const staticAssets = createStaticAssets({});
+
+      expect(existsSync(stagedDir(staticAssets.staticDeployment!))).toBe(true);
     });
 
     it("falls back to the public/ upload for a build without .next/static", () => {

@@ -23,6 +23,7 @@ import {
   CacheControl,
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
+import * as cxapi from "aws-cdk-lib/cx-api";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { normalizeBasePath } from "./utils/base-path";
@@ -306,6 +307,28 @@ export class NextjsStaticAssets extends Construct {
   }
 
   private createDeployment(
+    id: string,
+    stagingDir: string,
+    cacheControl?: CacheControl[],
+  ) {
+    try {
+      return this.newDeployment(id, stagingDir, cacheControl);
+    } finally {
+      // `Source.asset` stages during `BucketDeployment`'s construction (CDK's
+      // `AssetStaging` copies into `cdk.out` from its own constructor), so the
+      // temporary copy is dead once that returns. Left behind, every synth would
+      // add another full copy of the app's static assets to the temp directory.
+      //
+      // Unless staging is disabled (`cdk synth --no-staging`, and SAM, which
+      // sets the same context): then the asset manifest points at this
+      // directory itself, and removing it would fail the publish that follows.
+      if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
+        rmSync(stagingDir, { recursive: true, force: true });
+      }
+    }
+  }
+
+  private newDeployment(
     id: string,
     stagingDir: string,
     cacheControl?: CacheControl[],
