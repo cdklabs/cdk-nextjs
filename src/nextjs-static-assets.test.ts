@@ -3,7 +3,9 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -199,6 +201,29 @@ describe("NextjsStaticAssets", () => {
       expect(existsSync(join(staged, "_next", "static", "legacy.js"))).toBe(
         true,
       );
+    });
+
+    // Next.js and S3 keys are case-sensitive, even where the filesystem isn't.
+    it("doesn't treat a public/_next/static file as shadowed by another case", () => {
+      const shadowDir = join(buildDirectory, "public", "_next", "static");
+      mkdirSync(shadowDir, { recursive: true });
+      writeFileSync(join(shadowDir, "Chunk.js"), "// public only");
+      const staticAssets = createStaticAssets({});
+
+      const staged = stagedDir(staticAssets.publicDeployment!);
+      expect(readdirSync(join(staged, "_next", "static"))).toEqual([
+        "Chunk.js",
+      ]);
+    });
+
+    it("uploads a public/ made only of symlinks", () => {
+      const target = join(buildDirectory, "logo.png");
+      writeFileSync(target, "png");
+      mkdirSync(join(buildDirectory, "public"));
+      symlinkSync(target, join(buildDirectory, "public", "logo.png"));
+      const staticAssets = createStaticAssets({});
+
+      expect(staticAssets.publicDeployment).toBeDefined();
     });
 
     // A service worker keeps its URL across builds, so Next.js serves it

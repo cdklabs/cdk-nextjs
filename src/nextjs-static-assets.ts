@@ -46,6 +46,16 @@ const STATIC_PATH = join("_next", "static");
 /** Where Next.js compiles service workers to, relative to `.next/static`. */
 const SERVICE_WORKER_DIR = "service-worker";
 
+/**
+ * Every non-directory entry under `dir`, relative to it. Symlinks count:
+ * `cpSync` copies them as links, and they upload as the files they point to.
+ */
+function listFiles(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => !entry.isDirectory())
+    .map((entry) => relative(dir, join(entry.parentPath, entry.name)));
+}
+
 /** Whether the relative `path` is `dir` or inside it. */
 function isWithin(path: string, dir: string): boolean {
   return path === dir || path.startsWith(dir + sep);
@@ -59,9 +69,10 @@ export interface NextjsStaticAssetsOverrides {
    * always keep the `Cache-Control` Next.js sends for them. So a `cacheControl`
    * here sets the header for `public/` files only, while anything else, such as
    * a `distribution` to invalidate, applies to each upload in turn. That
-   * includes `sources`: files given there are uploaded by each deployment in
-   * parallel, so which `Cache-Control` they end up with, `immutable` included,
-   * depends on which finishes last.
+   * includes `sources`, which replaces the build's assets rather than adding to
+   * them: none of `public/` or `_next/static/` is uploaded, and the files given
+   * are uploaded by each deployment in parallel, so which `Cache-Control` they
+   * end up with, `immutable` included, depends on which finishes last.
    */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
@@ -162,13 +173,19 @@ export class NextjsStaticAssets extends Construct {
     // same key. `next start` serves the built one, so the public copy is left
     // out; uploading both would leave whichever deployment finished last.
     // Other `public/_next/static` files are served as `next start` does.
-    const publicDir = this.stageDirectory(publicSourceDir, "", (path) => {
-      if (!isWithin(path, STATIC_PATH)) {
-        return true;
-      }
-      const built = join(builtDir, relative(STATIC_PATH, path));
-      return !(existsSync(built) && statSync(built).isFile());
-    });
+    // Matched against a listing rather than with `existsSync`, which on macOS
+    // and Windows would let `Legacy.js` shadow `legacy.js`: Next.js and S3 keys
+    // are case-sensitive.
+    const builtFiles = new Set(
+      this.directoryExists(builtDir) ? listFiles(builtDir) : [],
+    );
+    const publicDir = this.stageDirectory(
+      publicSourceDir,
+      "",
+      (path) =>
+        !isWithin(path, STATIC_PATH) ||
+        !builtFiles.has(relative(STATIC_PATH, path)),
+    );
     if (!staticDir && !serviceWorkerDir && !publicDir) {
       throw new Error(
         `No static assets found to deploy. Ensure your Next.js build output contains either:
@@ -285,11 +302,7 @@ export class NextjsStaticAssets extends Construct {
         recursive: true,
         filter: (path) => include(relative(sourceDir, path)),
       });
-      const files = readdirSync(destDir, {
-        recursive: true,
-        withFileTypes: true,
-      }).filter((entry) => entry.isFile());
-      if (files.length === 0) {
+      if (listFiles(destDir).length === 0) {
         rmSync(stagingDir, { recursive: true, force: true });
         return undefined;
       }
