@@ -11,10 +11,7 @@
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
-import type {
-  CacheEntry,
-  CacheHandler,
-} from "next/dist/server/lib/cache-handlers/types";
+import type { CacheEntry, CacheHandler } from "next/cache";
 import { TrackedTagMarkers } from "./aws-cache-store";
 import {
   awaitIf,

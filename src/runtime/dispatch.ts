@@ -23,6 +23,7 @@ import {
   RouteInvocationTarget,
   detectDomainLocale,
   detectLocale,
+  normalizeLocalePath,
   resolveRoutes,
 } from "@next/routing";
 import {
@@ -998,8 +999,8 @@ export function statusTargets(
 
 /**
  * The locale a request's status page renders in, the way `next start` picks it:
- * the locale the URL's first segment names (case-insensitively, as
- * `normalizeLocalePath` matches it), and otherwise the domain's default locale,
+ * the locale the URL's first segment names (`normalizeLocalePath`, which
+ * matches it case-insensitively), and otherwise the domain's default locale,
  * then the app's. `undefined` without i18n.
  */
 function requestLocale(
@@ -1009,9 +1010,8 @@ function requestLocale(
   const i18n = asI18n(manifest.config.i18n);
   if (!i18n) return undefined;
   const pathname = withoutPathPrefix(url.pathname, manifest.config.basePath);
-  const segment = (pathname.split("/")[1] ?? "").toLowerCase();
   return (
-    i18n.locales.find((candidate) => candidate.toLowerCase() === segment) ??
+    normalizeLocalePath(pathname, i18n.locales).detectedLocale ??
     detectDomainLocale(i18n.domains, url.hostname)?.defaultLocale ??
     i18n.defaultLocale
   );

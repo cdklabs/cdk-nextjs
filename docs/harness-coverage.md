@@ -145,7 +145,7 @@ having when one of them goes red:
   production). Real, but thin.
 - **Collapsed families:** `app-dir/next-config-ts/*` (21 files) and
   `app-dir/next-config-ts-native-mts/*` (18) — each a distinct `next build` whose
-  resolved config the adapter reads back out of `required-server-files.json`; and
+  resolved config the adapter copies out of the build's `ctx.config`; and
   `app-dir/scss/*` (29 files), which on our side all test one thing: the emitted
   stylesheet reaching the browser from S3. The only Sass coverage in the project.
 - **`handle-non-hoisted-swc-helpers`** is the one fixture pinning

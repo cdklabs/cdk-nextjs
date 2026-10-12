@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import appPlaygroundBasePath from "./__fixtures__/app-playground-base-path.json";
 import appPlayground from "./__fixtures__/app-playground.json";
 import pagesI18n from "./__fixtures__/pages-i18n.json";
@@ -16,6 +17,7 @@ import {
   buildAdapterManifest,
   writeBuildOutputs,
 } from "./build-outputs";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { RUNTIME_DIR_NAME } from "../runtime/manifest";
 
 /**
@@ -72,8 +74,8 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
       groups: [{ staging }],
     } = build(ctx);
 
-    it("stamps the manifest version and build identity", () => {
-      expect(manifest.version).toBe(1);
+    it("stamps the cdk-nextjs version and build identity", () => {
+      expect(manifest.cdkNextjsVersion).toBe(CDK_NEXTJS_VERSION);
       expect(manifest.buildId).toBe(ctx.buildId);
       expect(manifest.relativeProjectDir).toBe(
         name.startsWith("pages-i18n") ? "pages-i18n" : "app-playground",
@@ -90,6 +92,14 @@ describe.each(Object.keys(fixtures) as Array<keyof typeof fixtures>)(
         generateEtags: true,
         i18n: ctx.config.i18n ?? null,
         deploymentId: "",
+        images: ctx.config.images,
+        experimental: ctx.config.experimental ?? {},
+        // Dist-dir-relative when set (the adapter always sets one at build);
+        // see the cacheHandler test below for the path itself.
+        cacheHandler: ctx.config.cacheHandler
+          ? expect.stringMatching(/^[^/]/)
+          : null,
+        cacheMaxMemorySize: ctx.config.cacheMaxMemorySize,
       });
     });
 
@@ -199,6 +209,32 @@ describe("buildAdapterManifest edge cases", () => {
     expect(() => buildAdapterManifest(asContext(appPlayground))).toThrow(
       /must run from the Next.js project directory/,
     );
+  });
+
+  it("records cacheHandler relative to the dist dir, as required-server-files.json does", () => {
+    const ctx = asContext(appPlayground);
+    const handler = join(ctx.repoRoot, "node_modules/cdk-nextjs/cache.mjs");
+    for (const cacheHandler of [handler, pathToFileURL(handler).href]) {
+      const { manifest } = build({
+        ...ctx,
+        config: { ...ctx.config, cacheHandler },
+      });
+      expect(manifest.config.cacheHandler).toBe(
+        relative(ctx.distDir, handler).split(sep).join("/"),
+      );
+    }
+  });
+
+  it("copies experimental as JSON, dropping function-valued entries", () => {
+    const ctx = asContext(appPlayground);
+    const { manifest } = build({
+      ...ctx,
+      config: {
+        ...ctx.config,
+        experimental: { imgOptConcurrency: 2, someHook: () => undefined },
+      } as unknown as BuildCompleteContext["config"],
+    });
+    expect(manifest.config.experimental).toEqual({ imgOptConcurrency: 2 });
   });
 
   it("records the deploymentId, reduced to what a cache key prefix can hold", () => {
@@ -636,8 +672,6 @@ describe("writeBuildOutputs", () => {
       );
     }
     const files = [
-      "dist/server/config-shared.js",
-      "dist/shared/lib/image-config.js",
       "dist/server/image-optimizer.js",
       "dist/server/serve-static.js",
       "dist/server/lib/router-utils/instrumentation-globals.external.js",
@@ -1153,8 +1187,6 @@ describe("writeBuildOutputs", () => {
         );
       for (const file of [
         "server/image-optimizer.js",
-        "shared/lib/image-config.js",
-        "server/config-shared.js",
         "shared/lib/match-remote-pattern.js",
       ]) {
         await expect(has("default", file)).resolves.toBe(true);

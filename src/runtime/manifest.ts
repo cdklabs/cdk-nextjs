@@ -10,16 +10,17 @@
  * build-machine absolute path: absolute paths work on the build machine and
  * fail in Lambda. The staging tree those keys index into is
  * `<distDir>/cdk-nextjs-adapter/app`; the runtime calls that directory the
- * *deployment root* and resolves every key against it.
+ * *deployment root* and resolves every key against it. The exceptions are the
+ * Next.js config copied into {@link AdapterManifestConfig}: `cacheHandler` is
+ * relative to the dist dir, as Next's own `required-server-files.json` has it,
+ * and `images` is copied whole, so `images.loaderFile` stays the build machine's
+ * absolute path (nothing in the runtime reads it).
  *
  * This file is intentionally not exported from `src/index.ts`: it is an
  * internal contract, not public construct API, so it is exempt from the JSII
  * restrictions the rest of `src/` follows.
  */
 import { join } from "node:path";
-
-/** Current {@link AdapterManifest.version}. Bump on any breaking shape change. */
-export const ADAPTER_MANIFEST_VERSION = 1;
 
 /**
  * Directory written inside `distDir` (`.next`), matching the existing
@@ -127,7 +128,13 @@ export function deployedManifestPath(deploymentRoot: string): string {
 }
 
 export interface AdapterManifest {
-  readonly version: 1;
+  /**
+   * The cdk-nextjs that wrote this (`CDK_NEXTJS_VERSION`). Whatever reads the
+   * manifest requires its own version here, rather than a hand-bumped shape
+   * version: the adapter and its readers ship in one package, so a mismatch is
+   * always a stale build or a second cdk-nextjs install.
+   */
+  readonly cdkNextjsVersion: string;
   readonly buildId: string;
   /**
    * From the deployment root to the Next.js project dir. "" when the app is at
@@ -208,11 +215,7 @@ export interface AdapterManifestConfig {
   readonly basePath: string;
   readonly trailingSlash: boolean;
   readonly assetPrefix: string;
-  /**
-   * `distDir` relative to the project dir — `.next` unless configured. POSIX.
-   * The runtime reads `required-server-files.json` from here for the image
-   * optimizer's config.
-   */
+  /** `distDir` relative to the project dir — `.next` unless configured. POSIX. */
   readonly distDir: string;
   /**
    * `next.config` `compress`. The runtime gzips streamed responses itself
@@ -237,6 +240,32 @@ export interface AdapterManifestConfig {
    * when the app sets none.
    */
   readonly deploymentId: string;
+  /**
+   * `next.config` `images`, resolved and defaulted (`ctx.config.images`).
+   * `NextConfigComplete["images"]`-shaped. With {@link experimental},
+   * {@link cacheHandler} and {@link cacheMaxMemorySize}, what the image
+   * optimizer is handed as its `nextConfig`.
+   *
+   * `images` and `experimental` are copied whole rather than field by field:
+   * Next's optimizer picks what it reads out of both (six `experimental.imgOpt*`
+   * flags in 16.4), and a hand-kept list would silently drop the next one it
+   * starts reading.
+   */
+  readonly images: unknown;
+  /**
+   * `next.config` `experimental`, resolved (`ctx.config.experimental`), as
+   * JSON: function-valued entries are dropped, as they are from
+   * `required-server-files.json`. See {@link images}.
+   */
+  readonly experimental: unknown;
+  /**
+   * `next.config` `cacheHandler`, relative to the dist dir as
+   * `required-server-files.json` has it (the build machine's absolute path
+   * means nothing in the deployment). `null` when there is none.
+   */
+  readonly cacheHandler: string | null;
+  /** `next.config` `cacheMaxMemorySize`. */
+  readonly cacheMaxMemorySize: number;
 }
 
 export type AdapterEntrypointType =

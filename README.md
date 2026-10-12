@@ -519,7 +519,7 @@ The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Pl
 
 ## Design Principles
 
-- Integrate through Next.js's official interfaces. Build on the [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters) API and [`@next/routing`](https://www.npmjs.com/package/@next/routing) rather than Next.js internals, so new Next.js versions rarely break this construct.
+- Integrate through Next.js's official interfaces. Build on the [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters) API and [`@next/routing`](https://www.npmjs.com/package/@next/routing) rather than Next.js internals, so new Next.js versions rarely break this construct. Where no public interface exists yet, the dependency is listed in [Next.js private APIs](docs/nextjs-private-apis.md).
 - Security first.
 - One architecture does not fit all.
 - Enable customization everywhere.

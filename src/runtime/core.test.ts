@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { constants as zlibConstants, gunzipSync, gzipSync } from "node:zlib";
 import { S3Client } from "@aws-sdk/client-s3";
+import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
 import {
   loadRuntime,
   NextjsRuntime,
@@ -243,6 +244,13 @@ function stageDeployment(
   // The fixture is a real captured context, as JSON: the structural cast is the
   // point of the cast (see `build-outputs.test.ts`).
   const ctx = structuredClone(appPlayground) as unknown as BuildCompleteContext;
+  // The fixture's `config` holds only the routing fields; a real one is
+  // resolved and has every image default.
+  ctx.config = {
+    ...ctx.config,
+    images: imageConfigDefault,
+    experimental: {},
+  } as BuildCompleteContext["config"];
   const manifest = transformManifest(
     buildAdapterManifest(ctx, { buildCwd: ctx.projectDir }).manifest,
   );
@@ -1281,23 +1289,15 @@ describe("a Pages Router 404", () => {
 
 describe("/_next/image with images turned off", () => {
   it("answers the app's 404, no-store, instead of optimizing", async () => {
-    // `images.unoptimized`, as `next start` reads it from
-    // `required-server-files.json`.
-    const staged = stageDeployment();
-    const manifest: AdapterManifest = JSON.parse(
-      readFileSync(deployedManifestPath(staged), "utf-8"),
-    );
-    write(
-      join(
-        staged,
-        manifest.relativeProjectDir,
-        ".next/required-server-files.json",
-      ),
-      JSON.stringify({
-        version: 1,
-        config: { experimental: {}, images: { unoptimized: true } },
-      }),
-    );
+    // `images.unoptimized`, as the adapter copies it into the manifest from
+    // `ctx.config`.
+    const staged = stageDeployment(undefined, (manifest) => ({
+      ...manifest,
+      config: {
+        ...manifest.config,
+        images: { ...(manifest.config.images as object), unoptimized: true },
+      },
+    }));
     const unoptimized = await loadRuntime(staged);
     const sink = new CollectingSink();
     await unoptimized.handle(

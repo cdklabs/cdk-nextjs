@@ -981,7 +981,8 @@ const DYNAMIC_CACHE_KEY: CacheKeyProps = {
   headerBehavior: CacheHeaderBehavior.allowList(
     // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
     // cdk-nextjs includes the most essential headers for Next.js functionality
-    // but it's recommended to request quota increase to include all headers (commented out ones below)
+    // and leaves out the one commented out below; keying on it as well needs a
+    // quota increase
     // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
     "accept", // content negotiation (HTML vs RSC payload)
     "rsc", // React Server Components requests
@@ -990,10 +991,8 @@ const DYNAMIC_CACHE_KEY: CacheKeyProps = {
     "next-router-prefetch", // prefetch behavior
     "next-router-segment-prefetch", // segment-level prefetching
     "x-prerender-revalidate", // on-demand ISR revalidation
-    "x-prerender-bypass", // draft mode
-    // "x-nextjs-stale-time", // stale-while-revalidate behavior
-    // "x-next-cache-tag-token", // auth token for cache tags (only needed with revalidateTag auth)
-    // "x-nextjs-postponed", // Partial Prerendering (experimental feature)
+    // Draft mode needs no header: it is the `__prerender_bypass` cookie, which
+    // `cookieBehavior.all()` already keys on.
     // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
   ),
   cookieBehavior: CacheCookieBehavior.all(),

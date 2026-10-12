@@ -12,11 +12,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import getDebug from "debug";
-import { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
-import { CachedRouteKind } from "next/dist/server/response-cache/index.js";
+import type { CacheHandlerValue } from "next/dist/server/lib/incremental-cache";
 import { LOG_PREFIX } from "../constants";
 import type { BuildCompleteContext } from "./build-outputs";
-import { cacheKindResolver } from "./cache-kinds";
+import { CACHED_ROUTE_KIND, cacheKindResolver } from "./cache-kinds";
 import {
   appPageCacheHeaders,
   cacheObjectName,
@@ -104,7 +103,7 @@ export async function writeInitCache(
       // Create cache entry with the appropriate structure based on kind
       let cacheEntry: CacheHandlerValue;
 
-      if (kind === CachedRouteKind.APP_PAGE) {
+      if (kind === CACHED_ROUTE_KIND.APP_PAGE) {
         // Read HTML file
         const html = (await readPrerender(htmlPrerender))?.toString();
 
@@ -129,7 +128,7 @@ export async function writeInitCache(
         cacheEntry = {
           lastModified: Date.now(),
           value: {
-            kind: CachedRouteKind.APP_PAGE,
+            kind: CACHED_ROUTE_KIND.APP_PAGE,
             html,
             rscData,
             headers,
@@ -141,7 +140,7 @@ export async function writeInitCache(
             status: htmlPrerender?.fallback?.initialStatus,
           },
         };
-      } else if (kind === CachedRouteKind.APP_ROUTE) {
+      } else if (kind === CACHED_ROUTE_KIND.APP_ROUTE) {
         const body = await readPrerender(htmlPrerender);
 
         if (!body) {
@@ -155,13 +154,13 @@ export async function writeInitCache(
         cacheEntry = {
           lastModified: Date.now(),
           value: {
-            kind: CachedRouteKind.APP_ROUTE,
+            kind: CACHED_ROUTE_KIND.APP_ROUTE,
             body,
             headers,
             status: htmlPrerender?.fallback?.initialStatus || 200,
           },
         };
-      } else if (kind === CachedRouteKind.PAGES) {
+      } else if (kind === CACHED_ROUTE_KIND.PAGES) {
         // A build-time `notFound: true`. Next.js reports the route as
         // prerendered and hands us a prerender whose `filePath` is
         // `pages/404.html` and whose `initialStatus` is 404 - but it writes
@@ -204,7 +203,7 @@ export async function writeInitCache(
         cacheEntry = {
           lastModified: Date.now(),
           value: {
-            kind: CachedRouteKind.PAGES,
+            kind: CACHED_ROUTE_KIND.PAGES,
             html,
             pageData: pageDataJson ? JSON.parse(pageDataJson) : {},
             // Both `undefined`, which is what `FileSystemCache` hands back for

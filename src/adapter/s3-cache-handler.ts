@@ -20,12 +20,12 @@ import {
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 import getDebug from "debug";
-import {
+import type {
   CacheHandler,
   CacheHandlerValue,
   CacheHandlerContext,
 } from "next/dist/server/lib/incremental-cache";
-import {
+import type {
   IncrementalCacheValue,
   GetIncrementalFetchCacheContext,
 } from "next/dist/server/response-cache";

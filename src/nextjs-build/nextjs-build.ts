@@ -33,11 +33,11 @@ import {
   FunctionGroupSpec,
   validateFunctionGroups,
 } from "../adapter/function-groups";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 import {
   ADAPTER_DIR_NAME,
-  ADAPTER_MANIFEST_VERSION,
   AdapterManifest,
   MANIFEST_FILE_NAME,
   PUBLIC_FILES_FILE_NAME,
@@ -541,11 +541,11 @@ export class NextjsBuild extends Construct {
     const manifest: AdapterManifest = JSON.parse(
       readFileSync(manifestPath, "utf-8"),
     );
-    if (manifest.version !== ADAPTER_MANIFEST_VERSION) {
+    if (manifest.cdkNextjsVersion !== CDK_NEXTJS_VERSION) {
       throw new Error(
-        `The cdk-nextjs adapter manifest at ${manifestPath} is version ` +
-          `${manifest.version}, but this version of cdk-nextjs reads version ` +
-          `${ADAPTER_MANIFEST_VERSION}. The adapter that wrote it and the ` +
+        `The cdk-nextjs adapter manifest at ${manifestPath} was written by ` +
+          `cdk-nextjs ${manifest.cdkNextjsVersion ?? "(unknown)"}, but this is ` +
+          `cdk-nextjs ${CDK_NEXTJS_VERSION}. The adapter that wrote it and the ` +
           `constructs reading it come from the same package, so this means two ` +
           `cdk-nextjs versions are installed, or the build output is stale.`,
       );

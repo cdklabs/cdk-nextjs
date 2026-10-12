@@ -8,10 +8,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import getDebug from "debug";
-import type {
-  CacheEntry,
-  CacheHandler,
-} from "next/dist/server/lib/cache-handlers/types";
+import type { CacheEntry, CacheHandler } from "next/cache";
 import {
   DEFAULT_TAG_REFRESH_MS,
   resolveAwsCacheConfig,

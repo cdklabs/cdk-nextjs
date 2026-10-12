@@ -7,7 +7,7 @@
 */
 /* eslint-disable import/no-extraneous-dependencies */
 import getDebug from "debug";
-import {
+import type {
   CacheHandler,
   CacheHandlerValue,
   CacheHandlerContext,
