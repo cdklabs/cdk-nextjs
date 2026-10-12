@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -48,20 +49,33 @@ const STATIC_PATH = join("_next", "static");
 const SERVICE_WORKER_DIR = "service-worker";
 
 /**
- * Every non-directory entry under `dir`, relative to it. Symlinks count:
- * `cpSync` copies them as links, and they upload as the files they point to.
+ * Every file under `dir`, relative to it, through symlinks too: CDK uploads a
+ * linked file or directory as what it points to.
  *
- * An explicit walk rather than `readdirSync({ recursive: true })`, which on
- * Node 24 descends into symlinked directories and so never returns on a cycle,
- * and whose `Dirent.parentPath` doesn't exist before Node 20.12.
+ * An explicit walk rather than `readdirSync({ recursive: true })`, which never
+ * returns on a symlink cycle (Node 24 follows directory links), and whose
+ * `Dirent.parentPath` doesn't exist before Node 20.12. Each real directory is
+ * walked once.
  */
 function listFiles(dir: string): string[] {
   const files: string[] = [];
+  const walked = new Set<string>();
   const pending = [""];
   for (let sub = pending.pop(); sub !== undefined; sub = pending.pop()) {
-    for (const entry of readdirSync(join(dir, sub), { withFileTypes: true })) {
+    const real = realpathSync(join(dir, sub));
+    if (walked.has(real)) {
+      continue;
+    }
+    walked.add(real);
+    for (const entry of readdirSync(real, { withFileTypes: true })) {
       const path = join(sub, entry.name);
-      (entry.isDirectory() ? pending : files).push(path);
+      const isDirectory =
+        entry.isDirectory() ||
+        (entry.isSymbolicLink() &&
+          statSync(join(real, entry.name), {
+            throwIfNoEntry: false,
+          })?.isDirectory());
+      (isDirectory ? pending : files).push(path);
     }
   }
   return files;
@@ -79,9 +93,13 @@ export interface NextjsStaticAssetsOverrides {
    * `_next/static/service-worker/`), except that the two `_next/static` uploads
    * always keep the `Cache-Control` Next.js sends for them. So a `cacheControl`
    * here sets the header for `public/` files only, while anything else, such as
-   * a `distribution` to invalidate, applies to each upload in turn. `prune:
-   * true`, `sources`, and `retainOnDelete: false` with a `bucket` passed in are
-   * rejected, since each would break the other uploads.
+   * a `distribution` to invalidate, applies to each upload in turn.
+   *
+   * `sources` and `destinationBucket`, which the type requires, are ignored:
+   * the uploads are always the build's assets, to the bucket CloudFront and
+   * API Gateway read from (pass `bucket` to bring your own). `prune: true` and
+   * `retainOnDelete: false` are rejected, since each would break the other
+   * uploads.
    */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
@@ -242,12 +260,15 @@ export class NextjsStaticAssets extends Construct {
    *
    * - `prune: true` makes each deployment's `s3 sync --delete` remove the files
    *   the others uploaded.
-   * - `sources` replaces the build's assets in every deployment, which then
-   *   race to upload the same files with different `Cache-Control`.
-   * - `retainOnDelete: false` on a bucket passed in: CDK only skips its
-   *   `s3 rm --recursive` of the prefix for a bucket it tagged, and it can't
-   *   tag an imported one. So when a build stops having files for one of the
-   *   deployments, removing it deletes the others' files too.
+   * - `retainOnDelete: false` makes a deployment `s3 rm --recursive` its old
+   *   prefix when the prefix changes, without checking whether the bucket is
+   *   CDK's (only Delete checks), so it can delete files another deployment has
+   *   just uploaded there. On Delete, CDK skips that `rm` only for a bucket it
+   *   tagged, and it can't tag an imported one, so a build that stops having
+   *   files for one deployment would lose the others' files too.
+   *
+   * `sources` and `destinationBucket` aren't rejected, because the type
+   * requires them; `newDeployment` sets them after the spread instead.
    *
    * Compared against the exact value, as with `destinationKeyPrefix`, so an
    * explicit `undefined` from a JSII binding is not mistaken for an override.
@@ -257,11 +278,7 @@ export class NextjsStaticAssets extends Construct {
     const rejected = [
       overrides?.prune === true &&
         "`prune: true` (old assets are pruned after deploy by NextjsPostDeploy, once they are past its TTL)",
-      overrides?.sources !== undefined &&
-        "`sources` (add your own BucketDeployment for extra files)",
-      this.props.bucket &&
-        overrides?.retainOnDelete === false &&
-        "`retainOnDelete: false` with a bucket passed in",
+      overrides?.retainOnDelete === false && "`retainOnDelete: false`",
     ].filter((reason): reason is string => !!reason);
     if (rejected.length > 0) {
       throw new Error(
@@ -334,18 +351,20 @@ export class NextjsStaticAssets extends Construct {
     cacheControl?: CacheControl[],
   ) {
     return new BucketDeployment(this, id, {
-      destinationBucket: this.bucket,
       // Add BUILD_ID as metadata to all objects for version tracking
       metadata: {
         BUILD_ID: this.props.buildId,
       },
       // S3Deployment automatically detects content types based on file extensions
       ...this.props.overrides?.bucketDeploymentProps,
-      // Set after the spread, which `validateDeploymentOverrides` only lets set
-      // these to what they already are, or to an explicit `undefined` from a
-      // JSII binding. That would drop the build's assets, or turn on CDK's
+      // Set after the spread. The type makes callers pass `sources` and
+      // `destinationBucket`, and either would upload something other than the
+      // build's assets, or somewhere CloudFront and API Gateway don't read from.
+      // `validateDeploymentOverrides` lets `prune` through only as `false` or an
+      // explicit `undefined` from a JSII binding, which would turn on CDK's
       // default `prune: true`.
       sources: [Source.asset(stagingDir)],
+      destinationBucket: this.bucket,
       prune: false, // Don't delete existing assets to prevent 404s during deployment, pruning will be handled by post-deploy
       ...(cacheControl && { cacheControl }),
       // Set after the spread: `resolveKeyPrefix` already folded in any
@@ -372,13 +391,16 @@ export class NextjsStaticAssets extends Construct {
     if (!this.directoryExists(sourceDir)) {
       return undefined;
     }
+    // From the real path: `cpSync` would copy a symlinked `sourceDir` as a
+    // link, which fails onto the directory made for it here.
+    const realSourceDir = realpathSync(sourceDir);
     const stagingDir = mkdtempSync(join(tmpdir(), "nextjs-assets-"));
     try {
       const destDir = join(stagingDir, subPath);
       mkdirSync(destDir, { recursive: true });
-      cpSync(sourceDir, destDir, {
+      cpSync(realSourceDir, destDir, {
         recursive: true,
-        filter: (path) => include(relative(sourceDir, path)),
+        filter: (path) => include(relative(realSourceDir, path)),
       });
       if (listFiles(destDir).length === 0) {
         rmSync(stagingDir, { recursive: true, force: true });

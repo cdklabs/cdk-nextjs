@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -12,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, AssetStaging, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
+import { Bucket } from "aws-cdk-lib/aws-s3";
 import { BucketDeployment, CacheControl } from "aws-cdk-lib/aws-s3-deployment";
 import { DISABLE_ASSET_STAGING_CONTEXT } from "aws-cdk-lib/cx-api";
 import { NextjsStaticAssets } from "./nextjs-static-assets";
@@ -288,6 +289,41 @@ describe("NextjsStaticAssets", () => {
       ).toBe(false);
     });
 
+    it("stages a symlinked .next/static", () => {
+      keepStaging();
+      const realStatic = join(buildDirectory, "real-static");
+      renameSync(join(buildDirectory, ".next", "static"), realStatic);
+      symlinkSync(realStatic, join(buildDirectory, ".next", "static"));
+      const staticAssets = createStaticAssets({});
+
+      const staged = stagedDir(staticAssets.staticDeployment!);
+      expect(existsSync(join(staged, "_next", "static", "chunk.js"))).toBe(
+        true,
+      );
+    });
+
+    // CDK uploads the files a linked directory holds, so they shadow too.
+    it("treats files under a symlinked .next/static directory as shadowing", () => {
+      keepStaging();
+      const realChunks = join(buildDirectory, "real-chunks");
+      mkdirSync(realChunks);
+      writeFileSync(join(realChunks, "a.js"), "// built");
+      symlinkSync(
+        realChunks,
+        join(buildDirectory, ".next", "static", "chunks"),
+      );
+      const shadowDir = join(buildDirectory, "public", "_next", "static");
+      mkdirSync(join(shadowDir, "chunks"), { recursive: true });
+      writeFileSync(join(shadowDir, "chunks", "a.js"), "// shadowed");
+      writeFileSync(join(buildDirectory, "public", "logo.png"), "png");
+      const staticAssets = createStaticAssets({});
+
+      const staged = stagedDir(staticAssets.publicDeployment!);
+      expect(
+        existsSync(join(staged, "_next", "static", "chunks", "a.js")),
+      ).toBe(false);
+    });
+
     it("removes its staging directories once CDK has copied them", () => {
       writePublicFile();
       const staticAssets = createStaticAssets({});
@@ -320,12 +356,11 @@ describe("NextjsStaticAssets", () => {
   });
 
   describe("bucketDeploymentProps that would break the other uploads", () => {
-    function withOverrides(bucketDeploymentProps: object, bucket?: IBucket) {
+    function withOverrides(bucketDeploymentProps: object) {
       return () =>
         new NextjsStaticAssets(stack, "NextjsStaticAssets", {
           buildDirectory,
           buildId: "test-build-id",
-          bucket,
           overrides: { bucketDeploymentProps: bucketDeploymentProps as any },
         });
     }
@@ -334,20 +369,36 @@ describe("NextjsStaticAssets", () => {
       expect(withOverrides({ prune: true })).toThrow(/`prune: true`/);
     });
 
-    it("rejects sources", () => {
-      expect(withOverrides({ sources: [] })).toThrow(/`sources`/);
-    });
-
-    it("rejects retainOnDelete: false with a bucket passed in", () => {
-      const bucket = Bucket.fromBucketName(stack, "Imported", "imported");
-      expect(withOverrides({ retainOnDelete: false }, bucket)).toThrow(
+    // CDK's Update path deletes the old prefix without checking the bucket's
+    // owner, racing the other uploads, so no bucket is safe.
+    it("rejects retainOnDelete: false", () => {
+      expect(withOverrides({ retainOnDelete: false })).toThrow(
         /`retainOnDelete: false`/,
       );
     });
 
-    // CDK tags a bucket it creates, and skips the prefix delete for it.
-    it("allows retainOnDelete: false on the bucket it creates", () => {
-      expect(withOverrides({ retainOnDelete: false })).not.toThrow();
+    // The type requires both, so a typed caller always passes them.
+    it("ignores sources and destinationBucket", () => {
+      const other = Bucket.fromBucketName(stack, "Other", "other");
+      new NextjsStaticAssets(stack, "NextjsStaticAssets", {
+        buildDirectory,
+        buildId: "test-build-id",
+        overrides: {
+          bucketDeploymentProps: {
+            sources: [],
+            destinationBucket: other,
+            cacheControl: [CacheControl.fromString("public, max-age=60")],
+          },
+        },
+      });
+
+      const [upload] = Object.values(
+        Template.fromStack(stack).findResources("Custom::CDKBucketDeployment"),
+      );
+      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
+      expect(JSON.stringify(upload.Properties.DestinationBucketName)).toContain(
+        "NextjsStaticAssetsBucket",
+      );
     });
 
     // A JSII binding can materialize an unset field as an explicit undefined.
