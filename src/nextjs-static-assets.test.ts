@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, AssetStaging, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
 import { BucketDeployment, CacheControl } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsStaticAssets } from "./nextjs-static-assets";
 
@@ -279,6 +280,51 @@ describe("NextjsStaticAssets", () => {
       expect(staticAssets.staticDeployment).toBeUndefined();
       expect(staticAssets.deployment).toBe(staticAssets.publicDeployment);
       expect(Object.keys(deployments())).toEqual(["PublicDeployment"]);
+    });
+  });
+
+  describe("bucketDeploymentProps that would break the other uploads", () => {
+    function withOverrides(bucketDeploymentProps: object, bucket?: IBucket) {
+      return () =>
+        new NextjsStaticAssets(stack, "NextjsStaticAssets", {
+          buildDirectory,
+          buildId: "test-build-id",
+          bucket,
+          overrides: { bucketDeploymentProps: bucketDeploymentProps as any },
+        });
+    }
+
+    it("rejects prune: true", () => {
+      expect(withOverrides({ prune: true })).toThrow(/`prune: true`/);
+    });
+
+    it("rejects sources", () => {
+      expect(withOverrides({ sources: [] })).toThrow(/`sources`/);
+    });
+
+    it("rejects retainOnDelete: false with a bucket passed in", () => {
+      const bucket = Bucket.fromBucketName(stack, "Imported", "imported");
+      expect(withOverrides({ retainOnDelete: false }, bucket)).toThrow(
+        /`retainOnDelete: false`/,
+      );
+    });
+
+    // CDK tags a bucket it creates, and skips the prefix delete for it.
+    it("allows retainOnDelete: false on the bucket it creates", () => {
+      expect(withOverrides({ retainOnDelete: false })).not.toThrow();
+    });
+
+    // A JSII binding can materialize an unset field as an explicit undefined.
+    it("allows the fields when they are explicitly undefined", () => {
+      expect(
+        withOverrides({ prune: undefined, sources: undefined }),
+      ).not.toThrow();
+      // Not CDK's default `prune: true`, nor a deployment with no sources.
+      const [upload] = Object.values(
+        Template.fromStack(stack).findResources("Custom::CDKBucketDeployment"),
+      );
+      expect(upload.Properties.Prune).toBe(false);
+      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
     });
   });
 });

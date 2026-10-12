@@ -78,11 +78,9 @@ export interface NextjsStaticAssetsOverrides {
    * `_next/static/service-worker/`), except that the two `_next/static` uploads
    * always keep the `Cache-Control` Next.js sends for them. So a `cacheControl`
    * here sets the header for `public/` files only, while anything else, such as
-   * a `distribution` to invalidate, applies to each upload in turn. That
-   * includes `sources`, which replaces the build's assets rather than adding to
-   * them: none of `public/` or `_next/static/` is uploaded, and the files given
-   * are uploaded by each deployment in parallel, so which `Cache-Control` they
-   * end up with, `immutable` included, depends on which finishes last.
+   * a `distribution` to invalidate, applies to each upload in turn. `prune:
+   * true`, `sources`, and `retainOnDelete: false` with a `bucket` passed in are
+   * rejected, since each would break the other uploads.
    */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
@@ -167,6 +165,7 @@ export class NextjsStaticAssets extends Construct {
   constructor(scope: Construct, id: string, props: NextjsStaticAssetsProps) {
     super(scope, id);
     this.props = props;
+    this.validateDeploymentOverrides();
     this.keyPrefix = this.resolveKeyPrefix();
     this.bucket = props.bucket ?? this.createBucket();
     const builtDir = join(props.buildDirectory, ".next", "static");
@@ -237,6 +236,42 @@ export class NextjsStaticAssets extends Construct {
   }
 
   /**
+   * Rejects the `bucketDeploymentProps` that can't work across several
+   * deployments sharing one prefix. Each is spread into every one of them:
+   *
+   * - `prune: true` makes each deployment's `s3 sync --delete` remove the files
+   *   the others uploaded.
+   * - `sources` replaces the build's assets in every deployment, which then
+   *   race to upload the same files with different `Cache-Control`.
+   * - `retainOnDelete: false` on a bucket passed in: CDK only skips its
+   *   `s3 rm --recursive` of the prefix for a bucket it tagged, and it can't
+   *   tag an imported one. So when a build stops having files for one of the
+   *   deployments, removing it deletes the others' files too.
+   *
+   * Compared against the exact value, as with `destinationKeyPrefix`, so an
+   * explicit `undefined` from a JSII binding is not mistaken for an override.
+   */
+  private validateDeploymentOverrides() {
+    const overrides = this.props.overrides?.bucketDeploymentProps;
+    const rejected = [
+      overrides?.prune === true &&
+        "`prune: true` (old assets are pruned after deploy by NextjsPostDeploy, once they are past its TTL)",
+      overrides?.sources !== undefined &&
+        "`sources` (add your own BucketDeployment for extra files)",
+      this.props.bucket &&
+        overrides?.retainOnDelete === false &&
+        "`retainOnDelete: false` with a bucket passed in",
+    ].filter((reason): reason is string => !!reason);
+    if (rejected.length > 0) {
+      throw new Error(
+        `${LOG_PREFIX} overrides.bucketDeploymentProps can't set ${rejected.join(", or ")}: ` +
+          "the static assets are uploaded by one deployment per Cache-Control, " +
+          "and each of these would break the others.",
+      );
+    }
+  }
+
+  /**
    * Resolves the single prefix both the upload and the URLs use. A
    * `bucketDeploymentProps.destinationKeyPrefix` override wins over `basePath`,
    * but it's normalized here and `createDeployment` sets the normalized value
@@ -276,15 +311,19 @@ export class NextjsStaticAssets extends Construct {
     cacheControl?: CacheControl[],
   ) {
     return new BucketDeployment(this, id, {
-      sources: [Source.asset(stagingDir)],
       destinationBucket: this.bucket,
       // Add BUILD_ID as metadata to all objects for version tracking
       metadata: {
         BUILD_ID: this.props.buildId,
       },
-      prune: false, // Don't delete existing assets to prevent 404s during deployment, pruning will be handled by post-deploy
       // S3Deployment automatically detects content types based on file extensions
       ...this.props.overrides?.bucketDeploymentProps,
+      // Set after the spread, which `validateDeploymentOverrides` only lets set
+      // these to what they already are, or to an explicit `undefined` from a
+      // JSII binding. That would drop the build's assets, or turn on CDK's
+      // default `prune: true`.
+      sources: [Source.asset(stagingDir)],
+      prune: false, // Don't delete existing assets to prevent 404s during deployment, pruning will be handled by post-deploy
       ...(cacheControl && { cacheControl }),
       // Set after the spread: `resolveKeyPrefix` already folded in any
       // `destinationKeyPrefix` override, so this is the normalized form of it.
