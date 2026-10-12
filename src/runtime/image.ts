@@ -339,7 +339,10 @@ export class RuntimeImageOptimizer {
         return {
           buffer: result.buffer,
           contentType: result.contentType,
-          cacheControl: null,
+          // The object's own, as `fetchInternalImage` passes on the file's
+          // `Cache-Control`: the optimizer keeps the result for its max-age, a
+          // year for an immutable `_next/static/media` file.
+          cacheControl: result.cacheControl,
           // Encoded as for a route's response: `fetchInternalImage` does too.
           etag: extractEtag(result.etag, result.buffer),
         };
