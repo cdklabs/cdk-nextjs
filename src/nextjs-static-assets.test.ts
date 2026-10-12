@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, Stack } from "aws-cdk-lib";
+import { Template } from "aws-cdk-lib/assertions";
+import { CacheControl } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsStaticAssets } from "./nextjs-static-assets";
 
 describe("NextjsStaticAssets", () => {
@@ -87,6 +89,70 @@ describe("NextjsStaticAssets", () => {
       });
 
       expect(staticAssets.keyPrefix).toBe("base");
+    });
+  });
+
+  describe("Cache-Control", () => {
+    const IMMUTABLE = "public, max-age=31536000, immutable";
+
+    function deployments() {
+      return Object.values(
+        Template.fromStack(stack).findResources("Custom::CDKBucketDeployment"),
+      ).map((resource) => resource.Properties);
+    }
+
+    function writePublicFile() {
+      const publicDir = join(buildDirectory, "public");
+      mkdirSync(publicDir, { recursive: true });
+      writeFileSync(join(publicDir, "logo.png"), "png");
+    }
+
+    // CloudFront and API Gateway serve these straight from S3, so the
+    // object's metadata is the only Cache-Control a browser gets.
+    it("uploads _next/static immutable and public/ without a header", () => {
+      writePublicFile();
+      const staticAssets = createStaticAssets({});
+
+      expect(staticAssets.staticDeployment).toBeDefined();
+      expect(staticAssets.publicDeployment).toBeDefined();
+      const [staticUpload, publicUpload] = deployments();
+      expect(staticUpload.SystemMetadata).toEqual({
+        "cache-control": IMMUTABLE,
+      });
+      expect(publicUpload.SystemMetadata).toBeUndefined();
+      for (const upload of [staticUpload, publicUpload]) {
+        expect(upload.UserMetadata).toEqual({ build_id: "test-build-id" });
+      }
+    });
+
+    it("applies an overridden cacheControl to public/ files only", () => {
+      writePublicFile();
+      new NextjsStaticAssets(stack, "NextjsStaticAssets", {
+        buildDirectory,
+        buildId: "test-build-id",
+        overrides: {
+          bucketDeploymentProps: {
+            cacheControl: [CacheControl.fromString("public, max-age=3600")],
+          } as any,
+        },
+      });
+
+      const [staticUpload, publicUpload] = deployments();
+      expect(staticUpload.SystemMetadata).toEqual({
+        "cache-control": IMMUTABLE,
+      });
+      expect(publicUpload.SystemMetadata).toEqual({
+        "cache-control": "public, max-age=3600",
+      });
+    });
+
+    it("creates only the _next/static upload without a public/ directory", () => {
+      const staticAssets = createStaticAssets({ basePath: "/base" });
+
+      expect(staticAssets.publicDeployment).toBeUndefined();
+      expect(staticAssets.deployment).toBe(staticAssets.staticDeployment);
+      expect(deployments()).toHaveLength(1);
+      expect(deployments()[0].DestinationBucketKeyPrefix).toBe("base");
     });
   });
 });
