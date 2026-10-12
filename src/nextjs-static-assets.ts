@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { Duration, RemovalPolicy, Token } from "aws-cdk-lib";
 import {
   BlockPublicAccess,
@@ -46,8 +46,9 @@ export interface NextjsStaticAssetsOverrides {
    * Applied to both uploads, `public/` and `_next/static/`, except that
    * `_next/static/` always keeps its year-long `immutable` `Cache-Control`. So a
    * `cacheControl` here sets the header for `public/` files only, while
-   * anything else, such as `sources` or a `distribution` to invalidate, applies
-   * to each upload in turn.
+   * anything else, such as a `distribution` to invalidate, applies to each
+   * upload in turn. That includes `sources`, so files given there are uploaded
+   * twice, once as `immutable`.
    */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
@@ -87,7 +88,8 @@ export class NextjsStaticAssets extends Construct {
   /**
    * `staticDeployment`, or `publicDeployment` for a build without `.next/static`.
    *
-   * @deprecated The assets are uploaded by up to two deployments. Use
+   * @deprecated The assets are uploaded by up to two deployments, and this is
+   * only one of them: a dependency on it doesn't wait for `public/`. Use
    * `staticDeployment` and `publicDeployment`.
    */
   deployment: BucketDeployment;
@@ -128,7 +130,14 @@ export class NextjsStaticAssets extends Construct {
       join(props.buildDirectory, ".next", "static"),
       join("_next", "static"),
     );
-    const publicDir = this.stageDirectory(join(props.buildDirectory, "public"));
+    // A `public/_next/static` file would land on the same key as a built one.
+    // `next start` serves the built one, so it's left out here; uploading both
+    // would leave whichever deployment finished last.
+    const publicDir = this.stageDirectory(
+      join(props.buildDirectory, "public"),
+      "",
+      join("_next", "static"),
+    );
     if (!staticDir && !publicDir) {
       throw new Error(
         `No static assets found to deploy. Ensure your Next.js build output contains either:
@@ -216,11 +225,13 @@ export class NextjsStaticAssets extends Construct {
    * Copies `sourceDir` to `<staging>/<subPath>` in a new staging directory, or
    * returns `undefined` if there is no `sourceDir`. Staged under `subPath`
    * rather than uploaded with a longer `destinationKeyPrefix`, so every
-   * deployment shares the one prefix `keyPrefix` resolves.
+   * deployment shares the one prefix `keyPrefix` resolves. `excludePath`, relative
+   * to `sourceDir`, is left out of the copy.
    */
   private stageDirectory(
     sourceDir: string,
     subPath: string = "",
+    excludePath?: string,
   ): string | undefined {
     if (!this.directoryExists(sourceDir)) {
       return undefined;
@@ -229,7 +240,12 @@ export class NextjsStaticAssets extends Construct {
     try {
       const destDir = join(stagingDir, subPath);
       mkdirSync(destDir, { recursive: true });
-      cpSync(sourceDir, destDir, { recursive: true });
+      const excluded = excludePath && join(sourceDir, excludePath);
+      cpSync(sourceDir, destDir, {
+        recursive: true,
+        filter: (path) =>
+          !excluded || (path !== excluded && !path.startsWith(excluded + sep)),
+      });
       return stagingDir;
     } catch (error) {
       // Thrown rather than skipped, which would deploy without these assets.

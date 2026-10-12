@@ -1,8 +1,14 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { App, Stack } from "aws-cdk-lib";
+import { App, AssetStaging, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { CacheControl } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsStaticAssets } from "./nextjs-static-assets";
@@ -163,6 +169,25 @@ describe("NextjsStaticAssets", () => {
       const uploads = deployments();
       expect(Object.keys(uploads)).toEqual(["Deployment"]);
       expect(uploads.Deployment.DestinationBucketKeyPrefix).toBe("base");
+    });
+
+    // `next start` serves the built file, so the public/ copy is left out
+    // rather than racing the _next/static upload for the same key.
+    it("leaves public/_next/static out of the public/ upload", () => {
+      writePublicFile();
+      const shadowDir = join(buildDirectory, "public", "_next", "static");
+      mkdirSync(shadowDir, { recursive: true });
+      writeFileSync(join(shadowDir, "chunk.js"), "// shadow");
+      const staticAssets = createStaticAssets({});
+
+      // The deployment's own source asset, not the AWS CLI layer's.
+      const staged = staticAssets
+        .publicDeployment!.node.findAll()
+        .filter((c): c is AssetStaging => c instanceof AssetStaging)
+        .map((c) => c.sourcePath)
+        .find((path) => path.includes("nextjs-assets-"))!;
+      expect(existsSync(join(staged, "logo.png"))).toBe(true);
+      expect(existsSync(join(staged, "_next", "static"))).toBe(false);
     });
 
     it("falls back to the public/ upload for a build without .next/static", () => {
