@@ -3,11 +3,12 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 import { Duration, RemovalPolicy, Token } from "aws-cdk-lib";
 import {
   BlockPublicAccess,
@@ -40,15 +41,27 @@ export function staticAssetsObjectsPattern(keyPrefix?: string): string {
   return prefix ? `${prefix}/*` : "*";
 }
 
+/** Where `.next/static` is served from, relative to `keyPrefix`. */
+const STATIC_PATH = join("_next", "static");
+/** Where Next.js compiles service workers to, relative to `.next/static`. */
+const SERVICE_WORKER_DIR = "service-worker";
+
+/** Whether the relative `path` is `dir` or inside it. */
+function isWithin(path: string, dir: string): boolean {
+  return path === dir || path.startsWith(dir + sep);
+}
+
 export interface NextjsStaticAssetsOverrides {
   readonly bucketProps?: BucketProps;
   /**
-   * Applied to both uploads, `public/` and `_next/static/`, except that
-   * `_next/static/` always keeps its year-long `immutable` `Cache-Control`. So a
-   * `cacheControl` here sets the header for `public/` files only, while
-   * anything else, such as a `distribution` to invalidate, applies to each
-   * upload in turn. That includes `sources`, so files given there are uploaded
-   * twice, once as `immutable`.
+   * Applied to every upload (`public/`, `_next/static/` and
+   * `_next/static/service-worker/`), except that the two `_next/static` uploads
+   * always keep the `Cache-Control` Next.js sends for them. So a `cacheControl`
+   * here sets the header for `public/` files only, while anything else, such as
+   * a `distribution` to invalidate, applies to each upload in turn. That
+   * includes `sources`: files given there are uploaded by each deployment in
+   * parallel, so which `Cache-Control` they end up with, `immutable` included,
+   * depends on which finishes last.
    */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
@@ -88,17 +101,25 @@ export class NextjsStaticAssets extends Construct {
   /**
    * `staticDeployment`, or `publicDeployment` for a build without `.next/static`.
    *
-   * @deprecated The assets are uploaded by up to two deployments, and this is
-   * only one of them: a dependency on it doesn't wait for `public/`. Use
-   * `staticDeployment` and `publicDeployment`.
+   * @deprecated The assets are uploaded by up to three deployments, and this
+   * is only one of them: a dependency on it doesn't wait for the others. Use
+   * `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment`.
    */
   deployment: BucketDeployment;
   /**
    * Uploads `.next/static` to `_next/static/` with
-   * `Cache-Control: public, max-age=31536000, immutable`. Absent if the build
-   * has no `.next/static`.
+   * `Cache-Control: public, max-age=31536000, immutable`, except for
+   * `service-worker/` (see `serviceWorkerDeployment`). Absent if the build has
+   * no `.next/static`.
    */
   readonly staticDeployment?: BucketDeployment;
+  /**
+   * Uploads `.next/static/service-worker` with
+   * `Cache-Control: public, max-age=0, must-revalidate`, as Next.js serves it:
+   * a service worker keeps its URL across builds, so it can't be `immutable`.
+   * Absent if the build has no service worker.
+   */
+  readonly serviceWorkerDeployment?: BucketDeployment;
   /**
    * Uploads `public/`, separately from `staticDeployment` because its files
    * keep their names when they change and so can't be `immutable`. Absent if
@@ -126,30 +147,40 @@ export class NextjsStaticAssets extends Construct {
     this.props = props;
     this.keyPrefix = this.resolveKeyPrefix();
     this.bucket = props.bucket ?? this.createBucket();
+    const builtDir = join(props.buildDirectory, ".next", "static");
+    const publicSourceDir = join(props.buildDirectory, "public");
     const staticDir = this.stageDirectory(
-      join(props.buildDirectory, ".next", "static"),
-      join("_next", "static"),
+      builtDir,
+      STATIC_PATH,
+      (path) => !isWithin(path, SERVICE_WORKER_DIR),
     );
-    // A `public/_next/static` file would land on the same key as a built one.
-    // `next start` serves the built one, so it's left out here; uploading both
-    // would leave whichever deployment finished last.
-    const publicDir = this.stageDirectory(
-      join(props.buildDirectory, "public"),
-      "",
-      join("_next", "static"),
+    const serviceWorkerDir = this.stageDirectory(
+      join(builtDir, SERVICE_WORKER_DIR),
+      join(STATIC_PATH, SERVICE_WORKER_DIR),
     );
-    if (!staticDir && !publicDir) {
+    // A `public/_next/static` file with a built file's name would land on the
+    // same key. `next start` serves the built one, so the public copy is left
+    // out; uploading both would leave whichever deployment finished last.
+    // Other `public/_next/static` files are served as `next start` does.
+    const publicDir = this.stageDirectory(publicSourceDir, "", (path) => {
+      if (!isWithin(path, STATIC_PATH)) {
+        return true;
+      }
+      const built = join(builtDir, relative(STATIC_PATH, path));
+      return !(existsSync(built) && statSync(built).isFile());
+    });
+    if (!staticDir && !serviceWorkerDir && !publicDir) {
       throw new Error(
         `No static assets found to deploy. Ensure your Next.js build output contains either:
-        - A 'public' directory at: ${join(props.buildDirectory, "public")}
-        - A '.next/static' directory at: ${join(props.buildDirectory, ".next", "static")}`,
+        - A 'public' directory at: ${publicSourceDir}
+        - A '.next/static' directory at: ${builtDir}`,
       );
     }
     // `_next/static/` files are content-hashed, so they get the same header
     // Next.js sends for them. Nothing else would: CloudFront and API Gateway
     // serve them straight from S3, where the object's metadata is the only
     // `Cache-Control` there is. A `BucketDeployment`'s `cacheControl` applies to
-    // every object it uploads, hence two.
+    // every object it uploads, hence one deployment per header.
     this.staticDeployment = staticDir
       ? this.createDeployment("Deployment", staticDir, [
           CacheControl.setPublic(),
@@ -157,10 +188,19 @@ export class NextjsStaticAssets extends Construct {
           CacheControl.immutable(),
         ])
       : undefined;
+    this.serviceWorkerDeployment = serviceWorkerDir
+      ? this.createDeployment("ServiceWorkerDeployment", serviceWorkerDir, [
+          CacheControl.setPublic(),
+          CacheControl.maxAge(Duration.seconds(0)),
+          CacheControl.mustRevalidate(),
+        ])
+      : undefined;
     this.publicDeployment = publicDir
       ? this.createDeployment("PublicDeployment", publicDir)
       : undefined;
-    this.deployment = (this.staticDeployment ?? this.publicDeployment)!;
+    this.deployment = (this.staticDeployment ??
+      this.serviceWorkerDeployment ??
+      this.publicDeployment)!;
   }
 
   /**
@@ -223,15 +263,16 @@ export class NextjsStaticAssets extends Construct {
 
   /**
    * Copies `sourceDir` to `<staging>/<subPath>` in a new staging directory, or
-   * returns `undefined` if there is no `sourceDir`. Staged under `subPath`
-   * rather than uploaded with a longer `destinationKeyPrefix`, so every
-   * deployment shares the one prefix `keyPrefix` resolves. `excludePath`, relative
-   * to `sourceDir`, is left out of the copy.
+   * returns `undefined` if there is no `sourceDir` or no file in it passes
+   * `include`. Staged under `subPath` rather than uploaded with a longer
+   * `destinationKeyPrefix`, so every deployment shares the one prefix
+   * `keyPrefix` resolves. `include` gets each entry's path relative to
+   * `sourceDir`.
    */
   private stageDirectory(
     sourceDir: string,
-    subPath: string = "",
-    excludePath?: string,
+    subPath: string,
+    include: (path: string) => boolean = () => true,
   ): string | undefined {
     if (!this.directoryExists(sourceDir)) {
       return undefined;
@@ -240,16 +281,27 @@ export class NextjsStaticAssets extends Construct {
     try {
       const destDir = join(stagingDir, subPath);
       mkdirSync(destDir, { recursive: true });
-      const excluded = excludePath && join(sourceDir, excludePath);
       cpSync(sourceDir, destDir, {
         recursive: true,
-        filter: (path) =>
-          !excluded || (path !== excluded && !path.startsWith(excluded + sep)),
+        filter: (path) => include(relative(sourceDir, path)),
       });
+      const files = readdirSync(destDir, {
+        recursive: true,
+        withFileTypes: true,
+      }).filter((entry) => entry.isFile());
+      if (files.length === 0) {
+        rmSync(stagingDir, { recursive: true, force: true });
+        return undefined;
+      }
       return stagingDir;
     } catch (error) {
       // Thrown rather than skipped, which would deploy without these assets.
-      rmSync(stagingDir, { recursive: true, force: true });
+      // The cleanup's own failure must not replace that error.
+      try {
+        rmSync(stagingDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
       throw new Error(`${LOG_PREFIX} Could not stage ${sourceDir} for upload`, {
         cause: error,
       });

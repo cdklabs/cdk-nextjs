@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, AssetStaging, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { CacheControl } from "aws-cdk-lib/aws-s3-deployment";
+import { BucketDeployment, CacheControl } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsStaticAssets } from "./nextjs-static-assets";
 
 describe("NextjsStaticAssets", () => {
@@ -171,23 +171,65 @@ describe("NextjsStaticAssets", () => {
       expect(uploads.Deployment.DestinationBucketKeyPrefix).toBe("base");
     });
 
-    // `next start` serves the built file, so the public/ copy is left out
-    // rather than racing the _next/static upload for the same key.
-    it("leaves public/_next/static out of the public/ upload", () => {
-      writePublicFile();
-      const shadowDir = join(buildDirectory, "public", "_next", "static");
-      mkdirSync(shadowDir, { recursive: true });
-      writeFileSync(join(shadowDir, "chunk.js"), "// shadow");
-      const staticAssets = createStaticAssets({});
-
+    /** The directory a deployment uploads, for checking what was staged. */
+    function stagedDir(deployment: BucketDeployment): string {
       // The deployment's own source asset, not the AWS CLI layer's.
-      const staged = staticAssets
-        .publicDeployment!.node.findAll()
+      return deployment.node
+        .findAll()
         .filter((c): c is AssetStaging => c instanceof AssetStaging)
         .map((c) => c.sourcePath)
         .find((path) => path.includes("nextjs-assets-"))!;
+    }
+
+    // `next start` serves the built file over a public/ one at the same path,
+    // and the public/ one everywhere else.
+    it("leaves out only the public/_next/static files a built file shadows", () => {
+      writePublicFile();
+      const shadowDir = join(buildDirectory, "public", "_next", "static");
+      mkdirSync(shadowDir, { recursive: true });
+      writeFileSync(join(shadowDir, "chunk.js"), "// shadowed");
+      writeFileSync(join(shadowDir, "legacy.js"), "// public only");
+      const staticAssets = createStaticAssets({});
+
+      const staged = stagedDir(staticAssets.publicDeployment!);
       expect(existsSync(join(staged, "logo.png"))).toBe(true);
-      expect(existsSync(join(staged, "_next", "static"))).toBe(false);
+      expect(existsSync(join(staged, "_next", "static", "chunk.js"))).toBe(
+        false,
+      );
+      expect(existsSync(join(staged, "_next", "static", "legacy.js"))).toBe(
+        true,
+      );
+    });
+
+    // A service worker keeps its URL across builds, so Next.js serves it
+    // revalidated rather than immutable.
+    it("uploads service workers with max-age=0, must-revalidate", () => {
+      const swDir = join(buildDirectory, ".next", "static", "service-worker");
+      mkdirSync(swDir, { recursive: true });
+      writeFileSync(join(swDir, "sw.js"), "// sw");
+      const staticAssets = createStaticAssets({});
+
+      const { Deployment: staticUpload, ServiceWorkerDeployment: swUpload } =
+        deployments();
+      expect(swUpload.SystemMetadata).toEqual({
+        "cache-control": "public, max-age=0, must-revalidate",
+      });
+      expect(staticUpload.SystemMetadata).toEqual({
+        "cache-control": IMMUTABLE,
+      });
+      const swStaged = stagedDir(staticAssets.serviceWorkerDeployment!);
+      expect(
+        existsSync(
+          join(swStaged, "_next", "static", "service-worker", "sw.js"),
+        ),
+      ).toBe(true);
+      const staticStaged = stagedDir(staticAssets.staticDeployment!);
+      expect(
+        existsSync(join(staticStaged, "_next", "static", "chunk.js")),
+      ).toBe(true);
+      expect(
+        existsSync(join(staticStaged, "_next", "static", "service-worker")),
+      ).toBe(false);
     });
 
     it("falls back to the public/ upload for a build without .next/static", () => {
