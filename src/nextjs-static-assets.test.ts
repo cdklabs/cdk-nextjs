@@ -216,6 +216,20 @@ describe("NextjsStaticAssets", () => {
       ]);
     });
 
+    it("uploads a .next/static/service-worker file with the other assets", () => {
+      writeFileSync(
+        join(buildDirectory, ".next", "static", "service-worker"),
+        "// not a directory",
+      );
+      const staticAssets = createStaticAssets({});
+
+      expect(staticAssets.serviceWorkerDeployment).toBeUndefined();
+      const staged = stagedDir(staticAssets.staticDeployment!);
+      expect(
+        existsSync(join(staged, "_next", "static", "service-worker")),
+      ).toBe(true);
+    });
+
     it("uploads a public/ made only of symlinks", () => {
       const target = join(buildDirectory, "logo.png");
       writeFileSync(target, "png");

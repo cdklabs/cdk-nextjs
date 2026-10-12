@@ -49,11 +49,21 @@ const SERVICE_WORKER_DIR = "service-worker";
 /**
  * Every non-directory entry under `dir`, relative to it. Symlinks count:
  * `cpSync` copies them as links, and they upload as the files they point to.
+ *
+ * An explicit walk rather than `readdirSync({ recursive: true })`, which on
+ * Node 24 descends into symlinked directories and so never returns on a cycle,
+ * and whose `Dirent.parentPath` doesn't exist before Node 20.12.
  */
 function listFiles(dir: string): string[] {
-  return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => !entry.isDirectory())
-    .map((entry) => relative(dir, join(entry.parentPath, entry.name)));
+  const files: string[] = [];
+  const pending = [""];
+  for (let sub = pending.pop(); sub !== undefined; sub = pending.pop()) {
+    for (const entry of readdirSync(join(dir, sub), { withFileTypes: true })) {
+      const path = join(sub, entry.name);
+      (entry.isDirectory() ? pending : files).push(path);
+    }
+  }
+  return files;
 }
 
 /** Whether the relative `path` is `dir` or inside it. */
@@ -110,7 +120,8 @@ export interface NextjsStaticAssetsProps {
 export class NextjsStaticAssets extends Construct {
   bucket: IBucket;
   /**
-   * `staticDeployment`, or `publicDeployment` for a build without `.next/static`.
+   * The first of `staticDeployment`, `serviceWorkerDeployment` and
+   * `publicDeployment` the build has files for.
    *
    * @deprecated The assets are uploaded by up to three deployments, and this
    * is only one of them: a dependency on it doesn't wait for the others. Use
@@ -160,10 +171,15 @@ export class NextjsStaticAssets extends Construct {
     this.bucket = props.bucket ?? this.createBucket();
     const builtDir = join(props.buildDirectory, ".next", "static");
     const publicSourceDir = join(props.buildDirectory, "public");
+    // Only a directory is uploaded as service workers, so only a directory is
+    // left out here.
+    const hasServiceWorkers = this.directoryExists(
+      join(builtDir, SERVICE_WORKER_DIR),
+    );
     const staticDir = this.stageDirectory(
       builtDir,
       STATIC_PATH,
-      (path) => !isWithin(path, SERVICE_WORKER_DIR),
+      (path) => !hasServiceWorkers || !isWithin(path, SERVICE_WORKER_DIR),
     );
     const serviceWorkerDir = this.stageDirectory(
       join(builtDir, SERVICE_WORKER_DIR),
@@ -188,7 +204,7 @@ export class NextjsStaticAssets extends Construct {
     );
     if (!staticDir && !serviceWorkerDir && !publicDir) {
       throw new Error(
-        `No static assets found to deploy. Ensure your Next.js build output contains either:
+        `No static assets found to deploy. Ensure your Next.js build output contains files in either:
         - A 'public' directory at: ${publicSourceDir}
         - A '.next/static' directory at: ${builtDir}`,
       );
