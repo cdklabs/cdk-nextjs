@@ -1,5 +1,37 @@
 # Breaking Changes
 
+## 0.7.12
+
+### Static assets are uploaded by one deployment per `Cache-Control`
+
+`NextjsStaticAssets` now uploads `_next/static/` with
+`public, max-age=31536000, immutable` and `_next/static/service-worker/` with
+`public, max-age=0, must-revalidate`, the headers Next.js sends for them, and
+`public/` separately. Before, a single `BucketDeployment` uploaded everything
+with no `Cache-Control`. Nothing changes unless you set
+`overrides.nextjsStaticAssets.bucketDeploymentProps` or read
+`NextjsStaticAssets.deployment`:
+
+- **`prune: true` and `retainOnDelete: false` fail synth.** Each override now
+  reaches every upload. `prune: true` would make each one delete the files the
+  others uploaded. With `retainOnDelete: false`, a change of key prefix makes
+  each upload delete the old prefix while the others are writing theirs.
+  **Migration:** drop both. Old assets are already pruned after deploy by
+  `NextjsPostDeploy`, once they are past its TTL (`overrides.nextjsPostDeploy`).
+- **`sources` and `destinationBucket` are ignored.** CDK's type requires them,
+  but either one replaced the build's assets, or sent them to a bucket
+  CloudFront and API Gateway don't read from. **Migration:** pass your bucket
+  as `staticAssetsBucket` instead, and add your own `BucketDeployment` for
+  extra files.
+- **`cacheControl` applies to `public/` files only.** The `_next/static` uploads
+  always keep Next.js's headers.
+- **`NextjsStaticAssets.deployment` is deprecated.** It is now the
+  `_next/static` upload alone (or the first upload the build has), so a
+  dependency on it no longer waits for `public/`. **Migration:** depend on
+  `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment`, each
+  present only when the build has files for it. `NextjsPostDeploy` already
+  waits for all of them.
+
 ## 0.7.0
 
 ### Requests are served through the adapter runtime, not `next start`
