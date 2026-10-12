@@ -7022,7 +7022,7 @@ const nextjsStaticAssetsOverrides: NextjsStaticAssetsOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | Applied to every upload (`public/`, `_next/static/` and `_next/static/service-worker/`), except that the two `_next/static` uploads always keep the `Cache-Control` Next.js sends for them. So a `cacheControl` here sets the header for `public/` files only, while anything else, such as a `distribution` to invalidate, applies to each upload in turn. `prune: true`, `sources`, and `retainOnDelete: false` with a `bucket` passed in are rejected, since each would break the other uploads. |
+| <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | Applied to every upload (`public/`, `_next/static/` and `_next/static/service-worker/`), except that the two `_next/static` uploads always keep the `Cache-Control` Next.js sends for them. So a `cacheControl` here sets the header for `public/` files only, while anything else, such as a `distribution` to invalidate, applies to each upload in turn. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides.property.bucketProps">bucketProps</a></code> | <code>aws-cdk-lib.aws_s3.BucketProps</code> | *No description.* |
 
 ---
@@ -7035,7 +7035,13 @@ public readonly bucketDeploymentProps: BucketDeploymentProps;
 
 - *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps
 
-Applied to every upload (`public/`, `_next/static/` and `_next/static/service-worker/`), except that the two `_next/static` uploads always keep the `Cache-Control` Next.js sends for them. So a `cacheControl` here sets the header for `public/` files only, while anything else, such as a `distribution` to invalidate, applies to each upload in turn. `prune: true`, `sources`, and `retainOnDelete: false` with a `bucket` passed in are rejected, since each would break the other uploads.
+Applied to every upload (`public/`, `_next/static/` and `_next/static/service-worker/`), except that the two `_next/static` uploads always keep the `Cache-Control` Next.js sends for them. So a `cacheControl` here sets the header for `public/` files only, while anything else, such as a `distribution` to invalidate, applies to each upload in turn.
+
+`sources` and `destinationBucket`, which the type requires, are ignored:
+the uploads are always the build's assets, to the bucket CloudFront and
+API Gateway read from (pass `bucket` to bring your own). `prune: true` and
+`retainOnDelete: false` are rejected, since each would break the other
+uploads.
 
 ---
 
