@@ -50,35 +50,45 @@ const SERVICE_WORKER_DIR = "service-worker";
 
 /**
  * Every file under `dir`, relative to it, through symlinks too: CDK uploads a
- * linked file or directory as what it points to.
+ * linked file or directory as what it points to, under every name it's reached
+ * by.
  *
  * An explicit walk rather than `readdirSync({ recursive: true })`, which never
  * returns on a symlink cycle (Node 24 follows directory links), and whose
- * `Dirent.parentPath` doesn't exist before Node 20.12. Each real directory is
- * walked once.
+ * `Dirent.parentPath` doesn't exist before Node 20.12. A link back to a
+ * directory already on the current path is a cycle and isn't followed; one that
+ * can't be stat'd (dangling, or a loop of links) counts as a file.
  */
 function listFiles(dir: string): string[] {
   const files: string[] = [];
-  const walked = new Set<string>();
-  const pending = [""];
-  for (let sub = pending.pop(); sub !== undefined; sub = pending.pop()) {
+  const walk = (sub: string, ancestors: ReadonlySet<string>) => {
     const real = realpathSync(join(dir, sub));
-    if (walked.has(real)) {
-      continue;
+    if (ancestors.has(real)) {
+      return;
     }
-    walked.add(real);
+    const path = new Set(ancestors).add(real);
     for (const entry of readdirSync(real, { withFileTypes: true })) {
-      const path = join(sub, entry.name);
-      const isDirectory =
+      const child = join(sub, entry.name);
+      if (
         entry.isDirectory() ||
-        (entry.isSymbolicLink() &&
-          statSync(join(real, entry.name), {
-            throwIfNoEntry: false,
-          })?.isDirectory());
-      (isDirectory ? pending : files).push(path);
+        (entry.isSymbolicLink() && isDirectoryLink(join(real, entry.name)))
+      ) {
+        walk(child, path);
+      } else {
+        files.push(child);
+      }
     }
-  }
+  };
+  walk("", new Set());
   return files;
+}
+
+function isDirectoryLink(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** Whether the relative `path` is `dir` or inside it. */
@@ -187,19 +197,64 @@ export class NextjsStaticAssets extends Construct {
     this.validateDeploymentOverrides();
     this.keyPrefix = this.resolveKeyPrefix();
     this.bucket = props.bucket ?? this.createBucket();
-    const builtDir = join(props.buildDirectory, ".next", "static");
-    const publicSourceDir = join(props.buildDirectory, "public");
+    const staged: string[] = [];
+    try {
+      const uploads = this.createDeployments(staged);
+      this.staticDeployment = uploads.staticDeployment;
+      this.serviceWorkerDeployment = uploads.serviceWorkerDeployment;
+      this.publicDeployment = uploads.publicDeployment;
+    } finally {
+      // `Source.asset` stages during `BucketDeployment`'s construction (CDK's
+      // `AssetStaging` copies into `cdk.out` from its own constructor), so the
+      // temporary copies are dead once the deployments exist, or once one of
+      // them failed. Left behind, every synth would add another full copy of
+      // the app's static assets to the temp directory.
+      //
+      // Unless staging is disabled (`cdk synth --no-staging`, and SAM, which
+      // sets the same context): then the asset manifest points at these
+      // directories themselves, and removing them would fail the publish that
+      // follows.
+      if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
+        for (const dir of staged) {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    }
+    this.deployment = (this.staticDeployment ??
+      this.serviceWorkerDeployment ??
+      this.publicDeployment)!;
+  }
+
+  /**
+   * Stages each tree and creates its deployment, adding every staging
+   * directory to `staged` as it's made, so the caller can remove them even if
+   * a later step throws.
+   */
+  private createDeployments(staged: string[]): {
+    staticDeployment?: BucketDeployment;
+    serviceWorkerDeployment?: BucketDeployment;
+    publicDeployment?: BucketDeployment;
+  } {
+    const stage: typeof this.stageDirectory = (...args) => {
+      const dir = this.stageDirectory(...args);
+      if (dir) {
+        staged.push(dir);
+      }
+      return dir;
+    };
+    const builtDir = join(this.props.buildDirectory, ".next", "static");
+    const publicSourceDir = join(this.props.buildDirectory, "public");
     // Only a directory is uploaded as service workers, so only a directory is
     // left out here.
     const hasServiceWorkers = this.directoryExists(
       join(builtDir, SERVICE_WORKER_DIR),
     );
-    const staticDir = this.stageDirectory(
+    const staticDir = stage(
       builtDir,
       STATIC_PATH,
       (path) => !hasServiceWorkers || !isWithin(path, SERVICE_WORKER_DIR),
     );
-    const serviceWorkerDir = this.stageDirectory(
+    const serviceWorkerDir = stage(
       join(builtDir, SERVICE_WORKER_DIR),
       join(STATIC_PATH, SERVICE_WORKER_DIR),
     );
@@ -213,7 +268,7 @@ export class NextjsStaticAssets extends Construct {
     const builtFiles = new Set(
       this.directoryExists(builtDir) ? listFiles(builtDir) : [],
     );
-    const publicDir = this.stageDirectory(
+    const publicDir = stage(
       publicSourceDir,
       "",
       (path) =>
@@ -232,26 +287,25 @@ export class NextjsStaticAssets extends Construct {
     // serve them straight from S3, where the object's metadata is the only
     // `Cache-Control` there is. A `BucketDeployment`'s `cacheControl` applies to
     // every object it uploads, hence one deployment per header.
-    this.staticDeployment = staticDir
-      ? this.createDeployment("Deployment", staticDir, [
-          CacheControl.setPublic(),
-          CacheControl.maxAge(Duration.days(365)),
-          CacheControl.immutable(),
-        ])
-      : undefined;
-    this.serviceWorkerDeployment = serviceWorkerDir
-      ? this.createDeployment("ServiceWorkerDeployment", serviceWorkerDir, [
-          CacheControl.setPublic(),
-          CacheControl.maxAge(Duration.seconds(0)),
-          CacheControl.mustRevalidate(),
-        ])
-      : undefined;
-    this.publicDeployment = publicDir
-      ? this.createDeployment("PublicDeployment", publicDir)
-      : undefined;
-    this.deployment = (this.staticDeployment ??
-      this.serviceWorkerDeployment ??
-      this.publicDeployment)!;
+    return {
+      staticDeployment: staticDir
+        ? this.createDeployment("Deployment", staticDir, [
+            CacheControl.setPublic(),
+            CacheControl.maxAge(Duration.days(365)),
+            CacheControl.immutable(),
+          ])
+        : undefined,
+      serviceWorkerDeployment: serviceWorkerDir
+        ? this.createDeployment("ServiceWorkerDeployment", serviceWorkerDir, [
+            CacheControl.setPublic(),
+            CacheControl.maxAge(Duration.seconds(0)),
+            CacheControl.mustRevalidate(),
+          ])
+        : undefined,
+      publicDeployment: publicDir
+        ? this.createDeployment("PublicDeployment", publicDir)
+        : undefined,
+    };
   }
 
   /**
@@ -328,28 +382,6 @@ export class NextjsStaticAssets extends Construct {
     stagingDir: string,
     cacheControl?: CacheControl[],
   ) {
-    try {
-      return this.newDeployment(id, stagingDir, cacheControl);
-    } finally {
-      // `Source.asset` stages during `BucketDeployment`'s construction (CDK's
-      // `AssetStaging` copies into `cdk.out` from its own constructor), so the
-      // temporary copy is dead once that returns. Left behind, every synth would
-      // add another full copy of the app's static assets to the temp directory.
-      //
-      // Unless staging is disabled (`cdk synth --no-staging`, and SAM, which
-      // sets the same context): then the asset manifest points at this
-      // directory itself, and removing it would fail the publish that follows.
-      if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
-        rmSync(stagingDir, { recursive: true, force: true });
-      }
-    }
-  }
-
-  private newDeployment(
-    id: string,
-    stagingDir: string,
-    cacheControl?: CacheControl[],
-  ) {
     return new BucketDeployment(this, id, {
       // Add BUILD_ID as metadata to all objects for version tracking
       metadata: {
@@ -391,8 +423,10 @@ export class NextjsStaticAssets extends Construct {
     if (!this.directoryExists(sourceDir)) {
       return undefined;
     }
-    // From the real path: `cpSync` would copy a symlinked `sourceDir` as a
-    // link, which fails onto the directory made for it here.
+    // From the real path, and dereferencing links inside it: `cpSync` would
+    // copy a link as a link, which fails for a symlinked `sourceDir` (onto the
+    // directory made for it here) and hides a linked directory's files from
+    // `include`, though CDK uploads them.
     const realSourceDir = realpathSync(sourceDir);
     const stagingDir = mkdtempSync(join(tmpdir(), "nextjs-assets-"));
     try {
@@ -400,6 +434,7 @@ export class NextjsStaticAssets extends Construct {
       mkdirSync(destDir, { recursive: true });
       cpSync(realSourceDir, destDir, {
         recursive: true,
+        dereference: true,
         filter: (path) => include(relative(realSourceDir, path)),
       });
       if (listFiles(destDir).length === 0) {

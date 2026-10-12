@@ -324,6 +324,72 @@ describe("NextjsStaticAssets", () => {
       ).toBe(false);
     });
 
+    // CDK uploads a directory under every name a link gives it.
+    it("treats files reached through a second name as shadowing", () => {
+      keepStaging();
+      const builtStatic = join(buildDirectory, ".next", "static");
+      mkdirSync(join(builtStatic, "chunks"));
+      writeFileSync(join(builtStatic, "chunks", "a.js"), "// built");
+      symlinkSync(join(builtStatic, "chunks"), join(builtStatic, "alias"));
+      const shadowDir = join(buildDirectory, "public", "_next", "static");
+      mkdirSync(join(shadowDir, "alias"), { recursive: true });
+      writeFileSync(join(shadowDir, "alias", "a.js"), "// shadowed");
+      writeFileSync(join(buildDirectory, "public", "logo.png"), "png");
+      const staticAssets = createStaticAssets({});
+
+      const staged = stagedDir(staticAssets.publicDeployment!);
+      expect(existsSync(join(staged, "_next", "static", "alias", "a.js"))).toBe(
+        false,
+      );
+    });
+
+    it("leaves out a shadowed file under a symlinked public/ directory", () => {
+      keepStaging();
+      const linked = join(buildDirectory, "linked-static");
+      mkdirSync(linked);
+      writeFileSync(join(linked, "chunk.js"), "// shadowed");
+      writeFileSync(join(linked, "legacy.js"), "// public only");
+      mkdirSync(join(buildDirectory, "public", "_next"), { recursive: true });
+      symlinkSync(linked, join(buildDirectory, "public", "_next", "static"));
+      const staticAssets = createStaticAssets({});
+
+      const staged = stagedDir(staticAssets.publicDeployment!);
+      expect(existsSync(join(staged, "_next", "static", "chunk.js"))).toBe(
+        false,
+      );
+      expect(existsSync(join(staged, "_next", "static", "legacy.js"))).toBe(
+        true,
+      );
+    });
+
+    it("lists a .next/static holding a link loop", () => {
+      const builtStatic = join(buildDirectory, ".next", "static");
+      symlinkSync(join(builtStatic, "loop"), join(builtStatic, "loop"));
+      writePublicFile();
+
+      expect(() => createStaticAssets({})).not.toThrow(/ELOOP/);
+    });
+
+    it("removes the staging directories when a deployment fails", () => {
+      writePublicFile();
+      const before = new Set(readdirSync(tmpdir()));
+      jest
+        .spyOn(NextjsStaticAssets.prototype as any, "createDeployment")
+        .mockImplementation(() => {
+          throw new Error("deployment failed");
+        });
+      try {
+        expect(() => createStaticAssets({})).toThrow("deployment failed");
+      } finally {
+        jest.restoreAllMocks();
+      }
+
+      const leaked = readdirSync(tmpdir()).filter(
+        (name) => name.startsWith("nextjs-assets-") && !before.has(name),
+      );
+      expect(leaked).toEqual([]);
+    });
+
     it("removes its staging directories once CDK has copied them", () => {
       writePublicFile();
       const staticAssets = createStaticAssets({});
