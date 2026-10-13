@@ -4,13 +4,19 @@ import type { NextRequest } from 'next/server';
 import { ImageResponse } from 'next/og';
 import type { ReactElement } from 'react';
 
-// Read from disk inside the handler, as the `ImageResponse` docs do. A
-// module-scope `fetch(new URL('./Inter-SemiBold.ttf', import.meta.url))` ran on
-// every build and logged `TypeError: fetch failed` - Node's fetch has no
-// `file:` support - into otherwise passing e2e logs.
+// Read from disk once per instance, as the `ImageResponse` docs do. The
+// `fetch(new URL('./Inter-SemiBold.ttf', import.meta.url))` this replaced ran
+// on every build and logged `TypeError: fetch failed` - Node's fetch has no
+// `file:` support - into otherwise passing e2e logs. The docs' top-level
+// `await` doesn't compile under this app's tsconfig, and a module-scope promise
+// that rejected before the first request would be unhandled, so the buffer is
+// cached on first use instead: a failed read throws into the `catch` below and
+// is retried by the next request.
+let interSemiBold: Buffer | undefined;
+
 export async function GET(req: NextRequest): Promise<Response | ImageResponse> {
   try {
-    const interSemiBold = await readFile(
+    interSemiBold ??= await readFile(
       join(process.cwd(), 'app/api/og/Inter-SemiBold.ttf'),
     );
 

@@ -1,3 +1,5 @@
+import { fetchLocal } from '#/lib/fetch-local';
+
 export type Post = { title: string; body: string };
 
 /**
@@ -15,17 +17,7 @@ export function getPost(id: string): Post {
   };
 }
 
-/**
- * `getPost` through `fetch`, for the pages whose coverage depends on the call
- * being a `fetch`. Next.js caches a `fetch` made while prerendering as a
- * `FETCH`-kind entry, which cdk-nextjs seeds into S3 at deploy and the cache
- * handler reads back on revalidation - a path no other route exercises. A
- * `data:` URL keeps that path without the network: Next.js's patched `fetch`
- * caches it by URL like any other, and nothing is listening on localhost during
- * `next build` or inside a Lambda to serve a local route handler instead.
- */
-export async function fetchPost(id: string): Promise<Post> {
-  const url = `data:application/json,${encodeURIComponent(JSON.stringify(getPost(id)))}`;
-  const res = await fetch(url);
-  return (await res.json()) as Post;
+/** `getPost` through `fetch` - see `fetchLocal` for why. */
+export function fetchPost(id: string): Promise<Post> {
+  return fetchLocal(getPost(id));
 }
