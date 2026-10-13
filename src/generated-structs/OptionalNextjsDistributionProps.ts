@@ -7,6 +7,28 @@ import type { NextjsType, PublicDirEntry } from '../';
  */
 export interface OptionalNextjsDistributionProps {
   /**
+   * Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike.
+   * It's the place for a check the whole site has to pass before
+   * anything is served — HTTP Basic auth on a pre-launch site, geo-gating.
+   *
+   * CloudFront runs one function per event type per behavior, and on
+   * `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
+   * so this code is spliced into that function rather than associated beside
+   * it. It must define `function viewerRequest(event)`, which is a CloudFront
+   * Function handler in all but name: return a response to answer the viewer
+   * with it, or the request (or nothing) to carry on. cdk-nextjs's own logic
+   * runs after it, so it can't undo the `X-Forwarded-Host` overwrite.
+   *
+   * The code runs on `cloudfront-js-1.0` (ES5.1) and is checked at synth
+   * against CloudFront's 10 KB function size limit, cdk-nextjs's own code
+   * included. A bring-your-own {@link distribution}'s default behavior is
+   * yours, so it isn't covered; under a `basePath`, the behaviors that stand
+   * in for it are.
+   * @default - none
+   * @stability stable
+   */
+  readonly viewerRequestFunctionCode?: aws_cloudfront.FunctionCode;
+  /**
    * The most cache behaviors the distribution may have, the default one included.
    * cdk-nextjs counts what it adds against this at synth, so running
    * out is a synth error naming what used them rather than a failed deploy.

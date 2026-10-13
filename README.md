@@ -415,6 +415,52 @@ Notes:
 - Per-group `overrides` let you size each function independently:
   `{ name: "reports", routes: [...], overrides: { functionProps: { memorySize: 2048 } } }`.
 
+## Running Code on Every Viewer Request
+
+`NextjsGlobalFunctions` and `NextjsGlobalContainers` take a
+`viewerRequestFunctionCode` prop: CloudFront Function code that runs first on
+every request, on every behavior cdk-nextjs adds — pages, API routes,
+`_next/image`, `_next/static` and `public/` files alike. It's the place for a
+gate the whole site has to pass, such as HTTP Basic auth before launch:
+
+```ts
+import { FunctionCode } from "aws-cdk-lib/aws-cloudfront";
+
+new NextjsGlobalFunctions(this, "Nextjs", {
+  buildDirectory: join(import.meta.dirname),
+  viewerRequestFunctionCode: FunctionCode.fromInline(`
+    function viewerRequest(event) {
+      var auth = event.request.headers.authorization;
+      // base64 of "user:pass"
+      if (auth && auth.value === "Basic dXNlcjpwYXNz") return;
+      return {
+        statusCode: 401,
+        statusDescription: "Unauthorized",
+        headers: { "www-authenticate": { value: 'Basic realm="preview"' } },
+      };
+    }
+  `),
+});
+```
+
+The code must define `function viewerRequest(event)`, a CloudFront Function
+handler in all but name: return a response to answer the viewer, or the request
+(or nothing) to carry on. Why not a function of your own on viewer-request?
+CloudFront allows one per event type per behavior, and on Global Functions
+cdk-nextjs's own one overwrites `X-Forwarded-Host` and redirects repeated
+slashes. So your code is spliced into that function, ahead of cdk-nextjs's
+logic, which still runs after it. Middleware can't do this instead: on Global Functions
+CloudFront signs the request to the Function URL with the `Authorization`
+header, and static assets never reach the server at all.
+
+- The runtime is `cloudfront-js-1.0` (ES5.1). The combined function,
+  cdk-nextjs's code included, must fit CloudFront's 10 KB limit; synth fails
+  if it doesn't.
+- Inline credentials end up in the CloudFormation template. That's fine for a
+  preview gate, not for anything you'd call a secret.
+- A bring-your-own `distribution`'s default behavior is yours, so it isn't
+  covered. Only the behaviors cdk-nextjs adds are.
+
 ## Architecture
 
 How requests are served inside the compute — the adapter runtime, and where it deliberately differs from `next start` — is in [docs/adapter-runtime.md](./docs/adapter-runtime.md).

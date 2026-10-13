@@ -1,5 +1,5 @@
 import { Stack } from "aws-cdk-lib";
-import { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import { Distribution, FunctionCode } from "aws-cdk-lib/aws-cloudfront";
 import { Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Function as LambdaFunction } from "aws-cdk-lib/aws-lambda";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
@@ -63,6 +63,14 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
    * Override props of any construct.
    */
   readonly overrides?: NextjsGlobalFunctionsOverrides;
+  /**
+   * CloudFront Function code run first on every viewer request, static assets
+   * included — HTTP Basic auth on a pre-launch site, say. It must define
+   * `function viewerRequest(event)`.
+   * @see NextjsDistributionProps.viewerRequestFunctionCode
+   * @default - none
+   */
+  readonly viewerRequestFunctionCode?: FunctionCode;
 }
 
 /**
@@ -169,6 +177,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
           functionUrl: group.functionUrl!,
         })),
       functionGroupBehaviors: this.nextjsBuild.functionGroupBehaviors,
+      viewerRequestFunctionCode: this.props.viewerRequestFunctionCode,
       ...this.props.overrides?.nextjsGlobalFunctions?.nextjsDistributionProps,
     });
   }

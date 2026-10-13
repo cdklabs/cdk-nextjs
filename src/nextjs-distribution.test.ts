@@ -6,6 +6,8 @@ import {
   FunctionCode,
   FunctionEventType,
 } from "aws-cdk-lib/aws-cloudfront";
+import { Vpc } from "aws-cdk-lib/aws-ec2";
+import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import {
   Code,
   Function as LambdaFunction,
@@ -19,6 +21,7 @@ import { NextjsType } from "./constants";
 import {
   NextjsDistribution,
   NextjsDistributionFunctionGroup,
+  NextjsDistributionOverrides,
 } from "./nextjs-distribution";
 
 /**
@@ -919,5 +922,240 @@ describe("the viewer-request CloudFront Function", () => {
       },
     }) as FunctionRequest;
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
+  });
+});
+
+/**
+ * `viewerRequestFunctionCode`, run as CloudFront would run it on each behavior,
+ * for the same reason as the suite above.
+ */
+describe("viewerRequestFunctionCode", () => {
+  const BASIC_AUTH = `
+    function viewerRequest(event) {
+      var auth = event.request.headers.authorization;
+      if (auth && auth.value === "Basic dXNlcjpwYXNz") return;
+      return {
+        statusCode: 401,
+        statusDescription: "Unauthorized",
+        headers: { "www-authenticate": { value: 'Basic realm="preview"' } },
+      };
+    }
+  `;
+  const AUTHORIZED = { authorization: "Basic dXNlcjpwYXNz" };
+
+  interface FunctionRequest {
+    uri: string;
+    querystring: Record<string, { value: string }>;
+    headers: Record<string, { value: string }>;
+  }
+  type FunctionResult =
+    | FunctionRequest
+    | { statusCode: number; headers: Record<string, { value: string }> };
+  type Handler = (event: { request: FunctionRequest }) => FunctionResult;
+  interface Behavior {
+    PathPattern: string;
+    FunctionAssociations?: Array<{
+      EventType: string;
+      FunctionARN: { "Fn::GetAtt": [string, string] };
+    }>;
+  }
+
+  const synth = (
+    props: {
+      code?: string;
+      nextjsType?: NextjsType;
+      assetPrefix?: string;
+      overrides?: (stack: Stack) => NextjsDistributionOverrides;
+    } = {},
+  ) => {
+    const stack = new Stack(new App(), "TestStack");
+    const compute =
+      props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+        ? {
+            loadBalancer: new ApplicationLoadBalancer(stack, "Alb", {
+              vpc: new Vpc(stack, "Vpc"),
+            }),
+          }
+        : {
+            functionUrl: new FunctionUrl(stack, "Url", {
+              function: new LambdaFunction(stack, "Fn", {
+                code: Code.fromInline("exports.handler = () => {};"),
+                handler: "index.handler",
+                runtime: Runtime.NODEJS_22_X,
+              }),
+              authType: FunctionUrlAuthType.AWS_IAM,
+            }),
+          };
+    new NextjsDistribution(stack, "Distribution", {
+      ...compute,
+      assetsBucket: new Bucket(stack, "Assets"),
+      assetPrefix: props.assetPrefix,
+      nextjsType: props.nextjsType ?? NextjsType.GLOBAL_FUNCTIONS,
+      overrides: props.overrides?.(stack),
+      publicDirEntries: [{ name: "favicon.ico", isDirectory: false }],
+      viewerRequestFunctionCode:
+        props.code === undefined
+          ? undefined
+          : FunctionCode.fromInline(props.code),
+    });
+    const template = Template.fromStack(stack);
+    const functions = template.findResources("AWS::CloudFront::Function");
+    const config = Object.values(
+      template.findResources("AWS::CloudFront::Distribution"),
+    )[0].Properties.DistributionConfig;
+    const behaviors: Behavior[] = [
+      { PathPattern: "*", ...config.DefaultCacheBehavior },
+      ...config.CacheBehaviors,
+    ];
+    /** The viewer-request handler on the behavior for `pathPattern`, runnable. */
+    const handlerFor = (pathPattern: string): Handler => {
+      const behavior = behaviors.find((it) => it.PathPattern === pathPattern)!;
+      const association = behavior.FunctionAssociations!.find(
+        (it) => it.EventType === "viewer-request",
+      )!;
+      const code = functions[association.FunctionARN["Fn::GetAtt"][0]]
+        .Properties.FunctionCode as string;
+      return runInNewContext(`${code}\nhandler`) as Handler;
+    };
+    return { behaviors, functions, handlerFor };
+  };
+
+  const request = (uri: string, headers: Record<string, string> = {}) => ({
+    request: {
+      uri,
+      querystring: {},
+      headers: Object.fromEntries(
+        Object.entries({ host: "a.test", ...headers }).map(([name, value]) => [
+          name,
+          { value },
+        ]),
+      ),
+    },
+  });
+  const status = (result: FunctionResult) =>
+    (result as { statusCode?: number }).statusCode;
+
+  it.each([NextjsType.GLOBAL_FUNCTIONS, NextjsType.GLOBAL_CONTAINERS])(
+    "gates every behavior on %s, static assets included",
+    (nextjsType) => {
+      const { behaviors, handlerFor } = synth({ code: BASIC_AUTH, nextjsType });
+      expect(behaviors.map((it) => it.PathPattern).sort()).toEqual([
+        "*",
+        "_next/image*",
+        "_next/static*",
+        "favicon.ico",
+      ]);
+      for (const { PathPattern } of behaviors) {
+        const handler = handlerFor(PathPattern);
+        expect(status(handler(request("/x")))).toBe(401);
+        const passed = handler(request("/x", AUTHORIZED)) as FunctionRequest;
+        expect(passed.uri).toBe("/x");
+      }
+    },
+  );
+
+  it("runs before the repeated-slash redirect", () => {
+    // Otherwise `/a//b` would answer 308 to a viewer who never authenticated.
+    const handler = synth({ code: BASIC_AUTH }).handlerFor("*");
+    expect(status(handler(request("/a//b")))).toBe(401);
+    expect(status(handler(request("/a//b", AUTHORIZED)))).toBe(308);
+  });
+
+  it("can't keep a viewer's x-forwarded-host past cdk-nextjs's overwrite", () => {
+    const handler = synth({
+      code: `
+        function viewerRequest(event) {
+          event.request.headers["x-forwarded-host"] = { value: "evil.test" };
+          return event.request;
+        }
+      `,
+    }).handlerFor("*");
+    const result = handler(request("/x")) as FunctionRequest;
+    expect(result.headers["x-forwarded-host"].value).toBe("a.test");
+  });
+
+  it("carries on with a request it returns as a new object", () => {
+    const handler = synth({
+      code: `
+        function viewerRequest(event) {
+          return { uri: "/y", querystring: {}, headers: event.request.headers };
+        }
+      `,
+    }).handlerFor("_next/static*");
+    expect((handler(request("/x")) as FunctionRequest).uri).toBe("/y");
+  });
+
+  it("runs inside the assetPrefix rewrite, in place of the static function", () => {
+    const { behaviors, handlerFor } = synth({
+      code: BASIC_AUTH,
+      assetPrefix: "/cdn",
+    });
+    const prefixed = behaviors.find(
+      (it) => it.PathPattern === "/cdn/_next/static*",
+    )!;
+    // One viewer-request function per behavior, or CloudFront rejects it.
+    expect(
+      prefixed.FunctionAssociations!.filter(
+        (it) => it.EventType === "viewer-request",
+      ),
+    ).toHaveLength(1);
+    const handler = handlerFor("/cdn/_next/static*");
+    expect(status(handler(request("/cdn/_next/static/a.js")))).toBe(401);
+    const passed = handler(
+      request("/cdn/_next/static/a.js", AUTHORIZED),
+    ) as FunctionRequest;
+    expect(passed.uri).toBe("/_next/static/a.js");
+  });
+
+  it("changes nothing when unset", () => {
+    const { behaviors, functions } = synth();
+    const staticBehavior = behaviors.find(
+      (it) => it.PathPattern === "_next/static*",
+    )!;
+    expect(staticBehavior.FunctionAssociations).toBeUndefined();
+    const code = Object.values(functions).map(
+      (fn) => fn.Properties.FunctionCode as string,
+    );
+    expect(code).toHaveLength(1);
+    // The marker is dropped, not left in the deployed function.
+    expect(code[0]).toMatch(/^\s*function handler\(event\) \{\n\s*var request/);
+  });
+
+  it("refuses a static override that already claims viewer-request", () => {
+    expect(() =>
+      synth({
+        code: BASIC_AUTH,
+        overrides: (stack) => ({
+          staticBehaviorOptions: {
+            functionAssociations: [
+              {
+                eventType: FunctionEventType.VIEWER_REQUEST,
+                function: new CloudFrontFunction(stack, "UserFn", {
+                  code: FunctionCode.fromInline(
+                    "function handler(event) { return event.request; }",
+                  ),
+                }),
+              },
+            ],
+          },
+        }),
+      }),
+    ).toThrow(/overrides\.staticBehaviorOptions\.functionAssociations/);
+  });
+
+  it.each([
+    ["no viewerRequest", "var x = 1;", /must define `function viewerRequest/],
+    [
+      "a handler of its own",
+      "function handler(event) {} function viewerRequest(event) {}",
+      /defines `function handler`/,
+    ],
+    [
+      "more than fits in a CloudFront Function",
+      `function viewerRequest(event) {} /* ${"x".repeat(10 * 1024)} */`,
+      /over CloudFront's limit of 10240/,
+    ],
+  ])("refuses code with %s", (_name, code, error) => {
+    expect(() => synth({ code })).toThrow(error);
   });
 });
