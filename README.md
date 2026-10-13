@@ -503,16 +503,19 @@ aws cloudfront-keyvaluestore put-key --kvs-arn "$KVS_ARN" \
     --kvs-arn "$KVS_ARN" --query ETag --output text)"
 ```
 
-The code must define `function viewerRequest(event)` (`async` or not, or as
-`const viewerRequest = (event) => …`), a
-CloudFront Function handler in all but name: return a response to answer the
-viewer, or the request (or nothing) to carry on. Why not a function of your own on viewer-request?
-CloudFront allows one per event type per behavior, and on Global Functions
-cdk-nextjs's own one overwrites `X-Forwarded-Host` and redirects repeated
-slashes. So your code is spliced into that function, ahead of cdk-nextjs's
-logic, which still runs after it. Middleware can't do this instead: on Global Functions
-CloudFront signs the request to the Function URL with the `Authorization`
-header, and static assets never reach the server at all.
+The code must define `viewerRequest(event)`, as a function (`async` or not)
+or a `var`/`let`/`const`. It's a CloudFront Function handler in all but name:
+return a response to answer the viewer, or the request (or nothing) to carry
+on.
+
+Why not a function of your own on viewer-request? CloudFront allows one per
+event type per behavior, and on Global Functions cdk-nextjs's own one
+overwrites `X-Forwarded-Host` and redirects repeated slashes. So your code is
+spliced into that function, ahead of cdk-nextjs's logic, which still runs after
+it, so your code can't undo the `X-Forwarded-Host` overwrite. Middleware can't
+do this instead: on Global Functions CloudFront signs the request to the
+Function URL with the `Authorization` header, and static assets never reach the
+server at all.
 
 - cdk-nextjs's CloudFront Functions run on `cloudfront-js-2.0`, so your code
   can be `async`, and `import cf from "cloudfront"` works when it comes first,
@@ -524,8 +527,17 @@ header, and static assets never reach the server at all.
 - The combined function, cdk-nextjs's code included, must fit CloudFront's
   10 KB limit; synth fails if it doesn't (or warns, if the code contains a
   CDK token, whose size isn't known until deploy).
+- Your code shares the file with cdk-nextjs's `handler`, so it can't use the
+  name `handler` at all, even in a comment or a string; synth refuses it.
+- A viewer-request association in `overrides.*BehaviorOptions.functionAssociations`
+  on a behavior this covers is refused at synth; put that logic in
+  `viewerRequestFunctionCode` instead. So is
+  `overrides.distributionProps.defaultBehavior` without a `basePath`, since it
+  would replace the default behavior the code runs on; customize it through
+  `overrides.dynamicBehaviorOptions`.
 - A bring-your-own `distribution`'s default behavior is yours, so it isn't
-  covered. Only the behaviors cdk-nextjs adds are.
+  covered. Only the behaviors cdk-nextjs adds are; under a `basePath`, those
+  include the ones that stand in for the default behavior.
 
 ## Bring Your Own Resources
 

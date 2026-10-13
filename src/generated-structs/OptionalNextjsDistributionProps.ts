@@ -14,27 +14,15 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly viewerRequestKeyValueStore?: aws_cloudfront.IKeyValueStore;
   /**
-   * Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike.
-   * It's the place for a check the whole site has to pass before
-   * anything is served — HTTP Basic auth on a pre-launch site, geo-gating.
-   *
-   * CloudFront runs one function per event type per behavior, and on
-   * `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
-   * so this code is spliced into that function rather than associated beside
-   * it. It must define `function viewerRequest(event)` (or
-   * `async function viewerRequest(event)`, or `const viewerRequest = …`),
-   * which is a CloudFront Function
-   * handler in all but name: return a response to answer the viewer with it,
-   * or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
-   * it, so it can't undo the `X-Forwarded-Host` overwrite.
-   *
-   * cdk-nextjs's functions run on `cloudfront-js-2.0`, so it may be async
-   * and, with {@link viewerRequestKeyValueStore}, read the store through
-   * `import cf from "cloudfront"` — which, being the user code, comes first in
-   * the file as CloudFront requires. It is checked at synth against
-   * CloudFront's 10 KB function size limit, cdk-nextjs's own code included. A
-   * bring-your-own {@link distribution}'s default behavior is yours, so it
-   * isn't covered; under a `basePath`, the behaviors that stand in for it are.
+   * CloudFront Function code run first on every viewer request, on every behavior cdk-nextjs adds, static assets included — HTTP Basic auth on a pre-launch site, geo-gating.
+   * It must define `viewerRequest(event)` (a function, sync or async, or a
+   * `var`/`let`/`const`): return a response to answer the viewer, or the
+   * request (or nothing) to carry on. It is spliced into cdk-nextjs's own
+   * viewer-request functions, ahead of their logic, so it may not use the
+   * name `handler`, and the combined function must fit CloudFront's 10 KB.
+   * It runs on `cloudfront-js-2.0`, so it may be async and read
+   * {@link viewerRequestKeyValueStore} with `cf.kvs()`. A bring-your-own
+   * {@link distribution}'s default behavior isn't covered.
    * @default - none
    * @stability stable
    */
