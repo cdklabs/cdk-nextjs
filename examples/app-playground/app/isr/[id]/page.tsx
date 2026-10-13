@@ -1,4 +1,5 @@
 import { cacheLife, cacheTag } from 'next/cache';
+import { fetchPost } from '#/lib/posts';
 import { RenderingInfo } from '#/ui/rendering-info';
 
 export async function generateStaticParams() {
@@ -37,8 +38,7 @@ async function Post({ id }: { id: string }) {
   // revalidation e2e invalidates every post at once.
   cacheTag('collection');
 
-  const res = await fetch(`https://jsonplaceholder.typicode.com/posts/${id}`);
-  const data = (await res.json()) as { title: string; body: string };
+  const data = await fetchPost(id);
 
   return (
     <div className="grid grid-cols-6 gap-x-6 gap-y-3">

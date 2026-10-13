@@ -1,12 +1,13 @@
+import { connection } from 'next/server';
+import { getPost } from '#/lib/posts';
 import { RenderingInfo } from '#/ui/rendering-info';
 
 export default async function Page(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const res = await fetch(
-    `https://jsonplaceholder.typicode.com/posts/${params.id}`,
-    { cache: 'no-store' },
-  );
-  const data = (await res.json()) as { title: string; body: string };
+  // Render at request time - the `cache: 'no-store'` fetch this page used to make
+  // did this as a side effect, and the ssr e2e asserts every visit is fresh.
+  await connection();
+  const data = getPost(params.id);
 
   return (
     <div className="grid grid-cols-6 gap-x-6 gap-y-3">
