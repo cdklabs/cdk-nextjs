@@ -517,9 +517,10 @@ header, and static assets never reach the server at all.
 - cdk-nextjs's CloudFront Functions run on `cloudfront-js-2.0`, so your code
   can be `async`, and `import cf from "cloudfront"` works when it comes first,
   as it does above.
-- `viewerRequestKeyValueStore` is associated with each of those functions, and
-  `cf.kvs()` reads it with no ID. Credentials written inline in the code instead
-  end up in the CloudFormation template.
+- `viewerRequestKeyValueStore` is associated with every viewer-request function
+  your code is copied into (up to three, one per kind of behavior), so
+  `cf.kvs()` reads it with no ID wherever the code runs. Credentials written
+  inline in the code instead end up in the CloudFormation template.
 - The combined function, cdk-nextjs's code included, must fit CloudFront's
   10 KB limit; synth fails if it doesn't (or warns, if the code contains a
   CDK token, whose size isn't known until deploy).

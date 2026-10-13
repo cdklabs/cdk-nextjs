@@ -200,10 +200,11 @@ export interface NextjsDistributionProps {
    */
   readonly viewerRequestFunctionCode?: FunctionCode;
   /**
-   * A CloudFront KeyValueStore associated with every function
-   * {@link viewerRequestFunctionCode} runs in, so values it reads — Basic auth
-   * credentials, an allowlist — live outside the CloudFormation template and
-   * change without a deploy. Read it with `cf.kvs()`, no ID needed.
+   * A CloudFront KeyValueStore associated with every viewer-request function
+   * {@link viewerRequestFunctionCode} is copied into (up to three, one per kind
+   * of behavior), so values it reads — Basic auth credentials, an allowlist —
+   * live outside the CloudFormation template and change without a deploy.
+   * Read it with `cf.kvs()`, no ID needed.
    * @default - none
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html
    */
