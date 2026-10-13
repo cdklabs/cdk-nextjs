@@ -980,6 +980,7 @@ describe("viewerRequestFunctionCode", () => {
       code?: string;
       nextjsType?: NextjsType;
       assetPrefix?: string;
+      basePath?: string;
       keyValueStore?: boolean;
       overrides?: (stack: Stack) => NextjsDistributionOverrides;
     } = {},
@@ -1009,6 +1010,7 @@ describe("viewerRequestFunctionCode", () => {
       ...compute,
       assetsBucket: new Bucket(stack, "Assets"),
       assetPrefix: props.assetPrefix,
+      basePath: props.basePath,
       nextjsType: props.nextjsType ?? NextjsType.GLOBAL_FUNCTIONS,
       overrides: props.overrides?.(stack),
       publicDirEntries: [{ name: "favicon.ico", isDirectory: false }],
@@ -1295,6 +1297,27 @@ describe("viewerRequestFunctionCode", () => {
         }),
       }),
     ).toThrow(/overrides\.distributionProps\.defaultBehavior/);
+  });
+
+  it("lets a basePath app replace the default behavior", () => {
+    expect(() =>
+      synth({
+        code: BASIC_AUTH,
+        basePath: "/app",
+        overrides: () => ({
+          distributionProps: {
+            defaultBehavior: { origin: new HttpOrigin("example.com") },
+          },
+        }),
+      }),
+    ).not.toThrow();
+  });
+
+  it("keeps cdk-nextjs's code out of the deployed indentation", () => {
+    const { functionFor } = synth({ code: BASIC_AUTH });
+    const code = functionFor("*").FunctionCode as string;
+    const own = code.slice(code.indexOf("async function handler"));
+    expect(own).not.toMatch(/^[ \t]/m);
   });
 
   it("warns, rather than measures, when the code contains a token", () => {

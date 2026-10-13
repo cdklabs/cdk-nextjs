@@ -502,19 +502,22 @@ export class NextjsDistribution extends Construct {
   ): Pick<FunctionProps, "code" | "runtime" | "keyValueStore"> {
     // Indentation counts toward the 10 KB too; none of this code has a
     // multi-line string for it to change.
-    handler = handler.replace(/^[ \t]+/gm, "");
+    const dedent = (code: string) => code.replace(/^[ \t]+/gm, "");
     const userCode = this.viewerRequestCode;
     if (userCode === undefined) {
       return {
-        code: FunctionCode.fromInline(handler.replace(VIEWER_REQUEST_HOOK, "")),
+        code: FunctionCode.fromInline(
+          dedent(handler.replace(VIEWER_REQUEST_HOOK, "")),
+        ),
         runtime: FunctionRuntime.JS_2_0,
       };
     }
     // A response has a status; anything else returned is the request to carry
     // on with. `await` takes a synchronous `viewerRequest` as it is.
-    const code = `${userCode}\n${handler.replace(
-      VIEWER_REQUEST_HOOK,
-      `
+    const code = `${userCode}\n${dedent(
+      handler.replace(
+        VIEWER_REQUEST_HOOK,
+        `
           var viewerResult = await viewerRequest(event);
           if (viewerResult && viewerResult.statusCode) {
             return viewerResult;
@@ -522,6 +525,7 @@ export class NextjsDistribution extends Construct {
           if (viewerResult) {
             event.request = viewerResult;
           }`,
+      ),
     )}`;
     const size = Buffer.byteLength(code);
     if (Token.isUnresolved(code)) {
@@ -796,8 +800,11 @@ export class NextjsDistribution extends Construct {
     if (this.props.distribution) {
       distribution = this.props.distribution;
     } else {
+      // Under a `basePath`, the behaviors cdk-nextjs adds for it serve the
+      // app, so the default behavior is the user's to replace.
       if (
         this.viewerRequestCode !== undefined &&
+        !this.basePath &&
         this.props.overrides?.distributionProps?.defaultBehavior
       ) {
         throw new Error(

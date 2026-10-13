@@ -521,7 +521,8 @@ header, and static assets never reach the server at all.
   `cf.kvs()` reads it with no ID. Credentials written inline in the code instead
   end up in the CloudFormation template.
 - The combined function, cdk-nextjs's code included, must fit CloudFront's
-  10 KB limit; synth fails if it doesn't.
+  10 KB limit; synth fails if it doesn't (or warns, if the code contains a
+  CDK token, whose size isn't known until deploy).
 - A bring-your-own `distribution`'s default behavior is yours, so it isn't
   covered. Only the behaviors cdk-nextjs adds are.
 
