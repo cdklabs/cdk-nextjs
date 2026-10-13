@@ -4432,6 +4432,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike. |
 
 ---
 
@@ -4619,6 +4620,53 @@ public readonly overrides: NextjsDistributionOverrides;
 Override props for every construct.
 
 ---
+
+##### `viewerRequestFunctionCode`<sup>Optional</sup> <a name="viewerRequestFunctionCode" id="cdk-nextjs.NextjsDistributionProps.property.viewerRequestFunctionCode"></a>
+
+```typescript
+public readonly viewerRequestFunctionCode: FunctionCode;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.FunctionCode
+- *Default:* none
+
+Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike.
+
+It's the place for a check the whole site has to pass before
+anything is served — HTTP Basic auth on a pre-launch site, geo-gating.
+
+CloudFront runs one function per event type per behavior, and on
+`NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
+so this code is spliced into that function rather than associated beside
+it. It must define `function viewerRequest(event)`, which is a CloudFront
+Function handler in all but name: return a response to answer the viewer
+with it, or the request (or nothing) to carry on. cdk-nextjs's own logic
+runs after it, so it can't undo the `X-Forwarded-Host` overwrite.
+
+The code runs on `cloudfront-js-1.0` (ES5.1) and is checked at synth
+against CloudFront's 10 KB function size limit, cdk-nextjs's own code
+included. A bring-your-own {@link distribution}'s default behavior is
+yours, so it isn't covered; under a `basePath`, the behaviors that stand
+in for it are.
+
+---
+
+*Example*
+
+```typescript
+FunctionCode.fromInline(`
+  function viewerRequest(event) {
+    var auth = event.request.headers.authorization;
+    if (auth && auth.value === "Basic dXNlcjpwYXNz") return;
+    return {
+      statusCode: 401,
+      statusDescription: "Unauthorized",
+      headers: { "www-authenticate": { value: 'Basic realm="preview"' } },
+    };
+  }
+`)
+```
+
 
 ### NextjsFunctionGroup <a name="NextjsFunctionGroup" id="cdk-nextjs.NextjsFunctionGroup"></a>
 
@@ -5296,6 +5344,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
 
 ---
 
@@ -5567,6 +5616,24 @@ Override props of any construct.
 
 ---
 
+##### `viewerRequestFunctionCode`<sup>Optional</sup> <a name="viewerRequestFunctionCode" id="cdk-nextjs.NextjsGlobalContainersProps.property.viewerRequestFunctionCode"></a>
+
+```typescript
+public readonly viewerRequestFunctionCode: FunctionCode;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.FunctionCode
+- *Default:* none
+
+CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say.
+
+It must define
+`function viewerRequest(event)`.
+
+> [NextjsDistributionProps.viewerRequestFunctionCode *](NextjsDistributionProps.viewerRequestFunctionCode *)
+
+---
+
 ### NextjsGlobalFunctionsConstructOverrides <a name="NextjsGlobalFunctionsConstructOverrides" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.Initializer"></a>
@@ -5753,6 +5820,7 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroup">NextjsFunctionGroup</a>[]</code> | Package sets of routes into separate Lambda functions, each fronted by its own CloudFront behaviors. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
 
 ---
 
@@ -5979,6 +6047,24 @@ public readonly overrides: NextjsGlobalFunctionsOverrides;
 - *Type:* <a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a>
 
 Override props of any construct.
+
+---
+
+##### `viewerRequestFunctionCode`<sup>Optional</sup> <a name="viewerRequestFunctionCode" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.viewerRequestFunctionCode"></a>
+
+```typescript
+public readonly viewerRequestFunctionCode: FunctionCode;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.FunctionCode
+- *Default:* none
+
+CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say.
+
+It must define
+`function viewerRequest(event)`.
+
+> [NextjsDistributionProps.viewerRequestFunctionCode *](NextjsDistributionProps.viewerRequestFunctionCode *)
 
 ---
 
@@ -10918,6 +11004,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike. |
 
 ---
 
@@ -11063,6 +11150,36 @@ public readonly publicDirEntries: PublicDirEntry[];
 - *Type:* <a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]
 
 Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
+
+---
+
+##### `viewerRequestFunctionCode`<sup>Optional</sup> <a name="viewerRequestFunctionCode" id="cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestFunctionCode"></a>
+
+```typescript
+public readonly viewerRequestFunctionCode: FunctionCode;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.FunctionCode
+- *Default:* none
+
+Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike.
+
+It's the place for a check the whole site has to pass before
+anything is served — HTTP Basic auth on a pre-launch site, geo-gating.
+
+CloudFront runs one function per event type per behavior, and on
+`NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
+so this code is spliced into that function rather than associated beside
+it. It must define `function viewerRequest(event)`, which is a CloudFront
+Function handler in all but name: return a response to answer the viewer
+with it, or the request (or nothing) to carry on. cdk-nextjs's own logic
+runs after it, so it can't undo the `X-Forwarded-Host` overwrite.
+
+The code runs on `cloudfront-js-1.0` (ES5.1) and is checked at synth
+against CloudFront's 10 KB function size limit, cdk-nextjs's own code
+included. A bring-your-own {@link distribution}'s default behavior is
+yours, so it isn't covered; under a `basePath`, the behaviors that stand
+in for it are.
 
 ---
 
