@@ -1094,8 +1094,29 @@ describe("viewerRequestFunctionCode", () => {
       code: BASIC_AUTH,
       nextjsType: NextjsType.GLOBAL_CONTAINERS,
     });
-    expect(Object.keys(functions)).toHaveLength(1);
-    expect(behaviors.length).toBeGreaterThan(1);
+    const [logicalId, ...rest] = Object.keys(functions);
+    expect(rest).toHaveLength(0);
+    expect(behaviors.map((it) => it.PathPattern).sort()).toEqual([
+      "*",
+      "_next/image*",
+      "_next/static*",
+      "favicon.ico",
+    ]);
+    for (const { FunctionAssociations } of behaviors) {
+      expect(FunctionAssociations).toEqual([
+        {
+          EventType: "viewer-request",
+          FunctionARN: { "Fn::GetAtt": [logicalId, "FunctionARN"] },
+        },
+      ]);
+    }
+  });
+
+  it("accepts viewerRequest declared after another variable", async () => {
+    const handler = synth({
+      code: `var x = 1, viewerRequest = (event) => ({ statusCode: 401 });`,
+    }).handlerFor("_next/static*");
+    expect(status(await handler(request("/x")))).toBe(401);
   });
 
   it("accepts viewerRequest defined as a const arrow function", async () => {
@@ -1166,6 +1187,26 @@ describe("viewerRequestFunctionCode", () => {
     const result = (await handler(request("/x"))) as FunctionRequest;
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
   });
+
+  it.each([
+    ["var", "var handler = (event) => event.request;"],
+    [
+      "destructuring",
+      "var { handler } = { handler: (event) => event.request };",
+    ],
+    ["globalThis", 'globalThis["handler"] = (event) => event.request;'],
+  ])(
+    "keeps cdk-nextjs's handler when the code assigns handler with %s",
+    async (_name, assignment) => {
+      const handler = synth({
+        code: `${assignment}\nfunction viewerRequest(event) {}`,
+      }).handlerFor("*");
+      const result = (await handler(
+        request("/x", { "x-forwarded-host": "evil.test" }),
+      )) as FunctionRequest;
+      expect(result.headers["x-forwarded-host"].value).toBe("a.test");
+    },
+  );
 
   it("carries on with a request it returns as a new object", async () => {
     const handler = synth({
@@ -1253,20 +1294,20 @@ describe("viewerRequestFunctionCode", () => {
   });
 
   it.each([
-    ["no viewerRequest", "var x = 1;", /must define `function viewerRequest/],
+    ["no viewerRequest", "var x = 1;", /must define `viewerRequest\(event\)`/],
     [
       "a handler of its own",
       "function handler(event) {} function viewerRequest(event) {}",
       /defines `handler`/,
     ],
     [
-      "a handler assigned with var",
-      "var handler = function (event) { return event.request; };\nfunction viewerRequest(event) {}",
+      "a generator handler",
+      "function* handler(event) {} function viewerRequest(event) {}",
       /defines `handler`/,
     ],
     [
-      "a handler assigned to globalThis",
-      "globalThis.handler = function (event) {};\nfunction viewerRequest(event) {}",
+      "a const handler",
+      "const handler = (event) => event.request;\nfunction viewerRequest(event) {}",
       /defines `handler`/,
     ],
     [

@@ -22,7 +22,8 @@ export interface OptionalNextjsDistributionProps {
    * `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
    * so this code is spliced into that function rather than associated beside
    * it. It must define `function viewerRequest(event)` (or
-   * `async function viewerRequest(event)`), which is a CloudFront Function
+   * `async function viewerRequest(event)`, or `const viewerRequest = …`),
+   * which is a CloudFront Function
    * handler in all but name: return a response to answer the viewer with it,
    * or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
    * it, so it can't undo the `X-Forwarded-Host` overwrite.

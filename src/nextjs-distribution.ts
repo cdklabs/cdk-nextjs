@@ -160,7 +160,8 @@ export interface NextjsDistributionProps {
    * `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
    * so this code is spliced into that function rather than associated beside
    * it. It must define `function viewerRequest(event)` (or
-   * `async function viewerRequest(event)`), which is a CloudFront Function
+   * `async function viewerRequest(event)`, or `const viewerRequest = …`),
+   * which is a CloudFront Function
    * handler in all but name: return a response to answer the viewer with it,
    * or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
    * it, so it can't undo the `X-Forwarded-Host` overwrite.
@@ -449,7 +450,7 @@ export class NextjsDistribution extends Construct {
         eventType: FunctionEventType.VIEWER_REQUEST,
         function: cloudFrontFn,
       });
-    } else if (this.props.viewerRequestFunctionCode) {
+    } else if (this.viewerRequestCode !== undefined) {
       // Containers need no function of their own — their origin sees the
       // viewer's `Host` — so this one only runs the user's code.
       associations.push({
@@ -490,9 +491,13 @@ export class NextjsDistribution extends Construct {
    * Every one runs on `cloudfront-js-2.0`, the runtime AWS recommends and the
    * one with `async` and KeyValueStores, so the handlers are all `async`
    * whether or not there is user code to await. The user's code goes first in
-   * the file, which is where CloudFront wants `import cf from "cloudfront"`,
-   * and so of two top-level `handler` declarations ours would win; one is
-   * refused rather than silently ignored.
+   * the file, which is where CloudFront wants `import cf from "cloudfront"`.
+   *
+   * With user code, cdk-nextjs's handler is renamed {@link OWN_HANDLER}, and
+   * the file ends by declaring `handler` and then assigning ours to it. Top-level
+   * user code runs before that assignment, so however it assigns `handler`
+   * (`var handler =`, destructuring, `globalThis["handler"] =`), ours is the
+   * one left, and the `x-forwarded-host` overwrite with it.
    */
   private viewerRequestFunctionProps(
     handler: string,
@@ -506,9 +511,11 @@ export class NextjsDistribution extends Construct {
     }
     // A response has a status; anything else returned is the request to carry
     // on with. `await` takes a synchronous `viewerRequest` as it is.
-    const code = `${userCode}\n${handler.replace(
-      VIEWER_REQUEST_HOOK,
-      `
+    const code = `${userCode}\n${handler
+      .replace("async function handler(", `async function ${OWN_HANDLER}(`)
+      .replace(
+        VIEWER_REQUEST_HOOK,
+        `
           var viewerResult = await viewerRequest(event);
           if (viewerResult && viewerResult.statusCode) {
             return viewerResult;
@@ -516,7 +523,12 @@ export class NextjsDistribution extends Construct {
           if (viewerResult) {
             event.request = viewerResult;
           }`,
-    )}`;
+      )}
+        async function handler(event) {
+          return ${OWN_HANDLER}(event);
+        }
+        handler = ${OWN_HANDLER};
+        `;
     const size = Buffer.byteLength(code);
     if (size > MAX_FUNCTION_CODE_BYTES) {
       throw new Error(
@@ -535,10 +547,9 @@ export class NextjsDistribution extends Construct {
   }
   /**
    * `viewerRequestFunctionCode`, rendered, once it has been checked to define
-   * `viewerRequest` and to leave `handler` alone. These are textual checks, so
-   * a name in a comment or a string counts; that errs towards refusing code
-   * that would have worked, rather than deploying a function whose `handler`
-   * isn't cdk-nextjs's.
+   * `viewerRequest` and not to declare `handler`. These are textual checks, so
+   * a name in a comment or a string counts, as does a block-scoped local
+   * `handler`; that errs towards refusing code that would have worked.
    */
   private renderViewerRequestCode(): string | undefined {
     const userCode = this.props.viewerRequestFunctionCode?.render();
@@ -546,22 +557,22 @@ export class NextjsDistribution extends Construct {
       return undefined;
     }
     if (
-      !/\bfunction\s+viewerRequest\s*\(|\b(?:var|let|const)\s+viewerRequest\s*=/.test(
+      !/\bfunction\s+viewerRequest\s*\(|\b(?:var|let|const)\s[^;]*?\bviewerRequest\s*=/.test(
         userCode,
       )
     ) {
       throw new Error(
         `${LOG_PREFIX} \`viewerRequestFunctionCode\` must define ` +
-          `\`function viewerRequest(event)\`, which cdk-nextjs calls from its ` +
-          `own viewer-request handler.`,
+          `\`viewerRequest(event)\`, as a function or a \`var\`/\`let\`/` +
+          `\`const\`, which cdk-nextjs calls from its own viewer-request ` +
+          `handler.`,
       );
     }
-    // A `function handler` declaration would be overridden by ours, which
-    // comes later; a `var handler =` assignment, or one to
-    // `globalThis.handler`, would run after both were hoisted and override
-    // ours, dropping the `x-forwarded-host` overwrite.
+    // Assignments to `handler` are undone by the one the file ends with, but
+    // a declaration would either be silently replaced by ours (`function`) or
+    // make the file a syntax error (`let`, `const`, `class`).
     if (
-      /\bfunction\s+handler\s*\(|\b(?:var|let|const|class)\s+handler\b|(?<![\w$.])handler\s*=(?![=>])|\b(?:globalThis|this)\s*\.\s*handler\s*=(?!=)/.test(
+      /\bfunction\s*\*?\s*handler\s*\(|\b(?:let|const|class)\s+handler\b/.test(
         userCode,
       )
     ) {
@@ -621,7 +632,7 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...staticBehaviorOptions,
     };
-    if (!this.props.viewerRequestFunctionCode) {
+    if (this.viewerRequestCode === undefined) {
       return options;
     }
     this.assertViewerRequestUnclaimed(
@@ -1178,6 +1189,13 @@ export class NextjsDistribution extends Construct {
  * logic of its own. Replaced at synth, never deployed.
  */
 const VIEWER_REQUEST_HOOK = "/*@viewerRequest@*/";
+
+/**
+ * What cdk-nextjs's viewer-request handler is called when
+ * `viewerRequestFunctionCode` shares its file, so the user's code can't
+ * replace it by assigning `handler`.
+ */
+const OWN_HANDLER = "cdkNextjsHandler";
 
 /**
  * CloudFront's maximum CloudFront Function size.
