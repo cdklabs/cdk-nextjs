@@ -30,6 +30,7 @@
     },
     {
       "name": "@iconify-json/logos",
+      "version": "1.2.16",
       "type": "build"
     },
     {

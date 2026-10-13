@@ -34,7 +34,9 @@ const project = new CdklabsConstructLibrary({
     "@aws-sdk/client-s3",
     "@aws-sdk/client-ssm",
     "@aws-sdk/lib-storage",
-    "@iconify-json/logos", // AWS icons for the README diagrams, see addDiagramTasks
+    // AWS icons for the README diagrams. Exact-pinned so a bump is a hand edit
+    // that comes with a re-render. @see scripts/render-diagrams.mjs
+    "@iconify-json/logos@1.2.16",
     "@mrgrain/jsii-struct-builder",
     // Exact-pinned to `next` and bumped with it: it is first-party and versioned
     // in lockstep, so a mismatch is a routing behavior difference. Bundled into

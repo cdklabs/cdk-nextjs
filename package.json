@@ -71,7 +71,7 @@
     "@aws-sdk/client-s3": "^3.1141.0",
     "@aws-sdk/client-ssm": "^3.1141.0",
     "@aws-sdk/lib-storage": "^3.1141.0",
-    "@iconify-json/logos": "^1.2.16",
+    "@iconify-json/logos": "1.2.16",
     "@mrgrain/jsii-struct-builder": "^0.7.64",
     "@next/routing": "16.4.0",
     "@smithy/signature-v4": "^2.3.0",
