@@ -205,8 +205,13 @@ class HarnessStack extends Stack {
  * `use-cache-metadata-route-handler`'s `/[slug]` page, which threw on it (a 500,
  * past the ALB's 200-499 range, so the task under test kept being replaced);
  * `/_next/__cdk-nextjs-harness-health` was taken by `sub-shell-generation`'s
- * `/[lang]/[slug]` as `lang: "_next"`, and the health check's renders left
- * `/es/*` served a runtime root layout instead of the build-time shell.
+ * `/[lang]/[slug]` as `lang: "_next"`. Its fallback shell revalidates 15 minutes
+ * after `next build` (`fallbackRevalidate: 900`, the `'use cache'` root layout's
+ * default lifetime), and the first request past that serves it stale and
+ * regenerates it at runtime, so `/es/*` then reports a runtime root layout -
+ * `next start` does the same. The health check was simply that first request,
+ * well before the test's own; the test still fails if it runs more than 15
+ * minutes after the build (#274).
  */
 const HEALTH_CHECK_PATH = "/_next/static/__cdk-nextjs-harness-health";
 
