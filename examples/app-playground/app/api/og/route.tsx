@@ -1,13 +1,19 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { NextRequest } from 'next/server';
 import { ImageResponse } from 'next/og';
 import type { ReactElement } from 'react';
 
-const interSemiBold = fetch(
-  new URL('./Inter-SemiBold.ttf', import.meta.url),
-).then((res) => res.arrayBuffer());
-
+// Read from disk inside the handler, as the `ImageResponse` docs do. A
+// module-scope `fetch(new URL('./Inter-SemiBold.ttf', import.meta.url))` ran on
+// every build and logged `TypeError: fetch failed` - Node's fetch has no
+// `file:` support - into otherwise passing e2e logs.
 export async function GET(req: NextRequest): Promise<Response | ImageResponse> {
   try {
+    const interSemiBold = await readFile(
+      join(process.cwd(), 'app/api/og/Inter-SemiBold.ttf'),
+    );
+
     const { searchParams } = new URL(req.url);
     const isLight = req.headers.get('Sec-CH-Prefers-Color-Scheme') === 'light';
 
@@ -54,7 +60,7 @@ export async function GET(req: NextRequest): Promise<Response | ImageResponse> {
         fonts: [
           {
             name: 'Inter',
-            data: await interSemiBold,
+            data: interSemiBold,
             style: 'normal',
             weight: 400,
           },
