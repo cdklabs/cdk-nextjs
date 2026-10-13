@@ -476,6 +476,8 @@ new NextjsGlobalFunctions(this, "Nextjs", {
       const auth = event.request.headers.authorization;
       try {
         if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+          // verified: don't pass the site's credentials on to the origin
+          delete event.request.headers.authorization;
           return;
         }
       } catch (e) {
@@ -496,7 +498,7 @@ Then put the credentials in the store, outside the template:
 ```sh
 KVS_ARN=... # the store's ARN
 aws cloudfront-keyvaluestore put-key --kvs-arn "$KVS_ARN" \
-  --key basic-auth --value "$(printf 'user:pass' | base64)" \
+  --key basic-auth --value "$(printf 'user:pass' | base64 | tr -d '\n')" \
   --if-match "$(aws cloudfront-keyvaluestore describe-key-value-store \
     --kvs-arn "$KVS_ARN" --query ETag --output text)"
 ```

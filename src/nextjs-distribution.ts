@@ -182,6 +182,8 @@ export interface NextjsDistributionProps {
    *     const auth = event.request.headers.authorization;
    *     try {
    *       if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+   *         // verified: don't pass the site's credentials on to the origin
+   *         delete event.request.headers.authorization;
    *         return;
    *       }
    *     } catch (e) {
@@ -498,6 +500,9 @@ export class NextjsDistribution extends Construct {
   private viewerRequestFunctionProps(
     handler: string,
   ): Pick<FunctionProps, "code" | "runtime" | "keyValueStore"> {
+    // Indentation counts toward the 10 KB too; none of this code has a
+    // multi-line string for it to change.
+    handler = handler.replace(/^[ \t]+/gm, "");
     const userCode = this.viewerRequestCode;
     if (userCode === undefined) {
       return {
@@ -519,7 +524,14 @@ export class NextjsDistribution extends Construct {
           }`,
     )}`;
     const size = Buffer.byteLength(code);
-    if (size > MAX_FUNCTION_CODE_BYTES) {
+    if (Token.isUnresolved(code)) {
+      // A token's placeholder isn't the length of what it resolves to.
+      Annotations.of(this).addWarning(
+        `${LOG_PREFIX} \`viewerRequestFunctionCode\` contains a CDK token, so ` +
+          `its size can't be checked against CloudFront's limit of ` +
+          `${MAX_FUNCTION_CODE_BYTES} bytes until deploy.`,
+      );
+    } else if (size > MAX_FUNCTION_CODE_BYTES) {
       throw new Error(
         `${LOG_PREFIX} \`viewerRequestFunctionCode\` makes a CloudFront ` +
           `Function of ${size} bytes, cdk-nextjs's own code included, over ` +
@@ -784,6 +796,18 @@ export class NextjsDistribution extends Construct {
     if (this.props.distribution) {
       distribution = this.props.distribution;
     } else {
+      if (
+        this.viewerRequestCode !== undefined &&
+        this.props.overrides?.distributionProps?.defaultBehavior
+      ) {
+        throw new Error(
+          `${LOG_PREFIX} \`overrides.distributionProps.defaultBehavior\` ` +
+            `replaces the default behavior cdk-nextjs builds, and with it the ` +
+            `viewer-request function \`viewerRequestFunctionCode\` runs in, ` +
+            `so pages and API routes would skip it. Customize the default ` +
+            `behavior through \`overrides.dynamicBehaviorOptions\` instead.`,
+        );
+      }
       distribution = new Distribution(this, "Distribution", {
         minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
         defaultBehavior: this.dynamicBehaviorOptions,

@@ -1,5 +1,5 @@
 import { runInNewContext } from "node:vm";
-import { App, Duration, Stack } from "aws-cdk-lib";
+import { App, Duration, Lazy, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
   Function as CloudFrontFunction,
@@ -7,6 +7,7 @@ import {
   FunctionEventType,
   KeyValueStore,
 } from "aws-cdk-lib/aws-cloudfront";
+import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
 import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import {
@@ -1050,7 +1051,7 @@ describe("viewerRequestFunctionCode", () => {
         cf: fakeCloudFrontModule(kvsValues),
       }) as Handler;
     };
-    return { behaviors, functions, functionFor, handlerFor };
+    return { behaviors, functions, functionFor, handlerFor, stack };
   };
 
   const request = (uri: string, headers: Record<string, string> = {}) => ({
@@ -1250,6 +1251,61 @@ describe("viewerRequestFunctionCode", () => {
       expect(new Set(runtimes)).toEqual(new Set(["cloudfront-js-2.0"]));
     },
   );
+
+  it.each(["dynamicBehaviorOptions", "imageBehaviorOptions"] as const)(
+    "refuses a %s override that claims viewer-request on Global Containers",
+    (overrideName) => {
+      expect(() =>
+        synth({
+          code: BASIC_AUTH,
+          nextjsType: NextjsType.GLOBAL_CONTAINERS,
+          overrides: (stack) => ({
+            [overrideName]: {
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_REQUEST,
+                  function: new CloudFrontFunction(stack, "UserFn", {
+                    code: FunctionCode.fromInline(
+                      "function handler(event) { return event.request; }",
+                    ),
+                  }),
+                },
+              ],
+            },
+          }),
+        }),
+      ).toThrow(
+        new RegExp(
+          `overrides\\.${overrideName}\\.functionAssociations.*viewerRequestFunctionCode`,
+        ),
+      );
+    },
+  );
+
+  it("refuses a distributionProps.defaultBehavior override", () => {
+    expect(() =>
+      synth({
+        code: BASIC_AUTH,
+        overrides: () => ({
+          distributionProps: {
+            defaultBehavior: {
+              origin: new HttpOrigin("example.com"),
+            },
+          },
+        }),
+      }),
+    ).toThrow(/overrides\.distributionProps\.defaultBehavior/);
+  });
+
+  it("warns, rather than measures, when the code contains a token", () => {
+    const { stack } = synth({
+      code: `function viewerRequest(event) { return ${Lazy.string({ produce: () => '"x"' })}; }`,
+    });
+    Annotations.fromStack(stack).hasWarning(
+      "*",
+      Match.stringLikeRegexp("contains a CDK token"),
+    );
+  });
 
   it("refuses a static override that already claims viewer-request", () => {
     expect(() =>
