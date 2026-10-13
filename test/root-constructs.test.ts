@@ -765,4 +765,23 @@ describe("deploy-time invalidation", () => {
     expect(JSON.stringify(grants[0].Resource)).toContain('"/base/*"');
     expect(JSON.stringify(grants[0].Resource)).not.toContain('"/*"');
   });
+
+  // Invalidating before the uploads finish re-caches the old files, and
+  // pruning before them can delete an object about to be re-tagged.
+  it("runs after every static asset upload", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsGlobalFunctions(stack, "App", { buildDirectory: buildDir });
+    const template = Template.fromStack(stack);
+    const [postDeploy] = Object.values(
+      template.findResources("Custom::NextjsPostDeploy"),
+    );
+    const uploads = Object.keys(
+      template.findResources("Custom::CDKBucketDeployment"),
+    ).filter((id) => id.includes("NextjsStaticAssets"));
+
+    expect(uploads).toHaveLength(2);
+    expect(postDeploy.DependsOn).toEqual(expect.arrayContaining(uploads));
+  });
 });

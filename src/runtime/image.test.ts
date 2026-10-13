@@ -387,6 +387,27 @@ describe("RuntimeImageOptimizer sources", () => {
     });
   });
 
+  // `next start` passes on the file's own header, which sets how long the
+  // optimized image is kept.
+  it("hands the optimizer the S3 object's Cache-Control", async () => {
+    const send = jest.fn(async () => ({
+      Body: (async function* () {
+        yield Buffer.from("s3-bytes");
+      })(),
+      ContentType: "image/png",
+      CacheControl: "public, max-age=31536000, immutable",
+      ETag: '"abc"',
+    }));
+    const { head } = await request("/_next/static/media/logo.png", {
+      via: optimizerFor({ s3: { send } as unknown as S3Client }),
+    });
+    expect(head.statusCode).toBe(200);
+    expect((imageOptimizer as jest.Mock).mock.lastCall[0]).toMatchObject({
+      buffer: Buffer.from("s3-bytes"),
+      cacheControl: "public, max-age=31536000, immutable",
+    });
+  });
+
   // `NextjsRegionalContainers`: the file is on disk, and a GetObject for it is
   // a wasted round trip.
   it("goes straight to the app's routes when there is no bucket", async () => {

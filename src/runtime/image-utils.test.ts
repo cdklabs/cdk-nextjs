@@ -45,6 +45,30 @@ describe("fetchFromS3", () => {
   const keyOf = () =>
     (GetObjectCommand as unknown as jest.Mock).mock.calls[0][0].Key;
 
+  // What `fetchInternalImage` passes on for a file `next start` serves.
+  it("returns the object's Cache-Control", async () => {
+    mockSend.mockResolvedValue({
+      Body: asyncIterableFrom([Buffer.from("data")]),
+      ContentType: "image/png",
+      CacheControl: "public, max-age=31536000, immutable",
+      ETag: '"abc123"',
+    });
+    const result = await fetchFromS3(
+      s3,
+      "bucket",
+      "/_next/static/media/logo.png",
+      ROOT,
+      1024,
+    );
+    expect(result.cacheControl).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("returns a null Cache-Control for an object without one", async () => {
+    ok();
+    const result = await fetchFromS3(s3, "bucket", "/logo.png", ROOT, 1024);
+    expect(result.cacheControl).toBeNull();
+  });
+
   it("strips the leading slash when the assets sit at the bucket root", async () => {
     ok();
 

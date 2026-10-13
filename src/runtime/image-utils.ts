@@ -66,7 +66,12 @@ export async function fetchFromS3(
   url: string,
   location: S3AssetLocation,
   maximumBody: number,
-): Promise<{ buffer: Buffer; contentType: string | null; etag: string }> {
+): Promise<{
+  buffer: Buffer;
+  contentType: string | null;
+  cacheControl: string | null;
+  etag: string;
+}> {
   const { urlBasePath, keyPrefix } = location;
   // The key is the path alone. `/logo.png?v=2` is a cache-buster on a file
   // named `logo.png`, and `next start` treats it as one: `fetchInternalImage`
@@ -117,6 +122,7 @@ export async function fetchFromS3(
   return {
     buffer: Buffer.concat(chunks),
     contentType: response.ContentType || null,
+    cacheControl: response.CacheControl || null,
     etag: response.ETag || "",
   };
 }

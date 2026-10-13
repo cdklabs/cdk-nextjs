@@ -42,7 +42,7 @@ We could ship this off to Lambda/Fargate and call it a day, but then we wouldn't
 
 ## S3
 
-.next/static is simply copied to S3 and then CloudFront is configured to forward requests with paths match `\_next/static` or any paths in `public` folder to S3. `NextjsStaticAssets` is responsible for this. We also add S3 User Metadata with `BUILD_ID` to track which static files are apart of which deployment so we can prune later.
+.next/static is simply copied to S3 and then CloudFront is configured to forward requests with paths match `\_next/static` or any paths in `public` folder to S3. `NextjsStaticAssets` is responsible for this. We also add S3 User Metadata with `BUILD_ID` to track which static files are apart of which deployment so we can prune later. The two trees are uploaded by separate `BucketDeployment`s so that `_next/static` objects get `Cache-Control: public, max-age=31536000, immutable`, the header Next.js itself sends for them (a third gives `_next/static/service-worker` the `public, max-age=0, must-revalidate` Next.js sends for a service worker, which keeps its URL across builds): CloudFront and API Gateway serve them straight from S3, so the object's metadata is the only `Cache-Control` a browser gets. `public` files keep their names when they change, so they get no header unless `overrides.nextjsStaticAssets.bucketDeploymentProps.cacheControl` sets one.
 
 Note, with `NextjsRegionalContainers`, we unfortunately cannot configure ALB to forward static requests directly to S3 because the host header dictates which bucket you can route requests to and it's not reliable to manually name buckets based on your domain. Therefore, static assets are copied into the container image to be served in ECS Fargate.
 

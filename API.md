@@ -2606,8 +2606,11 @@ Any object.
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.keyPrefix">keyPrefix</a></code> | <code>string</code> | S3 key prefix the assets are actually uploaded under, normalized to a bare path segment (empty when they live at the bucket root). |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.publicDeployment">publicDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | Uploads `public/`, separately from `staticDeployment` because its files keep their names when they change and so can't be `immutable`. |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.serviceWorkerDeployment">serviceWorkerDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | Uploads `.next/static/service-worker` with `Cache-Control: public, max-age=0, must-revalidate`, as Next.js serves it: a service worker keeps its URL across builds, so it can't be `immutable`. Absent if the build has no service worker. |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.staticDeployment">staticDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | Uploads `.next/static` to `_next/static/` with `Cache-Control: public, max-age=31536000, immutable`, except for `service-worker/` (see `serviceWorkerDeployment`). Absent if the build has no `.next/static`. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssets.property.bucket">bucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.deployment">deployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsStaticAssets.property.deployment">deployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | The first of `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment` the build has files for. |
 
 ---
 
@@ -2643,6 +2646,45 @@ bytes were uploaded.
 
 ---
 
+##### `publicDeployment`<sup>Optional</sup> <a name="publicDeployment" id="cdk-nextjs.NextjsStaticAssets.property.publicDeployment"></a>
+
+```typescript
+public readonly publicDeployment: BucketDeployment;
+```
+
+- *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
+
+Uploads `public/`, separately from `staticDeployment` because its files keep their names when they change and so can't be `immutable`.
+
+Absent if
+the build has no `public` directory.
+
+---
+
+##### `serviceWorkerDeployment`<sup>Optional</sup> <a name="serviceWorkerDeployment" id="cdk-nextjs.NextjsStaticAssets.property.serviceWorkerDeployment"></a>
+
+```typescript
+public readonly serviceWorkerDeployment: BucketDeployment;
+```
+
+- *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
+
+Uploads `.next/static/service-worker` with `Cache-Control: public, max-age=0, must-revalidate`, as Next.js serves it: a service worker keeps its URL across builds, so it can't be `immutable`. Absent if the build has no service worker.
+
+---
+
+##### `staticDeployment`<sup>Optional</sup> <a name="staticDeployment" id="cdk-nextjs.NextjsStaticAssets.property.staticDeployment"></a>
+
+```typescript
+public readonly staticDeployment: BucketDeployment;
+```
+
+- *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
+
+Uploads `.next/static` to `_next/static/` with `Cache-Control: public, max-age=31536000, immutable`, except for `service-worker/` (see `serviceWorkerDeployment`). Absent if the build has no `.next/static`.
+
+---
+
 ##### `bucket`<sup>Required</sup> <a name="bucket" id="cdk-nextjs.NextjsStaticAssets.property.bucket"></a>
 
 ```typescript
@@ -2653,13 +2695,19 @@ public readonly bucket: IBucket;
 
 ---
 
-##### `deployment`<sup>Required</sup> <a name="deployment" id="cdk-nextjs.NextjsStaticAssets.property.deployment"></a>
+##### ~~`deployment`~~<sup>Required</sup> <a name="deployment" id="cdk-nextjs.NextjsStaticAssets.property.deployment"></a>
+
+- *Deprecated:* The assets are uploaded by up to three deployments, and this
+is only one of them: a dependency on it doesn't wait for the others. Use
+`staticDeployment`, `serviceWorkerDeployment` and `publicDeployment`.
 
 ```typescript
 public readonly deployment: BucketDeployment;
 ```
 
 - *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
+
+The first of `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment` the build has files for.
 
 ---
 
@@ -6974,7 +7022,7 @@ const nextjsStaticAssetsOverrides: NextjsStaticAssetsOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | Applied to every upload (`public/`, `_next/static/` and `_next/static/service-worker/`), except that the two `_next/static` uploads always keep the `Cache-Control` Next.js sends for them. So a `cacheControl` here sets the header for `public/` files only, while anything else, such as a `distribution` to invalidate, applies to each upload in turn. |
 | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides.property.bucketProps">bucketProps</a></code> | <code>aws-cdk-lib.aws_s3.BucketProps</code> | *No description.* |
 
 ---
@@ -6986,6 +7034,14 @@ public readonly bucketDeploymentProps: BucketDeploymentProps;
 ```
 
 - *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps
+
+Applied to every upload (`public/`, `_next/static/` and `_next/static/service-worker/`), except that the two `_next/static` uploads always keep the `Cache-Control` Next.js sends for them. So a `cacheControl` here sets the header for `public/` files only, while anything else, such as a `distribution` to invalidate, applies to each upload in turn.
+
+`sources` and `destinationBucket`, which the type requires, are ignored:
+the uploads are always the build's assets, to the bucket CloudFront and
+API Gateway read from (pass `bucket` to bring your own). `prune: true` and
+`retainOnDelete: false` are rejected, since each would break the other
+uploads.
 
 ---
 
