@@ -1,4 +1,8 @@
-import { Distribution, FunctionCode } from "aws-cdk-lib/aws-cloudfront";
+import {
+  Distribution,
+  FunctionCode,
+  IKeyValueStore,
+} from "aws-cdk-lib/aws-cloudfront";
 import { ICluster } from "aws-cdk-lib/aws-ecs";
 import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { Construct } from "constructs";
@@ -85,6 +89,13 @@ export interface NextjsGlobalContainersProps extends NextjsBaseProps {
    * @default - none
    */
   readonly viewerRequestFunctionCode?: FunctionCode;
+  /**
+   * A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with
+   * `cf.kvs()`, so credentials stay out of the template.
+   * @see NextjsDistributionProps.viewerRequestKeyValueStore
+   * @default - none
+   */
+  readonly viewerRequestKeyValueStore?: IKeyValueStore;
 }
 
 /**
@@ -178,6 +189,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
       viewerRequestFunctionCode: this.props.viewerRequestFunctionCode,
+      viewerRequestKeyValueStore: this.props.viewerRequestKeyValueStore,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsDistributionProps,
     });
   }

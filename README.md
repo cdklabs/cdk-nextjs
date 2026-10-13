@@ -424,15 +424,24 @@ every request, on every behavior cdk-nextjs adds — pages, API routes,
 gate the whole site has to pass, such as HTTP Basic auth before launch:
 
 ```ts
-import { FunctionCode } from "aws-cdk-lib/aws-cloudfront";
+import { FunctionCode, KeyValueStore } from "aws-cdk-lib/aws-cloudfront";
 
+const credentials = new KeyValueStore(this, "Credentials");
 new NextjsGlobalFunctions(this, "Nextjs", {
   buildDirectory: join(import.meta.dirname),
+  viewerRequestKeyValueStore: credentials,
   viewerRequestFunctionCode: FunctionCode.fromInline(`
-    function viewerRequest(event) {
-      var auth = event.request.headers.authorization;
-      // base64 of "user:pass"
-      if (auth && auth.value === "Basic dXNlcjpwYXNz") return;
+    import cf from "cloudfront";
+    const kvs = cf.kvs();
+    async function viewerRequest(event) {
+      const auth = event.request.headers.authorization;
+      try {
+        if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+          return;
+        }
+      } catch (e) {
+        // no "basic-auth" key yet: stay locked
+      }
       return {
         statusCode: 401,
         statusDescription: "Unauthorized",
@@ -443,9 +452,19 @@ new NextjsGlobalFunctions(this, "Nextjs", {
 });
 ```
 
-The code must define `function viewerRequest(event)`, a CloudFront Function
-handler in all but name: return a response to answer the viewer, or the request
-(or nothing) to carry on. Why not a function of your own on viewer-request?
+Then put the credentials in the store, outside the template:
+
+```sh
+KVS_ARN=... # the store's ARN
+aws cloudfront-keyvaluestore put-key --kvs-arn "$KVS_ARN" \
+  --key basic-auth --value "$(printf 'user:pass' | base64)" \
+  --if-match "$(aws cloudfront-keyvaluestore describe-key-value-store \
+    --kvs-arn "$KVS_ARN" --query ETag --output text)"
+```
+
+The code must define `function viewerRequest(event)` (`async` or not), a
+CloudFront Function handler in all but name: return a response to answer the
+viewer, or the request (or nothing) to carry on. Why not a function of your own on viewer-request?
 CloudFront allows one per event type per behavior, and on Global Functions
 cdk-nextjs's own one overwrites `X-Forwarded-Host` and redirects repeated
 slashes. So your code is spliced into that function, ahead of cdk-nextjs's
@@ -453,11 +472,15 @@ logic, which still runs after it. Middleware can't do this instead: on Global Fu
 CloudFront signs the request to the Function URL with the `Authorization`
 header, and static assets never reach the server at all.
 
-- The runtime is `cloudfront-js-1.0` (ES5.1). The combined function,
-  cdk-nextjs's code included, must fit CloudFront's 10 KB limit; synth fails
-  if it doesn't.
-- Inline credentials end up in the CloudFormation template. That's fine for a
-  preview gate, not for anything you'd call a secret.
+- Every function your code runs in moves to `cloudfront-js-2.0`, so it can be
+  `async`, and `import cf from "cloudfront"` works when it comes first, as it
+  does above. Without the prop, cdk-nextjs's own function stays on
+  `cloudfront-js-1.0`, unchanged.
+- `viewerRequestKeyValueStore` is associated with each of those functions, and
+  `cf.kvs()` reads it with no ID. Credentials written inline in the code instead
+  end up in the CloudFormation template.
+- The combined function, cdk-nextjs's code included, must fit CloudFront's
+  10 KB limit; synth fails if it doesn't.
 - A bring-your-own `distribution`'s default behavior is yours, so it isn't
   covered. Only the behaviors cdk-nextjs adds are.
 

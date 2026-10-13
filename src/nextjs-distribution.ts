@@ -16,9 +16,12 @@ import {
   FunctionAssociation,
   FunctionCode,
   FunctionEventType,
+  FunctionProps,
+  FunctionRuntime,
   HeadersFrameOption,
   HeadersReferrerPolicy,
   HttpVersion,
+  IKeyValueStore,
   IOrigin,
   IOriginRequestPolicy,
   OriginProtocolPolicy,
@@ -156,22 +159,29 @@ export interface NextjsDistributionProps {
    * CloudFront runs one function per event type per behavior, and on
    * `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
    * so this code is spliced into that function rather than associated beside
-   * it. It must define `function viewerRequest(event)`, which is a CloudFront
-   * Function handler in all but name: return a response to answer the viewer
-   * with it, or the request (or nothing) to carry on. cdk-nextjs's own logic
-   * runs after it, so it can't undo the `X-Forwarded-Host` overwrite.
+   * it. It must define `function viewerRequest(event)` (or
+   * `async function viewerRequest(event)`), which is a CloudFront Function
+   * handler in all but name: return a response to answer the viewer with it,
+   * or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
+   * it, so it can't undo the `X-Forwarded-Host` overwrite.
    *
-   * The code runs on `cloudfront-js-1.0` (ES5.1) and is checked at synth
-   * against CloudFront's 10 KB function size limit, cdk-nextjs's own code
-   * included. A bring-your-own {@link distribution}'s default behavior is
-   * yours, so it isn't covered; under a `basePath`, the behaviors that stand
-   * in for it are.
+   * Every function it's spliced into runs on `cloudfront-js-2.0`, so it may be
+   * async and, with {@link viewerRequestKeyValueStore}, read the store through
+   * `import cf from "cloudfront"` — which, being the user code, comes first in
+   * the file as CloudFront requires. It is checked at synth against
+   * CloudFront's 10 KB function size limit, cdk-nextjs's own code included. A
+   * bring-your-own {@link distribution}'s default behavior is yours, so it
+   * isn't covered; under a `basePath`, the behaviors that stand in for it are.
    *
    * @example
    * FunctionCode.fromInline(`
-   *   function viewerRequest(event) {
-   *     var auth = event.request.headers.authorization;
-   *     if (auth && auth.value === "Basic dXNlcjpwYXNz") return;
+   *   import cf from "cloudfront";
+   *   const kvs = cf.kvs();
+   *   async function viewerRequest(event) {
+   *     const auth = event.request.headers.authorization;
+   *     if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+   *       return;
+   *     }
    *     return {
    *       statusCode: 401,
    *       statusDescription: "Unauthorized",
@@ -182,6 +192,15 @@ export interface NextjsDistributionProps {
    * @default - none
    */
   readonly viewerRequestFunctionCode?: FunctionCode;
+  /**
+   * A CloudFront KeyValueStore associated with every function
+   * {@link viewerRequestFunctionCode} runs in, so values it reads — Basic auth
+   * credentials, an allowlist — live outside the CloudFormation template and
+   * change without a deploy. Read it with `cf.kvs()`, no ID needed.
+   * @default - none
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html
+   */
+  readonly viewerRequestKeyValueStore?: IKeyValueStore;
 }
 
 /** A non-default function group and the origin its routes must reach. */
@@ -250,6 +269,13 @@ export class NextjsDistribution extends Construct {
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
     super(scope, id);
     this.props = props;
+    if (props.viewerRequestKeyValueStore && !props.viewerRequestFunctionCode) {
+      throw new Error(
+        `${LOG_PREFIX} \`viewerRequestKeyValueStore\` is only associated with ` +
+          `the functions \`viewerRequestFunctionCode\` runs in, so it needs ` +
+          `\`viewerRequestFunctionCode\` to read it.`,
+      );
+    }
     this.basePath = normalizeBasePath(props.basePath);
     this.assetPrefix = this.resolveAssetPrefix();
     this.staticOrigin = this.createStaticOrigin();
@@ -337,9 +363,10 @@ export class NextjsDistribution extends Construct {
     const associations: FunctionAssociation[] = [];
     if (this.isFunctionCompute) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
-        // cloudfront-js-1.0, so ES5.1: `var`, no arrow functions, no template
-        // literals, no `Object.keys`.
-        code: this.viewerRequestCode(`
+        // cloudfront-js-1.0 unless `viewerRequestFunctionCode` is set, so
+        // ES5.1: `var`, no arrow functions, no template literals, no
+        // `Object.keys`.
+        ...this.viewerRequestFunctionProps(`
           function handler(event) {${VIEWER_REQUEST_HOOK}
             var request = event.request;
             var uri = request.uri;
@@ -426,7 +453,7 @@ export class NextjsDistribution extends Construct {
   private createPassThroughFunction(id: string, comment: string) {
     return new CloudFrontFunction(this, id, {
       comment: this.getComment(comment, Stack.of(this).stackName),
-      code: this.viewerRequestCode(`
+      ...this.viewerRequestFunctionProps(`
         function handler(event) {${VIEWER_REQUEST_HOOK}
           return event.request;
         }
@@ -434,18 +461,32 @@ export class NextjsDistribution extends Construct {
     });
   }
   /**
-   * `handler` as cdk-nextjs writes it, with `viewerRequestFunctionCode` called
-   * where the handler says {@link VIEWER_REQUEST_HOOK}, or with the marker
-   * dropped when there is none — so a distribution without it synthesizes the
-   * same functions it always did.
+   * The code, runtime and KeyValueStore of a function whose `handler` is
+   * cdk-nextjs's, with `viewerRequestFunctionCode` awaited where the handler
+   * says {@link VIEWER_REQUEST_HOOK}, or with the marker dropped when there is
+   * none — so a distribution without it synthesizes the same functions it
+   * always did, on `cloudfront-js-1.0`.
    *
-   * The user's code goes first in the file, so of two top-level `handler`
+   * With it, the function moves to `cloudfront-js-2.0`, the runtime that
+   * supports `async` and KeyValueStores; ES5.1 runs unchanged on it. The
+   * user's code goes first in the file, which is where CloudFront wants
+   * `import cf from "cloudfront"`, and so of two top-level `handler`
    * declarations ours would win; one is refused rather than silently ignored.
    */
-  private viewerRequestCode(handler: string): FunctionCode {
+  private viewerRequestFunctionProps(
+    handler: string,
+  ): Pick<FunctionProps, "code" | "runtime" | "keyValueStore"> {
     const userCode = this.props.viewerRequestFunctionCode?.render();
     if (userCode === undefined) {
-      return FunctionCode.fromInline(handler.replace(VIEWER_REQUEST_HOOK, ""));
+      return {
+        code: FunctionCode.fromInline(handler.replace(VIEWER_REQUEST_HOOK, "")),
+      };
+    }
+    const signature = `function handler(event) {${VIEWER_REQUEST_HOOK}`;
+    if (!handler.includes(signature)) {
+      throw new Error(
+        `${LOG_PREFIX} internal: a viewer-request handler lacks the hook marker.`,
+      );
     }
     if (!/\bfunction\s+viewerRequest\s*\(/.test(userCode)) {
       throw new Error(
@@ -463,11 +504,11 @@ export class NextjsDistribution extends Construct {
       );
     }
     // A response has a status; anything else returned is the request to carry
-    // on with.
+    // on with. `await` takes a synchronous `viewerRequest` as it is.
     const code = `${userCode}\n${handler.replace(
-      VIEWER_REQUEST_HOOK,
-      `
-          var viewerResult = viewerRequest(event);
+      signature,
+      `async function handler(event) {
+          var viewerResult = await viewerRequest(event);
           if (viewerResult && viewerResult.statusCode) {
             return viewerResult;
           }
@@ -485,7 +526,11 @@ export class NextjsDistribution extends Construct {
           `https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-functions`,
       );
     }
-    return FunctionCode.fromInline(code);
+    return {
+      code: FunctionCode.fromInline(code),
+      runtime: FunctionRuntime.JS_2_0,
+      keyValueStore: this.props.viewerRequestKeyValueStore,
+    };
   }
   /**
    * CloudFront allows one function per event type per behavior, so an
@@ -897,7 +942,7 @@ export class NextjsDistribution extends Construct {
         "NextJS assetPrefix rewrite",
         Stack.of(this).stackName,
       ),
-      code: this.viewerRequestCode(`
+      ...this.viewerRequestFunctionProps(`
         function handler(event) {${VIEWER_REQUEST_HOOK}
           var request = event.request;
           request.uri = ${JSON.stringify(

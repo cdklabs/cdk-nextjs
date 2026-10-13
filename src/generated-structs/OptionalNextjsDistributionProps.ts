@@ -7,6 +7,13 @@ import type { NextjsType, PublicDirEntry } from '../';
  */
 export interface OptionalNextjsDistributionProps {
   /**
+   * A CloudFront KeyValueStore associated with every function {@link viewerRequestFunctionCode} runs in, so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy.
+   * Read it with `cf.kvs()`, no ID needed.
+   * @default - none
+   * @stability stable
+   */
+  readonly viewerRequestKeyValueStore?: aws_cloudfront.IKeyValueStore;
+  /**
    * Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike.
    * It's the place for a check the whole site has to pass before
    * anything is served — HTTP Basic auth on a pre-launch site, geo-gating.
@@ -14,16 +21,19 @@ export interface OptionalNextjsDistributionProps {
    * CloudFront runs one function per event type per behavior, and on
    * `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
    * so this code is spliced into that function rather than associated beside
-   * it. It must define `function viewerRequest(event)`, which is a CloudFront
-   * Function handler in all but name: return a response to answer the viewer
-   * with it, or the request (or nothing) to carry on. cdk-nextjs's own logic
-   * runs after it, so it can't undo the `X-Forwarded-Host` overwrite.
+   * it. It must define `function viewerRequest(event)` (or
+   * `async function viewerRequest(event)`), which is a CloudFront Function
+   * handler in all but name: return a response to answer the viewer with it,
+   * or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
+   * it, so it can't undo the `X-Forwarded-Host` overwrite.
    *
-   * The code runs on `cloudfront-js-1.0` (ES5.1) and is checked at synth
-   * against CloudFront's 10 KB function size limit, cdk-nextjs's own code
-   * included. A bring-your-own {@link distribution}'s default behavior is
-   * yours, so it isn't covered; under a `basePath`, the behaviors that stand
-   * in for it are.
+   * Every function it's spliced into runs on `cloudfront-js-2.0`, so it may be
+   * async and, with {@link viewerRequestKeyValueStore}, read the store through
+   * `import cf from "cloudfront"` — which, being the user code, comes first in
+   * the file as CloudFront requires. It is checked at synth against
+   * CloudFront's 10 KB function size limit, cdk-nextjs's own code included. A
+   * bring-your-own {@link distribution}'s default behavior is yours, so it
+   * isn't covered; under a `basePath`, the behaviors that stand in for it are.
    * @default - none
    * @stability stable
    */
