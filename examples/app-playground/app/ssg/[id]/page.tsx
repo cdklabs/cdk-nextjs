@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getPost } from '#/lib/posts';
+import { fetchPost } from '#/lib/posts';
 import { RenderingInfo } from '#/ui/rendering-info';
 
 export async function generateStaticParams() {
@@ -39,7 +39,7 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
 async function Post({ id }: { id: string }) {
   'use cache: remote';
 
-  const data = getPost(id);
+  const data = await fetchPost(id);
 
   const isOnDemand = Number(id) >= 3;
 

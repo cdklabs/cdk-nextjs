@@ -1,5 +1,5 @@
 import { cacheLife, cacheTag } from 'next/cache';
-import { getPost } from '#/lib/posts';
+import { fetchPost } from '#/lib/posts';
 import { RenderingInfo } from '#/ui/rendering-info';
 
 export async function generateStaticParams() {
@@ -38,7 +38,7 @@ async function Post({ id }: { id: string }) {
   // revalidation e2e invalidates every post at once.
   cacheTag('collection');
 
-  const data = getPost(id);
+  const data = await fetchPost(id);
 
   return (
     <div className="grid grid-cols-6 gap-x-6 gap-y-3">
