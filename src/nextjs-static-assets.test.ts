@@ -371,10 +371,10 @@ describe("NextjsStaticAssets", () => {
     });
 
     // Checks the directories this construct staged, not a before/after listing
-    // of `os.tmpdir()`: jest runs other files in parallel workers, and
-    // `test/root-constructs.test.ts` stages `nextjs-assets-*` directories into
-    // the same temp directory while this runs, which the listing counted as
-    // leaked.
+    // of `os.tmpdir()`: jest runs other files in parallel workers, and any of
+    // them that builds a `NextjsStaticAssets` (`test/root-constructs.test.ts`,
+    // for one) stages `nextjs-assets-*` directories into the same temp
+    // directory while this runs, which the listing counted as leaked.
     it("removes the staging directories when a deployment fails", () => {
       writePublicFile();
       const proto = NextjsStaticAssets.prototype as any;
@@ -397,7 +397,8 @@ describe("NextjsStaticAssets", () => {
         jest.restoreAllMocks();
       }
 
-      expect(staged).not.toHaveLength(0);
+      // `.next/static` and `public`, both staged before the first deployment.
+      expect(staged).toHaveLength(2);
       expect(staged.filter((dir) => existsSync(dir))).toEqual([]);
     });
 
