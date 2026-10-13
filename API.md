@@ -4433,6 +4433,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore associated with every function {@link viewerRequestFunctionCode} runs in, so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy. |
 
 ---
 
@@ -4638,16 +4639,19 @@ anything is served — HTTP Basic auth on a pre-launch site, geo-gating.
 CloudFront runs one function per event type per behavior, and on
 `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
 so this code is spliced into that function rather than associated beside
-it. It must define `function viewerRequest(event)`, which is a CloudFront
-Function handler in all but name: return a response to answer the viewer
-with it, or the request (or nothing) to carry on. cdk-nextjs's own logic
-runs after it, so it can't undo the `X-Forwarded-Host` overwrite.
+it. It must define `function viewerRequest(event)` (or
+`async function viewerRequest(event)`), which is a CloudFront Function
+handler in all but name: return a response to answer the viewer with it,
+or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
+it, so it can't undo the `X-Forwarded-Host` overwrite.
 
-The code runs on `cloudfront-js-1.0` (ES5.1) and is checked at synth
-against CloudFront's 10 KB function size limit, cdk-nextjs's own code
-included. A bring-your-own {@link distribution}'s default behavior is
-yours, so it isn't covered; under a `basePath`, the behaviors that stand
-in for it are.
+Every function it's spliced into runs on `cloudfront-js-2.0`, so it may be
+async and, with {@link viewerRequestKeyValueStore}, read the store through
+`import cf from "cloudfront"` — which, being the user code, comes first in
+the file as CloudFront requires. It is checked at synth against
+CloudFront's 10 KB function size limit, cdk-nextjs's own code included. A
+bring-your-own {@link distribution}'s default behavior is yours, so it
+isn't covered; under a `basePath`, the behaviors that stand in for it are.
 
 ---
 
@@ -4655,9 +4659,13 @@ in for it are.
 
 ```typescript
 FunctionCode.fromInline(`
-  function viewerRequest(event) {
-    var auth = event.request.headers.authorization;
-    if (auth && auth.value === "Basic dXNlcjpwYXNz") return;
+  import cf from "cloudfront";
+  const kvs = cf.kvs();
+  async function viewerRequest(event) {
+    const auth = event.request.headers.authorization;
+    if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+      return;
+    }
     return {
       statusCode: 401,
       statusDescription: "Unauthorized",
@@ -4667,6 +4675,23 @@ FunctionCode.fromInline(`
 `)
 ```
 
+
+##### `viewerRequestKeyValueStore`<sup>Optional</sup> <a name="viewerRequestKeyValueStore" id="cdk-nextjs.NextjsDistributionProps.property.viewerRequestKeyValueStore"></a>
+
+```typescript
+public readonly viewerRequestKeyValueStore: IKeyValueStore;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IKeyValueStore
+- *Default:* none
+
+A CloudFront KeyValueStore associated with every function {@link viewerRequestFunctionCode} runs in, so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy.
+
+Read it with `cf.kvs()`, no ID needed.
+
+> [https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html)
+
+---
 
 ### NextjsFunctionGroup <a name="NextjsFunctionGroup" id="cdk-nextjs.NextjsFunctionGroup"></a>
 
@@ -5345,6 +5370,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template. |
 
 ---
 
@@ -5634,6 +5660,21 @@ It must define
 
 ---
 
+##### `viewerRequestKeyValueStore`<sup>Optional</sup> <a name="viewerRequestKeyValueStore" id="cdk-nextjs.NextjsGlobalContainersProps.property.viewerRequestKeyValueStore"></a>
+
+```typescript
+public readonly viewerRequestKeyValueStore: IKeyValueStore;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IKeyValueStore
+- *Default:* none
+
+A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template.
+
+> [NextjsDistributionProps.viewerRequestKeyValueStore *](NextjsDistributionProps.viewerRequestKeyValueStore *)
+
+---
+
 ### NextjsGlobalFunctionsConstructOverrides <a name="NextjsGlobalFunctionsConstructOverrides" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalFunctionsConstructOverrides.Initializer"></a>
@@ -5821,6 +5862,7 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroup">NextjsFunctionGroup</a>[]</code> | Package sets of routes into separate Lambda functions, each fronted by its own CloudFront behaviors. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template. |
 
 ---
 
@@ -6065,6 +6107,21 @@ It must define
 `function viewerRequest(event)`.
 
 > [NextjsDistributionProps.viewerRequestFunctionCode *](NextjsDistributionProps.viewerRequestFunctionCode *)
+
+---
+
+##### `viewerRequestKeyValueStore`<sup>Optional</sup> <a name="viewerRequestKeyValueStore" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.viewerRequestKeyValueStore"></a>
+
+```typescript
+public readonly viewerRequestKeyValueStore: IKeyValueStore;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IKeyValueStore
+- *Default:* none
+
+A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template.
+
+> [NextjsDistributionProps.viewerRequestKeyValueStore *](NextjsDistributionProps.viewerRequestKeyValueStore *)
 
 ---
 
@@ -11005,6 +11062,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | Code run first on every viewer request, on every behavior cdk-nextjs adds: pages and API routes, `_next/image*`, `_next/static*` and `public/` files alike. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore associated with every function {@link viewerRequestFunctionCode} runs in, so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy. |
 
 ---
 
@@ -11170,16 +11228,34 @@ anything is served — HTTP Basic auth on a pre-launch site, geo-gating.
 CloudFront runs one function per event type per behavior, and on
 `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
 so this code is spliced into that function rather than associated beside
-it. It must define `function viewerRequest(event)`, which is a CloudFront
-Function handler in all but name: return a response to answer the viewer
-with it, or the request (or nothing) to carry on. cdk-nextjs's own logic
-runs after it, so it can't undo the `X-Forwarded-Host` overwrite.
+it. It must define `function viewerRequest(event)` (or
+`async function viewerRequest(event)`), which is a CloudFront Function
+handler in all but name: return a response to answer the viewer with it,
+or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
+it, so it can't undo the `X-Forwarded-Host` overwrite.
 
-The code runs on `cloudfront-js-1.0` (ES5.1) and is checked at synth
-against CloudFront's 10 KB function size limit, cdk-nextjs's own code
-included. A bring-your-own {@link distribution}'s default behavior is
-yours, so it isn't covered; under a `basePath`, the behaviors that stand
-in for it are.
+Every function it's spliced into runs on `cloudfront-js-2.0`, so it may be
+async and, with {@link viewerRequestKeyValueStore}, read the store through
+`import cf from "cloudfront"` — which, being the user code, comes first in
+the file as CloudFront requires. It is checked at synth against
+CloudFront's 10 KB function size limit, cdk-nextjs's own code included. A
+bring-your-own {@link distribution}'s default behavior is yours, so it
+isn't covered; under a `basePath`, the behaviors that stand in for it are.
+
+---
+
+##### `viewerRequestKeyValueStore`<sup>Optional</sup> <a name="viewerRequestKeyValueStore" id="cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestKeyValueStore"></a>
+
+```typescript
+public readonly viewerRequestKeyValueStore: IKeyValueStore;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IKeyValueStore
+- *Default:* none
+
+A CloudFront KeyValueStore associated with every function {@link viewerRequestFunctionCode} runs in, so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy.
+
+Read it with `cf.kvs()`, no ID needed.
 
 ---
 
