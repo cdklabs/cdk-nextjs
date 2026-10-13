@@ -492,12 +492,8 @@ export class NextjsDistribution extends Construct {
    * one with `async` and KeyValueStores, so the handlers are all `async`
    * whether or not there is user code to await. The user's code goes first in
    * the file, which is where CloudFront wants `import cf from "cloudfront"`.
-   *
-   * With user code, cdk-nextjs's handler is renamed {@link OWN_HANDLER}, and
-   * the file ends by declaring `handler` and then assigning ours to it. Top-level
-   * user code runs before that assignment, so however it assigns `handler`
-   * (`var handler =`, destructuring, `globalThis["handler"] =`), ours is the
-   * one left, and the `x-forwarded-host` overwrite with it.
+   * It shares the file's scope with ours, so it may not use the name
+   * `handler` at all (see {@link renderViewerRequestCode}).
    */
   private viewerRequestFunctionProps(
     handler: string,
@@ -511,11 +507,9 @@ export class NextjsDistribution extends Construct {
     }
     // A response has a status; anything else returned is the request to carry
     // on with. `await` takes a synchronous `viewerRequest` as it is.
-    const code = `${userCode}\n${handler
-      .replace("async function handler(", `async function ${OWN_HANDLER}(`)
-      .replace(
-        VIEWER_REQUEST_HOOK,
-        `
+    const code = `${userCode}\n${handler.replace(
+      VIEWER_REQUEST_HOOK,
+      `
           var viewerResult = await viewerRequest(event);
           if (viewerResult && viewerResult.statusCode) {
             return viewerResult;
@@ -523,12 +517,7 @@ export class NextjsDistribution extends Construct {
           if (viewerResult) {
             event.request = viewerResult;
           }`,
-      )}
-        async function handler(event) {
-          return ${OWN_HANDLER}(event);
-        }
-        handler = ${OWN_HANDLER};
-        `;
+    )}`;
     const size = Buffer.byteLength(code);
     if (size > MAX_FUNCTION_CODE_BYTES) {
       throw new Error(
@@ -547,9 +536,15 @@ export class NextjsDistribution extends Construct {
   }
   /**
    * `viewerRequestFunctionCode`, rendered, once it has been checked to define
-   * `viewerRequest` and not to declare `handler`. These are textual checks, so
-   * a name in a comment or a string counts, as does a block-scoped local
-   * `handler`; that errs towards refusing code that would have worked.
+   * `viewerRequest` and not to use the name `handler`.
+   *
+   * Any use of `handler` is refused, not just a declaration: an assignment
+   * (`var handler =`, destructuring, `globalThis["handler"] =`) would replace
+   * cdk-nextjs's handler, and with it the `x-forwarded-host` overwrite, and a
+   * `let`/`const`/`class` would make the file a syntax error. Telling these
+   * apart from a local of the same name takes a parser, so a local, or the
+   * word in a comment or string, is refused too; that errs towards refusing
+   * code that would have worked.
    */
   private renderViewerRequestCode(): string | undefined {
     const userCode = this.props.viewerRequestFunctionCode?.render();
@@ -557,7 +552,7 @@ export class NextjsDistribution extends Construct {
       return undefined;
     }
     if (
-      !/\bfunction\s+viewerRequest\s*\(|\b(?:var|let|const)\s[^;]*?\bviewerRequest\s*=/.test(
+      !/\bfunction\s+viewerRequest\s*\(|(?:\b(?:var|let|const)\s+|,\s*)viewerRequest\s*=(?!=)/.test(
         userCode,
       )
     ) {
@@ -568,18 +563,12 @@ export class NextjsDistribution extends Construct {
           `handler.`,
       );
     }
-    // Assignments to `handler` are undone by the one the file ends with, but
-    // a declaration would either be silently replaced by ours (`function`) or
-    // make the file a syntax error (`let`, `const`, `class`).
-    if (
-      /\bfunction\s*\*?\s*handler\s*\(|\b(?:let|const|class)\s+handler\b/.test(
-        userCode,
-      )
-    ) {
+    if (/\bhandler\b/.test(userCode)) {
       throw new Error(
-        `${LOG_PREFIX} \`viewerRequestFunctionCode\` defines ` +
-          `\`handler\`, which collides with cdk-nextjs's own. Rename ` +
-          `it to \`viewerRequest\`: it is called with the same event, and may ` +
+        `${LOG_PREFIX} \`viewerRequestFunctionCode\` uses the name ` +
+          `\`handler\`, which is cdk-nextjs's own function in the same file. ` +
+          `Rename it (a mention in a comment or string counts too); your entry ` +
+          `point is \`viewerRequest\`, called with the same event, and it may ` +
           `return the same request or response.`,
       );
     }
@@ -1189,13 +1178,6 @@ export class NextjsDistribution extends Construct {
  * logic of its own. Replaced at synth, never deployed.
  */
 const VIEWER_REQUEST_HOOK = "/*@viewerRequest@*/";
-
-/**
- * What cdk-nextjs's viewer-request handler is called when
- * `viewerRequestFunctionCode` shares its file, so the user's code can't
- * replace it by assigning `handler`.
- */
-const OWN_HANDLER = "cdkNextjsHandler";
 
 /**
  * CloudFront's maximum CloudFront Function size.

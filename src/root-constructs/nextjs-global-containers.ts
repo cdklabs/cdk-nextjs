@@ -84,7 +84,7 @@ export interface NextjsGlobalContainersProps extends NextjsBaseProps {
   /**
    * CloudFront Function code run first on every viewer request, static assets
    * included — HTTP Basic auth on a pre-launch site, say. It must define
-   * `viewerRequest(event)`, as a function or a `const`.
+   * `viewerRequest(event)`, as a function or a `var`/`let`/`const`.
    * @see NextjsDistributionProps.viewerRequestFunctionCode
    * @default - none
    */

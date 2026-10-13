@@ -1188,26 +1188,6 @@ describe("viewerRequestFunctionCode", () => {
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
   });
 
-  it.each([
-    ["var", "var handler = (event) => event.request;"],
-    [
-      "destructuring",
-      "var { handler } = { handler: (event) => event.request };",
-    ],
-    ["globalThis", 'globalThis["handler"] = (event) => event.request;'],
-  ])(
-    "keeps cdk-nextjs's handler when the code assigns handler with %s",
-    async (_name, assignment) => {
-      const handler = synth({
-        code: `${assignment}\nfunction viewerRequest(event) {}`,
-      }).handlerFor("*");
-      const result = (await handler(
-        request("/x", { "x-forwarded-host": "evil.test" }),
-      )) as FunctionRequest;
-      expect(result.headers["x-forwarded-host"].value).toBe("a.test");
-    },
-  );
-
   it("carries on with a request it returns as a new object", async () => {
     const handler = synth({
       code: `
@@ -1295,20 +1275,29 @@ describe("viewerRequestFunctionCode", () => {
 
   it.each([
     ["no viewerRequest", "var x = 1;", /must define `viewerRequest\(event\)`/],
+    ...[
+      "function handler(event) {}",
+      "function* handler(event) {}",
+      "const handler = (event) => event.request;",
+      "let a = 1, handler = 2;",
+      "var handler = (event) => event.request;",
+      "var { handler } = { handler: (event) => event.request };",
+      'globalThis["handler"] = (event) => event.request;',
+      "var cdkNextjsHandler; handler = cdkNextjsHandler;",
+    ].map((declaration): [string, string, RegExp] => [
+      `handler in \`${declaration}\``,
+      `${declaration}\nfunction viewerRequest(event) {}`,
+      /uses the name `handler`/,
+    ]),
     [
-      "a handler of its own",
-      "function handler(event) {} function viewerRequest(event) {}",
-      /defines `handler`/,
+      "viewerRequest only compared, never declared",
+      'const ok = typeof viewerRequest === "function";',
+      /must define `viewerRequest\(event\)`/,
     ],
     [
-      "a generator handler",
-      "function* handler(event) {} function viewerRequest(event) {}",
-      /defines `handler`/,
-    ],
-    [
-      "a const handler",
-      "const handler = (event) => event.request;\nfunction viewerRequest(event) {}",
-      /defines `handler`/,
+      "viewerRequest only assigned as a property",
+      "const cfg = {}; cfg.viewerRequest = function (event) {};",
+      /must define `viewerRequest\(event\)`/,
     ],
     [
       "more than fits in a CloudFront Function",
