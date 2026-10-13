@@ -1,4 +1,6 @@
 import { notFound } from 'next/navigation';
+import { fetchLocal } from '#/lib/fetch-local';
+import { queryCategories } from './categories';
 import type { Category } from './category';
 
 // `server-only` guarantees any modules that import code in file
@@ -8,43 +10,32 @@ import type { Category } from './category';
 import 'server-only';
 
 /**
- * The network round trip, cached. Layouts all over this app await these
- * functions at the top level, and with `cacheComponents` an uncached `fetch`
- * there makes the whole route unprerenderable.
+ * The `fetch`, cached. Layouts all over this app await these functions at the
+ * top level, and with `cacheComponents` an uncached `fetch` there makes the
+ * whole route unprerenderable.
  *
- * An upstream failure throws from *inside* the cache rather than being returned
- * as an `{ ok: false }` sentinel. A rejected promise is not persisted, so the
- * next request retries the API; a resolved sentinel is persisted like any other
- * value, which meant one 503 here served `error.js` for every subsequent
- * request for the life of the entry - the exact failure the sentinel was
- * introduced to avoid.
+ * The answer comes from the local copy in `categories.ts`, not the playground
+ * API it was copied from, through `fetchLocal` - see there for why.
  *
- * `notFound()` still belongs to the wrappers below, and for the original
- * reason: an empty response is a valid, cacheable answer, and the 404 is a
- * decision about one request rather than something to store.
+ * `notFound()` belongs to the wrappers below: an empty response is a valid,
+ * cacheable answer, and the 404 is a decision about one request rather than
+ * something to store.
  */
-async function fetchCategories(query: string): Promise<Category[]> {
+async function fetchCategories(query: {
+  parent?: string;
+  slug?: string;
+}): Promise<Category[]> {
   'use cache';
 
-  const res = await fetch(
-    `https://app-playground-api.vercel.app/api/categories${query}`,
-  );
-
-  if (!res.ok) {
-    throw new Error(`The categories API responded ${res.status}`);
-  }
-
-  // The API returns an array for `?parent=`/no query and a single object for
-  // `?slug=`; normalizing here keeps one cached function for both.
-  const json = (await res.json()) as Category[] | Category | null;
+  // An array for `parent`/no query and a single object for `slug`, as the API
+  // answered; normalizing here keeps one cached function for both.
+  const json = await fetchLocal(queryCategories(query));
 
   return json ? [json].flat() : [];
 }
 
 export async function getCategories({ parent }: { parent?: string } = {}) {
-  // An upstream failure throws out of `fetchCategories` and renders the closest
-  // `error.js` Error Boundary, uncached.
-  const categories = await fetchCategories(parent ? `?parent=${parent}` : '');
+  const categories = await fetchCategories({ parent });
 
   if (categories.length === 0) {
     // Render the closest `not-found.js` Error Boundary
@@ -55,7 +46,7 @@ export async function getCategories({ parent }: { parent?: string } = {}) {
 }
 
 export async function getCategory({ slug }: { slug: string }) {
-  const data = await fetchCategories(slug ? `?slug=${slug}` : '');
+  const data = await fetchCategories({ slug });
 
   const category = data[0];
 

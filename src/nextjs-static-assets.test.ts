@@ -370,24 +370,36 @@ describe("NextjsStaticAssets", () => {
       expect(() => createStaticAssets({})).not.toThrow(/ELOOP/);
     });
 
+    // Checks the directories this construct staged, not a before/after listing
+    // of `os.tmpdir()`: jest runs other files in parallel workers, and any of
+    // them that builds a `NextjsStaticAssets` (`test/root-constructs.test.ts`,
+    // for one) stages `nextjs-assets-*` directories into the same temp
+    // directory while this runs, which the listing counted as leaked.
     it("removes the staging directories when a deployment fails", () => {
       writePublicFile();
-      const before = new Set(readdirSync(tmpdir()));
-      jest
-        .spyOn(NextjsStaticAssets.prototype as any, "createDeployment")
-        .mockImplementation(() => {
-          throw new Error("deployment failed");
-        });
+      const proto = NextjsStaticAssets.prototype as any;
+      const stageDirectory = proto.stageDirectory;
+      const staged: string[] = [];
+      jest.spyOn(proto, "stageDirectory").mockImplementation(function (
+        this: unknown,
+        ...args: unknown[]
+      ) {
+        const dir = stageDirectory.apply(this, args);
+        if (dir) staged.push(dir);
+        return dir;
+      });
+      jest.spyOn(proto, "createDeployment").mockImplementation(() => {
+        throw new Error("deployment failed");
+      });
       try {
         expect(() => createStaticAssets({})).toThrow("deployment failed");
       } finally {
         jest.restoreAllMocks();
       }
 
-      const leaked = readdirSync(tmpdir()).filter(
-        (name) => name.startsWith("nextjs-assets-") && !before.has(name),
-      );
-      expect(leaked).toEqual([]);
+      // `.next/static` and `public`, both staged before the first deployment.
+      expect(staged).toHaveLength(2);
+      expect(staged.filter((dir) => existsSync(dir))).toEqual([]);
     });
 
     it("removes its staging directories once CDK has copied them", () => {

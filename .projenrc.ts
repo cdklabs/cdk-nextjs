@@ -34,6 +34,9 @@ const project = new CdklabsConstructLibrary({
     "@aws-sdk/client-s3",
     "@aws-sdk/client-ssm",
     "@aws-sdk/lib-storage",
+    // AWS icons for the README diagrams. Exact-pinned so a bump is a hand edit
+    // that comes with a re-render. @see scripts/render-diagrams.mjs
+    "@iconify-json/logos@1.2.16",
     "@mrgrain/jsii-struct-builder",
     // Exact-pinned to `next` and bumped with it: it is first-party and versioned
     // in lockstep, so a mismatch is a routing behavior difference. Bundled into
@@ -67,6 +70,8 @@ const project = new CdklabsConstructLibrary({
       // packs on every PR, so this is a speed matter as well as a hygiene one.
       ".claude/**/*",
       "/nextjs/",
+      // README diagram sources and renders; the README links them by URL.
+      "/docs/diagrams/",
     ],
   },
   // tooling config
@@ -198,8 +203,26 @@ updateGitHubWorkflows();
 generateStructs();
 updatePackageJson();
 restrictNextValueImports();
+addDiagramTasks();
 
 project.synth();
+
+/**
+ * Renders `docs/diagrams/*.mmd` to the SVGs the README links. Rendering needs
+ * Chrome, so it is run by hand; `test` only checks each SVG's source hash
+ * against its `.mmd`. @see scripts/render-diagrams.mjs
+ */
+function addDiagramTasks() {
+  project.addTask("diagrams", {
+    description: "Render the README architecture diagrams",
+    exec: "node scripts/render-diagrams.mjs",
+  });
+  const check = project.addTask("diagrams:check", {
+    description: "Fail if a README diagram is stale against its source",
+    exec: "node scripts/render-diagrams.mjs --check",
+  });
+  project.testTask.spawn(check);
+}
 
 /**
  * Shims the CJS globals (`require`, `__dirname`, `__filename`) that bundled CJS

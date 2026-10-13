@@ -46,6 +46,9 @@ importers:
       '@aws-sdk/lib-storage':
         specifier: ^3.1141.0
         version: 3.1141.0(@aws-sdk/client-s3@3.1141.0)
+      '@iconify-json/logos':
+        specifier: 1.2.16
+        version: 1.2.16
       '@mrgrain/jsii-struct-builder':
         specifier: ^0.7.64
         version: 0.7.64(projen@0.101.37(constructs@10.5.1))
@@ -802,6 +805,12 @@ packages:
   '@hutson/parse-repository-url@3.0.2':
     resolution: {integrity: sha512-H9XAx3hc0BQHY6l+IFSWHDySypcXsvsuLhgYLUGywmJ5pswRVQJUHpOsobnLYp2ZUaUlKiKDrgWWhosOwAEM8Q==}
     engines: {node: '>=6.9.0'}
+
+  '@iconify-json/logos@1.2.16':
+    resolution: {integrity: sha512-J7uewTzmJchaWkc8f/SW3aS14Y6H1bnLihMZaVccDao3TRsWFJvGfAhbkTzErKjSSbRJG8uzjY4yzMbGMELPIw==}
+
+  '@iconify/types@2.0.0':
+    resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -4905,6 +4914,12 @@ snapshots:
   '@humanwhocodes/retry@0.4.3': {}
 
   '@hutson/parse-repository-url@3.0.2': {}
+
+  '@iconify-json/logos@1.2.16':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify/types@2.0.0': {}
 
   '@img/colour@1.1.0':
     optional: true

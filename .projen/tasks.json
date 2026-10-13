@@ -358,6 +358,24 @@
         }
       ]
     },
+    "diagrams": {
+      "name": "diagrams",
+      "description": "Render the README architecture diagrams",
+      "steps": [
+        {
+          "exec": "node scripts/render-diagrams.mjs"
+        }
+      ]
+    },
+    "diagrams:check": {
+      "name": "diagrams:check",
+      "description": "Fail if a README diagram is stale against its source",
+      "steps": [
+        {
+          "exec": "node scripts/render-diagrams.mjs --check"
+        }
+      ]
+    },
     "docgen": {
       "name": "docgen",
       "description": "Generate API.md from .jsii manifest",
@@ -545,6 +563,9 @@
         },
         {
           "spawn": "integ"
+        },
+        {
+          "spawn": "diagrams:check"
         }
       ]
     },
@@ -664,6 +685,7 @@
             "@aws-sdk/client-s3",
             "@aws-sdk/client-ssm",
             "@aws-sdk/lib-storage",
+            "@iconify-json/logos",
             "@mrgrain/jsii-struct-builder",
             "@next/routing",
             "@smithy/signature-v4",
