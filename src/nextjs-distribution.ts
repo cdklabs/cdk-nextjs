@@ -56,6 +56,14 @@ import {
   PublicDirEntry,
 } from "./nextjs-build/nextjs-build";
 import { assetPrefixPath, normalizeBasePath } from "./utils/base-path";
+import {
+  assetPrefixRewriteHandler,
+  checkViewerRequestCode,
+  MAX_FUNCTION_CODE_BYTES,
+  PASS_THROUGH_HANDLER,
+  spliceViewerRequest,
+  X_FORWARDED_HOST_HANDLER,
+} from "./utils/viewer-request-functions";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
@@ -346,77 +354,8 @@ export class NextjsDistribution extends Construct {
   private createDynamicCloudFrontFunctionAssociations(): FunctionAssociation[] {
     const associations: FunctionAssociation[] = [];
     if (this.isFunctionCompute) {
-      // Next.js answers any path containing a backslash or a repeated
-      // slash with a 308 to the collapsed path
-      // (`normalizeRepeatedSlashes`, called from `base-server.ts`), and so
-      // does this runtime. Behind a Lambda Function URL the origin never
-      // gets the chance: Origin Access Control signs the raw path while the
-      // Function URL canonicalizes it before verifying, so the origin
-      // answers 403 SignatureDoesNotMatch. Doing the redirect here is what
-      // makes `/basepath//to-sv` behave as it does under `next start`.
-      //
-      // A bare `//` reaches here too, and is answered the same way -
-      // measured, because `//` at the start of a request target is also the
-      // authority form and it was not obvious CloudFront would route it to a
-      // function at all. It does: `GET //` answers 308 to `/` with
-      // `x-cache: FunctionGeneratedResponse`, over both HTTP/1.1 and HTTP/2,
-      // which is what `test/e2e/hydration` asks for.
-      //
-      // Two things Next.js does that this does not:
-      //
-      // - the body it sends with its own redirect (the destination, as
-      //   text). A generated response can carry one on
-      //   cloudfront-js-2.0, but none is sent yet; no known client reads
-      //   it.
-      // - the original order of the query string. The event exposes
-      //   `querystring` as an object, never as the raw string, so
-      //   `/x//y?a=1&b=2` redirects to `/x/y?b=2&a=1`. The pairs all
-      //   survive; only their order is CloudFront's rather than the
-      //   client's, and a redirect target is not order-sensitive.
-      //
-      // A repeated key's `multiValue` already holds its first value, which
-      // `value` repeats, so it is one or the other, never both. Names and
-      // values arrive as the client sent them, still percent-encoded
-      // (measured: `?a=%20b%26c&p=1+2` reads back unchanged), so they are
-      // joined as-is; encoding them again would turn `%20` into `%2520`.
-      //
-      // These notes live out here rather than in the code because
-      // CloudFront counts comments toward the function's 10 KB, which
-      // `viewerRequestFunctionCode` shares.
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
-        // Only the ES6+ that cloudfront-js-2.0 documents: `const`/`let`, arrow
-        // functions, `Object.keys`; no destructuring, spread or `for...of`.
-        // Strings are concatenated rather than templated, since a template
-        // literal in here would need every backtick and `${` escaped.
-        // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-javascript-runtime-20.html
-        ...this.viewerRequestFunctionProps(`
-          async function handler(event) {${VIEWER_REQUEST_HOOK}
-            const request = event.request;
-            const uri = request.uri;
-
-            if (/\\\\|\\/\\//.test(uri)) {
-              let location = uri.replace(/\\\\/g, "/").replace(/\\/\\/+/g, "/");
-              const qs = [];
-              Object.keys(request.querystring).forEach((name) => {
-                const q = request.querystring[name];
-                (q.multiValue || [q]).forEach((entry) => {
-                  qs.push(entry.value === "" ? name : name + "=" + entry.value);
-                });
-              });
-              if (qs.length) {
-                location += "?" + qs.join("&");
-              }
-              return {
-                statusCode: 308,
-                statusDescription: "Permanent Redirect",
-                headers: { location: { value: location } },
-              };
-            }
-
-            request.headers["x-forwarded-host"] = request.headers.host;
-            return request;
-          }
-          `),
+        ...this.viewerRequestFunctionProps(X_FORWARDED_HOST_HANDLER),
       });
       associations.push({
         eventType: FunctionEventType.VIEWER_REQUEST,
@@ -445,58 +384,31 @@ export class NextjsDistribution extends Construct {
           "NextJS viewer request",
           Stack.of(this).stackName,
         ),
-        ...this.viewerRequestFunctionProps(`
-          async function handler(event) {${VIEWER_REQUEST_HOOK}
-            return event.request;
-          }
-          `),
+        ...this.viewerRequestFunctionProps(PASS_THROUGH_HANDLER),
       },
     );
     return this.passThroughFunction;
   }
   /**
    * The code, runtime and KeyValueStore of a function whose `handler` is
-   * cdk-nextjs's, with `viewerRequestFunctionCode` awaited where the handler
-   * says {@link VIEWER_REQUEST_HOOK}, or with the marker dropped when there is
-   * none.
+   * cdk-nextjs's, with `viewerRequestFunctionCode` spliced in
+   * ({@link spliceViewerRequest}) and checked against CloudFront's size limit.
    *
    * Every one runs on `cloudfront-js-2.0`, the runtime AWS recommends and the
    * one with `async` and KeyValueStores, so the handlers are all `async`
-   * whether or not there is user code to await. The user's code goes first in
-   * the file, which is where CloudFront wants `import cf from "cloudfront"`.
-   * It shares the file's scope with ours, so it may not use the name
-   * `handler` at all (see {@link renderViewerRequestCode}).
+   * whether or not there is user code to await.
    */
   private viewerRequestFunctionProps(
     handler: string,
   ): Pick<FunctionProps, "code" | "runtime" | "keyValueStore"> {
-    // Indentation counts toward the 10 KB too; none of this code has a
-    // multi-line string for it to change.
-    const dedent = (code: string) => code.replace(/^[ \t]+/gm, "");
     const userCode = this.viewerRequestCode;
+    const code = spliceViewerRequest(handler, userCode);
     if (userCode === undefined) {
       return {
-        code: FunctionCode.fromInline(
-          dedent(handler.replace(VIEWER_REQUEST_HOOK, "")),
-        ),
+        code: FunctionCode.fromInline(code),
         runtime: FunctionRuntime.JS_2_0,
       };
     }
-    // A response has a status; anything else returned is the request to carry
-    // on with. `await` takes a synchronous `viewerRequest` as it is.
-    const code = `${userCode}\n${dedent(
-      handler.replace(
-        VIEWER_REQUEST_HOOK,
-        `
-          const viewerResult = await viewerRequest(event);
-          if (viewerResult && viewerResult.statusCode) {
-            return viewerResult;
-          }
-          if (viewerResult) {
-            event.request = viewerResult;
-          }`,
-      ),
-    )}`;
     const size = Buffer.byteLength(code);
     if (Token.isUnresolved(code)) {
       // A token's placeholder isn't the length of what it resolves to.
@@ -521,43 +433,16 @@ export class NextjsDistribution extends Construct {
     };
   }
   /**
-   * `viewerRequestFunctionCode`, rendered, once it has been checked to define
-   * `viewerRequest` and not to use the name `handler`.
-   *
-   * Any use of `handler` is refused, not just a declaration: an assignment
-   * (`var handler =`, destructuring, `globalThis["handler"] =`) would replace
-   * cdk-nextjs's handler, and with it the `x-forwarded-host` overwrite, and a
-   * `let`/`const`/`class` would make the file a syntax error. Telling these
-   * apart from a local of the same name takes a parser, so a local, or the
-   * word in a comment or string, is refused too; that errs towards refusing
-   * code that would have worked.
+   * `viewerRequestFunctionCode`, rendered once, since `FunctionCode.fromFile`
+   * reads the file on every render, and checked
+   * ({@link checkViewerRequestCode}).
    */
   private renderViewerRequestCode(): string | undefined {
     const userCode = this.props.viewerRequestFunctionCode?.render();
     if (userCode === undefined) {
       return undefined;
     }
-    if (
-      !/\bfunction\s+viewerRequest\s*\(|(?:\b(?:var|let|const)\s+|,\s*)viewerRequest\s*=(?!=)/.test(
-        userCode,
-      )
-    ) {
-      throw new Error(
-        `${LOG_PREFIX} \`viewerRequestFunctionCode\` must define ` +
-          `\`viewerRequest(event)\`, as a function or a \`var\`/\`let\`/` +
-          `\`const\`, which cdk-nextjs calls from its own viewer-request ` +
-          `handler.`,
-      );
-    }
-    if (/\bhandler\b/.test(userCode)) {
-      throw new Error(
-        `${LOG_PREFIX} \`viewerRequestFunctionCode\` uses the name ` +
-          `\`handler\`, which is cdk-nextjs's own function in the same file. ` +
-          `Rename it (a mention in a comment or string counts too); your entry ` +
-          `point is \`viewerRequest\`, called with the same event, and it may ` +
-          `return the same request or response.`,
-      );
-    }
+    checkViewerRequestCode(userCode);
     return userCode;
   }
   /**
@@ -965,15 +850,9 @@ export class NextjsDistribution extends Construct {
         "NextJS assetPrefix rewrite",
         Stack.of(this).stackName,
       ),
-      ...this.viewerRequestFunctionProps(`
-        async function handler(event) {${VIEWER_REQUEST_HOOK}
-          const request = event.request;
-          request.uri = ${JSON.stringify(
-            this.basePath ? `/${this.basePath}` : "",
-          )} + request.uri.slice(${this.assetPrefix.length});
-          return request;
-        }
-        `),
+      ...this.viewerRequestFunctionProps(
+        assetPrefixRewriteHandler(this.basePath, this.assetPrefix),
+      ),
     });
     this.distribution.addBehavior(
       `${this.assetPrefix}/_next/static*`,
@@ -1173,18 +1052,6 @@ export class NextjsDistribution extends Construct {
     return `/${this.basePath}/${pathPattern.replace(/^\/+/, "")}`;
   }
 }
-
-/**
- * Where a viewer-request handler calls `viewerRequestFunctionCode`, before any
- * logic of its own. Replaced at synth, never deployed.
- */
-const VIEWER_REQUEST_HOOK = "/*@viewerRequest@*/";
-
-/**
- * CloudFront's maximum CloudFront Function size.
- * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-functions
- */
-const MAX_FUNCTION_CODE_BYTES = 10 * 1024;
 
 /**
  * Whether `dynamicCachePolicyProps` turns the dynamic cache off, by capping every
