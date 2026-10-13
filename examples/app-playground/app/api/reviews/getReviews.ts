@@ -10,9 +10,14 @@ import 'server-only';
 /**
  * Cached for the same reason as `getCategories`: with `cacheComponents` an
  * uncached `fetch` awaited during a render stops the route from being
- * prerendered. An upstream failure throws from inside the cache so that it is
- * not persisted, and `notFound()` stays outside it - see the comment in
- * `app/api/categories/getCategories.ts`.
+ * prerendered.
+ *
+ * An upstream failure throws from *inside* the cache rather than being returned
+ * as an `{ ok: false }` sentinel. A rejected promise is not persisted, so the
+ * next request retries the API; a resolved sentinel is persisted like any other
+ * value, which would serve `error.js` for every subsequent request for the life
+ * of the entry. `notFound()` stays outside it: an empty response is a valid,
+ * cacheable answer, and the 404 is a decision about one request.
  */
 async function fetchReviews(): Promise<Review[]> {
   'use cache';
