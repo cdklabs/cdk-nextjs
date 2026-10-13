@@ -165,8 +165,8 @@ export interface NextjsDistributionProps {
    * or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
    * it, so it can't undo the `X-Forwarded-Host` overwrite.
    *
-   * Every function it's spliced into runs on `cloudfront-js-2.0`, so it may be
-   * async and, with {@link viewerRequestKeyValueStore}, read the store through
+   * cdk-nextjs's functions run on `cloudfront-js-2.0`, so it may be async
+   * and, with {@link viewerRequestKeyValueStore}, read the store through
    * `import cf from "cloudfront"` — which, being the user code, comes first in
    * the file as CloudFront requires. It is checked at synth against
    * CloudFront's 10 KB function size limit, cdk-nextjs's own code included. A
@@ -363,11 +363,11 @@ export class NextjsDistribution extends Construct {
     const associations: FunctionAssociation[] = [];
     if (this.isFunctionCompute) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
-        // cloudfront-js-1.0 unless `viewerRequestFunctionCode` is set, so
-        // ES5.1: `var`, no arrow functions, no template literals, no
-        // `Object.keys`.
+        // Written as ES5.1 (`var`, no arrow functions, no template literals,
+        // no `Object.keys`) from when this ran on cloudfront-js-1.0; it runs
+        // unchanged on 2.0.
         ...this.viewerRequestFunctionProps(`
-          function handler(event) {${VIEWER_REQUEST_HOOK}
+          async function handler(event) {${VIEWER_REQUEST_HOOK}
             var request = event.request;
             var uri = request.uri;
 
@@ -387,11 +387,12 @@ export class NextjsDistribution extends Construct {
             // \`x-cache: FunctionGeneratedResponse\`, over both HTTP/1.1 and HTTP/2,
             // which is what \`test/e2e/hydration\` asks for.
             //
-            // Two things Next.js does that this cannot:
+            // Two things Next.js does that this does not:
             //
             // - the body it sends with its own redirect (the destination, as
-            //   text), because a generated response can only carry one on
-            //   cloudfront-js-2.0. No known client reads it.
+            //   text). A generated response can carry one on
+            //   cloudfront-js-2.0, but none is sent yet; no known client reads
+            //   it.
             // - the original order of the query string. The event exposes
             //   \`querystring\` as an object, never as the raw string, so
             //   \`/x//y?a=1&b=2\` redirects to \`/x/y?b=2&a=1\`. The pairs all
@@ -454,7 +455,7 @@ export class NextjsDistribution extends Construct {
     return new CloudFrontFunction(this, id, {
       comment: this.getComment(comment, Stack.of(this).stackName),
       ...this.viewerRequestFunctionProps(`
-        function handler(event) {${VIEWER_REQUEST_HOOK}
+        async function handler(event) {${VIEWER_REQUEST_HOOK}
           return event.request;
         }
         `),
@@ -464,14 +465,14 @@ export class NextjsDistribution extends Construct {
    * The code, runtime and KeyValueStore of a function whose `handler` is
    * cdk-nextjs's, with `viewerRequestFunctionCode` awaited where the handler
    * says {@link VIEWER_REQUEST_HOOK}, or with the marker dropped when there is
-   * none — so a distribution without it synthesizes the same functions it
-   * always did, on `cloudfront-js-1.0`.
+   * none.
    *
-   * With it, the function moves to `cloudfront-js-2.0`, the runtime that
-   * supports `async` and KeyValueStores; ES5.1 runs unchanged on it. The
-   * user's code goes first in the file, which is where CloudFront wants
-   * `import cf from "cloudfront"`, and so of two top-level `handler`
-   * declarations ours would win; one is refused rather than silently ignored.
+   * Every one runs on `cloudfront-js-2.0`, the runtime AWS recommends and the
+   * one with `async` and KeyValueStores, so the handlers are all `async`
+   * whether or not there is user code to await. The user's code goes first in
+   * the file, which is where CloudFront wants `import cf from "cloudfront"`,
+   * and so of two top-level `handler` declarations ours would win; one is
+   * refused rather than silently ignored.
    */
   private viewerRequestFunctionProps(
     handler: string,
@@ -480,13 +481,8 @@ export class NextjsDistribution extends Construct {
     if (userCode === undefined) {
       return {
         code: FunctionCode.fromInline(handler.replace(VIEWER_REQUEST_HOOK, "")),
+        runtime: FunctionRuntime.JS_2_0,
       };
-    }
-    const signature = `function handler(event) {${VIEWER_REQUEST_HOOK}`;
-    if (!handler.includes(signature)) {
-      throw new Error(
-        `${LOG_PREFIX} internal: a viewer-request handler lacks the hook marker.`,
-      );
     }
     if (!/\bfunction\s+viewerRequest\s*\(/.test(userCode)) {
       throw new Error(
@@ -506,8 +502,8 @@ export class NextjsDistribution extends Construct {
     // A response has a status; anything else returned is the request to carry
     // on with. `await` takes a synchronous `viewerRequest` as it is.
     const code = `${userCode}\n${handler.replace(
-      signature,
-      `async function handler(event) {
+      VIEWER_REQUEST_HOOK,
+      `
           var viewerResult = await viewerRequest(event);
           if (viewerResult && viewerResult.statusCode) {
             return viewerResult;
@@ -943,7 +939,7 @@ export class NextjsDistribution extends Construct {
         Stack.of(this).stackName,
       ),
       ...this.viewerRequestFunctionProps(`
-        function handler(event) {${VIEWER_REQUEST_HOOK}
+        async function handler(event) {${VIEWER_REQUEST_HOOK}
           var request = event.request;
           request.uri = ${JSON.stringify(
             this.basePath ? `/${this.basePath}` : "",

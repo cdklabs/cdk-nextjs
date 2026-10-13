@@ -472,10 +472,9 @@ logic, which still runs after it. Middleware can't do this instead: on Global Fu
 CloudFront signs the request to the Function URL with the `Authorization`
 header, and static assets never reach the server at all.
 
-- Every function your code runs in moves to `cloudfront-js-2.0`, so it can be
-  `async`, and `import cf from "cloudfront"` works when it comes first, as it
-  does above. Without the prop, cdk-nextjs's own function stays on
-  `cloudfront-js-1.0`, unchanged.
+- cdk-nextjs's CloudFront Functions run on `cloudfront-js-2.0`, so your code
+  can be `async`, and `import cf from "cloudfront"` works when it comes first,
+  as it does above.
 - `viewerRequestKeyValueStore` is associated with each of those functions, and
   `cf.kvs()` reads it with no ID. Credentials written inline in the code instead
   end up in the CloudFormation template.

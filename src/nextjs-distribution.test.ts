@@ -855,13 +855,13 @@ describe("the viewer-request CloudFront Function", () => {
     const code = Object.values(functions)[0].Properties.FunctionCode as string;
     return runInNewContext(`${code}\nhandler`) as (event: {
       request: FunctionRequest;
-    }) => FunctionResult;
+    }) => Promise<FunctionResult>;
   })();
 
   const send = (
     uri: string,
     querystring: Record<string, QueryValue> = {},
-  ): FunctionResult =>
+  ): Promise<FunctionResult> =>
     handler({
       request: { uri, querystring, headers: { host: { value: "a.test" } } },
     });
@@ -877,14 +877,14 @@ describe("the viewer-request CloudFront Function", () => {
     ["/foo//bar", "/foo/bar"],
     ["/basepath//to-sv", "/basepath/to-sv"],
     ["/a\\b", "/a/b"],
-  ])("redirects %s to %s with a 308", (uri, location) => {
-    expect(redirect(send(uri))).toEqual({ statusCode: 308, location });
+  ])("redirects %s to %s with a 308", async (uri, location) => {
+    expect(redirect(await send(uri))).toEqual({ statusCode: 308, location });
   });
 
-  it("keeps the query on the redirect, including repeated keys", () => {
+  it("keeps the query on the redirect, including repeated keys", async () => {
     // CloudFront's shape for a repeated key: `multiValue` holds every value,
     // the first included, and `value` repeats that first one.
-    const result = send("/x//y", {
+    const result = await send("/x//y", {
       json: { value: "true" },
       a: { value: "1", multiValue: [{ value: "1" }, { value: "2" }] },
       flag: { value: "" },
@@ -892,27 +892,27 @@ describe("the viewer-request CloudFront Function", () => {
     expect(redirect(result).location).toBe("/x/y?json=true&a=1&a=2&flag");
   });
 
-  it("passes percent-encoded query values through without re-encoding", () => {
+  it("passes percent-encoded query values through without re-encoding", async () => {
     // CloudFront hands the function the values still encoded, as sent.
-    const result = send("/x//y", {
+    const result = await send("/x//y", {
       a: { value: "%20b%26c" },
       p: { value: "1+2" },
     });
     expect(redirect(result).location).toBe("/x/y?a=%20b%26c&p=1+2");
   });
 
-  it("passes an ordinary path through with x-forwarded-host set", () => {
-    const result = send("/a/b") as FunctionRequest;
+  it("passes an ordinary path through with x-forwarded-host set", async () => {
+    const result = (await send("/a/b")) as FunctionRequest;
     expect(result.uri).toBe("/a/b");
     // CloudFront rewrites `host` to the origin domain, so the app would otherwise
     // build every absolute URL against the Function URL's hostname.
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
   });
 
-  it("overwrites a client-supplied x-forwarded-host", () => {
+  it("overwrites a client-supplied x-forwarded-host", async () => {
     // The runtime trusts this header behind the Function URL, so a viewer's
     // own value must not survive to build redirects or origin checks.
-    const result = handler({
+    const result = (await handler({
       request: {
         uri: "/a",
         querystring: {},
@@ -921,7 +921,7 @@ describe("the viewer-request CloudFront Function", () => {
           "x-forwarded-host": { value: "evil.test" },
         },
       },
-    }) as FunctionRequest;
+    })) as FunctionRequest;
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
   });
 });
@@ -1094,7 +1094,7 @@ describe("viewerRequestFunctionCode", () => {
     expect(status(await handler(request("/a//b", AUTHORIZED)))).toBe(308);
   });
 
-  it("moves every function it runs in to cloudfront-js-2.0, with the store", () => {
+  it("associates the store with every function it runs in", () => {
     const { behaviors, functionFor, functions } = synth({
       code: BASIC_AUTH,
       keyValueStore: true,
@@ -1182,7 +1182,7 @@ describe("viewerRequestFunctionCode", () => {
     expect(passed.uri).toBe("/_next/static/a.js");
   });
 
-  it("changes nothing when unset", () => {
+  it("adds no functions when unset", () => {
     const { behaviors, functions } = synth();
     const staticBehavior = behaviors.find(
       (it) => it.PathPattern === "_next/static*",
@@ -1190,13 +1190,27 @@ describe("viewerRequestFunctionCode", () => {
     expect(staticBehavior.FunctionAssociations).toBeUndefined();
     const [fn, ...rest] = Object.values(functions).map((it) => it.Properties);
     expect(rest).toHaveLength(0);
-    // The marker is dropped, not left in the deployed function, and the
-    // runtime stays where it was.
+    // The marker is dropped, not left in the deployed function.
     expect(fn.FunctionCode).toMatch(
-      /^\s*function handler\(event\) \{\n\s*var request/,
+      /^\s*async function handler\(event\) \{\n\s*var request/,
     );
-    expect(fn.FunctionConfig.Runtime).toBe("cloudfront-js-1.0");
+    expect(fn.FunctionConfig.KeyValueStoreAssociations).toBeUndefined();
   });
+
+  it.each([false, true])(
+    "runs every cdk-nextjs function on cloudfront-js-2.0 (hook set: %s)",
+    (hooked) => {
+      const { functions } = synth({
+        code: hooked ? BASIC_AUTH : undefined,
+        assetPrefix: "/cdn",
+      });
+      const runtimes = Object.values(functions).map(
+        (it) => it.Properties.FunctionConfig.Runtime,
+      );
+      expect(runtimes).toHaveLength(hooked ? 3 : 2);
+      expect(new Set(runtimes)).toEqual(new Set(["cloudfront-js-2.0"]));
+    },
+  );
 
   it("refuses a static override that already claims viewer-request", () => {
     expect(() =>

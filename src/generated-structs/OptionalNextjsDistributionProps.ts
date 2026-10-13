@@ -27,8 +27,8 @@ export interface OptionalNextjsDistributionProps {
    * or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
    * it, so it can't undo the `X-Forwarded-Host` overwrite.
    *
-   * Every function it's spliced into runs on `cloudfront-js-2.0`, so it may be
-   * async and, with {@link viewerRequestKeyValueStore}, read the store through
+   * cdk-nextjs's functions run on `cloudfront-js-2.0`, so it may be async
+   * and, with {@link viewerRequestKeyValueStore}, read the store through
    * `import cf from "cloudfront"` — which, being the user code, comes first in
    * the file as CloudFront requires. It is checked at synth against
    * CloudFront's 10 KB function size limit, cdk-nextjs's own code included. A
