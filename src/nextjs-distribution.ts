@@ -384,27 +384,27 @@ export class NextjsDistribution extends Construct {
       // CloudFront counts comments toward the function's 10 KB, which
       // `viewerRequestFunctionCode` shares.
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
-        // Written as ES5.1 (`var`, no arrow functions, no template literals,
-        // no `Object.keys`) from when this ran on cloudfront-js-1.0; it runs
-        // unchanged on 2.0.
+        // Only the ES6+ that cloudfront-js-2.0 documents: `const`/`let`, arrow
+        // functions, `Object.keys`; no destructuring, spread or `for...of`.
+        // Strings are concatenated rather than templated, since a template
+        // literal in here would need every backtick and `${` escaped.
+        // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-javascript-runtime-20.html
         ...this.viewerRequestFunctionProps(`
           async function handler(event) {${VIEWER_REQUEST_HOOK}
-            var request = event.request;
-            var uri = request.uri;
+            const request = event.request;
+            const uri = request.uri;
 
             if (/\\\\|\\/\\//.test(uri)) {
-              var location = uri.replace(/\\\\/g, "/").replace(/\\/\\/+/g, "/");
-              var qs = [];
-              for (var name in request.querystring) {
-                var q = request.querystring[name];
-                var values = q.multiValue || [q];
-                for (var i = 0; i < values.length; i++) {
-                  var v = values[i].value;
-                  qs.push(v === "" ? name : name + "=" + v);
-                }
-              }
+              let location = uri.replace(/\\\\/g, "/").replace(/\\/\\/+/g, "/");
+              const qs = [];
+              Object.keys(request.querystring).forEach((name) => {
+                const q = request.querystring[name];
+                (q.multiValue || [q]).forEach((entry) => {
+                  qs.push(entry.value === "" ? name : name + "=" + entry.value);
+                });
+              });
               if (qs.length) {
-                location = location + "?" + qs.join("&");
+                location += "?" + qs.join("&");
               }
               return {
                 statusCode: 308,
@@ -488,7 +488,7 @@ export class NextjsDistribution extends Construct {
       handler.replace(
         VIEWER_REQUEST_HOOK,
         `
-          var viewerResult = await viewerRequest(event);
+          const viewerResult = await viewerRequest(event);
           if (viewerResult && viewerResult.statusCode) {
             return viewerResult;
           }
@@ -967,7 +967,7 @@ export class NextjsDistribution extends Construct {
       ),
       ...this.viewerRequestFunctionProps(`
         async function handler(event) {${VIEWER_REQUEST_HOOK}
-          var request = event.request;
+          const request = event.request;
           request.uri = ${JSON.stringify(
             this.basePath ? `/${this.basePath}` : "",
           )} + request.uri.slice(${this.assetPrefix.length});

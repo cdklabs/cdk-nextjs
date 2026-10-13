@@ -1234,7 +1234,7 @@ describe("viewerRequestFunctionCode", () => {
     expect(rest).toHaveLength(0);
     // The marker is dropped, not left in the deployed function.
     expect(fn.FunctionCode).toMatch(
-      /^\s*async function handler\(event\) \{\n\s*var request/,
+      /^\s*async function handler\(event\) \{\n\s*const request/,
     );
     expect(fn.FunctionConfig.KeyValueStoreAssociations).toBeUndefined();
   });
