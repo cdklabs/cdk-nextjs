@@ -4640,7 +4640,8 @@ CloudFront runs one function per event type per behavior, and on
 `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
 so this code is spliced into that function rather than associated beside
 it. It must define `function viewerRequest(event)` (or
-`async function viewerRequest(event)`), which is a CloudFront Function
+`async function viewerRequest(event)`, or `const viewerRequest = …`),
+which is a CloudFront Function
 handler in all but name: return a response to answer the viewer with it,
 or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
 it, so it can't undo the `X-Forwarded-Host` overwrite.
@@ -4663,8 +4664,14 @@ FunctionCode.fromInline(`
   const kvs = cf.kvs();
   async function viewerRequest(event) {
     const auth = event.request.headers.authorization;
-    if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
-      return;
+    try {
+      if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+        // verified: don't pass the site's credentials on to the origin
+        delete event.request.headers.authorization;
+        return;
+      }
+    } catch (e) {
+      // no "basic-auth" key yet: stay locked
     }
     return {
       statusCode: 401,
@@ -5654,7 +5661,7 @@ public readonly viewerRequestFunctionCode: FunctionCode;
 CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say.
 
 It must define
-`function viewerRequest(event)`.
+`viewerRequest(event)`, as a function or a `var`/`let`/`const`.
 
 > [NextjsDistributionProps.viewerRequestFunctionCode *](NextjsDistributionProps.viewerRequestFunctionCode *)
 
@@ -6104,7 +6111,7 @@ public readonly viewerRequestFunctionCode: FunctionCode;
 CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say.
 
 It must define
-`function viewerRequest(event)`.
+`viewerRequest(event)`, as a function or a `var`/`let`/`const`.
 
 > [NextjsDistributionProps.viewerRequestFunctionCode *](NextjsDistributionProps.viewerRequestFunctionCode *)
 
@@ -11229,7 +11236,8 @@ CloudFront runs one function per event type per behavior, and on
 `NextjsType.GLOBAL_FUNCTIONS` cdk-nextjs already has one on viewer-request,
 so this code is spliced into that function rather than associated beside
 it. It must define `function viewerRequest(event)` (or
-`async function viewerRequest(event)`), which is a CloudFront Function
+`async function viewerRequest(event)`, or `const viewerRequest = …`),
+which is a CloudFront Function
 handler in all but name: return a response to answer the viewer with it,
 or the request (or nothing) to carry on. cdk-nextjs's own logic runs after
 it, so it can't undo the `X-Forwarded-Host` overwrite.
