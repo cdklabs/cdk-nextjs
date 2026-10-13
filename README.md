@@ -501,7 +501,8 @@ aws cloudfront-keyvaluestore put-key --kvs-arn "$KVS_ARN" \
     --kvs-arn "$KVS_ARN" --query ETag --output text)"
 ```
 
-The code must define `function viewerRequest(event)` (`async` or not), a
+The code must define `function viewerRequest(event)` (`async` or not, or as
+`const viewerRequest = (event) => …`), a
 CloudFront Function handler in all but name: return a response to answer the
 viewer, or the request (or nothing) to carry on. Why not a function of your own on viewer-request?
 CloudFront allows one per event type per behavior, and on Global Functions

@@ -434,7 +434,9 @@ describe("NextjsDistribution function group behaviors", () => {
             },
           },
         }),
-    ).toThrow(/already associates a CloudFront function with viewer-request/);
+    ).toThrow(
+      /associates a CloudFront function with viewer-request, but serving `assetPrefix`/,
+    );
   });
 
   const userFn = (stack: Stack, eventType: FunctionEventType) => ({
@@ -1087,6 +1089,22 @@ describe("viewerRequestFunctionCode", () => {
     },
   );
 
+  it("shares one pass-through function between dynamic and static on Global Containers", () => {
+    const { behaviors, functions } = synth({
+      code: BASIC_AUTH,
+      nextjsType: NextjsType.GLOBAL_CONTAINERS,
+    });
+    expect(Object.keys(functions)).toHaveLength(1);
+    expect(behaviors.length).toBeGreaterThan(1);
+  });
+
+  it("accepts viewerRequest defined as a const arrow function", async () => {
+    const handler = synth({
+      code: `const viewerRequest = async (event) => ({ statusCode: 401 });`,
+    }).handlerFor("_next/static*");
+    expect(status(await handler(request("/x")))).toBe(401);
+  });
+
   it("runs before the repeated-slash redirect", async () => {
     // Otherwise `/a//b` would answer 308 to a viewer who never authenticated.
     const handler = synth({ code: BASIC_AUTH }).handlerFor("*");
@@ -1239,7 +1257,17 @@ describe("viewerRequestFunctionCode", () => {
     [
       "a handler of its own",
       "function handler(event) {} function viewerRequest(event) {}",
-      /defines `function handler`/,
+      /defines `handler`/,
+    ],
+    [
+      "a handler assigned with var",
+      "var handler = function (event) { return event.request; };\nfunction viewerRequest(event) {}",
+      /defines `handler`/,
+    ],
+    [
+      "a handler assigned to globalThis",
+      "globalThis.handler = function (event) {};\nfunction viewerRequest(event) {}",
+      /defines `handler`/,
     ],
     [
       "more than fits in a CloudFront Function",
