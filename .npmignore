@@ -2,6 +2,7 @@
 examples/**/*
 .claude/**/*
 /nextjs/
+/docs/diagrams/
 /.projen/
 /test-reports/
 junit.xml

@@ -36,6 +36,17 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 - [Bring Your Own Resources](#bring-your-own-resources) — import existing AWS resources (CloudFront distributions, ECS clusters, ALBs, S3 buckets, DynamoDB tables).
 - [AWS GovCloud (US)](https://aws.amazon.com/govcloud-us) compatible with `NextjsRegionalFunctions` and `NextjsRegionalContainers`.
 
+## Why
+
+The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Platform-as-a-Service company behind Next.js. However, deploying to Vercel can be expensive and some developers want all of their workloads running _directly_ on AWS. Developers can deploy Next.js on AWS through [AWS Amplify Hosting](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-Amplifysupport.html), but Amplify does not support all Next.js features and manages AWS resources for you so they cannot be customized. If Amplify meets your requirements we recommend you use it, but if you want to use all Next.js features or want more visibility into the AWS resources then this construct is for you.
+
+## Design Principles
+
+- Integrate through Next.js's official interfaces. Build on the [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters) API and [`@next/routing`](https://www.npmjs.com/package/@next/routing) rather than Next.js internals, so new Next.js versions rarely break this construct. Where no public interface exists yet, the dependency is listed in [Next.js private APIs](docs/nextjs-private-apis.md).
+- Security first.
+- One architecture does not fit all.
+- Enable customization everywhere.
+
 ## Prerequisites
 
 - Next.js app running v16.3 or higher (`next build` fails on older versions). If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
@@ -101,6 +112,34 @@ new WebStack(app, "web-stack");
 ```
 
 See [examples/](./examples/) for more usage examples.
+
+## Architecture
+
+How requests are served inside the compute — the adapter runtime, and where it deliberately differs from `next start` — is in [docs/adapter-runtime.md](./docs/adapter-runtime.md).
+
+### `NextjsGlobalFunctions`
+
+Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) Functions to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this construct when you have unpredictable traffic, can afford occasional latency (i.e. cold starts - [typically 1% of production traffic](https://aws.amazon.com/blogs/compute/operating-lambda-performance-optimization-part-1/)), and/or want the most granular pricing model. ([code](./src/root-constructs/nextjs-global-functions.ts))
+
+![NextjsGlobalFunctions architecture: User to CloudFront, which serves S3 static assets and forwards to a Lambda function backed by a DynamoDB table and S3 cache bucket](https://raw.githubusercontent.com/cdklabs/cdk-nextjs/main/docs/diagrams/nextjs-global-functions.svg)
+
+### `NextjsGlobalContainers`
+
+Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this option when you have predictable traffic, need the lowest latency, and/or can afford a less granular pricing model. ([code](./src/root-constructs/nextjs-global-containers.ts))
+
+![NextjsGlobalContainers architecture: User to CloudFront, which serves S3 static assets and forwards to an Application Load Balancer and ECS Fargate containers in a VPC, backed by a DynamoDB table and S3 cache bucket](https://raw.githubusercontent.com/cdklabs/cdk-nextjs/main/docs/diagrams/nextjs-global-containers.svg)
+
+### `NextjsRegionalContainers`
+
+Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [Application Load Balancer](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/) to regionally serve requests. Use this options when you cannot use Amazon CloudFront (i.e. [AWS GovCloud](https://aws.amazon.com/govcloud-us/?whats-new.sort-by=item.additionalFields.postDateTime&whats-new.sort-order=desc)). ([code](./src/root-constructs/nextjs-regional-containers.ts#L41))
+
+![NextjsRegionalContainers architecture: User to an Application Load Balancer and ECS Fargate containers in a VPC, backed by a DynamoDB table and S3 cache bucket](https://raw.githubusercontent.com/cdklabs/cdk-nextjs/main/docs/diagrams/nextjs-regional-containers.svg)
+
+### `NextjsRegionalFunctions`
+
+Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) Functions to respond to dynamic requests and [API Gateway REST API](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-rest-api.html) to regionally serve requests and distribute static assets. Use this options when you cannot use Amazon CloudFront (i.e. [AWS GovCloud](https://aws.amazon.com/govcloud-us/?whats-new.sort-by=item.additionalFields.postDateTime&whats-new.sort-order=desc)). ([code](./src/root-constructs/nextjs-regional-functions.ts))
+
+![NextjsRegionalFunctions architecture: User to an API Gateway REST API, which serves S3 static assets and forwards to a Lambda function backed by a DynamoDB table and S3 cache bucket](https://raw.githubusercontent.com/cdklabs/cdk-nextjs/main/docs/diagrams/nextjs-regional-functions.svg)
 
 ## Configuration
 
@@ -414,115 +453,6 @@ Notes:
   [Limitations](#limitations)).
 - Per-group `overrides` let you size each function independently:
   `{ name: "reports", routes: [...], overrides: { functionProps: { memorySize: 2048 } } }`.
-
-## Architecture
-
-How requests are served inside the compute — the adapter runtime, and where it deliberately differs from `next start` — is in [docs/adapter-runtime.md](./docs/adapter-runtime.md).
-
-### `NextjsGlobalFunctions`
-
-Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) Functions to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this construct when you have unpredictable traffic, can afford occasional latency (i.e. cold starts - [typically 1% of production traffic](https://aws.amazon.com/blogs/compute/operating-lambda-performance-optimization-part-1/)), and/or want the most granular pricing model. ([code](./src/root-constructs/nextjs-global-functions.ts))
-
-```mermaid
-architecture-beta
-    group aws(cloud)[AWS Cloud]
-    group cache[Cache Layer] in aws
-
-    service user(internet)[User]
-    service cloudfront(server)[CloudFront Distribution] in aws
-    service s3static(disk)[S3 Static Assets] in aws
-    service lambda(server)[Lambda Function] in aws
-    service dynamodb(database)[DynamoDB Table] in cache
-    service s3cache(disk)[S3 Cache Bucket] in cache
-
-    user:R --> L:cloudfront
-    cloudfront:R --> L:s3static
-    cloudfront:R --> L:lambda
-    lambda:R --> L:dynamodb
-    lambda:R --> L:s3cache
-```
-
-### `NextjsGlobalContainers`
-
-Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this option when you have predictable traffic, need the lowest latency, and/or can afford a less granular pricing model. ([code](./src/root-constructs/nextjs-global-containers.ts))
-
-```mermaid
-architecture-beta
-    group aws(cloud)[AWS Cloud]
-    group vpc[VPC] in aws
-    group cache[Cache Layer] in aws
-
-    service user(internet)[User]
-    service cloudfront(server)[CloudFront Distribution] in aws
-    service s3static(disk)[S3 Static Assets] in aws
-    service alb(server)[Application Load Balancer] in vpc
-    service fargate(server)[ECS Fargate Containers] in vpc
-    service dynamodb(database)[DynamoDB Table] in cache
-    service s3cache(disk)[S3 Cache Bucket] in cache
-
-    user:R --> L:cloudfront
-    cloudfront:R --> L:s3static
-    cloudfront:R --> L:alb
-    alb:R --> L:fargate
-    fargate:R --> L:dynamodb
-    fargate:R --> L:s3cache
-```
-
-### `NextjsRegionalContainers`
-
-Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [Application Load Balancer](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/) to regionally serve requests. Use this options when you cannot use Amazon CloudFront (i.e. [AWS GovCloud](https://aws.amazon.com/govcloud-us/?whats-new.sort-by=item.additionalFields.postDateTime&whats-new.sort-order=desc)). ([code](./src/root-constructs/nextjs-regional-containers.ts#L41))
-
-```mermaid
-architecture-beta
-    group aws(cloud)[AWS Cloud]
-    group vpc[VPC] in aws
-    group cache[Cache Layer] in aws
-
-    service user(internet)[User]
-    service alb(server)[Application Load Balancer] in vpc
-    service fargate(server)[ECS Fargate Containers] in vpc
-    service dynamodb(database)[DynamoDB Table] in cache
-    service s3cache(disk)[S3 Cache Bucket] in cache
-
-    user:R --> L:alb
-    alb:R --> L:fargate
-    fargate:R --> L:dynamodb
-    fargate:R --> L:s3cache
-```
-
-### `NextjsRegionalFunctions`
-
-Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) Functions to respond to dynamic requests and [API Gateway REST API](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-rest-api.html) to regionally serve requests and distribute static assets. Use this options when you cannot use Amazon CloudFront (i.e. [AWS GovCloud](https://aws.amazon.com/govcloud-us/?whats-new.sort-by=item.additionalFields.postDateTime&whats-new.sort-order=desc)). ([code](./src/root-constructs/nextjs-regional-functions.ts))
-
-```mermaid
-architecture-beta
-    group aws(cloud)[AWS Cloud]
-    group cache[Cache Layer] in aws
-
-    service user(internet)[User]
-    service apigateway(server)[API Gateway REST API] in aws
-    service s3static(disk)[S3 Static Assets] in aws
-    service lambda(server)[Lambda Function] in aws
-    service dynamodb(database)[DynamoDB Table] in cache
-    service s3cache(disk)[S3 Cache Bucket] in cache
-
-    user:R --> L:apigateway
-    apigateway:R --> L:s3static
-    apigateway:R --> L:lambda
-    lambda:R --> L:dynamodb
-    lambda:R --> L:s3cache
-```
-
-## Why
-
-The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Platform-as-a-Service company behind Next.js. However, deploying to Vercel can be expensive and some developers want all of their workloads running _directly_ on AWS. Developers can deploy Next.js on AWS through [AWS Amplify Hosting](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-Amplifysupport.html), but Amplify does not support all Next.js features and manages AWS resources for you so they cannot be customized. If Amplify meets your requirements we recommend you use it, but if you want to use all Next.js features or want more visibility into the AWS resources then this construct is for you.
-
-## Design Principles
-
-- Integrate through Next.js's official interfaces. Build on the [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters) API and [`@next/routing`](https://www.npmjs.com/package/@next/routing) rather than Next.js internals, so new Next.js versions rarely break this construct. Where no public interface exists yet, the dependency is listed in [Next.js private APIs](docs/nextjs-private-apis.md).
-- Security first.
-- One architecture does not fit all.
-- Enable customization everywhere.
 
 ## Bring Your Own Resources
 

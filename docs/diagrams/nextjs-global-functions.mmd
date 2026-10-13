@@ -1,0 +1,16 @@
+architecture-beta
+    group aws(logos:aws)[AWS Cloud]
+    group cache[Cache Layer] in aws
+
+    service user(internet)[User]
+    service cloudfront(logos:aws-cloudfront)[CloudFront Distribution] in aws
+    service s3static(logos:aws-s3)[S3 Static Assets] in aws
+    service lambda(logos:aws-lambda)[Lambda Function] in aws
+    service dynamodb(logos:aws-dynamodb)[DynamoDB Table] in cache
+    service s3cache(logos:aws-s3)[S3 Cache Bucket] in cache
+
+    user:R --> L:cloudfront
+    cloudfront:R --> L:s3static
+    cloudfront:R --> L:lambda
+    lambda:R --> L:dynamodb
+    lambda:R --> L:s3cache
