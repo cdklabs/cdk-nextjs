@@ -29,6 +29,10 @@
       "type": "build"
     },
     {
+      "name": "@iconify-json/logos",
+      "type": "build"
+    },
+    {
       "name": "@mrgrain/jsii-struct-builder",
       "type": "build"
     },

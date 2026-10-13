@@ -66,3 +66,13 @@ Both `build` and `dev` chain it explicitly (`npm run sync-cdk-nextjs && next …
 For iterative development, just run `pnpm build` from the root to rebuild the adapter, then `pnpm build` in the example app—the sync step will copy the latest version.
 
 Note that `pnpm install` recreates the `link:../..` symlink, so always go through `pnpm build` / `pnpm dev`. Invoking `next build` or `next dev` directly skips the sync and Turbopack then fails on the symlinked path, e.g. `FileSystemPath("app-playground").join("./../../lib/adapter/cache-handler.mjs") leaves the filesystem root`.
+
+## Architecture Diagrams
+
+The README's architecture diagrams are Mermaid [`architecture-beta`](https://mermaid.js.org/syntax/architecture.html) sources in [`docs/diagrams/`](./diagrams/), rendered to SVG with AWS icons from the Iconify [`logos`](https://icon-sets.iconify.design/logos/?keyword=aws) set (`logos:aws-lambda`, `logos:aws-cloudfront`, ...). After editing a `.mmd` file:
+
+```bash
+pnpm diagrams
+```
+
+Commit the `.mmd` and the regenerated `.svg` together. `pnpm test` fails if an SVG is stale against its source. The README links the SVGs on `main`, so a PR's README preview shows the old diagrams until it merges; open the SVG in the PR's files view to see the new one.

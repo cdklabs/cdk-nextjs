@@ -1,0 +1,15 @@
+architecture-beta
+    group aws(logos:aws)[AWS Cloud]
+    group vpc(logos:aws-vpc)[VPC] in aws
+    group cache[Cache Layer] in aws
+
+    service user(internet)[User]
+    service alb(logos:aws-elb)[Application Load Balancer] in vpc
+    service fargate(logos:aws-fargate)[ECS Fargate Containers] in vpc
+    service dynamodb(logos:aws-dynamodb)[DynamoDB Table] in cache
+    service s3cache(logos:aws-s3)[S3 Cache Bucket] in cache
+
+    user:R --> L:alb
+    alb:R --> L:fargate
+    fargate:R --> L:dynamodb
+    fargate:R --> L:s3cache
