@@ -6,9 +6,9 @@ argument-hint: "[PR#] [--rounds N]"
 
 # PR review to convergence
 
-Loop: **review → triage → fix → verify → commit**, until a review finds nothing new or the round cap is hit. Everything stays local until the end: no pushes and no PR comments during the loop.
+Loop: **review → triage → fix → verify → commit**, until a full review comes back clean or the loop stalls (§5). Everything stays local until the end: no pushes and no PR comments during the loop.
 
-Arguments: optional PR number (defaults to the current branch's PR), and `--rounds N` (default **5**, counting every review including the final full pass).
+Arguments: optional PR number (defaults to the current branch's PR), and optional `--rounds N`, a cap counting every review including the final full pass. There is no cap by default.
 
 ## 0. Setup
 
@@ -113,16 +113,18 @@ A spec line that's vague or contradicts itself is `invalid` (record which readin
 
 After each round, count the **blocking** findings on both axes: those triaged `fix` or `escalated` with severity **medium or high**. Low-severity findings are still fixed (or escalated) and recorded, but don't keep the loop going on their own. `duplicate` and `invalid` don't count.
 
-- A DELTA round with 0 blocking findings → fix any lows, then run the **final FULL pass** next (it reviews those fixes too). If that FULL pass was already the last review, you've converged.
+- A DELTA round with 0 blocking findings → fix any lows, then run the **final FULL pass** (it reviews those fixes too).
 - A FULL round with 0 blocking findings → fix any lows; **converged**. Say in the report that those last fixes weren't reviewed.
-- Any blocking findings → run another round (a DELTA review of the new commits).
-- The round cap is hit with blocking findings still coming → stop, **not converged**. If the cap leaves room for only one more review, make it the FULL pass.
+- Any blocking findings → run another round, a DELTA review of the new commits, unless the loop has stalled.
+- **Stalled** → stop, **not converged**. Either two rounds in a row each found at least as many blocking findings as the round before, or every blocking finding in a round was `escalated`. The rest needs a decision from the user, and another round would only repeat it.
+
+With `--rounds N`, the last review the cap allows is always a FULL pass, whatever the previous round found, and reaching the cap with blocking findings still open means **not converged**.
 
 ## 6. Finish
 
 1. Run the full `pnpm test` once.
 2. Report to the user:
-   - Converged or not, and how many rounds
+   - Converged, stalled (and which condition), or stopped at the cap, and how many rounds
    - The worst open finding on each axis, separately: `bugs: <ID or "none">`, `spec: <ID, "none", or "no spec available">`. Don't merge them into a single verdict; a clean bugs axis doesn't make up for a spec gap.
    - A per-round table: range type, raw findings, new, blocking, fixed, escalated
    - **Escalations needing a decision**: each with ledger ID, `file:line`, the finding, why it was escalated, and your recommendation
