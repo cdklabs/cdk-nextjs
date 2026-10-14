@@ -310,7 +310,6 @@
       "test/e2e/app-dir/syntax-highlighter-crash/syntax-highlighter-crash.test.ts",
       "test/e2e/app-dir/tailwind-css/tailwind-css.test.ts",
       "test/e2e/app-dir/taint/process-taint.test.ts",
-      "test/e2e/app-dir/third-parties/basic.test.ts",
       "test/e2e/app-dir/transition-indicator/transition-indicator.test.ts",
       "test/e2e/app-dir/turbopack-reports/turbopack-reports.test.ts",
       "test/e2e/app-dir/unauthorized/basic/unauthorized-basic.test.ts",
@@ -439,7 +438,6 @@
       "test/e2e/ssr-react-context/index.test.ts",
       "test/e2e/static-page-name/static-page-name.test.ts",
       "test/e2e/test-utils-tests/basic/basic.test.ts",
-      "test/e2e/third-parties/index.test.ts",
       "test/e2e/trailing-slashes-href-resolving/trailing-slashes-href-resolving.test.ts",
       "test/e2e/trailing-slashes/with-trailing-slash.test.ts",
       "test/e2e/trailing-slashes/without-trailing-slash.test.ts",
@@ -742,6 +740,30 @@
         "segment cache (metadata) requests only the head when the page segments are cached"
       ],
       "flakey": []
+    },
+    "test/e2e/app-dir/third-parties/basic.test.ts": {
+      "comment": [
+        "3 of 4 cases. `renders GTM` expects `window.dataLayer` to hold exactly the one entry the",
+        "page pushes, but googletagmanager.com now answers `GTM-XYZ` with a 200 instead of a 404,",
+        "so Google's script runs and pushes its own events (3 entries). Failed both attempts on all",
+        "four NextjsTypes in the 2026-10-13 scheduled run, with no cdk-nextjs error. Upstream fixed",
+        "the test after v16.4.0 (vercel/next.js#99896); drop this entry once the pin includes it.",
+        "No signal (external service); see docs/harness-coverage.md."
+      ],
+      "failed": ["@next/third-parties basic usage renders GTM"],
+      "flakey": []
+    },
+    "test/e2e/third-parties/index.test.ts": {
+      "comment": [
+        "3 of 4 cases. `renders GTM` expects `window.dataLayer` to hold exactly the one entry the",
+        "page pushes, but googletagmanager.com now answers `GTM-XYZ` with a 200 instead of a 404,",
+        "so Google's script runs and pushes its own events (3 entries). Failed both attempts on all",
+        "four NextjsTypes in the 2026-10-13 scheduled run, with no cdk-nextjs error. Upstream fixed",
+        "the test after v16.4.0 (vercel/next.js#99896); drop this entry once the pin includes it.",
+        "No signal (external service); see docs/harness-coverage.md."
+      ],
+      "failed": ["@next/third-parties basic usage renders GTM"],
+      "flakey": []
     }
   },
   "excluded-notes": {
@@ -930,8 +952,8 @@
     ],
     "next-version": "16.4.0",
     "e2e-files": 1213,
-    "included": 421,
-    "included-in-part": 15,
+    "included": 419,
+    "included-in-part": 17,
     "edge-free": 1009,
     "candidates": 165,
     "disqualified-by": {
