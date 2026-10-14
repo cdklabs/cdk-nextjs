@@ -1,11 +1,15 @@
 import { runInNewContext } from "node:vm";
-import { App, Duration, Stack } from "aws-cdk-lib";
+import { App, Duration, Lazy, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
   Function as CloudFrontFunction,
   FunctionCode,
   FunctionEventType,
+  KeyValueStore,
 } from "aws-cdk-lib/aws-cloudfront";
+import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
+import { Vpc } from "aws-cdk-lib/aws-ec2";
+import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import {
   Code,
   Function as LambdaFunction,
@@ -19,6 +23,7 @@ import { NextjsType } from "./constants";
 import {
   NextjsDistribution,
   NextjsDistributionFunctionGroup,
+  NextjsDistributionOverrides,
 } from "./nextjs-distribution";
 
 /**
@@ -430,7 +435,9 @@ describe("NextjsDistribution function group behaviors", () => {
             },
           },
         }),
-    ).toThrow(/already associates a CloudFront function with viewer-request/);
+    ).toThrow(
+      /associates a CloudFront function with viewer-request, but serving `assetPrefix`/,
+    );
   });
 
   const userFn = (stack: Stack, eventType: FunctionEventType) => ({
@@ -851,13 +858,13 @@ describe("the viewer-request CloudFront Function", () => {
     const code = Object.values(functions)[0].Properties.FunctionCode as string;
     return runInNewContext(`${code}\nhandler`) as (event: {
       request: FunctionRequest;
-    }) => FunctionResult;
+    }) => Promise<FunctionResult>;
   })();
 
   const send = (
     uri: string,
     querystring: Record<string, QueryValue> = {},
-  ): FunctionResult =>
+  ): Promise<FunctionResult> =>
     handler({
       request: { uri, querystring, headers: { host: { value: "a.test" } } },
     });
@@ -873,14 +880,14 @@ describe("the viewer-request CloudFront Function", () => {
     ["/foo//bar", "/foo/bar"],
     ["/basepath//to-sv", "/basepath/to-sv"],
     ["/a\\b", "/a/b"],
-  ])("redirects %s to %s with a 308", (uri, location) => {
-    expect(redirect(send(uri))).toEqual({ statusCode: 308, location });
+  ])("redirects %s to %s with a 308", async (uri, location) => {
+    expect(redirect(await send(uri))).toEqual({ statusCode: 308, location });
   });
 
-  it("keeps the query on the redirect, including repeated keys", () => {
+  it("keeps the query on the redirect, including repeated keys", async () => {
     // CloudFront's shape for a repeated key: `multiValue` holds every value,
     // the first included, and `value` repeats that first one.
-    const result = send("/x//y", {
+    const result = await send("/x//y", {
       json: { value: "true" },
       a: { value: "1", multiValue: [{ value: "1" }, { value: "2" }] },
       flag: { value: "" },
@@ -888,27 +895,27 @@ describe("the viewer-request CloudFront Function", () => {
     expect(redirect(result).location).toBe("/x/y?json=true&a=1&a=2&flag");
   });
 
-  it("passes percent-encoded query values through without re-encoding", () => {
+  it("passes percent-encoded query values through without re-encoding", async () => {
     // CloudFront hands the function the values still encoded, as sent.
-    const result = send("/x//y", {
+    const result = await send("/x//y", {
       a: { value: "%20b%26c" },
       p: { value: "1+2" },
     });
     expect(redirect(result).location).toBe("/x/y?a=%20b%26c&p=1+2");
   });
 
-  it("passes an ordinary path through with x-forwarded-host set", () => {
-    const result = send("/a/b") as FunctionRequest;
+  it("passes an ordinary path through with x-forwarded-host set", async () => {
+    const result = (await send("/a/b")) as FunctionRequest;
     expect(result.uri).toBe("/a/b");
     // CloudFront rewrites `host` to the origin domain, so the app would otherwise
     // build every absolute URL against the Function URL's hostname.
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
   });
 
-  it("overwrites a client-supplied x-forwarded-host", () => {
+  it("overwrites a client-supplied x-forwarded-host", async () => {
     // The runtime trusts this header behind the Function URL, so a viewer's
     // own value must not survive to build redirects or origin checks.
-    const result = handler({
+    const result = (await handler({
       request: {
         uri: "/a",
         querystring: {},
@@ -917,7 +924,466 @@ describe("the viewer-request CloudFront Function", () => {
           "x-forwarded-host": { value: "evil.test" },
         },
       },
-    }) as FunctionRequest;
+    })) as FunctionRequest;
     expect(result.headers["x-forwarded-host"].value).toBe("a.test");
+  });
+});
+
+/**
+ * `viewerRequestFunctionCode`, run as CloudFront would run it on each behavior,
+ * for the same reason as the suite above.
+ */
+describe("viewerRequestFunctionCode", () => {
+  const BASIC_AUTH = `
+    function viewerRequest(event) {
+      var auth = event.request.headers.authorization;
+      if (auth && auth.value === "Basic dXNlcjpwYXNz") return;
+      return {
+        statusCode: 401,
+        statusDescription: "Unauthorized",
+        headers: { "www-authenticate": { value: 'Basic realm="preview"' } },
+      };
+    }
+  `;
+  const AUTHORIZED = { authorization: "Basic dXNlcjpwYXNz" };
+
+  interface FunctionRequest {
+    uri: string;
+    querystring: Record<string, { value: string }>;
+    headers: Record<string, { value: string }>;
+  }
+  type FunctionResult =
+    | FunctionRequest
+    | { statusCode: number; headers: Record<string, { value: string }> };
+  type Handler = (event: {
+    request: FunctionRequest;
+  }) => Promise<FunctionResult>;
+  /** What `viewerRequestKeyValueStore` holds, as `cf.kvs()` would read it. */
+  const fakeCloudFrontModule = (values: Record<string, string>) => ({
+    kvs: () => ({
+      get: async (key: string) => {
+        if (!(key in values)) throw new Error(`key not found: ${key}`);
+        return values[key];
+      },
+    }),
+  });
+  interface Behavior {
+    PathPattern: string;
+    FunctionAssociations?: Array<{
+      EventType: string;
+      FunctionARN: { "Fn::GetAtt": [string, string] };
+    }>;
+  }
+
+  const synth = (
+    props: {
+      code?: string;
+      nextjsType?: NextjsType;
+      assetPrefix?: string;
+      basePath?: string;
+      keyValueStore?: boolean;
+      overrides?: (stack: Stack) => NextjsDistributionOverrides;
+    } = {},
+  ) => {
+    const stack = new Stack(new App(), "TestStack");
+    const keyValueStore = props.keyValueStore
+      ? new KeyValueStore(stack, "Kvs")
+      : undefined;
+    const compute =
+      props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+        ? {
+            loadBalancer: new ApplicationLoadBalancer(stack, "Alb", {
+              vpc: new Vpc(stack, "Vpc"),
+            }),
+          }
+        : {
+            functionUrl: new FunctionUrl(stack, "Url", {
+              function: new LambdaFunction(stack, "Fn", {
+                code: Code.fromInline("exports.handler = () => {};"),
+                handler: "index.handler",
+                runtime: Runtime.NODEJS_22_X,
+              }),
+              authType: FunctionUrlAuthType.AWS_IAM,
+            }),
+          };
+    new NextjsDistribution(stack, "Distribution", {
+      ...compute,
+      assetsBucket: new Bucket(stack, "Assets"),
+      assetPrefix: props.assetPrefix,
+      basePath: props.basePath,
+      nextjsType: props.nextjsType ?? NextjsType.GLOBAL_FUNCTIONS,
+      overrides: props.overrides?.(stack),
+      publicDirEntries: [{ name: "favicon.ico", isDirectory: false }],
+      viewerRequestFunctionCode:
+        props.code === undefined
+          ? undefined
+          : FunctionCode.fromInline(props.code),
+      viewerRequestKeyValueStore: keyValueStore,
+    });
+    const template = Template.fromStack(stack);
+    const functions = template.findResources("AWS::CloudFront::Function");
+    const config = Object.values(
+      template.findResources("AWS::CloudFront::Distribution"),
+    )[0].Properties.DistributionConfig;
+    const behaviors: Behavior[] = [
+      { PathPattern: "*", ...config.DefaultCacheBehavior },
+      ...config.CacheBehaviors,
+    ];
+    /** The viewer-request function on the behavior for `pathPattern`. */
+    const functionFor = (pathPattern: string) => {
+      const behavior = behaviors.find((it) => it.PathPattern === pathPattern)!;
+      const association = behavior.FunctionAssociations!.find(
+        (it) => it.EventType === "viewer-request",
+      )!;
+      return functions[association.FunctionARN["Fn::GetAtt"][0]].Properties;
+    };
+    /**
+     * That function's handler, runnable. `node:vm` scripts can't `import`, so
+     * the `cloudfront` module is handed in as the binding the import makes.
+     */
+    const handlerFor = (
+      pathPattern: string,
+      kvsValues: Record<string, string> = {},
+    ): Handler => {
+      const code = (functionFor(pathPattern).FunctionCode as string).replace(
+        /^\s*import cf from "cloudfront";/,
+        "",
+      );
+      return runInNewContext(`${code}\nhandler`, {
+        cf: fakeCloudFrontModule(kvsValues),
+      }) as Handler;
+    };
+    return { behaviors, functions, functionFor, handlerFor, stack };
+  };
+
+  const request = (uri: string, headers: Record<string, string> = {}) => ({
+    request: {
+      uri,
+      querystring: {},
+      headers: Object.fromEntries(
+        Object.entries({ host: "a.test", ...headers }).map(([name, value]) => [
+          name,
+          { value },
+        ]),
+      ),
+    },
+  });
+  const status = (result: FunctionResult) =>
+    (result as { statusCode?: number }).statusCode;
+
+  it.each([NextjsType.GLOBAL_FUNCTIONS, NextjsType.GLOBAL_CONTAINERS])(
+    "gates every behavior on %s, static assets included",
+    async (nextjsType) => {
+      const { behaviors, handlerFor } = synth({ code: BASIC_AUTH, nextjsType });
+      expect(behaviors.map((it) => it.PathPattern).sort()).toEqual([
+        "*",
+        "_next/image*",
+        "_next/static*",
+        "favicon.ico",
+      ]);
+      for (const { PathPattern } of behaviors) {
+        const handler = handlerFor(PathPattern);
+        expect(status(await handler(request("/x")))).toBe(401);
+        const passed = (await handler(
+          request("/x", AUTHORIZED),
+        )) as FunctionRequest;
+        expect(passed.uri).toBe("/x");
+      }
+    },
+  );
+
+  it("shares one pass-through function between dynamic and static on Global Containers", () => {
+    const { behaviors, functions } = synth({
+      code: BASIC_AUTH,
+      nextjsType: NextjsType.GLOBAL_CONTAINERS,
+    });
+    const [logicalId, ...rest] = Object.keys(functions);
+    expect(rest).toHaveLength(0);
+    expect(behaviors.map((it) => it.PathPattern).sort()).toEqual([
+      "*",
+      "_next/image*",
+      "_next/static*",
+      "favicon.ico",
+    ]);
+    for (const { FunctionAssociations } of behaviors) {
+      expect(FunctionAssociations).toEqual([
+        {
+          EventType: "viewer-request",
+          FunctionARN: { "Fn::GetAtt": [logicalId, "FunctionARN"] },
+        },
+      ]);
+    }
+  });
+
+  it("accepts viewerRequest declared after another variable", async () => {
+    const handler = synth({
+      code: `var x = 1, viewerRequest = (event) => ({ statusCode: 401 });`,
+    }).handlerFor("_next/static*");
+    expect(status(await handler(request("/x")))).toBe(401);
+  });
+
+  it("accepts viewerRequest defined as a const arrow function", async () => {
+    const handler = synth({
+      code: `const viewerRequest = async (event) => ({ statusCode: 401 });`,
+    }).handlerFor("_next/static*");
+    expect(status(await handler(request("/x")))).toBe(401);
+  });
+
+  it("runs before the repeated-slash redirect", async () => {
+    // Otherwise `/a//b` would answer 308 to a viewer who never authenticated.
+    const handler = synth({ code: BASIC_AUTH }).handlerFor("*");
+    expect(status(await handler(request("/a//b")))).toBe(401);
+    expect(status(await handler(request("/a//b", AUTHORIZED)))).toBe(308);
+  });
+
+  it("associates the store with every function it runs in", () => {
+    const { behaviors, functionFor, functions } = synth({
+      code: BASIC_AUTH,
+      keyValueStore: true,
+      assetPrefix: "/cdn",
+    });
+    expect(Object.keys(functions)).toHaveLength(3);
+    for (const { PathPattern } of behaviors) {
+      const { FunctionConfig } = functionFor(PathPattern);
+      expect(FunctionConfig.Runtime).toBe("cloudfront-js-2.0");
+      expect(FunctionConfig.KeyValueStoreAssociations).toEqual([
+        { KeyValueStoreARN: { "Fn::GetAtt": [expect.any(String), "Arn"] } },
+      ]);
+    }
+  });
+
+  it("reads credentials from the KeyValueStore", async () => {
+    const handler = synth({
+      keyValueStore: true,
+      code: `import cf from "cloudfront";
+        const kvs = cf.kvs();
+        async function viewerRequest(event) {
+          const auth = event.request.headers.authorization;
+          if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+            return;
+          }
+          return { statusCode: 401, statusDescription: "Unauthorized" };
+        }
+      `,
+    }).handlerFor("_next/static*", { "basic-auth": "dXNlcjpwYXNz" });
+    expect(status(await handler(request("/x")))).toBe(401);
+    expect(
+      ((await handler(request("/x", AUTHORIZED))) as FunctionRequest).uri,
+    ).toBe("/x");
+  });
+
+  it("refuses a KeyValueStore without code to read it", () => {
+    expect(() => synth({ keyValueStore: true })).toThrow(
+      /`viewerRequestKeyValueStore` .* needs `viewerRequestFunctionCode`/,
+    );
+  });
+
+  it("can't keep a viewer's x-forwarded-host past cdk-nextjs's overwrite", async () => {
+    const handler = synth({
+      code: `
+        function viewerRequest(event) {
+          event.request.headers["x-forwarded-host"] = { value: "evil.test" };
+          return event.request;
+        }
+      `,
+    }).handlerFor("*");
+    const result = (await handler(request("/x"))) as FunctionRequest;
+    expect(result.headers["x-forwarded-host"].value).toBe("a.test");
+  });
+
+  it("carries on with a request it returns as a new object", async () => {
+    const handler = synth({
+      code: `
+        function viewerRequest(event) {
+          return { uri: "/y", querystring: {}, headers: event.request.headers };
+        }
+      `,
+    }).handlerFor("_next/static*");
+    expect(((await handler(request("/x"))) as FunctionRequest).uri).toBe("/y");
+  });
+
+  it("runs inside the assetPrefix rewrite, in place of the static function", async () => {
+    const { behaviors, handlerFor } = synth({
+      code: BASIC_AUTH,
+      assetPrefix: "/cdn",
+    });
+    const prefixed = behaviors.find(
+      (it) => it.PathPattern === "/cdn/_next/static*",
+    )!;
+    // One viewer-request function per behavior, or CloudFront rejects it.
+    expect(
+      prefixed.FunctionAssociations!.filter(
+        (it) => it.EventType === "viewer-request",
+      ),
+    ).toHaveLength(1);
+    const handler = handlerFor("/cdn/_next/static*");
+    expect(status(await handler(request("/cdn/_next/static/a.js")))).toBe(401);
+    const passed = (await handler(
+      request("/cdn/_next/static/a.js", AUTHORIZED),
+    )) as FunctionRequest;
+    expect(passed.uri).toBe("/_next/static/a.js");
+  });
+
+  it("adds no functions when unset", () => {
+    const { behaviors, functions } = synth();
+    const staticBehavior = behaviors.find(
+      (it) => it.PathPattern === "_next/static*",
+    )!;
+    expect(staticBehavior.FunctionAssociations).toBeUndefined();
+    const [fn, ...rest] = Object.values(functions).map((it) => it.Properties);
+    expect(rest).toHaveLength(0);
+    // The marker is dropped, not left in the deployed function.
+    expect(fn.FunctionCode).toMatch(
+      /^\s*async function handler\(event\) \{\n\s*const request/,
+    );
+    expect(fn.FunctionConfig.KeyValueStoreAssociations).toBeUndefined();
+  });
+
+  it.each([false, true])(
+    "runs every cdk-nextjs function on cloudfront-js-2.0 (hook set: %s)",
+    (hooked) => {
+      const { functions } = synth({
+        code: hooked ? BASIC_AUTH : undefined,
+        assetPrefix: "/cdn",
+      });
+      const runtimes = Object.values(functions).map(
+        (it) => it.Properties.FunctionConfig.Runtime,
+      );
+      expect(runtimes).toHaveLength(hooked ? 3 : 2);
+      expect(new Set(runtimes)).toEqual(new Set(["cloudfront-js-2.0"]));
+    },
+  );
+
+  it.each(["dynamicBehaviorOptions", "imageBehaviorOptions"] as const)(
+    "refuses a %s override that claims viewer-request on Global Containers",
+    (overrideName) => {
+      expect(() =>
+        synth({
+          code: BASIC_AUTH,
+          nextjsType: NextjsType.GLOBAL_CONTAINERS,
+          overrides: (stack) => ({
+            [overrideName]: {
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_REQUEST,
+                  function: new CloudFrontFunction(stack, "UserFn", {
+                    code: FunctionCode.fromInline(
+                      "function handler(event) { return event.request; }",
+                    ),
+                  }),
+                },
+              ],
+            },
+          }),
+        }),
+      ).toThrow(
+        new RegExp(
+          `overrides\\.${overrideName}\\.functionAssociations.*viewerRequestFunctionCode`,
+        ),
+      );
+    },
+  );
+
+  it("refuses a distributionProps.defaultBehavior override", () => {
+    expect(() =>
+      synth({
+        code: BASIC_AUTH,
+        overrides: () => ({
+          distributionProps: {
+            defaultBehavior: {
+              origin: new HttpOrigin("example.com"),
+            },
+          },
+        }),
+      }),
+    ).toThrow(/overrides\.distributionProps\.defaultBehavior/);
+  });
+
+  it("lets a basePath app replace the default behavior", () => {
+    expect(() =>
+      synth({
+        code: BASIC_AUTH,
+        basePath: "/app",
+        overrides: () => ({
+          distributionProps: {
+            defaultBehavior: { origin: new HttpOrigin("example.com") },
+          },
+        }),
+      }),
+    ).not.toThrow();
+  });
+
+  it("keeps cdk-nextjs's code out of the deployed indentation", () => {
+    const { functionFor } = synth({ code: BASIC_AUTH });
+    const code = functionFor("*").FunctionCode as string;
+    const own = code.slice(code.indexOf("async function handler"));
+    expect(own).not.toMatch(/^[ \t]/m);
+  });
+
+  it("warns, rather than measures, when the code contains a token", () => {
+    const { stack } = synth({
+      code: `function viewerRequest(event) { return ${Lazy.string({ produce: () => '"x"' })}; }`,
+    });
+    Annotations.fromStack(stack).hasWarning(
+      "*",
+      Match.stringLikeRegexp("contains a CDK token"),
+    );
+  });
+
+  it("refuses a static override that already claims viewer-request", () => {
+    expect(() =>
+      synth({
+        code: BASIC_AUTH,
+        overrides: (stack) => ({
+          staticBehaviorOptions: {
+            functionAssociations: [
+              {
+                eventType: FunctionEventType.VIEWER_REQUEST,
+                function: new CloudFrontFunction(stack, "UserFn", {
+                  code: FunctionCode.fromInline(
+                    "function handler(event) { return event.request; }",
+                  ),
+                }),
+              },
+            ],
+          },
+        }),
+      }),
+    ).toThrow(/overrides\.staticBehaviorOptions\.functionAssociations/);
+  });
+
+  it.each([
+    ["no viewerRequest", "var x = 1;", /must define `viewerRequest\(event\)`/],
+    ...[
+      "function handler(event) {}",
+      "function* handler(event) {}",
+      "const handler = (event) => event.request;",
+      "let a = 1, handler = 2;",
+      "var handler = (event) => event.request;",
+      "var { handler } = { handler: (event) => event.request };",
+      'globalThis["handler"] = (event) => event.request;',
+      "var cdkNextjsHandler; handler = cdkNextjsHandler;",
+    ].map((declaration): [string, string, RegExp] => [
+      `handler in \`${declaration}\``,
+      `${declaration}\nfunction viewerRequest(event) {}`,
+      /uses the name `handler`/,
+    ]),
+    [
+      "viewerRequest only compared, never declared",
+      'const ok = typeof viewerRequest === "function";',
+      /must define `viewerRequest\(event\)`/,
+    ],
+    [
+      "viewerRequest only assigned as a property",
+      "const cfg = {}; cfg.viewerRequest = function (event) {};",
+      /must define `viewerRequest\(event\)`/,
+    ],
+    [
+      "more than fits in a CloudFront Function",
+      `function viewerRequest(event) {} /* ${"x".repeat(10 * 1024)} */`,
+      /over CloudFront's limit of 10240/,
+    ],
+  ])("refuses code with %s", (_name, code, error) => {
+    expect(() => synth({ code })).toThrow(error);
   });
 });

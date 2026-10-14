@@ -454,6 +454,91 @@ Notes:
 - Per-group `overrides` let you size each function independently:
   `{ name: "reports", routes: [...], overrides: { functionProps: { memorySize: 2048 } } }`.
 
+## Running Code on Every Viewer Request
+
+`NextjsGlobalFunctions` and `NextjsGlobalContainers` take a
+`viewerRequestFunctionCode` prop: CloudFront Function code that runs first on
+every request, on every behavior cdk-nextjs adds — pages, API routes,
+`_next/image`, `_next/static` and `public/` files alike. It's the place for a
+gate the whole site has to pass, such as HTTP Basic auth before launch:
+
+```ts
+import { FunctionCode, KeyValueStore } from "aws-cdk-lib/aws-cloudfront";
+
+const credentials = new KeyValueStore(this, "Credentials");
+new NextjsGlobalFunctions(this, "Nextjs", {
+  buildDirectory: join(import.meta.dirname),
+  viewerRequestKeyValueStore: credentials,
+  viewerRequestFunctionCode: FunctionCode.fromInline(`
+    import cf from "cloudfront";
+    const kvs = cf.kvs();
+    async function viewerRequest(event) {
+      const auth = event.request.headers.authorization;
+      try {
+        if (auth && auth.value === "Basic " + (await kvs.get("basic-auth"))) {
+          // verified: don't pass the site's credentials on to the origin
+          delete event.request.headers.authorization;
+          return;
+        }
+      } catch (e) {
+        // no "basic-auth" key yet: stay locked
+      }
+      return {
+        statusCode: 401,
+        statusDescription: "Unauthorized",
+        headers: { "www-authenticate": { value: 'Basic realm="preview"' } },
+      };
+    }
+  `),
+});
+```
+
+Then put the credentials in the store, outside the template:
+
+```sh
+KVS_ARN=... # the store's ARN
+aws cloudfront-keyvaluestore put-key --kvs-arn "$KVS_ARN" \
+  --key basic-auth --value "$(printf 'user:pass' | base64 | tr -d '\n')" \
+  --if-match "$(aws cloudfront-keyvaluestore describe-key-value-store \
+    --kvs-arn "$KVS_ARN" --query ETag --output text)"
+```
+
+The code must define `viewerRequest(event)`, as a function (`async` or not)
+or a `var`/`let`/`const`. It's a CloudFront Function handler in all but name:
+return a response to answer the viewer, or the request (or nothing) to carry
+on.
+
+Why not a function of your own on viewer-request? CloudFront allows one per
+event type per behavior, and on Global Functions cdk-nextjs's own one
+overwrites `X-Forwarded-Host` and redirects repeated slashes. So your code is
+spliced into that function, ahead of cdk-nextjs's logic, which still runs after
+it, so your code can't undo the `X-Forwarded-Host` overwrite. Middleware can't
+do this instead: on Global Functions CloudFront signs the request to the
+Function URL with the `Authorization` header, and static assets never reach the
+server at all.
+
+- cdk-nextjs's CloudFront Functions run on `cloudfront-js-2.0`, so your code
+  can be `async`, and `import cf from "cloudfront"` works when it comes first,
+  as it does above.
+- `viewerRequestKeyValueStore` is associated with every viewer-request function
+  your code is copied into (up to three, one per kind of behavior), so
+  `cf.kvs()` reads it with no ID wherever the code runs. Credentials written
+  inline in the code instead end up in the CloudFormation template.
+- The combined function, cdk-nextjs's code included, must fit CloudFront's
+  10 KB limit; synth fails if it doesn't (or warns, if the code contains a
+  CDK token, whose size isn't known until deploy).
+- Your code shares the file with cdk-nextjs's `handler`, so it can't use the
+  name `handler` at all, even in a comment or a string; synth refuses it.
+- A viewer-request association in `overrides.*BehaviorOptions.functionAssociations`
+  on a behavior this covers is refused at synth; put that logic in
+  `viewerRequestFunctionCode` instead. So is
+  `overrides.distributionProps.defaultBehavior` without a `basePath`, since it
+  would replace the default behavior the code runs on; customize it through
+  `overrides.dynamicBehaviorOptions`.
+- A bring-your-own `distribution`'s default behavior is yours, so it isn't
+  covered. Only the behaviors cdk-nextjs adds are; under a `basePath`, those
+  include the ones that stand in for the default behavior.
+
 ## Bring Your Own Resources
 
 cdk-nextjs supports importing existing AWS resources instead of creating new ones. This is especially useful for per-branch (MR/PR) environments where you deploy shared infrastructure (VPC, ECS cluster, ALB) once and spin up lightweight branch stacks that reuse it.

@@ -447,8 +447,10 @@ absolute URLs, cached for other viewers). Now:
 
 - associations on other event types (viewer-response, say) are added next to it;
 - an association on viewer-request throws at synth, since CloudFront allows one
-  function per event type per behavior. Move that logic to viewer-response or
-  into middleware.
+  function per event type per behavior. Move that logic into the
+  `viewerRequestFunctionCode` prop, which runs it inside cdk-nextjs's own
+  viewer-request function on every behavior, static assets included (see
+  [Running Code on Every Viewer Request](../README.md#running-code-on-every-viewer-request)).
 
 The runtime trusts `X-Forwarded-Host` only on a request Lambda reports as
 IAM-authenticated, so a Function URL overridden to `authType: NONE` builds its

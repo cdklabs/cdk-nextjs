@@ -7,6 +7,27 @@ import type { NextjsType, PublicDirEntry } from '../';
  */
 export interface OptionalNextjsDistributionProps {
   /**
+   * A CloudFront KeyValueStore associated with every viewer-request function {@link viewerRequestFunctionCode} is copied into (up to three, one per kind of behavior), so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy.
+   * Read it with `cf.kvs()`, no ID needed.
+   * @default - none
+   * @stability stable
+   */
+  readonly viewerRequestKeyValueStore?: aws_cloudfront.IKeyValueStore;
+  /**
+   * CloudFront Function code run first on every viewer request, on every behavior cdk-nextjs adds, static assets included — HTTP Basic auth on a pre-launch site, geo-gating.
+   * It must define `viewerRequest(event)` (a function, sync or async, or a
+   * `var`/`let`/`const`): return a response to answer the viewer, or the
+   * request (or nothing) to carry on. It is spliced into cdk-nextjs's own
+   * viewer-request functions, ahead of their logic, so it may not use the
+   * name `handler`, and the combined function must fit CloudFront's 10 KB.
+   * It runs on `cloudfront-js-2.0`, so it may be async and read
+   * {@link viewerRequestKeyValueStore} with `cf.kvs()`. A bring-your-own
+   * {@link distribution}'s default behavior isn't covered.
+   * @default - none
+   * @stability stable
+   */
+  readonly viewerRequestFunctionCode?: aws_cloudfront.FunctionCode;
+  /**
    * The most cache behaviors the distribution may have, the default one included.
    * cdk-nextjs counts what it adds against this at synth, so running
    * out is a synth error naming what used them rather than a failed deploy.
