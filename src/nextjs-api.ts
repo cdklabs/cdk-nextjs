@@ -469,7 +469,7 @@ export class NextjsApi extends Construct {
         `'${value}'`,
       ]),
     );
-    const s3Integration = new AwsIntegration({
+    const props: AwsIntegrationProps = {
       service: "s3",
       integrationHttpMethod: "GET",
       path: `${this.props.staticAssetsBucket.bucketName}/${key}`,
@@ -503,7 +503,6 @@ export class NextjsApi extends Construct {
               "method.response.header.ETag": "integration.response.header.ETag",
               "method.response.header.Last-Modified":
                 "integration.response.header.Last-Modified",
-              ...fixedHeaders,
             },
           },
           {
@@ -517,7 +516,6 @@ export class NextjsApi extends Construct {
               "method.response.header.ETag": "integration.response.header.ETag",
               "method.response.header.Last-Modified":
                 "integration.response.header.Last-Modified",
-              ...fixedHeaders,
             },
           },
           {
@@ -527,8 +525,19 @@ export class NextjsApi extends Construct {
         ],
       },
       ...this.props.overrides?.staticIntegrationProps,
+    };
+    // Added after the override, which replaces `options` whole, so the
+    // headers survive one that sets its own integration responses.
+    return new AwsIntegration({
+      ...props,
+      options: props.options && {
+        ...props.options,
+        integrationResponses: withFixedHeaders(
+          props.options.integrationResponses,
+          fixedHeaders,
+        ),
+      },
     });
-    return s3Integration;
   }
 
   /** @param headers the fixed headers `createS3Integration` was given */
@@ -545,7 +554,7 @@ export class NextjsApi extends Construct {
         true,
       ]),
     );
-    return {
+    const options: MethodOptions = {
       requestParameters: {
         // Declared optional (`false`): a plain GET carries neither, and
         // requiring them would 400 it.
@@ -562,7 +571,6 @@ export class NextjsApi extends Construct {
             "method.response.header.Cache-Control": true,
             "method.response.header.ETag": true,
             "method.response.header.Last-Modified": true,
-            ...fixedHeaders,
           },
         },
         {
@@ -571,7 +579,6 @@ export class NextjsApi extends Construct {
             "method.response.header.Cache-Control": true,
             "method.response.header.ETag": true,
             "method.response.header.Last-Modified": true,
-            ...fixedHeaders,
           },
         },
         {
@@ -579,6 +586,13 @@ export class NextjsApi extends Construct {
         },
       ],
       ...this.props.overrides?.s3MethodOptions,
+    };
+    // After the override, as in `createS3Integration`: API Gateway rejects an
+    // integration response mapping a header its method response doesn't
+    // declare, so the two have to survive an override together.
+    return {
+      ...options,
+      methodResponses: withFixedHeaders(options.methodResponses, fixedHeaders),
     };
   }
 
@@ -788,4 +802,31 @@ export class NextjsApi extends Construct {
     const proxyResource = this.baseResource.addResource("{proxy+}");
     proxyResource.addMethod("ANY", streamingIntegration);
   }
+}
+
+/**
+ * `responses` with `parameters` added to the 200 and the 304, the responses a
+ * fixed header goes out with.
+ */
+function withFixedHeaders<
+  T extends {
+    readonly statusCode: string;
+    readonly responseParameters?: { [key: string]: V };
+  },
+  V,
+>(
+  responses: T[] | undefined,
+  parameters: { [key: string]: V },
+): T[] | undefined {
+  if (!Object.keys(parameters).length) {
+    return responses;
+  }
+  return responses?.map((response) =>
+    ["200", "304"].includes(response.statusCode)
+      ? {
+          ...response,
+          responseParameters: { ...response.responseParameters, ...parameters },
+        }
+      : response,
+  );
 }

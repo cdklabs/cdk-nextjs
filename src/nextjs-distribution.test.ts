@@ -199,6 +199,20 @@ describe("NextjsDistribution function group behaviors", () => {
       ]);
     });
 
+    it("keeps a suffixed policy name within CloudFront's 128 characters", () => {
+      const { stack, distributionProps } = setup([]);
+      new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        serviceWorkerAllowed: "/",
+        overrides: {
+          staticResponseHeadersPolicyProps: {
+            responseHeadersPolicyName: "a".repeat(128),
+          },
+        },
+      });
+      expect(serviceWorkerPolicy(stack).Name).toBe(`${"a".repeat(125)}-sw`);
+    });
+
     it("keeps a Service-Worker-Allowed the static override sets", () => {
       const { stack, distributionProps } = setup([]);
       new NextjsDistribution(stack, "Distribution", {

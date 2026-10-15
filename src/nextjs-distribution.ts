@@ -911,10 +911,18 @@ export class NextjsDistribution extends Construct {
         ),
         ...props,
         // Policy names are unique per account, so the static policy's can't be
-        // reused as it is.
+        // reused as it is, and are at most 128 characters, so a suffix can't
+        // simply be added to one that is already that long.
         responseHeadersPolicyName:
           props?.responseHeadersPolicyName &&
-          `${props.responseHeadersPolicyName}-sw`,
+          `${
+            Token.isUnresolved(props.responseHeadersPolicyName)
+              ? props.responseHeadersPolicyName
+              : props.responseHeadersPolicyName.slice(
+                  0,
+                  MAX_POLICY_NAME_LENGTH - SERVICE_WORKER_SUFFIX.length,
+                )
+          }${SERVICE_WORKER_SUFFIX}`,
         customHeadersBehavior: {
           // One the override sets itself is kept.
           customHeaders: customHeaders.some(
@@ -1224,6 +1232,13 @@ const DEFAULT_MAX_CACHE_BEHAVIORS = 75;
 function isPathPatternChar(char: string): boolean {
   return char === "*" || char === "?" || PATH_PATTERN_LITERAL.test(char);
 }
+/**
+ * CloudFront's limit on a response headers policy name, and the suffix that
+ * tells the service worker policy's apart from the static one's.
+ * @see https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_ResponseHeadersPolicyConfig.html
+ */
+const MAX_POLICY_NAME_LENGTH = 128;
+const SERVICE_WORKER_SUFFIX = "-sw";
 /** CloudFront's path pattern length limit. */
 const MAX_PATH_PATTERN_LENGTH = 255;
 
