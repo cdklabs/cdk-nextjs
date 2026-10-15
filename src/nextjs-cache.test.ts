@@ -366,5 +366,65 @@ describe("NextjsCache", () => {
       expect(properties.EphemeralStorage).toEqual({ Size: 2048 });
       expect(properties.MemorySize).toBe(2048);
     });
+
+    // The type requires both, so a typed caller always passes them.
+    it("ignores sources and destinationBucket", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            destinationBucket: Bucket.fromBucketName(
+              ownStack,
+              "Existing",
+              "someone-elses-bucket",
+            ),
+            sources: [Source.data("a", "x"), Source.data("b", "y")],
+            memoryLimit: 2048,
+          },
+        },
+      });
+
+      const [upload] = Object.values(
+        Template.fromStack(ownStack).findResources(
+          "Custom::CDKBucketDeployment",
+        ),
+      );
+      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
+      expect(JSON.stringify(upload.Properties.DestinationBucketName)).toContain(
+        "TestCacheBucket",
+      );
+      expect(upload.Properties.Prune).toBe(false);
+      expect(deploymentLambda(Template.fromStack(ownStack)).MemorySize).toBe(
+        2048,
+      );
+    });
+
+    // A JSII binding can materialize an unset field as an explicit undefined.
+    it("keeps the staged source and prune: false when the fields are explicitly undefined", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            sources: undefined,
+            destinationBucket: undefined,
+            prune: undefined,
+          } as any,
+        },
+      });
+
+      const [upload] = Object.values(
+        Template.fromStack(ownStack).findResources(
+          "Custom::CDKBucketDeployment",
+        ),
+      );
+      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
+      expect(upload.Properties.Prune).toBe(false);
+    });
   });
 });
