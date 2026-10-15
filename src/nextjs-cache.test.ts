@@ -420,6 +420,20 @@ describe("NextjsCache", () => {
       ).toThrow(/`prune: true`/);
     });
 
+    it("warns about destinationKeyPrefix when there is no init cache", () => {
+      new NextjsCache(stack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir: join(initCacheDir, "missing"),
+        overrides: {
+          bucketDeploymentProps: { destinationKeyPrefix: "seed" } as any,
+        },
+      });
+      Annotations.fromStack(stack).hasWarning(
+        "*",
+        Match.stringLikeRegexp("destinationKeyPrefix is ignored"),
+      );
+    });
+
     // The type requires both, so a typed caller always passes them.
     it("ignores sources and destinationBucket", () => {
       const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
