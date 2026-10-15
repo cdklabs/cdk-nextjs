@@ -31,8 +31,9 @@ one of these:
 
 With `useEfs: true`, the init cache's deployment Lambda now keeps CDK's default
 `/tmp`, since it unpacks onto EFS. Its size is part of the handler's and the
-custom resource's IDs, so the first deploy after upgrading replaces both: a full
-CloudFormation deployment rather than a hotswap. The old resource's Delete
+custom resource's IDs, so unless you set `ephemeralStorageSize` yourself, the
+first deploy after upgrading replaces both: a full CloudFormation deployment
+rather than a hotswap. The old resource's Delete
 removes nothing from a bucket defined in your CDK app, which CDK tags as owned.
 But it runs with the old resource's settings, so with an imported `cacheBucket`
 (`Bucket.fromBucketName` and the like) and `retainOnDelete: false` it would

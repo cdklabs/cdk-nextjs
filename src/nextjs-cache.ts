@@ -196,14 +196,16 @@ export class NextjsCache extends Construct {
   private createDeployment(): BucketDeployment | undefined {
     const overrides = this.props.overrides?.bucketDeploymentProps;
     // Checked whether or not this build has an init cache, so that an override
-    // fails the same way for every build.
+    // fails, or warns, the same way for every build.
     //
     // - `prune: true` runs `s3 sync --delete` against the whole bucket (there is
     //   no destination prefix), deleting the previous build's entries and those
     //   written at runtime while the old functions or tasks still serve them.
-    // - `retainOnDelete: false` empties an imported bucket, which CDK can't tag
-    //   as owned, whenever the deployment is replaced, as it is when the Lambda's
-    //   sizing changes: after the new deployment has uploaded this build's seed.
+    // - `retainOnDelete: false` makes an update that changes the destination
+    //   `s3 rm --recursive` the old one, owned bucket or not. And it empties an
+    //   imported bucket, which CDK can't tag as owned, whenever the deployment
+    //   is replaced, as it is when the Lambda's sizing changes: after the new
+    //   deployment has uploaded this build's seed.
     // - `extract: false` uploads the asset zip itself instead of the cache.
     rejectDeploymentOverrides(
       overrides,
@@ -216,6 +218,13 @@ export class NextjsCache extends Construct {
       "the init cache must be unpacked under <buildId>/ next to the entries " +
         "the running app writes, and each of these would delete or replace them.",
     );
+
+    if (overrides?.destinationKeyPrefix) {
+      Annotations.of(this).addWarningV2(
+        "cdk-nextjs:ignoredDestinationKeyPrefix",
+        `${LOG_PREFIX} overrides.bucketDeploymentProps.destinationKeyPrefix is ignored: the init cache is always uploaded under <buildId>/, where the cache handler reads it.`,
+      );
+    }
 
     // Check if cache directory exists
     if (!existsSync(this.props.initCacheDir)) {
@@ -230,12 +239,6 @@ export class NextjsCache extends Construct {
     );
 
     const stagingDir = this.createStagingDirectory();
-    if (overrides?.destinationKeyPrefix) {
-      Annotations.of(this).addWarningV2(
-        "cdk-nextjs:ignoredDestinationKeyPrefix",
-        `${LOG_PREFIX} overrides.bucketDeploymentProps.destinationKeyPrefix is ignored: the init cache is always uploaded under <buildId>/, where the cache handler reads it.`,
-      );
-    }
 
     try {
       // Use standard BucketDeployment for regular S3 buckets
