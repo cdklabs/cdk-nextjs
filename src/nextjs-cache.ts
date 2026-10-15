@@ -283,19 +283,20 @@ export class NextjsCache extends Construct {
    * unless `useEfs: true`, the supported way out, is already set. With EFS the
    * handler unpacks onto the mount instead of `/tmp`, so `/tmp` is left at CDK's
    * default. An `ephemeralStorageSize` or `memoryLimit` in
-   * `overrides.bucketDeploymentProps` wins over what is computed here, and the
-   * directory is only walked if one of them is still needed.
+   * `overrides.bucketDeploymentProps` wins over what is computed here.
    */
   private sizeDeploymentLambda(overrides?: BucketDeploymentProps) {
     const useEfs = overrides?.useEfs;
     const sizeStorage = !overrides?.ephemeralStorageSize && !useEfs;
     const sizeMemory = !overrides?.memoryLimit;
+    // Still walked when both sizes are overridden without EFS, so that the
+    // warning below fires for an overridden `/tmp` too.
     const mib =
-      sizeStorage || sizeMemory
+      !useEfs || sizeMemory
         ? Math.ceil(sizeOfDirectory(this.props.initCacheDir) / 1024 ** 2)
         : 0;
     const wanted = mib * 2 + 128;
-    if (sizeStorage && wanted > MAX_EPHEMERAL_STORAGE_MIB) {
+    if (!useEfs && wanted > MAX_EPHEMERAL_STORAGE_MIB) {
       console.warn(
         `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${mib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true and a vpc to seed a cache this large.`,
       );
