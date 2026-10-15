@@ -11,13 +11,19 @@ them, and they replaced the staged init cache or sent it to a bucket the cache
 handler doesn't read from. `destinationKeyPrefix` is ignored too: it put the
 init cache outside the `<buildId>/` keys the cache handler reads, where the
 post-deploy pruner deleted it. **Migration:** pass your bucket as `cacheBucket`
-instead, and add your own `BucketDeployment` for extra files.
+instead, and add your own `BucketDeployment` for extra files. If you also set
+`retainOnDelete: false`, drop it before upgrading: the first deploy updates the
+deployment's destination, and CDK then runs `aws s3 rm --recursive` on the old
+one, your `destinationBucket` (or its `destinationKeyPrefix`).
 
 With `useEfs: true`, the init cache's deployment Lambda now keeps CDK's default
 `/tmp`, since it unpacks onto EFS. Its size is part of the handler's and the
 custom resource's IDs, so the first deploy after upgrading replaces both: a full
 CloudFormation deployment rather than a hotswap. The old resource's Delete
-leaves the cache in place unless you set `retainOnDelete: false`.
+removes nothing from the bucket `NextjsCache` creates. But with a `cacheBucket`
+you pass in and `retainOnDelete: false`, CDK can't tag that bucket as owned, so
+the Delete empties it, including the cache the new resource just uploaded. Keep
+`retainOnDelete` at its default.
 
 ## 0.7.14
 
