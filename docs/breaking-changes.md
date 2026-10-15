@@ -20,10 +20,12 @@ With `useEfs: true`, the init cache's deployment Lambda now keeps CDK's default
 `/tmp`, since it unpacks onto EFS. Its size is part of the handler's and the
 custom resource's IDs, so the first deploy after upgrading replaces both: a full
 CloudFormation deployment rather than a hotswap. The old resource's Delete
-removes nothing from the bucket `NextjsCache` creates. But with a `cacheBucket`
-you pass in and `retainOnDelete: false`, CDK can't tag that bucket as owned, so
-the Delete empties it, including the cache the new resource just uploaded. Keep
-`retainOnDelete` at its default.
+removes nothing from a bucket defined in your CDK app, which CDK tags as owned.
+But with an imported `cacheBucket` (`Bucket.fromBucketName` and the like) and
+`retainOnDelete: false`, CDK can't tag it, so the Delete empties it, including
+the cache the new resource just uploaded. The Delete uses the old resource's
+settings, so drop `retainOnDelete: false` in a deploy of its own before
+upgrading.
 
 ## 0.7.12
 
