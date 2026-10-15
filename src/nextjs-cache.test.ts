@@ -12,6 +12,7 @@ import { join } from "path";
 import { App, Size, Stack } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
+import { Vpc } from "aws-cdk-lib/aws-ec2";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Source } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsCache } from "./nextjs-cache";
@@ -339,8 +340,34 @@ describe("NextjsCache", () => {
       expect(properties.MemorySize).toBe(2048);
     });
 
+    // The handler unpacks onto the EFS mount, so `/tmp` needn't grow.
+    it("leaves /tmp at the default but still sizes memory with useEfs", () => {
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      writeFileSync(big, "");
+      truncateSync(big, 300 * 1024 * 1024);
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            sources: [],
+            destinationBucket: Bucket.fromBucketName(ownStack, "B", "unused"),
+            useEfs: true,
+            vpc: new Vpc(ownStack, "Vpc"),
+          },
+        },
+      });
+
+      const properties = deploymentLambda(Template.fromStack(ownStack));
+      expect(properties.EphemeralStorage).toBeUndefined();
+      expect(properties.MemorySize).toBe(1024);
+    });
+
     // The type requires both, so a typed caller always passes them.
     it("ignores sources and destinationBucket", () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
       const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
       const ownStack = new Stack(ownApp, "TestStack");
       new NextjsCache(ownStack, "TestCache", {
@@ -359,6 +386,9 @@ describe("NextjsCache", () => {
           },
         },
       });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("destinationKeyPrefix is ignored"),
+      );
 
       const [upload] = Object.values(
         Template.fromStack(ownStack).findResources(
@@ -376,6 +406,7 @@ describe("NextjsCache", () => {
       expect(deploymentLambda(Template.fromStack(ownStack)).MemorySize).toBe(
         2048,
       );
+      warn.mockRestore();
     });
 
     // A JSII binding can materialize an unset field as an explicit undefined.
