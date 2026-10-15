@@ -188,6 +188,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      serviceWorkerAllowed: this.serviceWorkerAllowed,
       viewerRequestFunctionCode: this.props.viewerRequestFunctionCode,
       viewerRequestKeyValueStore: this.props.viewerRequestKeyValueStore,
       ...this.props.overrides?.nextjsGlobalContainers?.nextjsDistributionProps,

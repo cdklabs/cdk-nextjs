@@ -88,6 +88,7 @@ export class NextjsRegionalFunctions extends NextjsBaseConstruct {
       basePath: this.resolvedBasePath,
       overrides: this.props.overrides?.nextjsApi,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      serviceWorkerAllowed: this.serviceWorkerAllowed,
       // `serverFunction` above is the default group's, which the `{proxy+}`
       // catch-all reaches; the rest get resources of their own.
       functionGroups: this.nextjsFunctions.functionGroups.filter(

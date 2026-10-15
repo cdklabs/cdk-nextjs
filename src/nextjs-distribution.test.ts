@@ -6,6 +6,7 @@ import {
   FunctionCode,
   FunctionEventType,
   KeyValueStore,
+  ResponseHeadersPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
@@ -108,6 +109,164 @@ describe("NextjsDistribution function group behaviors", () => {
     const { stack, distributionProps } = setup([]);
     new NextjsDistribution(stack, "Distribution", distributionProps);
     expect(pathPatterns(stack)).toEqual(["_next/static*", "_next/image*"]);
+  });
+
+  describe("service workers", () => {
+    const serviceWorkerPolicy = (stack: Stack) => {
+      const config = Object.values(
+        Template.fromStack(stack).findResources(
+          "AWS::CloudFront::Distribution",
+        ),
+      )[0].Properties.DistributionConfig;
+      const behavior = (
+        config.CacheBehaviors as Array<{
+          PathPattern: string;
+          ResponseHeadersPolicyId: { Ref: string };
+        }>
+      ).find(({ PathPattern }) => PathPattern.includes("service-worker"))!;
+      const policies = Template.fromStack(stack).findResources(
+        "AWS::CloudFront::ResponseHeadersPolicy",
+      );
+      return policies[behavior.ResponseHeadersPolicyId.Ref].Properties
+        .ResponseHeadersPolicyConfig;
+    };
+
+    it("sends Service-Worker-Allowed from a behavior ahead of _next/static*", () => {
+      // CloudFront stops at the first match, so after `_next/static*` it would
+      // never be reached.
+      const { stack, distributionProps } = setup([]);
+      new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        serviceWorkerAllowed: "/",
+      });
+      expect(pathPatterns(stack)).toEqual([
+        "_next/static/service-worker/*",
+        "_next/static*",
+        "_next/image*",
+      ]);
+      const policy = serviceWorkerPolicy(stack);
+      expect(policy.CustomHeadersConfig.Items).toEqual([
+        { Header: "Service-Worker-Allowed", Value: "/", Override: true },
+      ]);
+      // The security headers the other static behaviors send.
+      expect(
+        policy.SecurityHeadersConfig.StrictTransportSecurity,
+      ).toBeDefined();
+    });
+
+    it("prefixes the pattern with basePath", () => {
+      const { stack, distributionProps } = setup([], { basePath: "/base" });
+      new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        serviceWorkerAllowed: "/base",
+      });
+      expect(pathPatterns(stack)[0]).toBe(
+        "/base/_next/static/service-worker/*",
+      );
+      expect(serviceWorkerPolicy(stack).CustomHeadersConfig.Items).toEqual([
+        { Header: "Service-Worker-Allowed", Value: "/base", Override: true },
+      ]);
+    });
+
+    it("adds no behavior without service workers", () => {
+      const { stack, distributionProps } = setup([]);
+      new NextjsDistribution(stack, "Distribution", distributionProps);
+      expect(pathPatterns(stack)).not.toContain(
+        "_next/static/service-worker/*",
+      );
+    });
+
+    it("keeps staticResponseHeadersPolicyProps, its custom headers included", () => {
+      const { stack, distributionProps } = setup([]);
+      new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        serviceWorkerAllowed: "/",
+        overrides: {
+          staticResponseHeadersPolicyProps: {
+            responseHeadersPolicyName: "static",
+            customHeadersBehavior: {
+              customHeaders: [{ header: "X-Team", value: "a", override: true }],
+            },
+          },
+        },
+      });
+      const policy = serviceWorkerPolicy(stack);
+      // Names are unique per account, so it can't share the static policy's.
+      expect(policy.Name).toBe("static-sw");
+      expect(policy.CustomHeadersConfig.Items).toEqual([
+        { Header: "X-Team", Value: "a", Override: true },
+        { Header: "Service-Worker-Allowed", Value: "/", Override: true },
+      ]);
+    });
+
+    it("keeps a Service-Worker-Allowed the static override sets", () => {
+      const { stack, distributionProps } = setup([]);
+      new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        serviceWorkerAllowed: "/",
+        overrides: {
+          staticResponseHeadersPolicyProps: {
+            customHeadersBehavior: {
+              customHeaders: [
+                {
+                  header: "service-worker-allowed",
+                  value: "/app",
+                  override: true,
+                },
+              ],
+            },
+          },
+        },
+      });
+      expect(serviceWorkerPolicy(stack).CustomHeadersConfig.Items).toEqual([
+        { Header: "service-worker-allowed", Value: "/app", Override: true },
+      ]);
+    });
+
+    it("warns and uses a replaced static policy as it is", () => {
+      const { stack, distributionProps } = setup([]);
+      const distribution = new NextjsDistribution(stack, "Distribution", {
+        ...distributionProps,
+        serviceWorkerAllowed: "/",
+        overrides: {
+          staticBehaviorOptions: {
+            responseHeadersPolicy:
+              ResponseHeadersPolicy.fromResponseHeadersPolicyId(
+                stack,
+                "Custom",
+                "custom-policy",
+              ),
+          },
+        },
+      });
+      Annotations.fromStack(stack).hasWarning(
+        `/${distribution.node.path}`,
+        Match.stringLikeRegexp("Service-Worker-Allowed"),
+      );
+      const config = Object.values(
+        Template.fromStack(stack).findResources(
+          "AWS::CloudFront::Distribution",
+        ),
+      )[0].Properties.DistributionConfig;
+      expect(config.CacheBehaviors[0]).toMatchObject({
+        PathPattern: "_next/static/service-worker/*",
+        ResponseHeadersPolicyId: "custom-policy",
+      });
+    });
+
+    it("counts its behavior against the budget", () => {
+      const { stack, distributionProps } = setup([], {
+        publicDirEntries: Array.from({ length: 72 }, (_, i) => `f${i}`),
+      });
+      // 3 fixed + 72 public = 75 fits; the service worker behavior makes 76.
+      expect(
+        () =>
+          new NextjsDistribution(stack, "Distribution", {
+            ...distributionProps,
+            serviceWorkerAllowed: "/",
+          }),
+      ).toThrow(/needs 76 CloudFront cache behaviors/);
+    });
   });
 
   it("lets the OAC principal list the bucket so a missing asset is a 404", () => {

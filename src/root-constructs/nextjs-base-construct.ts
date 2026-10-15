@@ -414,6 +414,19 @@ export abstract class NextjsBaseConstruct extends Construct {
     return postDeploy;
   }
 
+  /**
+   * The `Service-Worker-Allowed` value for `_next/static/service-worker/*`, or
+   * `undefined` when the build has no service worker. The app's own
+   * `basePath`, as `next build` uses, not `resolvedBasePath`: it is the URL
+   * scope the browser checks.
+   */
+  protected get serviceWorkerAllowed(): string | undefined {
+    if (!this.nextjsStaticAssets.serviceWorkerDeployment) {
+      return undefined;
+    }
+    return `/${this.nextjsBuild.nextConfigBasePath}`;
+  }
+
   private createNextjsBuild(): NextjsBuild {
     return new NextjsBuild(this, "NextjsBuild", {
       buildCommand: this.baseProps.buildCommand,

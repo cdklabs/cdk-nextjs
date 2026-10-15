@@ -785,3 +785,89 @@ describe("deploy-time invalidation", () => {
     expect(postDeploy.DependsOn).toEqual(expect.arrayContaining(uploads));
   });
 });
+
+describe("service workers", () => {
+  const swDir = () => join(buildDir, ".next", "static", "service-worker");
+  beforeEach(() => write(join(swDir(), "sw.js"), "// sw"));
+  afterEach(() => rmSync(swDir(), { recursive: true, force: true }));
+
+  const newStack = () =>
+    new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+
+  it.each([
+    ["NextjsGlobalFunctions", NextjsGlobalFunctions],
+    ["NextjsGlobalContainers", NextjsGlobalContainers],
+  ] as const)(
+    "%s sends Service-Worker-Allowed with the app's basePath",
+    (_, Root) => {
+      nextConfigBasePath = "base";
+      const stack = newStack();
+      // A variable, so Functions takes the Containers-only prop without complaint.
+      const props = {
+        buildDirectory: buildDir,
+        healthCheckPath: "/api/health",
+      };
+      new Root(stack, "App", props);
+      const template = Template.fromStack(stack);
+      template.hasResourceProperties("AWS::CloudFront::Distribution", {
+        DistributionConfig: {
+          CacheBehaviors: Match.arrayWith([
+            Match.objectLike({
+              PathPattern: "/base/_next/static/service-worker/*",
+            }),
+          ]),
+        },
+      });
+      template.hasResourceProperties("AWS::CloudFront::ResponseHeadersPolicy", {
+        ResponseHeadersPolicyConfig: {
+          CustomHeadersConfig: {
+            Items: [
+              {
+                Header: "Service-Worker-Allowed",
+                Value: "/base",
+                Override: true,
+              },
+            ],
+          },
+        },
+      });
+    },
+  );
+
+  it("NextjsRegionalFunctions uses the app's basePath, not the stage-stripped one", () => {
+    // Mounted at the root of the "v1" stage, but the browser sees `/v1/...`.
+    nextConfigBasePath = "v1";
+    const stack = newStack();
+    new NextjsRegionalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      overrides: {
+        nextjsApi: {
+          restApiProps: { deployOptions: { stageName: "v1" } },
+        },
+      },
+    });
+    Template.fromStack(stack).hasResourceProperties("AWS::ApiGateway::Method", {
+      Integration: {
+        IntegrationResponses: Match.arrayWith([
+          Match.objectLike({
+            StatusCode: "200",
+            ResponseParameters: Match.objectLike({
+              "method.response.header.Service-Worker-Allowed": "'/v1'",
+            }),
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("adds nothing without a service worker", () => {
+    rmSync(swDir(), { recursive: true, force: true });
+    const stack = newStack();
+    new NextjsGlobalFunctions(stack, "App", { buildDirectory: buildDir });
+    expect(JSON.stringify(Template.fromStack(stack).toJSON())).not.toContain(
+      "Service-Worker-Allowed",
+    );
+  });
+});

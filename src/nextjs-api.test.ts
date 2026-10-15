@@ -96,6 +96,78 @@ describe("NextjsApi", () => {
     ]);
   });
 
+  describe("service workers", () => {
+    function createServiceWorkerApi(serviceWorkerAllowed?: string) {
+      return new NextjsApi(stack, "NextjsApi", {
+        staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+        serverFunction: new LambdaFunction(stack, "ServerFn", {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: Code.fromInline("exports.handler = async () => {};"),
+        }),
+        publicDirEntries: [],
+        serviceWorkerAllowed,
+      });
+    }
+
+    it("sends Service-Worker-Allowed from a resource of their own", () => {
+      createServiceWorkerApi("/");
+      expect(s3IntegrationKeys().sort()).toEqual([
+        "_next/static/service-worker/{key}",
+        "_next/static/{key}",
+      ]);
+      const template = Template.fromStack(stack);
+      template.hasResourceProperties("AWS::ApiGateway::Method", {
+        Integration: {
+          Uri: {
+            "Fn::Join": Match.arrayWith([
+              Match.arrayWith([
+                Match.stringLikeRegexp("_next/static/service-worker/\\{key\\}"),
+              ]),
+            ]),
+          },
+          IntegrationResponses: Match.arrayWith(
+            ["200", "304"].map((StatusCode) =>
+              Match.objectLike({
+                StatusCode,
+                ResponseParameters: Match.objectLike({
+                  "method.response.header.Service-Worker-Allowed": "'/'",
+                  "method.response.header.Cache-Control":
+                    "integration.response.header.Cache-Control",
+                }),
+              }),
+            ),
+          ),
+        },
+        MethodResponses: Match.arrayWith(
+          ["200", "304"].map((StatusCode) =>
+            Match.objectLike({
+              StatusCode,
+              ResponseParameters: Match.objectLike({
+                "method.response.header.Service-Worker-Allowed": true,
+              }),
+            }),
+          ),
+        ),
+      });
+      // The rest of `_next/static` doesn't send it.
+      const others = Object.values(
+        template.findResources("AWS::ApiGateway::Method"),
+      ).filter((method) =>
+        JSON.stringify(method.Properties.Integration.Uri).includes(
+          "_next/static/{key}",
+        ),
+      );
+      expect(others).toHaveLength(1);
+      expect(JSON.stringify(others[0])).not.toContain("Service-Worker-Allowed");
+    });
+
+    it("adds no resource without service workers", () => {
+      createServiceWorkerApi();
+      expect(s3IntegrationKeys()).toEqual(["_next/static/{key}"]);
+    });
+  });
+
   it("prefixes every S3 integration key with the static assets key prefix", () => {
     createApi("branch-x");
 
