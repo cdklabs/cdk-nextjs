@@ -3665,7 +3665,7 @@ const nextjsCacheOverrides: NextjsCacheOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | Overrides for the init cache's `BucketDeployment`, such as `useEfs` or `memoryLimit` for a large cache. |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.cacheBucketProps">cacheBucketProps</a></code> | <code>aws-cdk-lib.aws_s3.BucketProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.revalidationTableProps">revalidationTableProps</a></code> | <code>aws-cdk-lib.aws_dynamodb.TablePropsV2</code> | *No description.* |
 
@@ -3678,6 +3678,12 @@ public readonly bucketDeploymentProps: BucketDeploymentProps;
 ```
 
 - *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps
+
+Overrides for the init cache's `BucketDeployment`, such as `useEfs` or `memoryLimit` for a large cache.
+
+`sources` and `destinationBucket`, which the type requires, are ignored:
+the upload is always the staged init cache, to the cache bucket (pass
+`cacheBucket` to bring your own).
 
 ---
 
