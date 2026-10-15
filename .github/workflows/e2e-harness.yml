@@ -160,9 +160,10 @@ jobs:
         # so 10 do not fit the run step's 150-minute cap. The others fit in 10.
         #
         # `all` lists Global Functions first, the type a release is checked on,
-        # and the rest longest shards first, so that the run ends on Regional
-        # Functions' ~1.5-hour shards filling the slots the others free rather
-        # than on Global Containers' ~2.3-hour ones running with slots idle:
+        # then the two Containers types and Regional Functions last, so that the
+        # run ends on Regional Functions' ~1.5-hour shards, the shortest, filling
+        # the slots the others free rather than on Global Containers' ~2.3-hour
+        # ones running with slots idle:
         # ~9.6 hours against ~10.2 in the order this table used to have (GF, RF,
         # RC, GC), replayed from the 2026-10-13 run's job durations. The cost is
         # that Regional Functions results arrive last. It caps the run at

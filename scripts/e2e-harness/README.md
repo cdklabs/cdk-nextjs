@@ -152,13 +152,12 @@ running its own slice of that type's file list.
 A run of one type starts all its shards at once. A run of `all` (the schedule)
 lists 45 jobs, Global Functions first, then Regional Containers, Global
 Containers and Regional Functions, and runs at most 10 at a time, which is about
-9.6 hours end to end (about 95 shard-hours: the Containers types' shards take
+9.6 hours end to end (about 90 shard-hours: the Containers types' shards take
 about 2.3 hours each, Global Functions' about 1.7 and Regional Functions' about
-1.5). After Global Functions the types go longest shards first, so that Regional
-Functions' short shards fill the slots the others free at the end. Listing
-Global Containers last, as the workflow once did, left its last five shards
-running with half the slots idle, for about 10.2 hours. Ten is the peak
-a single-type run of the other three already reaches: no more CloudFront
+1.5). Regional Functions goes last because its shards are the shortest, so they
+fill the slots the others free at the end. Listing Global Containers last, as
+the workflow once did, left its last five shards running with half the slots
+idle, for about 10.2 hours. Ten is the peak a single-type run of the other three already reaches: no more CloudFront
 distributions at once than a Global Functions run, under the CloudFront
 response-headers-policy quota (3 per distribution), no more ECR pulls than a
 Regional Containers run, and no more of the org's concurrent jobs than the
