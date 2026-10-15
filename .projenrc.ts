@@ -59,7 +59,8 @@ const project = new CdklabsConstructLibrary({
     "next@^16.4.0", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
-  setNodeEngineVersion: false,
+  // Synth runs on the user's Node. 22.2 is the first 22.x with `zlib.crc32`.
+  minNodeVersion: "22.2.0",
   npmIgnoreOptions: {
     ignorePatterns: [
       "examples/**/*",
