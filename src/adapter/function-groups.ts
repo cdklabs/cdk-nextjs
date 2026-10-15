@@ -128,16 +128,50 @@ export interface RoutingRules {
 
 const ERROR_PREFIX = `${LOG_PREFIX} \`functionGroups\`: `;
 const NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
-const SUBTREE_SUFFIX = "/**";
+export const SUBTREE_SUFFIX = "/**";
 /**
  * The literal characters a CloudFront path pattern may contain: its alphabet
  * (`A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and `&`) less the two wildcards, which
- * `validateRoutePattern` only accepts as a trailing `/**`. `nextjs-distribution.ts`
+ * `validateRoutePattern` only accepts as a trailing `/**`. `utils/path-patterns.ts`
  * adds the wildcards back to encode `public/` names.
  *
  * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html#DownloadDistValuesPathPattern
  */
 export const PATH_PATTERN_LITERAL = /[a-zA-Z0-9_\-.$/~"'@:+&]/;
+
+/**
+ * A validated group pattern split into its path segments: `/api/reports/**` is
+ * the subtree `["api", "reports"]`, `/pricing` the exact path `["pricing"]`.
+ */
+export function splitGroupRoute(route: string): {
+  isSubtree: boolean;
+  segments: string[];
+} {
+  const isSubtree = route.endsWith(SUBTREE_SUFFIX);
+  const segments = (isSubtree ? route.slice(0, -SUBTREE_SUFFIX.length) : route)
+    .split("/")
+    .filter(Boolean);
+  return { isSubtree, segments };
+}
+
+/**
+ * Throw for the first behavior routed to a group `groups` doesn't have: the
+ * build and the construct were given different group lists.
+ */
+export function assertKnownFunctionGroups(
+  groups: readonly { readonly name: string }[],
+  behaviors: readonly { readonly group: string }[],
+): void {
+  const unknown = behaviors.find(
+    (behavior) => !groups.some((group) => group.name === behavior.group),
+  );
+  if (unknown) {
+    throw new Error(
+      `${LOG_PREFIX} \`functionGroupBehaviors\` routes to function group ` +
+        `"${unknown.group}", which is not in \`functionGroups\`.`,
+    );
+  }
+}
 
 /**
  * Read {@link FUNCTION_GROUPS_ENV_VAR}. `undefined` — not the empty array — when

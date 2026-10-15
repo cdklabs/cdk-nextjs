@@ -43,7 +43,10 @@ import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2
 import { CfnPermission, IFunctionUrl } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { DEFAULT_FUNCTION_GROUP } from "./adapter/function-groups";
+import {
+  assertKnownFunctionGroups,
+  DEFAULT_FUNCTION_GROUP,
+} from "./adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
@@ -67,7 +70,9 @@ import {
   publicPathPatterns,
 } from "./utils/path-patterns";
 import {
+  assertViewerRequestUnclaimed,
   assetPrefixRewriteHandler,
+  checkFunctionCodeSize,
   checkViewerRequestCode,
   MAX_FUNCTION_CODE_BYTES,
   PASS_THROUGH_HANDLER,
@@ -311,11 +316,11 @@ export class NextjsDistribution extends Construct {
    * Creates a CloudFront comment that is safe for the 128 character limit.
    * If the full comment with stack name exceeds 128 characters, returns the base comment only.
    * @param baseComment The base comment text
-   * @returns A comment string that is guaranteed to be < 128 characters
+   * @returns A comment string that is guaranteed to be at most 128 characters
    */
   private getComment(baseComment: string): string {
     const fullComment = `${baseComment} for ${Stack.of(this).stackName}`;
-    return fullComment.length < 128 ? fullComment : baseComment;
+    return fullComment.length <= 128 ? fullComment : baseComment;
   }
 
   /**
@@ -439,21 +444,11 @@ export class NextjsDistribution extends Construct {
         runtime: FunctionRuntime.JS_2_0,
       };
     }
-    const size = Buffer.byteLength(code);
-    if (Token.isUnresolved(code)) {
-      // A token's placeholder isn't the length of what it resolves to.
+    if (checkFunctionCodeSize(code) === "unresolved") {
       Annotations.of(this).addWarning(
         `${LOG_PREFIX} \`viewerRequestFunctionCode\` contains a CDK token, so ` +
           `its size can't be checked against CloudFront's limit of ` +
           `${MAX_FUNCTION_CODE_BYTES} bytes until deploy.`,
-      );
-    } else if (size > MAX_FUNCTION_CODE_BYTES) {
-      throw new Error(
-        `${LOG_PREFIX} \`viewerRequestFunctionCode\` makes a CloudFront ` +
-          `Function of ${size} bytes, cdk-nextjs's own code included, over ` +
-          `CloudFront's limit of ${MAX_FUNCTION_CODE_BYTES}. Shorten it ` +
-          `(comments and whitespace count). See ` +
-          `https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-functions`,
       );
     }
     return {
@@ -474,32 +469,6 @@ export class NextjsDistribution extends Construct {
     }
     checkViewerRequestCode(userCode);
     return userCode;
-  }
-  /**
-   * CloudFront allows one function per event type per behavior, so an
-   * override's viewer-request association and one cdk-nextjs needs can't both
-   * be kept. Thrown at synth, where both halves are known, rather than left to
-   * a deploy that names neither.
-   */
-  private assertViewerRequestUnclaimed(
-    overrideName: string,
-    associations: FunctionAssociation[] | undefined,
-    needs: string,
-  ) {
-    const claimed = (associations ?? []).some(
-      (association) =>
-        association.eventType === FunctionEventType.VIEWER_REQUEST,
-    );
-    if (claimed) {
-      throw new Error(
-        `${LOG_PREFIX} \`overrides.${overrideName}.functionAssociations\` ` +
-          `associates a CloudFront function with ` +
-          `${FunctionEventType.VIEWER_REQUEST}, but ${needs}. ` +
-          `CloudFront permits only one function per event type per behavior. ` +
-          `Move the logic into \`viewerRequestFunctionCode\`, which runs ` +
-          `inside cdk-nextjs's own viewer-request function on every behavior.`,
-      );
-    }
   }
   private createStaticBehaviorOptions(): BehaviorOptions {
     const staticBehaviorOptions = this.props.overrides?.staticBehaviorOptions;
@@ -522,7 +491,7 @@ export class NextjsDistribution extends Construct {
     if (this.viewerRequestCode === undefined) {
       return options;
     }
-    this.assertViewerRequestUnclaimed(
+    assertViewerRequestUnclaimed(
       "staticBehaviorOptions",
       staticBehaviorOptions?.functionAssociations,
       "`viewerRequestFunctionCode` needs that event type on the static behaviors",
@@ -602,7 +571,7 @@ export class NextjsDistribution extends Construct {
     if (!ours.length) {
       return overridden;
     }
-    this.assertViewerRequestUnclaimed(
+    assertViewerRequestUnclaimed(
       overrideName,
       overridden,
       this.isFunctionCompute
@@ -749,22 +718,14 @@ export class NextjsDistribution extends Construct {
    * {@link addFunctionGroupBehaviors} adds them.
    */
   private functionGroupBehaviors() {
-    return (this.props.functionGroupBehaviors ?? []).map((behavior) => {
-      const group = this.props.functionGroups?.find(
-        (it) => it.name === behavior.group,
-      );
-      if (!group) {
-        throw new Error(
-          `${LOG_PREFIX} \`functionGroupBehaviors\` routes to function group ` +
-            `"${behavior.group}", which is not in \`functionGroups\`.`,
-        );
-      }
-      return {
-        ...behavior,
-        group,
-        pathPattern: this.getPathPattern(behavior.pattern),
-      };
-    });
+    const groups = this.props.functionGroups ?? [];
+    const behaviors = this.props.functionGroupBehaviors ?? [];
+    assertKnownFunctionGroups(groups, behaviors);
+    return behaviors.map((behavior) => ({
+      ...behavior,
+      group: groups.find((it) => it.name === behavior.group)!,
+      pathPattern: this.getPathPattern(behavior.pattern),
+    }));
   }
   /**
    * One behavior per group pattern, most specific first.
@@ -851,7 +812,7 @@ export class NextjsDistribution extends Construct {
     ).filter(
       (association) => association.function !== this.passThroughFunction,
     );
-    this.assertViewerRequestUnclaimed(
+    assertViewerRequestUnclaimed(
       "staticBehaviorOptions",
       associations,
       `serving \`assetPrefix\` ("${this.assetPrefix}") needs that event type ` +

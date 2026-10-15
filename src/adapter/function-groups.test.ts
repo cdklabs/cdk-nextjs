@@ -13,11 +13,13 @@ import {
   FunctionGroupSpec,
   RouteEntry,
   RoutingRules,
+  assertKnownFunctionGroups,
   assignRoutesToGroups,
   interceptedRoute,
   parseFunctionGroupsEnv,
   pathPatternsFor,
   routedPatterns,
+  splitGroupRoute,
   validateFunctionGroups,
 } from "./function-groups";
 
@@ -1216,5 +1218,47 @@ describe("pathPatternsFor", () => {
 describe("parseFunctionGroupsEnv", () => {
   it("returns undefined when unset", () => {
     expect(parseFunctionGroupsEnv(undefined)).toBeUndefined();
+  });
+});
+
+describe("splitGroupRoute", () => {
+  it("splits a subtree and an exact path into segments", () => {
+    expect(splitGroupRoute("/api/reports/**")).toEqual({
+      isSubtree: true,
+      segments: ["api", "reports"],
+    });
+    expect(splitGroupRoute("/pricing")).toEqual({
+      isSubtree: false,
+      segments: ["pricing"],
+    });
+  });
+
+  it("drops empty segments, a trailing slash's included", () => {
+    expect(splitGroupRoute("/pricing/")).toEqual({
+      isSubtree: false,
+      segments: ["pricing"],
+    });
+    expect(splitGroupRoute("/**")).toEqual({ isSubtree: true, segments: [] });
+  });
+});
+
+describe("assertKnownFunctionGroups", () => {
+  it("allows behaviors that all route to a known group", () => {
+    expect(() =>
+      assertKnownFunctionGroups([{ name: "api" }], [{ group: "api" }]),
+    ).not.toThrow();
+    expect(() => assertKnownFunctionGroups([], [])).not.toThrow();
+  });
+
+  it("names the first unknown group", () => {
+    expect(() =>
+      assertKnownFunctionGroups(
+        [{ name: "api" }],
+        [{ group: "api" }, { group: "docs" }, { group: "blog" }],
+      ),
+    ).toThrow(
+      '`functionGroupBehaviors` routes to function group "docs", which is ' +
+        "not in `functionGroups`.",
+    );
   });
 });

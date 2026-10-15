@@ -18,7 +18,9 @@ import { Architecture } from "aws-cdk-lib/aws-lambda";
 import {
   deploymentArchitecture,
   findForeignNativePackages,
+  isClientEntrypointChunk,
   isSharpBinaryPackage,
+  lambdaSizeError,
   listTree,
   nativeBinaryPlatform,
   NextjsBuild,
@@ -707,5 +709,53 @@ describe("deploymentArchitecture", () => {
         host === "arm64" ? Architecture.X86_64 : Architecture.ARM_64,
     };
     expect(deploymentArchitecture(props).name).toBe(host);
+  });
+});
+
+describe("lambdaSizeError", () => {
+  const LIMIT = 250 * 1024 * 1024;
+
+  it("is undefined under and at Lambda's limit", () => {
+    expect(lambdaSizeError("default", LIMIT - 1, false)).toBeUndefined();
+    expect(lambdaSizeError("default", LIMIT, true)).toBeUndefined();
+  });
+
+  it("points an unsplit app at functionGroups one byte over", () => {
+    expect(lambdaSizeError("default", LIMIT + 1, false)).toBe(
+      `[cdk-nextjs] Function group "default" is 250 MB unzipped, ` +
+        `over Lambda's 250 MB limit. ` +
+        `Use the \`functionGroups\` prop to package routes into separate ` +
+        `functions. Note that splitting only removes route-local code — ` +
+        `anything reachable from a shared layout or the \`next\` runtime is ` +
+        `in every group.`,
+    );
+  });
+
+  it("tells a split app to split that group further", () => {
+    expect(lambdaSizeError("admin", 300 * 1024 * 1024, true)).toBe(
+      `[cdk-nextjs] Function group "admin" is 300 MB unzipped, ` +
+        `over Lambda's 250 MB limit. ` +
+        `Split its routes further, or move some of them into another group: ` +
+        `the cap is per function, so the shared \`next\` closure every group ` +
+        `duplicates costs nothing against any single budget.`,
+    );
+  });
+});
+
+describe("isClientEntrypointChunk", () => {
+  it("matches webpack's and Turbopack's entrypoint scripts", () => {
+    expect(isClientEntrypointChunk("main-app-0a1b2c.js")).toBe(true);
+    expect(isClientEntrypointChunk("turbopack-0a1b2c.js")).toBe(true);
+  });
+
+  // Production browser source maps are JSON: a prepended script breaks them.
+  it("leaves their source maps alone", () => {
+    expect(isClientEntrypointChunk("main-app-0a1b2c.js.map")).toBe(false);
+    expect(isClientEntrypointChunk("turbopack-0a1b2c.js.map")).toBe(false);
+  });
+
+  it("leaves other chunks alone", () => {
+    expect(isClientEntrypointChunk("other.js")).toBe(false);
+    expect(isClientEntrypointChunk("main-0a1b2c.js")).toBe(false);
   });
 });
