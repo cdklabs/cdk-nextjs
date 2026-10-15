@@ -13,6 +13,12 @@ init cache outside the `<buildId>/` keys the cache handler reads, where the
 post-deploy pruner deleted it. **Migration:** pass your bucket as `cacheBucket`
 instead, and add your own `BucketDeployment` for extra files.
 
+With `useEfs: true`, the init cache's deployment Lambda now keeps CDK's default
+`/tmp`, since it unpacks onto EFS. Its size is part of the handler's and the
+custom resource's IDs, so the first deploy after upgrading replaces both: a full
+CloudFormation deployment rather than a hotswap. The old resource's Delete
+leaves the cache in place unless you set `retainOnDelete: false`.
+
 ## 0.7.12
 
 ### Static assets are uploaded by one deployment per `Cache-Control`
