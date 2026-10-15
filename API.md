@@ -2853,6 +2853,7 @@ const nextjsApiProps: NextjsApiProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsApiOverrides">NextjsApiOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.redeployAfterUpdate">redeployAfterUpdate</a></code> | <code>boolean</code> | Deploy the stage again once each stack update has finished, so it serves the API as it is after the update. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
+| <code><a href="#cdk-nextjs.NextjsApiProps.property.serviceWorkerAllowed">serviceWorkerAllowed</a></code> | <code>string</code> | The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a resource for those files whose integration response does. Next.js uses the app's `basePath`, or `/` for none. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. |
 | <code><a href="#cdk-nextjs.NextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `NextjsRegionalContainers`. |
 
@@ -2966,6 +2967,19 @@ public readonly serverFunction: IFunction;
 Required if `NextjsRegionalFunctions`.
 
 The Lambda function for server-side rendering
+
+---
+
+##### `serviceWorkerAllowed`<sup>Optional</sup> <a name="serviceWorkerAllowed" id="cdk-nextjs.NextjsApiProps.property.serviceWorkerAllowed"></a>
+
+```typescript
+public readonly serviceWorkerAllowed: string;
+```
+
+- *Type:* string
+- *Default:* no resource; the build has no service worker
+
+The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a resource for those files whose integration response does. Next.js uses the app's `basePath`, or `/` for none.
 
 ---
 
@@ -4432,6 +4446,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | Override props for every construct. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.serviceWorkerAllowed">serviceWorkerAllowed</a></code> | <code>string</code> | The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a behavior for those files whose response headers policy does. Next.js uses the app's `basePath`, or `/` for none. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, on every behavior cdk-nextjs adds, static assets included — HTTP Basic auth on a pre-launch site, geo-gating. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore associated with every viewer-request function {@link viewerRequestFunctionCode} is copied into (up to three, one per kind of behavior), so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy. |
 
@@ -4619,6 +4634,19 @@ public readonly overrides: NextjsDistributionOverrides;
 - *Type:* <a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a>
 
 Override props for every construct.
+
+---
+
+##### `serviceWorkerAllowed`<sup>Optional</sup> <a name="serviceWorkerAllowed" id="cdk-nextjs.NextjsDistributionProps.property.serviceWorkerAllowed"></a>
+
+```typescript
+public readonly serviceWorkerAllowed: string;
+```
+
+- *Type:* string
+- *Default:* no behavior; the build has no service worker
+
+The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a behavior for those files whose response headers policy does. Next.js uses the app's `basePath`, or `/` for none.
 
 ---
 
@@ -10563,6 +10591,7 @@ const optionalNextjsApiProps: OptionalNextjsApiProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Path to directory of Next.js app's public directory. Used to add resources to API Gateway REST API for public directory to go directly to S3. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.redeployAfterUpdate">redeployAfterUpdate</a></code> | <code>boolean</code> | Deploy the stage again once each stack update has finished, so it serves the API as it is after the update. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.serverFunction">serverFunction</a></code> | <code>aws-cdk-lib.aws_lambda.IFunction</code> | Required if `NextjsRegionalFunctions`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.serviceWorkerAllowed">serviceWorkerAllowed</a></code> | <code>string</code> | The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a resource for those files whose integration response does. Next.js uses the app's `basePath`, or `/` for none. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | The S3 bucket containing static assets. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under, i.e. `NextjsStaticAssets.keyPrefix`, which namespaces a shared bucket. Independent of `basePath` above: that one is the URL prefix the REST API serves the app at (commonly the API Gateway stage), while this one is where the objects live in the bucket. `_next/static` and public directory requests are mapped to S3 keys directly, so they 404 unless this prefix is applied. |
 | <code><a href="#cdk-nextjs.OptionalNextjsApiProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | [Future] Required if `NextjsRegionalContainers`. |
@@ -10627,6 +10656,19 @@ public readonly serverFunction: IFunction;
 Required if `NextjsRegionalFunctions`.
 
 The Lambda function for server-side rendering
+
+---
+
+##### `serviceWorkerAllowed`<sup>Optional</sup> <a name="serviceWorkerAllowed" id="cdk-nextjs.OptionalNextjsApiProps.property.serviceWorkerAllowed"></a>
+
+```typescript
+public readonly serviceWorkerAllowed: string;
+```
+
+- *Type:* string
+- *Default:* no resource; the build has no service worker
+
+The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a resource for those files whose integration response does. Next.js uses the app's `basePath`, or `/` for none.
 
 ---
 
@@ -11031,6 +11073,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.serviceWorkerAllowed">serviceWorkerAllowed</a></code> | <code>string</code> | The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a behavior for those files whose response headers policy does. Next.js uses the app's `basePath`, or `/` for none. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, on every behavior cdk-nextjs adds, static assets included — HTTP Basic auth on a pre-launch site, geo-gating. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore associated with every viewer-request function {@link viewerRequestFunctionCode} is copied into (up to three, one per kind of behavior), so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy. |
 
@@ -11178,6 +11221,19 @@ public readonly publicDirEntries: PublicDirEntry[];
 - *Type:* <a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]
 
 Entries (files/directories) within Next.js app's public directory. Used to add static behaviors to distribution.
+
+---
+
+##### `serviceWorkerAllowed`<sup>Optional</sup> <a name="serviceWorkerAllowed" id="cdk-nextjs.OptionalNextjsDistributionProps.property.serviceWorkerAllowed"></a>
+
+```typescript
+public readonly serviceWorkerAllowed: string;
+```
+
+- *Type:* string
+- *Default:* no behavior; the build has no service worker
+
+The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a behavior for those files whose response headers policy does. Next.js uses the app's `basePath`, or `/` for none.
 
 ---
 
