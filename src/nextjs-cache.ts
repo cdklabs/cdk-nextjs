@@ -279,9 +279,11 @@ export class NextjsCache extends Construct {
    * run, ~110s each against a ~52s hotswap.
    *
    * Putting the build ID in the asset's own paths instead leaves the S3 keys
-   * byte-identical and the tag key constant (`aws-cdk:cr-owned:<hash>`, derived
-   * from the construct path). Nothing else read the prefix: `prune` is already
-   * `false`, and the two handler branches that do scope work to it — emptying
+   * byte-identical and the tag key free of the build ID (`aws-cdk:cr-owned:<hash>`,
+   * derived from the custom resource's path, which still changes with the
+   * Lambda's sizing, a {@link storageStep} at a time, or with `useEfs`). Nothing
+   * else read the prefix: `prune` defaults to `false` here, and the two handler
+   * branches that do scope work to it — emptying
    * the prefix on delete, and deleting the old prefix when the destination
    * changes — are both gated on `retainOnDelete`, which `BucketDeployment`
    * defaults to `true`.
