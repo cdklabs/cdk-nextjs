@@ -365,6 +365,33 @@ describe("NextjsCache", () => {
       expect(properties.MemorySize).toBe(1024);
     });
 
+    it.each([
+      [{ prune: true }, /`prune: true`/],
+      [{ retainOnDelete: false }, /`retainOnDelete: false`/],
+      [{ extract: false }, /`extract: false`/],
+    ])("rejects %j", (override, message) => {
+      expect(
+        () =>
+          new NextjsCache(stack, "TestCache", {
+            buildId: "build-abc123",
+            initCacheDir,
+            overrides: { bucketDeploymentProps: override as any },
+          }),
+      ).toThrow(message);
+    });
+
+    // Rejected even without an init cache, so a build doesn't decide it.
+    it("rejects prune: true when there is no init cache", () => {
+      expect(
+        () =>
+          new NextjsCache(stack, "TestCache", {
+            buildId: "build-abc123",
+            initCacheDir: join(initCacheDir, "missing"),
+            overrides: { bucketDeploymentProps: { prune: true } as any },
+          }),
+      ).toThrow(/`prune: true`/);
+    });
+
     // The type requires both, so a typed caller always passes them.
     it("ignores sources and destinationBucket", () => {
       const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
@@ -423,6 +450,8 @@ describe("NextjsCache", () => {
             sources: undefined,
             destinationBucket: undefined,
             prune: undefined,
+            retainOnDelete: undefined,
+            extract: undefined,
             ephemeralStorageSize: undefined,
             memoryLimit: undefined,
           } as any,

@@ -76,7 +76,9 @@ plus headroom, floored at CDK's 512 MiB and capped at Lambda's 10 GiB, with
 for a cache that large. `sources`, `destinationBucket` and
 `destinationKeyPrefix` in that override are ignored: CDK's type requires the
 first two, but the upload is always the staged init cache, to the cache bucket,
-at the `<buildId>/` keys the cache handler reads.
+at the `<buildId>/` keys the cache handler reads. `prune: true`,
+`retainOnDelete: false` and `extract: false` fail synth, since each would delete
+or replace the cache.
 
 Cache entries themselves serialize Buffers as base64 (`serializeCacheValue` in
 `src/adapter/cache-utils.ts`). That matters for size _and_ for read latency:

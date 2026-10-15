@@ -2,30 +2,41 @@
 
 ## 0.7.14
 
-### `NextjsCache` ignores `sources`, `destinationBucket` and `destinationKeyPrefix` overrides
+### `NextjsCache` ignores or rejects some `bucketDeploymentProps` overrides
 
-`overrides.nextjsCache.bucketDeploymentProps.sources` and `destinationBucket`
-are now ignored, as they already are for `NextjsStaticAssets`. CDK's type
-requires them, so a caller who only wanted `memoryLimit` or `useEfs` had to pass
-them, and they replaced the staged init cache or sent it to a bucket the cache
-handler doesn't read from. `destinationKeyPrefix` is ignored too: it put the
-init cache outside the `<buildId>/` keys the cache handler reads, where the
-post-deploy pruner deleted it. **Migration:** pass your bucket as `cacheBucket`
-instead, and add your own `BucketDeployment` for extra files. If you also set
-`retainOnDelete: false`, drop it before upgrading: the first deploy updates the
-deployment's destination, and CDK then runs `aws s3 rm --recursive` on the old
-one, your `destinationBucket` (or its `destinationKeyPrefix`).
+`overrides.nextjsCache.bucketDeploymentProps` now follows the rules
+`NextjsStaticAssets` already applies to its own. Nothing changes unless you set
+one of these:
+
+- **`sources`, `destinationBucket` and `destinationKeyPrefix` are ignored.**
+  CDK's type requires the first two, so a caller who only wanted `memoryLimit`
+  or `useEfs` had to pass them, and they replaced the staged init cache or sent
+  it to a bucket the cache handler doesn't read from. `destinationKeyPrefix` put
+  the init cache outside the `<buildId>/` keys the cache handler reads, where
+  the post-deploy pruner deleted it, and now gets a synth warning.
+  **Migration:** pass your bucket as `cacheBucket` instead, and add your own
+  `BucketDeployment` for extra files.
+- **`prune: true`, `retainOnDelete: false` and `extract: false` fail synth.**
+  `prune: true` synced against the whole cache bucket with `--delete`, removing
+  the previous build's entries and those written at runtime while the old
+  deployment still served them. `retainOnDelete: false` could empty the bucket:
+  on an update that changed the destination (which ignoring `destinationBucket`
+  does), CDK runs `aws s3 rm --recursive` on the old one, and when the
+  deployment is replaced it empties an imported bucket, which it can't tag as
+  owned. `extract: false` uploaded the asset zip instead of the cache.
+  **Migration:** drop all three. Old builds' entries are already pruned after
+  deploy by `NextjsPostDeploy`. If you set `retainOnDelete: false` together
+  with `useEfs: true` and an imported `cacheBucket`, drop it in a deploy of its
+  own on your current version first: see below.
 
 With `useEfs: true`, the init cache's deployment Lambda now keeps CDK's default
 `/tmp`, since it unpacks onto EFS. Its size is part of the handler's and the
 custom resource's IDs, so the first deploy after upgrading replaces both: a full
 CloudFormation deployment rather than a hotswap. The old resource's Delete
 removes nothing from a bucket defined in your CDK app, which CDK tags as owned.
-But with an imported `cacheBucket` (`Bucket.fromBucketName` and the like) and
-`retainOnDelete: false`, CDK can't tag it, so the Delete empties it, including
-the cache the new resource just uploaded. The Delete uses the old resource's
-settings, so drop `retainOnDelete: false` in a deploy of its own before
-upgrading.
+But it runs with the old resource's settings, so with an imported `cacheBucket`
+(`Bucket.fromBucketName` and the like) and `retainOnDelete: false` it would
+empty the bucket, including the cache the new resource just uploaded.
 
 ## 0.7.12
 
