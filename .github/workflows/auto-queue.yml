@@ -21,3 +21,4 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.number }}
         run: gh pr merge --auto --squash "$PR_NUMBER" --repo "$GH_REPO"
+    if: ${{ !github.event.pull_request.draft }}
