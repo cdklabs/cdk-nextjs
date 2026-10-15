@@ -167,6 +167,11 @@ export class NextjsCache extends Construct {
 
     const stagingDir = this.createStagingDirectory();
     const overrides = this.props.overrides?.bucketDeploymentProps;
+    if (overrides?.destinationKeyPrefix) {
+      console.warn(
+        `${LOG_PREFIX} overrides.bucketDeploymentProps.destinationKeyPrefix is ignored: the init cache is always uploaded under <buildId>/, where the cache handler reads it.`,
+      );
+    }
 
     try {
       // Use standard BucketDeployment for regular S3 buckets
@@ -229,31 +234,30 @@ export class NextjsCache extends Construct {
    *
    * Above the 10 GiB ephemeral-storage ceiling there is nothing left to ask for,
    * so this warns and lets the deployment fail loudly rather than pretend,
-   * unless `useEfs: true`, the supported way out, is already set. An
-   * `ephemeralStorageSize` or `memoryLimit` in `overrides.bucketDeploymentProps`
-   * wins over what is computed here.
+   * unless `useEfs: true`, the supported way out, is already set. With EFS the
+   * handler unpacks onto the mount instead of `/tmp`, so `/tmp` is left at CDK's
+   * default. An `ephemeralStorageSize` or `memoryLimit` in
+   * `overrides.bucketDeploymentProps` wins over what is computed here, and the
+   * directory is only walked if one of them is still needed.
    */
   private sizeDeploymentLambda(overrides?: BucketDeploymentProps) {
-    if (overrides?.ephemeralStorageSize && overrides.memoryLimit) {
-      return {
-        ephemeralStorageSize: overrides.ephemeralStorageSize,
-        memoryLimit: overrides.memoryLimit,
-      };
-    }
+    const useEfs = overrides?.useEfs;
+    const sizeStorage = !overrides?.ephemeralStorageSize && !useEfs;
+    const sizeMemory = !overrides?.memoryLimit;
     const sizing = deploymentLambdaSizing(
-      sizeOfDirectory(this.props.initCacheDir),
+      sizeStorage || sizeMemory ? sizeOfDirectory(this.props.initCacheDir) : 0,
     );
-    if (sizing.exceedsMax && !overrides?.useEfs) {
+    if (sizeStorage && sizing.exceedsMax) {
       console.warn(
-        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${sizing.cacheMib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
+        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${sizing.cacheMib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true and a vpc to seed a cache this large.`,
       );
     }
 
     return {
-      ephemeralStorageSize:
-        overrides?.ephemeralStorageSize ??
-        Size.mebibytes(sizing.ephemeralStorageMib),
-      memoryLimit: overrides?.memoryLimit ?? sizing.memoryLimit,
+      ephemeralStorageSize: sizeStorage
+        ? Size.mebibytes(sizing.ephemeralStorageMib)
+        : overrides?.ephemeralStorageSize,
+      memoryLimit: sizeMemory ? sizing.memoryLimit : overrides?.memoryLimit,
     };
   }
 
