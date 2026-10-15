@@ -82,7 +82,8 @@ export interface NextjsCacheOverrides {
    *
    * `sources` and `destinationBucket`, which the type requires, are ignored:
    * the upload is always the staged init cache, to the cache bucket (pass
-   * `cacheBucket` to bring your own).
+   * `cacheBucket` to bring your own). So is `destinationKeyPrefix`, since the
+   * cache handler reads the objects at `<buildId>/<key>`.
    */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
@@ -209,16 +210,20 @@ export class NextjsCache extends Construct {
         this,
         "InitCacheDeployment",
         {
-          ...this.sizeDeploymentLambda(),
           ...overrides,
           // Set after the spread. The type makes callers pass `sources` and
           // `destinationBucket`, and either would upload something other than
           // the init cache, or somewhere the cache handler doesn't read from.
-          // An explicit `undefined` from a JSII binding would also drop the
-          // staged source, or turn on CDK's default `prune: true`.
+          // A `destinationKeyPrefix` would put the objects outside the
+          // `<buildId>/` keys the cache handler reads, where the post-deploy
+          // pruner deletes them. An explicit `undefined` from a JSII binding
+          // would also drop the staged source, the computed sizing, or turn on
+          // CDK's default `prune: true`.
           sources: [Source.asset(stagingDir)],
           destinationBucket: this.cacheBucket,
+          destinationKeyPrefix: undefined,
           prune: overrides?.prune ?? false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
+          ...this.sizeDeploymentLambda(overrides),
         },
       );
       return bucketDeployment;
@@ -268,14 +273,21 @@ export class NextjsCache extends Construct {
    * apps keep the cheaper default and their existing template.
    *
    * Above the 10 GiB ephemeral-storage ceiling there is nothing left to ask for,
-   * so this warns and lets the deployment fail loudly rather than pretend.
-   * `overrides.bucketDeploymentProps` wins over everything here, including
-   * `useEfs: true`, which is the supported way out.
+   * so this warns and lets the deployment fail loudly rather than pretend,
+   * unless `useEfs: true`, the supported way out, is already set. An
+   * `ephemeralStorageSize` or `memoryLimit` in `overrides.bucketDeploymentProps`
+   * wins over what is computed here.
    */
-  private sizeDeploymentLambda() {
+  private sizeDeploymentLambda(overrides?: BucketDeploymentProps) {
+    if (overrides?.ephemeralStorageSize && overrides.memoryLimit) {
+      return {
+        ephemeralStorageSize: overrides.ephemeralStorageSize,
+        memoryLimit: overrides.memoryLimit,
+      };
+    }
     const mib = Math.ceil(sizeOfDirectory(this.props.initCacheDir) / 1024 ** 2);
     const wanted = mib * 2 + 128;
-    if (wanted > MAX_EPHEMERAL_STORAGE_MIB) {
+    if (wanted > MAX_EPHEMERAL_STORAGE_MIB && !overrides?.useEfs) {
       console.warn(
         `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${mib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
       );
@@ -283,8 +295,9 @@ export class NextjsCache extends Construct {
     const ephemeral = storageStep(wanted, MAX_EPHEMERAL_STORAGE_MIB);
 
     return {
-      ephemeralStorageSize: Size.mebibytes(ephemeral),
-      ...(mib > 256 ? { memoryLimit: 1024 } : {}),
+      ephemeralStorageSize:
+        overrides?.ephemeralStorageSize ?? Size.mebibytes(ephemeral),
+      memoryLimit: overrides?.memoryLimit ?? (mib > 256 ? 1024 : undefined),
     };
   }
 
