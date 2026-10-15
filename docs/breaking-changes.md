@@ -2,13 +2,15 @@
 
 ## 0.7.14
 
-### `NextjsCache` ignores `sources` and `destinationBucket` overrides
+### `NextjsCache` ignores `sources`, `destinationBucket` and `destinationKeyPrefix` overrides
 
 `overrides.nextjsCache.bucketDeploymentProps.sources` and `destinationBucket`
 are now ignored, as they already are for `NextjsStaticAssets`. CDK's type
 requires them, so a caller who only wanted `memoryLimit` or `useEfs` had to pass
 them, and they replaced the staged init cache or sent it to a bucket the cache
-handler doesn't read from. **Migration:** pass your bucket as `cacheBucket`
+handler doesn't read from. `destinationKeyPrefix` is ignored too: it put the
+init cache outside the `<buildId>/` keys the cache handler reads, where the
+post-deploy pruner deleted it. **Migration:** pass your bucket as `cacheBucket`
 instead, and add your own `BucketDeployment` for extra files.
 
 ## 0.7.0

@@ -382,6 +382,7 @@ describe("NextjsCache", () => {
               "someone-elses-bucket",
             ),
             sources: [Source.data("a", "x"), Source.data("b", "y")],
+            destinationKeyPrefix: "seed",
             memoryLimit: 2048,
           },
         },
@@ -396,6 +397,9 @@ describe("NextjsCache", () => {
       expect(JSON.stringify(upload.Properties.DestinationBucketName)).toContain(
         "TestCacheBucket",
       );
+      expect(upload.Properties).not.toHaveProperty(
+        "DestinationBucketKeyPrefix",
+      );
       expect(upload.Properties.Prune).toBe(false);
       expect(deploymentLambda(Template.fromStack(ownStack)).MemorySize).toBe(
         2048,
@@ -403,7 +407,10 @@ describe("NextjsCache", () => {
     });
 
     // A JSII binding can materialize an unset field as an explicit undefined.
-    it("keeps the staged source and prune: false when the fields are explicitly undefined", () => {
+    it("keeps the staged source, sizing and prune: false when the fields are explicitly undefined", () => {
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      writeFileSync(big, "");
+      truncateSync(big, 300 * 1024 * 1024);
       const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
       const ownStack = new Stack(ownApp, "TestStack");
       new NextjsCache(ownStack, "TestCache", {
@@ -414,6 +421,8 @@ describe("NextjsCache", () => {
             sources: undefined,
             destinationBucket: undefined,
             prune: undefined,
+            ephemeralStorageSize: undefined,
+            memoryLimit: undefined,
           } as any,
         },
       });
@@ -425,6 +434,9 @@ describe("NextjsCache", () => {
       );
       expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
       expect(upload.Properties.Prune).toBe(false);
+      const properties = deploymentLambda(Template.fromStack(ownStack));
+      expect(properties.EphemeralStorage).toEqual({ Size: 1024 });
+      expect(properties.MemorySize).toBe(1024);
     });
   });
 });
