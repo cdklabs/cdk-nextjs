@@ -76,6 +76,14 @@ function sizeOfDirectory(dir: string): number {
 export interface NextjsCacheOverrides {
   readonly cacheBucketProps?: BucketProps;
   readonly revalidationTableProps?: TablePropsV2;
+  /**
+   * Overrides for the init cache's `BucketDeployment`, such as `useEfs` or
+   * `memoryLimit` for a large cache.
+   *
+   * `sources` and `destinationBucket`, which the type requires, are ignored:
+   * the upload is always the staged init cache, to the cache bucket (pass
+   * `cacheBucket` to bring your own).
+   */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
 
@@ -193,6 +201,7 @@ export class NextjsCache extends Construct {
     );
 
     const stagingDir = this.createStagingDirectory();
+    const overrides = this.props.overrides?.bucketDeploymentProps;
 
     try {
       // Use standard BucketDeployment for regular S3 buckets
@@ -200,11 +209,16 @@ export class NextjsCache extends Construct {
         this,
         "InitCacheDeployment",
         {
+          ...this.sizeDeploymentLambda(),
+          ...overrides,
+          // Set after the spread. The type makes callers pass `sources` and
+          // `destinationBucket`, and either would upload something other than
+          // the init cache, or somewhere the cache handler doesn't read from.
+          // An explicit `undefined` from a JSII binding would also drop the
+          // staged source, or turn on CDK's default `prune: true`.
           sources: [Source.asset(stagingDir)],
           destinationBucket: this.cacheBucket,
-          prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
-          ...this.sizeDeploymentLambda(),
-          ...this.props.overrides?.bucketDeploymentProps,
+          prune: overrides?.prune ?? false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
         },
       );
       return bucketDeployment;

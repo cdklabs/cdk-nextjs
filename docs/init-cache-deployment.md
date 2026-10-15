@@ -72,7 +72,10 @@ partially seeded cache.
 `NextjsCache` therefore sizes that Lambda from the seed directory: twice its size
 plus headroom, floored at CDK's 512 MiB and capped at Lambda's 10 GiB, with
 `memoryLimit: 1024` past 256 MiB. Above the 10 GiB ceiling it warns; pass
-`overrides.bucketDeploymentProps` with `useEfs: true` for a cache that large.
+`overrides.bucketDeploymentProps` with `useEfs: true` (and the `vpc` it needs)
+for a cache that large. `sources` and `destinationBucket` in that override are
+ignored: CDK's type requires them, but the upload is always the staged init
+cache, to the cache bucket.
 
 Cache entries themselves serialize Buffers as base64 (`serializeCacheValue` in
 `src/adapter/cache-utils.ts`). That matters for size _and_ for read latency:
