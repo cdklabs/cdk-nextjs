@@ -7,7 +7,7 @@
 Node 20 reached end of life on 2026-04-30. `package.json` now declares
 `engines.node: ">= 22.2.0"`, and synth uses `zlib.crc32` and
 `Dirent.parentPath` without fallbacks. **Migration:** run `cdk synth` on
-Node 22 or 24.
+Node 22.2 or higher.
 
 ## 0.7.0
 
