@@ -49,7 +49,7 @@ const SERVICE_WORKER_DIR = "service-worker";
  * by.
  *
  * An explicit walk rather than `readdirSync({ recursive: true })`, which never
- * returns on a symlink cycle (Node 24 follows directory links). A link back to
+ * returns on a symlink cycle (Node follows directory links). A link back to
  * a directory already on the current path is a cycle and isn't followed; one
  * that can't be stat'd (dangling, or a loop of links) counts as a file.
  */
