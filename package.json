@@ -142,6 +142,9 @@
     "next.js",
     "nextjs"
   ],
+  "engines": {
+    "node": ">= 22.2.0"
+  },
   "devEngines": {
     "packageManager": {
       "name": "pnpm",

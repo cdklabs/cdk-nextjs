@@ -49,10 +49,9 @@ const SERVICE_WORKER_DIR = "service-worker";
  * by.
  *
  * An explicit walk rather than `readdirSync({ recursive: true })`, which never
- * returns on a symlink cycle (Node 24 follows directory links), and whose
- * `Dirent.parentPath` doesn't exist before Node 20.12. A link back to a
- * directory already on the current path is a cycle and isn't followed; one that
- * can't be stat'd (dangling, or a loop of links) counts as a file.
+ * returns on a symlink cycle (Node 24 follows directory links). A link back to
+ * a directory already on the current path is a cycle and isn't followed; one
+ * that can't be stat'd (dangling, or a loop of links) counts as a file.
  */
 function listFiles(dir: string): string[] {
   const files: string[] = [];

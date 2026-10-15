@@ -52,7 +52,7 @@ The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Pl
 - Next.js app running v16.3 or higher (`next build` fails on older versions). If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
 - [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos.
 - A Docker compatible container engine, but **only** for `NextjsGlobalContainers` and `NextjsRegionalContainers` - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby). The two Functions types deploy zip Lambdas and need no container engine.
-- [Node.js](https://nodejs.org/en) v24 (or LTS)
+- [Node.js](https://nodejs.org/en) 22.2 or higher (an active LTS: 22 or 24)
 
 ## Getting Started
 
