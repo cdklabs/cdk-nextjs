@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdtempSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { RemovalPolicy, Size } from "aws-cdk-lib";
+import { Annotations, RemovalPolicy, Size } from "aws-cdk-lib";
 import {
   AttributeType,
   Billing,
@@ -168,7 +168,8 @@ export class NextjsCache extends Construct {
     const stagingDir = this.createStagingDirectory();
     const overrides = this.props.overrides?.bucketDeploymentProps;
     if (overrides?.destinationKeyPrefix) {
-      console.warn(
+      Annotations.of(this).addWarningV2(
+        "cdk-nextjs:ignoredDestinationKeyPrefix",
         `${LOG_PREFIX} overrides.bucketDeploymentProps.destinationKeyPrefix is ignored: the init cache is always uploaded under <buildId>/, where the cache handler reads it.`,
       );
     }

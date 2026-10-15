@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { App, Size, Stack } from "aws-cdk-lib";
-import { Match, Template } from "aws-cdk-lib/assertions";
+import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
 import { Bucket } from "aws-cdk-lib/aws-s3";
@@ -395,7 +395,6 @@ describe("NextjsCache", () => {
 
     // The type requires both, so a typed caller always passes them.
     it("ignores sources and destinationBucket", () => {
-      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
       const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
       const ownStack = new Stack(ownApp, "TestStack");
       new NextjsCache(ownStack, "TestCache", {
@@ -414,8 +413,9 @@ describe("NextjsCache", () => {
           },
         },
       });
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("destinationKeyPrefix is ignored"),
+      Annotations.fromStack(ownStack).hasWarning(
+        "*",
+        Match.stringLikeRegexp("destinationKeyPrefix is ignored"),
       );
 
       const [upload] = Object.values(
@@ -434,7 +434,6 @@ describe("NextjsCache", () => {
       expect(deploymentLambda(Template.fromStack(ownStack)).MemorySize).toBe(
         2048,
       );
-      warn.mockRestore();
     });
 
     // A JSII binding can materialize an unset field as an explicit undefined.
