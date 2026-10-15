@@ -44,7 +44,7 @@ on:
           - all
   schedule:
     # Every sixth day of the month at 14:00 UTC — morning on both US coasts, and
-    # the run's ~11 hours land the result that evening, US time. Not daily,
+    # the run's ~10 hours land the result that evening, US time. Not daily,
     # because a run ships a deployment per test file and nothing in the suite
     # changes between two consecutive days that a run would catch;
     # `e2e-tests.yml` is still the per-commit gate.
@@ -159,8 +159,13 @@ jobs:
         # images. Global Containers defaults to 15 shards: ~4.3 minutes a file,
         # so 10 do not fit the run step's 150-minute cap. The others fit in 10.
         #
-        # `all` lists the types in the order their results matter most - Global
-        # Functions first, the type a release is checked on - and caps the run at
+        # `all` lists Global Functions first, the type a release is checked on,
+        # and the rest longest shards first, so that the run ends on Regional
+        # Functions' ~1.5-hour shards filling the slots the others free rather
+        # than on Global Containers' ~2.3-hour ones running with slots idle:
+        # ~9.6 hours against ~10.2 in the order this table used to have (GF, RF,
+        # RC, GC), replayed from the 2026-10-13 run's job durations. The cost is
+        # that Regional Functions results arrive last. It caps the run at
         # MAX_PARALLEL jobs at once, so a free slot goes to the next entry rather
         # than waiting for a whole type to finish. 10 is what a run of any other
         # single type peaks at: at most 10 CloudFront distributions and ECR pulls
@@ -188,9 +193,9 @@ jobs:
           node -e '
             const TYPES = {
               "global-functions": { shards: 10, timeout: 900000, containers: false },
-              "regional-functions": { shards: 10, timeout: 240000, containers: false },
               "regional-containers": { shards: 10, timeout: 480000, containers: true },
               "global-containers": { shards: 15, timeout: 900000, containers: true },
+              "regional-functions": { shards: 10, timeout: 240000, containers: false },
             };
             const MAX_PARALLEL = 10;
             const requested = process.env.NEXTJS_TYPE;

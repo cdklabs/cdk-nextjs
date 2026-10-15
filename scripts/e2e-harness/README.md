@@ -150,11 +150,14 @@ with a shared stack named `hrns-shard-<n>` (with the type's infix) and each
 running its own slice of that type's file list.
 
 A run of one type starts all its shards at once. A run of `all` (the schedule)
-lists 45 jobs, Global Functions first, then Regional Functions, Regional
-Containers and Global Containers, and runs at most 10 at a time, which is about 11
-hours end to end (about 95 shard-hours: Global Containers' 15 shards take about
-2.5 hours each, the others about 2; the shards of one type end together, so the
-last five Global Containers shards run with half the slots idle). Ten is the peak
+lists 45 jobs, Global Functions first, then Regional Containers, Global
+Containers and Regional Functions, and runs at most 10 at a time, which is about
+9.6 hours end to end (about 95 shard-hours: the Containers types' shards take
+about 2.3 hours each, Global Functions' about 1.7 and Regional Functions' about
+1.5). After Global Functions the types go longest shards first, so that Regional
+Functions' short shards fill the slots the others free at the end. Listing
+Global Containers last, as the workflow once did, left its last five shards
+running with half the slots idle, for about 10.2 hours. Ten is the peak
 a single-type run of the other three already reaches: no more CloudFront
 distributions at once than a Global Functions run, under the CloudFront
 response-headers-policy quota (3 per distribution), no more ECR pulls than a
@@ -162,7 +165,7 @@ Regional Containers run, and no more of the org's concurrent jobs than the
 schedule has always taken. A slot goes to the next job as soon as one frees, so
 types overlap where one ends and the next begins; that is safe, because no two
 entries share a stack name. Results arrive in that order: a Global Functions
-regression shows up first, about 2 hours in.
+regression shows up first, about 2 hours in, and Regional Functions' last.
 
 To check the workflow itself rather than compatibility, dispatch `all` with
 `shard_total: 1` and `test_filters: ../test/harness-smoke-manifest.json`: one
@@ -205,7 +208,7 @@ cancels. It is one group for every type, not one per type: each run's
 account-wide sweep could otherwise delete another type's idle-looking shard stack
 as that run warms into it. GitHub keeps only one _pending_ run per group, so
 dispatch a second type once the first has started, not while one is queued, or
-dispatch `all`. A dispatch on a schedule day waits behind the schedule's ~11
+dispatch `all`. A dispatch on a schedule day waits behind the schedule's ~10
 hours. A pending run that gets cancelled that way, the scheduled one included,
 loses no sweep: every run sweeps, not just the scheduled one.
 
