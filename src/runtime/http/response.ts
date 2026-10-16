@@ -239,6 +239,13 @@ export class ShimServerResponse extends Transform {
     callback();
   }
 
+  /**
+   * What the `compression` middleware adds under `next start`, kept for app
+   * code that calls it, such as `res.write(event); res.flush()` in a Pages API
+   * route. A no-op: the sink's gzip stage already sync-flushes every chunk.
+   */
+  public flush(): void {}
+
   // --- the rest of the ServerResponse surface -------------------------------
 
   public addTrailers(): never {

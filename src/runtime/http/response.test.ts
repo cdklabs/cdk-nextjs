@@ -72,6 +72,17 @@ describe("ShimServerResponse head", () => {
     await finished(res);
     expect(res.finished).toBe(true);
   });
+
+  it("accepts res.flush() at any point, as `compression` does under next start", async () => {
+    const res = new ShimServerResponse();
+    const out = collect(res);
+    res.flush();
+    res.write("data: 1\n\n");
+    res.flush();
+    res.end();
+    await finished(res);
+    expect(out.body()).toBe("data: 1\n\n");
+  });
 });
 
 describe("ShimServerResponse headers", () => {
