@@ -1,37 +1,5 @@
 # Breaking Changes
 
-## 0.7.12
-
-### Static assets are uploaded by one deployment per `Cache-Control`
-
-`NextjsStaticAssets` now uploads `_next/static/` with
-`public, max-age=31536000, immutable` and `_next/static/service-worker/` with
-`public, max-age=0, must-revalidate`, the headers Next.js sends for them, and
-`public/` separately. Before, a single `BucketDeployment` uploaded everything
-with no `Cache-Control`. Nothing changes unless you set
-`overrides.nextjsStaticAssets.bucketDeploymentProps` or read
-`NextjsStaticAssets.deployment`:
-
-- **`prune: true` and `retainOnDelete: false` fail synth.** Each override now
-  reaches every upload. `prune: true` would make each one delete the files the
-  others uploaded. With `retainOnDelete: false`, a change of key prefix makes
-  each upload delete the old prefix while the others are writing theirs.
-  **Migration:** drop both. Old assets are already pruned after deploy by
-  `NextjsPostDeploy`, once they are past its TTL (`overrides.nextjsPostDeploy`).
-- **`sources` and `destinationBucket` are ignored.** CDK's type requires them,
-  but either one replaced the build's assets, or sent them to a bucket
-  CloudFront and API Gateway don't read from. **Migration:** pass your bucket
-  as `staticAssetsBucket` instead, and add your own `BucketDeployment` for
-  extra files.
-- **`cacheControl` applies to `public/` files only.** The `_next/static` uploads
-  always keep Next.js's headers.
-- **`NextjsStaticAssets.deployment` is deprecated.** It is now the
-  `_next/static` upload alone (or the first upload the build has), so a
-  dependency on it no longer waits for `public/`. **Migration:** depend on
-  `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment`, each
-  present only when the build has files for it. `NextjsPostDeploy` already
-  waits for all of them.
-
 ## 0.7.0
 
 ### Requests are served through the adapter runtime, not `next start`
@@ -600,6 +568,43 @@ default), so give those their own buckets too.
   stack still on the old version serves from and reads at deploy; deployed
   first, each branch has moved onto its own buckets and table before they go.
 
+### Static assets are uploaded by one deployment per `Cache-Control`
+
+_Shipped in 0.7.12._
+
+> [!NOTE]
+> This breaking change was released by mistake in a patch release. Until
+> 1.0.0, the goal is for breaking changes to ship only in minor releases
+> (`0.X.0`), so a `^0.7` range never picks one up.
+
+`NextjsStaticAssets` now uploads `_next/static/` with
+`public, max-age=31536000, immutable` and `_next/static/service-worker/` with
+`public, max-age=0, must-revalidate`, the headers Next.js sends for them, and
+`public/` separately. Before, a single `BucketDeployment` uploaded everything
+with no `Cache-Control`. Nothing changes unless you set
+`overrides.nextjsStaticAssets.bucketDeploymentProps` or read
+`NextjsStaticAssets.deployment`:
+
+- **`prune: true` and `retainOnDelete: false` fail synth.** Each override now
+  reaches every upload. `prune: true` would make each one delete the files the
+  others uploaded. With `retainOnDelete: false`, a change of key prefix makes
+  each upload delete the old prefix while the others are writing theirs.
+  **Migration:** drop both. Old assets are already pruned after deploy by
+  `NextjsPostDeploy`, once they are past its TTL (`overrides.nextjsPostDeploy`).
+- **`sources` and `destinationBucket` are ignored.** CDK's type requires them,
+  but either one replaced the build's assets, or sent them to a bucket
+  CloudFront and API Gateway don't read from. **Migration:** pass your bucket
+  as `staticAssetsBucket` instead, and add your own `BucketDeployment` for
+  extra files.
+- **`cacheControl` applies to `public/` files only.** The `_next/static` uploads
+  always keep Next.js's headers.
+- **`NextjsStaticAssets.deployment` is deprecated.** It is now the
+  `_next/static` upload alone (or the first upload the build has), so a
+  dependency on it no longer waits for `public/`. **Migration:** depend on
+  `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment`, each
+  present only when the build has files for it. `NextjsPostDeploy` already
+  waits for all of them.
+
 ### Performance compared with 0.6.2
 
 Measured with the [load tests](../examples/load-tests) against
@@ -771,39 +776,6 @@ at synth, and derived from the app where there's only one value that can work.
 Note: when `.next/required-server-files.json` can't be read, cdk-nextjs assumes
 your app sets no `basePath` and now warns rather than staying silent, since that
 fallback is otherwise indistinguishable from an app that genuinely sets none.
-
-## 0.5.16
-
-### Functions-only overrides moved off the Containers constructs
-
-`nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
-`NextjsBaseConstructOverrides` to the new `NextjsFunctionsConstructOverrides`,
-which only the two Functions root constructs extend. They were previously
-accepted by `NextjsGlobalContainers` / `NextjsRegionalContainers` and silently
-ignored there.
-
-- **Migration:** Remove those keys from Containers construct overrides. If you
-  were setting them and expecting an effect, there wasn't one.
-
-### New (non-breaking): lower-level image optimization building blocks
-
-`_next/image` behavior is unchanged — the Next.js server function still serves
-it on every `NextjsType`, so Next.js middleware still runs for image requests.
-
-These additive, optional props let you wire your own image optimization Lambda
-if you want one:
-
-- `NextjsApiProps.imageFunction` — when omitted, `_next/image` falls through to
-  `serverFunction` via the `{proxy+}` catch-all, as before.
-- `NextjsDistributionProps.imageFunctionUrl` — when omitted, the `_next/image*`
-  behavior points at the dynamic origin, as before.
-- The `NextjsImageFunction` construct is exported for direct use.
-
-`NextjsGlobalFunctions.nextjsImageFunction` and
-`NextjsRegionalFunctions.nextjsImageFunction` are `undefined` unless the
-dedicated image Lambda is enabled, which no supported prop does yet. A future
-release routes `_next/image` through the adapter runtime after middleware; see
-`docs/adapter-runtime.md`.
 
 ## 0.5.0
 
@@ -1056,6 +1028,41 @@ These are widening changes — existing code that only reads standard interface 
 ```typescript
 const cluster = nextjs.nextjsContainers.ecsCluster as Cluster;
 ```
+
+### Functions-only overrides moved off the Containers constructs
+
+_Shipped in 0.5.16._
+
+`nextjsFunctionsProps` and `nextjsImageFunctionProps` moved from
+`NextjsBaseConstructOverrides` to the new `NextjsFunctionsConstructOverrides`,
+which only the two Functions root constructs extend. They were previously
+accepted by `NextjsGlobalContainers` / `NextjsRegionalContainers` and silently
+ignored there.
+
+- **Migration:** Remove those keys from Containers construct overrides. If you
+  were setting them and expecting an effect, there wasn't one.
+
+### New (non-breaking): lower-level image optimization building blocks
+
+_Shipped in 0.5.16._
+
+`_next/image` behavior is unchanged — the Next.js server function still serves
+it on every `NextjsType`, so Next.js middleware still runs for image requests.
+
+These additive, optional props let you wire your own image optimization Lambda
+if you want one:
+
+- `NextjsApiProps.imageFunction` — when omitted, `_next/image` falls through to
+  `serverFunction` via the `{proxy+}` catch-all, as before.
+- `NextjsDistributionProps.imageFunctionUrl` — when omitted, the `_next/image*`
+  behavior points at the dynamic origin, as before.
+- The `NextjsImageFunction` construct is exported for direct use.
+
+`NextjsGlobalFunctions.nextjsImageFunction` and
+`NextjsRegionalFunctions.nextjsImageFunction` are `undefined` unless the
+dedicated image Lambda is enabled, which no supported prop does yet. A future
+release routes `_next/image` through the adapter runtime after middleware; see
+`docs/adapter-runtime.md`.
 
 ## 0.4.0
 
