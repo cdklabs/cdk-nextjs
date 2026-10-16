@@ -59,7 +59,8 @@ const project = new CdklabsConstructLibrary({
     "next@^16.4.0", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
-  setNodeEngineVersion: false,
+  // Synth runs on the user's Node. 22.2 is the first 22.x with `zlib.crc32`.
+  minNodeVersion: "22.2.0",
   npmIgnoreOptions: {
     ignorePatterns: [
       "examples/**/*",
@@ -254,6 +255,9 @@ function cjsGlobalsBanner() {
 
 function bundle(): javascript.Bundle[] {
   const target = `node${nodeVersion}`;
+  // The cache handlers and the adapter are also loaded by the user's own
+  // `next build`, on whatever Node runs synth.
+  const buildTarget = `node${project.package.minNodeVersion}`;
   const bundles: javascript.Bundle[] = [];
   const addBundle = (entry: string, options: javascript.AddBundleOptions) =>
     bundles.push(project.bundler.addBundle(entry, options));
@@ -268,8 +272,8 @@ function bundle(): javascript.Bundle[] {
   // namespace ends up as `{ default }` and `.createRequire` is undefined —
   // producing "(intermediate value).createRequire is not a function" at
   // runtime (cdklabs/cdk-nextjs#270). A static import also keeps the bundles
-  // free of top-level await, so Node can still `require()` them instead of
-  // throwing ERR_REQUIRE_ASYNC_MODULE.
+  // free of top-level await, so Node (22.12+) can still `require()` them
+  // instead of throwing ERR_REQUIRE_ASYNC_MODULE.
   // Prefixed for the reason {@link cjsGlobalsBanner} documents: `build-outputs.ts`
   // imports `createRequire` by name and is in the adapter bundle's tree, so a
   // banner declaring the bare name makes the output fail to parse
@@ -281,7 +285,7 @@ function bundle(): javascript.Bundle[] {
   ].join(" ");
   addBundle("src/adapter/cache-handler.ts", {
     platform: "node",
-    target,
+    target: buildTarget,
     outfile: "../../../lib/adapter/cache-handler.mjs",
     externals: ["next"],
     format: "esm",
@@ -292,7 +296,7 @@ function bundle(): javascript.Bundle[] {
   for (const kind of ["default", "remote"]) {
     addBundle(`src/adapter/use-cache-${kind}-handler.ts`, {
       platform: "node",
-      target,
+      target: buildTarget,
       outfile: `../../../lib/adapter/use-cache-${kind}-handler.mjs`,
       externals: ["next"],
       format: "esm",
@@ -301,7 +305,7 @@ function bundle(): javascript.Bundle[] {
   }
   addBundle("src/adapter/adapter.mts", {
     platform: "node",
-    target,
+    target: buildTarget,
     outfile: "../../../lib/adapter/adapter.mjs",
     externals: ["next"],
     format: "esm",

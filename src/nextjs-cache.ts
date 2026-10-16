@@ -55,7 +55,10 @@ function storageStep(mib: number, max: number): number {
   return Math.min(step, max);
 }
 
-/** Bytes on disk under `dir`, following the tree but not symlinks. */
+/**
+ * Bytes on disk under `dir`, through directory links too: recursive
+ * `readdirSync` follows them, and so does cdk-assets when it zips the asset.
+ */
 function sizeOfDirectory(dir: string): number {
   let total = 0;
   for (const entry of readdirSync(dir, {
@@ -63,11 +66,7 @@ function sizeOfDirectory(dir: string): number {
     recursive: true,
   })) {
     if (entry.isFile()) {
-      // `parentPath` only exists from Node 20.12; `path` is its deprecated
-      // predecessor, and the only one on 20.9-20.11.
-      const parent =
-        entry.parentPath ?? (entry as unknown as { path: string }).path;
-      total += statSync(join(parent, entry.name)).size;
+      total += statSync(join(entry.parentPath, entry.name)).size;
     }
   }
   return total;
