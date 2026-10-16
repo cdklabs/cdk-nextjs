@@ -1,5 +1,6 @@
 import { NextjsType } from "../constants";
 import {
+  assertStaticAssetsKeyPrefix,
   assetPrefixPath,
   basePathPrefix,
   isAssetPrefixUnserved,
@@ -533,4 +534,58 @@ describe("resolveBasePath", () => {
       expect(resolveBasePath(nextjsType, undefined, "/b")).toBeUndefined();
     });
   });
+});
+
+describe("assertStaticAssetsKeyPrefix", () => {
+  const REGIONAL = [
+    NextjsType.REGIONAL_FUNCTIONS,
+    NextjsType.REGIONAL_CONTAINERS,
+  ];
+
+  it.each(GLOBAL)(
+    "%s: passes when the key prefix is the resolved basePath",
+    (nextjsType) => {
+      expect(() =>
+        assertStaticAssetsKeyPrefix(nextjsType, undefined, ""),
+      ).not.toThrow();
+      expect(() =>
+        assertStaticAssetsKeyPrefix(nextjsType, "base", "base"),
+      ).not.toThrow();
+      expect(() =>
+        assertStaticAssetsKeyPrefix(nextjsType, "a/b", "a/b"),
+      ).not.toThrow();
+    },
+  );
+
+  it.each(GLOBAL)(
+    "%s: throws when an override moves the assets off basePath",
+    (nextjsType) => {
+      expect(() =>
+        assertStaticAssetsKeyPrefix(nextjsType, undefined, "shared"),
+      ).toThrow(
+        `static assets key prefix mismatch for NextjsType.${nextjsType}: ` +
+          'the assets are uploaded under "shared" but CloudFront will request them under the bucket root',
+      );
+      expect(() => assertStaticAssetsKeyPrefix(nextjsType, "base", "")).toThrow(
+        'the assets are uploaded under the bucket root but CloudFront will request them under "base"',
+      );
+      expect(() =>
+        assertStaticAssetsKeyPrefix(nextjsType, "base", "other"),
+      ).toThrow(
+        'the assets are uploaded under "other" but CloudFront will request them under "base"',
+      );
+    },
+  );
+
+  it.each(REGIONAL)(
+    "%s: accepts any key prefix, since the runtime reads it",
+    (nextjsType) => {
+      expect(() =>
+        assertStaticAssetsKeyPrefix(nextjsType, undefined, "shared"),
+      ).not.toThrow();
+      expect(() =>
+        assertStaticAssetsKeyPrefix(nextjsType, "base", ""),
+      ).not.toThrow();
+    },
+  );
 });

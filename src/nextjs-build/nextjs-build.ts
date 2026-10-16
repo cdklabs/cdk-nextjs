@@ -34,7 +34,7 @@ import {
   validateFunctionGroups,
 } from "../adapter/function-groups";
 import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
-import { LOG_PREFIX, NextjsType } from "../constants";
+import { isFunctionsType, LOG_PREFIX, NextjsType } from "../constants";
 import { NextjsBaseProps } from "../root-constructs/nextjs-base-construct";
 import {
   ADAPTER_DIR_NAME,
@@ -157,10 +157,10 @@ export interface NextjsFunctionGroupBehavior {
  * natively, so it can only match the synth machine.
  */
 export function deploymentArchitecture(props: NextjsBuildProps): Architecture {
-  const isFunctions =
-    props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
-    props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
-  return (isFunctions && props.architecture) || getLambdaArchitecture();
+  return (
+    (isFunctionsType(props.nextjsType) && props.architecture) ||
+    getLambdaArchitecture()
+  );
 }
 
 export interface PublicDirEntry {
@@ -331,9 +331,7 @@ export class NextjsBuild extends Construct {
       manifest.config.assetPrefix,
     );
 
-    const isFunctions =
-      props.nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
-      props.nextjsType === NextjsType.REGIONAL_FUNCTIONS;
+    const isFunctions = isFunctionsType(props.nextjsType);
 
     this.relativeProjectDir = manifest.relativeProjectDir;
     this.relativePathToEntrypoint = joinPosix(RUNTIME_DIR_NAME, "server.mjs");
@@ -491,23 +489,14 @@ export class NextjsBuild extends Construct {
     debug(
       `${LOG_PREFIX} Deployment root "${root.name}" is ${(bytes / 1e6).toFixed(1)} MB unzipped`,
     );
-    if (bytes <= LAMBDA_UNZIPPED_LIMIT_BYTES) {
-      return;
-    }
-    const mb = (value: number) => `${(value / 1024 / 1024).toFixed(0)} MB`;
-    const isSplit = this.deploymentRoots.length > 1;
-    throw new Error(
-      `${LOG_PREFIX} Function group "${root.name}" is ${mb(bytes)} unzipped, ` +
-        `over Lambda's ${mb(LAMBDA_UNZIPPED_LIMIT_BYTES)} limit. ` +
-        (isSplit
-          ? `Split its routes further, or move some of them into another group: ` +
-            `the cap is per function, so the shared \`next\` closure every group ` +
-            `duplicates costs nothing against any single budget.`
-          : `Use the \`functionGroups\` prop to package routes into separate ` +
-            `functions. Note that splitting only removes route-local code — ` +
-            `anything reachable from a shared layout or the \`next\` runtime is ` +
-            `in every group.`),
+    const error = lambdaSizeError(
+      root.name,
+      bytes,
+      this.deploymentRoots.length > 1,
     );
+    if (error !== undefined) {
+      throw new Error(error);
+    }
   }
 
   /**
@@ -712,10 +701,7 @@ export class NextjsBuild extends Construct {
   private patchFetchInClientJs() {
     const staticChunksPath = join(this.dotNextPath, "static", "chunks");
     const chunkFiles = readdirSync(staticChunksPath).filter(
-      (file: string) =>
-        // main-app- for webpack, turbopack- for turbo
-        file.startsWith("main-app-") ||
-        (file.startsWith("turbopack-") && file.endsWith(".js")),
+      isClientEntrypointChunk,
     );
 
     if (chunkFiles.length === 0) {
@@ -1247,6 +1233,48 @@ export function storedSize(root: string): number {
     }
   }
   return bytes;
+}
+
+/**
+ * The synth-time error for a function group of `bytes` unzipped, or
+ * `undefined` when it fits Lambda's limit. `isSplit` is whether the app is
+ * already packaged into more than one group, which changes the advice: split
+ * further, or start splitting with `functionGroups`.
+ */
+export function lambdaSizeError(
+  group: string,
+  bytes: number,
+  isSplit: boolean,
+): string | undefined {
+  if (bytes <= LAMBDA_UNZIPPED_LIMIT_BYTES) {
+    return undefined;
+  }
+  const mb = (value: number) => `${(value / 1024 / 1024).toFixed(0)} MB`;
+  return (
+    `${LOG_PREFIX} Function group "${group}" is ${mb(bytes)} unzipped, ` +
+    `over Lambda's ${mb(LAMBDA_UNZIPPED_LIMIT_BYTES)} limit. ` +
+    (isSplit
+      ? `Split its routes further, or move some of them into another group: ` +
+        `the cap is per function, so the shared \`next\` closure every group ` +
+        `duplicates costs nothing against any single budget.`
+      : `Use the \`functionGroups\` prop to package routes into separate ` +
+        `functions. Note that splitting only removes route-local code — ` +
+        `anything reachable from a shared layout or the \`next\` runtime is ` +
+        `in every group.`)
+  );
+}
+
+/**
+ * Whether `file`, in `.next/static/chunks`, is a client entrypoint that
+ * `patch-fetch.js` is prepended to: `main-app-*.js` for webpack,
+ * `turbopack-*.js` for Turbopack. Only `.js`: a production browser source map
+ * (`main-app-*.js.map`) is JSON, which the patch would corrupt.
+ */
+export function isClientEntrypointChunk(file: string): boolean {
+  return (
+    (file.startsWith("main-app-") || file.startsWith("turbopack-")) &&
+    file.endsWith(".js")
+  );
 }
 
 /**

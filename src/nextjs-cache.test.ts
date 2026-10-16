@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   truncateSync,
   writeFileSync,
 } from "fs";
@@ -14,7 +15,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Source } from "aws-cdk-lib/aws-s3-deployment";
-import { NextjsCache } from "./nextjs-cache";
+import { NextjsCache, sizeOfDirectory } from "./nextjs-cache";
 
 describe("NextjsCache", () => {
   let app: App;
@@ -80,6 +81,24 @@ describe("NextjsCache", () => {
           },
         ],
         BillingMode: "PAY_PER_REQUEST",
+      });
+    });
+
+    it("denies requests to the cache bucket below TLS 1.2", () => {
+      new NextjsCache(stack, "TestCache", {
+        buildId: "test-build-123",
+        initCacheDir: "/tmp/test-cache",
+      });
+      Template.fromStack(stack).hasResourceProperties("AWS::S3::BucketPolicy", {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Effect: "Deny",
+              Action: "s3:*",
+              Condition: { NumericLessThan: { "s3:TlsVersion": 1.2 } },
+            }),
+          ]),
+        },
       });
     });
 
@@ -312,6 +331,15 @@ describe("NextjsCache", () => {
       );
       expect(kept).toHaveLength(1);
       rmSync(join(tmpdir(), kept[0]), { recursive: true, force: true });
+    });
+
+    it("sizes an init cache holding a link loop", () => {
+      // `readdirSync({ recursive: true })` follows the link on Node 24 and
+      // never returns; the files are counted once, the link not at all.
+      symlinkSync("..", join(initCacheDir, "server", "loop"), "dir");
+      writeFileSync(join(initCacheDir, "server", "data.json"), "12345");
+
+      expect(sizeOfDirectory(initCacheDir)).toBe("<p/>".length + 5);
     });
 
     it("lets overrides win over the computed sizing", () => {
