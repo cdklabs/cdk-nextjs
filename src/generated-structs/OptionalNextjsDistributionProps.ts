@@ -28,6 +28,12 @@ export interface OptionalNextjsDistributionProps {
    */
   readonly viewerRequestFunctionCode?: aws_cloudfront.FunctionCode;
   /**
+   * The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a behavior for those files whose response headers policy does. Next.js uses the app's `basePath`, or `/` for none.
+   * @default - no behavior; the build has no service worker
+   * @stability stable
+   */
+  readonly serviceWorkerAllowed?: string;
+  /**
    * The most cache behaviors the distribution may have, the default one included.
    * cdk-nextjs counts what it adds against this at synth, so running
    * out is a synth error naming what used them rather than a failed deploy.

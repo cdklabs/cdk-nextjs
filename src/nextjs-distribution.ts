@@ -134,6 +134,15 @@ export interface NextjsDistributionProps {
    */
   readonly publicDirEntries: PublicDirEntry[];
   /**
+   * The `Service-Worker-Allowed` header for `_next/static/service-worker/*`,
+   * which Next.js sends so a compiled service worker can register at a scope
+   * wider than its own directory, such as `/`. S3 can't send an arbitrary
+   * header, so setting this adds a behavior for those files whose response
+   * headers policy does. Next.js uses the app's `basePath`, or `/` for none.
+   * @default - no behavior; the build has no service worker
+   */
+  readonly serviceWorkerAllowed?: string;
+  /**
    * The non-`default` function groups, the origins
    * {@link functionGroupBehaviors} route to.
    * @default - no splitting; the default behavior serves every dynamic route
@@ -866,7 +875,80 @@ export class NextjsDistribution extends Construct {
       },
     );
   }
+  /**
+   * Serves `_next/static/service-worker/*` with `Service-Worker-Allowed`, which
+   * the browser requires before it registers a service worker at a scope above
+   * the script's own directory. Added ahead of `_next/static*`, which would
+   * otherwise match first.
+   *
+   * The policy is the static one plus the header, so security headers and any
+   * `staticResponseHeadersPolicyProps` still apply. A whole
+   * `staticBehaviorOptions.responseHeadersPolicy` can't be added to, so it is
+   * used as it is, with a warning.
+   */
+  private addServiceWorkerBehavior(serviceWorkerAllowed: string) {
+    const overridden =
+      this.props.overrides?.staticBehaviorOptions?.responseHeadersPolicy;
+    if (overridden) {
+      Annotations.of(this).addWarning(
+        `${LOG_PREFIX} \`overrides.staticBehaviorOptions.responseHeadersPolicy\` ` +
+          `is used for \`_next/static/service-worker/*\` too, so service ` +
+          `workers get no \`Service-Worker-Allowed: ${serviceWorkerAllowed}\` ` +
+          `unless that policy sends it, and registering one at a scope above ` +
+          `its own directory fails. Add the header to your policy, or set ` +
+          `\`overrides.staticResponseHeadersPolicyProps\` instead.`,
+      );
+    }
+    const props = this.props.overrides?.staticResponseHeadersPolicyProps;
+    const customHeaders = props?.customHeadersBehavior?.customHeaders ?? [];
+    const responseHeadersPolicy =
+      overridden ??
+      new ResponseHeadersPolicy(this, "ServiceWorkerResponseHeadersPolicy", {
+        securityHeadersBehavior: this.commonSecurityHeadersBehavior,
+        comment: this.getComment(
+          "NextJS Service Worker Response Headers Policy",
+          Stack.of(this).stackName,
+        ),
+        ...props,
+        // Policy names are unique per account, so the static policy's can't be
+        // reused as it is, and are at most 128 characters, so a suffix can't
+        // simply be added to one that is already that long.
+        responseHeadersPolicyName:
+          props?.responseHeadersPolicyName &&
+          `${
+            Token.isUnresolved(props.responseHeadersPolicyName)
+              ? props.responseHeadersPolicyName
+              : props.responseHeadersPolicyName.slice(
+                  0,
+                  MAX_POLICY_NAME_LENGTH - SERVICE_WORKER_SUFFIX.length,
+                )
+          }${SERVICE_WORKER_SUFFIX}`,
+        customHeadersBehavior: {
+          // One the override sets itself is kept.
+          customHeaders: customHeaders.some(
+            ({ header }) => header.toLowerCase() === "service-worker-allowed",
+          )
+            ? customHeaders
+            : [
+                ...customHeaders,
+                {
+                  header: "Service-Worker-Allowed",
+                  value: serviceWorkerAllowed,
+                  override: true,
+                },
+              ],
+        },
+      });
+    this.distribution.addBehavior(
+      this.getPathPattern("_next/static/service-worker/*"),
+      this.staticOrigin,
+      { ...this.staticBehaviorOptions, responseHeadersPolicy },
+    );
+  }
   private addStaticBehaviors() {
+    if (this.props.serviceWorkerAllowed !== undefined) {
+      this.addServiceWorkerBehavior(this.props.serviceWorkerAllowed);
+    }
     this.distribution.addBehavior(
       this.getPathPattern("_next/static*"),
       this.staticOrigin,
@@ -1003,11 +1085,16 @@ export class NextjsDistribution extends Construct {
     const groupPatterns = this.functionGroupBehaviors().length;
     // The default behavior, `_next/image*`, `_next/static*`, plus — with a
     // basePath — the two that stand in for the default behavior's coverage, and
-    // — with a path-style assetPrefix — the one that serves bundles under it.
+    // — with a path-style assetPrefix — the one that serves bundles under it,
+    // and — with service workers — the one that adds `Service-Worker-Allowed`.
     // `this.basePath`, not the raw prop: `basePath: "/"` normalizes to `""` and
     // adds no behaviors, so counting it added 2 to the total and could throw
     // "over the limit" on an app that is under it.
-    const fixed = 3 + (this.basePath ? 2 : 0) + (this.assetPrefix ? 1 : 0);
+    const fixed =
+      3 +
+      (this.basePath ? 2 : 0) +
+      (this.assetPrefix ? 1 : 0) +
+      (this.props.serviceWorkerAllowed !== undefined ? 1 : 0);
     const total = fixed + publicPatterns + groupPatterns;
     if (total <= limit) {
       return;
@@ -1145,6 +1232,13 @@ const DEFAULT_MAX_CACHE_BEHAVIORS = 75;
 function isPathPatternChar(char: string): boolean {
   return char === "*" || char === "?" || PATH_PATTERN_LITERAL.test(char);
 }
+/**
+ * CloudFront's limit on a response headers policy name, and the suffix that
+ * tells the service worker policy's apart from the static one's.
+ * @see https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_ResponseHeadersPolicyConfig.html
+ */
+const MAX_POLICY_NAME_LENGTH = 128;
+const SERVICE_WORKER_SUFFIX = "-sw";
 /** CloudFront's path pattern length limit. */
 const MAX_PATH_PATTERN_LENGTH = 255;
 

@@ -94,6 +94,15 @@ export interface NextjsApiProps {
    */
   readonly staticAssetsKeyPrefix?: string;
   /**
+   * The `Service-Worker-Allowed` header for `_next/static/service-worker/*`,
+   * which Next.js sends so a compiled service worker can register at a scope
+   * wider than its own directory, such as `/`. S3 can't send an arbitrary
+   * header, so setting this adds a resource for those files whose integration
+   * response does. Next.js uses the app's `basePath`, or `/` for none.
+   * @default - no resource; the build has no service worker
+   */
+  readonly serviceWorkerAllowed?: string;
+  /**
    * [Future] Required if `NextjsRegionalContainers`. VPC to create VPC Link and ECS Service Discovery
    */
   readonly vpc?: IVpc;
@@ -361,14 +370,31 @@ export class NextjsApi extends Construct {
   }
 
   private createStaticIntegrations() {
-    this.nextResource
-      .addResource("static")
+    const staticResource = this.nextResource.addResource("static");
+    staticResource
       .addResource("{proxy+}")
       .addMethod(
         "GET",
         this.createS3Integration({ key: this.s3Key("_next/static/{key}") }),
         this.getStaticMethodOptions({ proxy: true }),
       );
+    const { serviceWorkerAllowed } = this.props;
+    if (serviceWorkerAllowed !== undefined) {
+      // A literal segment beats `{proxy+}`, so service workers get the one
+      // header S3 can't send, and the rest of `_next/static` is unaffected.
+      const headers = { "Service-Worker-Allowed": serviceWorkerAllowed };
+      staticResource
+        .addResource("service-worker")
+        .addResource("{proxy+}")
+        .addMethod(
+          "GET",
+          this.createS3Integration({
+            key: this.s3Key("_next/static/service-worker/{key}"),
+            headers,
+          }),
+          this.getStaticMethodOptions({ proxy: true, headers }),
+        );
+    }
     // add public directory files/directories that exist at top level but need to go to S3.
     const unroutable: string[] = [];
     for (const publicDirEntry of this.props.publicDirEntries) {
@@ -427,9 +453,23 @@ export class NextjsApi extends Construct {
    * Maps API request to S3 request.
    * @see https://docs.aws.amazon.com/apigateway/latest/developerguide/rest-api-parameter-mapping-sources.html
    * @see https://docs.aws.amazon.com/apigateway/latest/developerguide/integrating-api-with-aws-services-s3.html#api-items-in-folder-as-s3-objects-in-bucket
+   * @param headers fixed response headers, sent with a 200 and a 304
    */
-  private createS3Integration({ key }: { key: string }) {
-    const s3Integration = new AwsIntegration({
+  private createS3Integration({
+    key,
+    headers = {},
+  }: {
+    key: string;
+    headers?: Record<string, string>;
+  }) {
+    // A static value is a single-quoted literal in a mapping expression.
+    const fixedHeaders = Object.fromEntries(
+      Object.entries(headers).map(([name, value]) => [
+        `method.response.header.${name}`,
+        `'${value}'`,
+      ]),
+    );
+    const props: AwsIntegrationProps = {
       service: "s3",
       integrationHttpMethod: "GET",
       path: `${this.props.staticAssetsBucket.bucketName}/${key}`,
@@ -485,12 +525,36 @@ export class NextjsApi extends Construct {
         ],
       },
       ...this.props.overrides?.staticIntegrationProps,
+    };
+    // Added after the override, which replaces `options` whole, so the
+    // headers survive one that sets its own integration responses.
+    return new AwsIntegration({
+      ...props,
+      options: props.options && {
+        ...props.options,
+        integrationResponses: withFixedHeaders(
+          props.options.integrationResponses,
+          fixedHeaders,
+        ),
+      },
     });
-    return s3Integration;
   }
 
-  private getStaticMethodOptions({ proxy } = { proxy: false }): MethodOptions {
-    return {
+  /** @param headers the fixed headers `createS3Integration` was given */
+  private getStaticMethodOptions({
+    proxy = false,
+    headers = {},
+  }: {
+    proxy?: boolean;
+    headers?: Record<string, string>;
+  } = {}): MethodOptions {
+    const fixedHeaders = Object.fromEntries(
+      Object.keys(headers).map((name) => [
+        `method.response.header.${name}`,
+        true,
+      ]),
+    );
+    const options: MethodOptions = {
       requestParameters: {
         // Declared optional (`false`): a plain GET carries neither, and
         // requiring them would 400 it.
@@ -522,6 +586,13 @@ export class NextjsApi extends Construct {
         },
       ],
       ...this.props.overrides?.s3MethodOptions,
+    };
+    // After the override, as in `createS3Integration`: API Gateway rejects an
+    // integration response mapping a header its method response doesn't
+    // declare, so the two have to survive an override together.
+    return {
+      ...options,
+      methodResponses: withFixedHeaders(options.methodResponses, fixedHeaders),
     };
   }
 
@@ -731,4 +802,31 @@ export class NextjsApi extends Construct {
     const proxyResource = this.baseResource.addResource("{proxy+}");
     proxyResource.addMethod("ANY", streamingIntegration);
   }
+}
+
+/**
+ * `responses` with `parameters` added to the 200 and the 304, the responses a
+ * fixed header goes out with.
+ */
+function withFixedHeaders<
+  T extends {
+    readonly statusCode: string;
+    readonly responseParameters?: { [key: string]: V };
+  },
+  V,
+>(
+  responses: T[] | undefined,
+  parameters: { [key: string]: V },
+): T[] | undefined {
+  if (!Object.keys(parameters).length) {
+    return responses;
+  }
+  return responses?.map((response) =>
+    ["200", "304"].includes(response.statusCode)
+      ? {
+          ...response,
+          responseParameters: { ...response.responseParameters, ...parameters },
+        }
+      : response,
+  );
 }

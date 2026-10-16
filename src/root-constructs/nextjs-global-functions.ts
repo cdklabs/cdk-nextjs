@@ -179,6 +179,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,
       publicDirEntries: this.nextjsBuild.publicDirEntries,
+      serviceWorkerAllowed: this.serviceWorkerAllowed,
       // The default group backs the default behavior, so only the rest need
       // behaviors of their own.
       functionGroups: this.nextjsFunctions.functionGroups

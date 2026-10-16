@@ -23,6 +23,12 @@ export interface OptionalNextjsApiProps {
    */
   readonly staticAssetsKeyPrefix?: string;
   /**
+   * The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a resource for those files whose integration response does. Next.js uses the app's `basePath`, or `/` for none.
+   * @default - no resource; the build has no service worker
+   * @stability stable
+   */
+  readonly serviceWorkerAllowed?: string;
+  /**
    * Required if `NextjsRegionalFunctions`.
    * The Lambda function for server-side rendering
    * @stability stable
