@@ -39,8 +39,8 @@ verify, which every e2e-harness run does in shard 1).
 | edge-free (the hard ceiling)  | 1009    |
 | candidates after every screen | **165** |
 | deployed and screened         | 472     |
-| in `rules.include`            | 421     |
-| plus, per-case, in `suites`   | 14      |
+| in `rules.include`            | 419     |
+| plus, per-case, in `suites`   | 16      |
 
 16.4 reopened the candidate pool. next.js replaced most `skipDeployment: true`
 calls with `// @force-gate !deploy` pragmas, and in doing so dropped the deploy
@@ -57,7 +57,7 @@ included files passing on each scheduled run.
 
 | Verdict       | Files                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| pass          | 421 whole files, plus the passing cases of the 14 `suites` files                                                                                                                                                                                                                                                                                                             |
+| pass          | 419 whole files, plus the passing cases of the 16 `suites` files                                                                                                                                                                                                                                                                                                             |
 | fixed         | the defects in the table below                                                                                                                                                                                                                                                                                                                                               |
 | bug           | none open                                                                                                                                                                                                                                                                                                                                                                    |
 | upstream      | 2 — `rewrites-destination-query-array`, `incremental-cache-path-traversal`                                                                                                                                                                                                                                                                                                   |
@@ -136,9 +136,10 @@ The list is the manifest's `rules.include`; it is not duplicated here. Notes wor
 having when one of them goes red:
 
 - **Retry passes.** `app-dir/router-autoscroll`, `app-dir/bfcache-regression` and
-  `app-dir/third-parties` each failed attempt 0 once on their own scroll or embed
-  assertions, with no cdk-nextjs error, and passed on retry 1. The harness runs
-  `--retries 1`. Suspect these first if a run goes red for no other reason.
+  `app-dir/third-parties` (now in `suites`) each failed attempt 0 once on their
+  own scroll or embed assertions, with no cdk-nextjs error, and passed on retry 1.
+  The harness runs `--retries 1`. Suspect these first if a run goes red for no
+  other reason.
 - **Slowest file:** `instrumentation-client-hook`, ~677s.
 - **Weakest coverage:** the three `chrome-devtools-workspace` files assert only
   `status: 404` in deploy mode (the dev-only endpoint must not be reachable in
@@ -178,6 +179,15 @@ verdict below.
 | `app-dir/metadata-streaming-parallel-routes`                       | 4 / 6      | 2 `should only bundle the selected metadata resolution implementation` — no signal (`@gate !deploy` inversion) |
 | `app-dir/segment-cache/metadata`                                   | 2 / 3      | `requests only the head when the page segments are cached` — no signal (`@gate !deploy` inversion)             |
 | `app-dir/segment-cache/cached-navigations`                         | 19 / 20    | `caches a fully static on-demand param for repeated navigations` — unsupported (`next start` serving)          |
+| `third-parties` (+ `app-dir/third-parties/basic`)                  | 3 / 4 each | `renders GTM` — no signal (counts Google's live `dataLayer` events)                                            |
+
+Both `third-parties` files' `renders GTM` expects `window.dataLayer` to hold
+exactly the entry the page pushes. Around 2026-10-08 googletagmanager.com started
+answering the fixtures' `GTM-XYZ` with a 200 instead of a 404, so Google's script
+runs and adds its own events; the length came back 3 on every NextjsType, both
+attempts, in the 2026-10-13 scheduled run. Upstream rewrote both cases to look for
+its own entries after v16.4.0 (vercel/next.js#99896). Drop the entries once the
+pin includes that change.
 
 The `next-form` case submits right after the page loads and waits for the loading
 state the router prefetched; where the prefetch has not landed, `#loading` never

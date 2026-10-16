@@ -200,6 +200,7 @@ copyDockerfiles();
 checkBundleSyntax(bundle());
 typeCheckEsmSources();
 updateGitHubWorkflows();
+skipDraftAutoQueue();
 generateStructs();
 updatePackageJson();
 restrictNextValueImports();
@@ -497,6 +498,30 @@ function updateGitHubWorkflows() {
       },
       ...upgradeDevDepsJobSteps.slice(4),
     ],
+  });
+}
+
+/**
+ * GitHub refuses auto-merge on a draft PR, so projen's auto-queue job fails on
+ * every draft that is opened. It also runs on `ready_for_review`, which is when
+ * a draft gets queued, so skipping drafts loses nothing.
+ *
+ * ANDed onto whatever condition projen generates (labels, authors), and loud
+ * if a projen upgrade renames the workflow or the job, rather than silently
+ * bringing the draft failures back.
+ */
+function skipDraftAutoQueue() {
+  const workflow = project.github?.tryFindWorkflow("auto-queue");
+  const job = workflow?.getJob("enableAutoQueue");
+  if (!workflow || !job) {
+    throw new Error(
+      "skipDraftAutoQueue: projen's auto-queue workflow or its enableAutoQueue job is gone",
+    );
+  }
+  const draft = "!github.event.pull_request.draft";
+  workflow.updateJob("enableAutoQueue", {
+    ...job,
+    if: job.if ? `(${job.if}) && ${draft}` : draft,
   });
 }
 
