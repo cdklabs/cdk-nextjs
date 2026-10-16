@@ -1,6 +1,6 @@
 # Breaking Changes
 
-## 0.7.15
+## 0.8.0
 
 ### `NextjsCache` ignores or rejects some `bucketDeploymentProps` overrides
 
