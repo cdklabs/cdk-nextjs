@@ -864,41 +864,41 @@ export class NextjsDistribution extends Construct {
     const customHeaders = props?.customHeadersBehavior?.customHeaders ?? [];
     const responseHeadersPolicy =
       overridden ??
-      new ResponseHeadersPolicy(this, "ServiceWorkerResponseHeadersPolicy", {
-        securityHeadersBehavior: this.commonSecurityHeadersBehavior,
-        comment: this.getComment(
-          "NextJS Service Worker Response Headers Policy",
-        ),
-        ...props,
-        // Policy names are unique per account, so the static policy's can't be
-        // reused as it is, and are at most 128 characters, so a suffix can't
-        // simply be added to one that is already that long.
-        responseHeadersPolicyName:
-          props?.responseHeadersPolicyName &&
-          `${
-            Token.isUnresolved(props.responseHeadersPolicyName)
-              ? props.responseHeadersPolicyName
-              : props.responseHeadersPolicyName.slice(
-                  0,
-                  MAX_POLICY_NAME_LENGTH - SERVICE_WORKER_SUFFIX.length,
-                )
-          }${SERVICE_WORKER_SUFFIX}`,
-        customHeadersBehavior: {
-          // One the override sets itself is kept.
-          customHeaders: customHeaders.some(
-            ({ header }) => header.toLowerCase() === "service-worker-allowed",
-          )
-            ? customHeaders
-            : [
-                ...customHeaders,
-                {
-                  header: "Service-Worker-Allowed",
-                  value: serviceWorkerAllowed,
-                  override: true,
-                },
-              ],
+      this.responseHeadersPolicy(
+        "ServiceWorkerResponseHeadersPolicy",
+        "NextJS Service Worker Response Headers Policy",
+        {
+          ...props,
+          // Policy names are unique per account, so the static policy's can't be
+          // reused as it is, and are at most 128 characters, so a suffix can't
+          // simply be added to one that is already that long.
+          responseHeadersPolicyName:
+            props?.responseHeadersPolicyName &&
+            `${
+              Token.isUnresolved(props.responseHeadersPolicyName)
+                ? props.responseHeadersPolicyName
+                : props.responseHeadersPolicyName.slice(
+                    0,
+                    MAX_POLICY_NAME_LENGTH - SERVICE_WORKER_SUFFIX.length,
+                  )
+            }${SERVICE_WORKER_SUFFIX}`,
+          customHeadersBehavior: {
+            // One the override sets itself is kept.
+            customHeaders: customHeaders.some(
+              ({ header }) => header.toLowerCase() === "service-worker-allowed",
+            )
+              ? customHeaders
+              : [
+                  ...customHeaders,
+                  {
+                    header: "Service-Worker-Allowed",
+                    value: serviceWorkerAllowed,
+                    override: true,
+                  },
+                ],
+          },
         },
-      });
+      );
     this.distribution.addBehavior(
       this.getPathPattern("_next/static/service-worker/*"),
       this.staticOrigin,

@@ -128,7 +128,7 @@ export interface RoutingRules {
 
 const ERROR_PREFIX = `${LOG_PREFIX} \`functionGroups\`: `;
 const NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
-export const SUBTREE_SUFFIX = "/**";
+const SUBTREE_SUFFIX = "/**";
 /**
  * The literal characters a CloudFront path pattern may contain: its alphabet
  * (`A-Z a-z 0-9 _ - . * $ / ~ " ' @ : +` and `&`) less the two wildcards, which

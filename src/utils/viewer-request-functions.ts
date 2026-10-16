@@ -4,8 +4,8 @@ import { LOG_PREFIX } from "../constants";
 
 /**
  * The code of cdk-nextjs's CloudFront Functions, and of `viewerRequestFunctionCode`
- * spliced into them, and the checks on both. Plain strings:
- * `NextjsDistribution` creates the functions.
+ * spliced into them, and the checks on both. Synth-time only (it imports
+ * `aws-cdk-lib`): `NextjsDistribution` creates the functions.
  */
 
 /**
