@@ -3683,7 +3683,12 @@ Overrides for the init cache's `BucketDeployment`, such as `useEfs` or `memoryLi
 
 `sources` and `destinationBucket`, which the type requires, are ignored:
 the upload is always the staged init cache, to the cache bucket (pass
-`cacheBucket` to bring your own).
+`cacheBucket` to bring your own). So is `destinationKeyPrefix`, since the
+cache handler reads the objects at `<buildId>/<key>`.
+
+`prune: true`, `retainOnDelete: false` and `extract: false` are rejected:
+the first two can delete cache entries the running app relies on, and the
+last uploads the zip instead of the cache.
 
 ---
 
