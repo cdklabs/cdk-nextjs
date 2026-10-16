@@ -104,7 +104,8 @@ describe("pipeToSink compression", () => {
       { compress: true },
     );
     res.setHeader("Content-Type", "text/x-component");
-    // Barely compressible, so each chunk outgrows every stream's buffer.
+    // Hex compresses about 2:1, so each chunk is still larger than `res`'s own
+    // 16 KiB buffer, and every write after the first meets backpressure.
     const body = randomBytes(50_000).toString("hex");
     let written = 0;
     for (const size of [40_000, 30_000, 30_000]) {

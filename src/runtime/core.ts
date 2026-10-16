@@ -1527,11 +1527,13 @@ async function sendWebResponse(
     if (res.destroyed) {
       return;
     }
+    // No `res.flush()` needed when the sink compresses: its gzip stage
+    // sync-flushes every chunk, so a streamed body (server-sent events through
+    // a rewrite, a middleware `ReadableStream`) reaches the client chunk by
+    // chunk.
+    //
     // Paced by the client: without waiting for `drain`, a large proxied body
     // headed for a slow client is buffered whole in memory.
-    // No flush needed when the sink compresses: its gzip stage sync-flushes
-    // every chunk, so a streamed body (server-sent events through a rewrite, a
-    // middleware `ReadableStream`) reaches the client chunk by chunk.
     const accepted = res.write(chunk);
     if (!accepted && !(await drained(res))) {
       return;
