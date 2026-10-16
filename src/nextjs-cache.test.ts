@@ -10,8 +10,9 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { App, Size, Stack } from "aws-cdk-lib";
-import { Match, Template } from "aws-cdk-lib/assertions";
+import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
+import { Vpc } from "aws-cdk-lib/aws-ec2";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Source } from "aws-cdk-lib/aws-s3-deployment";
 import { NextjsCache } from "./nextjs-cache";
@@ -337,6 +338,150 @@ describe("NextjsCache", () => {
       const properties = deploymentLambda(Template.fromStack(ownStack));
       expect(properties.EphemeralStorage).toEqual({ Size: 2048 });
       expect(properties.MemorySize).toBe(2048);
+    });
+
+    // The handler unpacks onto the EFS mount, so `/tmp` needn't grow.
+    it("leaves /tmp at the default but still sizes memory with useEfs", () => {
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      writeFileSync(big, "");
+      truncateSync(big, 300 * 1024 * 1024);
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            sources: [],
+            destinationBucket: Bucket.fromBucketName(ownStack, "B", "unused"),
+            useEfs: true,
+            vpc: new Vpc(ownStack, "Vpc"),
+          },
+        },
+      });
+
+      const properties = deploymentLambda(Template.fromStack(ownStack));
+      expect(properties.EphemeralStorage).toBeUndefined();
+      expect(properties.MemorySize).toBe(1024);
+    });
+
+    it.each([
+      [{ prune: true }, /`prune: true`/],
+      [{ retainOnDelete: false }, /`retainOnDelete: false`/],
+      [{ extract: false }, /`extract: false`/],
+    ])("rejects %j", (override, message) => {
+      expect(
+        () =>
+          new NextjsCache(stack, "TestCache", {
+            buildId: "build-abc123",
+            initCacheDir,
+            overrides: { bucketDeploymentProps: override as any },
+          }),
+      ).toThrow(message);
+    });
+
+    // Rejected even without an init cache, so a build doesn't decide it.
+    it("rejects prune: true when there is no init cache", () => {
+      expect(
+        () =>
+          new NextjsCache(stack, "TestCache", {
+            buildId: "build-abc123",
+            initCacheDir: join(initCacheDir, "missing"),
+            overrides: { bucketDeploymentProps: { prune: true } as any },
+          }),
+      ).toThrow(/`prune: true`/);
+    });
+
+    it("warns about destinationKeyPrefix when there is no init cache", () => {
+      new NextjsCache(stack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir: join(initCacheDir, "missing"),
+        overrides: {
+          bucketDeploymentProps: { destinationKeyPrefix: "seed" } as any,
+        },
+      });
+      Annotations.fromStack(stack).hasWarning(
+        "*",
+        Match.stringLikeRegexp("destinationKeyPrefix is ignored"),
+      );
+    });
+
+    // The type requires both, so a typed caller always passes them.
+    it("ignores sources and destinationBucket", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            destinationBucket: Bucket.fromBucketName(
+              ownStack,
+              "Existing",
+              "someone-elses-bucket",
+            ),
+            sources: [Source.data("a", "x"), Source.data("b", "y")],
+            destinationKeyPrefix: "seed",
+            memoryLimit: 2048,
+          },
+        },
+      });
+      Annotations.fromStack(ownStack).hasWarning(
+        "*",
+        Match.stringLikeRegexp("destinationKeyPrefix is ignored"),
+      );
+
+      const [upload] = Object.values(
+        Template.fromStack(ownStack).findResources(
+          "Custom::CDKBucketDeployment",
+        ),
+      );
+      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
+      expect(JSON.stringify(upload.Properties.DestinationBucketName)).toContain(
+        "TestCacheBucket",
+      );
+      expect(upload.Properties).not.toHaveProperty(
+        "DestinationBucketKeyPrefix",
+      );
+      expect(upload.Properties.Prune).toBe(false);
+      expect(deploymentLambda(Template.fromStack(ownStack)).MemorySize).toBe(
+        2048,
+      );
+    });
+
+    // A JSII binding can materialize an unset field as an explicit undefined.
+    it("keeps the staged source, sizing and prune: false when the fields are explicitly undefined", () => {
+      const big = join(initCacheDir, "server", "app", "big.rsc");
+      writeFileSync(big, "");
+      truncateSync(big, 300 * 1024 * 1024);
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          bucketDeploymentProps: {
+            sources: undefined,
+            destinationBucket: undefined,
+            prune: undefined,
+            retainOnDelete: undefined,
+            extract: undefined,
+            ephemeralStorageSize: undefined,
+            memoryLimit: undefined,
+          } as any,
+        },
+      });
+
+      const [upload] = Object.values(
+        Template.fromStack(ownStack).findResources(
+          "Custom::CDKBucketDeployment",
+        ),
+      );
+      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
+      expect(upload.Properties.Prune).toBe(false);
+      const properties = deploymentLambda(Template.fromStack(ownStack));
+      expect(properties.EphemeralStorage).toEqual({ Size: 1024 });
+      expect(properties.MemorySize).toBe(1024);
     });
   });
 });

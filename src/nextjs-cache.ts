@@ -8,7 +8,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { RemovalPolicy, Size } from "aws-cdk-lib";
+import { Annotations, RemovalPolicy, Size } from "aws-cdk-lib";
 import {
   AttributeType,
   Billing,
@@ -30,6 +30,7 @@ import {
 } from "aws-cdk-lib/aws-s3-deployment";
 import * as cxapi from "aws-cdk-lib/cx-api";
 import { Construct } from "constructs";
+import { rejectDeploymentOverrides } from "./bucket-deployment-overrides";
 import { LOG_PREFIX } from "./constants";
 
 /** What a `BucketDeployment` Lambda gets without asking. */
@@ -76,6 +77,19 @@ function sizeOfDirectory(dir: string): number {
 export interface NextjsCacheOverrides {
   readonly cacheBucketProps?: BucketProps;
   readonly revalidationTableProps?: TablePropsV2;
+  /**
+   * Overrides for the init cache's `BucketDeployment`, such as `useEfs` or
+   * `memoryLimit` for a large cache.
+   *
+   * `sources` and `destinationBucket`, which the type requires, are ignored:
+   * the upload is always the staged init cache, to the cache bucket (pass
+   * `cacheBucket` to bring your own). So is `destinationKeyPrefix`, since the
+   * cache handler reads the objects at `<buildId>/<key>`.
+   *
+   * `prune: true`, `retainOnDelete: false` and `extract: false` are rejected:
+   * the first two can delete cache entries the running app relies on, and the
+   * last uploads the zip instead of the cache.
+   */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
 
@@ -180,6 +194,38 @@ export class NextjsCache extends Construct {
    * Deploy pre-built cache files from .next/cdk-nextjs-init-cache to S3
    */
   private createDeployment(): BucketDeployment | undefined {
+    const overrides = this.props.overrides?.bucketDeploymentProps;
+    // Checked whether or not this build has an init cache, so that an override
+    // fails, or warns, the same way for every build.
+    //
+    // - `prune: true` runs `s3 sync --delete` against the whole bucket (there is
+    //   no destination prefix), deleting the previous build's entries and those
+    //   written at runtime while the old functions or tasks still serve them.
+    // - `retainOnDelete: false` makes an update that changes the destination
+    //   `s3 rm --recursive` the old one, owned bucket or not. And it empties an
+    //   imported bucket, which CDK can't tag as owned, whenever the deployment
+    //   is replaced, as it is when the Lambda's sizing changes: after the new
+    //   deployment has uploaded this build's seed.
+    // - `extract: false` uploads the asset zip itself instead of the cache.
+    rejectDeploymentOverrides(
+      overrides,
+      {
+        prune:
+          " (old builds' entries are pruned after deploy by NextjsPostDeploy)",
+        retainOnDelete: "",
+        extract: "",
+      },
+      "the init cache must be unpacked under <buildId>/ next to the entries " +
+        "the running app writes, and each of these would delete or replace them.",
+    );
+
+    if (overrides?.destinationKeyPrefix) {
+      Annotations.of(this).addWarningV2(
+        "cdk-nextjs:ignoredDestinationKeyPrefix",
+        `${LOG_PREFIX} overrides.bucketDeploymentProps.destinationKeyPrefix is ignored: the init cache is always uploaded under <buildId>/, where the cache handler reads it.`,
+      );
+    }
+
     // Check if cache directory exists
     if (!existsSync(this.props.initCacheDir)) {
       console.log(
@@ -200,11 +246,21 @@ export class NextjsCache extends Construct {
         this,
         "InitCacheDeployment",
         {
+          ...overrides,
+          // Set after the spread. The type makes callers pass `sources` and
+          // `destinationBucket`, and either would upload something other than
+          // the init cache, or somewhere the cache handler doesn't read from.
+          // A `destinationKeyPrefix` would put the objects outside the
+          // `<buildId>/` keys the cache handler reads, where the post-deploy
+          // pruner deletes them. `rejectDeploymentOverrides` lets `prune`
+          // through only as `false` or an explicit `undefined` from a JSII
+          // binding, which would turn on CDK's default `prune: true`; such an
+          // `undefined` would also drop the staged source or the computed sizing.
           sources: [Source.asset(stagingDir)],
           destinationBucket: this.cacheBucket,
+          destinationKeyPrefix: undefined,
           prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
-          ...this.sizeDeploymentLambda(),
-          ...this.props.overrides?.bucketDeploymentProps,
+          ...this.sizeDeploymentLambda(overrides),
         },
       );
       return bucketDeployment;
@@ -254,23 +310,38 @@ export class NextjsCache extends Construct {
    * apps keep the cheaper default and their existing template.
    *
    * Above the 10 GiB ephemeral-storage ceiling there is nothing left to ask for,
-   * so this warns and lets the deployment fail loudly rather than pretend.
-   * `overrides.bucketDeploymentProps` wins over everything here, including
-   * `useEfs: true`, which is the supported way out.
+   * so this warns and lets the deployment fail loudly rather than pretend,
+   * unless `useEfs: true`, the supported way out, is already set. With EFS the
+   * handler unpacks onto the mount instead of `/tmp`, so `/tmp` is left at CDK's
+   * default. An `ephemeralStorageSize` or `memoryLimit` in
+   * `overrides.bucketDeploymentProps` wins over what is computed here.
    */
-  private sizeDeploymentLambda() {
-    const mib = Math.ceil(sizeOfDirectory(this.props.initCacheDir) / 1024 ** 2);
+  private sizeDeploymentLambda(overrides?: BucketDeploymentProps) {
+    const useEfs = overrides?.useEfs;
+    const sizeStorage = !overrides?.ephemeralStorageSize && !useEfs;
+    const sizeMemory = !overrides?.memoryLimit;
+    // Still walked when both sizes are overridden without EFS, so that the
+    // warning below fires for an overridden `/tmp` too.
+    const mib =
+      !useEfs || sizeMemory
+        ? Math.ceil(sizeOfDirectory(this.props.initCacheDir) / 1024 ** 2)
+        : 0;
     const wanted = mib * 2 + 128;
-    if (wanted > MAX_EPHEMERAL_STORAGE_MIB) {
+    if (!useEfs && wanted > MAX_EPHEMERAL_STORAGE_MIB) {
       console.warn(
-        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${mib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
+        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${mib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true and a vpc to seed a cache this large.`,
       );
     }
-    const ephemeral = storageStep(wanted, MAX_EPHEMERAL_STORAGE_MIB);
 
     return {
-      ephemeralStorageSize: Size.mebibytes(ephemeral),
-      ...(mib > 256 ? { memoryLimit: 1024 } : {}),
+      ephemeralStorageSize: sizeStorage
+        ? Size.mebibytes(storageStep(wanted, MAX_EPHEMERAL_STORAGE_MIB))
+        : overrides?.ephemeralStorageSize,
+      memoryLimit: sizeMemory
+        ? mib > 256
+          ? 1024
+          : undefined
+        : overrides?.memoryLimit,
     };
   }
 
@@ -290,9 +361,11 @@ export class NextjsCache extends Construct {
    * run, ~110s each against a ~52s hotswap.
    *
    * Putting the build ID in the asset's own paths instead leaves the S3 keys
-   * byte-identical and the tag key constant (`aws-cdk:cr-owned:<hash>`, derived
-   * from the construct path). Nothing else read the prefix: `prune` is already
-   * `false`, and the two handler branches that do scope work to it — emptying
+   * byte-identical and the tag key free of the build ID (`aws-cdk:cr-owned:<hash>`,
+   * derived from the custom resource's path, which still changes with the
+   * Lambda's sizing, a {@link storageStep} at a time, or with `useEfs`). Nothing
+   * else read the prefix: `prune` is always `false` here, and the two handler
+   * branches that do scope work to it — emptying
    * the prefix on delete, and deleting the old prefix when the destination
    * changes — are both gated on `retainOnDelete`, which `BucketDeployment`
    * defaults to `true`.
