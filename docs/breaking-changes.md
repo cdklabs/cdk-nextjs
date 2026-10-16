@@ -572,6 +572,11 @@ default), so give those their own buckets too.
 
 _Shipped in 0.7.12._
 
+> [!NOTE]
+> This breaking change was released by mistake in a patch release. Until
+> 1.0.0, the goal is for breaking changes to ship only in minor releases
+> (`0.X.0`), so a `^0.7` range never picks one up.
+
 `NextjsStaticAssets` now uploads `_next/static/` with
 `public, max-age=31536000, immutable` and `_next/static/service-worker/` with
 `public, max-age=0, must-revalidate`, the headers Next.js sends for them, and
