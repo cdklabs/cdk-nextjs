@@ -69,12 +69,6 @@ export class ShimServerResponse extends Transform {
   public useChunkedEncodingByDefault = false;
   /** Set by Next.js in a few places; never read by us. */
   public req?: unknown;
-  /**
-   * Installed by the runtime core when it inserts gzip, so that Next.js's
-   * per-chunk `if ("flush" in res) res.flush()` actually reaches the
-   * compressor. Without it, streamed HTML sits in zlib's buffer.
-   */
-  public flush?: () => void;
 
   /** Lowercased name → original casing + value, mirroring Node's own store. */
   private readonly headerStore = new Map<
