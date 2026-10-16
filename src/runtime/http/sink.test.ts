@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
-import { gunzipSync } from "node:zlib";
+import { constants as zlibConstants, gunzipSync } from "node:zlib";
 import { ShimIncomingMessage } from "./request";
 import { ResponseHead, ShimServerResponse } from "./response";
 import { acceptsGzip, pipeToSink, ResponseSink } from "./sink";
@@ -79,18 +80,56 @@ describe("pipeToSink compression", () => {
     expect(sink.head?.headers.vary).toBe("Cookie, Accept-Encoding");
   });
 
-  it("forwards res.flush() to the compressor so streamed HTML is not buffered", async () => {
-    const seen: number[] = [];
-    const sink = await run((res) => {
-      res.setHeader("Content-Type", "text/html");
-      res.write("<html>");
-      // Next.js does exactly this after every chunk (`pipe-readable.js`).
-      res.flush?.();
-      seen.push(1);
-      res.end("</html>");
-    });
-    expect(seen).toEqual([1]);
-    expect(gunzipSync(sink.body).toString("utf-8")).toBe("<html></html>");
+  // Issue #321. Next.js writes each RSC/HTML chunk and then waits for `drain`
+  // (`pipe-readable.js`). Under backpressure a chunk sits in `res`'s buffer
+  // while earlier ones compress, and a flush issued at write time ran ahead of
+  // it, so the last chunk before a pause - a `<Suspense>` fallback - stayed in
+  // zlib until the slow boundary resolved.
+  it("delivers every written chunk before a pause, even under backpressure", async () => {
+    const chunks: Buffer[] = [];
+    const slowSink: ResponseSink = {
+      begin: () =>
+        new Writable({
+          write(chunk, _encoding, callback) {
+            chunks.push(Buffer.from(chunk));
+            setImmediate(callback);
+          },
+        }),
+    };
+    const res = new ShimServerResponse();
+    const done = pipeToSink(
+      requestWith({ "accept-encoding": "gzip" }),
+      res,
+      slowSink,
+      { compress: true },
+    );
+    res.setHeader("Content-Type", "text/x-component");
+    // Barely compressible, so each chunk outgrows every stream's buffer.
+    const body = randomBytes(50_000).toString("hex");
+    let written = 0;
+    for (const size of [40_000, 30_000, 30_000]) {
+      // `pipe-readable.js`, verbatim apart from the types.
+      const ok = res.write(body.slice(written, written + size));
+      const flushable = res as unknown as { flush?: unknown };
+      if ("flush" in flushable && typeof flushable.flush === "function") {
+        flushable.flush();
+      }
+      if (!ok) {
+        await new Promise((resolve) => res.once("drain", resolve));
+      }
+      written += size;
+    }
+    const soFar = (): string =>
+      gunzipSync(Buffer.concat(chunks), {
+        finishFlush: zlibConstants.Z_SYNC_FLUSH,
+      }).toString("utf-8");
+    for (let i = 0; i < 50 && soFar().length < body.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(soFar()).toBe(body);
+    res.end();
+    await done;
+    expect(gunzipSync(Buffer.concat(chunks)).toString("utf-8")).toBe(body);
   });
 
   it.each([

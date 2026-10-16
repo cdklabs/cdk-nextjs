@@ -120,11 +120,15 @@ export function pipeToSink(
 
       const gzip = shouldGzip(req, res, head, options);
       if (gzip) {
-        const compressor = createGzip();
-        // Next.js calls `res.flush()` after each chunk it writes
-        // (`next/dist/server/pipe-readable.js`); without forwarding it, streamed
-        // HTML sits in zlib's buffer and the response arrives all at once.
-        res.flush = () => compressor.flush(constants.Z_SYNC_FLUSH);
+        // A sync flush on every chunk, so that each one reaches the client as
+        // soon as it is written rather than sitting in zlib's buffer until the
+        // next. This has to be zlib's own per-write flag: forwarding Next.js's
+        // `res.flush()` (`next/dist/server/pipe-readable.js`) to
+        // `compressor.flush()` queued the flush in zlib *ahead of* the chunk
+        // whenever backpressure held that chunk in `res`'s buffer, so the last
+        // chunk before a pause stayed in zlib - a `<Suspense>` fallback arrived
+        // only with the slow boundary it was standing in for (issue #321).
+        const compressor = createGzip({ flush: constants.Z_SYNC_FLUSH });
         stages.push(compressor);
       }
       if (sink.padEmptyBody) {
