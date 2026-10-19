@@ -724,6 +724,7 @@ function updatePackageJson() {
       "@babel/core": "^7.29.6",
       sharp: "^0.35.5",
       "source-map-js": "^1.2.2",
+      handlebars: "^4.7.10",
     }),
   );
   packageJson?.patch(JsonPatch.add("/packageManager", `pnpm@${pnpmVersion}`));
