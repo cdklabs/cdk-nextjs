@@ -606,7 +606,15 @@ export class NextjsApi extends Construct {
    * resource — so every segment goes through {@link resourceFor}.
    */
   private createFunctionGroupIntegrations() {
-    const groups = this.props.functionGroups ?? [];
+    const groups = (this.props.functionGroups ?? []).map((group) => ({
+      name: group.name,
+      integration: new LambdaIntegration(group.function, {
+        responseTransferMode: ResponseTransferMode.STREAM,
+        // One API-wide permission per function; see `createDynamicIntegration`.
+        scopePermissionToMethod: false,
+        ...this.props.overrides?.dynamicIntegrationProps,
+      }),
+    }));
     const routePaths = apiGroupRoutePaths(
       groups,
       this.props.functionGroupBehaviors ?? [],
@@ -617,26 +625,15 @@ export class NextjsApi extends Construct {
     const parentPaths = apiParentPaths(routePaths).filter(
       ({ path }) => !this.hasResource(path),
     );
-    const integrations = new Map(
-      groups.map((group) => [
-        group.name,
-        new LambdaIntegration(group.function, {
-          responseTransferMode: ResponseTransferMode.STREAM,
-          // One API-wide permission per function; see `createDynamicIntegration`.
-          scopePermissionToMethod: false,
-          ...this.props.overrides?.dynamicIntegrationProps,
-        }),
-      ]),
-    );
     for (const { path, owner } of routePaths) {
-      this.resourceFor(path).addMethod("ANY", integrations.get(owner)!);
+      this.resourceFor(path).addMethod("ANY", owner.integration);
     }
     for (const { path, owner } of parentPaths) {
       const resource = this.resourceFor(path);
       if (owner === undefined) {
         this.groupParentResources.push(resource);
       } else {
-        resource.addMethod("ANY", integrations.get(owner)!);
+        resource.addMethod("ANY", owner.integration);
       }
     }
   }

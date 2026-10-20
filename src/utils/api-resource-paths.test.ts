@@ -31,6 +31,16 @@ function routePaths(
   return entries.map(([path, owner]) => ({ path: path.split("/"), owner }));
 }
 
+/** {@link apiGroupRoutePaths} with each owning group reduced to its name. */
+function groupRoutePaths(
+  ...args: Parameters<typeof apiGroupRoutePaths>
+): ApiRoutePath<string>[] {
+  return apiGroupRoutePaths(...args).map(({ path, owner }) => ({
+    path,
+    owner: owner.name,
+  }));
+}
+
 describe("API_PATH_PART", () => {
   it("accepts what API Gateway accepts", () => {
     for (const part of ["api", "favicon.ico", "a-b_c", "x:y", "$id", "v1.2"]) {
@@ -169,9 +179,19 @@ describe("apiGroupRoutePaths", () => {
     );
   });
 
+  it("gives each path the group object itself", () => {
+    const group = { name: "g", extra: 1 };
+    const [routePath] = apiGroupRoutePaths(
+      [group],
+      behaviorsFor("g", ["/pricing"]),
+      [],
+    );
+    expect(routePath.owner).toBe(group);
+  });
+
   it("lists each group's distinct routes in group order", () => {
     expect(
-      apiGroupRoutePaths(
+      groupRoutePaths(
         [{ name: "api" }, { name: "shop" }],
         [
           ...behaviorsFor("shop", ["/shop/**"]),
@@ -192,14 +212,14 @@ describe("apiGroupRoutePaths", () => {
     // `pricing` and `pricing/` are two behaviors of one route.
     const behaviors = behaviorsFor("g", ["/pricing"], { trailingSlash: true });
     expect(behaviors.length).toBeGreaterThan(1);
-    expect(apiGroupRoutePaths([{ name: "g" }], behaviors, [])).toEqual(
+    expect(groupRoutePaths([{ name: "g" }], behaviors, [])).toEqual(
       routePaths(["pricing", "g"]),
     );
   });
 
   it("adds data paths only for a group with data behaviors", () => {
     expect(
-      apiGroupRoutePaths(
+      groupRoutePaths(
         [{ name: "blog" }, { name: "app" }],
         [
           ...behaviorsFor("blog", ["/blog/**", "/blog"], {

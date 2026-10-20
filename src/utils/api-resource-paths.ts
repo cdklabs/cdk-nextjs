@@ -127,7 +127,7 @@ export function apiResourcePaths(
 
 /**
  * Every resource path the function groups' routes become, in the order they
- * should be created, each with the name of the group it routes to.
+ * should be created, each with the group it routes to.
  *
  * The CloudFront patterns are for the edge; a resource path per route covers
  * what they do here, a `trailingSlash` form included, since API Gateway matches
@@ -135,13 +135,13 @@ export function apiResourcePaths(
  * unknown group, and for a route API Gateway can't hold or a `public/` entry
  * already holds.
  */
-export function apiGroupRoutePaths(
-  groups: readonly { readonly name: string }[],
+export function apiGroupRoutePaths<G extends { readonly name: string }>(
+  groups: readonly G[],
   behaviors: readonly GroupBehavior[],
   publicDirEntries: readonly PublicDirEntry[],
-): ApiRoutePath<string>[] {
+): ApiRoutePath<G>[] {
   assertKnownFunctionGroups(groups, behaviors);
-  const routePaths: ApiRoutePath<string>[] = [];
+  const routePaths: ApiRoutePath<G>[] = [];
   for (const group of groups) {
     const own = behaviors.filter((behavior) => behavior.group === group.name);
     const hasDataRoutes = own.some(({ pattern }) =>
@@ -151,7 +151,7 @@ export function apiGroupRoutePaths(
       assertApiRoutable(route, group.name);
       assertNoApiPublicCollision(route, group.name, publicDirEntries);
       for (const path of apiResourcePaths(route, hasDataRoutes)) {
-        routePaths.push({ path, owner: group.name });
+        routePaths.push({ path, owner: group });
       }
     }
   }
