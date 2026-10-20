@@ -51,21 +51,31 @@ export interface CacheKeyProps {
 export const DYNAMIC_CACHE_KEY: CacheKeyProps = {
   queryStringBehavior: CacheQueryStringBehavior.all(),
   headerBehavior: CacheHeaderBehavior.allowList(
-    // NOTE: CloudFront Custom Cache Policies have soft max of 10 headers
-    // cdk-nextjs includes the most essential headers for Next.js functionality
-    // and leaves out the one commented out below; keying on it as well needs a
-    // quota increase
-    // more here: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies
+    // Every request header Next.js varies a cacheable response on: the headers
+    // it lists in `Vary`, plus `accept` and `x-prerender-revalidate`. That is 7
+    // of the 10 a cache policy allows by default
+    // (https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-policies).
+    // The spare slots are not waste: each header added splits the cache.
     "accept", // content negotiation (HTML vs RSC payload)
     "rsc", // React Server Components requests
-    "next-url", // Next.js routing
+    "next-url", // interception routes
     "next-router-state-tree", // App Router navigation state
     "next-router-prefetch", // prefetch behavior
     "next-router-segment-prefetch", // segment-level prefetching
     "x-prerender-revalidate", // on-demand ISR revalidation
+    // Headers Next.js reads but that are left out on purpose:
+    // - `x-prerender-revalidate-if-generated` only travels with
+    //   `x-prerender-revalidate`, so it would split nothing viewers share.
+    // - `next-action` and `content-type` are only on server action POSTs,
+    //   which CloudFront does not cache.
+    // - `x-middleware-prefetch` and `sec-fetch-dest` only change responses
+    //   Next.js sends `no-store`. `x-nextjs-data` follows from the
+    //   `/_next/data/` URL.
+    // - `user-agent`: HTML-limited bots get a blocking render, but only where
+    //   the response is not shared-cacheable, and keying on it would make
+    //   nearly every request a miss.
     // Draft mode needs no header: it is the `__prerender_bypass` cookie, which
     // `cookieBehavior.all()` already keys on.
-    // "x-prerender-revalidate-if-generated", // conditional revalidation (niche use case)
   ),
   cookieBehavior: CacheCookieBehavior.all(),
   enableAcceptEncodingBrotli: true,
