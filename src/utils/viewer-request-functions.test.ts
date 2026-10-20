@@ -1,6 +1,11 @@
+import { Lazy } from "aws-cdk-lib";
+import { FunctionEventType } from "aws-cdk-lib/aws-cloudfront";
 import {
+  assertViewerRequestUnclaimed,
   assetPrefixRewriteHandler,
+  checkFunctionCodeSize,
   checkViewerRequestCode,
+  MAX_FUNCTION_CODE_BYTES,
   PASS_THROUGH_HANDLER,
   spliceViewerRequest,
   VIEWER_REQUEST_HOOK,
@@ -62,5 +67,54 @@ describe("checkViewerRequestCode", () => {
     expect(() =>
       checkViewerRequestCode("function viewerRequest(event) {} // handler"),
     ).toThrow(/uses the name `handler`/);
+  });
+});
+
+describe("checkFunctionCodeSize", () => {
+  it("allows code up to the limit, counted in UTF-8 bytes", () => {
+    expect(checkFunctionCodeSize("a".repeat(MAX_FUNCTION_CODE_BYTES))).toBe(
+      undefined,
+    );
+    // Two bytes each: half as many characters reach the limit.
+    expect(() =>
+      checkFunctionCodeSize("ä".repeat(MAX_FUNCTION_CODE_BYTES / 2 + 1)),
+    ).toThrow(
+      `makes a CloudFront Function of ${MAX_FUNCTION_CODE_BYTES + 2} bytes`,
+    );
+  });
+
+  it("reports a token rather than measuring its placeholder", () => {
+    const code = `${"a".repeat(MAX_FUNCTION_CODE_BYTES)}${Lazy.string({
+      produce: () => "",
+    })}`;
+    expect(checkFunctionCodeSize(code)).toBe("unresolved");
+  });
+});
+
+describe("assertViewerRequestUnclaimed", () => {
+  it("allows no associations, or ones on other event types", () => {
+    expect(() =>
+      assertViewerRequestUnclaimed("staticBehaviorOptions", undefined, "x"),
+    ).not.toThrow();
+    expect(() =>
+      assertViewerRequestUnclaimed(
+        "staticBehaviorOptions",
+        [{ eventType: FunctionEventType.VIEWER_RESPONSE }],
+        "x",
+      ),
+    ).not.toThrow();
+  });
+
+  it("names the override and what needs the event type", () => {
+    expect(() =>
+      assertViewerRequestUnclaimed(
+        "imageBehaviorOptions",
+        [{ eventType: FunctionEventType.VIEWER_REQUEST }],
+        "something needs it",
+      ),
+    ).toThrow(
+      "`overrides.imageBehaviorOptions.functionAssociations` associates a " +
+        "CloudFront function with viewer-request, but something needs it. ",
+    );
   });
 });
