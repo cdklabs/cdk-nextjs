@@ -10,24 +10,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { Duration, RemovalPolicy, Token } from "aws-cdk-lib";
-import {
-  BlockPublicAccess,
-  Bucket,
-  BucketEncryption,
-  BucketProps,
-  IBucket,
-} from "aws-cdk-lib/aws-s3";
+import { Duration, Token } from "aws-cdk-lib";
+import { Bucket, BucketProps, IBucket } from "aws-cdk-lib/aws-s3";
 import {
   BucketDeployment,
   BucketDeploymentProps,
   CacheControl,
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
-import * as cxapi from "aws-cdk-lib/cx-api";
 import { Construct } from "constructs";
+import { rejectDeploymentOverrides } from "./bucket-deployment-overrides";
 import { LOG_PREFIX } from "./constants";
 import { normalizeBasePath } from "./utils/base-path";
+import { removeStagingDirs } from "./utils/remove-staging-dirs";
+import { SECURE_BUCKET_PROPS } from "./utils/secure-bucket-props";
 
 /**
  * The S3 object key pattern covering every static asset uploaded under
@@ -204,21 +200,10 @@ export class NextjsStaticAssets extends Construct {
       this.serviceWorkerDeployment = uploads.serviceWorkerDeployment;
       this.publicDeployment = uploads.publicDeployment;
     } finally {
-      // `Source.asset` stages during `BucketDeployment`'s construction (CDK's
-      // `AssetStaging` copies into `cdk.out` from its own constructor), so the
-      // temporary copies are dead once the deployments exist, or once one of
+      // The staging copies are dead once the deployments exist, or once one of
       // them failed. Left behind, every synth would add another full copy of
       // the app's static assets to the temp directory.
-      //
-      // Unless staging is disabled (`cdk synth --no-staging`, and SAM, which
-      // sets the same context): then the asset manifest points at these
-      // directories themselves, and removing them would fail the publish that
-      // follows.
-      if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
-        for (const dir of staged) {
-          rmSync(dir, { recursive: true, force: true });
-        }
-      }
+      removeStagingDirs(this, staged);
     }
     this.deployment = (this.staticDeployment ??
       this.serviceWorkerDeployment ??
@@ -328,19 +313,16 @@ export class NextjsStaticAssets extends Construct {
    * explicit `undefined` from a JSII binding is not mistaken for an override.
    */
   private validateDeploymentOverrides() {
-    const overrides = this.props.overrides?.bucketDeploymentProps;
-    const rejected = [
-      overrides?.prune === true &&
-        "`prune: true` (old assets are pruned after deploy by NextjsPostDeploy, once they are past its TTL)",
-      overrides?.retainOnDelete === false && "`retainOnDelete: false`",
-    ].filter((reason): reason is string => !!reason);
-    if (rejected.length > 0) {
-      throw new Error(
-        `${LOG_PREFIX} overrides.bucketDeploymentProps can't set ${rejected.join(", or ")}: ` +
-          "the static assets are uploaded by one deployment per Cache-Control, " +
-          "and each of these would break the others.",
-      );
-    }
+    rejectDeploymentOverrides(
+      this.props.overrides?.bucketDeploymentProps,
+      {
+        prune:
+          " (old assets are pruned after deploy by NextjsPostDeploy, once they are past its TTL)",
+        retainOnDelete: "",
+      },
+      "the static assets are uploaded by one deployment per Cache-Control, " +
+        "and each of these would break the others.",
+    );
   }
 
   /**
@@ -367,12 +349,7 @@ export class NextjsStaticAssets extends Construct {
 
   private createBucket() {
     return new Bucket(this, "Bucket", {
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      enforceSSL: true,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      encryption: BucketEncryption.S3_MANAGED,
-      minimumTLSVersion: 1.2,
+      ...SECURE_BUCKET_PROPS,
       ...this.props.overrides?.bucketProps,
     });
   }

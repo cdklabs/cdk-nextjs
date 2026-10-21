@@ -1,14 +1,7 @@
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  statSync,
-} from "fs";
+import { cpSync, existsSync, mkdtempSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { RemovalPolicy, Size } from "aws-cdk-lib";
+import { Annotations, RemovalPolicy, Size } from "aws-cdk-lib";
 import {
   AttributeType,
   Billing,
@@ -16,58 +9,34 @@ import {
   TablePropsV2,
   ITableV2,
 } from "aws-cdk-lib/aws-dynamodb";
-import {
-  Bucket,
-  BucketEncryption,
-  BucketProps,
-  BlockPublicAccess,
-  IBucket,
-} from "aws-cdk-lib/aws-s3";
+import { Bucket, BucketProps, IBucket } from "aws-cdk-lib/aws-s3";
 import {
   BucketDeployment,
   BucketDeploymentProps,
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
-import * as cxapi from "aws-cdk-lib/cx-api";
 import { Construct } from "constructs";
+import { rejectDeploymentOverrides } from "./bucket-deployment-overrides";
 import { LOG_PREFIX } from "./constants";
-
-/** What a `BucketDeployment` Lambda gets without asking. */
-const DEFAULT_EPHEMERAL_STORAGE_MIB = 512;
-/** The most Lambda will give any function. */
-const MAX_EPHEMERAL_STORAGE_MIB = 10240;
+import { listTree } from "./nextjs-build/nextjs-build";
+import {
+  deploymentLambdaSizing,
+  MAX_EPHEMERAL_STORAGE_MIB,
+} from "./utils/cache-deployment-sizing";
+import { removeStagingDirs } from "./utils/remove-staging-dirs";
+import { SECURE_BUCKET_PROPS } from "./utils/secure-bucket-props";
 
 /**
- * The smallest power-of-two MiB step at or above `mib`, capped at `max`.
+ * Bytes on disk under `dir`, following the tree but not symlinks.
  *
- * `BucketDeployment` folds `ephemeralStorageSize` into both its singleton
- * handler's UUID and its custom resource's logical ID, so every distinct size is
- * a new handler Lambda, a new `ServiceToken`, and a replaced custom resource.
- * Sized to the MiB, that was every deploy whose init cache grew by one: a full
- * CloudFormation deployment where a hotswap would have done. Doubling steps
- * change only when the cache does by a large fraction.
+ * On {@link listTree} rather than `readdirSync({ recursive: true })`, which on
+ * Node 24 descends into symlinked directories and never returns on a cycle.
  */
-function storageStep(mib: number, max: number): number {
-  let step = DEFAULT_EPHEMERAL_STORAGE_MIB;
-  while (step < mib) {
-    step *= 2;
-  }
-  return Math.min(step, max);
-}
-
-/** Bytes on disk under `dir`, following the tree but not symlinks. */
-function sizeOfDirectory(dir: string): number {
+export function sizeOfDirectory(dir: string): number {
   let total = 0;
-  for (const entry of readdirSync(dir, {
-    withFileTypes: true,
-    recursive: true,
-  })) {
+  for (const entry of listTree(dir)) {
     if (entry.isFile()) {
-      // `parentPath` only exists from Node 20.12; `path` is its deprecated
-      // predecessor, and the only one on 20.9-20.11.
-      const parent =
-        entry.parentPath ?? (entry as unknown as { path: string }).path;
-      total += statSync(join(parent, entry.name)).size;
+      total += statSync(join(entry.parentPath, entry.name)).size;
     }
   }
   return total;
@@ -76,6 +45,19 @@ function sizeOfDirectory(dir: string): number {
 export interface NextjsCacheOverrides {
   readonly cacheBucketProps?: BucketProps;
   readonly revalidationTableProps?: TablePropsV2;
+  /**
+   * Overrides for the init cache's `BucketDeployment`, such as `useEfs` or
+   * `memoryLimit` for a large cache.
+   *
+   * `sources` and `destinationBucket`, which the type requires, are ignored:
+   * the upload is always the staged init cache, to the cache bucket (pass
+   * `cacheBucket` to bring your own). So is `destinationKeyPrefix`, since the
+   * cache handler reads the objects at `<buildId>/<key>`.
+   *
+   * `prune: true`, `retainOnDelete: false` and `extract: false` are rejected:
+   * the first two can delete cache entries the running app relies on, and the
+   * last uploads the zip instead of the cache.
+   */
   readonly bucketDeploymentProps?: BucketDeploymentProps;
 }
 
@@ -139,11 +121,7 @@ export class NextjsCache extends Construct {
    */
   private createCacheBucket(): IBucket {
     const bucket = new Bucket(this, "Bucket", {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      enforceSSL: true,
+      ...SECURE_BUCKET_PROPS,
       ...this.props.overrides?.cacheBucketProps,
     });
 
@@ -180,6 +158,38 @@ export class NextjsCache extends Construct {
    * Deploy pre-built cache files from .next/cdk-nextjs-init-cache to S3
    */
   private createDeployment(): BucketDeployment | undefined {
+    const overrides = this.props.overrides?.bucketDeploymentProps;
+    // Checked whether or not this build has an init cache, so that an override
+    // fails, or warns, the same way for every build.
+    //
+    // - `prune: true` runs `s3 sync --delete` against the whole bucket (there is
+    //   no destination prefix), deleting the previous build's entries and those
+    //   written at runtime while the old functions or tasks still serve them.
+    // - `retainOnDelete: false` makes an update that changes the destination
+    //   `s3 rm --recursive` the old one, owned bucket or not. And it empties an
+    //   imported bucket, which CDK can't tag as owned, whenever the deployment
+    //   is replaced, as it is when the Lambda's sizing changes: after the new
+    //   deployment has uploaded this build's seed.
+    // - `extract: false` uploads the asset zip itself instead of the cache.
+    rejectDeploymentOverrides(
+      overrides,
+      {
+        prune:
+          " (old builds' entries are pruned after deploy by NextjsPostDeploy)",
+        retainOnDelete: "",
+        extract: "",
+      },
+      "the init cache must be unpacked under <buildId>/ next to the entries " +
+        "the running app writes, and each of these would delete or replace them.",
+    );
+
+    if (overrides?.destinationKeyPrefix) {
+      Annotations.of(this).addWarningV2(
+        "cdk-nextjs:ignoredDestinationKeyPrefix",
+        `${LOG_PREFIX} overrides.bucketDeploymentProps.destinationKeyPrefix is ignored: the init cache is always uploaded under <buildId>/, where the cache handler reads it.`,
+      );
+    }
+
     // Check if cache directory exists
     if (!existsSync(this.props.initCacheDir)) {
       console.log(
@@ -200,29 +210,30 @@ export class NextjsCache extends Construct {
         this,
         "InitCacheDeployment",
         {
+          ...overrides,
+          // Set after the spread. The type makes callers pass `sources` and
+          // `destinationBucket`, and either would upload something other than
+          // the init cache, or somewhere the cache handler doesn't read from.
+          // A `destinationKeyPrefix` would put the objects outside the
+          // `<buildId>/` keys the cache handler reads, where the post-deploy
+          // pruner deletes them. `rejectDeploymentOverrides` lets `prune`
+          // through only as `false` or an explicit `undefined` from a JSII
+          // binding, which would turn on CDK's default `prune: true`; such an
+          // `undefined` would also drop the staged source or the computed sizing.
           sources: [Source.asset(stagingDir)],
           destinationBucket: this.cacheBucket,
+          destinationKeyPrefix: undefined,
           prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
-          ...this.sizeDeploymentLambda(),
-          ...this.props.overrides?.bucketDeploymentProps,
+          ...this.sizeDeploymentLambda(overrides),
         },
       );
       return bucketDeployment;
     } finally {
-      // `Source.asset` stages during `BucketDeployment`'s construction - CDK's
-      // `AssetStaging` zips into `cdk.out` from its own constructor - so the
-      // temporary copy is dead the moment that returns. Leaving it was a slow
-      // leak with a large unit: the init cache has been measured at 664 MiB, and
-      // every `cdk synth` left another full copy in the system temp directory,
-      // so a CI loop of ~22 deploys could put ~15 GB on the runner's disk.
-      //
-      // Unless staging is disabled (`cdk synth --no-staging`, and SAM, which
-      // sets the same context): then nothing is copied into `cdk.out`, the
-      // asset manifest points at this directory itself, and removing it fails
-      // the publish that follows the synth with ENOENT.
-      if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
-        rmSync(stagingDir, { recursive: true, force: true });
-      }
+      // Leaving the copy was a slow leak with a large unit: the init cache has
+      // been measured at 664 MiB, and every `cdk synth` left another full copy
+      // in the system temp directory, so a CI loop of ~22 deploys could put
+      // ~15 GB on the runner's disk.
+      removeStagingDirs(this, [stagingDir]);
     }
   }
 
@@ -248,29 +259,38 @@ export class NextjsCache extends Construct {
    * The zip's compressed size is not known at synth time (CDK archives the asset
    * later), so the worst case — an incompressible payload — is what gets
    * budgeted: twice the directory, plus headroom, rounded up to a
-   * {@link storageStep}. Memory is only raised past
+   * power-of-two step (`deploymentLambdaSizing`). Memory is only raised past
    * CDK's default for caches big enough that 128 MB's slice of a vCPU would make
    * the unzip and upload race the custom resource's 15-minute timeout; small
    * apps keep the cheaper default and their existing template.
    *
    * Above the 10 GiB ephemeral-storage ceiling there is nothing left to ask for,
-   * so this warns and lets the deployment fail loudly rather than pretend.
-   * `overrides.bucketDeploymentProps` wins over everything here, including
-   * `useEfs: true`, which is the supported way out.
+   * so this warns and lets the deployment fail loudly rather than pretend,
+   * unless `useEfs: true`, the supported way out, is already set. With EFS the
+   * handler unpacks onto the mount instead of `/tmp`, so `/tmp` is left at CDK's
+   * default. An `ephemeralStorageSize` or `memoryLimit` in
+   * `overrides.bucketDeploymentProps` wins over what is computed here.
    */
-  private sizeDeploymentLambda() {
-    const mib = Math.ceil(sizeOfDirectory(this.props.initCacheDir) / 1024 ** 2);
-    const wanted = mib * 2 + 128;
-    if (wanted > MAX_EPHEMERAL_STORAGE_MIB) {
+  private sizeDeploymentLambda(overrides?: BucketDeploymentProps) {
+    const useEfs = overrides?.useEfs;
+    const sizeStorage = !overrides?.ephemeralStorageSize && !useEfs;
+    const sizeMemory = !overrides?.memoryLimit;
+    // Still walked when both sizes are overridden without EFS, so that the
+    // warning below fires for an overridden `/tmp` too.
+    const sizing = deploymentLambdaSizing(
+      !useEfs || sizeMemory ? sizeOfDirectory(this.props.initCacheDir) : 0,
+    );
+    if (!useEfs && sizing.exceedsMax) {
       console.warn(
-        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${mib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
+        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${sizing.cacheMib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true and a vpc to seed a cache this large.`,
       );
     }
-    const ephemeral = storageStep(wanted, MAX_EPHEMERAL_STORAGE_MIB);
 
     return {
-      ephemeralStorageSize: Size.mebibytes(ephemeral),
-      ...(mib > 256 ? { memoryLimit: 1024 } : {}),
+      ephemeralStorageSize: sizeStorage
+        ? Size.mebibytes(sizing.ephemeralStorageMib)
+        : overrides?.ephemeralStorageSize,
+      memoryLimit: sizeMemory ? sizing.memoryLimit : overrides?.memoryLimit,
     };
   }
 
@@ -290,9 +310,11 @@ export class NextjsCache extends Construct {
    * run, ~110s each against a ~52s hotswap.
    *
    * Putting the build ID in the asset's own paths instead leaves the S3 keys
-   * byte-identical and the tag key constant (`aws-cdk:cr-owned:<hash>`, derived
-   * from the construct path). Nothing else read the prefix: `prune` is already
-   * `false`, and the two handler branches that do scope work to it — emptying
+   * byte-identical and the tag key free of the build ID (`aws-cdk:cr-owned:<hash>`,
+   * derived from the custom resource's path, which still changes with the
+   * Lambda's sizing, a {@link storageStep} at a time, or with `useEfs`). Nothing
+   * else read the prefix: `prune` is always `false` here, and the two handler
+   * branches that do scope work to it — emptying
    * the prefix on delete, and deleting the old prefix when the destination
    * changes — are both gated on `retainOnDelete`, which `BucketDeployment`
    * defaults to `true`.
