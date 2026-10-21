@@ -1,4 +1,3 @@
-import { Token } from "aws-cdk-lib";
 import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
@@ -26,8 +25,10 @@ import {
   NextjsStaticAssetsOverrides,
   NextjsStaticAssetsProps,
 } from "../nextjs-static-assets";
+import { apiGatewayPrefixFrom } from "../utils/api-gateway-prefix";
 import {
   ApiGatewayPrefix,
+  assertStaticAssetsKeyPrefix,
   isAssetPrefixUnserved,
   prefixWithBasePath,
   resolveBasePath,
@@ -204,7 +205,11 @@ export abstract class NextjsBaseConstruct extends Construct {
     );
     this.nextjsCache = this.createNextjsCache();
     this.nextjsStaticAssets = this.createNextjsStaticAssets();
-    this.validateStaticAssetsKeyPrefix();
+    assertStaticAssetsKeyPrefix(
+      nextjsType,
+      this.resolvedBasePath,
+      this.nextjsStaticAssets.keyPrefix,
+    );
     this.warnUnservedAssetPrefix();
   }
 
@@ -238,42 +243,11 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * For the Global `NextjsType`s the key prefix isn't a free choice: it has to be
-   * `basePath` (see `resolveBasePath`). A `destinationKeyPrefix` override that
-   * moves the objects elsewhere has no way to tell the distribution about it —
-   * unlike the functions' image optimizer and `NextjsApi`, which read
-   * `NextjsStaticAssets.keyPrefix` — so fail at synth rather than 404 every
-   * static request.
-   */
-  private validateStaticAssetsKeyPrefix(): void {
-    if (
-      this.nextjsType !== NextjsType.GLOBAL_FUNCTIONS &&
-      this.nextjsType !== NextjsType.GLOBAL_CONTAINERS
-    ) {
-      return;
-    }
-    const expected = this.resolvedBasePath ?? "";
-    const actual = this.nextjsStaticAssets.keyPrefix;
-    if (actual !== expected) {
-      throw new Error(
-        `${LOG_PREFIX} static assets key prefix mismatch for NextjsType.${this.nextjsType}: ` +
-          `the assets are uploaded under ${actual ? `"${actual}"` : "the bucket root"} ` +
-          `but CloudFront will request them under ${expected ? `"${expected}"` : "the bucket root"}, ` +
-          "using the request path as the S3 object key, so every `_next/static` and `public/` request would 404. " +
-          "Drop the `destinationKeyPrefix` override, or set it to the same value as `basePath`. " +
-          "To namespace a shared bucket, use `basePath` — it prefixes the keys and the URLs together.",
-      );
-    }
-  }
-
-  /**
    * The prefix API Gateway will strip, read from the same `restApiProps`
-   * override `NextjsApi` builds its `RestApi` from. Only meaningful for
-   * `REGIONAL_FUNCTIONS`, and read before `NextjsApi` exists because the
-   * resolved `basePath` also decides the static assets' S3 key prefix.
-   *
-   * A domain attached later with `api.addDomainName()` is invisible here, the
-   * same limitation `NextjsApi.url` documents.
+   * override `NextjsApi` builds its `RestApi` from (see
+   * {@link apiGatewayPrefixFrom}). Only meaningful for `REGIONAL_FUNCTIONS`,
+   * and read before `NextjsApi` exists because the resolved `basePath` also
+   * decides the static assets' S3 key prefix.
    */
   private apiGatewayPrefix(): ApiGatewayPrefix {
     // `overrides.nextjsApi` is the only typed way to reach the `RestApi`'s
@@ -282,17 +256,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     const apiOverrides = (
       this.baseProps.overrides as { nextjsApi?: NextjsApiOverrides } | undefined
     )?.nextjsApi;
-    const restApiProps = apiOverrides?.restApiProps;
-    const domainName = restApiProps?.domainName;
-    const strippedPrefix = domainName
-      ? (domainName.basePath ?? "")
-      : (restApiProps?.deployOptions?.stageName ?? "prod");
-    return {
-      strippedPrefix: Token.isUnresolved(strippedPrefix)
-        ? undefined
-        : strippedPrefix,
-      customDomain: domainName !== undefined,
-    };
+    return apiGatewayPrefixFrom(apiOverrides?.restApiProps);
   }
 
   /**

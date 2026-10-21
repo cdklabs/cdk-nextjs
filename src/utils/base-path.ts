@@ -3,7 +3,7 @@
  * touches the filesystem, so the adapter and runtime bundles can import it as
  * well as the constructs.
  */
-import { LOG_PREFIX, NextjsType } from "../constants";
+import { isGlobalType, LOG_PREFIX, NextjsType } from "../constants";
 
 /**
  * Reduces a `basePath` to a bare path segment so values that address the same
@@ -140,12 +140,7 @@ export function isAssetPrefixUnserved(
   nextConfigBasePath?: string,
 ): boolean {
   if (!nextConfigAssetPrefix) return false;
-  if (
-    nextjsType === NextjsType.GLOBAL_FUNCTIONS ||
-    nextjsType === NextjsType.GLOBAL_CONTAINERS
-  ) {
-    return false;
-  }
+  if (isGlobalType(nextjsType)) return false;
   return (
     normalizeBasePath(nextConfigAssetPrefix) !==
     normalizeBasePath(nextConfigBasePath)
@@ -413,5 +408,35 @@ export function resolveBasePath(
       // static assets, so here `basePath` only namespaces the S3 bucket and has
       // no routing meaning that could disagree with the app.
       return prop || undefined;
+  }
+}
+
+/**
+ * For the Global `NextjsType`s the static assets' key prefix isn't a free
+ * choice: it has to be the resolved `basePath` (see {@link resolveBasePath}). A
+ * `destinationKeyPrefix` override that moves the objects elsewhere has no way
+ * to tell the distribution about it — unlike the functions' image optimizer and
+ * `NextjsApi`, which read `NextjsStaticAssets.keyPrefix` — so this throws at
+ * synth rather than letting every static request 404. The other types read the
+ * key prefix wherever it is, so any value passes.
+ */
+export function assertStaticAssetsKeyPrefix(
+  nextjsType: NextjsType,
+  resolvedBasePath: string | undefined,
+  keyPrefix: string,
+): void {
+  if (!isGlobalType(nextjsType)) {
+    return;
+  }
+  const expected = resolvedBasePath ?? "";
+  if (keyPrefix !== expected) {
+    throw new Error(
+      `${LOG_PREFIX} static assets key prefix mismatch for NextjsType.${nextjsType}: ` +
+        `the assets are uploaded under ${keyPrefix ? `"${keyPrefix}"` : "the bucket root"} ` +
+        `but CloudFront will request them under ${expected ? `"${expected}"` : "the bucket root"}, ` +
+        "using the request path as the S3 object key, so every `_next/static` and `public/` request would 404. " +
+        "Drop the `destinationKeyPrefix` override, or set it to the same value as `basePath`. " +
+        "To namespace a shared bucket, use `basePath` — it prefixes the keys and the URLs together.",
+    );
   }
 }

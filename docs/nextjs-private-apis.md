@@ -81,7 +81,7 @@ There are no imports here. We depend on the shape of strings, files and objects.
 - **`.body` static files**. The content type is inferred from the suffix, because `STATIC_FILE` outputs don't carry headers. _Upstream:_ a content type on static outputs.
 - **Turbopack entrypoints can be async modules**, so we await the module before reading `handler`.
 - **Node middleware entrypoint contract**. It's documented only in the deprecated Edge section (`templates/middleware.ts`).
-- **Fields on `NodeNextRequest` / `NodeNextResponse`** that our `IncomingMessage` / `ServerResponse` shims must provide (`req.url` reassignment, `fetchMetrics`, `res.flush()` per chunk, …).
+- **Fields on `NodeNextRequest` / `NodeNextResponse`** that our `IncomingMessage` / `ServerResponse` shims must provide (`req.url` reassignment, `fetchMetrics`, the `res.flush()` that `compression` adds under `next start`, …).
 
 **Build output layout**
 

@@ -1,11 +1,4 @@
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  statSync,
-} from "fs";
+import { cpSync, existsSync, mkdtempSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { RemovalPolicy, Size } from "aws-cdk-lib";
@@ -16,58 +9,33 @@ import {
   TablePropsV2,
   ITableV2,
 } from "aws-cdk-lib/aws-dynamodb";
-import {
-  Bucket,
-  BucketEncryption,
-  BucketProps,
-  BlockPublicAccess,
-  IBucket,
-} from "aws-cdk-lib/aws-s3";
+import { Bucket, BucketProps, IBucket } from "aws-cdk-lib/aws-s3";
 import {
   BucketDeployment,
   BucketDeploymentProps,
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
-import * as cxapi from "aws-cdk-lib/cx-api";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
-
-/** What a `BucketDeployment` Lambda gets without asking. */
-const DEFAULT_EPHEMERAL_STORAGE_MIB = 512;
-/** The most Lambda will give any function. */
-const MAX_EPHEMERAL_STORAGE_MIB = 10240;
+import { listTree } from "./nextjs-build/nextjs-build";
+import {
+  deploymentLambdaSizing,
+  MAX_EPHEMERAL_STORAGE_MIB,
+} from "./utils/cache-deployment-sizing";
+import { removeStagingDirs } from "./utils/remove-staging-dirs";
+import { SECURE_BUCKET_PROPS } from "./utils/secure-bucket-props";
 
 /**
- * The smallest power-of-two MiB step at or above `mib`, capped at `max`.
+ * Bytes on disk under `dir`, following the tree but not symlinks.
  *
- * `BucketDeployment` folds `ephemeralStorageSize` into both its singleton
- * handler's UUID and its custom resource's logical ID, so every distinct size is
- * a new handler Lambda, a new `ServiceToken`, and a replaced custom resource.
- * Sized to the MiB, that was every deploy whose init cache grew by one: a full
- * CloudFormation deployment where a hotswap would have done. Doubling steps
- * change only when the cache does by a large fraction.
+ * On {@link listTree} rather than `readdirSync({ recursive: true })`, which on
+ * Node 24 descends into symlinked directories and never returns on a cycle.
  */
-function storageStep(mib: number, max: number): number {
-  let step = DEFAULT_EPHEMERAL_STORAGE_MIB;
-  while (step < mib) {
-    step *= 2;
-  }
-  return Math.min(step, max);
-}
-
-/** Bytes on disk under `dir`, following the tree but not symlinks. */
-function sizeOfDirectory(dir: string): number {
+export function sizeOfDirectory(dir: string): number {
   let total = 0;
-  for (const entry of readdirSync(dir, {
-    withFileTypes: true,
-    recursive: true,
-  })) {
+  for (const entry of listTree(dir)) {
     if (entry.isFile()) {
-      // `parentPath` only exists from Node 20.12; `path` is its deprecated
-      // predecessor, and the only one on 20.9-20.11.
-      const parent =
-        entry.parentPath ?? (entry as unknown as { path: string }).path;
-      total += statSync(join(parent, entry.name)).size;
+      total += statSync(join(entry.parentPath, entry.name)).size;
     }
   }
   return total;
@@ -139,11 +107,7 @@ export class NextjsCache extends Construct {
    */
   private createCacheBucket(): IBucket {
     const bucket = new Bucket(this, "Bucket", {
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      enforceSSL: true,
+      ...SECURE_BUCKET_PROPS,
       ...this.props.overrides?.cacheBucketProps,
     });
 
@@ -209,20 +173,11 @@ export class NextjsCache extends Construct {
       );
       return bucketDeployment;
     } finally {
-      // `Source.asset` stages during `BucketDeployment`'s construction - CDK's
-      // `AssetStaging` zips into `cdk.out` from its own constructor - so the
-      // temporary copy is dead the moment that returns. Leaving it was a slow
-      // leak with a large unit: the init cache has been measured at 664 MiB, and
-      // every `cdk synth` left another full copy in the system temp directory,
-      // so a CI loop of ~22 deploys could put ~15 GB on the runner's disk.
-      //
-      // Unless staging is disabled (`cdk synth --no-staging`, and SAM, which
-      // sets the same context): then nothing is copied into `cdk.out`, the
-      // asset manifest points at this directory itself, and removing it fails
-      // the publish that follows the synth with ENOENT.
-      if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
-        rmSync(stagingDir, { recursive: true, force: true });
-      }
+      // Leaving the copy was a slow leak with a large unit: the init cache has
+      // been measured at 664 MiB, and every `cdk synth` left another full copy
+      // in the system temp directory, so a CI loop of ~22 deploys could put
+      // ~15 GB on the runner's disk.
+      removeStagingDirs(this, [stagingDir]);
     }
   }
 
@@ -248,7 +203,7 @@ export class NextjsCache extends Construct {
    * The zip's compressed size is not known at synth time (CDK archives the asset
    * later), so the worst case — an incompressible payload — is what gets
    * budgeted: twice the directory, plus headroom, rounded up to a
-   * {@link storageStep}. Memory is only raised past
+   * power-of-two step (`deploymentLambdaSizing`). Memory is only raised past
    * CDK's default for caches big enough that 128 MB's slice of a vCPU would make
    * the unzip and upload race the custom resource's 15-minute timeout; small
    * apps keep the cheaper default and their existing template.
@@ -259,18 +214,20 @@ export class NextjsCache extends Construct {
    * `useEfs: true`, which is the supported way out.
    */
   private sizeDeploymentLambda() {
-    const mib = Math.ceil(sizeOfDirectory(this.props.initCacheDir) / 1024 ** 2);
-    const wanted = mib * 2 + 128;
-    if (wanted > MAX_EPHEMERAL_STORAGE_MIB) {
+    const sizing = deploymentLambdaSizing(
+      sizeOfDirectory(this.props.initCacheDir),
+    );
+    if (sizing.exceedsMax) {
       console.warn(
-        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${mib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
+        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${sizing.cacheMib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
       );
     }
-    const ephemeral = storageStep(wanted, MAX_EPHEMERAL_STORAGE_MIB);
 
     return {
-      ephemeralStorageSize: Size.mebibytes(ephemeral),
-      ...(mib > 256 ? { memoryLimit: 1024 } : {}),
+      ephemeralStorageSize: Size.mebibytes(sizing.ephemeralStorageMib),
+      ...(sizing.memoryLimit !== undefined
+        ? { memoryLimit: sizing.memoryLimit }
+        : {}),
     };
   }
 

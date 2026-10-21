@@ -1,8 +1,11 @@
+import { Token } from "aws-cdk-lib";
+import { FunctionEventType } from "aws-cdk-lib/aws-cloudfront";
 import { LOG_PREFIX } from "../constants";
 
 /**
  * The code of cdk-nextjs's CloudFront Functions, and of `viewerRequestFunctionCode`
- * spliced into them. Plain strings: `NextjsDistribution` creates the functions.
+ * spliced into them, and the checks on both. Synth-time only (it imports
+ * `aws-cdk-lib`): `NextjsDistribution` creates the functions.
  */
 
 /**
@@ -192,4 +195,54 @@ export function spliceViewerRequest(
       }`,
     ),
   )}`;
+}
+
+/**
+ * Throw when a function's code, `viewerRequestFunctionCode` spliced in, is over
+ * {@link MAX_FUNCTION_CODE_BYTES}. `"unresolved"` when it contains a CDK token,
+ * whose placeholder isn't the length of what it resolves to, so the size can't
+ * be checked until deploy.
+ */
+export function checkFunctionCodeSize(code: string): "unresolved" | undefined {
+  if (Token.isUnresolved(code)) {
+    return "unresolved";
+  }
+  const size = Buffer.byteLength(code);
+  if (size > MAX_FUNCTION_CODE_BYTES) {
+    throw new Error(
+      `${LOG_PREFIX} \`viewerRequestFunctionCode\` makes a CloudFront ` +
+        `Function of ${size} bytes, cdk-nextjs's own code included, over ` +
+        `CloudFront's limit of ${MAX_FUNCTION_CODE_BYTES}. Shorten it ` +
+        `(comments and whitespace count). See ` +
+        `https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-functions`,
+    );
+  }
+  return undefined;
+}
+
+/**
+ * CloudFront allows one function per event type per behavior, so an
+ * override's viewer-request association and one cdk-nextjs needs can't both
+ * be kept. Thrown at synth, where both halves are known, rather than left to
+ * a deploy that names neither.
+ */
+export function assertViewerRequestUnclaimed(
+  overrideName: string,
+  associations:
+    readonly { readonly eventType: FunctionEventType }[] | undefined,
+  needs: string,
+) {
+  const claimed = (associations ?? []).some(
+    (association) => association.eventType === FunctionEventType.VIEWER_REQUEST,
+  );
+  if (claimed) {
+    throw new Error(
+      `${LOG_PREFIX} \`overrides.${overrideName}.functionAssociations\` ` +
+        `associates a CloudFront function with ` +
+        `${FunctionEventType.VIEWER_REQUEST}, but ${needs}. ` +
+        `CloudFront permits only one function per event type per behavior. ` +
+        `Move the logic into \`viewerRequestFunctionCode\`, which runs ` +
+        `inside cdk-nextjs's own viewer-request function on every behavior.`,
+    );
+  }
 }

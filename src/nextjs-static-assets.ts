@@ -10,24 +10,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { Duration, RemovalPolicy, Token } from "aws-cdk-lib";
-import {
-  BlockPublicAccess,
-  Bucket,
-  BucketEncryption,
-  BucketProps,
-  IBucket,
-} from "aws-cdk-lib/aws-s3";
+import { Duration, Token } from "aws-cdk-lib";
+import { Bucket, BucketProps, IBucket } from "aws-cdk-lib/aws-s3";
 import {
   BucketDeployment,
   BucketDeploymentProps,
   CacheControl,
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
-import * as cxapi from "aws-cdk-lib/cx-api";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { normalizeBasePath } from "./utils/base-path";
+import { removeStagingDirs } from "./utils/remove-staging-dirs";
+import { SECURE_BUCKET_PROPS } from "./utils/secure-bucket-props";
 
 /**
  * The S3 object key pattern covering every static asset uploaded under
@@ -54,10 +49,9 @@ const SERVICE_WORKER_DIR = "service-worker";
  * by.
  *
  * An explicit walk rather than `readdirSync({ recursive: true })`, which never
- * returns on a symlink cycle (Node 24 follows directory links), and whose
- * `Dirent.parentPath` doesn't exist before Node 20.12. A link back to a
- * directory already on the current path is a cycle and isn't followed; one that
- * can't be stat'd (dangling, or a loop of links) counts as a file.
+ * returns on a symlink cycle (Node follows directory links). A link back to
+ * a directory already on the current path is a cycle and isn't followed; one
+ * that can't be stat'd (dangling, or a loop of links) counts as a file.
  */
 function listFiles(dir: string): string[] {
   const files: string[] = [];
@@ -204,21 +198,10 @@ export class NextjsStaticAssets extends Construct {
       this.serviceWorkerDeployment = uploads.serviceWorkerDeployment;
       this.publicDeployment = uploads.publicDeployment;
     } finally {
-      // `Source.asset` stages during `BucketDeployment`'s construction (CDK's
-      // `AssetStaging` copies into `cdk.out` from its own constructor), so the
-      // temporary copies are dead once the deployments exist, or once one of
+      // The staging copies are dead once the deployments exist, or once one of
       // them failed. Left behind, every synth would add another full copy of
       // the app's static assets to the temp directory.
-      //
-      // Unless staging is disabled (`cdk synth --no-staging`, and SAM, which
-      // sets the same context): then the asset manifest points at these
-      // directories themselves, and removing them would fail the publish that
-      // follows.
-      if (!this.node.tryGetContext(cxapi.DISABLE_ASSET_STAGING_CONTEXT)) {
-        for (const dir of staged) {
-          rmSync(dir, { recursive: true, force: true });
-        }
-      }
+      removeStagingDirs(this, staged);
     }
     this.deployment = (this.staticDeployment ??
       this.serviceWorkerDeployment ??
@@ -367,12 +350,7 @@ export class NextjsStaticAssets extends Construct {
 
   private createBucket() {
     return new Bucket(this, "Bucket", {
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      enforceSSL: true,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      encryption: BucketEncryption.S3_MANAGED,
-      minimumTLSVersion: 1.2,
+      ...SECURE_BUCKET_PROPS,
       ...this.props.overrides?.bucketProps,
     });
   }

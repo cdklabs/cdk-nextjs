@@ -134,7 +134,7 @@
       "description": "Create a JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
         }
       ]
     },
@@ -143,7 +143,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
         }
       ]
     },
@@ -152,7 +152,7 @@
       "description": "Create a JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
         }
       ]
     },
@@ -161,7 +161,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
         }
       ]
     },
@@ -170,7 +170,7 @@
       "description": "Create a JavaScript bundle from src/adapter/use-cache-default-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-default-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-default-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "exec": "esbuild --bundle src/adapter/use-cache-default-handler.ts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-default-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
         }
       ]
     },
@@ -179,7 +179,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/use-cache-default-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-default-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-default-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "exec": "esbuild --bundle src/adapter/use-cache-default-handler.ts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-default-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
         }
       ]
     },
@@ -188,7 +188,7 @@
       "description": "Create a JavaScript bundle from src/adapter/use-cache-remote-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-remote-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-remote-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "exec": "esbuild --bundle src/adapter/use-cache-remote-handler.ts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-remote-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
         }
       ]
     },
@@ -197,7 +197,7 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/use-cache-remote-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-remote-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-remote-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "exec": "esbuild --bundle src/adapter/use-cache-remote-handler.ts --target=\"node22.2.0\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-remote-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
         }
       ]
     },

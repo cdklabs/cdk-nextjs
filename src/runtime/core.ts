@@ -1527,14 +1527,14 @@ async function sendWebResponse(
     if (res.destroyed) {
       return;
     }
+    // No `res.flush()` needed when the sink compresses: its gzip stage
+    // sync-flushes every chunk, so a streamed body (server-sent events through
+    // a rewrite, a middleware `ReadableStream`) reaches the client chunk by
+    // chunk.
+    //
     // Paced by the client: without waiting for `drain`, a large proxied body
     // headed for a slow client is buffered whole in memory.
     const accepted = res.write(chunk);
-    // Set by the sink when it compresses. Without it the chunk sits in zlib's
-    // buffer, and a streamed body — server-sent events through a rewrite, a
-    // middleware `ReadableStream` — reaches the client all at once, at the end.
-    // Next.js flushes after every chunk for the same reason (`pipe-readable`).
-    res.flush?.();
     if (!accepted && !(await drained(res))) {
       return;
     }
