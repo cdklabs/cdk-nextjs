@@ -136,8 +136,9 @@ describe("NextjsApi", () => {
     const methods = Object.values(
       Template.fromStack(stack).findResources("AWS::ApiGateway::Method"),
     );
-    // root, {proxy+}, _next/static, service worker, 2 public/ entries, /api
-    expect(methods.length).toBeGreaterThanOrEqual(7);
+    // root, {proxy+}, _next/static, service worker, 2 public/ entries, and
+    // /api plus /api/{proxy+}
+    expect(methods.length).toBe(8);
     for (const method of methods) {
       expect(method.Properties.AuthorizationType).toBe("CUSTOM");
       expect(method.Properties.AuthorizerId).toBeDefined();

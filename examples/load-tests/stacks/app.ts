@@ -12,7 +12,12 @@ import {
   ListenerAction,
   ListenerCondition,
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { Architecture, Code, Function, Runtime } from "aws-cdk-lib/aws-lambda";
+import {
+  Architecture,
+  Code,
+  Function as LambdaFunction,
+  Runtime,
+} from "aws-cdk-lib/aws-lambda";
 import {
   NextjsGlobalContainers,
   NextjsGlobalFunctions,
@@ -44,7 +49,7 @@ type ConstructName = keyof typeof CONSTRUCTS;
 
 const buildDirectory = join(import.meta.dirname, "..", "..", "bench-app");
 const healthCheckPath = "/api/health";
-/** Sent by the load tests as COOKIE; see `requireCookie` and `cookieAuthorizer` */
+/** Sent by the load tests as COOKIE; see `requireCookie` and `cookieGatedMethodOptions` */
 const REQUIRED_COOKIE = "cdk-nextjs=1";
 
 class LoadTestStack extends Stack {
@@ -90,7 +95,7 @@ class LoadTestStack extends Stack {
               restApiProps: {
                 // one CfnAccount per AWS environment, so not per stack
                 cloudWatchRole: false,
-                defaultMethodOptions: cookieAuthorizer(this),
+                defaultMethodOptions: cookieGatedMethodOptions(this),
               },
             },
           },
@@ -149,8 +154,8 @@ function requireCookie(service: ApplicationLoadBalancedFargateService): void {
  * on every method: the regional-functions example's, which caches its answer
  * per `Cookie` header, so a load test sending one cookie rarely invokes it.
  */
-function cookieAuthorizer(scope: Construct): MethodOptions {
-  const handler = new Function(scope, "CookieAuthorizerFn", {
+function cookieGatedMethodOptions(scope: Construct): MethodOptions {
+  const handler = new LambdaFunction(scope, "CookieAuthorizerFn", {
     runtime: Runtime.NODEJS_24_X,
     architecture: Architecture.ARM_64,
     handler: "index.handler",
@@ -167,6 +172,7 @@ function cookieAuthorizer(scope: Construct): MethodOptions {
   });
   const authorizer = new RequestAuthorizer(scope, "CookieAuthorizer", {
     handler,
+    // a request with no `Cookie` header gets a 401 before the Lambda runs
     identitySources: [IdentitySource.header("Cookie")],
   });
   return { authorizer, authorizationType: AuthorizationType.CUSTOM };

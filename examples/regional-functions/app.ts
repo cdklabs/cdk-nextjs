@@ -25,7 +25,12 @@ import {
   ResponseType,
   RestApi,
 } from "aws-cdk-lib/aws-apigateway";
-import { Architecture, Code, Function, Runtime } from "aws-cdk-lib/aws-lambda";
+import {
+  Architecture,
+  Code,
+  Function as LambdaFunction,
+  Runtime,
+} from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
 const app = new App();
@@ -99,7 +104,7 @@ export class RegionalFunctionsStack extends Stack {
    * another more secure authentication method.
    */
   #createCookieAuthorizer() {
-    const handler = new Function(this, "CookieAuthorizerFn", {
+    const handler = new LambdaFunction(this, "CookieAuthorizerFn", {
       runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       handler: "index.handler",
