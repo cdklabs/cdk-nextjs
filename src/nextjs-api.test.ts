@@ -1,6 +1,11 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { App, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
+import {
+  AuthorizationType,
+  IdentitySource,
+  RequestAuthorizer,
+} from "aws-cdk-lib/aws-apigateway";
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 import {
   Code,
@@ -94,6 +99,49 @@ describe("NextjsApi", () => {
       "favicon.ico",
       "images/{key}",
     ]);
+  });
+
+  // The regional-functions example gates the whole API this way: a method that
+  // missed the authorizer would answer anonymous requests.
+  it("puts restApiProps.defaultMethodOptions on every method", () => {
+    const fn = (id: string) =>
+      new LambdaFunction(stack, id, {
+        runtime: Runtime.NODEJS_22_X,
+        handler: "index.handler",
+        code: Code.fromInline("exports.handler = async () => {};"),
+      });
+    const authorizer = new RequestAuthorizer(stack, "Authorizer", {
+      handler: fn("AuthorizerFn"),
+      identitySources: [IdentitySource.header("Cookie")],
+    });
+    new NextjsApi(stack, "NextjsApi", {
+      staticAssetsBucket: Bucket.fromBucketName(stack, "Bucket", "my-bucket"),
+      serverFunction: fn("ServerFn"),
+      publicDirEntries: [
+        { name: "favicon.ico", isDirectory: false },
+        { name: "images", isDirectory: true },
+      ],
+      serviceWorkerAllowed: "/",
+      ...grouped([{ name: "api", routes: ["/api/**"], function: fn("ApiFn") }]),
+      overrides: {
+        restApiProps: {
+          defaultMethodOptions: {
+            authorizer,
+            authorizationType: AuthorizationType.CUSTOM,
+          },
+        },
+      },
+    });
+
+    const methods = Object.values(
+      Template.fromStack(stack).findResources("AWS::ApiGateway::Method"),
+    );
+    // root, {proxy+}, _next/static, service worker, 2 public/ entries, /api
+    expect(methods.length).toBeGreaterThanOrEqual(7);
+    for (const method of methods) {
+      expect(method.Properties.AuthorizationType).toBe("CUSTOM");
+      expect(method.Properties.AuthorizerId).toBeDefined();
+    }
   });
 
   describe("service workers", () => {
