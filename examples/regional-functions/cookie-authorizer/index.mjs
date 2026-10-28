@@ -2,6 +2,7 @@
  * API Gateway REQUEST authorizer admitting only requests that carry
  * `cdk-nextjs=1`, the cookie the regional-containers example's ALB requires.
  * Basic auth only for demo app; see `#createCookieAuthorizer` in `../app.ts`.
+ * The load-tests regional-functions stack uses it too.
  */
 const { REQUIRED_COOKIE } = process.env; // unset denies every request
 

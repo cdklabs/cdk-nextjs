@@ -5,7 +5,8 @@
 
 function required(name: string): string {
   const value = __ENV[name];
-  if (!value) throw new Error(`${name} is not set. See examples/load-tests/README.md`);
+  if (!value)
+    throw new Error(`${name} is not set. See examples/load-tests/README.md`);
   return value;
 }
 
@@ -22,7 +23,7 @@ export const LABEL = required("LABEL");
 
 /**
  * Sent on every request, for deployments that gate access on a cookie (the
- * NextjsRegionalContainers example requires `cdk-nextjs=1`).
+ * NextjsRegionalContainers and NextjsRegionalFunctions stacks require `cdk-nextjs=1`).
  */
 export const COOKIE = __ENV["COOKIE"] || "";
 

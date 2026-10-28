@@ -1,9 +1,18 @@
 import { App, CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
+import {
+  AuthorizationType,
+  IdentitySource,
+  MethodOptions,
+  RequestAuthorizer,
+  ResponseType,
+  RestApi,
+} from "aws-cdk-lib/aws-apigateway";
 import { ApplicationLoadBalancedFargateService } from "aws-cdk-lib/aws-ecs-patterns";
 import {
   ListenerAction,
   ListenerCondition,
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { Architecture, Code, Function, Runtime } from "aws-cdk-lib/aws-lambda";
 import {
   NextjsGlobalContainers,
   NextjsGlobalFunctions,
@@ -35,7 +44,7 @@ type ConstructName = keyof typeof CONSTRUCTS;
 
 const buildDirectory = join(import.meta.dirname, "..", "..", "bench-app");
 const healthCheckPath = "/api/health";
-/** Sent by the load tests as COOKIE; see `requireCookie` */
+/** Sent by the load tests as COOKIE; see `requireCookie` and `cookieAuthorizer` */
 const REQUIRED_COOKIE = "cdk-nextjs=1";
 
 class LoadTestStack extends Stack {
@@ -74,15 +83,20 @@ class LoadTestStack extends Stack {
       case "regional-functions": {
         // the default API Gateway stage name, which the app must serve under
         process.env["NEXTJS_BASE_PATH"] = "/prod";
-        nextjs = new NextjsRegionalFunctions(this, "Nextjs", {
+        const functions = new NextjsRegionalFunctions(this, "Nextjs", {
           buildDirectory,
           overrides: {
             nextjsApi: {
-              // one CfnAccount per AWS environment, so not per stack
-              restApiProps: { cloudWatchRole: false },
+              restApiProps: {
+                // one CfnAccount per AWS environment, so not per stack
+                cloudWatchRole: false,
+                defaultMethodOptions: cookieAuthorizer(this),
+              },
             },
           },
         });
+        explainDenial(functions.nextjsApi.api);
+        nextjs = functions;
         break;
       }
     }
@@ -126,6 +140,48 @@ function requireCookie(service: ApplicationLoadBalancedFargateService): void {
     priority: 10,
     conditions: [ListenerCondition.httpHeader("cookie", [REQUIRED_COOKIE])],
     action: ListenerAction.forward([service.targetGroup]),
+  });
+}
+
+/**
+ * The NextjsRegionalFunctions REST API is public too, and security scanners
+ * flag one that answers anonymous requests. Same gate, as a Lambda authorizer
+ * on every method: the regional-functions example's, which caches its answer
+ * per `Cookie` header, so a load test sending one cookie rarely invokes it.
+ */
+function cookieAuthorizer(scope: Construct): MethodOptions {
+  const handler = new Function(scope, "CookieAuthorizerFn", {
+    runtime: Runtime.NODEJS_24_X,
+    architecture: Architecture.ARM_64,
+    handler: "index.handler",
+    code: Code.fromAsset(
+      join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "regional-functions",
+        "cookie-authorizer",
+      ),
+    ),
+    environment: { REQUIRED_COOKIE },
+  });
+  const authorizer = new RequestAuthorizer(scope, "CookieAuthorizer", {
+    handler,
+    identitySources: [IdentitySource.header("Cookie")],
+  });
+  return { authorizer, authorizationType: AuthorizationType.CUSTOM };
+}
+
+function explainDenial(api: RestApi): void {
+  api.addGatewayResponse("Unauthorized", {
+    type: ResponseType.UNAUTHORIZED,
+    statusCode: "401",
+    responseHeaders: { "WWW-Authenticate": `'Cookie name="cdk-nextjs"'` },
+    templates: {
+      "application/json": JSON.stringify({
+        message: `Access denied. Must set cookie: ${REQUIRED_COOKIE}`,
+      }),
+    },
   });
 }
 
