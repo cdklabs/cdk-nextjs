@@ -176,6 +176,7 @@ verdict below.
 | `invalid-static-asset-404-app` (+ `-asset-prefix`, `-base-path`)   | 2 / 3 each | `should return 404 with plain text when fetching invalid asset path` — S3's XML 404, unsupported               |
 | `invalid-static-asset-404-pages` (+ `-asset-prefix`, `-base-path`) | 2 / 3 each | Same case, same reason                                                                                         |
 | `next-form/default/app-dir`                                        | 13 / 14    | `flakey`: `should soft-navigate on submit and show the prefetched loading state` — timing                      |
+| `app-dir/app-client-cache/client-cache.defaults`                   | 9 / 10     | `flakey`: `should refetch the full page after 5 mins` — timing (upstream wait is a no-op)                      |
 | `app-dir/metadata-streaming-parallel-routes`                       | 4 / 6      | 2 `should only bundle the selected metadata resolution implementation` — no signal (`@gate !deploy` inversion) |
 | `app-dir/segment-cache/metadata`                                   | 2 / 3      | `requests only the head when the page segments are cached` — no signal (`@gate !deploy` inversion)             |
 | `app-dir/segment-cache/cached-navigations`                         | 19 / 20    | `caches a fully static on-demand param for repeated navigations` — unsupported (`next start` serving)          |
@@ -194,6 +195,17 @@ state the router prefetched; where the prefetch has not landed, `#loading` never
 renders. It failed both attempts on Regional Functions and on both Containers
 types at least once in the 2026-09-28/29 runs, and passed on each of them in
 another, with no cdk-nextjs error.
+
+The `client-cache.defaults` case has the same race, behind a guard that does not
+guard. After fast-forwarding the clock 5 min it navigates back to `/`, which
+re-prefetches `/1?timeout=1000`, and calls `waitForIdleNetwork()` so the click
+lands after that prefetch. The helper is `page.waitForLoadState('networkidle')`,
+which resolves at once when the document already reached that state; a
+client-side navigation does not reset it, so the wait returns before the prefetch
+lands. Each hop of origin latency makes the click likelier to win: it failed both
+attempts on a Global type in 5 of the 6 attempts of the 2026-10-25 scheduled run,
+and on Regional Functions in the 2026-10-13 one. Re-enable it once upstream waits
+for the prefetch response itself.
 
 ## Fixed
 
