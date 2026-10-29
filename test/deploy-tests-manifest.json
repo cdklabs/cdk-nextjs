@@ -549,7 +549,8 @@
         "navigation, so the click races the prefetch; where the prefetch has not landed, `#loading`",
         "never renders. Failed both attempts on a Global type in 5 of 6 attempts of the 2026-10-25",
         "scheduled run, and on Regional Functions in the 2026-10-13 one, with no cdk-nextjs error.",
-        "Re-enable once upstream waits for the prefetch response instead. See docs/harness-coverage.md."
+        "next.js skips the same case in its own deploy manifest; vercel/next.js#95857 (open) waits for",
+        "the prefetch response instead. Drop this entry once the pin includes it. See docs/harness-coverage.md."
       ],
       "failed": [],
       "flakey": [

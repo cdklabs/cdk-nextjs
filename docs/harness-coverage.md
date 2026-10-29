@@ -204,8 +204,10 @@ which resolves at once when the document already reached that state; a
 client-side navigation does not reset it, so the wait returns before the prefetch
 lands. Each hop of origin latency makes the click likelier to win: it failed both
 attempts on a Global type in 5 of the 6 attempts of the 2026-10-25 scheduled run,
-and on Regional Functions in the 2026-10-13 one. Re-enable it once upstream waits
-for the prefetch response itself.
+and on Regional Functions in the 2026-10-13 one. next.js skips the same case in its
+own `test/deploy-tests-manifest.json`, and vercel/next.js#95857 (open) replaces the
+wait with one on the prefetch response. Drop the entry once the pin includes that
+change.
 
 ## Fixed
 
