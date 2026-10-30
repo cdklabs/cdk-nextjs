@@ -211,6 +211,14 @@ dispatch `all`. A dispatch on a schedule day waits behind the schedule's ~10
 hours. A pending run that gets cancelled that way, the scheduled one included,
 loses no sweep: every run sweeps, not just the scheduled one.
 
+A re-run of a run, from the UI or from the org automation that re-runs every job
+of a failed scheduled run, runs only the shards no earlier attempt of that run
+passed: the `plan` job reads the earlier attempts' jobs and drops the rest from
+the matrix. The commit and inputs are the same, so those passes still hold. Before
+this, a re-run repeated all ~10 hours of shards to retry one or two flakes. A new
+run, scheduled or dispatched, always runs every shard; dispatch one to get a full
+run again.
+
 ## Caching the next.js build
 
 Every shard needs a _built_ vercel/next.js checkout — `run-tests.js` and
