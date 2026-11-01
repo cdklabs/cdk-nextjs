@@ -38,7 +38,7 @@
         "RELEASETAG": "dist/releasetag.txt",
         "RELEASE_TAG_PREFIX": "",
         "VERSIONRCOPTIONS": "{\"types\":[{\"type\":\"feat\",\"section\":\"Features\"},{\"type\":\"fix\",\"section\":\"Bug Fixes\"},{\"type\":\"chore\",\"section\":\"Chores\"},{\"type\":\"docs\",\"section\":\"Docs\"},{\"type\":\"style\",\"hidden\":true},{\"type\":\"refactor\",\"hidden\":true},{\"type\":\"perf\",\"section\":\"Performance\"},{\"type\":\"test\",\"hidden\":true}]}",
-        "BUMP_PACKAGE": "commit-and-tag-version@^12"
+        "BUMP_PACKAGE": "commit-and-tag-version@^13"
       },
       "steps": [
         {
@@ -134,7 +134,18 @@
       "description": "Create a JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/adapter.mts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/adapter.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);"
+          ]
         }
       ]
     },
@@ -143,7 +154,19 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/adapter.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/adapter.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/adapter.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/adapter.mts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/adapter.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);",
+            "--watch"
+          ]
         }
       ]
     },
@@ -152,7 +175,18 @@
       "description": "Create a JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/cache-handler.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/cache-handler.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);"
+          ]
         }
       ]
     },
@@ -161,7 +195,19 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/cache-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/cache-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/cache-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/cache-handler.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/cache-handler.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);",
+            "--watch"
+          ]
         }
       ]
     },
@@ -170,7 +216,18 @@
       "description": "Create a JavaScript bundle from src/adapter/use-cache-default-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-default-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-default-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/use-cache-default-handler.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/use-cache-default-handler.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);"
+          ]
         }
       ]
     },
@@ -179,7 +236,19 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/use-cache-default-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-default-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-default-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/use-cache-default-handler.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/use-cache-default-handler.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);",
+            "--watch"
+          ]
         }
       ]
     },
@@ -188,7 +257,18 @@
       "description": "Create a JavaScript bundle from src/adapter/use-cache-remote-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-remote-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-remote-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\""
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/use-cache-remote-handler.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/use-cache-remote-handler.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);"
+          ]
         }
       ]
     },
@@ -197,7 +277,19 @@
       "description": "Continuously update the JavaScript bundle from src/adapter/use-cache-remote-handler.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/adapter/use-cache-remote-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-remote-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/adapter/use-cache-remote-handler.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/adapter/use-cache-remote-handler.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);",
+            "--watch"
+          ]
         }
       ]
     },
@@ -206,7 +298,17 @@
       "description": "Create a JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/*"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/lambdas/post-deploy/post-deploy.lambda.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=assets/lambdas/post-deploy/post-deploy.lambda/index.js",
+            "--packages=bundle",
+            "--tsconfig=test/tsconfig.json",
+            "--external:@aws-sdk/*"
+          ]
         }
       ]
     },
@@ -215,7 +317,18 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/post-deploy/post-deploy.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/post-deploy/post-deploy.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/post-deploy/post-deploy.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/* --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/lambdas/post-deploy/post-deploy.lambda.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=assets/lambdas/post-deploy/post-deploy.lambda/index.js",
+            "--packages=bundle",
+            "--tsconfig=test/tsconfig.json",
+            "--external:@aws-sdk/*",
+            "--watch"
+          ]
         }
       ]
     },
@@ -224,7 +337,17 @@
       "description": "Create a JavaScript bundle from src/lambdas/redeploy-stage/redeploy-stage.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/redeploy-stage/redeploy-stage.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/redeploy-stage/redeploy-stage.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/*"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/lambdas/redeploy-stage/redeploy-stage.lambda.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=assets/lambdas/redeploy-stage/redeploy-stage.lambda/index.js",
+            "--packages=bundle",
+            "--tsconfig=test/tsconfig.json",
+            "--external:@aws-sdk/*"
+          ]
         }
       ]
     },
@@ -233,7 +356,18 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/redeploy-stage/redeploy-stage.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/redeploy-stage/redeploy-stage.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/redeploy-stage/redeploy-stage.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --external:@aws-sdk/* --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/lambdas/redeploy-stage/redeploy-stage.lambda.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=assets/lambdas/redeploy-stage/redeploy-stage.lambda/index.js",
+            "--packages=bundle",
+            "--tsconfig=test/tsconfig.json",
+            "--external:@aws-sdk/*",
+            "--watch"
+          ]
         }
       ]
     },
@@ -242,7 +376,16 @@
       "description": "Create a JavaScript bundle from src/nextjs-build/patch-fetch.js",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome111,firefox111,safari16.4,edge111\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/nextjs-build/patch-fetch.js",
+            "--target=chrome111,firefox111,safari16.4,edge111",
+            "--platform=browser",
+            "--outfile=lib/nextjs-build/patch-fetch.js",
+            "--packages=bundle",
+            "--minify"
+          ]
         }
       ]
     },
@@ -251,7 +394,17 @@
       "description": "Continuously update the JavaScript bundle from src/nextjs-build/patch-fetch.js",
       "steps": [
         {
-          "exec": "esbuild --bundle src/nextjs-build/patch-fetch.js --target=\"chrome111,firefox111,safari16.4,edge111\" --platform=\"browser\" --outfile=\"lib/nextjs-build/patch-fetch.js\" --minify --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/nextjs-build/patch-fetch.js",
+            "--target=chrome111,firefox111,safari16.4,edge111",
+            "--platform=browser",
+            "--outfile=lib/nextjs-build/patch-fetch.js",
+            "--packages=bundle",
+            "--minify",
+            "--watch"
+          ]
         }
       ]
     },
@@ -260,7 +413,20 @@
       "description": "Create a JavaScript bundle from src/runtime/lambda.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\""
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/runtime/lambda.mts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/runtime/lambda.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--external:sharp",
+            "--external:@opentelemetry/api",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);"
+          ]
         }
       ]
     },
@@ -269,7 +435,21 @@
       "description": "Continuously update the JavaScript bundle from src/runtime/lambda.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/lambda.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/lambda.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\" --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/runtime/lambda.mts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/runtime/lambda.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--external:sharp",
+            "--external:@opentelemetry/api",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);",
+            "--watch"
+          ]
         }
       ]
     },
@@ -278,7 +458,20 @@
       "description": "Create a JavaScript bundle from src/runtime/server.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\""
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/runtime/server.mts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/runtime/server.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--external:sharp",
+            "--external:@opentelemetry/api",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);"
+          ]
         }
       ]
     },
@@ -287,7 +480,21 @@
       "description": "Continuously update the JavaScript bundle from src/runtime/server.mts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\" --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/runtime/server.mts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=lib/runtime/server.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--external:sharp",
+            "--external:@opentelemetry/api",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);",
+            "--watch"
+          ]
         }
       ]
     },
@@ -299,22 +506,35 @@
       },
       "steps": [
         {
-          "exec": "git checkout -b scratch",
+          "execArgs": [
+            "git",
+            "checkout",
+            "-b",
+            "scratch"
+          ],
           "name": "save current HEAD in \"scratch\" branch"
         },
         {
-          "exec": "git checkout $BRANCH"
+          "exec": "git checkout \"$BRANCH\""
         },
         {
-          "exec": "git fetch origin",
+          "execArgs": [
+            "git",
+            "fetch",
+            "origin"
+          ],
           "name": "fetch latest changes from origin"
         },
         {
-          "exec": "git reset --hard origin/$BRANCH",
+          "exec": "git reset --hard \"origin/$BRANCH\"",
           "name": "hard reset to origin commit"
         },
         {
-          "exec": "git clean -fdx",
+          "execArgs": [
+            "git",
+            "clean",
+            "-fdx"
+          ],
           "name": "clean all untracked files"
         },
         {
@@ -328,7 +548,13 @@
       "description": "Perform API compatibility check against latest version",
       "steps": [
         {
-          "exec": "jsii-diff npm:$(node -p \"require('./package.json').name\") -k --ignore-file .compatignore || (echo \"\nUNEXPECTED BREAKING CHANGES: add keys such as 'removed:constructs.Node.of' to .compatignore to skip.\n\" && exit 1)"
+          "execArgs": [
+            "jsii-diff",
+            "npm:cdk-nextjs",
+            "-k",
+            "--ignore-file",
+            ".compatignore"
+          ]
         }
       ]
     },
@@ -410,7 +636,19 @@
       },
       "steps": [
         {
-          "exec": "eslint --ext .ts,.tsx,.mts --fix --no-error-on-unmatched-pattern $@ src test build-tools projenrc .projenrc.ts",
+          "execArgs": [
+            "eslint",
+            "--ext",
+            ".ts,.tsx,.mts",
+            "--fix",
+            "--no-error-on-unmatched-pattern",
+            "$@",
+            "src",
+            "test",
+            "build-tools",
+            "projenrc",
+            ".projenrc.ts"
+          ],
           "receiveArgs": true
         }
       ]
@@ -525,7 +763,11 @@
       },
       "steps": [
         {
-          "exec": "rm -fr dist"
+          "execArgs": [
+            "rm",
+            "-fr",
+            "dist"
+          ]
         },
         {
           "spawn": "bump"
@@ -539,7 +781,8 @@
         {
           "exec": "git diff --ignore-space-at-eol --exit-code"
         }
-      ]
+      ],
+      "condition": "git log --oneline -1 | grep -v \"chore(release):\" > /dev/null"
     },
     "rosetta:extract": {
       "name": "rosetta:extract",
@@ -555,7 +798,11 @@
       "description": "Run tests",
       "steps": [
         {
-          "exec": "jest --passWithNoTests --updateSnapshot",
+          "execArgs": [
+            "jest",
+            "--passWithNoTests",
+            "--updateSnapshot"
+          ],
           "receiveArgs": true
         },
         {
@@ -574,7 +821,10 @@
       "description": "Run jest in watch mode",
       "steps": [
         {
-          "exec": "jest --watch"
+          "execArgs": [
+            "jest",
+            "--watch"
+          ]
         }
       ]
     },
@@ -588,7 +838,7 @@
         "RELEASETAG": "dist/releasetag.txt",
         "RELEASE_TAG_PREFIX": "",
         "VERSIONRCOPTIONS": "{\"types\":[{\"type\":\"feat\",\"section\":\"Features\"},{\"type\":\"fix\",\"section\":\"Bug Fixes\"},{\"type\":\"chore\",\"section\":\"Chores\"},{\"type\":\"docs\",\"section\":\"Docs\"},{\"type\":\"style\",\"hidden\":true},{\"type\":\"refactor\",\"hidden\":true},{\"type\":\"perf\",\"section\":\"Performance\"},{\"type\":\"test\",\"hidden\":true}]}",
-        "BUMP_PACKAGE": "commit-and-tag-version@^12"
+        "BUMP_PACKAGE": "commit-and-tag-version@^13"
       },
       "steps": [
         {
