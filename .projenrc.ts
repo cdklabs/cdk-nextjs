@@ -21,7 +21,7 @@ const project = new CdklabsConstructLibrary({
     "Deploy Next.js apps on AWS with CDK" /* The description is just a string that helps people understand the purpose of the package. */,
   // majorVersion: 1,
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.261.0",
+  cdkVersion: "2.276.0",
   jsiiVersion: "~6.0.4",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion,
@@ -314,11 +314,11 @@ function bundle(): javascript.Bundle[] {
     minify: true,
     outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
-  // The two request-handling shells. "next" stays external: the deployment
-  // already carries the traced `next` files every built entrypoint requires, and
-  // a second bundled copy would be a different module instance of the same
-  // singletons. "@next/routing" and the AWS SDK are bundled (see devDeps).
-  for (const shell of ["lambda", "server"]) {
+  // The request-handling shells: Event Functions, Containers, Web Functions.
+  // "next" stays external: the deployment already carries the traced `next`
+  // files every built entrypoint requires, and a second bundled copy would be a
+  // different module instance of the same singletons. "@next/routing" and the AWS SDK are bundled (see devDeps).
+  for (const shell of ["lambda", "server", "web-function"]) {
     addBundle(`src/runtime/${shell}.mts`, {
       platform: "node",
       target,
@@ -667,6 +667,17 @@ function generateStructs() {
     filePath: getFilePath("OptionalFunctionProps"),
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.FunctionProps"))
+    .allOptional();
+  // The Web Function's own props, endpoint settings nested under
+  // `defaultEndpoint` exactly as on the L2, so `overrides` tracks it 1:1.
+  new ProjenStruct(project, {
+    name: "OptionalWebFunctionProps",
+    filePath: getFilePath("OptionalWebFunctionProps"),
+  })
+    .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.WebFunctionProps"))
+    // The L2 types it `IRoleRef & IGrantable`, which the builder can only
+    // render as `any`. `IRole` is both.
+    .update("role", { type: { fqn: "aws-cdk-lib.aws_iam.IRole" } })
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalFunctionUrlProps",

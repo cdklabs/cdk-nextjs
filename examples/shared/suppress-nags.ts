@@ -209,6 +209,31 @@ export function suppressLambdaNags(
   }
 }
 
+/**
+ * `suppressLambdaNags` for `NextjsGlobalWebFunctions`: each group's Web
+ * Function has its execution role at `WebFunction[-<name>]ServiceRole`.
+ */
+export function suppressWebFunctionNags(
+  stack: Stack,
+  functionGroupNames: string[] = [],
+) {
+  const constructIds = [
+    "WebFunction",
+    ...functionGroupNames.map((name) => `WebFunction-${name}`),
+  ];
+  for (const constructId of constructIds) {
+    const role = `/${stack.stackName}/Nextjs/NextjsWebFunctions/${constructId}ServiceRole`;
+    suppressLambdaExecutionRole(stack, `${role}/Resource`);
+
+    suppressS3WildcardPermissions(
+      stack,
+      `${role}/DefaultPolicy/Resource`,
+      "Web Functions need wildcard S3 permissions to access cache and static assets",
+      { includeStaticAssets: true },
+    );
+  }
+}
+
 export function suppressContainerNags(stack: Stack) {
   NagSuppressions.addResourceSuppressionsByPath(
     stack,

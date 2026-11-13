@@ -52,8 +52,8 @@ catalogs:
       specifier: ^2.1143.0
       version: 2.1143.0
     aws-cdk-lib:
-      specifier: 2.261.0
-      version: 2.261.0
+      specifier: 2.276.0
+      version: 2.276.0
     babel-plugin-react-compiler:
       specifier: 1.0.0
       version: 1.0.0
@@ -297,7 +297,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -319,7 +319,7 @@ importers:
         version: 1.63.0
       cdk-pipelines-github:
         specifier: 'catalog:'
-        version: 0.4.140(aws-cdk-lib@2.261.0(constructs@10.5.1))(constructs@10.5.1)
+        version: 0.4.140(aws-cdk-lib@2.276.0(constructs@10.5.1))(constructs@10.5.1)
       tsx:
         specifier: 'catalog:'
         version: 4.23.15
@@ -328,7 +328,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -350,7 +350,29 @@ importers:
         version: 2.1143.0
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
+      cdk-nextjs:
+        specifier: link:../..
+        version: link:../..
+      constructs:
+        specifier: 'catalog:'
+        version: 10.5.1
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.15
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+
+  global-web-functions:
+    dependencies:
+      aws-cdk:
+        specifier: 'catalog:'
+        version: 2.1143.0
+      aws-cdk-lib:
+        specifier: 'catalog:'
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -378,7 +400,7 @@ importers:
         version: 2.1143.0
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -395,73 +417,11 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
-  load-tests/cdk.out.stacks/asset.2a24046adf5629e64bfc65817789ac34cfada45f08f06365a5fe1cb87653fe44:
-    dependencies:
-      next:
-        specifier: 'catalog:'
-        version: 16.4.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@24.19.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      react:
-        specifier: 'catalog:'
-        version: 19.2.3
-      react-dom:
-        specifier: 'catalog:'
-        version: 19.2.3(react@19.2.3)
-    devDependencies:
-      '@tsconfig/next':
-        specifier: 'catalog:'
-        version: 2.0.5
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.0
-      '@types/react':
-        specifier: 'catalog:'
-        version: 19.2.7
-      '@types/react-dom':
-        specifier: 'catalog:'
-        version: 19.2.3(@types/react@19.2.7)
-      cdk-nextjs:
-        specifier: link:../..
-        version: link:../..
-      typescript:
-        specifier: 'catalog:'
-        version: 5.9.3
-
-  load-tests/cdk.out.stacks/asset.6f5b4adc59344988b69a01ce129714c37e6ad37954a4a0be776fde865d036fc1:
-    dependencies:
-      next:
-        specifier: 'catalog:'
-        version: 16.4.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.63.0)(@types/node@24.19.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      react:
-        specifier: 'catalog:'
-        version: 19.2.3
-      react-dom:
-        specifier: 'catalog:'
-        version: 19.2.3(react@19.2.3)
-    devDependencies:
-      '@tsconfig/next':
-        specifier: 'catalog:'
-        version: 2.0.5
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.0
-      '@types/react':
-        specifier: 'catalog:'
-        version: 19.2.7
-      '@types/react-dom':
-        specifier: 'catalog:'
-        version: 19.2.3(@types/react@19.2.7)
-      cdk-nextjs:
-        specifier: link:../..
-        version: link:../..
-      typescript:
-        specifier: 'catalog:'
-        version: 5.9.3
-
   low-cost:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -514,7 +474,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -533,7 +493,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -552,7 +512,7 @@ importers:
     dependencies:
       aws-cdk-lib:
         specifier: 'catalog:'
-        version: 2.261.0(constructs@10.5.1)
+        version: 2.276.0(constructs@10.5.1)
       cdk-nextjs:
         specifier: link:../..
         version: link:../..
@@ -573,14 +533,14 @@ packages:
     resolution: {integrity: sha512-U4+70Pc5ZS9osnCBCE5Jha/ciHM+Yp+CNMNC/7HvYbNRk1Ldd+f7qO65W5qfhu/TCv+/ozljlXXe9Nj8419DMA==}
     engines: {node: '>=10'}
 
-  '@aws-cdk/asset-awscli-v1@2.2.282':
-    resolution: {integrity: sha512-7hKMi5tTxDcKGIMIOq14PnY0GBcugW33Uh/2YHDZiEwSxLeFOCYBwhR+BFXONb/EJeVI3RETFgailNZbkcKF6g==}
+  '@aws-cdk/asset-awscli-v1@2.2.292':
+    resolution: {integrity: sha512-d4aMFsAFj19FtxVyw8IzlUKv5Zu4sIvgnEjI2IU6IWBJgVbJ4aFnadANqYa+6MwB1CQbGOg0jh8WE77M+Nb/9A==}
 
   '@aws-cdk/asset-node-proxy-agent-v6@2.1.3':
     resolution: {integrity: sha512-98We1QWfin9vtuuQtNFhIIAEWb8CreyYTAP0Vn8HqSBoNiFJM9nZgifJeQawT9Wq0NX1HCNFlxCyTccIrK1PSA==}
 
-  '@aws-cdk/cloud-assembly-schema@54.25.0':
-    resolution: {integrity: sha512-aZkzPqWLg1Oozm53NeyrBZPguTq3e6v7NpQ3QOGULj0IIrodLzGPM7fmAvjcJcHzjtuZU9IP1gIY92nKIM+Bvw==}
+  '@aws-cdk/cloud-assembly-schema@55.6.0':
+    resolution: {integrity: sha512-gvgzQtc0ZEcYc8WXMyCfbwJ1xlGWM/X6rG5gEiCSqT8c7e31c4tVQ5nhdgztKJ+E0UL4BCsVN0s/3YP62NJ/yg==}
     engines: {node: '>= 18.0.0'}
     bundledDependencies:
       - jsonschema
@@ -1466,12 +1426,13 @@ packages:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
 
-  aws-cdk-lib@2.261.0:
-    resolution: {integrity: sha512-e52e3Abjg0HkuRWlWwtSv5+ZiMW1rhCDdL9ff7lzWXInU8xdfLJpuoimfa0IJwjiNGyphppgg52Azx9M80OA0g==}
+  aws-cdk-lib@2.276.0:
+    resolution: {integrity: sha512-K+yxURPKRDRDgaPazG4PKFmFHM/igg3kGp6tkPJ6vba8FMEo3DtJ/X6WaY5KvcwrkiKj2K7gFRZB6DO5aPYxxg==}
     engines: {node: '>= 20.0.0'}
     peerDependencies:
       constructs: ^10.5.0
     bundledDependencies:
+      - '@aws/cloudformation-validate'
       - '@balena/dockerignore'
       - '@aws-cdk/cloud-assembly-api'
       - case
@@ -2925,11 +2886,11 @@ snapshots:
 
   '@alloc/quick-lru@5.3.0': {}
 
-  '@aws-cdk/asset-awscli-v1@2.2.282': {}
+  '@aws-cdk/asset-awscli-v1@2.2.292': {}
 
   '@aws-cdk/asset-node-proxy-agent-v6@2.1.3': {}
 
-  '@aws-cdk/cloud-assembly-schema@54.25.0': {}
+  '@aws-cdk/cloud-assembly-schema@55.6.0': {}
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -3730,11 +3691,11 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.1.0
 
-  aws-cdk-lib@2.261.0(constructs@10.5.1):
+  aws-cdk-lib@2.276.0(constructs@10.5.1):
     dependencies:
-      '@aws-cdk/asset-awscli-v1': 2.2.282
+      '@aws-cdk/asset-awscli-v1': 2.2.292
       '@aws-cdk/asset-node-proxy-agent-v6': 2.1.3
-      '@aws-cdk/cloud-assembly-schema': 54.25.0
+      '@aws-cdk/cloud-assembly-schema': 55.6.0
       constructs: 10.5.1
 
   aws-cdk@2.1143.0: {}
@@ -3801,9 +3762,9 @@ snapshots:
 
   caniuse-lite@1.0.30001814: {}
 
-  cdk-pipelines-github@0.4.140(aws-cdk-lib@2.261.0(constructs@10.5.1))(constructs@10.5.1):
+  cdk-pipelines-github@0.4.140(aws-cdk-lib@2.276.0(constructs@10.5.1))(constructs@10.5.1):
     dependencies:
-      aws-cdk-lib: 2.261.0(constructs@10.5.1)
+      aws-cdk-lib: 2.276.0(constructs@10.5.1)
       constructs: 10.5.1
 
   chalk@4.1.2:

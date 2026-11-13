@@ -28,6 +28,8 @@
     "bundle:runtime/lambda:watch": "pnpm dlx projen bundle:runtime/lambda:watch",
     "bundle:runtime/server": "pnpm dlx projen bundle:runtime/server",
     "bundle:runtime/server:watch": "pnpm dlx projen bundle:runtime/server:watch",
+    "bundle:runtime/web-function": "pnpm dlx projen bundle:runtime/web-function",
+    "bundle:runtime/web-function:watch": "pnpm dlx projen bundle:runtime/web-function:watch",
     "clobber": "pnpm dlx projen clobber",
     "compat": "pnpm dlx projen compat",
     "compile": "pnpm dlx projen compile",
@@ -83,7 +85,7 @@
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "aws-cdk": "^2.1146.1",
-    "aws-cdk-lib": "2.261.0",
+    "aws-cdk-lib": "2.276.0",
     "cdk-nag": "^2.38.2",
     "cdklabs-projen-project-types": "^0.6.17",
     "commit-and-tag-version": "^12",
@@ -112,7 +114,7 @@
     "undici": "^6.29.1"
   },
   "peerDependencies": {
-    "aws-cdk-lib": "^2.261.0",
+    "aws-cdk-lib": "^2.276.0",
     "constructs": "^10.5.1"
   },
   "pnpm": {

@@ -266,6 +266,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     const nextjsTypeToKey: Record<NextjsType, string> = {
       [NextjsType.GLOBAL_CONTAINERS]: "nextjsGlobalContainers",
       [NextjsType.GLOBAL_FUNCTIONS]: "nextjsGlobalFunctions",
+      [NextjsType.GLOBAL_WEB_FUNCTIONS]: "nextjsGlobalWebFunctions",
       [NextjsType.REGIONAL_CONTAINERS]: "nextjsRegionalContainers",
       [NextjsType.REGIONAL_FUNCTIONS]: "nextjsRegionalFunctions",
     };
@@ -289,7 +290,7 @@ export abstract class NextjsBaseConstruct extends Construct {
   }
 
   /**
-   * `functionGroups`, which only the two Functions root constructs accept —
+   * `functionGroups`, which only the Functions root constructs accept —
    * Containers deploy one task definition and have no 250 MB package limit to
    * split around.
    *

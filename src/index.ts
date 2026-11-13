@@ -41,6 +41,13 @@ export {
   NextjsFunctionsProps,
 } from "./nextjs-compute/nextjs-functions";
 export {
+  NextjsWebFunctionGroup,
+  NextjsWebFunctionGroupResources,
+  NextjsWebFunctions,
+  NextjsWebFunctionsOverrides,
+  NextjsWebFunctionsProps,
+} from "./nextjs-compute/nextjs-web-functions";
+export {
   NextjsCache,
   NextjsCacheOverrides,
   NextjsCacheProps,
@@ -57,6 +64,12 @@ export {
   NextjsGlobalFunctionsOverrides,
   NextjsGlobalFunctionsProps,
 } from "./root-constructs/nextjs-global-functions";
+export {
+  NextjsGlobalWebFunctions,
+  NextjsGlobalWebFunctionsConstructOverrides,
+  NextjsGlobalWebFunctionsOverrides,
+  NextjsGlobalWebFunctionsProps,
+} from "./root-constructs/nextjs-global-web-functions";
 export {
   NextjsRegionalContainers,
   NextjsRegionalContainersConstructOverrides,
@@ -93,6 +106,7 @@ export { OptionalDistributionProps } from "./generated-structs/OptionalDistribut
 export { OptionalDockerImageAssetProps } from "./generated-structs/OptionalDockerImageAssetProps";
 export { OptionalEdgeFunctionProps } from "./generated-structs/OptionalEdgeFunctionProps";
 export { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
+export { OptionalWebFunctionProps } from "./generated-structs/OptionalWebFunctionProps";
 export { OptionalFunctionUrlProps } from "./generated-structs/OptionalFunctionUrlProps";
 export { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 export { OptionalVpcProps } from "./generated-structs/OptionalVpcProps";

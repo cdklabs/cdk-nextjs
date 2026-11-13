@@ -1,5 +1,31 @@
 # Breaking Changes
 
+## Unreleased
+
+### `aws-cdk-lib` 2.276.0 or higher is required
+
+The `aws-cdk-lib` peer dependency is now `^2.276.0` (was `^2.261.0`), the
+release with the Lambda `WebFunction` construct that `NextjsGlobalWebFunctions`
+is built on. Upgrade `aws-cdk-lib` in your CDK app; nothing else in the
+construct API changes. Two template differences come with it on the other
+constructs, both from aws-cdk-lib rather than cdk-nextjs:
+
+- **`NextjsGlobalFunctions`**: `FunctionUrlOrigin` now grants CloudFront
+  `lambda:InvokeFunction` itself, scoped to the distribution and to calls
+  through the Function URL, so cdk-nextjs's own `AWS::Lambda::Permission`
+  (`InvokeFunction-<group>`) with the same scope is removed. The first deploy
+  replaces one permission with the other; there is no gap, since CloudFormation
+  creates the new one before it deletes the old.
+- **Every construct**: the init cache `BucketDeployment`'s Lambda gets 1024 MB
+  of memory by default, aws-cdk-lib's new default, where it had 128 MB.
+
+### New (non-breaking): `NextjsGlobalWebFunctions`
+
+CloudFront in front of [Lambda Web Functions](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html)
+rather than Event Functions and Function URLs. `NextjsGlobalFunctions` is
+unchanged. See the README's `NextjsGlobalWebFunctions` section for how the two
+compare and where Web Functions are available.
+
 ## 0.7.0
 
 ### Requests are served through the adapter runtime, not `next start`
