@@ -41,13 +41,14 @@ const project = new CdklabsConstructLibrary({
     // Exact-pinned to `next` and bumped with it: it is first-party and versioned
     // in lockstep, so a mismatch is a routing behavior difference. Bundled into
     // the runtime by esbuild, not resolved from the deployment tree.
-    "@next/routing@16.4.0",
+    "@next/routing@16.4.6",
     "@smithy/signature-v4",
     // The CDK CLI the Next.js compatibility harness deploys with — it runs
     // `scripts/e2e-harness/app.js` from a temporary app directory outside
     // `examples/`, so it cannot use the examples workspace's copy.
     // @see scripts/e2e-harness/README.md
-    "aws-cdk",
+    // At least the CLI that reads aws-cdk-lib 2.276's cloud assembly schema (55).
+    "aws-cdk@^2.1148.1",
     "@types/aws-lambda",
     "@types/debug",
     "@types/mime-types",
@@ -56,7 +57,7 @@ const project = new CdklabsConstructLibrary({
     "debug",
     "esbuild",
     "mime-types",
-    "next@^16.4.0", // bundled in src/nextjs-build/cache-handler.ts
+    "next@^16.4.6", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   setNodeEngineVersion: false,
