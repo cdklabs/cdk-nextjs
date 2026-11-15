@@ -30,6 +30,19 @@ jobs:
       - name: Cleanup global-functions
         run: cd examples/global-functions && pnpm run destroy:ci
         continue-on-error: true
+  cleanup-global-web-functions:
+    needs: check-if-should-run
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-base
+        with:
+          aws_account: ${{ vars.AWS_ACCOUNT }}
+      - name: Cleanup global-web-functions
+        run: cd examples/global-web-functions && pnpm run destroy:ci
+        continue-on-error: true
   cleanup-global-containers:
     needs: check-if-should-run
     runs-on: ubuntu-latest

@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
-import { isGlobalFunctions } from "./utils/deployment-type";
+import {
+  isGlobalFunctions,
+  isGlobalWebFunctions,
+} from "./utils/deployment-type";
 
 /**
  * HTTP methods other than GET, and request bodies.
@@ -117,8 +120,10 @@ test.describe("request methods", () => {
     // is refused - so if the fetch patch is ever dropped, the browser test fails
     // and this one keeps working, which localises the break immediately.
     //
-    // Only `NextjsGlobalFunctions` signs requests to its origin. The other three
-    // accept this POST, which is correct for them.
+    // Only `NextjsGlobalFunctions` signs the payload of requests to its origin.
+    // `NextjsGlobalWebFunctions` signs too, but sends `UNSIGNED-PAYLOAD` for the
+    // body, and the other three don't sign at all, so all four accept this POST,
+    // which is correct for them.
     test.skip(
       !isGlobalFunctions(),
       "only NextjsGlobalFunctions signs origin requests",
@@ -149,8 +154,12 @@ test.describe("request methods", () => {
     // Gateway's streaming integration, and CloudFront passes `42` through from an
     // ALB, so the Function URL is the one layer left. Asserted rather than
     // skipped, so a Function URL that starts honouring it shows up here.
+    //
+    // A Web Function endpoint drops the header altogether: through CloudFront
+    // the HEAD arrives with no `content-length` at all. Measured on a deploy,
+    // and asserted for the same reason.
     expect(response.headers()["content-length"]).toBe(
-      isGlobalFunctions() ? "0" : "42",
+      isGlobalFunctions() ? "0" : isGlobalWebFunctions() ? undefined : "42",
     );
 
     const body = await response.body();
