@@ -232,6 +232,40 @@ export function suppressWebFunctionNags(
       { includeStaticAssets: true },
     );
   }
+
+  // What `WebFunctionCode.fromAssetToManagedBucket` creates per stack: the
+  // versioned bucket Lambda reads the code from, and the custom resource that
+  // copies the staged asset into it. Paths carry a hash, hence the search.
+  for (const construct of stack.node.findAll()) {
+    const path = construct.node.path;
+    if (path.endsWith("/AWSCDKWebFunctionAssetBucket/Resource")) {
+      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
+        {
+          id: "AwsSolutions-S1",
+          reason:
+            "CDK-managed Web Function code bucket; only CloudFormation writes to it",
+        },
+      ]);
+    } else if (path.includes("/Custom::S3ObjectCopy")) {
+      if (path.endsWith("/ServiceRole/Resource")) {
+        suppressLambdaExecutionRole(stack, `/${path}`);
+      } else if (path.endsWith("/ServiceRole/DefaultPolicy/Resource")) {
+        NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
+          {
+            id: "AwsSolutions-IAM5",
+            reason:
+              "CDK's code copy function reads staged assets and writes under the Web Function code bucket's web-function/ prefix",
+            appliesTo: [
+              "Action::s3:Abort*",
+              "Action::s3:DeleteObject*",
+              { regex: "/^Resource::<AWSCDKWebFunctionAssetBucket[A-Z0-9]+\\.Arn>/web-function/\\*$/" },
+              { regex: "/^Resource::arn:(aws|aws-cn|aws-us-gov|<AWS::Partition>):s3:::cdk-hnb659fds-assets-.+/\\*$/" },
+            ],
+          },
+        ]);
+      }
+    }
+  }
 }
 
 export function suppressContainerNags(stack: Stack) {

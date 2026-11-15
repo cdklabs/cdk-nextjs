@@ -226,7 +226,7 @@ export class NextjsWebFunctions extends Construct {
         endpointLocation: WebFunctionEndpointLocation.homeRegion(),
         endpointName,
       },
-      environment: {
+      environment: withoutEmptyValues({
         // What `next start` and the Containers Dockerfiles set. Externalized
         // packages (React for Pages Router SSR among them) load their dev
         // builds without it.
@@ -239,7 +239,7 @@ export class NextjsWebFunctions extends Construct {
         [TRUSTED_ENDPOINT_ENV_VAR]: endpointName,
         ...shared?.environment,
         ...own?.environment,
-      },
+      }),
     };
 
     const webFunction = new WebFunction(this, id, webFunctionProps);
@@ -269,6 +269,20 @@ export class NextjsWebFunctions extends Construct {
     const { webFunctionName, code, entryPoint, ...rest } = shared;
     return rest;
   }
+}
+
+/**
+ * `environment` without its empty values, which a Web Function revision
+ * rejects (`minLength: 1`) where an Event Function takes them. The runtime
+ * reads an unset variable as it reads an empty one, e.g.
+ * `CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX` for an app without a `basePath`.
+ */
+function withoutEmptyValues(
+  environment: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(environment).filter(([, value]) => value !== ""),
+  );
 }
 
 /**

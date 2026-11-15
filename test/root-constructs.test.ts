@@ -502,6 +502,15 @@ describe("NextjsGlobalWebFunctions", () => {
           /^cdk-nextjs-distribution-id-/,
         ),
       });
+      // A revision rejects an empty value; the runtime reads unset as empty.
+      for (const value of Object.values(
+        revision.ServiceConfig.EnvironmentVariables,
+      )) {
+        expect(value).not.toBe("");
+      }
+      expect(revision.ServiceConfig.EnvironmentVariables).not.toHaveProperty(
+        "CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX",
+      );
       // Staged into a versioned bucket Lambda can read, not the bootstrap one.
       expect(JSON.stringify(revision.BuildConfig.CodeConfig)).not.toContain(
         "cdk-hnb659fds-assets",
