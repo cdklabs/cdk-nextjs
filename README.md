@@ -762,6 +762,7 @@ What each route measures:
 | Construct                  | `ssr` at 10 req/s | `ssr` at 50 req/s                         | `ssr` capacity | `isr` capacity | Cold start p50 |
 | -------------------------- | ----------------- | ----------------------------------------- | -------------- | -------------- | -------------- |
 | `NextjsGlobalFunctions`    | 36 / 103          | 33 / 84                                   | ≥ 6560 req/s   | ≥ 6560 req/s   | 1390 ms        |
+| `NextjsGlobalWebFunctions` | 18 / 44           | 14 / 36                                   | ≥ 6560 req/s   | ≥ 6560 req/s   | –              |
 | `NextjsGlobalContainers`   | 19 / 44           | 18 / 219                                  | 194 req/s      | ≥ 6400 req/s   | –              |
 | `NextjsRegionalContainers` | 22 / 172          | 1972 / 39536 ⚠️ 0.54% errors, 76% dropped | 675 req/s      | ≥ 6075 req/s   | –              |
 | `NextjsRegionalFunctions`  | 32 / 114          | 30 / 103                                  | ≥ 6560 req/s   | ≥ 6560 req/s   | 1380 ms        |
@@ -770,10 +771,11 @@ _Latency is p50 / p99 in ms, with every route loaded at that rate at once. Capac
 
 What this means for choosing one:
 
+- **Web Functions halve the Functions constructs' compute latency.** `NextjsGlobalWebFunctions` served SSR at 12–18 ms p50 and under 50 ms p99 at every rate up to 6,560 req/s, against 26–34 ms p50 for `NextjsGlobalFunctions` measured alongside it. One execution environment serves many requests at once (`maxConcurrencyPerEnvironment`, 64 by default), but Lambda added environments well before that: none served more than 11 requests at once, and at 5,600 req/s of SSR 77 environments averaged 2 each.
 - **Functions constructs scale with no sizing.** Both held at least 6,560 req/s of SSR, the load generator's limit, at the same latency as at 10 req/s. The cost is a cold start of about 1.4 s on a new execution environment.
 - **Containers constructs are fastest per request but need sizing.** Two 1 vCPU tasks served SSR at 19–22 ms p50 against Lambda's ~30 ms, but tasks take minutes to add. Past capacity they don't degrade gradually: tasks too busy to answer the ALB health check are replaced, which leaves fewer tasks for the same load. Leave headroom.
 - **CloudFront carries the Global constructs' cached traffic.** Prerendered pages, ISR hits, images and assets were answered at the edge in 2–3 ms at every rate. On the Regional constructs every request reaches the construct: `NextjsRegionalContainers` serves assets and image optimization from the same tasks, so 50 req/s on every route at once (400 req/s) is already more than two tasks handle.
-- **Cached pages scale on every construct.** ISR hits held at least 6,000 req/s on all four: at the edge on the Global constructs, and through the S3 + DynamoDB cache on the Regional ones, where each instance holds a tag's revalidation marker for a second (`CDK_NEXTJS_TAG_REFRESH_MS`, see the [Caching Guide](./docs/caching-guide.md)).
+- **Cached pages scale on every construct.** ISR hits held at least 6,000 req/s on all of them: at the edge on the Global constructs, and through the S3 + DynamoDB cache on the Regional ones, where each instance holds a tag's revalidation marker for a second (`CDK_NEXTJS_TAG_REFRESH_MS`, see the [Caching Guide](./docs/caching-guide.md)).
 
 <details>
 <summary><code>NextjsGlobalFunctions</code></summary>
@@ -805,6 +807,29 @@ Browser, p75 in ms, under 50 req/s per route:
 | isr    | 52  | 8.7  | 12                     |
 | stream | 64  | 34   | 38                     |
 | image  | 52  | 6.7  | 10                     |
+
+</details>
+
+<details>
+<summary><code>NextjsGlobalWebFunctions</code></summary>
+
+Latency per route, p50 / p99 in ms, with every route at the same rate at once:
+
+| Route         | 10 req/s  | 50 req/s  | 250 req/s | 1000 req/s | CDN hits |
+| ------------- | --------- | --------- | --------- | ---------- | -------- |
+| static-asset  | 1.0 / 3.4 | 1.0 / 2.7 | 0.9 / 2.9 | 1.0 / 5.5  | 100%     |
+| static        | 1.8 / 4.3 | 1.7 / 5.9 | 1.8 / 4.2 | 1.8 / 6.9  | 100%     |
+| isr           | 1.8 / 4.6 | 1.8 / 4.0 | 1.8 / 4.2 | 1.7 / 7.1  | 100%     |
+| ssr           | 18 / 44   | 14 / 36   | 13 / 40   | 13 / 47    | 0%       |
+| stream        | 216 / 239 | 213 / 233 | 212 / 239 | 212 / 244  | 0%       |
+| stream (TTFB) | 16 / 39   | 12 / 30   | 11 / 34   | 11 / 38    |          |
+| rsc           | 16 / 42   | 12 / 30   | 12 / 31   | 11 / 33    | 0%       |
+| api           | 13 / 33   | 11 / 26   | 9.9 / 25  | 9.3 / 27   | 0%       |
+| image         | 1.8 / 4.7 | 1.7 / 3.6 | 1.8 / 4.4 | 1.7 / 6.8  | 100%     |
+
+Capacity: `isr` ≥ 6560 req/s, `ssr` ≥ 6560 req/s.
+
+Cold start: not measured. `pnpm cold-start` retires execution environments by changing a function's configuration, which a Web Function does only through a new revision.
 
 </details>
 
