@@ -589,6 +589,12 @@ describe("NextjsGlobalWebFunctions", () => {
         (it: any) => it.EventType,
       ),
     ).toEqual(["viewer-request"]);
+    // Which also sends a `+` in the query on as `%20`, which the endpoint's
+    // signature check accepts.
+    const functions = Object.values(
+      template.findResources("AWS::CloudFront::Function"),
+    ).map((fn) => fn.Properties.FunctionCode as string);
+    expect(functions.some((code) => code.includes('"%20"'))).toBe(true);
     // And the group's routes reach the group's endpoint.
     const reports = config.CacheBehaviors.find(
       (behavior: any) => behavior.PathPattern === "reports",

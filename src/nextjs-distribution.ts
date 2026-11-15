@@ -84,6 +84,7 @@ import {
   MAX_FUNCTION_CODE_BYTES,
   PASS_THROUGH_HANDLER,
   spliceViewerRequest,
+  WEB_FUNCTION_HANDLER,
   X_FORWARDED_HOST_HANDLER,
 } from "./utils/viewer-request-functions";
 
@@ -466,7 +467,11 @@ export class NextjsDistribution extends Construct {
     const associations: FunctionAssociation[] = [];
     if (this.isFunctionCompute) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
-        ...this.viewerRequestFunctionProps(X_FORWARDED_HOST_HANDLER),
+        ...this.viewerRequestFunctionProps(
+          this.isWebFunctionCompute
+            ? WEB_FUNCTION_HANDLER
+            : X_FORWARDED_HOST_HANDLER,
+        ),
       });
       associations.push({
         eventType: FunctionEventType.VIEWER_REQUEST,
