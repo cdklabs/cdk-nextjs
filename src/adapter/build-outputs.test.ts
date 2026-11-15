@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import appPlaygroundBasePath from "./__fixtures__/app-playground-base-path.json";
 import appPlayground from "./__fixtures__/app-playground.json";
 import pagesI18n from "./__fixtures__/pages-i18n.json";
@@ -17,7 +18,6 @@ import {
   buildAdapterManifest,
   writeBuildOutputs,
 } from "./build-outputs";
-import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { RUNTIME_DIR_NAME } from "../runtime/manifest";
 
 /**

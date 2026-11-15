@@ -521,7 +521,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigAssetPrefixPath">nextConfigAssetPrefixPath</a></code> | <code>string</code> | The path portion of the app's `assetPrefix`, whichever form it takes: "/cdn" for both `assetPrefix: "/cdn"` and `assetPrefix: "https://cdn.example.com/cdn"`, empty when there is no path to answer on. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.nextConfigBasePath">nextConfigBasePath</a></code> | <code>string</code> | The Next.js app's own `basePath` — the URL prefix it generates its links and asset hrefs under — as the adapter manifest recorded it. Normalized to a bare path segment, empty when the app sets none. Exposed so root constructs can reconcile it with the CDK `basePath` prop, which is a distinct thing; see `resolveBasePath`. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.publicDirEntries">publicDirEntries</a></code> | <code><a href="#cdk-nextjs.PublicDirEntry">PublicDirEntry</a>[]</code> | Absolute path to public. |
-| <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The JavaScript file Node.js runs to serve requests, relative to the deployment root. cdk-nextjs's own container shell, not `next build` output, so it is the same path for every app. |
+| <code><a href="#cdk-nextjs.NextjsBuild.property.relativePathToEntrypoint">relativePathToEntrypoint</a></code> | <code>string</code> | The JavaScript file Node.js runs to serve requests, relative to the deployment root: cdk-nextjs's own HTTP server shell, not `next build` output, so it is the same path for every app. The container shell, or on `NextjsGlobalWebFunctions` the Web Function one. The Event Functions types name a handler instead. |
 | <code><a href="#cdk-nextjs.NextjsBuild.property.relativeProjectDir">relativeProjectDir</a></code> | <code>string</code> | From the deployment root to the Next.js project dir, POSIX, `""` when the app is at the repo root. The runtime `chdir`s here; Containers pass it to their Dockerfile so `.next/static` and `public` land in the same place. |
 
 ---
@@ -716,7 +716,7 @@ public readonly relativePathToEntrypoint: string;
 
 - *Type:* string
 
-The JavaScript file Node.js runs to serve requests, relative to the deployment root. cdk-nextjs's own container shell, not `next build` output, so it is the same path for every app.
+The JavaScript file Node.js runs to serve requests, relative to the deployment root: cdk-nextjs's own HTTP server shell, not `next build` output, so it is the same path for every app. The container shell, or on `NextjsGlobalWebFunctions` the Web Function one. The Event Functions types name a handler instead.
 
 ---
 
@@ -1895,6 +1895,226 @@ public readonly nextjsPostDeploy: NextjsPostDeploy;
 ---
 
 
+### NextjsGlobalWebFunctions <a name="NextjsGlobalWebFunctions" id="cdk-nextjs.NextjsGlobalWebFunctions"></a>
+
+Deploy Next.js globally distributed with Lambda Web Functions. Uses [CloudFront Distribution](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/distribution-working-with.html) as Content Delivery Network (CDN) for global distribution and [AWS Lambda Web Functions](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html) for compute: a Node.js HTTP server per execution environment, serving many requests at once and billed for the CPU they actively use.
+
+Web Functions are available in fewer Regions than Event Functions, with
+fixed 2 GB memory on Arm64; synth fails in an unsupported Region. Use
+`NextjsGlobalFunctions` where these don't fit.
+
+#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsGlobalWebFunctions.Initializer"></a>
+
+```typescript
+import { NextjsGlobalWebFunctions } from 'cdk-nextjs'
+
+new NextjsGlobalWebFunctions(scope: Construct, id: string, props: NextjsGlobalWebFunctionsProps)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps">NextjsGlobalWebFunctionsProps</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsGlobalWebFunctions.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsGlobalWebFunctions.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsGlobalWebFunctions.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps">NextjsGlobalWebFunctionsProps</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.with">with</a></code> | Applies one or more mixins to this construct. |
+
+---
+
+##### `toString` <a name="toString" id="cdk-nextjs.NextjsGlobalWebFunctions.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+##### `with` <a name="with" id="cdk-nextjs.NextjsGlobalWebFunctions.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsGlobalWebFunctions.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+
+---
+
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsGlobalWebFunctions.isConstruct"></a>
+
+```typescript
+import { NextjsGlobalWebFunctions } from 'cdk-nextjs'
+
+NextjsGlobalWebFunctions.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
+
+###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsGlobalWebFunctions.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.url">url</a></code> | <code>string</code> | Public URL of the app, including `basePath` — the app only answers under that prefix, and it's derived from the app's own `basePath` when the prop is left unset, so it's there whether or not you asked for it. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsBuild">nextjsBuild</a></code> | <code><a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsCache">nextjsCache</a></code> | <code><a href="#cdk-nextjs.NextjsCache">NextjsCache</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsWebFunctions">nextjsWebFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctions">NextjsWebFunctions</a></code> | *No description.* |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsGlobalWebFunctions.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+##### `url`<sup>Required</sup> <a name="url" id="cdk-nextjs.NextjsGlobalWebFunctions.property.url"></a>
+
+```typescript
+public readonly url: string;
+```
+
+- *Type:* string
+
+Public URL of the app, including `basePath` — the app only answers under that prefix, and it's derived from the app's own `basePath` when the prop is left unset, so it's there whether or not you asked for it.
+
+---
+
+##### `nextjsBuild`<sup>Required</sup> <a name="nextjsBuild" id="cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsBuild"></a>
+
+```typescript
+public readonly nextjsBuild: NextjsBuild;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsBuild">NextjsBuild</a>
+
+---
+
+##### `nextjsCache`<sup>Required</sup> <a name="nextjsCache" id="cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsCache"></a>
+
+```typescript
+public readonly nextjsCache: NextjsCache;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsCache">NextjsCache</a>
+
+---
+
+##### `nextjsStaticAssets`<sup>Required</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssets;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssets">NextjsStaticAssets</a>
+
+---
+
+##### `nextjsDistribution`<sup>Required</sup> <a name="nextjsDistribution" id="cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsDistribution"></a>
+
+```typescript
+public readonly nextjsDistribution: NextjsDistribution;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDistribution">NextjsDistribution</a>
+
+---
+
+##### `nextjsPostDeploy`<sup>Required</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsPostDeploy"></a>
+
+```typescript
+public readonly nextjsPostDeploy: NextjsPostDeploy;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsPostDeploy">NextjsPostDeploy</a>
+
+---
+
+##### `nextjsWebFunctions`<sup>Required</sup> <a name="nextjsWebFunctions" id="cdk-nextjs.NextjsGlobalWebFunctions.property.nextjsWebFunctions"></a>
+
+```typescript
+public readonly nextjsWebFunctions: NextjsWebFunctions;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctions">NextjsWebFunctions</a>
+
+---
+
+
 ### NextjsPostDeploy <a name="NextjsPostDeploy" id="cdk-nextjs.NextjsPostDeploy"></a>
 
 Performs post deployment tasks in custom resource.
@@ -2708,6 +2928,198 @@ public readonly deployment: BucketDeployment;
 - *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
 
 The first of `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment` the build has files for.
+
+---
+
+
+### NextjsWebFunctions <a name="NextjsWebFunctions" id="cdk-nextjs.NextjsWebFunctions"></a>
+
+Run Next.js on AWS Lambda Web Functions.
+
+Each function runs cdk-nextjs's own HTTP server shell
+(`cdk-nextjs-runtime/web-function.mjs`) around the entrypoints `next build`
+produced, serving up to `maxConcurrencyPerEnvironment` requests at once per
+execution environment. The function's default endpoint is `IAM_AUTH` and in
+the stack's Region; nothing is reachable without a SigV4 signature, which
+`NextjsDistribution` has CloudFront's Origin Access Control add.
+
+The code is staged with `WebFunctionCode.fromAssetToManagedBucket`: Lambda
+reads it at runtime as its service principal, which the CDK bootstrap bucket
+doesn't allow.
+
+> [https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html)
+
+#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsWebFunctions.Initializer"></a>
+
+```typescript
+import { NextjsWebFunctions } from 'cdk-nextjs'
+
+new NextjsWebFunctions(scope: Construct, id: string, props: NextjsWebFunctionsProps)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionsProps">NextjsWebFunctionsProps</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsWebFunctions.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsWebFunctions.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsWebFunctions.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctionsProps">NextjsWebFunctionsProps</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.with">with</a></code> | Applies one or more mixins to this construct. |
+
+---
+
+##### `toString` <a name="toString" id="cdk-nextjs.NextjsWebFunctions.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+##### `with` <a name="with" id="cdk-nextjs.NextjsWebFunctions.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsWebFunctions.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+
+---
+
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsWebFunctions.isConstruct"></a>
+
+```typescript
+import { NextjsWebFunctions } from 'cdk-nextjs'
+
+NextjsWebFunctions.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
+
+###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsWebFunctions.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.property.endpoint">endpoint</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunctionEndpoint</code> | The `default` group's endpoint. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionGroupResources">NextjsWebFunctionGroupResources</a>[]</code> | Every deployed group, `default` first. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctions.property.webFunction">webFunction</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunction</code> | The `default` group's Web Function: the one the distribution's default behavior targets, and the only one unless `functionGroups` is used. |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsWebFunctions.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+##### `endpoint`<sup>Required</sup> <a name="endpoint" id="cdk-nextjs.NextjsWebFunctions.property.endpoint"></a>
+
+```typescript
+public readonly endpoint: WebFunctionEndpoint;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunctionEndpoint
+
+The `default` group's endpoint.
+
+---
+
+##### `functionGroups`<sup>Required</sup> <a name="functionGroups" id="cdk-nextjs.NextjsWebFunctions.property.functionGroups"></a>
+
+```typescript
+public readonly functionGroups: NextjsWebFunctionGroupResources[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctionGroupResources">NextjsWebFunctionGroupResources</a>[]
+
+Every deployed group, `default` first.
+
+Iterate this rather than
+{@link webFunction} for anything that must reach all of them.
+
+---
+
+##### `webFunction`<sup>Required</sup> <a name="webFunction" id="cdk-nextjs.NextjsWebFunctions.property.webFunction"></a>
+
+```typescript
+public readonly webFunction: WebFunction;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunction
+
+The `default` group's Web Function: the one the distribution's default behavior targets, and the only one unless `functionGroups` is used.
 
 ---
 
@@ -3608,7 +4020,8 @@ public readonly architecture: Architecture;
 Lambda architecture the Functions types deploy, which decides the `sharp` binaries staged into the deployment roots.
 
 Ignored by the Containers
-types, whose image is built for the synth machine.
+types, whose image is built for the synth machine, and by
+`NextjsGlobalWebFunctions`, which runs on Arm64 only.
 
 ---
 
@@ -4243,20 +4656,9 @@ const nextjsDistributionFunctionGroup: NextjsDistributionFunctionGroup = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsDistributionFunctionGroup.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | The group's Lambda Function URL. |
 | <code><a href="#cdk-nextjs.NextjsDistributionFunctionGroup.property.name">name</a></code> | <code>string</code> | *No description.* |
-
----
-
-##### `functionUrl`<sup>Required</sup> <a name="functionUrl" id="cdk-nextjs.NextjsDistributionFunctionGroup.property.functionUrl"></a>
-
-```typescript
-public readonly functionUrl: IFunctionUrl;
-```
-
-- *Type:* aws-cdk-lib.aws_lambda.IFunctionUrl
-
-The group's Lambda Function URL.
+| <code><a href="#cdk-nextjs.NextjsDistributionFunctionGroup.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | The group's Lambda Function URL, on `NextjsType.GLOBAL_FUNCTIONS`. |
+| <code><a href="#cdk-nextjs.NextjsDistributionFunctionGroup.property.webFunctionEndpoint">webFunctionEndpoint</a></code> | <code>aws-cdk-lib.aws_lambda.IWebFunctionEndpoint</code> | The group's Web Function endpoint, on `NextjsType.GLOBAL_WEB_FUNCTIONS`. |
 
 ---
 
@@ -4267,6 +4669,32 @@ public readonly name: string;
 ```
 
 - *Type:* string
+
+---
+
+##### `functionUrl`<sup>Optional</sup> <a name="functionUrl" id="cdk-nextjs.NextjsDistributionFunctionGroup.property.functionUrl"></a>
+
+```typescript
+public readonly functionUrl: IFunctionUrl;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IFunctionUrl
+
+The group's Lambda Function URL, on `NextjsType.GLOBAL_FUNCTIONS`.
+
+---
+
+##### `webFunctionEndpoint`<sup>Optional</sup> <a name="webFunctionEndpoint" id="cdk-nextjs.NextjsDistributionFunctionGroup.property.webFunctionEndpoint"></a>
+
+```typescript
+public readonly webFunctionEndpoint: IWebFunctionEndpoint;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IWebFunctionEndpoint
+
+The group's Web Function endpoint, on `NextjsType.GLOBAL_WEB_FUNCTIONS`.
+
+> [NextjsDistributionProps.webFunctionEndpoint](NextjsDistributionProps.webFunctionEndpoint)
 
 ---
 
@@ -4290,6 +4718,7 @@ const nextjsDistributionOverrides: NextjsDistributionOverrides = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicFunctionUrlOriginWithOACProps">dynamicFunctionUrlOriginWithOACProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.FunctionUrlOriginWithOACProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicResponseHeadersPolicyProps">dynamicResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicVpcOriginWithEndpointProps">dynamicVpcOriginWithEndpointProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.VpcOriginWithEndpointProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.dynamicWebFunctionOriginProps">dynamicWebFunctionOriginProps</a></code> | <code>aws-cdk-lib.aws_cloudfront_origins.HttpOriginProps</code> | Props for the `HttpOrigin` every Web Function endpoint is reached through, on `NextjsType.GLOBAL_WEB_FUNCTIONS`. Its `originAccessControlId` is cdk-nextjs's own Origin Access Control, which signs with `always-amz-auth`, the only behavior a Web Function origin accepts. |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageBehaviorOptions">imageBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.AddBehaviorOptions</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageCachePolicyProps">imageCachePolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachePolicyProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsDistributionOverrides.property.imageResponseHeadersPolicyProps">imageResponseHeadersPolicyProps</a></code> | <code>aws-cdk-lib.aws_cloudfront.ResponseHeadersPolicyProps</code> | *No description.* |
@@ -4356,6 +4785,18 @@ public readonly dynamicVpcOriginWithEndpointProps: VpcOriginWithEndpointProps;
 ```
 
 - *Type:* aws-cdk-lib.aws_cloudfront_origins.VpcOriginWithEndpointProps
+
+---
+
+##### `dynamicWebFunctionOriginProps`<sup>Optional</sup> <a name="dynamicWebFunctionOriginProps" id="cdk-nextjs.NextjsDistributionOverrides.property.dynamicWebFunctionOriginProps"></a>
+
+```typescript
+public readonly dynamicWebFunctionOriginProps: HttpOriginProps;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront_origins.HttpOriginProps
+
+Props for the `HttpOrigin` every Web Function endpoint is reached through, on `NextjsType.GLOBAL_WEB_FUNCTIONS`. Its `originAccessControlId` is cdk-nextjs's own Origin Access Control, which signs with `always-amz-auth`, the only behavior a Web Function origin accepts.
 
 ---
 
@@ -4449,6 +4890,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.serviceWorkerAllowed">serviceWorkerAllowed</a></code> | <code>string</code> | The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a behavior for those files whose response headers policy does. Next.js uses the app's `basePath`, or `/` for none. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, on every behavior cdk-nextjs adds, static assets included — HTTP Basic auth on a pre-launch site, geo-gating. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore associated with every viewer-request function {@link viewerRequestFunctionCode} is copied into (up to three, one per kind of behavior), so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy. |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.webFunctionEndpoint">webFunctionEndpoint</a></code> | <code>aws-cdk-lib.aws_lambda.IWebFunctionEndpoint</code> | Required if `NextjsType.GLOBAL_WEB_FUNCTIONS`. Must be an `IAM_AUTH`, home-Region endpoint: CloudFront's Origin Access Control signs requests to it, and is granted `lambda:InvokeWebFunctionEndpoint` on it. |
 
 ---
 
@@ -4688,6 +5130,18 @@ A CloudFront KeyValueStore associated with every viewer-request function {@link 
 Read it with `cf.kvs()`, no ID needed.
 
 > [https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html)
+
+---
+
+##### `webFunctionEndpoint`<sup>Optional</sup> <a name="webFunctionEndpoint" id="cdk-nextjs.NextjsDistributionProps.property.webFunctionEndpoint"></a>
+
+```typescript
+public readonly webFunctionEndpoint: IWebFunctionEndpoint;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IWebFunctionEndpoint
+
+Required if `NextjsType.GLOBAL_WEB_FUNCTIONS`. Must be an `IAM_AUTH`, home-Region endpoint: CloudFront's Origin Access Control signs requests to it, and is granted `lambda:InvokeWebFunctionEndpoint` on it.
 
 ---
 
@@ -6123,6 +6577,457 @@ A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`,
 
 ---
 
+### NextjsGlobalWebFunctionsConstructOverrides <a name="NextjsGlobalWebFunctionsConstructOverrides" id="cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.Initializer"></a>
+
+```typescript
+import { NextjsGlobalWebFunctionsConstructOverrides } from 'cdk-nextjs'
+
+const nextjsGlobalWebFunctionsConstructOverrides: NextjsGlobalWebFunctionsConstructOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsBuildProps">nextjsBuildProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsCacheProps">nextjsCacheProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsPostDeployProps">nextjsPostDeployProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsStaticAssetsProps">nextjsStaticAssetsProps</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsDistributionProps">nextjsDistributionProps</a></code> | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a></code> | *No description.* |
+
+---
+
+##### `nextjsBuildProps`<sup>Optional</sup> <a name="nextjsBuildProps" id="cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsBuildProps"></a>
+
+```typescript
+public readonly nextjsBuildProps: OptionalNextjsBuildProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsBuildProps">OptionalNextjsBuildProps</a>
+
+---
+
+##### `nextjsCacheProps`<sup>Optional</sup> <a name="nextjsCacheProps" id="cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsCacheProps"></a>
+
+```typescript
+public readonly nextjsCacheProps: OptionalNextjsCacheProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsCacheProps">OptionalNextjsCacheProps</a>
+
+---
+
+##### `nextjsPostDeployProps`<sup>Optional</sup> <a name="nextjsPostDeployProps" id="cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsPostDeployProps"></a>
+
+```typescript
+public readonly nextjsPostDeployProps: OptionalNextjsPostDeployProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsPostDeployProps">OptionalNextjsPostDeployProps</a>
+
+---
+
+##### `nextjsStaticAssetsProps`<sup>Optional</sup> <a name="nextjsStaticAssetsProps" id="cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsStaticAssetsProps"></a>
+
+```typescript
+public readonly nextjsStaticAssetsProps: NextjsStaticAssetsProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsProps">NextjsStaticAssetsProps</a>
+
+---
+
+##### `nextjsDistributionProps`<sup>Optional</sup> <a name="nextjsDistributionProps" id="cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides.property.nextjsDistributionProps"></a>
+
+```typescript
+public readonly nextjsDistributionProps: OptionalNextjsDistributionProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalNextjsDistributionProps">OptionalNextjsDistributionProps</a>
+
+---
+
+### NextjsGlobalWebFunctionsOverrides <a name="NextjsGlobalWebFunctionsOverrides" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides"></a>
+
+Overrides for `NextjsGlobalWebFunctions`.
+
+Overrides are lower level than
+props and are passed directly to CDK Constructs giving you more control. It's
+recommended to use caution and review source code so you know how they're used.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides.Initializer"></a>
+
+```typescript
+import { NextjsGlobalWebFunctionsOverrides } from 'cdk-nextjs'
+
+const nextjsGlobalWebFunctionsOverrides: NextjsGlobalWebFunctionsOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsCache">nextjsCache</a></code> | <code><a href="#cdk-nextjs.NextjsCacheOverrides">NextjsCacheOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsPostDeploy">nextjsPostDeploy</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsStaticAssets">nextjsStaticAssets</a></code> | <code><a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsDistribution">nextjsDistribution</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsGlobalWebFunctions">nextjsGlobalWebFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides">NextjsGlobalWebFunctionsConstructOverrides</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsWebFunctions">nextjsWebFunctions</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionsOverrides">NextjsWebFunctionsOverrides</a></code> | *No description.* |
+
+---
+
+##### `nextjsCache`<sup>Optional</sup> <a name="nextjsCache" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsCache"></a>
+
+```typescript
+public readonly nextjsCache: NextjsCacheOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsCacheOverrides">NextjsCacheOverrides</a>
+
+---
+
+##### `nextjsPostDeploy`<sup>Optional</sup> <a name="nextjsPostDeploy" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsPostDeploy"></a>
+
+```typescript
+public readonly nextjsPostDeploy: NextjsPostDeployOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a>
+
+---
+
+##### `nextjsStaticAssets`<sup>Optional</sup> <a name="nextjsStaticAssets" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsStaticAssets"></a>
+
+```typescript
+public readonly nextjsStaticAssets: NextjsStaticAssetsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsStaticAssetsOverrides">NextjsStaticAssetsOverrides</a>
+
+---
+
+##### `nextjsDistribution`<sup>Optional</sup> <a name="nextjsDistribution" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsDistribution"></a>
+
+```typescript
+public readonly nextjsDistribution: NextjsDistributionOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDistributionOverrides">NextjsDistributionOverrides</a>
+
+---
+
+##### `nextjsGlobalWebFunctions`<sup>Optional</sup> <a name="nextjsGlobalWebFunctions" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsGlobalWebFunctions"></a>
+
+```typescript
+public readonly nextjsGlobalWebFunctions: NextjsGlobalWebFunctionsConstructOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsGlobalWebFunctionsConstructOverrides">NextjsGlobalWebFunctionsConstructOverrides</a>
+
+---
+
+##### `nextjsWebFunctions`<sup>Optional</sup> <a name="nextjsWebFunctions" id="cdk-nextjs.NextjsGlobalWebFunctionsOverrides.property.nextjsWebFunctions"></a>
+
+```typescript
+public readonly nextjsWebFunctions: NextjsWebFunctionsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctionsOverrides">NextjsWebFunctionsOverrides</a>
+
+---
+
+### NextjsGlobalWebFunctionsProps <a name="NextjsGlobalWebFunctionsProps" id="cdk-nextjs.NextjsGlobalWebFunctionsProps"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.Initializer"></a>
+
+```typescript
+import { NextjsGlobalWebFunctionsProps } from 'cdk-nextjs'
+
+const nextjsGlobalWebFunctionsProps: NextjsGlobalWebFunctionsProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.buildDirectory">buildDirectory</a></code> | <code>string</code> | Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.basePath">basePath</a></code> | <code>string</code> | Prefix to the URI path the app will be served at. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.buildCommand">buildCommand</a></code> | <code>string</code> | Command to generate optimized version of your Next.js app in container; |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | Bring your own DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.skipBuild">skipBuild</a></code> | <code>boolean</code> | Skips running `next build`. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionGroup">NextjsWebFunctionGroup</a>[]</code> | Package sets of routes into separate Web Functions, each fronted by its own CloudFront behaviors. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides">NextjsGlobalWebFunctionsOverrides</a></code> | Override props of any construct. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template. |
+
+---
+
+##### `buildDirectory`<sup>Required</sup> <a name="buildDirectory" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.buildDirectory"></a>
+
+```typescript
+public readonly buildDirectory: string;
+```
+
+- *Type:* string
+
+Directory where the Next.js application is located for local builds. This should contain the package.json and Next.js application files. This is where {@link NextjsBaseProps.buildCommand} is run.
+
+---
+
+*Example*
+
+```typescript
+join(import.meta.dirname, "..", "web") or "/path/to/nextjs/app"
+```
+
+
+##### `basePath`<sup>Optional</sup> <a name="basePath" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.basePath"></a>
+
+```typescript
+public readonly basePath: string;
+```
+
+- *Type:* string
+
+Prefix to the URI path the app will be served at.
+
+Also namespaces the
+static assets in S3, so it doubles as a way to host multiple apps or
+branches out of one bucket.
+
+How this relates to the `basePath` in your app's `next.config.js` depends
+on the construct, and synth fails on a combination that can't serve the
+app:
+
+- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+  follows your app's `basePath`, which is what you want — CloudFront serves
+  static assets from S3 using the request path as the object key, so the two
+  have to be identical and a mismatch 404s all of them. Setting a different
+  value throws.
+- `NextjsRegionalFunctions`: leave this unset and it follows your app's
+  `basePath` minus the prefix API Gateway strips before matching resources —
+  the stage (`deployOptions.stageName`, default `prod`), or the base path
+  mapping of a custom domain set in `restApiProps.domainName`. So
+  `basePath: "/prod"` mounts at the root, `"/prod/base"` under `base`, and
+  `"/docs"` behind a custom domain mapped at the root under `docs`. On the
+  execute-api endpoint an app `basePath` that doesn't start with the stage
+  warns, since its links will miss the stage. If you set this, the app's
+  `basePath` must end with it. A domain attached later with
+  `addDomainName()` is not seen at synth; set this explicitly then — to
+  `"/"` when that domain's base path mapping strips your app's whole
+  `basePath`, which mounts every resource at the root.
+- `NextjsRegionalContainers`: only namespaces the S3 bucket. The ALB sends
+  every path to the container, which serves its own static assets, so this
+  is unconstrained.
+
+---
+
+*Example*
+
+```typescript
+"/my-base-path"
+```
+
+
+##### `buildCommand`<sup>Optional</sup> <a name="buildCommand" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.buildCommand"></a>
+
+```typescript
+public readonly buildCommand: string;
+```
+
+- *Type:* string
+- *Default:* "npm run build"
+
+Command to generate optimized version of your Next.js app in container;
+
+---
+
+##### `cacheBucket`<sup>Optional</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for cache storage.
+
+When provided, cdk-nextjs
+will use this bucket instead of creating a new one.
+
+The bucket must be dedicated to this one deployment. Don't share it with
+another deployment (another branch, stage, or app): every deploy's
+post-deploy step deletes every object under a top-level prefix other than
+the current `buildId/`, which includes every other deployment's cache.
+
+---
+
+##### `revalidationTable`<sup>Optional</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+Bring your own DynamoDB table for revalidation metadata.
+
+When provided,
+cdk-nextjs will use this table instead of creating a new one. The table
+must have `pk` (String) as partition key and `sk` (String) as sort key.
+Enable TTL on its `ttl` attribute too: each tag revalidation writes a
+revalidation log row that expires through it, and without TTL those rows
+accumulate.
+
+The table must be dedicated to this one deployment. Don't share it with
+another deployment (another branch, stage, or app): every deploy's
+post-deploy step deletes the entries of the build it last recorded in the
+table, which with a shared table is another deployment's live build.
+
+---
+
+##### `skipBuild`<sup>Optional</sup> <a name="skipBuild" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.skipBuild"></a>
+
+```typescript
+public readonly skipBuild: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+Skips running `next build`.
+
+If `true`, you are responsible for running
+`next build` before this construct is synthesized.
+
+---
+
+##### `staticAssetsBucket`<sup>Optional</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bring your own S3 bucket for static assets.
+
+When provided, cdk-nextjs
+will deploy static assets to this bucket instead of creating a new one.
+
+Unlike `cacheBucket`, this one can be shared, but only between deployments
+with different `basePath`s (so different S3 key prefixes). Pruning only
+touches `<basePath>/_next/`, so it leaves the others' assets alone. Two
+deployments under the same prefix overwrite each other's `public/` files
+and prune each other's `_next/` assets once they are past the prune
+TTL (30 days by default).
+
+---
+
+##### `vpc`<sup>Optional</sup> <a name="vpc" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.vpc"></a>
+
+```typescript
+public readonly vpc: IVpc;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.IVpc
+
+Bring your own VPC.
+
+If provided, will be passed via overrides to the ECS Cluster (for container-based constructs)
+or to the Lambda function (for function-based constructs).
+If not provided, ECS Cluster will create a VPC automatically for containers,
+and Lambda functions will run outside a VPC.
+
+---
+
+##### `distribution`<sup>Optional</sup> <a name="distribution" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.distribution"></a>
+
+```typescript
+public readonly distribution: Distribution;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.Distribution
+
+Bring your own distribution.
+
+Can be used with `basePath` to host multiple
+apps on the same CloudFront distribution. It must be in this construct's
+stack: its ARN scopes the Web Functions' resource-based policy, and it
+reads their endpoints' domains, so another stack would be a cycle.
+
+---
+
+##### `functionGroups`<sup>Optional</sup> <a name="functionGroups" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.functionGroups"></a>
+
+```typescript
+public readonly functionGroups: NextjsWebFunctionGroup[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctionGroup">NextjsWebFunctionGroup</a>[]
+- *Default:* one function serves every route
+
+Package sets of routes into separate Web Functions, each fronted by its own CloudFront behaviors.
+
+A Web Function's package can be 512 MB unzipped, so this is rarely
+needed for size; cdk-nextjs throws at synth with the measured size when a
+function is over it.
+
+> [NextjsWebFunctionGroup for the pattern grammar and its limits.](NextjsWebFunctionGroup for the pattern grammar and its limits.)
+
+---
+
+##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.overrides"></a>
+
+```typescript
+public readonly overrides: NextjsGlobalWebFunctionsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides">NextjsGlobalWebFunctionsOverrides</a>
+
+Override props of any construct.
+
+---
+
+##### `viewerRequestFunctionCode`<sup>Optional</sup> <a name="viewerRequestFunctionCode" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.viewerRequestFunctionCode"></a>
+
+```typescript
+public readonly viewerRequestFunctionCode: FunctionCode;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.FunctionCode
+- *Default:* none
+
+CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say.
+
+It must define
+`viewerRequest(event)`, as a function or a `var`/`let`/`const`.
+
+> [NextjsDistributionProps.viewerRequestFunctionCode *](NextjsDistributionProps.viewerRequestFunctionCode *)
+
+---
+
+##### `viewerRequestKeyValueStore`<sup>Optional</sup> <a name="viewerRequestKeyValueStore" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.viewerRequestKeyValueStore"></a>
+
+```typescript
+public readonly viewerRequestKeyValueStore: IKeyValueStore;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IKeyValueStore
+- *Default:* none
+
+A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template.
+
+> [NextjsDistributionProps.viewerRequestKeyValueStore *](NextjsDistributionProps.viewerRequestKeyValueStore *)
+
+---
+
 ### NextjsPostDeployOverrides <a name="NextjsPostDeployOverrides" id="cdk-nextjs.NextjsPostDeployOverrides"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.NextjsPostDeployOverrides.Initializer"></a>
@@ -7290,6 +8195,342 @@ public readonly overrides: NextjsStaticAssetsOverrides;
 
 ---
 
+### NextjsWebFunctionGroup <a name="NextjsWebFunctionGroup" id="cdk-nextjs.NextjsWebFunctionGroup"></a>
+
+A set of routes to package into their own Web Function.
+
+The same pattern
+grammar and limits as `NextjsFunctionGroup`; only the overrides differ.
+
+A Web Function's package can be 512 MB unzipped, twice an Event Function's,
+and memory is fixed at 2 GB, so a group is rarely needed for size and can't
+be sized differently. Its overrides can still give it its own timeout,
+concurrency per environment or environment variables.
+
+> [NextjsFunctionGroup](NextjsFunctionGroup)
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsWebFunctionGroup.Initializer"></a>
+
+```typescript
+import { NextjsWebFunctionGroup } from 'cdk-nextjs'
+
+const nextjsWebFunctionGroup: NextjsWebFunctionGroup = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroup.property.name">name</a></code> | <code>string</code> | Group name. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroup.property.routes">routes</a></code> | <code>string[]</code> | Path patterns this group owns; |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroup.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionsOverrides">NextjsWebFunctionsOverrides</a></code> | Per-group overrides, merged over the construct-wide `overrides`. |
+
+---
+
+##### `name`<sup>Required</sup> <a name="name" id="cdk-nextjs.NextjsWebFunctionGroup.property.name"></a>
+
+```typescript
+public readonly name: string;
+```
+
+- *Type:* string
+
+Group name.
+
+Becomes a construct id and part of the Web Function name, so
+it must match `/^[a-zA-Z0-9-]+$/`. `default` is reserved.
+
+---
+
+##### `routes`<sup>Required</sup> <a name="routes" id="cdk-nextjs.NextjsWebFunctionGroup.property.routes"></a>
+
+```typescript
+public readonly routes: string[];
+```
+
+- *Type:* string[]
+
+Path patterns this group owns;
+
+see `NextjsFunctionGroup`.
+
+---
+
+##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsWebFunctionGroup.property.overrides"></a>
+
+```typescript
+public readonly overrides: NextjsWebFunctionsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctionsOverrides">NextjsWebFunctionsOverrides</a>
+
+Per-group overrides, merged over the construct-wide `overrides`.
+
+---
+
+### NextjsWebFunctionGroupResources <a name="NextjsWebFunctionGroupResources" id="cdk-nextjs.NextjsWebFunctionGroupResources"></a>
+
+One deployed function group: its Web Function, its endpoint, its routes.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsWebFunctionGroupResources.Initializer"></a>
+
+```typescript
+import { NextjsWebFunctionGroupResources } from 'cdk-nextjs'
+
+const nextjsWebFunctionGroupResources: NextjsWebFunctionGroupResources = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroupResources.property.endpoint">endpoint</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunctionEndpoint</code> | The IAM-authorized endpoint CloudFront reaches the function through. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroupResources.property.name">name</a></code> | <code>string</code> | Group name; |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroupResources.property.role">role</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The Web Function's execution role. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroupResources.property.routes">routes</a></code> | <code>string[]</code> | Route templates packaged into this function, as the adapter assigned them. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionGroupResources.property.webFunction">webFunction</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunction</code> | *No description.* |
+
+---
+
+##### `endpoint`<sup>Required</sup> <a name="endpoint" id="cdk-nextjs.NextjsWebFunctionGroupResources.property.endpoint"></a>
+
+```typescript
+public readonly endpoint: WebFunctionEndpoint;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunctionEndpoint
+
+The IAM-authorized endpoint CloudFront reaches the function through.
+
+---
+
+##### `name`<sup>Required</sup> <a name="name" id="cdk-nextjs.NextjsWebFunctionGroupResources.property.name"></a>
+
+```typescript
+public readonly name: string;
+```
+
+- *Type:* string
+
+Group name;
+
+`default` for the implicit catch-all group.
+
+---
+
+##### `role`<sup>Required</sup> <a name="role" id="cdk-nextjs.NextjsWebFunctionGroupResources.property.role"></a>
+
+```typescript
+public readonly role: IRole;
+```
+
+- *Type:* aws-cdk-lib.aws_iam.IRole
+
+The Web Function's execution role.
+
+---
+
+##### `routes`<sup>Required</sup> <a name="routes" id="cdk-nextjs.NextjsWebFunctionGroupResources.property.routes"></a>
+
+```typescript
+public readonly routes: string[];
+```
+
+- *Type:* string[]
+
+Route templates packaged into this function, as the adapter assigned them.
+
+Empty for the default group is normal in a heavily split app.
+
+---
+
+##### `webFunction`<sup>Required</sup> <a name="webFunction" id="cdk-nextjs.NextjsWebFunctionGroupResources.property.webFunction"></a>
+
+```typescript
+public readonly webFunction: WebFunction;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunction
+
+---
+
+### NextjsWebFunctionsOverrides <a name="NextjsWebFunctionsOverrides" id="cdk-nextjs.NextjsWebFunctionsOverrides"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsWebFunctionsOverrides.Initializer"></a>
+
+```typescript
+import { NextjsWebFunctionsOverrides } from 'cdk-nextjs'
+
+const nextjsWebFunctionsOverrides: NextjsWebFunctionsOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsOverrides.property.webFunctionProps">webFunctionProps</a></code> | <code><a href="#cdk-nextjs.OptionalWebFunctionProps">OptionalWebFunctionProps</a></code> | Props for the Web Function, with its default endpoint's settings under `defaultEndpoint`, as on the `WebFunction` construct. |
+
+---
+
+##### `webFunctionProps`<sup>Optional</sup> <a name="webFunctionProps" id="cdk-nextjs.NextjsWebFunctionsOverrides.property.webFunctionProps"></a>
+
+```typescript
+public readonly webFunctionProps: OptionalWebFunctionProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalWebFunctionProps">OptionalWebFunctionProps</a>
+
+Props for the Web Function, with its default endpoint's settings under `defaultEndpoint`, as on the `WebFunction` construct.
+
+Construct-wide (`NextjsWebFunctionsProps.overrides`), these apply to every
+function group's Web Function, except the props that identify one
+function: `webFunctionName`, `code` and `entryPoint` apply to the `default`
+group only, as on `NextjsFunctionsOverrides.functionProps`. Set those per
+group, in the group's own `overrides`.
+
+Two props can't be changed, since CloudFront could no longer reach the
+function safely: `defaultEndpointAuth` stays `IAM_AUTH`, and
+`defaultEndpoint.endpointLocation` stays `homeRegion()`. Synth fails on
+an override that asks for anything else.
+
+---
+
+### NextjsWebFunctionsProps <a name="NextjsWebFunctionsProps" id="cdk-nextjs.NextjsWebFunctionsProps"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsWebFunctionsProps.Initializer"></a>
+
+```typescript
+import { NextjsWebFunctionsProps } from 'cdk-nextjs'
+
+const nextjsWebFunctionsProps: NextjsWebFunctionsProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.buildId">buildId</a></code> | <code>string</code> | Build ID for cache key prefixing. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for cache storage. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.nextjsType">nextjsType</a></code> | <code><a href="#cdk-nextjs.NextjsType">NextjsType</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for revalidation metadata. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket holding `.next/static` and `public`. On every type but `NextjsRegionalContainers` the runtime reads it: its image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and so does a rewrite that lands on a `public/` file. `NextjsRegionalContainers` carries both in its image, so it gets neither the bucket's environment nor read access to it. Read access is scoped to `staticAssetsKeyPrefix`. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.deploymentRoots">deploymentRoots</a></code> | <code><a href="#cdk-nextjs.NextjsDeploymentRoot">NextjsDeploymentRoot</a>[]</code> | The staged deployment roots, one per function group, `default` among them. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionGroup">NextjsWebFunctionGroup</a>[]</code> | Per-group configuration, keyed by name against {@link deploymentRoots}. |
+| <code><a href="#cdk-nextjs.NextjsWebFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionsOverrides">NextjsWebFunctionsOverrides</a></code> | *No description.* |
+
+---
+
+##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.NextjsWebFunctionsProps.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
+
+Build ID for cache key prefixing.
+
+---
+
+##### `cacheBucket`<sup>Required</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsWebFunctionsProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+S3 bucket for cache storage.
+
+---
+
+##### `nextjsType`<sup>Required</sup> <a name="nextjsType" id="cdk-nextjs.NextjsWebFunctionsProps.property.nextjsType"></a>
+
+```typescript
+public readonly nextjsType: NextjsType;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsType">NextjsType</a>
+
+---
+
+##### `revalidationTable`<sup>Required</sup> <a name="revalidationTable" id="cdk-nextjs.NextjsWebFunctionsProps.property.revalidationTable"></a>
+
+```typescript
+public readonly revalidationTable: ITableV2;
+```
+
+- *Type:* aws-cdk-lib.aws_dynamodb.ITableV2
+
+DynamoDB table for revalidation metadata.
+
+---
+
+##### `staticAssetsBucket`<sup>Required</sup> <a name="staticAssetsBucket" id="cdk-nextjs.NextjsWebFunctionsProps.property.staticAssetsBucket"></a>
+
+```typescript
+public readonly staticAssetsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+S3 bucket holding `.next/static` and `public`. On every type but `NextjsRegionalContainers` the runtime reads it: its image optimizer fetches the bytes of every non-absolute `<Image>` from S3, since they are deliberately not in the deployment package, and so does a rewrite that lands on a `public/` file. `NextjsRegionalContainers` carries both in its image, so it gets neither the bucket's environment nor read access to it. Read access is scoped to `staticAssetsKeyPrefix`.
+
+---
+
+##### `staticAssetsKeyPrefix`<sup>Optional</sup> <a name="staticAssetsKeyPrefix" id="cdk-nextjs.NextjsWebFunctionsProps.property.staticAssetsKeyPrefix"></a>
+
+```typescript
+public readonly staticAssetsKeyPrefix: string;
+```
+
+- *Type:* string
+
+Key prefix the assets were uploaded under, so the image optimizer can rebuild the same keys.
+
+> [NextjsStaticAssets.keyPrefix](NextjsStaticAssets.keyPrefix)
+
+---
+
+##### `deploymentRoots`<sup>Required</sup> <a name="deploymentRoots" id="cdk-nextjs.NextjsWebFunctionsProps.property.deploymentRoots"></a>
+
+```typescript
+public readonly deploymentRoots: NextjsDeploymentRoot[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDeploymentRoot">NextjsDeploymentRoot</a>[]
+
+The staged deployment roots, one per function group, `default` among them.
+
+> [NextjsBuild.deploymentRoots](NextjsBuild.deploymentRoots)
+
+---
+
+##### `functionGroups`<sup>Optional</sup> <a name="functionGroups" id="cdk-nextjs.NextjsWebFunctionsProps.property.functionGroups"></a>
+
+```typescript
+public readonly functionGroups: NextjsWebFunctionGroup[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctionGroup">NextjsWebFunctionGroup</a>[]
+
+Per-group configuration, keyed by name against {@link deploymentRoots}.
+
+Routes come from the build; this only carries `overrides`.
+
+---
+
+##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsWebFunctionsProps.property.overrides"></a>
+
+```typescript
+public readonly overrides: NextjsWebFunctionsOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsWebFunctionsOverrides">NextjsWebFunctionsOverrides</a>
+
+---
+
 ### OptionalApplicationLoadBalancedTaskImageOptions <a name="OptionalApplicationLoadBalancedTaskImageOptions" id="cdk-nextjs.OptionalApplicationLoadBalancedTaskImageOptions"></a>
 
 OptionalApplicationLoadBalancedTaskImageOptions.
@@ -7617,7 +8858,7 @@ public readonly runtime: FunctionRuntime;
 ```
 
 - *Type:* aws-cdk-lib.aws_cloudfront.FunctionRuntime
-- *Default:* FunctionRuntime.JS_1_0 (unless `keyValueStore` is specified, then `FunctionRuntime.JS_2_0`)
+- *Default:* FunctionRuntime.JS_2_0 if `keyValueStore` is specified or the `@aws-cdk/aws-cloudfront:defaultFunctionRuntimeV2_0` feature flag is enabled; otherwise, FunctionRuntime.JS_1_0.
 
 The runtime environment for the function.
 
@@ -7966,7 +9207,7 @@ const optionalDistributionProps: OptionalDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalDistributionProps.property.enableLogging">enableLogging</a></code> | <code>boolean</code> | Enable access logging for the distribution. |
 | <code><a href="#cdk-nextjs.OptionalDistributionProps.property.errorResponses">errorResponses</a></code> | <code>aws-cdk-lib.aws_cloudfront.ErrorResponse[]</code> | How CloudFront should handle requests that are not successful (e.g., PageNotFound). |
 | <code><a href="#cdk-nextjs.OptionalDistributionProps.property.geoRestriction">geoRestriction</a></code> | <code>aws-cdk-lib.aws_cloudfront.GeoRestriction</code> | Controls the countries in which your content is distributed. |
-| <code><a href="#cdk-nextjs.OptionalDistributionProps.property.httpVersion">httpVersion</a></code> | <code>aws-cdk-lib.aws_cloudfront.HttpVersion</code> | Specify the maximum HTTP version that you want viewers to use to communicate with CloudFront. |
+| <code><a href="#cdk-nextjs.OptionalDistributionProps.property.httpVersion">httpVersion</a></code> | <code>aws-cdk-lib.aws_cloudfront.HttpVersion</code> | The HTTP version(s) to enable on the distribution. |
 | <code><a href="#cdk-nextjs.OptionalDistributionProps.property.logBucket">logBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | The Amazon S3 bucket to store the access logs in. |
 | <code><a href="#cdk-nextjs.OptionalDistributionProps.property.logFilePrefix">logFilePrefix</a></code> | <code>string</code> | An optional string that you want CloudFront to prefix to the access log filenames for this distribution. |
 | <code><a href="#cdk-nextjs.OptionalDistributionProps.property.logIncludesCookies">logIncludesCookies</a></code> | <code>boolean</code> | Specifies whether you want CloudFront to include cookies in access logs. |
@@ -8141,9 +9382,10 @@ public readonly httpVersion: HttpVersion;
 - *Type:* aws-cdk-lib.aws_cloudfront.HttpVersion
 - *Default:* HttpVersion.HTTP2
 
-Specify the maximum HTTP version that you want viewers to use to communicate with CloudFront.
+The HTTP version(s) to enable on the distribution.
 
-For viewers and CloudFront to use HTTP/2, viewers must support TLS 1.2 or later, and must support server name identification (SNI).
+For viewers and CloudFront to use HTTP/2, viewers must support TLS 1.2 or later, and must support Server Name Indication (SNI).
+For viewers and CloudFront to use HTTP/3, viewers must support TLS 1.3 and Server Name Indication (SNI).
 
 ---
 
@@ -9441,7 +10683,8 @@ public readonly snapStart: SnapStartConf;
 
 Enable SnapStart for Lambda Function.
 
-SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime
+SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime,
+as well as container image (OCI) deployments.
 
 ---
 
@@ -10386,7 +11629,8 @@ public readonly snapStart: SnapStartConf;
 
 Enable SnapStart for Lambda Function.
 
-SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime
+SnapStart is currently supported for Java 11, Java 17, Python 3.12, Python 3.13, and .NET 8 runtime,
+as well as container image (OCI) deployments.
 
 ---
 
@@ -11076,6 +12320,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.serviceWorkerAllowed">serviceWorkerAllowed</a></code> | <code>string</code> | The `Service-Worker-Allowed` header for `_next/static/service-worker/*`, which Next.js sends so a compiled service worker can register at a scope wider than its own directory, such as `/`. S3 can't send an arbitrary header, so setting this adds a behavior for those files whose response headers policy does. Next.js uses the app's `basePath`, or `/` for none. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, on every behavior cdk-nextjs adds, static assets included — HTTP Basic auth on a pre-launch site, geo-gating. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore associated with every viewer-request function {@link viewerRequestFunctionCode} is copied into (up to three, one per kind of behavior), so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy. |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.webFunctionEndpoint">webFunctionEndpoint</a></code> | <code>aws-cdk-lib.aws_lambda.IWebFunctionEndpoint</code> | Required if `NextjsType.GLOBAL_WEB_FUNCTIONS`. Must be an `IAM_AUTH`, home-Region endpoint: CloudFront's Origin Access Control signs requests to it, and is granted `lambda:InvokeWebFunctionEndpoint` on it. |
 
 ---
 
@@ -11271,6 +12516,18 @@ public readonly viewerRequestKeyValueStore: IKeyValueStore;
 A CloudFront KeyValueStore associated with every viewer-request function {@link viewerRequestFunctionCode} is copied into (up to three, one per kind of behavior), so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy.
 
 Read it with `cf.kvs()`, no ID needed.
+
+---
+
+##### `webFunctionEndpoint`<sup>Optional</sup> <a name="webFunctionEndpoint" id="cdk-nextjs.OptionalNextjsDistributionProps.property.webFunctionEndpoint"></a>
+
+```typescript
+public readonly webFunctionEndpoint: IWebFunctionEndpoint;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.IWebFunctionEndpoint
+
+Required if `NextjsType.GLOBAL_WEB_FUNCTIONS`. Must be an `IAM_AUTH`, home-Region endpoint: CloudFront's Origin Access Control signs requests to it, and is granted `lambda:InvokeWebFunctionEndpoint` on it.
 
 ---
 
@@ -12128,6 +13385,305 @@ Where to propagate VPN routes.
 
 ---
 
+### OptionalWebFunctionProps <a name="OptionalWebFunctionProps" id="cdk-nextjs.OptionalWebFunctionProps"></a>
+
+OptionalWebFunctionProps.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalWebFunctionProps.Initializer"></a>
+
+```typescript
+import { OptionalWebFunctionProps } from 'cdk-nextjs'
+
+const optionalWebFunctionProps: OptionalWebFunctionProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.applicationLogLevel">applicationLogLevel</a></code> | <code>aws-cdk-lib.aws_lambda.ApplicationLogLevel</code> | The minimum log level for application logs (logs emitted by your code, e.g. `console.log()`, `console.warn()`). Only logs at this level or above will be captured in CloudWatch. For example, setting this to `INFO` will capture `console.info()` and `console.warn()` but filter out `console.debug()`. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.code">code</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunctionCode</code> | The deployment package for the WebFunction. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.defaultEndpoint">defaultEndpoint</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunctionDefaultEndpointOptions</code> | The other settings of the endpoint the WebFunction creates, `endpoint`. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.defaultEndpointAuth">defaultEndpointAuth</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunctionAuthType</code> | The authentication type of the endpoint the WebFunction creates, `endpoint`. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.egressNetworkConnector">egressNetworkConnector</a></code> | <code>aws-cdk-lib.aws_lambda.INetworkConnector</code> | The network connector that gives the function egress into a VPC. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.entryPoint">entryPoint</a></code> | <code>string</code> | The entry file the runtime executes, relative to the root of the deployment package. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.environment">environment</a></code> | <code>{[ key: string ]: string}</code> | Key-value pairs of environment variables to pass to the WebFunction. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.kmsKey">kmsKey</a></code> | <code>aws-cdk-lib.interfaces.aws_kms.IKeyRef</code> | The KMS key used to encrypt environment variables. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.logGroup">logGroup</a></code> | <code>aws-cdk-lib.interfaces.aws_logs.ILogGroupRef</code> | The CloudWatch log group to send logs to. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.maxConcurrencyPerEnvironment">maxConcurrencyPerEnvironment</a></code> | <code>number</code> | The maximum number of concurrent requests handled by a single execution environment. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.revisionDescription">revisionDescription</a></code> | <code>string</code> | A description of the WebFunction revision. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.role">role</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The IAM execution role for the WebFunction. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.runtime">runtime</a></code> | <code>aws-cdk-lib.aws_lambda.WebFunctionRuntime</code> | The runtime environment for the WebFunction. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.systemLogLevel">systemLogLevel</a></code> | <code>aws-cdk-lib.aws_lambda.SystemLogLevel</code> | The minimum log level for system logs (logs emitted by the Lambda runtime, e.g. start/end/report lines and runtime errors). Only logs at this level or above will be captured in CloudWatch. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.tags">tags</a></code> | <code>{[ key: string ]: string}</code> | Tags to apply to the WebFunction. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.timeout">timeout</a></code> | <code>aws-cdk-lib.Duration</code> | The function execution time (in seconds) after which the WebFunction is terminated. |
+| <code><a href="#cdk-nextjs.OptionalWebFunctionProps.property.webFunctionName">webFunctionName</a></code> | <code>string</code> | The name of the WebFunction. |
+
+---
+
+##### `applicationLogLevel`<sup>Optional</sup> <a name="applicationLogLevel" id="cdk-nextjs.OptionalWebFunctionProps.property.applicationLogLevel"></a>
+
+```typescript
+public readonly applicationLogLevel: ApplicationLogLevel;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.ApplicationLogLevel
+- *Default:* No application log level filtering.
+
+The minimum log level for application logs (logs emitted by your code, e.g. `console.log()`, `console.warn()`). Only logs at this level or above will be captured in CloudWatch. For example, setting this to `INFO` will capture `console.info()` and `console.warn()` but filter out `console.debug()`.
+
+---
+
+##### `code`<sup>Optional</sup> <a name="code" id="cdk-nextjs.OptionalWebFunctionProps.property.code"></a>
+
+```typescript
+public readonly code: WebFunctionCode;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunctionCode
+
+The deployment package for the WebFunction.
+
+---
+
+##### `defaultEndpoint`<sup>Optional</sup> <a name="defaultEndpoint" id="cdk-nextjs.OptionalWebFunctionProps.property.defaultEndpoint"></a>
+
+```typescript
+public readonly defaultEndpoint: WebFunctionDefaultEndpointOptions;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunctionDefaultEndpointOptions
+- *Default:* a home-Region endpoint named `prod`, with no description and no scaling or rate limit beyond your account's quotas
+
+The other settings of the endpoint the WebFunction creates, `endpoint`.
+
+Endpoints added with `addEndpoint()` take their own settings, auth type included.
+
+---
+
+##### `defaultEndpointAuth`<sup>Optional</sup> <a name="defaultEndpointAuth" id="cdk-nextjs.OptionalWebFunctionProps.property.defaultEndpointAuth"></a>
+
+```typescript
+public readonly defaultEndpointAuth: WebFunctionAuthType;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunctionAuthType
+
+The authentication type of the endpoint the WebFunction creates, `endpoint`.
+
+There is no default: you must choose explicitly so an endpoint is never accidentally public or
+accidentally locked down. Specify `WebFunctionAuthType.IAM_AUTH` (Lambda authorizes requests with SigV4/IAM)
+or `WebFunctionAuthType.APPLICATION_MANAGED` (the endpoint is public and your function handles authorization).
+
+With `IAM_AUTH`, requests must be signed with SigV4 and carry the `X-Amz-Content-SHA256`
+header, also for a request without a body; without it the endpoint returns 403 even for a
+valid signature. A `MULTI_REGION` endpoint is signed with SigV4a, for the Region set `*`.
+
+---
+
+##### `egressNetworkConnector`<sup>Optional</sup> <a name="egressNetworkConnector" id="cdk-nextjs.OptionalWebFunctionProps.property.egressNetworkConnector"></a>
+
+```typescript
+public readonly egressNetworkConnector: INetworkConnector;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.INetworkConnector
+- *Default:* no VPC egress
+
+The network connector that gives the function egress into a VPC.
+
+The revision pins to the connector's latest version at the time it is created. For a
+connector defined in the same stack, every update to the connector therefore replaces the
+revision as part of that deployment, and traffic moves to the new version with it. To hold
+the function on a fixed version instead — or to use a connector from another stack, whose
+changing version cannot be exported — import the version with
+`NetworkConnector.fromNetworkConnectorVersionArn()`.
+
+The connector must have been created for `NetworkConnectorComputeType.WEB_FUNCTION`, and
+the endpoint must be `WebFunctionEndpointType.HOME_REGION`.
+
+The full `INetworkConnector` is required (rather than a ref) because the revision pins to
+`latestVersionArn`, which `INetworkConnectorRef` does not carry.
+
+[disable-awslint:prefer-ref-interface]
+
+---
+
+##### `entryPoint`<sup>Optional</sup> <a name="entryPoint" id="cdk-nextjs.OptionalWebFunctionProps.property.entryPoint"></a>
+
+```typescript
+public readonly entryPoint: string;
+```
+
+- *Type:* string
+- *Default:* the runtime's default entry point, `index.js`
+
+The entry file the runtime executes, relative to the root of the deployment package.
+
+Only supported for Node.js runtimes. When set, it is passed to the runtime via the reserved
+`AWS_LAMBDA_NODEJS_ENTRYPOINT` environment variable. Do not set that
+variable through `environment` as well.
+
+---
+
+##### `environment`<sup>Optional</sup> <a name="environment" id="cdk-nextjs.OptionalWebFunctionProps.property.environment"></a>
+
+```typescript
+public readonly environment: {[ key: string ]: string};
+```
+
+- *Type:* {[ key: string ]: string}
+- *Default:* No environment variables.
+
+Key-value pairs of environment variables to pass to the WebFunction.
+
+---
+
+##### `kmsKey`<sup>Optional</sup> <a name="kmsKey" id="cdk-nextjs.OptionalWebFunctionProps.property.kmsKey"></a>
+
+```typescript
+public readonly kmsKey: IKeyRef;
+```
+
+- *Type:* aws-cdk-lib.interfaces.aws_kms.IKeyRef
+- *Default:* AWS managed key.
+
+The KMS key used to encrypt environment variables.
+
+The Lambda service principal is granted the key usage it needs to encrypt
+and decrypt the revision's environment variables.
+
+---
+
+##### `logGroup`<sup>Optional</sup> <a name="logGroup" id="cdk-nextjs.OptionalWebFunctionProps.property.logGroup"></a>
+
+```typescript
+public readonly logGroup: ILogGroupRef;
+```
+
+- *Type:* aws-cdk-lib.interfaces.aws_logs.ILogGroupRef
+- *Default:* A log group is created, named by CloudFormation and retained when the stack is deleted. Read its name from the `logGroup` attribute.
+
+The CloudWatch log group to send logs to.
+
+---
+
+##### `maxConcurrencyPerEnvironment`<sup>Optional</sup> <a name="maxConcurrencyPerEnvironment" id="cdk-nextjs.OptionalWebFunctionProps.property.maxConcurrencyPerEnvironment"></a>
+
+```typescript
+public readonly maxConcurrencyPerEnvironment: number;
+```
+
+- *Type:* number
+- *Default:* the service default of 64 is applied
+
+The maximum number of concurrent requests handled by a single execution environment.
+
+Must be an integer between 1 and 128. When omitted, nothing is sent and the service
+applies its default.
+
+---
+
+##### `revisionDescription`<sup>Optional</sup> <a name="revisionDescription" id="cdk-nextjs.OptionalWebFunctionProps.property.revisionDescription"></a>
+
+```typescript
+public readonly revisionDescription: string;
+```
+
+- *Type:* string
+- *Default:* No description.
+
+A description of the WebFunction revision.
+
+Must be 256 characters or fewer.
+
+---
+
+##### `role`<sup>Optional</sup> <a name="role" id="cdk-nextjs.OptionalWebFunctionProps.property.role"></a>
+
+```typescript
+public readonly role: IRole;
+```
+
+- *Type:* aws-cdk-lib.aws_iam.IRole
+- *Default:* A new role with `AWSLambdaBasicExecutionRole` is created.
+
+The IAM execution role for the WebFunction.
+
+---
+
+##### `runtime`<sup>Optional</sup> <a name="runtime" id="cdk-nextjs.OptionalWebFunctionProps.property.runtime"></a>
+
+```typescript
+public readonly runtime: WebFunctionRuntime;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.WebFunctionRuntime
+
+The runtime environment for the WebFunction.
+
+---
+
+##### `systemLogLevel`<sup>Optional</sup> <a name="systemLogLevel" id="cdk-nextjs.OptionalWebFunctionProps.property.systemLogLevel"></a>
+
+```typescript
+public readonly systemLogLevel: SystemLogLevel;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.SystemLogLevel
+- *Default:* No system log level filtering.
+
+The minimum log level for system logs (logs emitted by the Lambda runtime, e.g. start/end/report lines and runtime errors). Only logs at this level or above will be captured in CloudWatch.
+
+---
+
+##### `tags`<sup>Optional</sup> <a name="tags" id="cdk-nextjs.OptionalWebFunctionProps.property.tags"></a>
+
+```typescript
+public readonly tags: {[ key: string ]: string};
+```
+
+- *Type:* {[ key: string ]: string}
+- *Default:* No tags.
+
+Tags to apply to the WebFunction.
+
+Only the WebFunction resource carries tags. Its revision and endpoint are not
+taggable, so nothing is applied to them.
+
+---
+
+##### `timeout`<sup>Optional</sup> <a name="timeout" id="cdk-nextjs.OptionalWebFunctionProps.property.timeout"></a>
+
+```typescript
+public readonly timeout: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.seconds(30)
+
+The function execution time (in seconds) after which the WebFunction is terminated.
+
+Must be an integer between 3 and 900 seconds.
+
+---
+
+##### `webFunctionName`<sup>Optional</sup> <a name="webFunctionName" id="cdk-nextjs.OptionalWebFunctionProps.property.webFunctionName"></a>
+
+```typescript
+public readonly webFunctionName: string;
+```
+
+- *Type:* string
+- *Default:* A unique name is generated by CDK.
+
+The name of the WebFunction.
+
+Must be 2 to 64 characters of letters, numbers, hyphens or underscores, starting and
+ending with a letter or number.
+
+---
+
 ### PostDeployCustomResourceProperties <a name="PostDeployCustomResourceProperties" id="cdk-nextjs.PostDeployCustomResourceProperties"></a>
 
 #### Initializer <a name="Initializer" id="cdk-nextjs.PostDeployCustomResourceProperties.Initializer"></a>
@@ -12298,6 +13854,7 @@ public readonly name: string;
 | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsType.GLOBAL_CONTAINERS">GLOBAL_CONTAINERS</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsType.GLOBAL_FUNCTIONS">GLOBAL_FUNCTIONS</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsType.GLOBAL_WEB_FUNCTIONS">GLOBAL_WEB_FUNCTIONS</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsType.REGIONAL_CONTAINERS">REGIONAL_CONTAINERS</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsType.REGIONAL_FUNCTIONS">REGIONAL_FUNCTIONS</a></code> | *No description.* |
 
@@ -12309,6 +13866,11 @@ public readonly name: string;
 
 
 ##### `GLOBAL_FUNCTIONS` <a name="GLOBAL_FUNCTIONS" id="cdk-nextjs.NextjsType.GLOBAL_FUNCTIONS"></a>
+
+---
+
+
+##### `GLOBAL_WEB_FUNCTIONS` <a name="GLOBAL_WEB_FUNCTIONS" id="cdk-nextjs.NextjsType.GLOBAL_WEB_FUNCTIONS"></a>
 
 ---
 
