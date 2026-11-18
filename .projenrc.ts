@@ -506,13 +506,14 @@ function updateGitHubWorkflows() {
  * every draft that is opened. It also runs on `ready_for_review`, which is when
  * a draft gets queued, so skipping drafts loses nothing.
  *
- * A PR from a fork isn't queued either: e2e-tests skips it, so it would merge
- * on its first approval without an end-to-end run. A maintainer recreates it
- * on a branch here instead (see CONTRIBUTING.md).
+ * A PR from a fork isn't queued either: e2e-tests.yml skips it with the same
+ * head-repo test, so it would merge on its first approval without an
+ * end-to-end run. A maintainer recreates it on a branch here instead (see
+ * CONTRIBUTING.md).
  *
  * ANDed onto whatever condition projen generates (labels, authors), and loud
  * if a projen upgrade renames the workflow or the job, rather than silently
- * bringing the draft failures back.
+ * bringing back the draft failures or auto-merge for fork PRs.
  */
 function skipDraftAndForkAutoQueue() {
   const workflow = project.github?.tryFindWorkflow("auto-queue");

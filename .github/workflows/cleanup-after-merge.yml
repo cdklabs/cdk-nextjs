@@ -15,8 +15,6 @@ env:
 jobs:
   check-if-should-run:
     runs-on: ubuntu-latest
-    # e2e-tests.yml never deploys a PR from a fork, so there is no stack to destroy.
-    if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - run: echo "Workflow should run for closed PR ${{ github.event.pull_request.number }}"
   cleanup-global-functions:
