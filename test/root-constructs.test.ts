@@ -660,6 +660,27 @@ describe.each([
   ["NextjsGlobalContainers", NextjsGlobalContainers],
   ["NextjsRegionalContainers", NextjsRegionalContainers],
 ])("%s", (_, RootConstruct) => {
+  it("waits for the ECS service before post-deploy pruning", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new RootConstruct(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+    });
+    const template = Template.fromStack(stack);
+    const services = Object.keys(template.findResources("AWS::ECS::Service"));
+    expect(services).toHaveLength(1);
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
+    const [postDeploy] = Object.values(
+      template.findResources("Custom::NextjsPostDeploy"),
+    );
+
+    // The service, not just its task definition: old tasks can still serve
+    // requests after CloudFormation has updated the task definition.
+    expect(postDeploy.DependsOn).toEqual(expect.arrayContaining(services));
+  });
+
   // An unset `vpc` prop used to be written over the override's as `undefined`,
   // so the cluster created a VPC of its own and the tasks ran outside the
   // consumer's.
