@@ -1,6 +1,6 @@
 # Breaking Changes
 
-## 0.7.14
+## 0.8.0
 
 ### Node.js 22.2 or higher is required
 
