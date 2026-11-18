@@ -29,7 +29,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 # No job gets a token permission it doesn't need: only the deploy jobs, which
-# all need `check-if-should-run`, get `id-token: write` for AWS OIDC.
+# all need `check-if-should-run`, get `id-token: write` for AWS OIDC. Each also
+# repeats its fork test, so a later `needs` or `always()` change can't hand a
+# fork's code those credentials.
 permissions: {}
 env:
   ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
@@ -53,6 +55,7 @@ jobs:
 
   glbl-fns:
     needs: check-if-should-run
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       id-token: write
     runs-on: ubuntu-24.04-arm
@@ -74,6 +77,7 @@ jobs:
 
   glbl-cntnrs:
     needs: check-if-should-run
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       id-token: write
     runs-on: ubuntu-22.04-arm
@@ -91,6 +95,7 @@ jobs:
 
   rgnl-cntnrs:
     needs: check-if-should-run
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       id-token: write
     runs-on: ubuntu-24.04
@@ -107,6 +112,7 @@ jobs:
           stack_name: ${{ env.ENV }}-rgnl-cntnrs
   rgnl-fns:
     needs: check-if-should-run
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       id-token: write
     # x86 on purpose: examples/regional-functions deploys ARM_64, so this is the

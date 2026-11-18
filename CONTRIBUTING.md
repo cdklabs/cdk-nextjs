@@ -13,7 +13,7 @@ Pull requests from forks are welcome as proposals, but they aren't merged as the
 - The end-to-end tests deploy every example to an AWS account with OIDC credentials. Code from a fork never runs with those credentials, so the `e2e-tests` workflow skips pull requests from forks.
 - To merge a change, a maintainer recreates it on a branch in this repository, where the end-to-end tests run, and closes the fork's pull request with a link to the new one. The merged commit credits you as a co-author.
 
-Checks that need no credentials, such as the build and unit tests, still run on your pull request.
+Checks that need no credentials, such as the build and unit tests, still run on your pull request (on your first one, once a maintainer approves the run).
 
 ## Building locally
 
