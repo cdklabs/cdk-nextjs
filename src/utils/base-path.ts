@@ -341,6 +341,7 @@ export function resolveBasePath(
 
   switch (nextjsType) {
     case NextjsType.GLOBAL_FUNCTIONS:
+    case NextjsType.GLOBAL_WEB_FUNCTIONS:
     case NextjsType.GLOBAL_CONTAINERS:
       // `NextjsDistribution` builds its behaviors as `/${basePath}/_next/static*`
       // and CloudFront hands an S3 origin the request path verbatim as the

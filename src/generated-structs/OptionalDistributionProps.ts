@@ -74,8 +74,9 @@ export interface OptionalDistributionProps {
    */
   readonly logBucket?: aws_s3.IBucket;
   /**
-   * Specify the maximum HTTP version that you want viewers to use to communicate with CloudFront.
-   * For viewers and CloudFront to use HTTP/2, viewers must support TLS 1.2 or later, and must support server name identification (SNI).
+   * The HTTP version(s) to enable on the distribution.
+   * For viewers and CloudFront to use HTTP/2, viewers must support TLS 1.2 or later, and must support Server Name Indication (SNI).
+   * For viewers and CloudFront to use HTTP/3, viewers must support TLS 1.3 and Server Name Indication (SNI).
    * @default HttpVersion.HTTP2
    * @stability stable
    */

@@ -42,13 +42,14 @@ The project uses `@mrgrain/jsii-struct-builder` to generate "Optional" versions 
 ## Architecture
 
 ### Root Constructs (user-facing entry points)
-`src/root-constructs/` — the four deployment patterns users choose from:
+`src/root-constructs/` — the five deployment patterns users choose from:
 - **NextjsGlobalFunctions** — CloudFront + Lambda
+- **NextjsGlobalWebFunctions** — CloudFront + Lambda Web Functions (`IAM_AUTH` endpoint behind OAC; 5 Regions, Arm64, 2 GB)
 - **NextjsGlobalContainers** — CloudFront + Fargate
 - **NextjsRegionalContainers** — ALB + Fargate (no CloudFront, GovCloud compatible)
 - **NextjsRegionalFunctions** — Lambda Function URLs (no CloudFront, GovCloud compatible)
 
-Each root construct composes lower-level constructs (NextjsBuild, NextjsFunctions/NextjsContainers, NextjsDistribution, NextjsCache, NextjsStaticAssets, NextjsPostDeploy).
+Each root construct composes lower-level constructs (NextjsBuild, NextjsFunctions/NextjsWebFunctions/NextjsContainers, NextjsDistribution, NextjsCache, NextjsStaticAssets, NextjsPostDeploy).
 
 ### Runtime Code (bundled with esbuild, not compiled by JSII)
 - `src/adapter/adapter.mts` — Next.js adapter (ESM, runs in Lambda/Fargate at request time)

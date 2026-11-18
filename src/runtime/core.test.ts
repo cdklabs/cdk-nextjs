@@ -1369,7 +1369,10 @@ exports.handler = async () =>
 
   async function proxy(
     headers: Record<string, string> = {},
-    trustForwardedHost = false,
+    trust: Pick<
+      RuntimeRequest,
+      "trustForwardedHost" | "carriesOriginSignature"
+    > = {},
   ): Promise<CollectingSink> {
     const sink = new CollectingSink();
     await proxying.handle(
@@ -1377,7 +1380,7 @@ exports.handler = async () =>
         method: "GET",
         url: "/anything",
         headers: { host: "shop.example.test", ...headers },
-        trustForwardedHost,
+        ...trust,
       },
       sink,
     );
@@ -1395,7 +1398,10 @@ exports.handler = async () =>
   // Forwarded, OAC's signature would let the upstream replay the request
   // against the Function URL.
   it("does not forward the SigV4 headers of an IAM-verified request", async () => {
-    await proxy(SIGNED, true);
+    await proxy(SIGNED, {
+      trustForwardedHost: true,
+      carriesOriginSignature: true,
+    });
 
     const headers = (fetchMock.mock.calls[0][1] as RequestInit)
       .headers as Headers;
@@ -1407,6 +1413,18 @@ exports.handler = async () =>
   // Anywhere else they are the client's own, which `next start` forwards.
   it("forwards the client's own Authorization and x-amz-* headers", async () => {
     await proxy(SIGNED);
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    for (const [name, value] of Object.entries(SIGNED)) {
+      expect(headers.get(name)).toBe(value);
+    }
+  });
+
+  // A Web Function endpoint strips OAC's signature before the app sees the
+  // request, so a trusted request's `authorization` is the viewer's own.
+  it("forwards the viewer's Authorization on a trusted Web Function request", async () => {
+    await proxy(SIGNED, { trustForwardedHost: true });
 
     const headers = (fetchMock.mock.calls[0][1] as RequestInit)
       .headers as Headers;

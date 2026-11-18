@@ -352,10 +352,12 @@ Two caveats worth knowing before reading a failure as a regression:
 ## Running on the other `NextjsType`s
 
 `HARNESS_NEXTJS_TYPE` picks the root construct: `global-functions` (the default),
-`regional-functions`, `global-containers` or `regional-containers`. Each type but
-the default gets a stack infix of its own — `hrns-rf-*`, `hrns-gc-*`,
-`hrns-rc-*` — so no run can deploy into another type's stack, and shards of all
-four types can share one run. In CI, two *runs* still queue behind each other
+`global-web-functions`, `regional-functions`, `global-containers` or
+`regional-containers`. Each type but the default gets a stack infix of its own —
+`hrns-gwf-*`, `hrns-rf-*`, `hrns-gc-*`, `hrns-rc-*` — so no run can deploy into
+another type's stack, and shards of all five types can share one run.
+`global-web-functions` needs a Region with Lambda Web Functions, and can't be
+hotswapped, so each of its test files is a CloudFormation deployment. In CI, two *runs* still queue behind each other
 (see "Sharding"). The workflow's `nextjs_type` input sets the type, or `all`
 runs every type, as the schedule does.
 
@@ -757,7 +759,7 @@ the account.
 | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `ADAPTER_DIR`                       | _required_                           | This checkout. Every harness script resolves everything from it.                                        |
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
-| `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
+| `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `global-web-functions` (`hrns-gwf-*`), `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
 | `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per local session (`dev-$USER`).       |
 | `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |

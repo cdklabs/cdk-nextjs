@@ -117,8 +117,10 @@ test.describe("request methods", () => {
     // is refused - so if the fetch patch is ever dropped, the browser test fails
     // and this one keeps working, which localises the break immediately.
     //
-    // Only `NextjsGlobalFunctions` signs requests to its origin. The other three
-    // accept this POST, which is correct for them.
+    // Only `NextjsGlobalFunctions` signs the payload of requests to its origin.
+    // `NextjsGlobalWebFunctions` signs too, but sends `UNSIGNED-PAYLOAD` for the
+    // body, and the other three don't sign at all, so all four accept this POST,
+    // which is correct for them.
     test.skip(
       !isGlobalFunctions(),
       "only NextjsGlobalFunctions signs origin requests",
@@ -140,17 +142,17 @@ test.describe("request methods", () => {
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-echo"]).toBe("echo");
 
-    // The handler declares the length its GET would have returned. A HEAD is the
-    // other empty-body case: the runtime pads it, and the declared length has to
-    // survive that padding rather than be replaced by it.
+    // The handler declares the length its GET would have returned, and since
+    // Next.js 16.4.5 Next.js itself drops it: `sendResponse` no longer copies
+    // `content-length` (nor `content-encoding`, `transfer-encoding`) from a route
+    // handler's `Response` (`FORBIDDEN_HEADERS` in `server/send-response.ts`, a
+    // security fix), so a HEAD arrives with none, on every type.
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
-    // declared. Measured, not reasoned: the same runtime answers `42` through API
-    // Gateway's streaming integration, and CloudFront passes `42` through from an
-    // ALB, so the Function URL is the one layer left. Asserted rather than
-    // skipped, so a Function URL that starts honouring it shows up here.
+    // sent. Asserted rather than skipped, so a change at either layer shows up
+    // here.
     expect(response.headers()["content-length"]).toBe(
-      isGlobalFunctions() ? "0" : "42",
+      isGlobalFunctions() ? "0" : undefined,
     );
 
     const body = await response.body();

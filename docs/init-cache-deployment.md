@@ -61,7 +61,8 @@ in `src/nextjs-cache.ts`.
 
 `BucketDeployment`'s Lambda downloads the asset zip into `/tmp` and extracts it
 beside itself, so it needs room for both at once — and CDK gives it 512 MiB of
-ephemeral storage and 128 MB of memory by default. An app with many large
+ephemeral storage and 1024 MB of memory by default (128 MB in older
+aws-cdk-lib). An app with many large
 prerenders blows through that: 60 pages carrying ~1 MB of RSC each produce a
 664 MiB seed directory, and the handler dies with
 `OSError: [Errno 28] No space left on device`. Under `cdk deploy --hotswap` that

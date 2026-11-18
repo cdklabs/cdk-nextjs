@@ -243,7 +243,8 @@ export class NextjsCache extends Construct {
    *
    * That Lambda downloads the asset zip into `/tmp` and then extracts it
    * alongside, so it needs room for both at once. CDK defaults it to 512 MiB of
-   * ephemeral storage and 128 MB of memory — fine for a small app, and a hard
+   * ephemeral storage (and 1024 MB of memory; 128 MB in older aws-cdk-lib) —
+   * fine for a small app, and a hard
    * failure for one whose prerendered payloads are large. A fixture with 60
    * statically generated pages carrying ~1 MB of RSC each produced a 664 MiB
    * seed directory and the handler died on

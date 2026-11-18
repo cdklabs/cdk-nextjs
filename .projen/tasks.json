@@ -110,6 +110,9 @@
           "spawn": "bundle:runtime/server"
         },
         {
+          "spawn": "bundle:runtime/web-function"
+        },
+        {
           "exec": "node --check lib/adapter/adapter.mjs"
         },
         {
@@ -126,6 +129,9 @@
         },
         {
           "exec": "node --check lib/runtime/server.mjs"
+        },
+        {
+          "exec": "node --check lib/runtime/web-function.mjs"
         }
       ]
     },
@@ -288,6 +294,24 @@
       "steps": [
         {
           "exec": "esbuild --bundle src/runtime/server.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/server.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\" --watch"
+        }
+      ]
+    },
+    "bundle:runtime/web-function": {
+      "name": "bundle:runtime/web-function",
+      "description": "Create a JavaScript bundle from src/runtime/web-function.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/runtime/web-function.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/web-function.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\""
+        }
+      ]
+    },
+    "bundle:runtime/web-function:watch": {
+      "name": "bundle:runtime/web-function:watch",
+      "description": "Continuously update the JavaScript bundle from src/runtime/web-function.mts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/runtime/web-function.mts --target=\"node24\" --platform=\"node\" --outfile=\"lib/runtime/web-function.mjs\" --external:next --external:sharp --external:@opentelemetry/api --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);\" --watch"
         }
       ]
     },
@@ -668,7 +692,7 @@
             "--peer",
             "--no-deprecated",
             "--dep=dev",
-            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-api-gateway,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/client-ssm,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,aws-cdk,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-api-gateway,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/client-ssm,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
           ]
         },
         {

@@ -73,6 +73,25 @@ jobs:
           example_directory: global-functions
           stack_name: ${{ env.ENV }}-glbl-fns
 
+  glbl-web-fns:
+    needs: wait-for-approval
+    runs-on: ubuntu-24.04-arm
+    # Declares the same `functionGroups` as glbl-fns. Web Functions run Arm64
+    # only, so an Arm runner stages `sharp` natively.
+    env:
+      E2E_FUNCTION_GROUPS: api
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          # For pull_request_target, checkout PR head instead of merge commit
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+      - uses: ./.github/actions/run-e2e-tests-on-example
+        with:
+          aws_account: ${{ vars.AWS_ACCOUNT }}
+          example_directory: global-web-functions
+          stack_name: ${{ env.ENV }}-glbl-web-fns
+
   glbl-cntnrs:
     needs: wait-for-approval
     runs-on: ubuntu-22.04-arm

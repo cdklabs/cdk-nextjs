@@ -1,10 +1,11 @@
 import type { IncomingMessage } from "node:http";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { NextjsRuntime } from "../core";
+import type { NextjsRuntime, RuntimeRequest } from "../core";
 import {
   createRuntimeServer,
   hasRequestBody,
+  RuntimeServerOptions,
   viewerHeaders,
 } from "./node-server";
 
@@ -17,8 +18,9 @@ async function withServer<T>(
     get: () => Promise<{ status?: number; body: string }>,
     shutdown: () => Promise<void>,
   ) => Promise<T>,
+  options?: RuntimeServerOptions,
 ): Promise<T> {
-  const { server, shutdown } = createRuntimeServer({ handle });
+  const { server, shutdown } = createRuntimeServer({ handle }, options);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   const get = () =>
@@ -111,6 +113,42 @@ describe("createRuntimeServer", () => {
     } finally {
       error.mockRestore();
     }
+  });
+
+  describe("per-request trust", () => {
+    /** The `RuntimeRequest` the server hands the runtime for one GET. */
+    async function requestWith(options?: RuntimeServerOptions) {
+      let seen: RuntimeRequest | undefined;
+      const handle: Handle = async (request, sink) => {
+        seen = request;
+        sink.begin({ statusCode: 204, headers: {}, cookies: [] }).end();
+      };
+      await withServer(handle, (get) => get(), options);
+      return seen!;
+    }
+
+    // The container shell: behind an ALB, over plaintext, nothing trusted.
+    it("trusts no forwarded host and reports plaintext by default", async () => {
+      const request = await requestWith();
+      expect(request.trustForwardedHost).toBe(false);
+      expect(request.encrypted).toBe(false);
+    });
+
+    // The Web Functions shell decides per request, from the request's headers.
+    it("asks the shell whether to trust each request's forwarded host", async () => {
+      const decide = jest.fn(() => true);
+      const request = await requestWith({
+        trustForwardedHost: decide,
+        encrypted: true,
+      });
+      expect(request.trustForwardedHost).toBe(true);
+      expect(request.encrypted).toBe(true);
+      expect(decide).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: expect.stringMatching(/^127\.0\.0\.1:/),
+        }),
+      );
+    });
   });
 
   // What an ECS rolling deploy does: SIGTERM while an ISR regeneration is still

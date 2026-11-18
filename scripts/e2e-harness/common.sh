@@ -69,7 +69,7 @@ harness_app_id() {
 # `e2e-sweep.sh --apply --shared`.
 #
 # Every type but `global-functions` (HARNESS_NEXTJS_TYPE) gets its own infix
-# after the prefix - `rf-`, `gc-`, `rc-` - so a run can never deploy into another
+# after the prefix - `rf-`, `gwf-`, `gc-`, `rc-` - so a run can never deploy into another
 # type's shared stack: a different root construct in the same stack would be a
 # replacement of nearly everything in it. The prefix is unchanged, so
 # `e2e-sweep.sh` finds them all.
@@ -81,6 +81,7 @@ harness_stack_name() {
   type="$(harness_nextjs_type)" || return 1
   case "$type" in
     regional-functions) prefix="${prefix}rf-" ;;
+    global-web-functions) prefix="${prefix}gwf-" ;;
     global-containers) prefix="${prefix}gc-" ;;
     regional-containers) prefix="${prefix}rc-" ;;
   esac
@@ -88,7 +89,8 @@ harness_stack_name() {
 }
 
 # Which root construct `app.js` deploys: `global-functions` (the default),
-# `regional-functions`, `global-containers` or `regional-containers`. Exits on
+# `global-web-functions`, `regional-functions`, `global-containers` or
+# `regional-containers`. Exits on
 # anything else, rather than quietly deploying the default under a name that says
 # otherwise.
 #
@@ -98,11 +100,11 @@ harness_stack_name() {
 harness_nextjs_type() {
   local type="${HARNESS_NEXTJS_TYPE:-global-functions}"
   case "$type" in
-    global-functions | regional-functions | global-containers | regional-containers)
+    global-functions | global-web-functions | regional-functions | global-containers | regional-containers)
       printf '%s' "$type"
       ;;
     *)
-      echo "harness: HARNESS_NEXTJS_TYPE=$type is not global-functions, regional-functions, global-containers or regional-containers" >&2
+      echo "harness: HARNESS_NEXTJS_TYPE=$type is not global-functions, global-web-functions, regional-functions, global-containers or regional-containers" >&2
       exit 1
       ;;
   esac

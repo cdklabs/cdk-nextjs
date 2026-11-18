@@ -63,6 +63,22 @@ import {
  * @see https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html
  */
 const LAMBDA_UNZIPPED_LIMIT_BYTES = 250 * 1024 * 1024;
+/**
+ * The same limit for a Web Function, whose code package may be twice as large.
+ * @see https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html#web-functions-quotas
+ */
+const WEB_FUNCTION_UNZIPPED_LIMIT_BYTES = 512 * 1024 * 1024;
+
+/**
+ * The shell each Functions type runs: the Event Functions handler, or the Web
+ * Functions HTTP server, which listens where Lambda tells it to.
+ */
+function shellFor(nextjsType: NextjsType): string {
+  if (nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS) {
+    return "web-function.mjs";
+  }
+  return isFunctionsType(nextjsType) ? "lambda.mjs" : "server.mjs";
+}
 
 /**
  * Opens the patch `patchFetchInClientJs` prepends to a client chunk, followed by
@@ -98,7 +114,8 @@ export interface NextjsBuildProps {
   /**
    * Lambda architecture the Functions types deploy, which decides the `sharp`
    * binaries staged into the deployment roots. Ignored by the Containers
-   * types, whose image is built for the synth machine.
+   * types, whose image is built for the synth machine, and by
+   * `NextjsGlobalWebFunctions`, which runs on Arm64 only.
    * @default - the architecture of the machine running synth
    */
   readonly architecture?: Architecture;
@@ -157,6 +174,10 @@ export interface NextjsFunctionGroupBehavior {
  * natively, so it can only match the synth machine.
  */
 export function deploymentArchitecture(props: NextjsBuildProps): Architecture {
+  // Web Functions run on Arm64 only, whatever was asked for.
+  if (props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS) {
+    return Architecture.ARM_64;
+  }
   return (
     (isFunctionsType(props.nextjsType) && props.architecture) ||
     getLambdaArchitecture()
@@ -206,8 +227,10 @@ export class NextjsBuild extends Construct {
   publicDirEntries: PublicDirEntry[];
   /**
    * The JavaScript file Node.js runs to serve requests, relative to the
-   * deployment root. cdk-nextjs's own container shell, not `next build` output,
-   * so it is the same path for every app.
+   * deployment root: cdk-nextjs's own HTTP server shell, not `next build`
+   * output, so it is the same path for every app. The container shell, or on
+   * `NextjsGlobalWebFunctions` the Web Function one. The Event Functions types
+   * name a handler instead.
    * @example "cdk-nextjs-runtime/server.mjs"
    */
   relativePathToEntrypoint: string;
@@ -315,6 +338,10 @@ export class NextjsBuild extends Construct {
     // reaches the app (see `patchFetchInClientJs`). Running it only inside
     // `runNextBuild` meant `skipBuild: true` silently shipped an app whose
     // server actions and POST route handlers all returned 403.
+    //
+    // Not on Web Functions: CloudFront's `always-amz-auth` signing sends
+    // `UNSIGNED-PAYLOAD` for a body itself, so the viewer needn't send the hash.
+    // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html
     if (props.nextjsType === NextjsType.GLOBAL_FUNCTIONS) {
       this.patchFetchInClientJs();
     }
@@ -334,7 +361,12 @@ export class NextjsBuild extends Construct {
     const isFunctions = isFunctionsType(props.nextjsType);
 
     this.relativeProjectDir = manifest.relativeProjectDir;
-    this.relativePathToEntrypoint = joinPosix(RUNTIME_DIR_NAME, "server.mjs");
+    this.relativePathToEntrypoint = joinPosix(
+      RUNTIME_DIR_NAME,
+      props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS
+        ? shellFor(props.nextjsType)
+        : "server.mjs",
+    );
     this.architecture = deploymentArchitecture(props);
     this.deploymentRoots = this.resolveDeploymentRoots(manifest);
     this.functionGroupBehaviors = manifest.behaviors ?? [];
@@ -351,7 +383,7 @@ export class NextjsBuild extends Construct {
     }
 
     for (const root of this.deploymentRoots) {
-      this.stageRuntime(root.path, isFunctions, publicOnDisk);
+      this.stageRuntime(root.path, shellFor(props.nextjsType), publicOnDisk);
       // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc),
       // for the architecture their Lambda deploys, whatever this machine is;
       // Containers run on node:24-alpine (musl).
@@ -493,6 +525,9 @@ export class NextjsBuild extends Construct {
       root.name,
       bytes,
       this.deploymentRoots.length > 1,
+      this.props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS
+        ? WEB_FUNCTION_UNZIPPED_LIMIT_BYTES
+        : LAMBDA_UNZIPPED_LIMIT_BYTES,
     );
     if (error !== undefined) {
       throw new Error(error);
@@ -558,10 +593,9 @@ export class NextjsBuild extends Construct {
    */
   private stageRuntime(
     deploymentRoot: string,
-    isFunctions: boolean,
+    shell: string,
     publicOnDisk: boolean,
   ): void {
-    const shell = isFunctions ? "lambda.mjs" : "server.mjs";
     const source = join(__dirname, "..", "runtime", shell);
 
     const runtimeDir = join(deploymentRoot, RUNTIME_DIR_NAME);
@@ -1245,14 +1279,15 @@ export function lambdaSizeError(
   group: string,
   bytes: number,
   isSplit: boolean,
+  limitBytes: number = LAMBDA_UNZIPPED_LIMIT_BYTES,
 ): string | undefined {
-  if (bytes <= LAMBDA_UNZIPPED_LIMIT_BYTES) {
+  if (bytes <= limitBytes) {
     return undefined;
   }
   const mb = (value: number) => `${(value / 1024 / 1024).toFixed(0)} MB`;
   return (
     `${LOG_PREFIX} Function group "${group}" is ${mb(bytes)} unzipped, ` +
-    `over Lambda's ${mb(LAMBDA_UNZIPPED_LIMIT_BYTES)} limit. ` +
+    `over Lambda's ${mb(limitBytes)} limit. ` +
     (isSplit
       ? `Split its routes further, or move some of them into another group: ` +
         `the cap is per function, so the shared \`next\` closure every group ` +

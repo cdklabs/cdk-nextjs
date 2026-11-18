@@ -64,13 +64,26 @@ export const MAX_FUNCTION_CODE_BYTES = 10 * 1024;
 // literal in here would need every backtick and `${` escaped.
 // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-javascript-runtime-20.html
 
+// A Web Function endpoint rejects CloudFront's signature on any request
+// whose query string has a literal `+`, in a name or a value: `?q=a+b`
+// answers 403 "You are not authorized to access this endpoint", while
+// `?q=a%20b` passes (measured 2026-11-15; a Function URL accepts both).
+// HTML forms submit GET with spaces as `+`, so every `next/form` search
+// hit it. Both spell a space in a form-encoded query, which is how
+// `URLSearchParams` (and so `searchParams`) reads them, so `+` is sent
+// on as `%20`. Only the entries holding a `+` are touched; `%2B`, a
+// literal plus, has none and passes as it is.
+
 /**
- * NextjsGlobalFunctions' viewer-request handler: redirects repeated slashes,
- * and overwrites `x-forwarded-host` with the viewer's `Host` so Next.js
- * `request.url` is the site's domain rather than the Function URL's.
+ * The Functions constructs' viewer-request handler: redirects repeated
+ * slashes, and overwrites `x-forwarded-host` with the viewer's `Host` so
+ * Next.js `request.url` is the site's domain rather than the origin's. With
+ * `encodePlus`, for a Web Function origin, also sends `+` in the query string
+ * on as `%20`.
  * @see https://open-next.js.org/advanced/workaround#workaround-set-x-forwarded-host-header-aws-specific
  */
-export const X_FORWARDED_HOST_HANDLER = `
+function signedOriginHandler(encodePlus: boolean): string {
+  return `
   async function handler(event) {${VIEWER_REQUEST_HOOK}
     const request = event.request;
     const uri = request.uri;
@@ -93,11 +106,35 @@ export const X_FORWARDED_HOST_HANDLER = `
         headers: { location: { value: location } },
       };
     }
-
+${encodePlus ? ENCODE_PLUS : ""}
     request.headers["x-forwarded-host"] = request.headers.host;
     return request;
   }
   `;
+}
+
+const ENCODE_PLUS = `
+    const plus = (s) => s.replace(/\\+/g, "%20");
+    const qs = request.querystring;
+    Object.keys(qs).forEach((name) => {
+      const entries = qs[name].multiValue || [qs[name]];
+      if (name.indexOf("+") < 0 && !entries.some((e) => e.value.indexOf("+") >= 0)) {
+        return;
+      }
+      delete qs[name];
+      const prev = qs[plus(name)];
+      const all = (prev ? prev.multiValue || [prev] : []).concat(
+        entries.map((e) => ({ value: plus(e.value) })),
+      );
+      qs[plus(name)] = all.length > 1 ? { value: all[0].value, multiValue: all } : all[0];
+    });
+`;
+
+/** NextjsGlobalFunctions' and NextjsRegionalFunctions' viewer-request handler. */
+export const X_FORWARDED_HOST_HANDLER = signedOriginHandler(false);
+
+/** NextjsGlobalWebFunctions' viewer-request handler. */
+export const WEB_FUNCTION_HANDLER = signedOriginHandler(true);
 
 /**
  * The handler of a behavior with no viewer-request logic of its own, which

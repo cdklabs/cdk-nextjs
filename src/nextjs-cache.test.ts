@@ -268,9 +268,9 @@ describe("NextjsCache", () => {
       // The floor, not a computed value: a handful of bytes still wants 512 MiB
       // because that is the least Lambda will give.
       expect(properties.EphemeralStorage).toEqual({ Size: 512 });
-      // Absent, not 128: leaving `memoryLimit` alone keeps the property out of
-      // the template, which is Lambda's own 128 MB default.
-      expect(properties.MemorySize).toBeUndefined();
+      // Not raised: leaving `memoryLimit` alone keeps CDK's own default, 1024
+      // MB since aws-cdk-lib raised it from Lambda's 128.
+      expect(properties.MemorySize).toBe(1024);
     });
 
     it("scales /tmp and memory to a large init cache", () => {

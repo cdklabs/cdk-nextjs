@@ -9,12 +9,34 @@ import {
   PASS_THROUGH_HANDLER,
   spliceViewerRequest,
   VIEWER_REQUEST_HOOK,
+  WEB_FUNCTION_HANDLER,
   X_FORWARDED_HOST_HANDLER,
 } from "./viewer-request-functions";
+
+type QueryString = Record<
+  string,
+  { value: string; multiValue?: { value: string }[] }
+>;
+
+/** Runs a deployed handler on a viewer-request event, as CloudFront would. */
+async function run(handler: string, uri: string, querystring: QueryString) {
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const fn = new Function(
+    `${spliceViewerRequest(handler, undefined)}\nreturn handler;`,
+  )() as (event: unknown) => Promise<Record<string, unknown>>;
+  return fn({
+    request: {
+      uri,
+      querystring,
+      headers: { host: { value: "example.com" } },
+    },
+  });
+}
 
 describe("spliceViewerRequest", () => {
   it.each([
     ["x-forwarded-host", X_FORWARDED_HOST_HANDLER],
+    ["Web Function", WEB_FUNCTION_HANDLER],
     ["pass-through", PASS_THROUGH_HANDLER],
     ["assetPrefix rewrite", assetPrefixRewriteHandler("base", "/cdn")],
   ])("drops the marker and indentation from the %s handler", (_, handler) => {
@@ -116,5 +138,73 @@ describe("assertViewerRequestUnclaimed", () => {
       "`overrides.imageBehaviorOptions.functionAssociations` associates a " +
         "CloudFront function with viewer-request, but something needs it. ",
     );
+  });
+});
+
+describe("the signed-origin viewer-request handlers", () => {
+  it.each([
+    ["x-forwarded-host", X_FORWARDED_HOST_HANDLER],
+    ["Web Function", WEB_FUNCTION_HANDLER],
+  ])(
+    "the %s handler redirects repeated slashes, keeping the query",
+    async (_, handler) => {
+      const result = await run(handler, "/a//b\\c", { q: { value: "1" } });
+      expect(result).toEqual({
+        statusCode: 308,
+        statusDescription: "Permanent Redirect",
+        headers: { location: { value: "/a/b/c?q=1" } },
+      });
+    },
+  );
+
+  it("sets x-forwarded-host to the viewer's host", async () => {
+    const request = await run(WEB_FUNCTION_HANDLER, "/ssr", {});
+    expect(request.headers).toEqual({
+      host: { value: "example.com" },
+      "x-forwarded-host": { value: "example.com" },
+    });
+  });
+
+  it("sends a + in a Web Function query on as %20, names and values", async () => {
+    const request = await run(WEB_FUNCTION_HANDLER, "/search", {
+      query: { value: "hello+world" },
+      "a+b": { value: "1" },
+      tag: {
+        value: "x+y",
+        multiValue: [{ value: "x+y" }, { value: "z" }],
+      },
+      plain: { value: "a%2Bb" },
+      empty: { value: "" },
+    });
+    expect(request.querystring).toEqual({
+      query: { value: "hello%20world" },
+      "a%20b": { value: "1" },
+      tag: {
+        value: "x%20y",
+        multiValue: [{ value: "x%20y" }, { value: "z" }],
+      },
+      plain: { value: "a%2Bb" },
+      empty: { value: "" },
+    });
+  });
+
+  it("merges a name that becomes one already there", async () => {
+    const request = await run(WEB_FUNCTION_HANDLER, "/search", {
+      "a%20b": { value: "1" },
+      "a+b": { value: "2" },
+    });
+    expect(request.querystring).toEqual({
+      "a%20b": {
+        value: "1",
+        multiValue: [{ value: "1" }, { value: "2" }],
+      },
+    });
+  });
+
+  it("leaves + alone on a Function URL origin", async () => {
+    const request = await run(X_FORWARDED_HOST_HANDLER, "/search", {
+      query: { value: "hello+world" },
+    });
+    expect(request.querystring).toEqual({ query: { value: "hello+world" } });
   });
 });

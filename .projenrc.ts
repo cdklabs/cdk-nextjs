@@ -21,7 +21,7 @@ const project = new CdklabsConstructLibrary({
     "Deploy Next.js apps on AWS with CDK" /* The description is just a string that helps people understand the purpose of the package. */,
   // majorVersion: 1,
   keywords: ["nextjs", "next", "next.js", "aws-cdk", "aws", "cdk"],
-  cdkVersion: "2.261.0",
+  cdkVersion: "2.276.0",
   jsiiVersion: "~6.0.4",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion,
@@ -41,13 +41,14 @@ const project = new CdklabsConstructLibrary({
     // Exact-pinned to `next` and bumped with it: it is first-party and versioned
     // in lockstep, so a mismatch is a routing behavior difference. Bundled into
     // the runtime by esbuild, not resolved from the deployment tree.
-    "@next/routing@16.4.0",
+    "@next/routing@16.4.6",
     "@smithy/signature-v4",
     // The CDK CLI the Next.js compatibility harness deploys with — it runs
     // `scripts/e2e-harness/app.js` from a temporary app directory outside
     // `examples/`, so it cannot use the examples workspace's copy.
     // @see scripts/e2e-harness/README.md
-    "aws-cdk",
+    // At least the CLI that reads aws-cdk-lib 2.276's cloud assembly schema (55).
+    "aws-cdk@^2.1148.1",
     "@types/aws-lambda",
     "@types/debug",
     "@types/mime-types",
@@ -56,7 +57,7 @@ const project = new CdklabsConstructLibrary({
     "debug",
     "esbuild",
     "mime-types",
-    "next@^16.4.0", // bundled in src/nextjs-build/cache-handler.ts
+    "next@^16.4.6", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   // Synth runs on the user's Node. 22.2 is the first 22.x with `zlib.crc32`.
@@ -318,11 +319,11 @@ function bundle(): javascript.Bundle[] {
     minify: true,
     outfile: "../../../lib/nextjs-build/patch-fetch.js",
   });
-  // The two request-handling shells. "next" stays external: the deployment
-  // already carries the traced `next` files every built entrypoint requires, and
-  // a second bundled copy would be a different module instance of the same
-  // singletons. "@next/routing" and the AWS SDK are bundled (see devDeps).
-  for (const shell of ["lambda", "server"]) {
+  // The request-handling shells: Event Functions, Containers, Web Functions.
+  // "next" stays external: the deployment already carries the traced `next`
+  // files every built entrypoint requires, and a second bundled copy would be a
+  // different module instance of the same singletons. "@next/routing" and the AWS SDK are bundled (see devDeps).
+  for (const shell of ["lambda", "server", "web-function"]) {
     addBundle(`src/runtime/${shell}.mts`, {
       platform: "node",
       target,
@@ -671,6 +672,17 @@ function generateStructs() {
     filePath: getFilePath("OptionalFunctionProps"),
   })
     .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.FunctionProps"))
+    .allOptional();
+  // The Web Function's own props, endpoint settings nested under
+  // `defaultEndpoint` exactly as on the L2, so `overrides` tracks it 1:1.
+  new ProjenStruct(project, {
+    name: "OptionalWebFunctionProps",
+    filePath: getFilePath("OptionalWebFunctionProps"),
+  })
+    .mixin(Struct.fromFqn("aws-cdk-lib.aws_lambda.WebFunctionProps"))
+    // The L2 types it `IRoleRef & IGrantable`, which the builder can only
+    // render as `any`. `IRole` is both.
+    .update("role", { type: { fqn: "aws-cdk-lib.aws_iam.IRole" } })
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalFunctionUrlProps",

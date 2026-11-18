@@ -17,6 +17,7 @@ const SLO_ERROR_RATE = Number(process.env["SLO_ERROR_RATE"] ?? 0.01);
 
 const CONSTRUCTS: Record<string, string> = {
   "global-functions": "NextjsGlobalFunctions",
+  "global-web-functions": "NextjsGlobalWebFunctions",
   "global-containers": "NextjsGlobalContainers",
   "regional-containers": "NextjsRegionalContainers",
   "regional-functions": "NextjsRegionalFunctions",

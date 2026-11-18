@@ -80,6 +80,13 @@ describe("toRuntimeRequest, for a Function URL event", () => {
     );
   });
 
+  // So `proxyExternal` drops OAC's signature rather than forwarding it.
+  it("marks a request Lambda authenticated as carrying OAC's signature", () => {
+    expect(
+      toRuntimeRequest(functionUrlEvent(), "").carriesOriginSignature,
+    ).toBe(true);
+  });
+
   // A URL overridden to `authType: NONE` takes the header from anyone.
   it("does not trust x-forwarded-host on a request Lambda did not authenticate", () => {
     const request = toRuntimeRequest(
@@ -91,6 +98,7 @@ describe("toRuntimeRequest, for a Function URL event", () => {
       "",
     );
     expect(request.trustForwardedHost).toBe(false);
+    expect(request.carriesOriginSignature).toBe(false);
   });
 
   it("decodes a base64 body, and leaves an absent one absent", () => {

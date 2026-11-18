@@ -38,6 +38,7 @@ on:
         type: choice
         options:
           - global-functions
+          - global-web-functions
           - regional-functions
           - global-containers
           - regional-containers
@@ -219,6 +220,7 @@ jobs:
           node -e '
             const TYPES = {
               "global-functions": { shards: 10, timeout: 900000, containers: false },
+              "global-web-functions": { shards: 10, timeout: 900000, containers: false },
               "regional-containers": { shards: 10, timeout: 480000, containers: true },
               "global-containers": { shards: 15, timeout: 900000, containers: true },
               "regional-functions": { shards: 10, timeout: 240000, containers: false },

@@ -408,7 +408,10 @@ export function sharedTagManifest(): TrackedTagMarkers {
         log: new RevalidationLog(client, config.tableName, config.buildId),
         refreshIntervalMs,
         debug: getDebug("cdk-nextjs:cache-handler:tags"),
-        // Set in every Lambda runtime; a container is never frozen.
+        // Set in every Event Function, which is frozen between invocations.
+        // Not in a Web Function (measured), and rightly so here: its
+        // documented lifecycle has no freeze, only ready and shut down. A
+        // container is never frozen either.
         canFreeze: process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined,
       });
     } else {
