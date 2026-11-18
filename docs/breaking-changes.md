@@ -2,6 +2,13 @@
 
 ## 0.8.0
 
+### Node.js 22.2 or higher is required
+
+Node 20 reached end of life on 2026-04-30. `package.json` now declares
+`engines.node: ">= 22.2.0"`, and synth uses `zlib.crc32` and
+`Dirent.parentPath` without fallbacks. **Migration:** run `cdk synth` on
+Node 22.2 or higher.
+
 ### `NextjsCache` ignores or rejects some `bucketDeploymentProps` overrides
 
 `overrides.nextjsCache.bucketDeploymentProps` now follows the rules
