@@ -35,6 +35,8 @@ pnpm run deploy
 
 Access your app at: `https://YOUR_API_ID.execute-api.REGION.amazonaws.com/prod/`
 
+Every request must carry the cookie `cdk-nextjs=1` (set it in your browser's dev tools), otherwise API Gateway answers 401. A Lambda REQUEST authorizer (`cookie-authorizer/`), attached to every method through `restApiProps.defaultMethodOptions`, checks it. Security scanners flag a REST API that answers anonymous requests, and this keeps the demo off their lists. It is not real authentication: the cookie is public. For a real app, use a Cognito authorizer, `AWS_IAM`, or remove `defaultMethodOptions` for a public site.
+
 ## With a Custom Domain (No Stage Workarounds)
 
 Everything above exists only because the execute-api endpoint puts the stage in the URL path. Map a custom domain at the root and the stage never appears in a URL, so all of it goes away:

@@ -49,7 +49,7 @@ construct, e.g. `global-functions`.
    BASE_URL=https://d123.cloudfront.net   # its URL, with /prod on NextjsRegionalFunctions
    LABEL=global-functions
    STACK=perf-glbl-fns                    # cold-start only
-   COOKIE=cdk-nextjs=1                    # NextjsRegionalContainers only
+   COOKIE=cdk-nextjs=1                    # NextjsRegional* only
    ```
 
 2. Deploy the construct's stack from [`stacks/app.ts`](./stacks/app.ts), which

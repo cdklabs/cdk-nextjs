@@ -1,0 +1,78 @@
+# On a PR that moves the `@next/routing` pin - the next.js version the e2e
+# harness checks out - lists the harness exclusions whose upstream test changed
+# in between, so an entry that may pass now gets re-run instead of forgotten.
+# See scripts/e2e-harness/recheck-exclusions.mjs.
+#
+# `pull_request`, not `pull_request_target`: it needs no secrets and reads only
+# public next.js. On a fork PR the token is read-only and the comment step
+# fails; the report is in the job summary either way.
+name: harness-exclusions
+on:
+  pull_request:
+    branches: [main]
+    paths: [package.json]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  recheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Compare the pin with the base branch
+        id: pin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --depth=1 origin "$BASE_SHA"
+          pin='JSON.parse(require("fs").readFileSync(0, "utf8")).devDependencies["@next/routing"]'
+          old=$(git show "$BASE_SHA:package.json" | node -p "$pin")
+          new=$(node -p "$pin" < package.json)
+          echo "old=v$old" >> "$GITHUB_OUTPUT"
+          echo "new=v$new" >> "$GITHUB_OUTPUT"
+          if [ "$old" = "$new" ]; then
+            echo "@next/routing is unchanged at $new; nothing to re-check."
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: List the exclusions to re-check
+        if: steps.pin.outputs.moved == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OLD_REF: ${{ steps.pin.outputs.old }}
+          NEW_REF: ${{ steps.pin.outputs.new }}
+        run: |
+          node scripts/e2e-harness/recheck-exclusions.mjs test/deploy-tests-manifest.json \
+            "$OLD_REF" "$NEW_REF" > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # One comment per PR, edited in place on each push. The marker finds it.
+      - name: Comment on the PR
+        if: steps.pin.outputs.moved == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          marker='<!-- harness-exclusions -->'
+          { echo "$marker"; cat "$RUNNER_TEMP/report.md"; } > "$RUNNER_TEMP/comment.md"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi

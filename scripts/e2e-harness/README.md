@@ -25,6 +25,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `scripts/e2e-harness/app.js`        | The CDK app the deploy script deploys.                                                                             |
 | `scripts/e2e-harness/stage-proxy.mjs` | Localhost front door for a `NextjsRegionalFunctions` stack: puts the stage back. Regional only. |
 | `scripts/e2e-harness/common.sh`     | Shared file names, stack naming, output reads, and the tag check that gates every delete.                          |
+| `scripts/e2e-harness/recheck-exclusions.mjs` | Lists the manifest's exclusions whose upstream test changed between two next.js refs. Run by `harness-exclusions.yml` on a pin bump. |
 | `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
 | `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in about an hour (`test_filters`).                    |
@@ -210,6 +211,14 @@ dispatch a second type once the first has started, not while one is queued, or
 dispatch `all`. A dispatch on a schedule day waits behind the schedule's ~10
 hours. A pending run that gets cancelled that way, the scheduled one included,
 loses no sweep: every run sweeps, not just the scheduled one.
+
+A re-run of a run, from the UI or from the org automation that re-runs every job
+of a failed scheduled run, runs only the shards no earlier attempt of that run
+passed: the `plan` job reads the earlier attempts' jobs and drops the rest from
+the matrix. The commit and inputs are the same, so those passes still hold. Before
+this, a re-run repeated all ~10 hours of shards to retry one or two flakes. A new
+run, scheduled or dispatched, always runs every shard; dispatch one to get a full
+run again.
 
 ## Caching the next.js build
 
@@ -589,6 +598,17 @@ Two things to get right. The names are full jest names — every enclosing
 `(withSlash=$withSlash)` has to be spelled out per case. And a `failed` entry is
 never how a cdk-nextjs bug gets handled: fix it, or give it a verdict first.
 Add a `comment` array to the entry naming the verdict it stands on.
+
+A verdict holds for one version of the upstream test. When a PR moves the
+`@next/routing` pin, the `harness-exclusions` workflow comments with every
+exclusion (in `suites`, `rules.excludeByType`, or a path-keyed `excluded-notes`
+entry) whose test file or test directory changed between the two tags. Re-run
+those with `test_filters`, and drop or update the entries that no longer hold.
+Locally:
+
+```sh
+node scripts/e2e-harness/recheck-exclusions.mjs test/deploy-tests-manifest.json v16.4.0 v16.5.0
+```
 
 ## Running it locally
 

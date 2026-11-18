@@ -541,6 +541,22 @@
         "next-form - app dir should soft-navigate on submit and show the prefetched loading state"
       ]
     },
+    "test/e2e/app-dir/app-client-cache/client-cache.defaults.test.ts": {
+      "comment": [
+        "9 of 10 cases; one is flakey. After a fast-forwarded 5 min it navigates back to `/`, which",
+        "re-prefetches the slow link, then calls `waitForIdleNetwork()` before clicking it. That is",
+        "Playwright's `waitForLoadState('networkidle')`, which resolves at once after a client-side",
+        "navigation, so the click races the prefetch; where the prefetch has not landed, `#loading`",
+        "never renders. Failed both attempts on a Global type in 5 of 6 attempts of the 2026-10-25",
+        "scheduled run, and on Regional Functions in the 2026-10-13 one, with no cdk-nextjs error.",
+        "next.js skips the same case in its own deploy manifest; vercel/next.js#95857 (open) waits for",
+        "the prefetch response instead. Drop this entry once the pin includes it. See docs/harness-coverage.md."
+      ],
+      "failed": [],
+      "flakey": [
+        "app dir client cache semantics (default semantics) prefetch={undefined} - default should refetch the full page after 5 mins"
+      ]
+    },
     "test/e2e/app-dir/trailingslash/trailingslash.test.ts": {
       "comment": [
         "6 of 8 cases. A file in `suites` is included with its named cases skipped,",

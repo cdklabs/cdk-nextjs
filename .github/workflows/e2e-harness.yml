@@ -97,6 +97,10 @@ jobs:
     # and the next.js ref's default is written once rather than per job.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # To read the earlier attempts' jobs; see "Find the shards ...".
+      actions: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       max-parallel: ${{ steps.plan.outputs.max-parallel }}
@@ -140,6 +144,26 @@ jobs:
           echo "Testing vercel/next.js $NEXTJS_REF at $sha"
           echo "sha=$sha" >>"$GITHUB_OUTPUT"
 
+      - name: Find the shards an earlier attempt of this run passed
+        id: passed
+        if: ${{ github.run_attempt > 1 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTEMPT: ${{ github.run_attempt }}
+        # A re-run of this run - from the UI or from the org's automation, which
+        # re-runs every job of a failed scheduled run - tests the same commit with
+        # the same inputs, so a shard that passed in any earlier attempt would
+        # repeat a ~2-hour pass. The plan step drops those shards from the matrix,
+        # and a re-run costs only the shards still failing. Scoped to this run id:
+        # a new run, scheduled or dispatched, always runs every shard.
+        run: |
+          passed=$(for ((n = 1; n < ATTEMPT; n++)); do
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$n/jobs?per_page=100" \
+              --jq '.jobs[] | select(.conclusion == "success") | .name'
+          done | jq -Rsc 'split("\n") | map(select(startswith("harness ("))) | unique')
+          echo "Passed in an earlier attempt: $passed"
+          echo "names=$passed" >>"$GITHUB_OUTPUT"
+
       - name: Plan the shards and the cache key
         id: plan
         env:
@@ -148,6 +172,7 @@ jobs:
           NEXTJS_TYPE: ${{ inputs.nextjs_type || 'all' }}
           SHARD_TOTAL: ${{ inputs.shard_total }}
           NEXTJS_REF: ${{ steps.resolve.outputs.sha }}
+          PASSED: ${{ steps.passed.outputs.names || '[]' }}
         # One matrix entry per (type, shard). `shard_total` is bounded above
         # because every shard is a runner and, on the Global types, a CloudFront
         # distribution of its own: past a couple of dozen the setup cost dominates
@@ -215,6 +240,15 @@ jobs:
                 include.push({ type, shard, total, timeout, containers });
               }
             }
+            // The harness job name, which is what an earlier attempt recorded.
+            const passed = new Set(JSON.parse(process.env.PASSED));
+            const remaining = include.filter(
+              ({ type, shard, total }) => !passed.has(`harness (${type} ${shard}/${total})`),
+            );
+            if (remaining.length < include.length) {
+              console.error(`Skipping ${include.length - remaining.length} shards an earlier attempt passed`);
+            }
+            include.splice(0, include.length, ...remaining);
             const maxParallel = types.length === 1 ? include.length : MAX_PARALLEL;
             include.forEach((entry, index) => {
               entry.stagger = (index % maxParallel) * 20;
@@ -287,6 +321,9 @@ jobs:
   harness:
     name: harness (${{ matrix.type }} ${{ matrix.shard }}/${{ matrix.total }})
     needs: [plan, nextjs]
+    # Empty when every shard passed in an earlier attempt of this run, and a
+    # matrix with no entries fails the job instead of skipping it.
+    if: ${{ fromJSON(needs.plan.outputs.matrix).include[0] != null }}
     runs-on: ubuntu-24.04
     # The sum of the capped steps below - warm 25, run 150, delete 65 - plus ~50
     # for setup.
