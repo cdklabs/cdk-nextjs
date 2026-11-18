@@ -1,14 +1,14 @@
 import { Construct } from "constructs";
 import { DEFAULT_FUNCTION_GROUP } from "../adapter/function-groups";
 import { NextjsType } from "../constants";
-import { OptionalNextjsApiProps } from "../generated-structs/OptionalNextjsApiProps";
-import { NextjsApi, NextjsApiOverrides } from "../nextjs-api";
 import {
   NextjsBaseConstruct,
   NextjsBaseProps,
   NextjsBaseConstructOverrides,
   NextjsBaseOverrides,
 } from "./nextjs-base-construct";
+import { OptionalNextjsApiProps } from "../generated-structs/OptionalNextjsApiProps";
+import { NextjsApi, NextjsApiOverrides } from "../nextjs-api";
 import {
   NextjsFunctionGroup,
   NextjsFunctions,
