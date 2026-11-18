@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
-import {
-  isGlobalFunctions,
-  isGlobalWebFunctions,
-} from "./utils/deployment-type";
+import { isGlobalFunctions } from "./utils/deployment-type";
 
 /**
  * HTTP methods other than GET, and request bodies.
@@ -145,21 +142,17 @@ test.describe("request methods", () => {
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-echo"]).toBe("echo");
 
-    // The handler declares the length its GET would have returned. A HEAD is the
-    // other empty-body case: the runtime pads it, and the declared length has to
-    // survive that padding rather than be replaced by it.
+    // The handler declares the length its GET would have returned, and since
+    // Next.js 16.4.5 Next.js itself drops it: `sendResponse` no longer copies
+    // `content-length` (nor `content-encoding`, `transfer-encoding`) from a route
+    // handler's `Response` (`FORBIDDEN_HEADERS` in `server/send-response.ts`, a
+    // security fix), so a HEAD arrives with none, on every type.
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
-    // declared. Measured, not reasoned: the same runtime answers `42` through API
-    // Gateway's streaming integration, and CloudFront passes `42` through from an
-    // ALB, so the Function URL is the one layer left. Asserted rather than
-    // skipped, so a Function URL that starts honouring it shows up here.
-    //
-    // A Web Function endpoint drops the header altogether: through CloudFront
-    // the HEAD arrives with no `content-length` at all. Measured on a deploy,
-    // and asserted for the same reason.
+    // sent. Asserted rather than skipped, so a change at either layer shows up
+    // here.
     expect(response.headers()["content-length"]).toBe(
-      isGlobalFunctions() ? "0" : isGlobalWebFunctions() ? undefined : "42",
+      isGlobalFunctions() ? "0" : undefined,
     );
 
     const body = await response.body();
