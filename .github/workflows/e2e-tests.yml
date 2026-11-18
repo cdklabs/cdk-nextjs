@@ -28,8 +28,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
-permissions:
-  id-token: write
+# No job gets a token permission it doesn't need: only the deploy jobs, which
+# all need `check-if-should-run`, get `id-token: write` for AWS OIDC.
+permissions: {}
 env:
   ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
@@ -52,6 +53,8 @@ jobs:
 
   glbl-fns:
     needs: check-if-should-run
+    permissions:
+      id-token: write
     runs-on: ubuntu-24.04-arm
     # This example declares `functionGroups` (see its app.ts), so it is the job
     # that exercises splitting. The name must match the group owning `/api/**`.
@@ -71,6 +74,8 @@ jobs:
 
   glbl-cntnrs:
     needs: check-if-should-run
+    permissions:
+      id-token: write
     runs-on: ubuntu-22.04-arm
     steps:
       - name: Checkout PR
@@ -86,6 +91,8 @@ jobs:
 
   rgnl-cntnrs:
     needs: check-if-should-run
+    permissions:
+      id-token: write
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout PR
@@ -100,6 +107,8 @@ jobs:
           stack_name: ${{ env.ENV }}-rgnl-cntnrs
   rgnl-fns:
     needs: check-if-should-run
+    permissions:
+      id-token: write
     # x86 on purpose: examples/regional-functions deploys ARM_64, so this is the
     # job that stages `sharp` for an architecture other than the host's.
     runs-on: ubuntu-22.04
