@@ -15,6 +15,7 @@ import { Writable } from "node:stream";
 import { S3Client } from "@aws-sdk/client-s3";
 import { imageOptimizer } from "next/dist/server/image-optimizer.js";
 import { imageConfigDefault } from "next/dist/shared/lib/image-config.js";
+import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { ShimIncomingMessage } from "./http/request";
 import { ResponseHead, ShimServerResponse } from "./http/response";
 import { pipeToSink } from "./http/sink";
@@ -23,7 +24,6 @@ import {
   newImageResponseCache,
   RuntimeImageOptimizer,
 } from "./image";
-import { CDK_NEXTJS_VERSION } from "../cdk-nextjs-version";
 import { AdapterManifest } from "./manifest";
 import { useNextFrom } from "./next-modules";
 
