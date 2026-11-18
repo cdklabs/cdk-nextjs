@@ -11,8 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as zlib from "node:zlib";
-import { crc32, zipDirectory } from "./zip-directory";
+import { zipDirectory } from "./zip-directory";
 
 /** A pnpm-shaped tree: the logical path links into the store. */
 function makeTree(): string {
@@ -36,15 +35,6 @@ function makeTree(): string {
   mkdirSync(join(root, "empty"));
   return root;
 }
-
-describe("crc32", () => {
-  // Its own, because `zlib.crc32` is missing before Node 20.15.
-  it("matches zlib's", () => {
-    for (const data of ["", "a", "hello, world", "x".repeat(100_000)]) {
-      expect(crc32(Buffer.from(data))).toBe(zlib.crc32(data));
-    }
-  });
-});
 
 describe("zipDirectory", () => {
   it("round-trips symlinks as symlinks through unzip", () => {

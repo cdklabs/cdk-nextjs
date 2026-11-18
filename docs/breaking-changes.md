@@ -19,6 +19,50 @@ constructs, both from aws-cdk-lib rather than cdk-nextjs:
 - **Every construct**: the init cache `BucketDeployment`'s Lambda gets 1024 MB
   of memory by default, aws-cdk-lib's new default, where it had 128 MB.
 
+### Node.js 22.2 or higher is required
+
+Node 20 reached end of life on 2026-04-30. `package.json` now declares
+`engines.node: ">= 22.2.0"`, and synth uses `zlib.crc32` and
+`Dirent.parentPath` without fallbacks. **Migration:** run `cdk synth` on
+Node 22.2 or higher.
+
+### `NextjsCache` ignores or rejects some `bucketDeploymentProps` overrides
+
+`overrides.nextjsCache.bucketDeploymentProps` now follows the rules
+`NextjsStaticAssets` already applies to its own. Nothing changes unless you set
+one of these:
+
+- **`sources`, `destinationBucket` and `destinationKeyPrefix` are ignored.**
+  CDK's type requires the first two, so a caller who only wanted `memoryLimit`
+  or `useEfs` had to pass them, and they replaced the staged init cache or sent
+  it to a bucket the cache handler doesn't read from. `destinationKeyPrefix` put
+  the init cache outside the `<buildId>/` keys the cache handler reads, where
+  the post-deploy pruner deleted it, and now gets a synth warning.
+  **Migration:** pass your bucket as `cacheBucket` instead, and add your own
+  `BucketDeployment` for extra files.
+- **`prune: true`, `retainOnDelete: false` and `extract: false` fail synth.**
+  `prune: true` synced against the whole cache bucket with `--delete`, removing
+  the previous build's entries and those written at runtime while the old
+  deployment still served them. `retainOnDelete: false` could empty the bucket:
+  on an update that changed the destination (which ignoring `destinationBucket`
+  does), CDK runs `aws s3 rm --recursive` on the old one, and when the
+  deployment is replaced it empties an imported bucket, which it can't tag as
+  owned. `extract: false` uploaded the asset zip instead of the cache.
+  **Migration:** drop all three. Old builds' entries are already pruned after
+  deploy by `NextjsPostDeploy`. If you set `retainOnDelete: false` together
+  with `useEfs: true` and an imported `cacheBucket`, drop it in a deploy of its
+  own on your current version first: see below.
+
+With `useEfs: true`, the init cache's deployment Lambda now keeps CDK's default
+`/tmp`, since it unpacks onto EFS. Its size is part of the handler's and the
+custom resource's IDs, so unless you set `ephemeralStorageSize` yourself, the
+first deploy after upgrading replaces both: a full CloudFormation deployment
+rather than a hotswap. The old resource's Delete
+removes nothing from a bucket defined in your CDK app, which CDK tags as owned.
+But it runs with the old resource's settings, so with an imported `cacheBucket`
+(`Bucket.fromBucketName` and the like) and `retainOnDelete: false` it would
+empty the bucket, including the cache the new resource just uploaded.
+
 ### New (non-breaking): `NextjsGlobalWebFunctions`
 
 CloudFront in front of [Lambda Web Functions](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html)
