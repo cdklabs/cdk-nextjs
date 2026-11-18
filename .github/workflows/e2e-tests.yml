@@ -28,34 +28,32 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
-# No job gets a token permission it doesn't need: only the deploy jobs, which
-# all need `check-if-should-run`, get `id-token: write` for AWS OIDC. Each also
-# repeats its fork test, so a later `needs` or `always()` change can't hand a
-# fork's code those credentials.
+# Only the deploy jobs get a token permission: `id-token: write`, for AWS OIDC.
+# Each also repeats the fork test (`&same-repo`), so a later `needs` or
+# `always()` change can't hand a fork's code those credentials.
 permissions: {}
 env:
   ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
-  # needed because we want ability to skip e2e tests sometimes via label and
-  # on push to main we always want e2e tests to run
+  # The gate every deploy job needs: skip e2e tests via a label, never deploy a
+  # fork's code, and always run on a push to main. A fork's code never runs here,
+  # not even after a manual approval, because these jobs get AWS credentials
+  # through OIDC; a maintainer recreates the change on a branch in this
+  # repository instead (see CONTRIBUTING.md). `pull_request_target` reads this
+  # condition from the base branch, so a fork can't change it.
   check-if-should-run:
     runs-on: ubuntu-24.04-arm
     # `github.event_name == 'push'` -> will run after merge to main
-    # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
-    # `!github.event.pull_request.draft` -> won't run for a draft PR; every deploy job needs this one, so they are skipped too
-    # `head.repo.full_name == github.repository` -> won't run for a PR from a fork.
-    # These jobs get AWS credentials through OIDC, so a fork's code never runs
-    # here, not even after a manual approval; a maintainer recreates the change on
-    # a branch in this repository instead (see CONTRIBUTING.md).
-    # `pull_request_target` reads this condition from the base branch, so a fork
-    # can't change it.
+    # `head.repo.full_name == github.repository` -> won't run for a PR from a fork
+    # `!github.event.pull_request.draft` -> won't run for a draft PR
+    # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> won't run when the PR has label: skip-e2e-tests
     if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
     steps:
       - run: echo "Workflow should run"
 
   glbl-fns:
     needs: check-if-should-run
-    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: &same-repo ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       id-token: write
     runs-on: ubuntu-24.04-arm
@@ -77,7 +75,7 @@ jobs:
 
   glbl-cntnrs:
     needs: check-if-should-run
-    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: *same-repo
     permissions:
       id-token: write
     runs-on: ubuntu-22.04-arm
@@ -95,7 +93,7 @@ jobs:
 
   rgnl-cntnrs:
     needs: check-if-should-run
-    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: *same-repo
     permissions:
       id-token: write
     runs-on: ubuntu-24.04
@@ -112,7 +110,7 @@ jobs:
           stack_name: ${{ env.ENV }}-rgnl-cntnrs
   rgnl-fns:
     needs: check-if-should-run
-    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: *same-repo
     permissions:
       id-token: write
     # x86 on purpose: examples/regional-functions deploys ARM_64, so this is the
