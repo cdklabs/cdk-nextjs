@@ -1,6 +1,6 @@
 # Breaking Changes
 
-## Unreleased
+## 0.8.0
 
 ### `aws-cdk-lib` 2.276.0 or higher is required
 
