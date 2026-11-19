@@ -883,13 +883,7 @@ Browser, p75 in ms, under 50 req/s per route:
 
 ## Contributing
 
-Steps to build locally:
-
-1. `git clone https://github.com/cdklabs/cdk-nextjs.git`
-2. `cd cdk-nextjs`
-3. `pnpm i && pnpm compile && pnpm build`
-
-This project uses Projen, so make sure to not edit [Projen](https://projen.io/) created files and only edit .projenrc.ts.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to report issues, how pull requests from forks are handled, and how to build locally.
 
 ## FAQ
 

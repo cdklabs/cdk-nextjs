@@ -200,7 +200,7 @@ copyDockerfiles();
 checkBundleSyntax(bundle());
 typeCheckEsmSources();
 updateGitHubWorkflows();
-skipDraftAutoQueue();
+skipDraftAndForkAutoQueue();
 generateStructs();
 updatePackageJson();
 restrictNextValueImports();
@@ -506,22 +506,28 @@ function updateGitHubWorkflows() {
  * every draft that is opened. It also runs on `ready_for_review`, which is when
  * a draft gets queued, so skipping drafts loses nothing.
  *
+ * A PR from a fork isn't queued either: e2e-tests.yml skips it with the same
+ * head-repo test, so it would merge on its first approval without an
+ * end-to-end run. A maintainer recreates it on a branch here instead (see
+ * CONTRIBUTING.md).
+ *
  * ANDed onto whatever condition projen generates (labels, authors), and loud
  * if a projen upgrade renames the workflow or the job, rather than silently
- * bringing the draft failures back.
+ * bringing back the draft failures or auto-merge for fork PRs.
  */
-function skipDraftAutoQueue() {
+function skipDraftAndForkAutoQueue() {
   const workflow = project.github?.tryFindWorkflow("auto-queue");
   const job = workflow?.getJob("enableAutoQueue");
   if (!workflow || !job) {
     throw new Error(
-      "skipDraftAutoQueue: projen's auto-queue workflow or its enableAutoQueue job is gone",
+      "skipDraftAndForkAutoQueue: projen's auto-queue workflow or its enableAutoQueue job is gone",
     );
   }
-  const draft = "!github.event.pull_request.draft";
+  const queueable =
+    "!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository";
   workflow.updateJob("enableAutoQueue", {
     ...job,
-    if: job.if ? `(${job.if}) && ${draft}` : draft,
+    if: job.if ? `(${job.if}) && ${queueable}` : queueable,
   });
 }
 
