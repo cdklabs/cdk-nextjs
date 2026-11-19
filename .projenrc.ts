@@ -56,7 +56,9 @@ const project = new CdklabsConstructLibrary({
     "debug",
     "esbuild",
     "mime-types",
-    "next@^16.4.6", // types and tests only: external to every esbuild bundle below
+    // External to every esbuild bundle below, so not shipped. Its installed version
+    // is the one the tests, the zero-config gate and the harness warm app build with.
+    "next@^16.4.6",
     "undici",
   ],
   setNodeEngineVersion: false,
