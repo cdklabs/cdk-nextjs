@@ -142,8 +142,6 @@ export async function GET(request: NextRequest) {
     return new NextResponse(new Uint8Array(body), {
       headers: markerHeaders({
         'content-type': 'application/octet-stream',
-        // Stripped by Next.js 16.4.5+ (see HEAD below); kept for earlier versions.
-        'content-length': String(size),
         // The test hashes what it received and compares - a truncated or
         // re-encoded body fails here rather than looking like a length mismatch.
         'x-e2e-body-sha256': sha256(body),
