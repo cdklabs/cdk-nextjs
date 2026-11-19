@@ -64,6 +64,21 @@ export interface NextjsGlobalFunctionsProps extends NextjsBaseProps {
    */
   readonly functionGroups?: NextjsFunctionGroup[];
   /**
+   * Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the
+   * Pages Router's `res.revalidate()`) creates CloudFront invalidations for
+   * the pages it touches.
+   *
+   * Set to `false` when pages change too often to purge one by one: thousands
+   * a day run past CloudFront's free 1,000 paths a month and its 15 wildcard
+   * paths in progress, and a rejected invalidation is retried as `/*`. Cap
+   * those pages' edge TTL instead (a short `s-maxage`, or a behavior with a
+   * low `maxTtl`), so the edge picks up the revalidated page when its copy
+   * expires. Revalidation still reaches every instance's origin cache, and
+   * the invalidation after each deploy still runs.
+   * @default true
+   */
+  readonly invalidateCdnOnRevalidate?: boolean;
+  /**
    * Override props of any construct.
    */
   readonly overrides?: NextjsGlobalFunctionsOverrides;
@@ -119,7 +134,11 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     const functions = this.nextjsFunctions.functionGroups.map(
       (group) => group.function,
     );
-    this.wireCloudFrontInvalidation(functions);
+    // Without the parameter name the cache handler skips invalidation
+    // altogether.
+    if (props.invalidateCdnOnRevalidate ?? true) {
+      this.wireCloudFrontInvalidation(functions);
+    }
     this.nextjsPostDeploy = this.createNextjsPostDeploy(
       this.nextjsDistribution.distribution,
     );

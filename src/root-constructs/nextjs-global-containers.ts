@@ -78,6 +78,21 @@ export interface NextjsGlobalContainersProps extends NextjsBaseProps {
    */
   readonly healthCheckPath: string;
   /**
+   * Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the
+   * Pages Router's `res.revalidate()`) creates CloudFront invalidations for
+   * the pages it touches.
+   *
+   * Set to `false` when pages change too often to purge one by one: thousands
+   * a day run past CloudFront's free 1,000 paths a month and its 15 wildcard
+   * paths in progress, and a rejected invalidation is retried as `/*`. Cap
+   * those pages' edge TTL instead (a short `s-maxage`, or a behavior with a
+   * low `maxTtl`), so the edge picks up the revalidated page when its copy
+   * expires. Revalidation still reaches every instance's origin cache, and
+   * the invalidation after each deploy still runs.
+   * @default true
+   */
+  readonly invalidateCdnOnRevalidate?: boolean;
+  /**
    * Override props of any construct.
    */
   readonly overrides?: NextjsGlobalContainersOverrides;
@@ -136,12 +151,15 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     // Lets on-demand revalidation evict stale responses from the CDN edge, not
     // just the origin's cache. The origin is the ALB, which the task doesn't
     // depend on, so naming the distribution here makes no dependency cycle.
+    // Without the ID the cache handler skips invalidation altogether.
     const { distribution } = this.nextjsDistribution;
-    distribution.grantCreateInvalidation(taskDefinition.taskRole);
-    taskDefinition.defaultContainer?.addEnvironment(
-      "CDK_NEXTJS_DISTRIBUTION_ID",
-      distribution.distributionId,
-    );
+    if (props.invalidateCdnOnRevalidate ?? true) {
+      distribution.grantCreateInvalidation(taskDefinition.taskRole);
+      taskDefinition.defaultContainer?.addEnvironment(
+        "CDK_NEXTJS_DISTRIBUTION_ID",
+        distribution.distributionId,
+      );
+    }
     // The ALB is reachable through the distribution's VPC origin alone, so
     // `CloudFront-Forwarded-Proto` is always CloudFront's own; see
     // `viewerHeaders` in src/runtime/http/node-server.ts.
