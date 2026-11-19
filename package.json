@@ -73,7 +73,7 @@
     "@aws-sdk/lib-storage": "^3.1160.0",
     "@iconify-json/logos": "1.2.16",
     "@mrgrain/jsii-struct-builder": "^0.7.64",
-    "@next/routing": "16.4.0",
+    "@next/routing": "16.4.6",
     "@smithy/signature-v4": "^2.3.0",
     "@types/aws-lambda": "^8.10.164",
     "@types/debug": "^4.1.13",

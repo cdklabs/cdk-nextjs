@@ -5,7 +5,7 @@ build time, what runs per request, where it knowingly differs from `next start`,
 and what each deployment type cannot do. The reasoning behind individual
 decisions lives in the code comments next to them; this is the map.
 
-Written against Next.js 16.4.0. `@next/routing` is exact-pinned to the `next`
+Written against Next.js 16.4.6. `@next/routing` is exact-pinned to the `next`
 version and bumped with it.
 
 ## Build time: `onBuildComplete`
@@ -153,7 +153,7 @@ case: [`harness-coverage.md`](./harness-coverage.md).
 | 75-behavior budget: top-level `public/` entries plus `functionGroups` patterns | yes                                                                                              | yes                           | no                                                                                                     | no                     |
 | Client `Authorization` header                                                  | used by SigV4; send credentials under another name                                               | passes                        | passes                                                                                                 | passes                 |
 | POST/PUT body from a non-browser client                                        | needs `x-amz-content-sha256`                                                                     | fine                          | fine                                                                                                   | fine                   |
-| HEAD `content-length`                                                          | always `0` (Function URL)                                                                        | declared                      | declared                                                                                               | declared               |
+| HEAD `content-length`                                                          | always `0` (Function URL)                                                                        | none (Next.js)                | none (Next.js)                                                                                         | none (Next.js)         |
 | `public/` names                                                                | no CloudFront-spellable character → no behavior, warning; the server function streams it from S3 | same                          | outside `[a-zA-Z0-9:._-$]` at top level → no resource, warning; the server function streams it from S3 | any name               |
 | `functionGroups`                                                               | yes                                                                                              | no                            | yes                                                                                                    | no                     |
 | Stage prefix                                                                   | —                                                                                                | —                             | put back for a `basePath` that starts with it                                                          | —                      |

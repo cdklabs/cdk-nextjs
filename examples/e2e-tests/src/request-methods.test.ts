@@ -144,8 +144,8 @@ test.describe("request methods", () => {
     // drops it: since 16.4.5 (GHSA-pc58-hwjq-p385) `sendResponse` strips
     // `content-length`, `content-encoding` and `transfer-encoding` from a route
     // handler's `Response`, so a framing header never reaches the runtime. A HEAD
-    // is the other empty-body case the runtime pads, and what matters is that the
-    // padding byte does not surface as a `content-length: 1` of its own.
+    // is the other empty-body case the Lambda sink pads, and what matters is that
+    // the padding byte does not surface as a `content-length: 1` of its own.
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
     // sent. Measured, not reasoned: the containers and API Gateway's streaming
