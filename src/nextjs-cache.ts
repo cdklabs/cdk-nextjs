@@ -16,8 +16,9 @@ import {
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
-import { LOG_PREFIX } from "./constants";
+import { CACHE_SEED_PREFIX, LOG_PREFIX } from "./constants";
 import { listTree } from "./nextjs-build/nextjs-build";
+import { NextjsCacheSeed, NextjsCacheSeedOverrides } from "./nextjs-cache-seed";
 import {
   deploymentLambdaSizing,
   MAX_EPHEMERAL_STORAGE_MIB,
@@ -45,6 +46,7 @@ export interface NextjsCacheOverrides {
   readonly cacheBucketProps?: BucketProps;
   readonly revalidationTableProps?: TablePropsV2;
   readonly bucketDeploymentProps?: BucketDeploymentProps;
+  readonly nextjsCacheSeed?: NextjsCacheSeedOverrides;
 }
 
 export interface NextjsCacheProps {
@@ -90,6 +92,12 @@ export class NextjsCache extends Construct {
   readonly revalidationTable: ITableV2;
   readonly buildId: string;
   readonly bucketDeployment?: BucketDeployment;
+  /**
+   * Copies the init cache from `_seed/<buildId>/` into `<buildId>/` once per
+   * build. Only exists alongside `bucketDeployment`. The compute should depend
+   * on it, so that a new build takes traffic with its cache already seeded.
+   */
+  readonly cacheSeed?: NextjsCacheSeed;
   private props: NextjsCacheProps;
 
   constructor(scope: Construct, id: string, props: NextjsCacheProps) {
@@ -100,6 +108,20 @@ export class NextjsCache extends Construct {
     this.revalidationTable =
       props.revalidationTable ?? this.createRevalidationTable();
     this.bucketDeployment = this.createDeployment();
+    this.cacheSeed = this.createCacheSeed();
+  }
+
+  private createCacheSeed(): NextjsCacheSeed | undefined {
+    if (!this.bucketDeployment) {
+      return undefined;
+    }
+    const cacheSeed = new NextjsCacheSeed(this, "CacheSeed", {
+      buildId: this.buildId,
+      cacheBucket: this.cacheBucket,
+      overrides: this.props.overrides?.nextjsCacheSeed,
+    });
+    cacheSeed.node.addDependency(this.bucketDeployment);
+    return cacheSeed;
   }
 
   /**
@@ -166,7 +188,10 @@ export class NextjsCache extends Construct {
         {
           sources: [Source.asset(stagingDir)],
           destinationBucket: this.cacheBucket,
-          prune: false, // Don't delete existing objects to prevent 404s during deployment, pruning will be handled by post-deploy
+          // With no `destinationKeyPrefix`, pruning would delete everything in
+          // the bucket that isn't in this asset, the live cache included.
+          // Post-deploy prunes old builds instead.
+          prune: false,
           ...this.sizeDeploymentLambda(),
           ...this.props.overrides?.bucketDeploymentProps,
         },
@@ -232,12 +257,20 @@ export class NextjsCache extends Construct {
   }
 
   /**
-   * Stage the init cache under a `buildId` directory, so that the objects land
-   * at `<buildId>/<key>` without a `destinationKeyPrefix`.
+   * Stage the init cache under `_seed/<buildId>/`, so that the objects land at
+   * `_seed/<buildId>/<key>` without a `destinationKeyPrefix`.
    *
-   * The keys have to carry the build ID — that is how the runtime cache handler
-   * and the post-deploy pruner namespace one deployment's entries from the next
-   * (`src/adapter/s3-cache-handler.ts`). Asking `BucketDeployment` for it, as
+   * Not `<buildId>/<key>`, the live prefix the cache handler reads and writes:
+   * a CloudFormation rollback re-runs the previous build's `BucketDeployment`,
+   * and writing there overwrote every entry the app had regenerated since
+   * (cdklabs/cdk-nextjs#343). `NextjsCacheSeed` copies the seed in instead,
+   * once per build and never over an existing key. The post-deploy pruner
+   * deletes every top-level prefix but the current `<buildId>/`, so `_seed/`
+   * goes with it once the build is live.
+   *
+   * The keys have to carry the build ID — that is how the seeder, the runtime
+   * cache handler and the post-deploy pruner namespace one deployment's entries
+   * from the next (`src/adapter/s3-cache-handler.ts`). Asking `BucketDeployment` for it, as
    * this used to, is what costs: it unconditionally tags the *destination
    * bucket* with `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>`, so a prefix
    * that changes per build makes the bucket's `Tags` change per build.
@@ -262,9 +295,11 @@ export class NextjsCache extends Construct {
    */
   private createStagingDirectory(): string {
     const stagingDir = mkdtempSync(join(tmpdir(), "nextjs-init-cache-"));
-    cpSync(this.props.initCacheDir, join(stagingDir, this.props.buildId), {
-      recursive: true,
-    });
+    cpSync(
+      this.props.initCacheDir,
+      join(stagingDir, CACHE_SEED_PREFIX, this.props.buildId),
+      { recursive: true },
+    );
     return stagingDir;
   }
 }

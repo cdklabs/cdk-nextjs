@@ -18,6 +18,8 @@
     "bundle:adapter/use-cache-default-handler:watch": "pnpm dlx projen bundle:adapter/use-cache-default-handler:watch",
     "bundle:adapter/use-cache-remote-handler": "pnpm dlx projen bundle:adapter/use-cache-remote-handler",
     "bundle:adapter/use-cache-remote-handler:watch": "pnpm dlx projen bundle:adapter/use-cache-remote-handler:watch",
+    "bundle:lambdas/cache-seed/cache-seed.lambda": "pnpm dlx projen bundle:lambdas/cache-seed/cache-seed.lambda",
+    "bundle:lambdas/cache-seed/cache-seed.lambda:watch": "pnpm dlx projen bundle:lambdas/cache-seed/cache-seed.lambda:watch",
     "bundle:lambdas/post-deploy/post-deploy.lambda": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda",
     "bundle:lambdas/post-deploy/post-deploy.lambda:watch": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda:watch",
     "bundle:lambdas/redeploy-stage/redeploy-stage.lambda": "pnpm dlx projen bundle:lambdas/redeploy-stage/redeploy-stage.lambda",

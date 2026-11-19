@@ -197,6 +197,7 @@ project.package.addField("stability", "stable");
 // managed repo.
 project.gitignore.addPatterns("!/examples/**/tsconfig.json"); // must call method, cannot set in initial props
 copyDockerfiles();
+bundleSdkIntoCacheSeed();
 checkBundleSyntax(bundle());
 typeCheckEsmSources();
 updateGitHubWorkflows();
@@ -382,6 +383,31 @@ function checkBundleSyntax(bundles: javascript.Bundle[]) {
   }
 }
 
+/**
+ * Bundle the AWS SDK into the cache seeder instead of using the runtime's.
+ *
+ * Its copies rely on `If-None-Match` on `CopyObject`, which S3 and the SDK only
+ * gained in October 2025. A runtime SDK older than that serializes the command
+ * without the header and no error, so the copy would overwrite the entries the
+ * app has regenerated, the exact bug the seeder exists to prevent
+ * (cdklabs/cdk-nextjs#343). Bundling pins the SDK to the devDependency the
+ * tests run against.
+ */
+function bundleSdkIntoCacheSeed() {
+  for (const suffix of ["", ":watch"]) {
+    const task = project.tasks.tryFind(
+      `bundle:lambdas/cache-seed/cache-seed.lambda${suffix}`,
+    );
+    const exec = task?.steps[0]?.exec;
+    if (!task || !exec?.includes(" --external:@aws-sdk/*")) {
+      throw new Error(
+        `Expected the cache seeder's bundle${suffix} task to externalize @aws-sdk/*`,
+      );
+    }
+    task.reset(exec.replace(" --external:@aws-sdk/*", ""));
+  }
+}
+
 function copyDockerfiles() {
   const bundleTask = project.tasks.tryFind("bundle");
   if (bundleTask) {
@@ -559,6 +585,12 @@ function generateStructs() {
     filePath: getFilePath("OptionalPostDeployCustomResourceProperties"),
   })
     .mixin(Struct.fromFqn("cdk-nextjs.PostDeployCustomResourceProperties"))
+    .allOptional();
+  new ProjenStruct(project, {
+    name: "OptionalCacheSeedCustomResourceProperties",
+    filePath: getFilePath("OptionalCacheSeedCustomResourceProperties"),
+  })
+    .mixin(Struct.fromFqn("cdk-nextjs.CacheSeedCustomResourceProperties"))
     .allOptional();
   new ProjenStruct(project, {
     name: "OptionalCustomResourceProps",

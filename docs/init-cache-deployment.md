@@ -14,8 +14,10 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 ### Deployment Time
 
 1. The `NextjsCache` construct checks for the `.next/cdk-nextjs-init-cache` directory
-2. If found, it copies the directory into a staging directory _under_ a `{buildId}/` directory and hands that to `BucketDeployment`
-3. Files are deployed to S3 with the path structure: `{buildId}/{cacheKey}.json`
+2. If found, it copies the directory into a staging directory _under_ a `_seed/{buildId}/` directory and hands that to `BucketDeployment`
+3. Files are uploaded to S3 as `_seed/{buildId}/{cacheKey}.json`
+4. `NextjsCacheSeed`, a custom resource that runs after the upload, copies them into the live prefix the cache handler uses, `{buildId}/{cacheKey}.json`
+5. The compute (each Lambda function, or the ECS service) depends on `NextjsCacheSeed`, so a new build only takes traffic once its cache is seeded
 
 The build ID is in the staged paths rather than in `destinationKeyPrefix` on
 purpose: `BucketDeployment` tags its destination bucket with
@@ -23,6 +25,38 @@ purpose: `BucketDeployment` tags its destination bucket with
 are not hotswappable, so a prefix that changes per build forced a full
 CloudFormation deployment every time. See the comment on `createStagingDirectory`
 in `src/nextjs-cache.ts`.
+
+### Seeding once per build
+
+The upload goes to `_seed/` rather than straight into `{buildId}/` because of
+CloudFormation rollbacks ([#343](https://github.com/cdklabs/cdk-nextjs/issues/343)).
+A rollback sends the previous build's `BucketDeployment` an Update with its old
+properties, which copies its files again. When those files landed in the live
+prefix, every entry the app had regenerated since (`res.revalidate()`, an expired
+`revalidate`) or deleted went back to its build-time version.
+
+`NextjsCacheSeed` copies the seed in at most once per build:
+
+- Once `{buildId}/.seeded` exists it copies nothing, so a rollback or a re-deploy of
+  the same build leaves the live entries alone.
+- Each copy is conditional on the key not existing yet (`If-None-Match: *`), so an
+  entry the app has already written wins, and a retry after a partial copy only
+  fills in what is missing.
+- The marker is written last, and only once every seed object has been copied or
+  skipped. A failed seed fails the deployment without it.
+
+Post-deploy prunes every top-level prefix except the current `{buildId}/`, so
+`_seed/` is deleted once the build is live; a rollback uploads its seed again.
+
+### `cdk deploy --hotswap`
+
+A hotswap uploads the seed, because CDK hotswaps `BucketDeployment`, but it never
+runs custom resources, so `NextjsCacheSeed` doesn't copy it in. A hotswapped stack
+serves its new build from an unseeded cache: every entry renders on demand the
+first time it's requested, until the next full deployment. To seed it without one,
+invoke the seeder's Lambda (`nextjsCache.cacheSeed.lambdaFunction`) with
+`{ "buildId": "<NextjsBuild.buildId>" }`, as `scripts/e2e-deploy.sh` does for the
+harness.
 
 ### Runtime
 
@@ -43,7 +77,7 @@ in `src/nextjs-cache.ts`.
 
 ### 2. Path Structure Mismatch ✅ SOLVED
 
-**Solution:** Local files are stored as `{cacheKey}.json`, and BucketDeployment adds the `{buildId}/` prefix during upload, resulting in the final S3 path:
+**Solution:** Local files are stored as `{cacheKey}.json`, staged under `_seed/{buildId}/` for upload, and copied by `NextjsCacheSeed` to the final S3 path:
 
 ```
 {buildId}/{cacheKey}.json
@@ -87,9 +121,10 @@ Both integer-array spellings are still accepted on read.
 
 1. **`cache-handler.ts`** - Detects build vs runtime and routes to appropriate handler
 2. **`local-file-cache-handler.ts`** (NEW) - Writes cache files during build
-3. **`nextjs-cache.ts`** - Deploys pre-built cache files via BucketDeployment
-4. **`nextjs-build.ts`** - Sets `BUILD_OUTPUT_PATH` and `CDK_NEXTJS_BUILD_ID` env vars
-5. **`nextjs-base-construct.ts`** - Passes `buildDirectory` to NextjsCache
+3. **`nextjs-cache.ts`** - Uploads pre-built cache files to `_seed/{buildId}/` via BucketDeployment
+4. **`nextjs-cache-seed.ts`** / **`lambdas/cache-seed/`** - Copies the seed into `{buildId}/` once per build
+5. **`nextjs-build.ts`** - Sets `BUILD_OUTPUT_PATH` and `CDK_NEXTJS_BUILD_ID` env vars
+6. **`nextjs-base-construct.ts`** - Passes `buildDirectory` to NextjsCache, and makes the compute wait for the seed
 
 ### Environment Variables
 

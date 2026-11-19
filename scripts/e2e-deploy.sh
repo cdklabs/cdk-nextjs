@@ -234,6 +234,35 @@ harness_run_bounded "${HARNESS_DEPLOY_TIMEOUT:-1800}" \
   --require-approval never \
   --ci 2>&1 | tee "$HARNESS_DEPLOY_LOG"
 
+# Copy the init cache from `_seed/<buildId>/` into the live `<buildId>/` prefix.
+# A hotswap uploads the seed (it hotswaps the BucketDeployment) but never runs
+# the `NextjsCacheSeed` custom resource, whose `buildId` app.js pins anyway, so
+# this does it on every deploy, the CloudFormation ones included. Before the
+# readiness probes below: a request served before the seed lands renders on
+# demand, and that render then wins over the prerendered seed. The ID is
+# `NextjsBuild.buildId`: Next's BUILD_ID, suffixed with the deployment ID
+# (src/utils/deployment-build-id.ts). `no-seed` means it found nothing under
+# that ID, so the two have drifted apart.
+CACHE_SEED_FUNCTION="$(harness_stack_output "$STACK_NAME" CacheSeedFunctionName)"
+if [ -n "$CACHE_SEED_FUNCTION" ]; then
+  CACHE_BUILD_ID="$BUILD_ID${NEXT_DEPLOYMENT_ID:+-$NEXT_DEPLOYMENT_ID}"
+  CACHE_SEED_RESULT="$APP_DIR/cache-seed-result.json"
+  echo "harness: seeding the cache for $CACHE_BUILD_ID"
+  aws lambda invoke \
+    --function-name "$CACHE_SEED_FUNCTION" \
+    --cli-binary-format raw-in-base64-out \
+    --payload "{\"buildId\":\"$CACHE_BUILD_ID\"}" \
+    --query FunctionError --output text \
+    "$CACHE_SEED_RESULT" >"$CACHE_SEED_RESULT.error"
+  cat "$CACHE_SEED_RESULT"
+  echo
+  if [ "$(cat "$CACHE_SEED_RESULT.error")" != "None" ] ||
+    ! grep -q '"status":"\(seeded\|already-seeded\)"' "$CACHE_SEED_RESULT"; then
+    echo "harness: seeding the cache for $CACHE_BUILD_ID failed" >&2
+    exit 1
+  fi
+fi
+
 URL="$(harness_stack_output "$STACK_NAME" HarnessUrl)"
 if [ -z "$URL" ]; then
   echo "harness: deploy reported success but $STACK_NAME has no HarnessUrl output" >&2

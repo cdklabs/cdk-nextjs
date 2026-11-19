@@ -152,6 +152,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     this.nextjsPostDeploy = this.createNextjsPostDeploy(
       this.nextjsDistribution.distribution,
     );
+    this.waitForCacheSeed(this.nextjsContainers.albFargateService.service);
     // Old tasks still need their cache while the ECS service is rolling out.
     this.nextjsPostDeploy.customResource.node.addDependency(
       this.nextjsContainers.albFargateService.service,

@@ -1,0 +1,208 @@
+// eslint-disable-next-line import/no-extraneous-dependencies
+import {
+  CopyObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  ListObjectsV2CommandOutput,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+// eslint-disable-next-line import/no-extraneous-dependencies
+import getDebug from "debug";
+import { CACHE_SEED_PREFIX, CACHE_SEEDED_MARKER } from "../../constants";
+
+const debug = getDebug("cdk-nextjs:cache-seed");
+
+const s3Client = new S3Client();
+
+/** Copies in flight at once. Each is a server-side CopyObject, so cheap. */
+const COPY_CONCURRENCY = 32;
+
+export interface SeedCacheProps {
+  readonly bucketName: string;
+  readonly buildId: string;
+  /**
+   * Epoch ms after which no further copy starts and the seed fails, so a
+   * custom resource reports FAILED before its Lambda times out rather than
+   * leaving CloudFormation waiting an hour for a response.
+   */
+  readonly deadline?: number;
+}
+
+export interface SeedCacheResult {
+  /**
+   * - `already-seeded`: `<buildId>/.seeded` exists, nothing was copied.
+   * - `no-seed`: `_seed/<buildId>/` is empty or missing, nothing was copied
+   *   and no marker was written.
+   * - `seeded`: the seed was copied and the marker written.
+   */
+  readonly status: "already-seeded" | "no-seed" | "seeded";
+  /** Objects copied into `<buildId>/`. */
+  readonly copied: number;
+  /** Objects left alone because `<buildId>/` already had that key. */
+  readonly skipped: number;
+}
+
+/**
+ * Copy the init cache from `_seed/<buildId>/` into `<buildId>/`, once per
+ * build, without overwriting anything the app has written there.
+ *
+ * - If `<buildId>/.seeded` exists, nothing is copied. A CloudFormation rollback
+ *   re-runs the previous build's seeding with its old properties, and so does a
+ *   re-deploy of the same build; by then the app may have regenerated entries,
+ *   or deleted them, and the build-time copy must not come back.
+ * - Every copy is conditional on the destination key not existing
+ *   (`If-None-Match: *`), so an entry the app wrote first - for a request it
+ *   served while a previous attempt was seeding - wins. That also makes a retry
+ *   after a partial seed safe: what made it the first time is skipped.
+ * - The marker is written last, and only when there was a seed to copy and every
+ *   object was either copied or skipped. A failure throws without it, so the
+ *   next attempt copies what is still missing.
+ */
+export async function seedCache(
+  props: SeedCacheProps,
+): Promise<SeedCacheResult> {
+  const { bucketName, buildId, deadline = Infinity } = props;
+  const markerKey = `${buildId}/${CACHE_SEEDED_MARKER}`;
+
+  if (await objectExists(bucketName, markerKey)) {
+    debug(`${markerKey} exists, skipping seed`);
+    return { status: "already-seeded", copied: 0, skipped: 0 };
+  }
+
+  const sourcePrefix = `${CACHE_SEED_PREFIX}/${buildId}/`;
+  let listed = 0;
+  let copied = 0;
+  let skipped = 0;
+  let continuationToken: string | undefined;
+  do {
+    checkDeadline(deadline, copied, skipped);
+    const page: ListObjectsV2CommandOutput = await s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: bucketName,
+        Prefix: sourcePrefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    const keys = (page.Contents ?? [])
+      .map((object) => object.Key)
+      .filter(
+        (key): key is string => !!key && key.length > sourcePrefix.length,
+      );
+    listed += keys.length;
+    await forEachConcurrently(keys, COPY_CONCURRENCY, async (sourceKey) => {
+      checkDeadline(deadline, copied, skipped);
+      const destinationKey = `${buildId}/${sourceKey.slice(sourcePrefix.length)}`;
+      if (await copyIfAbsent(bucketName, sourceKey, destinationKey)) {
+        copied++;
+      } else {
+        skipped++;
+      }
+    });
+    continuationToken = page.NextContinuationToken;
+  } while (continuationToken);
+
+  if (listed === 0) {
+    console.warn(
+      `No init cache under ${sourcePrefix} in ${bucketName}; nothing to seed`,
+    );
+    return { status: "no-seed", copied, skipped };
+  }
+
+  await putMarker(bucketName, markerKey);
+  debug(`Seeded ${buildId}: copied ${copied}, skipped ${skipped}`);
+  return { status: "seeded", copied, skipped };
+}
+
+function checkDeadline(deadline: number, copied: number, skipped: number) {
+  if (Date.now() > deadline) {
+    throw new Error(
+      `Cache seeding ran out of time after copying ${copied} and skipping ${skipped} objects; the next attempt picks up where this one stopped`,
+    );
+  }
+}
+
+/** Run `fn` over `items`, at most `limit` at a time; rejects on the first error. */
+async function forEachConcurrently<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (next < items.length) {
+        await fn(items[next++]);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
+/**
+ * Copy `sourceKey` to `destinationKey` unless the destination exists. Returns
+ * whether it copied.
+ *
+ * 412 is S3 saying the destination exists. 409 is a write to the same key
+ * racing this one; that write is the app's (nothing else writes `<buildId>/`),
+ * so it is left to win too.
+ */
+async function copyIfAbsent(
+  bucketName: string,
+  sourceKey: string,
+  destinationKey: string,
+): Promise<boolean> {
+  try {
+    await s3Client.send(
+      new CopyObjectCommand({
+        Bucket: bucketName,
+        Key: destinationKey,
+        CopySource: `${bucketName}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
+        IfNoneMatch: "*",
+      }),
+    );
+    return true;
+  } catch (error) {
+    const status = httpStatus(error);
+    if (status === 412 || status === 409) {
+      debug(`${destinationKey} already written, skipping (${status})`);
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function objectExists(bucketName: string, key: string): Promise<boolean> {
+  try {
+    await s3Client.send(
+      new HeadObjectCommand({ Bucket: bucketName, Key: key }),
+    );
+    return true;
+  } catch (error) {
+    if (httpStatus(error) === 404) return false;
+    throw error;
+  }
+}
+
+/** Write the marker. One that already exists (412) is just as good. */
+async function putMarker(bucketName: string, key: string): Promise<void> {
+  try {
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+        Body: new Date().toISOString(),
+        ContentType: "text/plain",
+        IfNoneMatch: "*",
+      }),
+    );
+  } catch (error) {
+    if (httpStatus(error) !== 412) throw error;
+  }
+}
+
+function httpStatus(error: unknown): number | undefined {
+  return (error as { $metadata?: { httpStatusCode?: number } })?.$metadata
+    ?.httpStatusCode;
+}

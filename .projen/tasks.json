@@ -74,6 +74,9 @@
       "description": "Prepare assets",
       "steps": [
         {
+          "spawn": "bundle:lambdas/cache-seed/cache-seed.lambda"
+        },
+        {
           "spawn": "bundle:lambdas/post-deploy/post-deploy.lambda"
         },
         {
@@ -198,6 +201,24 @@
       "steps": [
         {
           "exec": "esbuild --bundle src/adapter/use-cache-remote-handler.ts --target=\"node24\" --platform=\"node\" --outfile=\"lib/adapter/use-cache-remote-handler.mjs\" --external:next --format=esm --banner:js=\"import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; const require = __cdkNextjsCreateRequire(import.meta.url);\" --watch"
+        }
+      ]
+    },
+    "bundle:lambdas/cache-seed/cache-seed.lambda": {
+      "name": "bundle:lambdas/cache-seed/cache-seed.lambda",
+      "description": "Create a JavaScript bundle from src/lambdas/cache-seed/cache-seed.lambda.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/cache-seed/cache-seed.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/cache-seed/cache-seed.lambda/index.js\" --tsconfig=\"test/tsconfig.json\""
+        }
+      ]
+    },
+    "bundle:lambdas/cache-seed/cache-seed.lambda:watch": {
+      "name": "bundle:lambdas/cache-seed/cache-seed.lambda:watch",
+      "description": "Continuously update the JavaScript bundle from src/lambdas/cache-seed/cache-seed.lambda.ts",
+      "steps": [
+        {
+          "exec": "esbuild --bundle src/lambdas/cache-seed/cache-seed.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/cache-seed/cache-seed.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --watch"
         }
       ]
     },

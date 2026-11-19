@@ -27,6 +27,17 @@ describe("NextjsCache", () => {
   });
 
   describe("Basic Construction", () => {
+    it("creates no seeder without an init cache", () => {
+      const cache = new NextjsCache(stack, "TestCache", {
+        buildId: "test-build-123",
+        initCacheDir: "/tmp/does-not-exist-cdk-nextjs-init-cache",
+      });
+
+      expect(cache.bucketDeployment).toBeUndefined();
+      expect(cache.cacheSeed).toBeUndefined();
+      Template.fromStack(stack).resourceCountIs("Custom::NextjsCacheSeed", 0);
+    });
+
     it("should create S3 bucket and DynamoDB table", () => {
       const cache = new NextjsCache(stack, "TestCache", {
         buildId: "test-build-123",
@@ -189,7 +200,7 @@ describe("NextjsCache", () => {
       return { app: ownApp, template: Template.fromStack(ownStack) };
     }
 
-    it("keys the objects under the build ID without a destinationKeyPrefix", () => {
+    it("keys the objects under _seed/<buildId> without a destinationKeyPrefix", () => {
       const { app: ownApp, template } = synth("build-abc123");
 
       // Not `DestinationBucketKeyPrefix: Match.absent()` on its own: that would
@@ -202,17 +213,80 @@ describe("NextjsCache", () => {
       );
 
       const assembly = ownApp.synth();
-      const stagedUnderBuildId = readdirSync(assembly.directory, {
+      // Under `_seed/`, not straight under the build ID: that is the live
+      // prefix, and a rollback re-running this deployment overwrote every entry
+      // the app had regenerated there (cdklabs/cdk-nextjs#343).
+      const assets = readdirSync(assembly.directory, {
         withFileTypes: true,
-      }).some(
-        (entry) =>
-          entry.isDirectory() &&
-          entry.name.startsWith("asset.") &&
-          readdirSync(join(assembly.directory, entry.name)).includes(
-            "build-abc123",
-          ),
+      }).filter(
+        (entry) => entry.isDirectory() && entry.name.startsWith("asset."),
       );
-      expect(stagedUnderBuildId).toBe(true);
+      const stagedUnderSeed = assets.some((entry) => {
+        const root = join(assembly.directory, entry.name);
+        return (
+          readdirSync(root).join() === "_seed" &&
+          readdirSync(join(root, "_seed")).join() === "build-abc123"
+        );
+      });
+      expect(stagedUnderSeed).toBe(true);
+    });
+
+    it("seeds the live prefix from the upload, after it lands", () => {
+      const { template } = synth("build-abc123");
+
+      const seeds = template.findResources("Custom::NextjsCacheSeed");
+      expect(Object.keys(seeds)).toHaveLength(1);
+      const [seed] = Object.values(seeds);
+      expect(seed.Properties).toMatchObject({ buildId: "build-abc123" });
+      expect(seed.Properties.cacheBucketName).toBeDefined();
+      const [deploymentId] = Object.keys(
+        template.findResources("Custom::CDKBucketDeployment"),
+      );
+      expect(seed.DependsOn).toEqual(expect.arrayContaining([deploymentId]));
+    });
+
+    it("never lets the seeder delete from the cache bucket", () => {
+      const { template } = synth("build-abc123");
+
+      const policies = template.findResources("AWS::IAM::Policy", {
+        Properties: {
+          Roles: [{ Ref: Match.stringLikeRegexp("CacheSeedFnServiceRole") }],
+        },
+      });
+      expect(Object.keys(policies)).toHaveLength(1);
+      const actions = Object.values(
+        policies,
+      )[0].Properties.PolicyDocument.Statement.flatMap(
+        (statement: { Action: string | string[] }) => [statement.Action].flat(),
+      );
+      expect(actions).toEqual(expect.arrayContaining(["s3:PutObject"]));
+      expect(actions.filter((a: string) => /Delete/.test(a))).toEqual([]);
+    });
+
+    it("applies the seeder overrides", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: {
+          nextjsCacheSeed: {
+            functionProps: { memorySize: 1024 },
+            customResourceProperties: { buildId: "pinned" },
+          },
+        },
+      });
+      const template = Template.fromStack(ownStack);
+
+      template.hasResourceProperties("Custom::NextjsCacheSeed", {
+        buildId: "pinned",
+      });
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        MemorySize: 1024,
+        Environment: {
+          Variables: Match.objectLike({ CACHE_BUCKET_NAME: Match.anyValue() }),
+        },
+      });
     });
 
     it("removes its temporary staging copy once the asset is staged", () => {

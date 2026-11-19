@@ -2,7 +2,7 @@ import { IDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { ITableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { IVpc } from "aws-cdk-lib/aws-ec2";
 import { IBucket } from "aws-cdk-lib/aws-s3";
-import { Construct } from "constructs";
+import { Construct, IConstruct } from "constructs";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalNextjsBuildProps } from "../generated-structs/OptionalNextjsBuildProps";
 import { OptionalNextjsCacheProps } from "../generated-structs/OptionalNextjsCacheProps";
@@ -367,6 +367,7 @@ export abstract class NextjsBaseConstruct extends Construct {
       this.nextjsStaticAssets;
     for (const upload of [
       this.nextjsCache.bucketDeployment,
+      this.nextjsCache.cacheSeed?.customResource,
       staticDeployment,
       serviceWorkerDeployment,
       publicDeployment,
@@ -438,7 +439,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     // The getter, not a parameter, so the build and the functions read the
     // same `architecture`.
     const overrides = this.functionsOverrides;
-    return new NextjsFunctions(this, "NextjsFunctions", {
+    const nextjsFunctions = new NextjsFunctions(this, "NextjsFunctions", {
       ...this.computeBaseProps(),
       deploymentRoots: this.nextjsBuild.deploymentRoots,
       architecture: this.nextjsBuild.architecture,
@@ -456,5 +457,28 @@ export abstract class NextjsBaseConstruct extends Construct {
         },
       },
     });
+    this.waitForCacheSeed(
+      ...nextjsFunctions.functionGroups.map((group) => group.function),
+    );
+    return nextjsFunctions;
+  }
+
+  /**
+   * Hold back the resources that put a new build in front of traffic - each
+   * Lambda function, or the ECS service - until its init cache is seeded.
+   *
+   * A request the new build served first would miss, render on demand and
+   * write that render to the cache, where it wins over the seed: the seed
+   * never overwrites a key (`NextjsCacheSeed`). For a `cacheComponents` app the
+   * on-demand render is the postponed shell where the prerender should be.
+   */
+  protected waitForCacheSeed(...dependents: IConstruct[]): void {
+    const seed = this.nextjsCache.cacheSeed?.customResource;
+    if (!seed) {
+      return;
+    }
+    for (const dependent of dependents) {
+      dependent.node.addDependency(seed);
+    }
   }
 }
