@@ -56,7 +56,7 @@ const project = new CdklabsConstructLibrary({
     "debug",
     "esbuild",
     "mime-types",
-    "next@^16.4.0", // bundled in src/nextjs-build/cache-handler.ts
+    "next@^16.4.6", // bundled in src/nextjs-build/cache-handler.ts
     "undici",
   ],
   setNodeEngineVersion: false,
