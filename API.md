@@ -867,6 +867,7 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsCache.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.bucketDeployment">bucketDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCache.property.cacheSeed">cacheSeed</a></code> | <code><a href="#cdk-nextjs.NextjsCacheSeed">NextjsCacheSeed</a></code> | Copies the init cache from `_seed/<buildId>/` into `<buildId>/` once per build. |
 
 ---
 
@@ -919,6 +920,196 @@ public readonly bucketDeployment: BucketDeployment;
 ```
 
 - *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
+
+---
+
+##### `cacheSeed`<sup>Optional</sup> <a name="cacheSeed" id="cdk-nextjs.NextjsCache.property.cacheSeed"></a>
+
+```typescript
+public readonly cacheSeed: NextjsCacheSeed;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsCacheSeed">NextjsCacheSeed</a>
+
+Copies the init cache from `_seed/<buildId>/` into `<buildId>/` once per build.
+
+Only exists alongside `bucketDeployment`. The compute should depend
+on it, so that a new build takes traffic with its cache already seeded.
+
+---
+
+
+### NextjsCacheSeed <a name="NextjsCacheSeed" id="cdk-nextjs.NextjsCacheSeed"></a>
+
+Copies the init cache, which `NextjsCache` uploads to `_seed/<buildId>/`, into the live `<buildId>/` prefix the cache handler reads and writes.
+
+The copy happens once per build: it is skipped entirely once
+`<buildId>/.seeded` exists, and each object is only copied if the key is
+still absent. A CloudFormation rollback re-runs the previous build's seeding
+(cdklabs/cdk-nextjs#343); with the upload going straight to `<buildId>/` that
+overwrote every entry the app had regenerated or deleted since with its
+build-time version. Now the rollback rewrites only the `_seed/` copy, which
+nothing serves from, and this is a no-op.
+
+The compute depends on this resource, so a new build only takes traffic once
+its cache is seeded: a request it served first would render on demand, and
+that entry would then win over the seed.
+
+`cdk deploy --hotswap` never runs custom resources, so a hotswapped stack's
+seed stays in `_seed/` until the next full deploy, or until this resource's
+Lambda is invoked directly with `{ "buildId": "..." }`.
+
+#### Initializers <a name="Initializers" id="cdk-nextjs.NextjsCacheSeed.Initializer"></a>
+
+```typescript
+import { NextjsCacheSeed } from 'cdk-nextjs'
+
+new NextjsCacheSeed(scope: Construct, id: string, props: NextjsCacheSeedProps)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.Initializer.parameter.props">props</a></code> | <code><a href="#cdk-nextjs.NextjsCacheSeedProps">NextjsCacheSeedProps</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="cdk-nextjs.NextjsCacheSeed.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="cdk-nextjs.NextjsCacheSeed.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="cdk-nextjs.NextjsCacheSeed.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#cdk-nextjs.NextjsCacheSeedProps">NextjsCacheSeedProps</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.with">with</a></code> | Applies one or more mixins to this construct. |
+
+---
+
+##### `toString` <a name="toString" id="cdk-nextjs.NextjsCacheSeed.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+##### `with` <a name="with" id="cdk-nextjs.NextjsCacheSeed.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="cdk-nextjs.NextjsCacheSeed.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+
+---
+
+##### `isConstruct` <a name="isConstruct" id="cdk-nextjs.NextjsCacheSeed.isConstruct"></a>
+
+```typescript
+import { NextjsCacheSeed } from 'cdk-nextjs'
+
+NextjsCacheSeed.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
+
+###### `x`<sup>Required</sup> <a name="x" id="cdk-nextjs.NextjsCacheSeed.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.property.customResource">customResource</a></code> | <code>aws-cdk-lib.CustomResource</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeed.property.lambdaFunction">lambdaFunction</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | *No description.* |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="cdk-nextjs.NextjsCacheSeed.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+##### `customResource`<sup>Required</sup> <a name="customResource" id="cdk-nextjs.NextjsCacheSeed.property.customResource"></a>
+
+```typescript
+public readonly customResource: CustomResource;
+```
+
+- *Type:* aws-cdk-lib.CustomResource
+
+---
+
+##### `lambdaFunction`<sup>Required</sup> <a name="lambdaFunction" id="cdk-nextjs.NextjsCacheSeed.property.lambdaFunction"></a>
+
+```typescript
+public readonly lambdaFunction: Function;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Function
 
 ---
 
@@ -2714,6 +2905,49 @@ The first of `staticDeployment`, `serviceWorkerDeployment` and `publicDeployment
 
 ## Structs <a name="Structs" id="Structs"></a>
 
+### CacheSeedCustomResourceProperties <a name="CacheSeedCustomResourceProperties" id="cdk-nextjs.CacheSeedCustomResourceProperties"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.CacheSeedCustomResourceProperties.Initializer"></a>
+
+```typescript
+import { CacheSeedCustomResourceProperties } from 'cdk-nextjs'
+
+const cacheSeedCustomResourceProperties: CacheSeedCustomResourceProperties = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.CacheSeedCustomResourceProperties.property.buildId">buildId</a></code> | <code>string</code> | Build whose init cache is copied from `_seed/<buildId>/` into `<buildId>/`. |
+| <code><a href="#cdk-nextjs.CacheSeedCustomResourceProperties.property.cacheBucketName">cacheBucketName</a></code> | <code>string</code> | *No description.* |
+
+---
+
+##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.CacheSeedCustomResourceProperties.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
+
+Build whose init cache is copied from `_seed/<buildId>/` into `<buildId>/`.
+
+Changes every build, so the resource runs on every deploy.
+
+---
+
+##### `cacheBucketName`<sup>Required</sup> <a name="cacheBucketName" id="cdk-nextjs.CacheSeedCustomResourceProperties.property.cacheBucketName"></a>
+
+```typescript
+public readonly cacheBucketName: string;
+```
+
+- *Type:* string
+
+---
+
 ### NextjsApiFunctionGroup <a name="NextjsApiFunctionGroup" id="cdk-nextjs.NextjsApiFunctionGroup"></a>
 
 A non-default function group and the Lambda its routes must reach.
@@ -3667,6 +3901,7 @@ const nextjsCacheOverrides: NextjsCacheOverrides = { ... }
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.cacheBucketProps">cacheBucketProps</a></code> | <code>aws-cdk-lib.aws_s3.BucketProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.nextjsCacheSeed">nextjsCacheSeed</a></code> | <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides">NextjsCacheSeedOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.revalidationTableProps">revalidationTableProps</a></code> | <code>aws-cdk-lib.aws_dynamodb.TablePropsV2</code> | *No description.* |
 
 ---
@@ -3688,6 +3923,16 @@ public readonly cacheBucketProps: BucketProps;
 ```
 
 - *Type:* aws-cdk-lib.aws_s3.BucketProps
+
+---
+
+##### `nextjsCacheSeed`<sup>Optional</sup> <a name="nextjsCacheSeed" id="cdk-nextjs.NextjsCacheOverrides.property.nextjsCacheSeed"></a>
+
+```typescript
+public readonly nextjsCacheSeed: NextjsCacheSeedOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsCacheSeedOverrides">NextjsCacheSeedOverrides</a>
 
 ---
 
@@ -3801,6 +4046,117 @@ The table must be dedicated to this one deployment. Don't share it with
 another deployment (another branch, stage, or app): every deploy's
 post-deploy step deletes the entries of the build it last recorded in the
 table, which with a shared table is another deployment's live build.
+
+---
+
+### NextjsCacheSeedOverrides <a name="NextjsCacheSeedOverrides" id="cdk-nextjs.NextjsCacheSeedOverrides"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsCacheSeedOverrides.Initializer"></a>
+
+```typescript
+import { NextjsCacheSeedOverrides } from 'cdk-nextjs'
+
+const nextjsCacheSeedOverrides: NextjsCacheSeedOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides.property.customResourceProperties">customResourceProperties</a></code> | <code><a href="#cdk-nextjs.OptionalCacheSeedCustomResourceProperties">OptionalCacheSeedCustomResourceProperties</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides.property.customResourceProps">customResourceProps</a></code> | <code><a href="#cdk-nextjs.OptionalCustomResourceProps">OptionalCustomResourceProps</a></code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides.property.functionProps">functionProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a></code> | *No description.* |
+
+---
+
+##### `customResourceProperties`<sup>Optional</sup> <a name="customResourceProperties" id="cdk-nextjs.NextjsCacheSeedOverrides.property.customResourceProperties"></a>
+
+```typescript
+public readonly customResourceProperties: OptionalCacheSeedCustomResourceProperties;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalCacheSeedCustomResourceProperties">OptionalCacheSeedCustomResourceProperties</a>
+
+---
+
+##### `customResourceProps`<sup>Optional</sup> <a name="customResourceProps" id="cdk-nextjs.NextjsCacheSeedOverrides.property.customResourceProps"></a>
+
+```typescript
+public readonly customResourceProps: OptionalCustomResourceProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalCustomResourceProps">OptionalCustomResourceProps</a>
+
+---
+
+##### `functionProps`<sup>Optional</sup> <a name="functionProps" id="cdk-nextjs.NextjsCacheSeedOverrides.property.functionProps"></a>
+
+```typescript
+public readonly functionProps: OptionalFunctionProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a>
+
+---
+
+### NextjsCacheSeedProps <a name="NextjsCacheSeedProps" id="cdk-nextjs.NextjsCacheSeedProps"></a>
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsCacheSeedProps.Initializer"></a>
+
+```typescript
+import { NextjsCacheSeedProps } from 'cdk-nextjs'
+
+const nextjsCacheSeedProps: NextjsCacheSeedProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedProps.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedProps.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedProps.property.debug">debug</a></code> | <code>boolean</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides">NextjsCacheSeedOverrides</a></code> | *No description.* |
+
+---
+
+##### `buildId`<sup>Required</sup> <a name="buildId" id="cdk-nextjs.NextjsCacheSeedProps.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
+
+---
+
+##### `cacheBucket`<sup>Required</sup> <a name="cacheBucket" id="cdk-nextjs.NextjsCacheSeedProps.property.cacheBucket"></a>
+
+```typescript
+public readonly cacheBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+---
+
+##### `debug`<sup>Optional</sup> <a name="debug" id="cdk-nextjs.NextjsCacheSeedProps.property.debug"></a>
+
+```typescript
+public readonly debug: boolean;
+```
+
+- *Type:* boolean
+
+---
+
+##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsCacheSeedProps.property.overrides"></a>
+
+```typescript
+public readonly overrides: NextjsCacheSeedOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsCacheSeedOverrides">NextjsCacheSeedOverrides</a>
 
 ---
 
@@ -7515,6 +7871,51 @@ public readonly taskRole: IRole;
 - *Default:* A task role is automatically created for you.
 
 The name of the task IAM role that grants containers in the task permission to call AWS APIs on your behalf.
+
+---
+
+### OptionalCacheSeedCustomResourceProperties <a name="OptionalCacheSeedCustomResourceProperties" id="cdk-nextjs.OptionalCacheSeedCustomResourceProperties"></a>
+
+OptionalCacheSeedCustomResourceProperties.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.OptionalCacheSeedCustomResourceProperties.Initializer"></a>
+
+```typescript
+import { OptionalCacheSeedCustomResourceProperties } from 'cdk-nextjs'
+
+const optionalCacheSeedCustomResourceProperties: OptionalCacheSeedCustomResourceProperties = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.OptionalCacheSeedCustomResourceProperties.property.buildId">buildId</a></code> | <code>string</code> | Build whose init cache is copied from `_seed/<buildId>/` into `<buildId>/`. |
+| <code><a href="#cdk-nextjs.OptionalCacheSeedCustomResourceProperties.property.cacheBucketName">cacheBucketName</a></code> | <code>string</code> | *No description.* |
+
+---
+
+##### `buildId`<sup>Optional</sup> <a name="buildId" id="cdk-nextjs.OptionalCacheSeedCustomResourceProperties.property.buildId"></a>
+
+```typescript
+public readonly buildId: string;
+```
+
+- *Type:* string
+
+Build whose init cache is copied from `_seed/<buildId>/` into `<buildId>/`.
+
+Changes every build, so the resource runs on every deploy.
+
+---
+
+##### `cacheBucketName`<sup>Optional</sup> <a name="cacheBucketName" id="cdk-nextjs.OptionalCacheSeedCustomResourceProperties.property.cacheBucketName"></a>
+
+```typescript
+public readonly cacheBucketName: string;
+```
+
+- *Type:* string
 
 ---
 
