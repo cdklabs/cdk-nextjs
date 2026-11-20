@@ -10,7 +10,7 @@
 !/package.json
 !/LICENSE
 !/.npmignore
-logs
+/logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -46,6 +46,7 @@ ash_output
 junit.xml
 /coverage/
 !/.github/workflows/build.yml
+!/.github/workflows/self-mutation.yml
 /dist/changelog.md
 /dist/version.txt
 !/.github/workflows/release.yml
