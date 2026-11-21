@@ -327,6 +327,33 @@ describe("NextjsGlobalFunctions", () => {
     expect(JSON.stringify(Resource)).not.toContain("distribution/*");
   });
 
+  it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups,
+      invalidateCdnOnRevalidate: false,
+    });
+    const template = Template.fromStack(stack);
+    // No parameter name, so the cache handler never invalidates; and no
+    // grant, since nothing in the functions would use it.
+    template.resourceCountIs("AWS::SSM::Parameter", 0);
+    const groups = appFunctions(template);
+    expect(Object.keys(groups).sort()).toEqual(["default", "reports"]);
+    const resources = template.toJSON().Resources;
+    for (const logicalId of Object.values(groups)) {
+      expect(
+        resources[logicalId].Properties.Environment.Variables,
+      ).not.toHaveProperty("CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME");
+      const actions = actionsOf(template, logicalId);
+      expect(actions).not.toContain("cloudfront:CreateInvalidation");
+      expect(actions).not.toContain("ssm:GetParameter");
+      expectCacheGrants(template, logicalId);
+    }
+    // The invalidation after each deploy is not affected.
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
+  });
+
   it("routes each group's patterns, parent and data URLs to its function", () => {
     const stack = new Stack(new App(), "Stack");
     new NextjsGlobalFunctions(stack, "App", {
@@ -601,6 +628,31 @@ describe("NextjsGlobalContainers", () => {
           statement.Action === "cloudfront:CreateInvalidation",
       );
     expect(JSON.stringify(invalidation.Resource)).toContain(distributionId);
+  });
+
+  it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsGlobalContainers(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+      invalidateCdnOnRevalidate: false,
+    });
+    const template = Template.fromStack(stack);
+    const [taskDefinition] = Object.values(
+      template.findResources("AWS::ECS::TaskDefinition"),
+    );
+    for (const container of taskDefinition.Properties.ContainerDefinitions) {
+      expect(
+        (container.Environment ?? []).map((env: any) => env.Name),
+      ).not.toContain("CDK_NEXTJS_DISTRIBUTION_ID");
+    }
+    const actions = taskRoleActions(template);
+    expect(actions).not.toContain("cloudfront:CreateInvalidation");
+    expectCacheActions(actions);
+    // The invalidation after each deploy is not affected.
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
   });
 });
 
