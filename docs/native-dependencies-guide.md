@@ -21,7 +21,7 @@ The target is:
 | Construct            | Target                                     |
 | -------------------- | ------------------------------------------ |
 | `*Functions`         | `linux-<arch>` glibc (Amazon Linux 2023)   |
-| `*Containers`        | `linux-<arch>` musl (`node:24-alpine`)     |
+| `*Containers`        | `linux-<arch>` musl (`node:26-alpine`)     |
 
 `<arch>` is the Lambda's architecture for Functions (`arm64` or `x64`), and the
 synth machine's for Containers.

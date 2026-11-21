@@ -354,7 +354,7 @@ export class NextjsBuild extends Construct {
       this.stageRuntime(root.path, isFunctions, publicOnDisk);
       // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc),
       // for the architecture their Lambda deploys, whatever this machine is;
-      // Containers run on node:24-alpine (musl).
+      // Containers run on node:26-alpine (musl).
       this.stageSharpForTarget(
         root,
         join(root.path, this.relativeProjectDir),

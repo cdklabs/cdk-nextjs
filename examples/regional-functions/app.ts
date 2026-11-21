@@ -30,6 +30,7 @@ import {
   Code,
   Function as LambdaFunction,
   Runtime,
+  RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 
@@ -105,7 +106,7 @@ export class RegionalFunctionsStack extends Stack {
    */
   #createCookieAuthorizer() {
     const handler = new LambdaFunction(this, "CookieAuthorizerFn", {
-      runtime: Runtime.NODEJS_24_X,
+      runtime: new Runtime("nodejs26.x", RuntimeFamily.NODEJS),
       architecture: Architecture.ARM_64,
       handler: "index.handler",
       code: Code.fromAsset(join(import.meta.dirname, "cookie-authorizer")),
