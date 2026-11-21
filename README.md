@@ -49,7 +49,7 @@ The simplest path to deploy Next.js is on [Vercel](https://vercel.com/) - the Pl
 
 ## Prerequisites
 
-- Next.js app running v16.3 or higher (`next build` fails on older versions). If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
+- Next.js app running v16.4.5 or higher (`next build` fails on older versions). If you don't have one yet - follow [these steps](https://nextjs.org/docs/getting-started) to create one.
 - [AWS Cloud Development Kit](https://docs.aws.amazon.com/cdk/v2/guide/home.html) app either in the same package or separate package. cdk-nextjs supports monorepos.
 - A Docker compatible container engine, but **only** for `NextjsGlobalContainers` and `NextjsRegionalContainers` - we recommend [Rancher Desktop](https://rancherdesktop.io/) with dockerd (moby). The two Functions types deploy zip Lambdas and need no container engine.
 - [Node.js](https://nodejs.org/en) 22.2 or higher (22, 24, or a newer LTS)
@@ -990,8 +990,8 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to report issues, how pull requ
 Q: How does this compare to [cdk-nextjs-standalone](https://github.com/jetbridge/cdk-nextjs) or [OpenNext](https://opennext.js.org)?<br/>
 A: cdk-nextjs builds on Next.js's official [Deployment Adapter](https://nextjs.org/docs/app/guides/deployment-adapters) API and runs requests through [`@next/routing`](https://www.npmjs.com/package/@next/routing), the routing library Next.js publishes for platform adapters. Next.js tells cdk-nextjs what it built, and routing follows the same rules as `next start`. Nothing re-implements Next.js's router or patches its server. The few Next.js internals cdk-nextjs does load (the image optimizer and static file server) are loaded as they are, not modified. This keeps upgrades cheap and breaking changes rare. cdk-nextjs is tested against Next.js's own end-to-end test suite; [harness-coverage.md](docs/harness-coverage.md) lists the cases that differ and why.
 
-Q: Why does cdk-nextjs depend upon Next.js v16.3 or higher?
-A: cdk-nextjs builds through the public [Adapter API](https://nextjs.org/docs/app/api-reference/config/next-config-js/adapterPath), and 16.3 is the first version whose build output carries everything it reads (middleware matchers and per-file asset hashes). 16.2 also added the [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching) it relies on. The runtime bundles `@next/routing` at the version it was tested against (see `package.json`), and newer Next.js 16 releases are expected to work.
+Q: Why does cdk-nextjs depend upon Next.js v16.4.5 or higher?
+A: cdk-nextjs builds through the public [Adapter API](https://nextjs.org/docs/app/api-reference/config/next-config-js/adapterPath), and 16.3 is the first version whose build output carries everything it reads (middleware matchers and per-file asset hashes). The floor is 16.4.5 because that release patches security advisories that every earlier 16.3 and 16.4 release is affected by, several of them in the self-hosted caching cdk-nextjs uses ([Next.js security advisories](https://github.com/vercel/next.js/security/advisories)). 16.2 also added the [Image Optimization Caching](https://nextjs.org/docs/app/api-reference/config/next-config-js/incrementalCacheHandlerPath#image-optimization-caching) it relies on. The runtime bundles `@next/routing` at the version it was tested against (see `package.json`), and newer Next.js 16 releases are expected to work.
 
 Q: How does cdk-nextjs support caching in Next.js?<br/>
 A: See [Caching Guide](./docs/caching-guide.md)
