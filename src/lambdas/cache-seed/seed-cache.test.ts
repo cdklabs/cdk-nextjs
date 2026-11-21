@@ -235,6 +235,29 @@ describe("seedCache", () => {
     expect(objects.has("b1/.seeded")).toBe(false);
   });
 
+  it("stops retrying a 409 conflict at the deadline", async () => {
+    const objects = seedOf("b1", { "a.json": "A" });
+    stubBucket(objects);
+    const fake = holder.send.getMockImplementation()!;
+    let copies = 0;
+    holder.send.mockImplementation(async (command: unknown) => {
+      if (command instanceof CopyObjectCommand) {
+        copies++;
+        throw s3Error(409, "ConditionalRequestConflict");
+      }
+      return fake(command);
+    });
+
+    const start = Date.now();
+    await expect(
+      seedCache({ bucketName: BUCKET, buildId: "b1", deadline: start + 250 }),
+    ).rejects.toThrow("ConditionalRequestConflict");
+    // 100 ms then 200 ms would end past the deadline: two attempts, not five.
+    expect(copies).toBe(2);
+    expect(Date.now() - start).toBeLessThan(400);
+    expect(objects.has("b1/.seeded")).toBe(false);
+  });
+
   it("starts no copy after one has failed", async () => {
     const files = Object.fromEntries(
       Array.from({ length: 100 }, (_, i) => [`k${i}.json`, String(i)]),

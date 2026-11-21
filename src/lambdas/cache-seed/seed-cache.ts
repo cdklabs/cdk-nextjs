@@ -93,7 +93,7 @@ export async function seedCache(
     await forEachConcurrently(keys, COPY_CONCURRENCY, async (sourceKey) => {
       checkDeadline(deadline, copied, skipped);
       const destinationKey = `${buildId}/${sourceKey.slice(sourcePrefix.length)}`;
-      if (await copyIfAbsent(bucketName, sourceKey, destinationKey)) {
+      if (await copyIfAbsent(bucketName, sourceKey, destinationKey, deadline)) {
         copied++;
       } else {
         skipped++;
@@ -162,13 +162,14 @@ const CONFLICT_ATTEMPTS = 5;
  * 412 is S3 saying the destination exists. 409 is another conditional write to
  * the same key still in progress - the app's, or an overlapping seed's, which
  * may yet fail - so the copy is retried, and a 412 then means that write landed
- * and wins. One that still conflicts throws, so no marker is written and the
- * next attempt fills the key in.
+ * and wins. One that still conflicts, or would retry past `deadline`, throws, so
+ * no marker is written and the next attempt fills the key in.
  */
 async function copyIfAbsent(
   bucketName: string,
   sourceKey: string,
   destinationKey: string,
+  deadline: number,
 ): Promise<boolean> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -187,11 +188,16 @@ async function copyIfAbsent(
         debug(`${destinationKey} already written, skipping`);
         return false;
       }
-      if (status !== 409 || attempt >= CONFLICT_ATTEMPTS) throw error;
+      const backoff = 100 * 2 ** (attempt - 1);
+      if (
+        status !== 409 ||
+        attempt >= CONFLICT_ATTEMPTS ||
+        Date.now() + backoff > deadline
+      ) {
+        throw error;
+      }
       debug(`${destinationKey} has a conflicting write, retrying`);
-      await new Promise((resolve) =>
-        setTimeout(resolve, 100 * 2 ** (attempt - 1)),
-      );
+      await new Promise((resolve) => setTimeout(resolve, backoff));
     }
   }
 }

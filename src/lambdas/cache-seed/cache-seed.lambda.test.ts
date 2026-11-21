@@ -71,4 +71,17 @@ describe("cache-seed handler", () => {
     expect(deadline - start).toBeLessThanOrEqual(15_000 + 50);
     expect(deadline - start).toBeGreaterThanOrEqual(15_000 - 50);
   });
+
+  it("leaves time to copy under a timeout shorter than the 5 s floor", async () => {
+    const start = Date.now();
+    await handler(
+      { buildId: "b1", cacheBucketName: "cache-bucket" },
+      { ...context, getRemainingTimeInMillis: () => 4_000 },
+    );
+
+    // The floor is capped at half the time left: 2 s to copy.
+    const { deadline } = (seedCache as jest.Mock).mock.calls[0][0];
+    expect(deadline - start).toBeLessThanOrEqual(2_000 + 50);
+    expect(deadline - start).toBeGreaterThanOrEqual(2_000 - 50);
+  });
 });

@@ -8,10 +8,11 @@ import { cfnResponse, CfnResponseStatus } from "../utils";
 const debug = getDebug("cdk-nextjs:cache-seed");
 
 /**
- * Stop starting copies this long before the Lambda would time out: 30 s, or a
- * tenth of the time left if that is less, so an overridden short timeout still
- * leaves time to copy - but never under 5 s, the time the copies in flight, the
- * marker and the response to CloudFormation need after it.
+ * Stop starting copies this long before the Lambda would time out: a tenth of
+ * the time left, at least 5 s for the copies in flight, the marker and the
+ * response to CloudFormation, and at most 30 s. The 5 s floor is itself capped
+ * at half the time left, so even a very short timeout override leaves time to
+ * copy.
  */
 const DEADLINE_MARGIN_MS = 30_000;
 const MIN_DEADLINE_MARGIN_MS = 5_000;
@@ -52,7 +53,7 @@ export async function handler(
     remaining -
     Math.min(
       DEADLINE_MARGIN_MS,
-      Math.max(MIN_DEADLINE_MARGIN_MS, remaining / 10),
+      Math.max(Math.min(MIN_DEADLINE_MARGIN_MS, remaining / 2), remaining / 10),
     );
   if (!("RequestType" in event)) {
     return seedCache({
