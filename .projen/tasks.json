@@ -301,7 +301,16 @@
       "description": "Create a JavaScript bundle from src/lambdas/cache-seed/cache-seed.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/cache-seed/cache-seed.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/cache-seed/cache-seed.lambda/index.js\" --tsconfig=\"test/tsconfig.json\""
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/lambdas/cache-seed/cache-seed.lambda.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=assets/lambdas/cache-seed/cache-seed.lambda/index.js",
+            "--packages=bundle",
+            "--tsconfig=test/tsconfig.json"
+          ]
         }
       ]
     },
@@ -310,7 +319,17 @@
       "description": "Continuously update the JavaScript bundle from src/lambdas/cache-seed/cache-seed.lambda.ts",
       "steps": [
         {
-          "exec": "esbuild --bundle src/lambdas/cache-seed/cache-seed.lambda.ts --target=\"node24\" --platform=\"node\" --outfile=\"assets/lambdas/cache-seed/cache-seed.lambda/index.js\" --tsconfig=\"test/tsconfig.json\" --watch"
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/lambdas/cache-seed/cache-seed.lambda.ts",
+            "--target=node24",
+            "--platform=node",
+            "--outfile=assets/lambdas/cache-seed/cache-seed.lambda/index.js",
+            "--packages=bundle",
+            "--tsconfig=test/tsconfig.json",
+            "--watch"
+          ]
         }
       ]
     },

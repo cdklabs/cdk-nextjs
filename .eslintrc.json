@@ -43,6 +43,7 @@
     "generated-structs/",
     "**/*-function.ts",
     "examples/",
+    "src/lambdas/cache-seed/cache-seed-function.ts",
     "src/lambdas/post-deploy/post-deploy-function.ts",
     "src/lambdas/redeploy-stage/redeploy-stage-function.ts",
     "!.projenrc.ts",

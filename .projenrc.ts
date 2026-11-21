@@ -408,13 +408,14 @@ function bundleSdkIntoCacheSeed() {
     const task = project.tasks.tryFind(
       `bundle:lambdas/cache-seed/cache-seed.lambda${suffix}`,
     );
-    const exec = task?.steps[0]?.exec;
-    if (!task || !exec?.includes(" --external:@aws-sdk/*")) {
+    const args = task?.steps[0]?.execArgs;
+    if (!task || !args?.includes("--external:@aws-sdk/*")) {
       throw new Error(
         `Expected the cache seeder's bundle${suffix} task to externalize @aws-sdk/*`,
       );
     }
-    task.reset(exec.replace(" --external:@aws-sdk/*", ""));
+    task.reset();
+    task.execArgs(args.filter((arg) => arg !== "--external:@aws-sdk/*"));
   }
 }
 
