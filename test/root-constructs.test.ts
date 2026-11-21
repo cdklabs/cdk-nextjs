@@ -629,6 +629,7 @@ describe("NextjsGlobalContainers", () => {
       );
     expect(JSON.stringify(invalidation.Resource)).toContain(distributionId);
   });
+
   it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
     const stack = new Stack(new App(), "Stack", {
       env: { account: "123456789012", region: "us-east-1" },

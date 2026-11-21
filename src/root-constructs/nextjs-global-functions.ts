@@ -136,7 +136,7 @@ export class NextjsGlobalFunctions extends NextjsBaseConstruct {
     );
     // Without the parameter name the cache handler skips invalidation
     // altogether.
-    if (props.invalidateCdnOnRevalidate ?? true) {
+    if (props.invalidateCdnOnRevalidate !== false) {
       this.wireCloudFrontInvalidation(functions);
     }
     this.nextjsPostDeploy = this.createNextjsPostDeploy(

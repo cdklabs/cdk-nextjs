@@ -153,7 +153,7 @@ export class NextjsGlobalContainers extends NextjsBaseConstruct {
     // depend on, so naming the distribution here makes no dependency cycle.
     // Without the ID the cache handler skips invalidation altogether.
     const { distribution } = this.nextjsDistribution;
-    if (props.invalidateCdnOnRevalidate ?? true) {
+    if (props.invalidateCdnOnRevalidate !== false) {
       distribution.grantCreateInvalidation(taskDefinition.taskRole);
       taskDefinition.defaultContainer?.addEnvironment(
         "CDK_NEXTJS_DISTRIBUTION_ID",
