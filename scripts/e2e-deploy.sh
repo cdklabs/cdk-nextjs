@@ -244,7 +244,8 @@ harness_run_bounded "${HARNESS_DEPLOY_TIMEOUT:-1800}" \
 # (src/utils/deployment-build-id.ts). `no-seed` means it found nothing under
 # that ID: right for a fixture with nothing to prerender, whose build still
 # creates the init cache directory (`writeInitCache`), empty, and so a seeder;
-# otherwise the two IDs have drifted apart.
+# otherwise the two IDs have drifted apart. So only fixtures that prerender
+# catch that drift; for the others there is nothing under either ID to miss.
 CACHE_SEED_FUNCTION="$(harness_stack_output "$STACK_NAME" CacheSeedFunctionName)"
 INIT_CACHE_DIR="$APP_DIR/.next/cdk-nextjs-init-cache"
 if [ -n "$CACHE_SEED_FUNCTION" ]; then

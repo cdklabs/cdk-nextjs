@@ -248,13 +248,20 @@ describe("seedCache", () => {
       return fake(command);
     });
 
+    // A frozen clock, so the deadline check doesn't depend on how fast the
+    // runner is: each backoff is judged against the same "now".
     const start = Date.now();
-    await expect(
-      seedCache({ bucketName: BUCKET, buildId: "b1", deadline: start + 250 }),
-    ).rejects.toThrow("ConditionalRequestConflict");
-    // 100 ms then 200 ms would end past the deadline: two attempts, not five.
-    expect(copies).toBe(2);
-    expect(Date.now() - start).toBeLessThan(400);
+    const now = jest.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      await expect(
+        seedCache({ bucketName: BUCKET, buildId: "b1", deadline: start + 250 }),
+      ).rejects.toThrow("ConditionalRequestConflict");
+    } finally {
+      now.mockRestore();
+    }
+    // Backoffs of 100 and 200 ms fit before the deadline, 400 ms doesn't:
+    // three attempts, not five.
+    expect(copies).toBe(3);
     expect(objects.has("b1/.seeded")).toBe(false);
   });
 
