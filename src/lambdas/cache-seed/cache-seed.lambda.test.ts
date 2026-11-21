@@ -63,11 +63,12 @@ describe("cache-seed handler", () => {
     const start = Date.now();
     await handler(
       { buildId: "b1", cacheBucketName: "cache-bucket" },
-      { ...context, getRemainingTimeInMillis: () => 10_000 },
+      { ...context, getRemainingTimeInMillis: () => 20_000 },
     );
 
+    // 20 s left: a tenth would be 2 s, so the 5 s floor applies.
     const { deadline } = (seedCache as jest.Mock).mock.calls[0][0];
-    expect(deadline - start).toBeLessThanOrEqual(5_000 + 50);
-    expect(deadline - start).toBeGreaterThanOrEqual(5_000 - 50);
+    expect(deadline - start).toBeLessThanOrEqual(15_000 + 50);
+    expect(deadline - start).toBeGreaterThanOrEqual(15_000 - 50);
   });
 });
