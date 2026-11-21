@@ -25,7 +25,7 @@ const project = new CdklabsConstructLibrary({
   jsiiVersion: "~6.0.4",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion,
-  projenVersion: "^0.101.6",
+  projenVersion: "^0.105.6",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-api-gateway",
@@ -41,7 +41,7 @@ const project = new CdklabsConstructLibrary({
     // Exact-pinned to `next` and bumped with it: it is first-party and versioned
     // in lockstep, so a mismatch is a routing behavior difference. Bundled into
     // the runtime by esbuild, not resolved from the deployment tree.
-    "@next/routing@16.4.0",
+    "@next/routing@16.4.6",
     "@smithy/signature-v4",
     // The CDK CLI the Next.js compatibility harness deploys with — it runs
     // `scripts/e2e-harness/app.js` from a temporary app directory outside
@@ -56,7 +56,9 @@ const project = new CdklabsConstructLibrary({
     "debug",
     "esbuild",
     "mime-types",
-    "next@^16.4.0", // bundled in src/nextjs-build/cache-handler.ts
+    // External to every esbuild bundle below, so not shipped. Its installed version
+    // is the one the tests, the zero-config gate and the harness warm app build with.
+    "next@^16.4.6",
     "undici",
   ],
   setNodeEngineVersion: false,
@@ -84,6 +86,10 @@ const project = new CdklabsConstructLibrary({
       schedule: UpgradeDependenciesSchedule.MONTHLY,
     },
   },
+  // Its PRs failed every month (the regenerated package.json no longer matched
+  // the lockfile) and were closed by hand. Turned off, projen and
+  // cdklabs-projen-project-types ride along in the monthly dev-deps PR instead.
+  upgradeCdklabsProjenProjectTypes: false,
   autoApproveUpgrades: true,
   autoApproveOptions: {
     allowedUsernames: [
@@ -129,13 +135,17 @@ const project = new CdklabsConstructLibrary({
   },
   sampleCode: false,
   jsiiTargetLanguages: [],
-  releasableCommits: ReleasableCommits.ofType([
-    "feat",
-    "fix",
-    "chore",
-    "refactor",
-    "perf",
-  ]),
+  // `chore` releases, except dependency bumps: `chore(deps)` from the upgrade
+  // workflows, `chore(deps-dev)` from Dependabot, and hand-made
+  // `chore: upgrade <dep>` PRs. Those ride along with the next release instead
+  // of publishing one each, which is noise for anyone watching releases.
+  // `|| true` because grep exits 1 when it filters out every line, and an
+  // empty list just means "nothing to release".
+  releasableCommits: ReleasableCommits.exec(
+    `${
+      ReleasableCommits.ofType(["feat", "fix", "chore", "refactor", "perf"]).cmd
+    } | grep -vE '^[0-9a-f]+ chore(\\(deps(-dev)?\\)|: upgrade )' || true`,
+  ),
   githubOptions: {
     mergifyOptions: {
       rules: [
@@ -485,25 +495,6 @@ function updateGitHubWorkflows() {
         run: `pnpm projen compile`,
       },
       ...upgradeJobSteps.slice(4),
-    ],
-  });
-  // .github/workflows/upgrade-cdklabs-projen-project-types-main.yml
-  const upgradeCdklabsWorkflow = project.github?.tryFindWorkflow(
-    "upgrade-cdklabs-projen-project-types-main",
-  );
-  if (!upgradeCdklabsWorkflow) return;
-  const upgradeCdklabsJob = upgradeCdklabsWorkflow.getJob("upgrade");
-  if (!upgradeCdklabsJob || !("steps" in upgradeCdklabsJob)) return;
-  const upgradeCdklabsJobSteps = upgradeCdklabsJob.steps;
-  upgradeCdklabsWorkflow.updateJob("upgrade", {
-    ...upgradeCdklabsJob,
-    steps: [
-      ...upgradeCdklabsJobSteps.slice(0, 4),
-      {
-        name: "Compile JSII",
-        run: `pnpm projen compile`,
-      },
-      ...upgradeCdklabsJobSteps.slice(4),
     ],
   });
   // .github/workflows/upgrade-dev-deps-main.yml

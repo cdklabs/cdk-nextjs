@@ -43,6 +43,8 @@
     "generated-structs/",
     "**/*-function.ts",
     "examples/",
+    "src/lambdas/post-deploy/post-deploy-function.ts",
+    "src/lambdas/redeploy-stage/redeploy-stage-function.ts",
     "!.projenrc.ts",
     "!projenrc/**/*.ts"
   ],
