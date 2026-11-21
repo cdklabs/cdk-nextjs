@@ -51,7 +51,6 @@
     "test:watch": "pnpm dlx projen test:watch",
     "unbump": "pnpm dlx projen unbump",
     "upgrade": "pnpm dlx projen upgrade",
-    "upgrade-cdklabs-projen-project-types": "pnpm dlx projen upgrade-cdklabs-projen-project-types",
     "upgrade-dev-deps": "pnpm dlx projen upgrade-dev-deps",
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen"
