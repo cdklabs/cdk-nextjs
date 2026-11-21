@@ -859,6 +859,79 @@ describe("deploy-time invalidation", () => {
   });
 });
 
+// cdklabs/cdk-nextjs#343: the seed is copied in once and never over an
+// existing key, so a request the new build served before seeding would render
+// on demand and that render would win over the prerendered seed.
+describe("init cache seeding", () => {
+  const initCacheDir = () => join(buildDir, ".next", "cdk-nextjs-init-cache");
+
+  beforeAll(() => {
+    write(join(initCacheDir(), "server", "app", "index.html"), "<p/>");
+  });
+
+  afterAll(() => {
+    rmSync(initCacheDir(), { recursive: true, force: true });
+  });
+
+  function synth(construct: (stack: Stack) => void) {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    construct(stack);
+    const template = Template.fromStack(stack);
+    const seeds = Object.keys(
+      template.findResources("Custom::NextjsCacheSeed"),
+    );
+    expect(seeds).toHaveLength(1);
+    return { template, seed: seeds[0] };
+  }
+
+  function expectWaitsForSeed(template: Template, type: string, seed: string) {
+    const dependents = Object.values(template.findResources(type));
+    expect(dependents.length).toBeGreaterThan(0);
+    for (const dependent of dependents) {
+      expect(dependent.DependsOn).toEqual(expect.arrayContaining([seed]));
+    }
+  }
+
+  it.each([
+    ["NextjsGlobalFunctions", NextjsGlobalFunctions],
+    ["NextjsRegionalFunctions", NextjsRegionalFunctions],
+  ])("%s: every function group waits for the seed", (_, RootConstruct) => {
+    const { template, seed } = synth(
+      (stack) =>
+        new RootConstruct(stack, "App", {
+          buildDirectory: buildDir,
+          functionGroups,
+        }),
+    );
+    const groups = appFunctions(template);
+    expect(Object.keys(groups).sort()).toEqual(["default", "reports"]);
+    const functions = template.findResources("AWS::Lambda::Function");
+    for (const logicalId of Object.values(groups)) {
+      expect(functions[logicalId].DependsOn).toEqual(
+        expect.arrayContaining([seed]),
+      );
+    }
+    expectWaitsForSeed(template, "Custom::NextjsPostDeploy", seed);
+  });
+
+  it.each([
+    ["NextjsGlobalContainers", NextjsGlobalContainers],
+    ["NextjsRegionalContainers", NextjsRegionalContainers],
+  ])("%s: the ECS service waits for the seed", (_, RootConstruct) => {
+    const { template, seed } = synth(
+      (stack) =>
+        new RootConstruct(stack, "App", {
+          buildDirectory: buildDir,
+          healthCheckPath: "/api/health",
+        }),
+    );
+    expectWaitsForSeed(template, "AWS::ECS::Service", seed);
+    expectWaitsForSeed(template, "Custom::NextjsPostDeploy", seed);
+  });
+});
+
 describe("service workers", () => {
   const swDir = () => join(buildDir, ".next", "static", "service-worker");
   beforeEach(() => write(join(swDir(), "sw.js"), "// sw"));

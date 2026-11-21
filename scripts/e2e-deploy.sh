@@ -234,6 +234,51 @@ harness_run_bounded "${HARNESS_DEPLOY_TIMEOUT:-1800}" \
   --require-approval never \
   --ci 2>&1 | tee "$HARNESS_DEPLOY_LOG"
 
+# Copy the init cache from `_seed/<buildId>/` into the live `<buildId>/` prefix.
+# A hotswap uploads the seed (it hotswaps the BucketDeployment) but never runs
+# the `NextjsCacheSeed` custom resource, whose `buildId` app.js pins anyway, so
+# this does it on every deploy, the CloudFormation ones included. Before the
+# readiness probes below: a request served before the seed lands renders on
+# demand, and that render then wins over the prerendered seed. The ID is
+# `NextjsBuild.buildId`: Next's BUILD_ID, suffixed with the deployment ID
+# (src/utils/deployment-build-id.ts). `no-seed` means it found nothing under
+# that ID: right for a fixture with nothing to prerender, whose build still
+# creates the init cache directory (`writeInitCache`), empty, and so a seeder;
+# otherwise the two IDs have drifted apart. So only fixtures that prerender
+# catch that drift; for the others there is nothing under either ID to miss.
+CACHE_SEED_FUNCTION="$(harness_stack_output "$STACK_NAME" CacheSeedFunctionName)"
+INIT_CACHE_DIR="$APP_DIR/.next/cdk-nextjs-init-cache"
+if [ -n "$CACHE_SEED_FUNCTION" ]; then
+  CACHE_SEED_OK='seeded\|already-seeded'
+  if [ -z "$(ls -A "$INIT_CACHE_DIR" 2>/dev/null)" ]; then
+    CACHE_SEED_OK="$CACHE_SEED_OK\|no-seed"
+  fi
+  CACHE_BUILD_ID="$BUILD_ID${NEXT_DEPLOYMENT_ID:+-$NEXT_DEPLOYMENT_ID}"
+  CACHE_SEED_RESULT="$APP_DIR/cache-seed-result.json"
+  echo "harness: seeding the cache for $CACHE_BUILD_ID"
+  # The seeder can run for up to its 15-minute timeout, well past the CLI's
+  # 60 s read timeout, and the CLI's retry would start a second, overlapping seed.
+  aws lambda invoke \
+    --cli-read-timeout 900 \
+    --function-name "$CACHE_SEED_FUNCTION" \
+    --cli-binary-format raw-in-base64-out \
+    --payload "{\"buildId\":\"$CACHE_BUILD_ID\"}" \
+    --query FunctionError --output text \
+    "$CACHE_SEED_RESULT" >"$CACHE_SEED_RESULT.error"
+  cat "$CACHE_SEED_RESULT"
+  echo
+  if [ "$(cat "$CACHE_SEED_RESULT.error")" != "None" ] ||
+    ! grep -q "\"status\":\"\\($CACHE_SEED_OK\\)\"" "$CACHE_SEED_RESULT"; then
+    echo "harness: seeding the cache for $CACHE_BUILD_ID failed" >&2
+    exit 1
+  fi
+elif [ -n "$(ls -A "$INIT_CACHE_DIR" 2>/dev/null)" ]; then
+  # `harness_stack_output` prints nothing when describe-stacks fails too, and a
+  # fixture with an init cache always has a seeder.
+  echo "harness: $STACK_NAME has an init cache but no CacheSeedFunctionName output" >&2
+  exit 1
+fi
+
 URL="$(harness_stack_output "$STACK_NAME" HarnessUrl)"
 if [ -z "$URL" ]; then
   echo "harness: deploy reported success but $STACK_NAME has no HarnessUrl output" >&2

@@ -62,6 +62,7 @@ junit.xml
 .jsii
 !/API.md
 /assets/
+!/src/lambdas/cache-seed/cache-seed-function.ts
 !/src/lambdas/post-deploy/post-deploy-function.ts
 !/src/lambdas/redeploy-stage/redeploy-stage-function.ts
 .jsii.tabl.json
@@ -75,6 +76,7 @@ junit.xml
 !/.projenrc.ts
 !/src/generated-structs/OptionalNextjsPostDeployProps.ts
 !/src/generated-structs/OptionalPostDeployCustomResourceProperties.ts
+!/src/generated-structs/OptionalCacheSeedCustomResourceProperties.ts
 !/src/generated-structs/OptionalCustomResourceProps.ts
 !/src/generated-structs/OptionalS3OriginBucketWithOACProps.ts
 !/src/generated-structs/OptionalEdgeFunctionProps.ts
