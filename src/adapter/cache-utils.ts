@@ -371,7 +371,8 @@ export function groupPrerenders<T extends { pathname: string }>(
  *
  * `APP_ROUTE` entries are deliberately *not* filtered: a route handler's
  * `content-type` is part of its cached response, and `app-route.js` replays those
- * headers verbatim.
+ * headers verbatim, except the framing ones (`content-length`, `content-encoding`,
+ * `transfer-encoding`) that `sendResponse` drops since Next.js 16.4.5.
  */
 const NON_CACHEABLE_APP_PAGE_HEADERS = new Set([
   "content-type",

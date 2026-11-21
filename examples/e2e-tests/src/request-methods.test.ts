@@ -140,17 +140,20 @@ test.describe("request methods", () => {
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-echo"]).toBe("echo");
 
-    // The handler declares the length its GET would have returned. A HEAD is the
-    // other empty-body case: the runtime pads it, and the declared length has to
-    // survive that padding rather than be replaced by it.
+    // The handler declares the length its GET would have returned, but Next.js
+    // drops it: since 16.4.5 (GHSA-pc58-hwjq-p385) `sendResponse` strips
+    // `content-length`, `content-encoding` and `transfer-encoding` from a route
+    // handler's `Response`, so a framing header never reaches the runtime. A HEAD
+    // is the other empty-body case the Lambda sink pads, and what matters is that
+    // the padding byte does not surface as a `content-length: 1` of its own.
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
-    // declared. Measured, not reasoned: the same runtime answers `42` through API
-    // Gateway's streaming integration, and CloudFront passes `42` through from an
-    // ALB, so the Function URL is the one layer left. Asserted rather than
-    // skipped, so a Function URL that starts honouring it shows up here.
+    // sent. Measured, not reasoned: the containers and API Gateway's streaming
+    // integration send no `content-length` at all. Asserted rather than skipped,
+    // so a Next.js that starts forwarding the declared length again, or a Function
+    // URL that stops inventing one, shows up here.
     expect(response.headers()["content-length"]).toBe(
-      isGlobalFunctions() ? "0" : "42",
+      isGlobalFunctions() ? "0" : undefined,
     );
 
     const body = await response.body();

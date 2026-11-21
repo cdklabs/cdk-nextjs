@@ -54,8 +54,8 @@ importers:
         specifier: ^0.7.64
         version: 0.7.64(projen@0.105.6(constructs@10.5.1))
       '@next/routing':
-        specifier: 16.4.0
-        version: 16.4.0
+        specifier: 16.4.6
+        version: 16.4.6
       '@smithy/signature-v4':
         specifier: ^2.3.0
         version: 2.3.0
@@ -144,7 +144,7 @@ importers:
         specifier: ^2.1.35
         version: 2.1.35
       next:
-        specifier: ^16.4.0
+        specifier: ^16.4.6
         version: 16.4.6(@babel/core@8.0.1)(@types/node@24.19.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       prettier:
         specifier: ^3.10.1
@@ -1124,8 +1124,8 @@ packages:
   '@next/env@16.4.6':
     resolution: {integrity: sha512-SunBjJ6t+oBtecS3dTjdVuMhUogP5wD/vrGL5EVuQYM1iS4O5ilL51HkiJ3sPjMzRHiCChvr4dbaSJbR7F3lxA==}
 
-  '@next/routing@16.4.0':
-    resolution: {integrity: sha512-ki3B6L7QaX0jf7wm3nAVP/vefJ8kt4jp2bRPMymKBp+hqCrMoJMZ5aEDIkpeR2DEvIbVlhRrZSPj4W05w6MoDw==}
+  '@next/routing@16.4.6':
+    resolution: {integrity: sha512-25HxdlDhz37j9R50L1ULMtjzw3ybqQP4dQTr5L2FgEVD6y7LBAJrPmz1javAHj+gyKABb/FMWYPPkyU0xHsp5w==}
 
   '@next/swc-darwin-arm64@16.4.6':
     resolution: {integrity: sha512-kJ4VVZkley17xKaJx72QN2IBqjrj7zenCQZaUF0l9ShS/1Mt2kW4+Z5KGG6vgr3L/J562xTOizVyM1iA/u5nlg==}
@@ -4976,7 +4976,7 @@ snapshots:
 
   '@next/env@16.4.6': {}
 
-  '@next/routing@16.4.0': {}
+  '@next/routing@16.4.6': {}
 
   '@next/swc-darwin-arm64@16.4.6':
     optional: true

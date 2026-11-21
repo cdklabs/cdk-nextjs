@@ -39,7 +39,7 @@
     },
     {
       "name": "@next/routing",
-      "version": "16.4.0",
+      "version": "16.4.6",
       "type": "build"
     },
     {
@@ -160,7 +160,7 @@
     },
     {
       "name": "next",
-      "version": "^16.4.0",
+      "version": "^16.4.6",
       "type": "build"
     },
     {

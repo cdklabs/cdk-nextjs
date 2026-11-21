@@ -147,7 +147,7 @@ function pack(appDir) {
 }
 
 function writeFixture(appDir, tarball) {
-  // The exact `next` this repo's own lockfile resolved, not its `^16.3.5` range:
+  // The exact `next` this repo's own lockfile resolved, not its `package.json` range:
   // a per-PR gate should fail on our changes, not on a patch release that landed
   // between two runs of the same commit.
   const nextVersion = JSON.parse(
