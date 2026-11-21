@@ -7,11 +7,13 @@ import { buildSync } from "esbuild";
 // Lambda, the containers and the user's own `next build`. A module-scope CDK
 // object in a file they import (`constants.ts`, say) drags all of
 // `aws-cdk-lib` in with it: ~10 MB each. Each bundle is rebuilt here from its
-// own `bundle:*` task, so the entries and externals are the ones that ship.
+// own `bundle:*` task, so the entry, format, externals and tsconfig are the
+// ones that ship.
 const repoRoot = join(__dirname, "..");
 
 interface BundleTask {
   readonly entry: string;
+  readonly format: "esm" | "cjs";
   readonly external: string[];
   readonly tsconfig?: string;
 }
@@ -30,6 +32,8 @@ function nodeBundleTasks(): [string, BundleTask][] {
       name,
       {
         entry: /--bundle (\S+)/.exec(exec)![1],
+        // esbuild bundles for node as CommonJS unless told otherwise.
+        format: /--format=esm\b/.test(exec) ? "esm" : "cjs",
         external: [...exec.matchAll(/--external:(\S+)/g)].map((m) => m[1]),
         tsconfig: /--tsconfig="([^"]+)"/.exec(exec)?.[1],
       },
@@ -55,7 +59,7 @@ test.each(bundles)(
       entryPoints: [task.entry],
       bundle: true,
       platform: "node",
-      format: "esm",
+      format: task.format,
       external: task.external,
       tsconfig: task.tsconfig,
       metafile: true,

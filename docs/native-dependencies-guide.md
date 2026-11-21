@@ -31,6 +31,13 @@ libc variant passes synth. A `-musl` package on a Functions Lambda passes synth,
 then fails at runtime with `ERR_DLOPEN_FAILED`. Use `-gnu` packages for
 Functions and `-musl` packages for Containers.
 
+An addon must also match the runtime's Node version (Node 26 by default),
+unless it's built on Node-API, as `sharp` is. One installed under the Node
+that runs synth is built for that Node's ABI, so on a synth Node other than 26
+it fails with `ERR_DLOPEN_FAILED` on the first request that loads it. Synth
+doesn't check for this. Install and synth on Node 26, which fix 1 below covers
+if the runner is also the target platform.
+
 There are three ways to fix it.
 
 ## 1. Build on the target platform

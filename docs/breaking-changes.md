@@ -52,6 +52,10 @@ so you don't need Node 26 on your machine or in CI.
   if `next build` loads the addon too, that's the only one that works for
   both. Node-API addons such as `sharp` are unaffected. See the
   [native dependencies guide](./native-dependencies-guide.md).
+- If you run cdk-nag's `AwsSolutionsChecks`, AwsSolutions-L1 now reports your
+  own functions on `nodejs24.x` as not on the latest runtime: cdk-nextjs
+  creates a `nodejs26.x` `Runtime`, which `aws-cdk-lib` before
+  `NODEJS_26_X` doesn't list. Move them to `nodejs26.x` or suppress L1.
 
 ### `NextjsCache` ignores or rejects some `bucketDeploymentProps` overrides
 
