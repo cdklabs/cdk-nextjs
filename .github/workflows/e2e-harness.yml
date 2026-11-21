@@ -258,7 +258,7 @@ jobs:
             console.log(`matrix=${JSON.stringify({ include })}`);
             console.log(`max-parallel=${maxParallel}`);
             console.log(`nextjs-ref=${ref}`);
-            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node26-${ref}`);
+            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref}`);
           ' >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -298,10 +298,14 @@ jobs:
 
       - if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
         uses: pnpm/action-setup@v4
+      # The runner's Node, not the deployed one: the fixtures still run on
+      # cdk-nextjs's Node 26 runtime. next.js's own test tooling, which runs here
+      # and in the shards, isn't Node 26-ready: yargs 16's extensionless
+      # CommonJS entry loads as ESM and throws `require is not defined`.
       - if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
         uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
 
       - name: Build next.js
         if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
@@ -382,9 +386,10 @@ jobs:
           fail-on-cache-miss: true
 
       - uses: pnpm/action-setup@v4
+      # 24, not the Node 26 runtime: see the `nextjs` job's setup-node.
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
 
       - name: Build cdk-nextjs
         run: |

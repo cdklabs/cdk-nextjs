@@ -55,6 +55,13 @@ test("the docs name the runtime major's container image", () => {
   }
 });
 
+// The Next.js compatibility harness runs next.js's own test tooling on the
+// runner, which follows next.js's supported Node, not ours; its fixtures still
+// deploy on `LAMBDA_RUNTIME`. Raise this when next.js's tooling runs on the
+// runtime major (yargs 16 broke on Node 26).
+const HARNESS_WORKFLOW = ".github/workflows/e2e-harness.yml";
+const HARNESS_RUNNER_MAJOR = "24";
+
 test("CI pins the runtime major", () => {
   // Projen's own workflows use `lts/*`; only hand-written numeric pins count.
   const files = [
@@ -64,13 +71,20 @@ test("CI pins the runtime major", () => {
     ...readdirSync(join(repoRoot, ".github/actions")).map(
       (d) => `.github/actions/${d}/action.yml`,
     ),
-  ].filter((f) => /\.ya?ml$/.test(f));
+  ].filter((f) => /\.ya?ml$/.test(f) && f !== HARNESS_WORKFLOW);
   const pins = files.flatMap((f) => matches(f, /node-version: (\d+)\s*$/gm));
   expect(pins.length).toBeGreaterThan(0);
   expect(new Set(pins)).toEqual(new Set([major]));
-  expect(files.flatMap((f) => matches(f, /ubuntu-[\d.]+-node(\d+)-/g))).toEqual(
-    [major],
-  );
+});
+
+test("the harness runner pins next.js's Node, cache key included", () => {
+  expect(matches(HARNESS_WORKFLOW, /node-version: (\d+)\s*$/gm)).toEqual([
+    HARNESS_RUNNER_MAJOR,
+    HARNESS_RUNNER_MAJOR,
+  ]);
+  expect(matches(HARNESS_WORKFLOW, /ubuntu-[\d.]+-node(\d+)-/g)).toEqual([
+    HARNESS_RUNNER_MAJOR,
+  ]);
 });
 
 test("the load-test runner installs the runtime major", () => {
