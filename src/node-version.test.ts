@@ -24,7 +24,7 @@ test("the runtime major is a Node major", () => {
 });
 
 test("the bundles target the runtime major or the synth floor", () => {
-  const targets = matches(".projen/tasks.json", /--target=\\"node([\d.]+)\\"/g);
+  const targets = matches(".projen/tasks.json", /"--target=node([\d.]+)"/g);
   expect(targets.length).toBeGreaterThan(0);
   expect(new Set(targets)).toEqual(new Set([major, floor]));
 });

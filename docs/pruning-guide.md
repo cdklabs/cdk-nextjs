@@ -18,6 +18,8 @@ Every deployment gets a unique BUILD_ID that isolates cache data:
 
 ### Automatic Pruning (NextjsPostDeploy)
 
+For `NextjsGlobalContainers` and `NextjsRegionalContainers`, post-deploy processing waits for CloudFormation to report the ECS service update complete; old tasks may still be draining at that point.
+
 After each successful deployment, old cache data is cleaned up:
 
 #### S3 Cache Bucket Pruning

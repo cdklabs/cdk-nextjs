@@ -21,39 +21,43 @@ interface BundleTask {
 function nodeBundleTasks(): [string, BundleTask][] {
   const { tasks } = JSON.parse(
     readFileSync(join(repoRoot, ".projen", "tasks.json"), "utf-8"),
-  ) as { tasks: Record<string, { steps?: { exec?: string }[] }> };
-  return (
-    Object.entries(tasks)
-      .filter(
-        ([name]) => name.startsWith("bundle:") && !name.endsWith(":watch"),
-      )
-      .flatMap(([name, task]) =>
-        (task.steps ?? []).map((step) => [name, step.exec ?? ""] as const),
-      )
-      // Skip only what is plainly a browser bundle, so a change in how projen
-      // writes its flags can't drop a node bundle from the check unseen.
-      .filter(
-        ([, exec]) =>
-          exec.startsWith("esbuild ") &&
-          !/--platform[= ]"?browser\b/.test(exec),
-      )
-      .map(([name, exec]): [string, BundleTask] => {
-        const entry = /--bundle "?([^\s"]+)/.exec(exec)?.[1];
-        if (!entry) throw new Error(`${name}: no --bundle entry in ${exec}`);
-        return [
-          name,
-          {
-            entry,
-            // esbuild bundles for node as CommonJS unless told otherwise.
-            format: /--format[= ]"?esm\b/.test(exec) ? "esm" : "cjs",
-            external: [...exec.matchAll(/--external:"?([^\s"]+)/g)].map(
-              (m) => m[1],
-            ),
-            tsconfig: /--tsconfig[= ]"?([^\s"]+)/.exec(exec)?.[1],
-          },
-        ];
-      })
-  );
+  ) as { tasks: Record<string, { steps?: { execArgs?: string[] }[] }> };
+  return Object.entries(tasks)
+    .filter(([name]) => name.startsWith("bundle:") && !name.endsWith(":watch"))
+    .flatMap(([name, task]) =>
+      (task.steps ?? []).map((step) => {
+        // Throw rather than skip, so a change in how projen writes its steps
+        // can't drop a bundle from the check unseen.
+        if (!step.execArgs) {
+          throw new Error(`${name}: a step without execArgs`);
+        }
+        return [name, step.execArgs] as const;
+      }),
+    )
+    .filter(
+      ([, args]) =>
+        args[0] === "esbuild" && !args.includes("--platform=browser"),
+    )
+    .map(([name, args]): [string, BundleTask] => {
+      const value = (flag: string) =>
+        args.find((a) => a.startsWith(`${flag}=`))?.slice(flag.length + 1);
+      const entry = args[args.indexOf("--bundle") + 1];
+      if (!args.includes("--bundle") || !entry || entry.startsWith("-")) {
+        throw new Error(`${name}: no --bundle entry in ${args.join(" ")}`);
+      }
+      return [
+        name,
+        {
+          entry,
+          // esbuild bundles for node as CommonJS unless told otherwise.
+          format: value("--format") === "esm" ? "esm" : "cjs",
+          external: args
+            .filter((a) => a.startsWith("--external:"))
+            .map((a) => a.slice("--external:".length)),
+          tsconfig: value("--tsconfig"),
+        },
+      ];
+    });
 }
 
 const bundles = nodeBundleTasks();
