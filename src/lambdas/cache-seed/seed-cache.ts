@@ -117,7 +117,7 @@ export async function seedCache(
 function checkDeadline(deadline: number, copied: number, skipped: number) {
   if (Date.now() > deadline) {
     throw new Error(
-      `Cache seeding ran out of time after copying ${copied} and skipping ${skipped} objects; the next attempt picks up where this one stopped`,
+      `Cache seeding ran out of time after copying ${copied} and skipping ${skipped} objects; the next attempt skips what this one copied, though it still asks S3 for each key, so a seed this size may need a longer timeout`,
     );
   }
 }

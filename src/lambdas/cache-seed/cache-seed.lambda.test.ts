@@ -72,6 +72,13 @@ describe("cache-seed handler", () => {
     expect(deadline - start).toBeGreaterThanOrEqual(15_000 - 50);
   });
 
+  it("rejects a direct invoke without a buildId", async () => {
+    await expect(handler({ buildID: "b1" } as never, context)).rejects.toThrow(
+      '{ "buildId": "..." }',
+    );
+    expect(seedCache).not.toHaveBeenCalled();
+  });
+
   it("leaves time to copy under a timeout shorter than the 5 s floor", async () => {
     const start = Date.now();
     await handler(

@@ -56,6 +56,11 @@ export async function handler(
       Math.max(Math.min(MIN_DEADLINE_MARGIN_MS, remaining / 2), remaining / 10),
     );
   if (!("RequestType" in event)) {
+    // Without it the seed would look under `_seed/undefined/`, find nothing and
+    // report `no-seed`, which reads as success.
+    if (typeof event.buildId !== "string" || !event.buildId) {
+      throw new Error('Invoke the cache seeder with { "buildId": "..." }');
+    }
     return seedCache({
       bucketName: event.cacheBucketName ?? process.env.CACHE_BUCKET_NAME!,
       buildId: event.buildId,
