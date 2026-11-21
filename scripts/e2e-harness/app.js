@@ -71,35 +71,6 @@ const PINNED_POST_DEPLOY = {
   },
 };
 
-/**
- * Pins the cache seeder's `buildId` for the same reason as
- * `PINNED_POST_DEPLOY`: it is the real build ID, so it would make every synth a
- * non-hotswappable change. A hotswap never runs the seeder anyway, so
- * `scripts/e2e-deploy.sh` invokes it directly with the real build ID after each
- * deploy, through the `CacheSeedFunctionName` output. Pinned to a build that
- * never has a seed, the custom resource itself only ever reports `no-seed`.
- */
-const PINNED_CACHE_SEED = {
-  customResourceProperties: { buildId: "harness" },
-};
-
-/** What every harness stack overrides on its cache. */
-const CACHE_OVERRIDES = { nextjsCacheSeed: PINNED_CACHE_SEED };
-
-/**
- * `CacheSeedFunctionName`, for `scripts/e2e-deploy.sh` to seed the cache with.
- * Absent when the fixture has no init cache, and so no seeder.
- */
-function cacheSeedOutput(scope, nextjs) {
-  const seed = nextjs.nextjsCache.cacheSeed;
-  if (seed) {
-    new CfnOutput(scope, "CacheSeedFunctionName", {
-      key: "CacheSeedFunctionName",
-      value: seed.lambdaFunction.functionName,
-    });
-  }
-}
-
 const COMMON_PROPS = {
   buildDirectory: appDir,
   // `scripts/e2e-deploy.sh` already ran `next build`: the harness's own `build`
@@ -148,11 +119,9 @@ class RegionalHarnessStack extends Stack {
             cloudWatchRole: false,
           },
         },
-        nextjsCache: CACHE_OVERRIDES,
         nextjsPostDeploy: PINNED_POST_DEPLOY,
       },
     });
-    cacheSeedOutput(this, nextjs);
     new CfnOutput(this, "HarnessUrl", {
       key: "HarnessUrl",
       // The stage URL alone - not `nextjs.url`, which appends the `basePath`
@@ -187,13 +156,9 @@ class HarnessStack extends Stack {
     // production, rather than by some harness-only arrangement.
     const nextjs = new NextjsGlobalFunctions(this, "Nextjs", {
       ...COMMON_PROPS,
-      overrides: {
-        nextjsCache: CACHE_OVERRIDES,
-        nextjsPostDeploy: PINNED_POST_DEPLOY,
-      },
+      overrides: { nextjsPostDeploy: PINNED_POST_DEPLOY },
     });
 
-    cacheSeedOutput(this, nextjs);
     new CfnOutput(this, "HarnessUrl", {
       key: "HarnessUrl",
       // The distribution's own origin, deliberately not `nextjs.url`: that
@@ -337,12 +302,10 @@ class GlobalContainersHarnessStack extends Stack {
       vpc: harnessVpc(this),
       overrides: {
         nextjsContainers: CONTAINER_OVERRIDES,
-        nextjsCache: CACHE_OVERRIDES,
         nextjsPostDeploy: PINNED_POST_DEPLOY,
       },
     });
     acceptAnyAnswer(nextjs.nextjsContainers, fixtureBasePath(appDir));
-    cacheSeedOutput(this, nextjs);
     new CfnOutput(this, "HarnessUrl", {
       key: "HarnessUrl",
       // The bare origin, for the reasons given in `HarnessStack`.
@@ -371,12 +334,10 @@ class RegionalContainersHarnessStack extends Stack {
       vpc: harnessVpc(this),
       overrides: {
         nextjsContainers: CONTAINER_OVERRIDES,
-        nextjsCache: CACHE_OVERRIDES,
         nextjsPostDeploy: PINNED_POST_DEPLOY,
       },
     });
     acceptAnyAnswer(nextjs.nextjsContainers, fixtureBasePath(appDir));
-    cacheSeedOutput(this, nextjs);
     new CfnOutput(this, "HarnessUrl", {
       key: "HarnessUrl",
       // The ALB's bare origin - not `nextjs.url`, which appends the fixture's

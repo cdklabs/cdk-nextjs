@@ -28,7 +28,6 @@
 /pnpm-workspace.yaml linguist-generated
 /projenrc/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
 /src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts linguist-generated
-/src/generated-structs/OptionalCacheSeedCustomResourceProperties.ts linguist-generated
 /src/generated-structs/OptionalCloudFrontFunctionProps.ts linguist-generated
 /src/generated-structs/OptionalClusterProps.ts linguist-generated
 /src/generated-structs/OptionalCustomResourceProps.ts linguist-generated

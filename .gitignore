@@ -76,7 +76,6 @@ junit.xml
 !/.projenrc.ts
 !/src/generated-structs/OptionalNextjsPostDeployProps.ts
 !/src/generated-structs/OptionalPostDeployCustomResourceProperties.ts
-!/src/generated-structs/OptionalCacheSeedCustomResourceProperties.ts
 !/src/generated-structs/OptionalCustomResourceProps.ts
 !/src/generated-structs/OptionalS3OriginBucketWithOACProps.ts
 !/src/generated-structs/OptionalEdgeFunctionProps.ts

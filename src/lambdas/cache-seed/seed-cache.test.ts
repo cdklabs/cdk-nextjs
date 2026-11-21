@@ -8,13 +8,8 @@ jest.mock("@aws-sdk/client-s3", () => ({
   })),
 }));
 
-import {
-  CopyObjectCommand,
-  HeadObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
-import { seedCache } from "./seed-cache";
+import { HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { Seed, seedCache, SeedCacheProps } from "./seed-cache";
 
 const holder = { send: jest.fn() };
 
@@ -28,45 +23,23 @@ function s3Error(status: number, name: string): Error {
 }
 
 /**
- * A fake bucket holding `objects` (key → body). ListObjectsV2 honours `Prefix`
- * and pages `pageSize` keys at a time; HeadObject 404s on a missing key;
- * CopyObject and PutObject honour `IfNoneMatch: "*"` with a 412, as S3 does.
- * `onCopy` runs before each copy lands, to simulate a concurrent write.
+ * A fake bucket holding `objects` (key → body). HeadObject 404s on a missing
+ * key; PutObject honours `IfNoneMatch: "*"` with a 412, as S3 does. `onPut`
+ * runs before each entry's put lands, to simulate a concurrent write.
  */
 function stubBucket(
   objects: Map<string, string>,
-  options: { pageSize?: number; onCopy?: (key: string) => void } = {},
+  options: { onPut?: (key: string) => void } = {},
 ) {
-  const { pageSize = 2, onCopy } = options;
+  const { onPut } = options;
   holder.send.mockImplementation(async (command: unknown) => {
-    if (command instanceof ListObjectsV2Command) {
-      const { Prefix = "", ContinuationToken } = command.input;
-      const keys = [...objects.keys()].filter((k) => k.startsWith(Prefix));
-      const offset = Number(ContinuationToken ?? 0);
-      return {
-        Contents: keys.slice(offset, offset + pageSize).map((Key) => ({ Key })),
-        NextContinuationToken:
-          offset + pageSize < keys.length
-            ? String(offset + pageSize)
-            : undefined,
-      };
-    }
     if (command instanceof HeadObjectCommand) {
       if (!objects.has(command.input.Key!)) throw s3Error(404, "NotFound");
       return {};
     }
-    if (command instanceof CopyObjectCommand) {
-      const { Key, CopySource, IfNoneMatch } = command.input;
-      onCopy?.(Key!);
-      if (IfNoneMatch === "*" && objects.has(Key!)) {
-        throw s3Error(412, "PreconditionFailed");
-      }
-      const source = decodeURIComponent(CopySource!.slice(`${BUCKET}/`.length));
-      objects.set(Key!, objects.get(source)!);
-      return {};
-    }
     if (command instanceof PutObjectCommand) {
       const { Key, IfNoneMatch } = command.input;
+      if (!Key!.endsWith("/.seeded")) onPut?.(Key!);
       if (IfNoneMatch === "*" && objects.has(Key!)) {
         throw s3Error(412, "PreconditionFailed");
       }
@@ -83,13 +56,59 @@ function sent<T>(type: new (...args: any[]) => T): T[] {
     .filter((command): command is T => command instanceof type);
 }
 
-function seedOf(buildId: string, entries: Record<string, string>) {
-  return new Map(
-    Object.entries(entries).map(([key, body]) => [
-      `_seed/${buildId}/${key}`,
-      body,
-    ]),
+/** The puts of entries, not the marker's. */
+function entryPuts(): PutObjectCommand[] {
+  return sent(PutObjectCommand).filter(
+    (put) => !put.input.Key!.endsWith("/.seeded"),
   );
+}
+
+/** An init cache of `files` (key → body), counting its opens and closes. */
+function seedOf(files: Record<string, string>) {
+  const state = { opened: 0, closed: 0 };
+  const openSeed = async (): Promise<Seed> => {
+    state.opened++;
+    return {
+      entries: Object.entries(files).map(([key, body]) => ({
+        key,
+        read: async () => Buffer.from(body),
+      })),
+      close: async () => {
+        state.closed++;
+      },
+    };
+  };
+  return { openSeed, state };
+}
+
+function seed(
+  files: Record<string, string>,
+  props: Partial<SeedCacheProps> = {},
+) {
+  return seedCache({
+    bucketName: BUCKET,
+    buildId: "b1",
+    openSeed: seedOf(files).openSeed,
+    ...props,
+  });
+}
+
+/** Fail every entry put S3 would otherwise accept with `status`. */
+function failPuts(status: number, name: string, key?: string) {
+  const fake = holder.send.getMockImplementation()!;
+  let puts = 0;
+  holder.send.mockImplementation(async (command: unknown) => {
+    if (
+      command instanceof PutObjectCommand &&
+      !command.input.Key!.endsWith("/.seeded") &&
+      (!key || command.input.Key === key)
+    ) {
+      puts++;
+      throw s3Error(status, name);
+    }
+    return fake(command);
+  });
+  return { puts: () => puts };
 }
 
 describe("seedCache", () => {
@@ -97,93 +116,115 @@ describe("seedCache", () => {
     holder.send.mockReset();
   });
 
-  it("copies every seed object into the build prefix, then writes the marker", async () => {
-    const objects = seedOf("b1", {
+  it("writes every entry into the build prefix, then the marker", async () => {
+    const objects = new Map<string, string>();
+    stubBucket(objects);
+    const { openSeed, state } = seedOf({
       "a.json": "A",
       "b.json": "B",
-      "_use-cache/1.entry": "U",
+      "_use-cache/1.json": "U",
     });
-    stubBucket(objects);
 
-    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    const result = await seedCache({
+      bucketName: BUCKET,
+      buildId: "b1",
+      openSeed,
+    });
 
-    expect(result).toEqual({ status: "seeded", copied: 3, skipped: 0 });
+    expect(result).toEqual({ status: "seeded", written: 3, skipped: 0 });
     expect(objects.get("b1/a.json")).toBe("A");
     expect(objects.get("b1/b.json")).toBe("B");
-    expect(objects.get("b1/_use-cache/1.entry")).toBe("U");
+    expect(objects.get("b1/_use-cache/1.json")).toBe("U");
     expect(objects.has("b1/.seeded")).toBe(true);
-    for (const copy of sent(CopyObjectCommand)) {
-      expect(copy.input.IfNoneMatch).toBe("*");
+    for (const put of entryPuts()) {
+      expect(put.input).toMatchObject({
+        Bucket: BUCKET,
+        IfNoneMatch: "*",
+        ContentType: "application/json",
+      });
     }
     // The marker is the last write.
-    const writes = holder.send.mock.calls
-      .map(([command]) => command)
-      .filter(
-        (c) => c instanceof CopyObjectCommand || c instanceof PutObjectCommand,
-      );
-    expect(writes.at(-1)).toBeInstanceOf(PutObjectCommand);
-    expect((writes.at(-1) as PutObjectCommand).input.Key).toBe("b1/.seeded");
+    expect(sent(PutObjectCommand).at(-1)!.input.Key).toBe("b1/.seeded");
+    expect(state).toEqual({ opened: 1, closed: 1 });
   });
 
   // seed A → runtime update B → failed deployment → rollback → still B, and
   // the same for a re-deploy of the same build.
-  it("copies nothing once the build is marked seeded", async () => {
-    const objects = seedOf("b1", { "a.json": "A" });
-    objects.set("b1/a.json", "B (regenerated at runtime)");
-    objects.set("b1/.seeded", "2026-11-19T00:00:00.000Z");
+  it("writes nothing once the build is marked seeded", async () => {
+    const objects = new Map([
+      ["b1/a.json", "B (regenerated at runtime)"],
+      ["b1/.seeded", "2026-11-19T00:00:00.000Z"],
+    ]);
     stubBucket(objects);
+    const { openSeed, state } = seedOf({ "a.json": "A" });
 
-    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    const result = await seedCache({
+      bucketName: BUCKET,
+      buildId: "b1",
+      openSeed,
+    });
 
-    expect(result).toEqual({ status: "already-seeded", copied: 0, skipped: 0 });
+    expect(result).toEqual({
+      status: "already-seeded",
+      written: 0,
+      skipped: 0,
+    });
     expect(objects.get("b1/a.json")).toBe("B (regenerated at runtime)");
-    expect(sent(CopyObjectCommand)).toHaveLength(0);
-    expect(sent(ListObjectsV2Command)).toHaveLength(0);
+    expect(sent(PutObjectCommand)).toHaveLength(0);
+    // Not even downloaded.
+    expect(state.opened).toBe(0);
   });
 
   it("does not bring back an entry the app deleted after seeding", async () => {
-    const objects = seedOf("b1", { "a.json": "A" });
-    objects.set("b1/.seeded", "2026-11-19T00:00:00.000Z");
+    const objects = new Map([["b1/.seeded", "2026-11-19T00:00:00.000Z"]]);
     stubBucket(objects);
 
-    await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    await seed({ "a.json": "A" });
 
     expect(objects.has("b1/a.json")).toBe(false);
   });
 
   // A partially completed seed followed by a retry.
   it("skips what an earlier attempt or the app already wrote", async () => {
-    const objects = seedOf("b1", { "a.json": "A", "b.json": "B" });
-    objects.set("b1/a.json", "A (written by the app)");
+    const objects = new Map([["b1/a.json", "A (written by the app)"]]);
     stubBucket(objects);
 
-    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    const result = await seed({ "a.json": "A", "b.json": "B" });
 
-    expect(result).toEqual({ status: "seeded", copied: 1, skipped: 1 });
+    expect(result).toEqual({ status: "seeded", written: 1, skipped: 1 });
     expect(objects.get("b1/a.json")).toBe("A (written by the app)");
     expect(objects.get("b1/b.json")).toBe("B");
   });
 
   // Regeneration happening while the seed runs.
-  it("lets a write racing the copy win", async () => {
-    const objects = seedOf("b1", { "a.json": "A" });
+  it("lets a write racing the put win", async () => {
+    const objects = new Map<string, string>();
     stubBucket(objects, {
-      onCopy: (key) => objects.set(key, "A (regenerated mid-seed)"),
+      onPut: (key) => objects.set(key, "A (regenerated mid-seed)"),
     });
 
-    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    const result = await seed({ "a.json": "A" });
 
     expect(result.skipped).toBe(1);
     expect(objects.get("b1/a.json")).toBe("A (regenerated mid-seed)");
   });
 
+  it("only writes under its own build", async () => {
+    const objects = new Map<string, string>();
+    stubBucket(objects);
+
+    await seed({ "a.json": "A" }, { buildId: "b10" });
+
+    expect([...objects.keys()].sort()).toEqual(["b10/.seeded", "b10/a.json"]);
+  });
+
   it("retries a 409 conditional conflict until the racing write lands", async () => {
-    const objects = seedOf("b1", { "a.json": "A", "b.json": "B" });
+    const objects = new Map<string, string>();
     stubBucket(objects);
     const fake = holder.send.getMockImplementation()!;
     holder.send.mockImplementation(async (command: unknown) => {
       if (
-        command instanceof CopyObjectCommand &&
+        command instanceof PutObjectCommand &&
         command.input.Key === "b1/a.json" &&
         !objects.has("b1/a.json")
       ) {
@@ -194,59 +235,45 @@ describe("seedCache", () => {
       return fake(command);
     });
 
-    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    const result = await seed({ "a.json": "A", "b.json": "B" });
 
-    expect(result).toEqual({ status: "seeded", copied: 1, skipped: 1 });
+    expect(result).toEqual({ status: "seeded", written: 1, skipped: 1 });
     expect(objects.get("b1/a.json")).toBe("A (app)");
   });
 
-  it("copies a key once a 409 conflict's racing write has failed", async () => {
-    const objects = seedOf("b1", { "a.json": "A" });
+  it("writes a key once a 409 conflict's racing write has failed", async () => {
+    const objects = new Map<string, string>();
     stubBucket(objects);
     const fake = holder.send.getMockImplementation()!;
     let conflicts = 1;
     holder.send.mockImplementation(async (command: unknown) => {
-      if (command instanceof CopyObjectCommand && conflicts-- > 0) {
+      if (command instanceof PutObjectCommand && conflicts-- > 0) {
         throw s3Error(409, "ConditionalRequestConflict");
       }
       return fake(command);
     });
 
-    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    const result = await seed({ "a.json": "A" });
 
-    expect(result).toEqual({ status: "seeded", copied: 1, skipped: 0 });
+    expect(result).toEqual({ status: "seeded", written: 1, skipped: 0 });
     expect(objects.get("b1/a.json")).toBe("A");
   });
 
   it("writes no marker when a 409 conflict persists", async () => {
-    const objects = seedOf("b1", { "a.json": "A" });
+    const objects = new Map<string, string>();
     stubBucket(objects);
-    const fake = holder.send.getMockImplementation()!;
-    holder.send.mockImplementation(async (command: unknown) => {
-      if (command instanceof CopyObjectCommand) {
-        throw s3Error(409, "ConditionalRequestConflict");
-      }
-      return fake(command);
-    });
+    failPuts(409, "ConditionalRequestConflict");
 
-    await expect(
-      seedCache({ bucketName: BUCKET, buildId: "b1" }),
-    ).rejects.toThrow("ConditionalRequestConflict");
+    await expect(seed({ "a.json": "A" })).rejects.toThrow(
+      "ConditionalRequestConflict",
+    );
     expect(objects.has("b1/.seeded")).toBe(false);
   });
 
   it("stops retrying a 409 conflict at the deadline", async () => {
-    const objects = seedOf("b1", { "a.json": "A" });
+    const objects = new Map<string, string>();
     stubBucket(objects);
-    const fake = holder.send.getMockImplementation()!;
-    let copies = 0;
-    holder.send.mockImplementation(async (command: unknown) => {
-      if (command instanceof CopyObjectCommand) {
-        copies++;
-        throw s3Error(409, "ConditionalRequestConflict");
-      }
-      return fake(command);
-    });
+    const { puts } = failPuts(409, "ConditionalRequestConflict");
 
     // A frozen clock, so the deadline check doesn't depend on how fast the
     // runner is: each backoff is judged against the same "now".
@@ -254,7 +281,7 @@ describe("seedCache", () => {
     const now = jest.spyOn(Date, "now").mockReturnValue(start);
     try {
       await expect(
-        seedCache({ bucketName: BUCKET, buildId: "b1", deadline: start + 250 }),
+        seed({ "a.json": "A" }, { deadline: start + 250 }),
       ).rejects.toThrow(
         "ran out of time retrying a conflicting write to b1/a.json",
       );
@@ -263,98 +290,91 @@ describe("seedCache", () => {
     }
     // Backoffs of 100 and 200 ms fit before the deadline, 400 ms doesn't:
     // three attempts, not five.
-    expect(copies).toBe(3);
+    expect(puts()).toBe(3);
     expect(objects.has("b1/.seeded")).toBe(false);
   });
 
-  it("starts no copy after one has failed", async () => {
+  it("starts no put after one has failed, and still closes the seed", async () => {
     const files = Object.fromEntries(
       Array.from({ length: 100 }, (_, i) => [`k${i}.json`, String(i)]),
     );
-    const objects = seedOf("b1", files);
-    stubBucket(objects, { pageSize: 1000 });
+    const objects = new Map<string, string>();
+    stubBucket(objects);
     const fake = holder.send.getMockImplementation()!;
-    let copies = 0;
+    let puts = 0;
     holder.send.mockImplementation(async (command: unknown) => {
-      if (command instanceof CopyObjectCommand) {
-        copies++;
+      if (command instanceof PutObjectCommand) {
+        puts++;
         if (command.input.Key === "b1/k0.json") throw s3Error(500, "Internal");
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       return fake(command);
     });
+    const { openSeed, state } = seedOf(files);
 
     await expect(
-      seedCache({ bucketName: BUCKET, buildId: "b1" }),
+      seedCache({ bucketName: BUCKET, buildId: "b1", openSeed }),
     ).rejects.toThrow("Internal");
-    // Long enough for the 68 queued copies to start, were nothing stopping them.
+    // Long enough for the 68 queued puts to start, were nothing stopping them.
     await new Promise((resolve) => setTimeout(resolve, 200));
-    // Exactly the first copy of each of the 32 workers, already in flight
+    // Exactly the first put of each of the 32 workers, already in flight
     // when the first failed.
-    expect(copies).toBe(32);
+    expect(puts).toBe(32);
+    expect(state.closed).toBe(1);
   });
 
-  it("writes no marker when a copy fails, so the next attempt seeds", async () => {
-    const objects = seedOf("b1", { "a.json": "A", "b.json": "B" });
+  it("writes no marker when a put fails, so the next attempt seeds", async () => {
+    const objects = new Map<string, string>();
     stubBucket(objects);
-    const fake = holder.send.getMockImplementation()!;
-    holder.send.mockImplementation(async (command: unknown) => {
-      if (
-        command instanceof CopyObjectCommand &&
-        command.input.Key === "b1/b.json"
-      ) {
-        throw s3Error(503, "SlowDown");
-      }
-      return fake(command);
-    });
+    failPuts(503, "SlowDown", "b1/b.json");
+
+    await expect(seed({ "a.json": "A", "b.json": "B" })).rejects.toThrow(
+      "SlowDown",
+    );
+    expect(objects.has("b1/.seeded")).toBe(false);
+  });
+
+  it("writes no marker when reading an entry fails", async () => {
+    const objects = new Map<string, string>();
+    stubBucket(objects);
 
     await expect(
-      seedCache({ bucketName: BUCKET, buildId: "b1" }),
-    ).rejects.toThrow("SlowDown");
+      seedCache({
+        bucketName: BUCKET,
+        buildId: "b1",
+        openSeed: async () => ({
+          entries: [
+            {
+              key: "a.json",
+              read: async () => {
+                throw new Error("invalid zip");
+              },
+            },
+          ],
+          close: async () => {},
+        }),
+      }),
+    ).rejects.toThrow("invalid zip");
     expect(objects.has("b1/.seeded")).toBe(false);
   });
 
-  it("writes no marker when there is no seed to copy", async () => {
-    const objects = seedOf("other", { "a.json": "A" });
+  it("writes no marker when there is nothing to seed", async () => {
+    const objects = new Map<string, string>();
     stubBucket(objects);
 
-    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+    const result = await seed({});
 
-    expect(result).toEqual({ status: "no-seed", copied: 0, skipped: 0 });
+    expect(result).toEqual({ status: "no-seed", written: 0, skipped: 0 });
     expect(objects.has("b1/.seeded")).toBe(false);
-  });
-
-  it("only reads its own build's seed", async () => {
-    const objects = new Map([
-      ...seedOf("b1", { "a.json": "A1" }),
-      ...seedOf("b10", { "a.json": "A10" }),
-    ]);
-    stubBucket(objects);
-
-    await seedCache({ bucketName: BUCKET, buildId: "b1" });
-
-    expect(objects.get("b1/a.json")).toBe("A1");
-    expect(objects.has("b10/a.json")).toBe(false);
-  });
-
-  it("encodes the copy source key", async () => {
-    const objects = seedOf("b1", { "dir/a b+c.json": "A" });
-    stubBucket(objects);
-
-    await seedCache({ bucketName: BUCKET, buildId: "b1" });
-
-    expect(sent(CopyObjectCommand)[0].input.CopySource).toBe(
-      `${BUCKET}/_seed/b1/dir/a%20b%2Bc.json`,
-    );
   });
 
   it("fails without a marker once past its deadline", async () => {
-    const objects = seedOf("b1", { "a.json": "A" });
+    const objects = new Map<string, string>();
     stubBucket(objects);
 
-    await expect(
-      seedCache({ bucketName: BUCKET, buildId: "b1", deadline: 0 }),
-    ).rejects.toThrow("ran out of time");
+    await expect(seed({ "a.json": "A" }, { deadline: 0 })).rejects.toThrow(
+      "ran out of time",
+    );
     expect(objects.has("b1/.seeded")).toBe(false);
   });
 });

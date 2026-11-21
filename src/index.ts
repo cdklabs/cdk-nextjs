@@ -44,13 +44,8 @@ export {
   NextjsCache,
   NextjsCacheOverrides,
   NextjsCacheProps,
-} from "./nextjs-cache";
-export {
-  CacheSeedCustomResourceProperties,
-  NextjsCacheSeed,
   NextjsCacheSeedOverrides,
-  NextjsCacheSeedProps,
-} from "./nextjs-cache-seed";
+} from "./nextjs-cache";
 export {
   NextjsGlobalContainers,
   NextjsGlobalContainersConstructOverrides,
@@ -104,5 +99,4 @@ export { OptionalS3OriginBucketWithOACProps } from "./generated-structs/Optional
 export { OptionalVpcProps } from "./generated-structs/OptionalVpcProps";
 export { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 export { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
-export { OptionalCacheSeedCustomResourceProperties } from "./generated-structs/OptionalCacheSeedCustomResourceProperties";
 export { OptionalNextjsPostDeployProps } from "./generated-structs/OptionalNextjsPostDeployProps";

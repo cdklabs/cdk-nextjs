@@ -24,16 +24,9 @@ export function isGlobalType(nextjsType: NextjsType): boolean {
 }
 
 /**
- * Top-level cache bucket prefix the init cache is uploaded under, as
- * `_seed/<buildId>/<key>`, for `NextjsCacheSeed` to copy into `<buildId>/`.
- * Never read at request time.
- */
-export const CACHE_SEED_PREFIX = "_seed";
-
-/**
- * Object written at `<buildId>/.seeded` once a build's seed has been copied in.
- * While it exists the seed is never copied again, so a CloudFormation rollback
- * or a re-deploy of the same build can't overwrite entries the app has since
- * regenerated or deleted.
+ * Object written at `<buildId>/.seeded` once a build's init cache has been
+ * written in (`NextjsCache.cacheSeed`). While it exists the seed is never
+ * written again, so a CloudFormation rollback or a re-deploy of the same build
+ * can't overwrite entries the app has since regenerated or deleted.
  */
 export const CACHE_SEEDED_MARKER = ".seeded";

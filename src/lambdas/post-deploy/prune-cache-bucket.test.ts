@@ -92,23 +92,6 @@ describe("pruneCacheBucket", () => {
     );
   });
 
-  // `NextjsCacheSeed` has copied the current build's seed in by the time
-  // post-deploy runs, and a rollback re-uploads its own, so every seed goes.
-  it("deletes the init cache seeds with the old builds", async () => {
-    stubBucket([
-      "current/a.json",
-      "current/.seeded",
-      "_seed/current/a.json",
-      "_seed/old/a.json",
-    ]);
-
-    await pruneCacheBucket({ bucketName: "cache", currentBuildId: "current" });
-
-    expect(deletedKeys().sort()).toEqual(
-      ["_seed/current/a.json", "_seed/old/a.json"].sort(),
-    );
-  });
-
   // The current build can hold unbounded 'use cache: remote' entries, so it
   // must never be walked: the delimited top-level listing only names it.
   it("never lists inside the current build", async () => {

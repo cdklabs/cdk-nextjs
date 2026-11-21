@@ -859,7 +859,7 @@ describe("deploy-time invalidation", () => {
   });
 });
 
-// cdklabs/cdk-nextjs#343: the seed is copied in once and never over an
+// cdklabs/cdk-nextjs#343: the seed is written once and never over an
 // existing key, so a request the new build served before seeding would render
 // on demand and that render would win over the prerendered seed.
 describe("init cache seeding", () => {
@@ -879,9 +879,10 @@ describe("init cache seeding", () => {
     });
     construct(stack);
     const template = Template.fromStack(stack);
+    // Its type is the static assets' `BucketDeployment`s' too.
     const seeds = Object.keys(
-      template.findResources("Custom::NextjsCacheSeed"),
-    );
+      template.findResources("Custom::CDKBucketDeployment"),
+    ).filter((id) => id.includes("NextjsCacheCacheSeed"));
     expect(seeds).toHaveLength(1);
     return { template, seed: seeds[0] };
   }

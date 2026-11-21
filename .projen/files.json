@@ -20,7 +20,6 @@
     "LICENSE",
     "projenrc/tsconfig.json",
     "src/generated-structs/OptionalApplicationLoadBalancedTaskImageOptions.ts",
-    "src/generated-structs/OptionalCacheSeedCustomResourceProperties.ts",
     "src/generated-structs/OptionalCloudFrontFunctionProps.ts",
     "src/generated-structs/OptionalClusterProps.ts",
     "src/generated-structs/OptionalCustomResourceProps.ts",

@@ -133,20 +133,19 @@ export function suppressCommonNags(stack: Stack) {
   );
 
   // Cache seed function suppressions. It only exists when the app has an init
-  // cache, and a suppression path that matches nothing throws.
-  const cacheSeedRole = `${stack.stackName}/Nextjs/NextjsCache/CacheSeed/Fn/ServiceRole`;
+  // cache, and a suppression path that matches nothing throws. Its role has no
+  // managed policy (no IAM4), only the log group's grant and these wildcards.
+  const cacheSeedPolicy = `${stack.stackName}/Nextjs/NextjsCache/CacheSeedRole/DefaultPolicy/Resource`;
   if (
-    stack.node.findAll().some((construct) => construct.node.path === cacheSeedRole)
+    stack.node
+      .findAll()
+      .some((construct) => construct.node.path === cacheSeedPolicy)
   ) {
-    suppressLambdaExecutionRole(
-      stack,
-      `/${cacheSeedRole}/Resource`,
-      "AWSLambdaBasicExecutionRole is not overly permissive for seeding the cache",
-    );
     suppressS3WildcardPermissions(
       stack,
-      `/${cacheSeedRole}/DefaultPolicy/Resource`,
-      "Cache seed Lambda reads the init cache under _seed/ and copies it into the cache bucket's live prefix",
+      `/${cacheSeedPolicy}`,
+      "Cache seed Lambda reads the init cache asset from the CDK assets bucket and writes it under the build's prefix in the cache bucket; whole-bucket grants keep its policy unchanged across builds, which a hotswap needs",
+      { includeCdkAssets: true },
     );
   }
 

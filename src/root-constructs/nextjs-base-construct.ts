@@ -366,8 +366,7 @@ export abstract class NextjsBaseConstruct extends Construct {
     const { staticDeployment, serviceWorkerDeployment, publicDeployment } =
       this.nextjsStaticAssets;
     for (const upload of [
-      this.nextjsCache.bucketDeployment,
-      this.nextjsCache.cacheSeed?.customResource,
+      this.nextjsCache.cacheSeed,
       staticDeployment,
       serviceWorkerDeployment,
       publicDeployment,
@@ -469,11 +468,11 @@ export abstract class NextjsBaseConstruct extends Construct {
    *
    * A request the new build served first would miss, render on demand and
    * write that render to the cache, where it wins over the seed: the seed
-   * never overwrites a key (`NextjsCacheSeed`). For a `cacheComponents` app the
+   * never overwrites a key (`NextjsCache.cacheSeed`). For a `cacheComponents` app the
    * on-demand render is the postponed shell where the prerender should be.
    */
   protected waitForCacheSeed(...dependents: IConstruct[]): void {
-    const seed = this.nextjsCache.cacheSeed?.customResource;
+    const seed = this.nextjsCache.cacheSeed;
     if (!seed) {
       return;
     }

@@ -1,5 +1,41 @@
 # Breaking Changes
 
+## 0.8.0
+
+### The init cache is seeded once per build, by a custom resource
+
+`NextjsCache` no longer uploads the init cache (`.next/cdk-nextjs-init-cache`)
+with a `BucketDeployment` straight into the cache bucket's live `<buildId>/`
+prefix. A CloudFormation rollback re-ran the previous build's upload and
+overwrote every entry the app had regenerated or deleted since
+([#343](https://github.com/cdklabs/cdk-nextjs/issues/343)). A custom resource,
+`NextjsCache.cacheSeed`, now writes it at most once per build and never over a
+key that exists. See [Init Cache Deployment](./init-cache-deployment.md).
+
+Your code only needs changing if you set
+`overrides.nextjsCache.bucketDeploymentProps` or read
+`NextjsCache.bucketDeployment`. The last three points apply to every app with
+an init cache:
+
+- **`overrides.nextjsCache.bucketDeploymentProps` is removed.** **Migration:**
+  size or configure the seeder through `overrides.nextjsCache.cacheSeed`:
+  `functionProps` for its Lambda (`memorySize`, `ephemeralStorageSize`,
+  `timeout`) and `customResourceProps` for its custom resource. There is no
+  `useEfs`: the seeder sizes its own `/tmp`, up to Lambda's 10 GiB, and an init
+  cache whose zip doesn't fit in that needs fewer build-time prerenders.
+- **`NextjsCache.bucketDeployment` is removed.** **Migration:** depend on
+  `NextjsCache.cacheSeed`, present only when the init cache holds a file. The
+  root constructs already make their compute and `NextjsPostDeploy` wait for it.
+- **`cdk deploy --hotswap` still seeds.** The custom resource's type is
+  `Custom::CDKBucketDeployment`, which the CDK CLI hotswaps by invoking its
+  Lambda directly. Overriding `customResourceProps.resourceType` stops that.
+- **A build ID that doesn't change is seeded once.** Before, every deploy
+  overwrote `<buildId>/` with the init cache. Now a deploy that keeps the build
+  ID (a `generateBuildId` returning a constant or a commit SHA) but changes the
+  init cache leaves the live entries as they are.
+- **The first deploy after upgrading isn't protected on rollback.** Its rollback
+  runs the previous version's `BucketDeployment`, as it was synthesized.
+
 ## 0.7.0
 
 ### Requests are served through the adapter runtime, not `next start`

@@ -1,7 +1,6 @@
-import { cpSync, existsSync, mkdtempSync, statSync } from "fs";
-import { tmpdir } from "os";
+import { existsSync, statSync } from "fs";
 import { join } from "path";
-import { RemovalPolicy, Size } from "aws-cdk-lib";
+import { CustomResource, Duration, RemovalPolicy, Size } from "aws-cdk-lib";
 import {
   AttributeType,
   Billing,
@@ -9,44 +8,77 @@ import {
   TablePropsV2,
   ITableV2,
 } from "aws-cdk-lib/aws-dynamodb";
+import { PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import {
+  Architecture,
+  Code,
+  Function as LambdaFunction,
+  Runtime,
+  RuntimeFamily,
+} from "aws-cdk-lib/aws-lambda";
+import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { Bucket, BucketProps, IBucket } from "aws-cdk-lib/aws-s3";
-import {
-  BucketDeployment,
-  BucketDeploymentProps,
-  Source,
-} from "aws-cdk-lib/aws-s3-deployment";
+import { Asset } from "aws-cdk-lib/aws-s3-assets";
 import { Construct } from "constructs";
-import { CACHE_SEED_PREFIX, LOG_PREFIX } from "./constants";
+import { LOG_PREFIX } from "./constants";
+import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
+import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
+import type { CacheSeedResourceProperties } from "./lambdas/cache-seed/cache-seed.lambda";
 import { listTree } from "./nextjs-build/nextjs-build";
-import { NextjsCacheSeed, NextjsCacheSeedOverrides } from "./nextjs-cache-seed";
 import {
-  deploymentLambdaSizing,
+  cacheSeedSizing,
   MAX_EPHEMERAL_STORAGE_MIB,
-} from "./utils/cache-deployment-sizing";
-import { removeStagingDirs } from "./utils/remove-staging-dirs";
+} from "./utils/cache-seed-sizing";
 import { SECURE_BUCKET_PROPS } from "./utils/secure-bucket-props";
 
 /**
- * Bytes on disk under `dir`, following the tree but not symlinks.
+ * The custom resource type of the cache seed. It is `BucketDeployment`'s, so
+ * that `cdk deploy --hotswap` runs it: the CLI picks out that type by its type
+ * string alone and invokes its ServiceToken Lambda directly (see
+ * `HOTSWAP_RESPONSE_URL`), where it skips every other custom resource. That is
+ * the CLI's behavior rather than a documented contract; if it ever changes,
+ * hotswap deploys stop seeding and a full deploy still does.
+ */
+const CACHE_SEED_RESOURCE_TYPE = "Custom::CDKBucketDeployment";
+
+/**
+ * Files and bytes on disk under `dir`, following the tree but not symlinks.
  *
  * On {@link listTree} rather than `readdirSync({ recursive: true })`, which on
  * Node 24 descends into symlinked directories and never returns on a cycle.
  */
-export function sizeOfDirectory(dir: string): number {
-  let total = 0;
+export function measureDirectory(dir: string): {
+  files: number;
+  bytes: number;
+} {
+  let files = 0;
+  let bytes = 0;
   for (const entry of listTree(dir)) {
     if (entry.isFile()) {
-      total += statSync(join(entry.parentPath, entry.name)).size;
+      files++;
+      bytes += statSync(join(entry.parentPath, entry.name)).size;
     }
   }
-  return total;
+  return { files, bytes };
+}
+
+/**
+ * Overrides for the cache seed: the Lambda function that writes the init cache
+ * into the cache bucket, and the custom resource that runs it.
+ */
+export interface NextjsCacheSeedOverrides {
+  readonly functionProps?: OptionalFunctionProps;
+  /**
+   * Overriding `resourceType` stops `cdk deploy --hotswap` from seeding: see
+   * `NextjsCache.cacheSeed`.
+   */
+  readonly customResourceProps?: OptionalCustomResourceProps;
 }
 
 export interface NextjsCacheOverrides {
   readonly cacheBucketProps?: BucketProps;
   readonly revalidationTableProps?: TablePropsV2;
-  readonly bucketDeploymentProps?: BucketDeploymentProps;
-  readonly nextjsCacheSeed?: NextjsCacheSeedOverrides;
+  readonly cacheSeed?: NextjsCacheSeedOverrides;
 }
 
 export interface NextjsCacheProps {
@@ -91,13 +123,19 @@ export class NextjsCache extends Construct {
   readonly cacheBucket: IBucket;
   readonly revalidationTable: ITableV2;
   readonly buildId: string;
-  readonly bucketDeployment?: BucketDeployment;
   /**
-   * Copies the init cache from `_seed/<buildId>/` into `<buildId>/` once per
-   * build. Only exists alongside `bucketDeployment`. The compute should depend
-   * on it, so that a new build takes traffic with its cache already seeded.
+   * Writes the init cache (`initCacheDir`) into the cache bucket's
+   * `<buildId>/` prefix, once per build and never over a key the app has
+   * written. Only exists when the init cache holds a file. The compute should
+   * depend on it, so that a new build takes traffic with its cache already
+   * seeded.
+   *
+   * Its type is `Custom::CDKBucketDeployment`, `BucketDeployment`'s, so that
+   * `cdk deploy --hotswap` runs it too.
    */
-  readonly cacheSeed?: NextjsCacheSeed;
+  readonly cacheSeed?: CustomResource;
+  /** The Lambda function behind `cacheSeed`. */
+  readonly cacheSeedFunction?: LambdaFunction;
   private props: NextjsCacheProps;
 
   constructor(scope: Construct, id: string, props: NextjsCacheProps) {
@@ -107,21 +145,17 @@ export class NextjsCache extends Construct {
     this.cacheBucket = props.cacheBucket ?? this.createCacheBucket();
     this.revalidationTable =
       props.revalidationTable ?? this.createRevalidationTable();
-    this.bucketDeployment = this.createDeployment();
-    this.cacheSeed = this.createCacheSeed();
-  }
-
-  private createCacheSeed(): NextjsCacheSeed | undefined {
-    if (!this.bucketDeployment) {
-      return undefined;
+    const initCache = this.measureInitCache();
+    if (initCache) {
+      const asset = new Asset(this, "InitCacheAsset", {
+        path: this.props.initCacheDir,
+      });
+      this.cacheSeedFunction = this.createCacheSeedFunction(
+        initCache.bytes,
+        asset,
+      );
+      this.cacheSeed = this.createCacheSeed(this.cacheSeedFunction, asset);
     }
-    const cacheSeed = new NextjsCacheSeed(this, "CacheSeed", {
-      buildId: this.buildId,
-      cacheBucket: this.cacheBucket,
-      overrides: this.props.overrides?.nextjsCacheSeed,
-    });
-    cacheSeed.node.addDependency(this.bucketDeployment);
-    return cacheSeed;
   }
 
   /**
@@ -163,143 +197,101 @@ export class NextjsCache extends Construct {
   }
 
   /**
-   * Deploy pre-built cache files from .next/cdk-nextjs-init-cache to S3
+   * The init cache's size, or `undefined` when there is nothing to seed: no
+   * init cache directory, or one without a file, which is what a build with
+   * nothing to prerender leaves.
    */
-  private createDeployment(): BucketDeployment | undefined {
-    // Check if cache directory exists
-    if (!existsSync(this.props.initCacheDir)) {
+  private measureInitCache(): { bytes: number } | undefined {
+    const dir = this.props.initCacheDir;
+    const measured = existsSync(dir) ? measureDirectory(dir) : undefined;
+    if (!measured?.files) {
       console.log(
-        `${LOG_PREFIX} No pre-built cache found at ${this.props.initCacheDir}, skipping init cache deployment`,
+        `${LOG_PREFIX} No pre-built cache found at ${dir}, skipping init cache deployment`,
       );
       return undefined;
     }
-
-    console.log(
-      `${LOG_PREFIX} Deploying init cache from ${this.props.initCacheDir}`,
-    );
-
-    const stagingDir = this.createStagingDirectory();
-
-    try {
-      // Use standard BucketDeployment for regular S3 buckets
-      const bucketDeployment = new BucketDeployment(
-        this,
-        "InitCacheDeployment",
-        {
-          sources: [Source.asset(stagingDir)],
-          destinationBucket: this.cacheBucket,
-          // With no `destinationKeyPrefix`, pruning would delete everything in
-          // the bucket that isn't in this asset, the live cache included.
-          // Post-deploy prunes old builds instead.
-          prune: false,
-          ...this.sizeDeploymentLambda(),
-          ...this.props.overrides?.bucketDeploymentProps,
-        },
-      );
-      return bucketDeployment;
-    } finally {
-      // Leaving the copy was a slow leak with a large unit: the init cache has
-      // been measured at 664 MiB, and every `cdk synth` left another full copy
-      // in the system temp directory, so a CI loop of ~22 deploys could put
-      // ~15 GB on the runner's disk.
-      removeStagingDirs(this, [stagingDir]);
-    }
+    console.log(`${LOG_PREFIX} Deploying init cache from ${dir}`);
+    return measured;
   }
 
   /**
-   * `/tmp` and memory for `BucketDeployment`'s unzip Lambda, scaled to the init
-   * cache it has to unpack.
+   * The Lambda function that seeds the cache, sized to the init cache it
+   * downloads into `/tmp` (`cacheSeedSizing`).
    *
-   * That Lambda downloads the asset zip into `/tmp` and then extracts it
-   * alongside, so it needs room for both at once. CDK defaults it to 512 MiB of
-   * ephemeral storage and 128 MB of memory — fine for a small app, and a hard
-   * failure for one whose prerendered payloads are large. A fixture with 60
-   * statically generated pages carrying ~1 MB of RSC each produced a 664 MiB
-   * seed directory and the handler died on
-   * `OSError: [Errno 28] No space left on device` inside `zip.extractall`.
-   * Worse, `cdk deploy --hotswap` invokes the custom resource directly with a
-   * placeholder response URL, so the `Status: FAILED` it sends goes nowhere: the
-   * CLI prints "Contents of AWS::S3::Bucket … hotswapped!", exits 0, and the app
-   * comes up serving a *partially* seeded cache. Every route whose entry did not
-   * make it is then a miss that re-renders — which, for a
-   * `cacheComponents: true` app, means a postponed shell where the prerender
-   * should have been.
-   *
-   * The zip's compressed size is not known at synth time (CDK archives the asset
-   * later), so the worst case — an incompressible payload — is what gets
-   * budgeted: twice the directory, plus headroom, rounded up to a
-   * power-of-two step (`deploymentLambdaSizing`). Memory is only raised past
-   * CDK's default for caches big enough that 128 MB's slice of a vCPU would make
-   * the unzip and upload race the custom resource's 15-minute timeout; small
-   * apps keep the cheaper default and their existing template.
-   *
-   * Above the 10 GiB ephemeral-storage ceiling there is nothing left to ask for,
-   * so this warns and lets the deployment fail loudly rather than pretend.
-   * `overrides.bucketDeploymentProps` wins over everything here, including
-   * `useEfs: true`, which is the supported way out.
+   * Every grant is on a whole bucket, never on this build's asset key or
+   * `<buildId>/` prefix, so the policy is the same from one build to the next:
+   * `cdk deploy --hotswap` skips a change to the policy of a role that only
+   * `Custom::CDKBucketDeployment` Lambdas use, rather than apply it, so a
+   * per-build grant would deny the very invoke the hotswap then makes.
    */
-  private sizeDeploymentLambda() {
-    const sizing = deploymentLambdaSizing(
-      sizeOfDirectory(this.props.initCacheDir),
-    );
+  private createCacheSeedFunction(bytes: number, asset: Asset) {
+    const sizing = cacheSeedSizing(bytes);
     if (sizing.exceedsMax) {
       console.warn(
-        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${sizing.cacheMib} MiB, which does not fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage a BucketDeployment Lambda can be given. Pass overrides.bucketDeploymentProps with useEfs: true to seed a cache this large.`,
+        `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${sizing.cacheMib} MiB. Its zip has to fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage the cache seed Lambda can be given at most, so unless it compresses well the deploy will fail. Prerender less at build time (for example, return fewer params from generateStaticParams and let the rest render on demand).`,
       );
     }
-
-    return {
+    // Not CDK's default role, which attaches the AWSLambdaBasicExecutionRole
+    // managed policy: the log group's own grant below is all it needs.
+    const role = new Role(this, "CacheSeedRole", {
+      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+    });
+    const fn = new LambdaFunction(this, "CacheSeedFn", {
+      // Plain bundled JS with no native dependencies, so always arm64.
+      architecture: Architecture.ARM_64,
+      // The runtime's own AWS SDK, not a bundled one: it has `PutObject`'s
+      // `IfNoneMatch` (S3 conditional writes, August 2024) in every Node 24
+      // runtime, which postdates it.
+      code: Code.fromAsset(
+        join(__dirname, "../assets/lambdas/cache-seed/cache-seed.lambda"),
+      ),
+      environment: {
+        // A `debug` namespace pattern; `1` matches no namespace.
+        DEBUG: "cdk-nextjs:*",
+      },
       ephemeralStorageSize: Size.mebibytes(sizing.ephemeralStorageMib),
-      ...(sizing.memoryLimit !== undefined
-        ? { memoryLimit: sizing.memoryLimit }
-        : {}),
-    };
+      handler: "index.handler",
+      logGroup: new LogGroup(this, "CacheSeedLogGroup", {
+        removalPolicy: RemovalPolicy.DESTROY,
+        retention: RetentionDays.ONE_MONTH,
+      }),
+      memorySize: sizing.memoryMb,
+      role,
+      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
+      // The most Lambda allows. The handler stops short of it and reports
+      // FAILED, and a retry skips what was already written.
+      timeout: Duration.minutes(15),
+      ...this.props.overrides?.cacheSeed?.functionProps,
+    });
+    fn.logGroup.grantWrite(fn);
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:GetObject"],
+        resources: [asset.bucket.arnForObjects("*")],
+      }),
+    );
+    // Read for the marker's HeadObject, which without `s3:ListBucket` answers
+    // a missing key with 403 rather than 404; put for the entries and the
+    // marker. Nothing is ever deleted.
+    this.cacheBucket.grantRead(fn);
+    this.cacheBucket.grantPut(fn);
+    return fn;
   }
 
-  /**
-   * Stage the init cache under `_seed/<buildId>/`, so that the objects land at
-   * `_seed/<buildId>/<key>` without a `destinationKeyPrefix`.
-   *
-   * Not `<buildId>/<key>`, the live prefix the cache handler reads and writes:
-   * a CloudFormation rollback re-runs the previous build's `BucketDeployment`,
-   * and writing there overwrote every entry the app had regenerated since
-   * (cdklabs/cdk-nextjs#343). `NextjsCacheSeed` copies the seed in instead,
-   * once per build and never over an existing key. The post-deploy pruner
-   * deletes every top-level prefix but the current `<buildId>/`, so `_seed/`
-   * goes with it once the build is live.
-   *
-   * The keys have to carry the build ID — that is how the seeder, the runtime
-   * cache handler and the post-deploy pruner namespace one deployment's entries
-   * from the next (`src/adapter/s3-cache-handler.ts`). Asking `BucketDeployment` for it, as
-   * this used to, is what costs: it unconditionally tags the *destination
-   * bucket* with `aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>`, so a prefix
-   * that changes per build makes the bucket's `Tags` change per build.
-   * `AWS::S3::Bucket` `Tags` are not hotswappable, so `cdk deploy
-   * --hotswap-fallback` rejected the diff and fell back to a full CloudFormation
-   * deployment every single time — measured at 19 of 22 deploys in one harness
-   * run, ~110s each against a ~52s hotswap.
-   *
-   * Putting the build ID in the asset's own paths instead leaves the S3 keys
-   * byte-identical and the tag key constant (`aws-cdk:cr-owned:<hash>`, derived
-   * from the construct path). Nothing else read the prefix: `prune` is already
-   * `false`, and the two handler branches that do scope work to it — emptying
-   * the prefix on delete, and deleting the old prefix when the destination
-   * changes — are both gated on `retainOnDelete`, which `BucketDeployment`
-   * defaults to `true`.
-   *
-   * A copy rather than the directory itself because the build ID is only known
-   * *after* `next build`, so the adapter cannot write into a nested directory in
-   * the first place, and because `.next/cdk-nextjs-init-cache` has to stay where
-   * it is for the local cache handler to read it (`CDK_NEXTJS_INIT_CACHE_DIR`).
-   * CDK is about to read every byte of this to zip it regardless.
-   */
-  private createStagingDirectory(): string {
-    const stagingDir = mkdtempSync(join(tmpdir(), "nextjs-init-cache-"));
-    cpSync(
-      this.props.initCacheDir,
-      join(stagingDir, CACHE_SEED_PREFIX, this.props.buildId),
-      { recursive: true },
-    );
-    return stagingDir;
+  private createCacheSeed(fn: LambdaFunction, asset: Asset) {
+    const properties: CacheSeedResourceProperties = {
+      BuildId: this.buildId,
+      DestinationBucketName: this.cacheBucket.bucketName,
+      SourceBucketName: asset.s3BucketName,
+      SourceObjectKey: asset.s3ObjectKey,
+    };
+    return new CustomResource(this, "CacheSeed", {
+      properties,
+      resourceType: CACHE_SEED_RESOURCE_TYPE,
+      // The Lambda itself, not a Provider framework: the hotswap invokes the
+      // ServiceToken directly with a CloudFormation-shaped event.
+      serviceToken: fn.functionArn,
+      ...this.props.overrides?.cacheSeed?.customResourceProps,
+    });
   }
 }
