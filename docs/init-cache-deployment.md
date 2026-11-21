@@ -51,7 +51,15 @@ Post-deploy prunes every top-level prefix except the current `{buildId}/`, so
 The first deployment after upgrading to this layout isn't protected on rollback:
 the previous build's `BucketDeployment` was synthesized to upload straight into
 `{buildId}/`, and a rollback re-runs it as it was. Every deployment after that
-one rolls back to a build that seeds through `_seed/`.
+one rolls back to a build that seeds through `_seed/`. Likewise, if that first
+deployment keeps the running build's ID, there is no `{buildId}/.seeded` marker
+yet, so the seed is copied in once more: it fills in only keys that don't exist,
+but an entry the app deleted comes back.
+
+"Once per build" is keyed on the build ID alone. A deployment that changes the
+init cache but not the build ID (a `generateBuildId` that returns a constant or a
+commit SHA, rebuilt with different build-time data) is never seeded again: the
+live prefix keeps the entries it has.
 
 ### Using `NextjsCache` without a root construct
 
@@ -71,7 +79,8 @@ if (cache.cacheSeed) {
 A hotswap uploads the seed, because CDK hotswaps `BucketDeployment`, but it never
 runs custom resources, so `NextjsCacheSeed` doesn't copy it in. A hotswapped stack
 serves its new build from an unseeded cache: every entry renders on demand the
-first time it's requested, until the next full deployment. To seed it without one,
+first time it's requested, until the next full deployment. For a `cacheComponents`
+app that render is the postponed shell, not the prerender. To seed it without one,
 invoke the seeder's Lambda (`nextjsCache.cacheSeed.lambdaFunction`) with
 `{ "buildId": "<NextjsBuild.buildId>" }`, as `scripts/e2e-deploy.sh` does for the
 harness.

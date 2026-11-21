@@ -264,6 +264,11 @@ if [ -n "$CACHE_SEED_FUNCTION" ]; then
     echo "harness: seeding the cache for $CACHE_BUILD_ID failed" >&2
     exit 1
   fi
+elif [ -n "$(ls -A "$APP_DIR/.next/cdk-nextjs-init-cache" 2>/dev/null)" ]; then
+  # `harness_stack_output` prints nothing when describe-stacks fails too, and a
+  # fixture with an init cache always has a seeder.
+  echo "harness: $STACK_NAME has an init cache but no CacheSeedFunctionName output" >&2
+  exit 1
 fi
 
 URL="$(harness_stack_output "$STACK_NAME" HarnessUrl)"
