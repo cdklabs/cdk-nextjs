@@ -25,7 +25,7 @@ const project = new CdklabsConstructLibrary({
   jsiiVersion: "~6.0.4",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion,
-  projenVersion: "^0.101.6",
+  projenVersion: "^0.105.6",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-api-gateway",
