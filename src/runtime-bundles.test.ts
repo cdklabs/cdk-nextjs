@@ -22,31 +22,54 @@ function nodeBundleTasks(): [string, BundleTask][] {
   const { tasks } = JSON.parse(
     readFileSync(join(repoRoot, ".projen", "tasks.json"), "utf-8"),
   ) as { tasks: Record<string, { steps?: { exec?: string }[] }> };
-  return Object.entries(tasks)
-    .filter(([name]) => name.startsWith("bundle:") && !name.endsWith(":watch"))
-    .flatMap(([name, task]) =>
-      (task.steps ?? []).map((step) => [name, step.exec ?? ""] as const),
-    )
-    .filter(([, exec]) => exec.includes('--platform="node"'))
-    .map(([name, exec]) => [
-      name,
-      {
-        entry: /--bundle (\S+)/.exec(exec)![1],
-        // esbuild bundles for node as CommonJS unless told otherwise.
-        format: /--format=esm\b/.test(exec) ? "esm" : "cjs",
-        external: [...exec.matchAll(/--external:(\S+)/g)].map((m) => m[1]),
-        tsconfig: /--tsconfig="([^"]+)"/.exec(exec)?.[1],
-      },
-    ]);
+  return (
+    Object.entries(tasks)
+      .filter(
+        ([name]) => name.startsWith("bundle:") && !name.endsWith(":watch"),
+      )
+      .flatMap(([name, task]) =>
+        (task.steps ?? []).map((step) => [name, step.exec ?? ""] as const),
+      )
+      // Skip only what is plainly a browser bundle, so a change in how projen
+      // writes its flags can't drop a node bundle from the check unseen.
+      .filter(
+        ([, exec]) =>
+          exec.startsWith("esbuild ") &&
+          !/--platform[= ]"?browser\b/.test(exec),
+      )
+      .map(([name, exec]): [string, BundleTask] => {
+        const entry = /--bundle "?([^\s"]+)/.exec(exec)?.[1];
+        if (!entry) throw new Error(`${name}: no --bundle entry in ${exec}`);
+        return [
+          name,
+          {
+            entry,
+            // esbuild bundles for node as CommonJS unless told otherwise.
+            format: /--format[= ]"?esm\b/.test(exec) ? "esm" : "cjs",
+            external: [...exec.matchAll(/--external:"?([^\s"]+)/g)].map(
+              (m) => m[1],
+            ),
+            tsconfig: /--tsconfig[= ]"?([^\s"]+)/.exec(exec)?.[1],
+          },
+        ];
+      })
+  );
 }
 
 const bundles = nodeBundleTasks();
 
-test("finds the node bundle tasks", () => {
-  expect(bundles.map(([name]) => name)).toEqual(
+test("finds every node bundle task", () => {
+  const names = bundles.map(([name]) => name);
+  // The adapter, its three cache handlers, the two runtime shells and the two
+  // custom-resource handlers.
+  expect(names.length).toBeGreaterThanOrEqual(8);
+  expect(names).toEqual(
     expect.arrayContaining([
+      "bundle:adapter/adapter",
       "bundle:adapter/cache-handler",
       "bundle:runtime/lambda",
+      "bundle:runtime/server",
+      "bundle:lambdas/post-deploy/post-deploy.lambda",
     ]),
   );
 });

@@ -1106,9 +1106,9 @@ export function sharpBinaryDir(root: string): string {
 /**
  * Every entry under `root`, links listed but not followed.
  *
- * An explicit walk rather than `readdirSync({ recursive: true })`, which on
- * Node 24 descends into symlinked directories itself and so never returns on a
- * cycle — two workspace packages that link each other, which is how pnpm wires a
+ * An explicit walk rather than `readdirSync({ recursive: true })`, which
+ * descends into symlinked directories itself and so never returns on a cycle:
+ * two workspace packages that link each other, which is how pnpm wires a
  * monorepo.
  */
 export function listTree(root: string): Dirent[] {

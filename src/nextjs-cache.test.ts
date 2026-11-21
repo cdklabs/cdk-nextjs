@@ -335,8 +335,8 @@ describe("NextjsCache", () => {
     });
 
     it("sizes an init cache holding a link loop", () => {
-      // `readdirSync({ recursive: true })` follows the link on Node 24 and
-      // never returns; the files are counted once, the link not at all.
+      // `readdirSync({ recursive: true })` follows the link and never
+      // returns; the files are counted once, the link not at all.
       symlinkSync("..", join(initCacheDir, "server", "loop"), "dir");
       writeFileSync(join(initCacheDir, "server", "data.json"), "12345");
 
