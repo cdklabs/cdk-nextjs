@@ -7,7 +7,7 @@ Keep it short and current:
 - Use a public interface wherever one exists.
 - A PR that adds a private dependency adds it here and says why. A PR that removes one deletes its entry.
 
-Written against Next.js **16.4.0**.
+Written against Next.js **16.4.6**.
 
 ## What is public
 

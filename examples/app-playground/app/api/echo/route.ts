@@ -142,7 +142,6 @@ export async function GET(request: NextRequest) {
     return new NextResponse(new Uint8Array(body), {
       headers: markerHeaders({
         'content-type': 'application/octet-stream',
-        'content-length': String(size),
         // The test hashes what it received and compares - a truncated or
         // re-encoded body fails here rather than looking like a length mismatch.
         'x-e2e-body-sha256': sha256(body),
@@ -195,11 +194,12 @@ export function DELETE(request: NextRequest) {
 }
 
 export function HEAD(request: NextRequest) {
-  // A HEAD has no body but must still declare the length the GET would have had.
-  // Answering it as a zero-byte streamed response is the `padEmptyBody` case
-  // again, with the extra wrinkle that API Gateway declares only `GET` on the
-  // static-asset resources - so this is deliberately a *dynamic* route, not an
-  // asset.
+  // A HEAD has no body but declares the length the GET would have had. Next.js
+  // (16.4.5+) strips that `content-length` before it reaches the runtime, which
+  // the e2e test asserts. Answering it as a zero-byte streamed response is the
+  // `padEmptyBody` case again, with the extra wrinkle that API Gateway declares
+  // only `GET` on the static-asset resources - so this is deliberately a
+  // *dynamic* route, not an asset.
   return new NextResponse(null, {
     status: 200,
     headers: markerHeaders({

@@ -5377,6 +5377,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.invalidateCdnOnRevalidate">invalidateCdnOnRevalidate</a></code> | <code>boolean</code> | Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template. |
@@ -5639,6 +5640,27 @@ a new cluster and VPC gateway endpoints.
 
 ---
 
+##### `invalidateCdnOnRevalidate`<sup>Optional</sup> <a name="invalidateCdnOnRevalidate" id="cdk-nextjs.NextjsGlobalContainersProps.property.invalidateCdnOnRevalidate"></a>
+
+```typescript
+public readonly invalidateCdnOnRevalidate: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches.
+
+Set to `false` when pages change too often to purge one by one: thousands
+a day run past CloudFront's free 1,000 paths a month and its 15 wildcard
+paths in progress, and a rejected invalidation is retried as `/*`. Cap
+those pages' edge TTL instead (a short `s-maxage`, or a behavior with a
+low `maxTtl`), so the edge picks up the revalidated page when its copy
+expires. Revalidation still reaches every instance's origin cache, and
+the invalidation after each deploy still runs.
+
+---
+
 ##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsGlobalContainersProps.property.overrides"></a>
 
 ```typescript
@@ -5869,6 +5891,7 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroup">NextjsFunctionGroup</a>[]</code> | Package sets of routes into separate Lambda functions, each fronted by its own CloudFront behaviors. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.invalidateCdnOnRevalidate">invalidateCdnOnRevalidate</a></code> | <code>boolean</code> | Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template. |
@@ -6086,6 +6109,27 @@ not a performance or isolation feature: every group ships the same Next.js
 runtime, so splitting only moves route-local code.
 
 > [NextjsFunctionGroup for the pattern grammar and its limits.](NextjsFunctionGroup for the pattern grammar and its limits.)
+
+---
+
+##### `invalidateCdnOnRevalidate`<sup>Optional</sup> <a name="invalidateCdnOnRevalidate" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.invalidateCdnOnRevalidate"></a>
+
+```typescript
+public readonly invalidateCdnOnRevalidate: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches.
+
+Set to `false` when pages change too often to purge one by one: thousands
+a day run past CloudFront's free 1,000 paths a month and its 15 wildcard
+paths in progress, and a rejected invalidation is retried as `/*`. Cap
+those pages' edge TTL instead (a short `s-maxage`, or a behavior with a
+low `maxTtl`), so the edge picks up the revalidated page when its copy
+expires. Revalidation still reaches every instance's origin cache, and
+the invalidation after each deploy still runs.
 
 ---
 
