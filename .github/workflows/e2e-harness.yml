@@ -258,7 +258,7 @@ jobs:
             console.log(`matrix=${JSON.stringify({ include })}`);
             console.log(`max-parallel=${maxParallel}`);
             console.log(`nextjs-ref=${ref}`);
-            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref}`);
+            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node26-${ref}`);
           ' >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -301,7 +301,7 @@ jobs:
       - if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
 
       - name: Build next.js
         if: ${{ steps.lookup.outputs.cache-hit != 'true' }}
@@ -384,7 +384,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
 
       - name: Build cdk-nextjs
         run: |

@@ -13,6 +13,9 @@ env:
   ENV: pr-${{ github.event.pull_request.number }}
 
 jobs:
+  # No fork test here, unlike e2e-tests.yml: fork PRs approved under its old
+  # manual-approval gate did deploy `pr-N` stacks, and this is what destroys
+  # them. It is safe, since these jobs check out the base branch, not the PR.
   check-if-should-run:
     runs-on: ubuntu-latest
     steps:

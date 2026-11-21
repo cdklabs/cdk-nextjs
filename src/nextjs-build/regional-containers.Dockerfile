@@ -5,7 +5,7 @@
 # Modified from: https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 
 # Production image, copy all the files and run next
-FROM public.ecr.aws/docker/library/node:24-alpine AS runner
+FROM public.ecr.aws/docker/library/node:26-alpine AS runner
 # The node image is republished only every few weeks, so it can ship Alpine
 # packages that already have security fixes. This picks them up whenever the
 # image is rebuilt, which CDK does only when the app or this file changes.

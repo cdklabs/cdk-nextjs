@@ -17,7 +17,7 @@ export class PostDeployFunction extends lambda.Function {
     super(scope, id, {
       description: 'src/lambdas/post-deploy/post-deploy.lambda.ts',
       ...props,
-      runtime: new lambda.Runtime('nodejs24.x', lambda.RuntimeFamily.NODEJS),
+      runtime: new lambda.Runtime('nodejs26.x', lambda.RuntimeFamily.NODEJS, { supportsInlineCode: true }),
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../../assets/lambdas/post-deploy/post-deploy.lambda')),
     });
