@@ -65,7 +65,7 @@
       "description": "Print the releasable commits since the latest release",
       "steps": [
         {
-          "exec": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep '^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+'"
+          "exec": "git log --no-merges --oneline $LATEST_TAG..HEAD -E --grep '^(feat|fix|chore|refactor|perf){1}(\\([^()[:space:]]+\\))?(!)?:[[:blank:]]+.+' | grep -vE '^[0-9a-f]+ chore(\\(deps(-dev)?\\)|: upgrade )' || true"
         }
       ]
     },
@@ -857,45 +857,6 @@
         }
       ]
     },
-    "upgrade-cdklabs-projen-project-types": {
-      "name": "upgrade-cdklabs-projen-project-types",
-      "description": "upgrade cdklabs-projen-project-types",
-      "env": {
-        "CI": "0"
-      },
-      "steps": [
-        {
-          "execArgs": [
-            "pnpm",
-            "dlx",
-            "npm-check-updates@20",
-            "--upgrade",
-            "--target=latest",
-            "--peer",
-            "--no-deprecated",
-            "--dep=dev,prod,peer,optional",
-            "--filter=cdklabs-projen-project-types,projen"
-          ]
-        },
-        {
-          "exec": "pnpm i --no-frozen-lockfile"
-        },
-        {
-          "execArgs": [
-            "pnpm",
-            "update",
-            "cdklabs-projen-project-types",
-            "projen"
-          ]
-        },
-        {
-          "exec": "pnpm dlx projen"
-        },
-        {
-          "spawn": "post-upgrade"
-        }
-      ]
-    },
     "upgrade-dev-deps": {
       "name": "upgrade-dev-deps",
       "description": "upgrade dev dependencies",
@@ -914,7 +875,7 @@
             "--peer",
             "--no-deprecated",
             "--dep=dev",
-            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-api-gateway,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/client-ssm,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,aws-cdk,cdk-nag,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
+            "--filter=@aws-crypto/sha256-js,@aws-sdk/client-api-gateway,@aws-sdk/client-cloudfront,@aws-sdk/client-dynamodb,@aws-sdk/client-s3,@aws-sdk/client-ssm,@aws-sdk/lib-storage,@mrgrain/jsii-struct-builder,@smithy/signature-v4,@types/aws-lambda,@types/debug,@types/jest,@types/mime-types,aws-cdk,cdk-nag,cdklabs-projen-project-types,debug,esbuild,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,jsii-rosetta,mime-types,prettier,ts-jest,ts-node,typescript,undici"
           ]
         },
         {
@@ -944,6 +905,7 @@
             "@typescript-eslint/parser",
             "aws-cdk",
             "cdk-nag",
+            "cdklabs-projen-project-types",
             "commit-and-tag-version",
             "debug",
             "esbuild",
@@ -962,6 +924,7 @@
             "mime-types",
             "next",
             "prettier",
+            "projen",
             "ts-jest",
             "ts-node",
             "typescript",

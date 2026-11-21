@@ -13,7 +13,6 @@
 /.github/workflows/release.yml linguist-generated
 /.github/workflows/retry-automerge.yml linguist-generated
 /.github/workflows/self-mutation.yml linguist-generated
-/.github/workflows/upgrade-cdklabs-projen-project-types-main.yml linguist-generated
 /.github/workflows/upgrade-dev-deps-main.yml linguist-generated
 /.github/workflows/upgrade-main.yml linguist-generated
 /.gitignore linguist-generated
