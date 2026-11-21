@@ -9,10 +9,10 @@ import {
 } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { LAMBDA_RUNTIME } from "./constants";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
+import { LAMBDA_RUNTIME } from "./lambda-runtime";
 import { staticAssetsObjectsPattern } from "./nextjs-static-assets";
 import { wholeAppInvalidationPaths } from "./utils/base-path";
 

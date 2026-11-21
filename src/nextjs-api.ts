@@ -30,8 +30,9 @@ import {
 } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { LAMBDA_RUNTIME, LOG_PREFIX } from "./constants";
+import { LOG_PREFIX } from "./constants";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
+import { LAMBDA_RUNTIME } from "./lambda-runtime";
 import {
   NextjsFunctionGroupBehavior,
   PublicDirEntry,
