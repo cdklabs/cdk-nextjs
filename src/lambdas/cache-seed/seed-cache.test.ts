@@ -255,7 +255,9 @@ describe("seedCache", () => {
     try {
       await expect(
         seedCache({ bucketName: BUCKET, buildId: "b1", deadline: start + 250 }),
-      ).rejects.toThrow("ConditionalRequestConflict");
+      ).rejects.toThrow(
+        "ran out of time retrying a conflicting write to b1/a.json",
+      );
     } finally {
       now.mockRestore();
     }

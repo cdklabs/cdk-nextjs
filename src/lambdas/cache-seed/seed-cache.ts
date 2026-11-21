@@ -188,13 +188,14 @@ async function copyIfAbsent(
         debug(`${destinationKey} already written, skipping`);
         return false;
       }
+      if (status !== 409 || attempt >= CONFLICT_ATTEMPTS) throw error;
       const backoff = 100 * 2 ** (attempt - 1);
-      if (
-        status !== 409 ||
-        attempt >= CONFLICT_ATTEMPTS ||
-        Date.now() + backoff > deadline
-      ) {
-        throw error;
+      if (Date.now() + backoff > deadline) {
+        // Out of time, not a lasting conflict: say so, as `checkDeadline` does.
+        throw new Error(
+          `Cache seeding ran out of time retrying a conflicting write to ${destinationKey}; the next attempt fills it in`,
+          { cause: error },
+        );
       }
       debug(`${destinationKey} has a conflicting write, retrying`);
       await new Promise((resolve) => setTimeout(resolve, backoff));
