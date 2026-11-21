@@ -255,9 +255,11 @@ describe("seedCache", () => {
     await expect(
       seedCache({ bucketName: BUCKET, buildId: "b1" }),
     ).rejects.toThrow("Internal");
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    // Only the copies already in flight when the first failed.
-    expect(copies).toBeLessThanOrEqual(32);
+    // Long enough for the 68 queued copies to start, were nothing stopping them.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Exactly the first copy of each of the 32 workers, already in flight
+    // when the first failed.
+    expect(copies).toBe(32);
   });
 
   it("writes no marker when a copy fails, so the next attempt seeds", async () => {

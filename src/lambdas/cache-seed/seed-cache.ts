@@ -149,8 +149,11 @@ async function forEachConcurrently<T>(
   await Promise.all(workers);
 }
 
-/** Attempts at a copy S3 answers with 409, a conditional write racing it. */
-const CONFLICT_ATTEMPTS = 3;
+/**
+ * Attempts at a copy S3 answers with 409, a conditional write racing it, with
+ * exponential backoff from 100 ms between them: about 1.5 s in all.
+ */
+const CONFLICT_ATTEMPTS = 5;
 
 /**
  * Copy `sourceKey` to `destinationKey` unless the destination exists. Returns
@@ -186,7 +189,9 @@ async function copyIfAbsent(
       }
       if (status !== 409 || attempt >= CONFLICT_ATTEMPTS) throw error;
       debug(`${destinationKey} has a conflicting write, retrying`);
-      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+      await new Promise((resolve) =>
+        setTimeout(resolve, 100 * 2 ** (attempt - 1)),
+      );
     }
   }
 }

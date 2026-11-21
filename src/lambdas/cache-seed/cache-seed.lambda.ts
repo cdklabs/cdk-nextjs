@@ -10,9 +10,11 @@ const debug = getDebug("cdk-nextjs:cache-seed");
 /**
  * Stop starting copies this long before the Lambda would time out: 30 s, or a
  * tenth of the time left if that is less, so an overridden short timeout still
- * leaves time to copy.
+ * leaves time to copy - but never under 5 s, the time the copies in flight, the
+ * marker and the response to CloudFormation need after it.
  */
 const DEADLINE_MARGIN_MS = 30_000;
+const MIN_DEADLINE_MARGIN_MS = 5_000;
 
 /**
  * Direct invocation, outside CloudFormation: `{ "buildId": "..." }`. A
@@ -40,10 +42,18 @@ export async function handler(
   event: CloudFormationCustomResourceEvent | DirectSeedEvent,
   context: Context,
 ): Promise<SeedCacheResult | void> {
-  debug({ event });
+  // Never `ResponseURL`: it is presigned, and anyone who can read the logs
+  // could answer CloudFormation for this resource with it.
+  const { ResponseURL: _, ...loggable } = event as { ResponseURL?: string };
+  debug({ event: loggable });
   const remaining = context.getRemainingTimeInMillis();
   const deadline =
-    Date.now() + remaining - Math.min(DEADLINE_MARGIN_MS, remaining / 10);
+    Date.now() +
+    remaining -
+    Math.min(
+      DEADLINE_MARGIN_MS,
+      Math.max(MIN_DEADLINE_MARGIN_MS, remaining / 10),
+    );
   if (!("RequestType" in event)) {
     return seedCache({
       bucketName: event.cacheBucketName ?? process.env.CACHE_BUCKET_NAME!,
