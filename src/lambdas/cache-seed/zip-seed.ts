@@ -38,8 +38,13 @@ export async function openZipSeed(props: OpenZipSeedProps): Promise<Seed> {
     );
     await pipeline(object.Body as Readable, createWriteStream(path));
     // `autoClose: false`: entries are read after the listing has ended.
-    // yauzl rejects absolute and `..` entry names by itself.
-    const zipfile = await yauzl.openPromise(path, { autoClose: false });
+    // yauzl rejects absolute and `..` entry names by itself; `strictFileNames`
+    // makes it reject a backslash too, rather than turn it into a `/` and seed
+    // a key the cache handler never reads.
+    const zipfile = await yauzl.openPromise(path, {
+      autoClose: false,
+      strictFileNames: true,
+    });
     const entries: SeedEntry[] = [];
     try {
       for await (const entry of zipfile.eachEntry()) {
@@ -47,6 +52,7 @@ export async function openZipSeed(props: OpenZipSeedProps): Promise<Seed> {
         if (entry.fileName.endsWith("/")) continue;
         entries.push({
           key: entry.fileName,
+          size: entry.uncompressedSize,
           read: async () => {
             const chunks: Buffer[] = [];
             for await (const chunk of await zipfile.openReadStreamPromise(

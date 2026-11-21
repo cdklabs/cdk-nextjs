@@ -104,6 +104,9 @@ export async function handler(
     responseStatus: error
       ? CfnResponseStatus.Failed
       : CfnResponseStatus.Success,
+    // CloudFormation keeps a few KB of it; the message says what to change
+    // (a longer timeout, say) without opening the log.
+    reason: error ? String(error).slice(0, 1000) : undefined,
     // Stable, so an Update never reads as a replacement and CloudFormation
     // never sends the old resource a Delete.
     physicalResourceId:

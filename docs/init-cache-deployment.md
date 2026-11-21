@@ -39,13 +39,12 @@ and every entry the app had regenerated since (`res.revalidate()`, an expired
 - The marker is written last, and only once every file has been written or
   skipped. A failed seed fails the deployment without it.
 
-The first deployment after upgrading to 0.8.0 isn't protected on rollback: the
-previous build's `BucketDeployment` was synthesized to upload straight into
-`{buildId}/`, and a rollback re-runs it as it was. Every deployment after that
-one rolls back to a build that seeds through `cacheSeed`. Likewise, if that
-first deployment keeps the running build's ID, there is no `{buildId}/.seeded`
-marker yet, so the seed is written once more: it fills in only keys that don't
-exist, but an entry the app deleted comes back.
+The first deployment that moves from the old `BucketDeployment` upload to
+`cacheSeed` removes that `BucketDeployment`, and CloudFormation deletes removed
+resources only once the update has succeeded, so a rollback of that deployment
+never re-runs it. But if that deployment keeps the running build's ID, there is
+no `{buildId}/.seeded` marker yet, so the seed is written once more: it fills in
+only keys that don't exist, but an entry the app deleted comes back.
 
 "Once per build" is keyed on the build ID alone. A deployment that changes the
 init cache but not the build ID (a `generateBuildId` that returns a constant or a
@@ -74,8 +73,15 @@ CLI skips custom resources, except those of type `Custom::CDKBucketDeployment`,
 that type for this reason, and its Lambda recognizes the placeholder, seeds, and
 answers no one.
 
-Two things follow from the CLI handling it:
+Three things follow from the CLI handling it:
 
+- A hotswap applies its changes in parallel and ignores `DependsOn`, so the new
+  compute can take traffic before the seed lands. A request it serves first
+  misses, renders on demand and writes that render, which the seed then leaves
+  alone (it never overwrites a key): for a `cacheComponents` app, a postponed
+  shell where the prerender should be, until the entry is revalidated. The
+  window is the time the seed takes, and a full deployment, which keeps the
+  order, has none.
 - The CLI doesn't read the result. A seed that fails during a hotswap is in the
   seeder's log (`/aws/lambda/...CacheSeedFn...`), and the deploy still reports
   success; the next full deployment seeds what is missing.

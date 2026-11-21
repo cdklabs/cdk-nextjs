@@ -107,7 +107,10 @@ describe("cache-seed handler", () => {
     await handler({ ...event, RequestType: "Update" } as never, context);
 
     expect(cfnResponse).toHaveBeenCalledWith(
-      expect.objectContaining({ responseStatus: "FAILED" }),
+      expect.objectContaining({
+        responseStatus: "FAILED",
+        reason: "Error: SlowDown",
+      }),
     );
   });
 

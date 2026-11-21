@@ -71,6 +71,7 @@ function seedOf(files: Record<string, string>) {
     return {
       entries: Object.entries(files).map(([key, body]) => ({
         key,
+        size: Buffer.byteLength(body),
         read: async () => Buffer.from(body),
       })),
       close: async () => {
@@ -109,6 +110,23 @@ function failPuts(status: number, name: string, key?: string) {
     return fake(command);
   });
   return { puts: () => puts };
+}
+
+/** Fail the first put to `key` with `status`, as a racing write would. */
+function failPutsOnce(status: number, key: string) {
+  const fake = holder.send.getMockImplementation()!;
+  let failed = false;
+  holder.send.mockImplementation(async (command: unknown) => {
+    if (
+      !failed &&
+      command instanceof PutObjectCommand &&
+      command.input.Key === key
+    ) {
+      failed = true;
+      throw s3Error(status, "ConditionalRequestConflict");
+    }
+    return fake(command);
+  });
 }
 
 describe("seedCache", () => {
@@ -323,6 +341,111 @@ describe("seedCache", () => {
     expect(state.closed).toBe(1);
   });
 
+  it("closes the seed only once the puts in flight have settled", async () => {
+    const objects = new Map<string, string>();
+    stubBucket(objects);
+    const fake = holder.send.getMockImplementation()!;
+    let settled = 0;
+    holder.send.mockImplementation(async (command: unknown) => {
+      if (command instanceof PutObjectCommand) {
+        if (command.input.Key === "b1/k0.json") throw s3Error(500, "Internal");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        settled++;
+      }
+      return fake(command);
+    });
+    let settledAtClose = -1;
+
+    await expect(
+      seedCache({
+        bucketName: BUCKET,
+        buildId: "b1",
+        openSeed: async () => ({
+          entries: ["k0", "k1", "k2"].map((name) => ({
+            key: `${name}.json`,
+            size: 1,
+            read: async () => Buffer.from(name),
+          })),
+          close: async () => {
+            settledAtClose = settled;
+          },
+        }),
+      }),
+    ).rejects.toThrow("Internal");
+    // k1 and k2 were in flight when k0 failed: closing the zip under them
+    // would fail their reads, and reporting FAILED would race their puts.
+    expect(settledAtClose).toBe(2);
+  });
+
+  it("holds back entries past 128 MiB in flight, but still puts a bigger one", async () => {
+    const objects = new Map<string, string>();
+    stubBucket(objects);
+    const fake = holder.send.getMockImplementation()!;
+    let inFlight = 0;
+    let peak = 0;
+    holder.send.mockImplementation(async (command: unknown) => {
+      if (
+        command instanceof PutObjectCommand &&
+        command.input.Key !== "b1/.seeded"
+      ) {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight--;
+      }
+      return fake(command);
+    });
+    const MIB = 1024 ** 2;
+
+    const result = await seedCache({
+      bucketName: BUCKET,
+      buildId: "b1",
+      openSeed: async () => ({
+        entries: [
+          // Bigger than the budget on its own: put, alone.
+          {
+            key: "huge.json",
+            size: 200 * MIB,
+            read: async () => Buffer.from("H"),
+          },
+          ...Array.from({ length: 6 }, (_, i) => ({
+            key: `big${i}.json`,
+            size: 50 * MIB,
+            read: async () => Buffer.from(String(i)),
+          })),
+        ],
+        close: async () => {},
+      }),
+    });
+
+    expect(result).toEqual({ status: "seeded", written: 7, skipped: 0 });
+    // Two 50 MiB entries fit in 128 MiB, a third doesn't.
+    expect(peak).toBe(2);
+  });
+
+  it("retries the marker's 409 like an entry's", async () => {
+    const objects = new Map<string, string>();
+    stubBucket(objects);
+    failPutsOnce(409, "b1/.seeded");
+
+    const result = await seed({ "a.json": "A" });
+
+    expect(result.status).toBe("seeded");
+    expect(objects.has("b1/.seeded")).toBe(true);
+  });
+
+  it("takes a marker another seed of the build wrote first", async () => {
+    const objects = new Map<string, string>();
+    stubBucket(objects, {
+      onPut: () => objects.set("b1/.seeded", "the other seed's"),
+    });
+
+    const result = await seed({ "a.json": "A" });
+
+    expect(result.status).toBe("seeded");
+    expect(objects.get("b1/.seeded")).toBe("the other seed's");
+  });
+
   it("writes no marker when a put fails, so the next attempt seeds", async () => {
     const objects = new Map<string, string>();
     stubBucket(objects);
@@ -346,6 +469,7 @@ describe("seedCache", () => {
           entries: [
             {
               key: "a.json",
+              size: 1,
               read: async () => {
                 throw new Error("invalid zip");
               },

@@ -11,6 +11,8 @@ interface CfnResponseProps {
   responseStatus: CfnResponseStatus;
   responseData?: Record<string, string>;
   physicalResourceId?: string;
+  /** Shown in the stack's events, ahead of the log stream. */
+  reason?: string;
 }
 
 /**
@@ -20,6 +22,7 @@ export function cfnResponse(props: CfnResponseProps) {
   const body = JSON.stringify({
     Status: props.responseStatus,
     Reason:
+      (props.reason ? `${props.reason}. ` : "") +
       "See the details in CloudWatch Log Stream: " +
       props.context.logStreamName,
     PhysicalResourceId: props.physicalResourceId || props.context.logStreamName,

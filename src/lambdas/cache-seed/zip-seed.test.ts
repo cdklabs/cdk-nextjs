@@ -141,4 +141,39 @@ describe("openZipSeed", () => {
     ).rejects.toThrow(/relative path/);
     expect(readdirSync(downloads)).toEqual([]);
   });
+
+  // yauzl's default turns `\` into `/`, which would seed a key the cache
+  // handler never reads.
+  it("rejects an entry name with a backslash", async () => {
+    const zipPath = join(dir, "asset.zip");
+    await zipOf(zipPath, { "xx/a.json": "A" });
+    const bytes = readFileSync(zipPath);
+    writeFileSync(
+      zipPath,
+      Buffer.from(
+        bytes.toString("latin1").split("xx/a.json").join("xx\\a.json"),
+        "latin1",
+      ),
+    );
+    serve(zipPath);
+
+    await expect(
+      openZipSeed({ bucketName: "assets", key: "abc.zip", dir: downloads }),
+    ).rejects.toThrow(/invalid characters/);
+  });
+
+  it("gives each entry's uncompressed size", async () => {
+    const zipPath = join(dir, "asset.zip");
+    await zipOf(zipPath, { "a.json": "12345" });
+    serve(zipPath);
+
+    const seed = await openZipSeed({
+      bucketName: "assets",
+      key: "abc.zip",
+      dir: downloads,
+    });
+
+    expect(seed.entries.map((entry) => entry.size)).toEqual([5]);
+    await seed.close();
+  });
 });

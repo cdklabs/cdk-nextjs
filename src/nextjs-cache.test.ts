@@ -13,6 +13,7 @@ import { join } from "path";
 import { App, Duration, Size, Stack } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
+import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
   measureDirectory,
   NextjsCache,
@@ -299,10 +300,15 @@ describe("NextjsCache", () => {
       const actions = seedPolicy(template).Statement.flatMap(
         (statement: { Action: string | string[] }) => [statement.Action].flat(),
       );
-      expect(actions).toEqual(
-        expect.arrayContaining(["s3:GetObject", "s3:PutObject"]),
-      );
-      expect(actions.filter((a: string) => /Delete/.test(a))).toEqual([]);
+      // Exactly these: no delete, and none of `grantPut`'s legal hold,
+      // retention, tagging or abort.
+      expect([...new Set(actions)].sort()).toEqual([
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:PutObject",
+      ]);
       // No AWSLambdaBasicExecutionRole: cdk-nag's AwsSolutions-IAM4.
       const [role] = seedResources(template, "AWS::IAM::Role", "CacheSeedRole");
       expect(role.Properties.ManagedPolicyArns).toBeUndefined();
@@ -337,6 +343,27 @@ describe("NextjsCache", () => {
       expect(seedFunction(template)).toMatchObject({
         MemorySize: 2048,
         EphemeralStorage: { Size: 4096 },
+      });
+    });
+
+    it("creates no role of its own when an override brings one", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      const role = new Role(ownStack, "Mine", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      });
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: { cacheSeed: { functionProps: { role } } },
+      });
+      const template = Template.fromStack(ownStack);
+
+      expect(
+        seedResources(template, "AWS::IAM::Role", "CacheSeedRole"),
+      ).toEqual([]);
+      expect(seedFunction(template).Role).toEqual({
+        "Fn::GetAtt": [expect.stringMatching(/^Mine/), "Arn"],
       });
     });
 

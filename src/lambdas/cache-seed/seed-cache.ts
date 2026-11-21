@@ -15,9 +15,19 @@ const s3Client = new S3Client();
 /** Puts in flight at once. */
 const PUT_CONCURRENCY = 32;
 
+/**
+ * Bytes of entries read into memory at once. Each is held whole, about twice
+ * over while it is read, so this keeps a seed of large entries well inside
+ * the seeder's smallest memory size (512 MB), however few of the 32 puts that
+ * leaves in flight. An entry larger than this on its own still goes, alone.
+ */
+const MAX_BYTES_IN_FLIGHT = 128 * 1024 ** 2;
+
 /** One init cache file, keyed relative to `<buildId>/`. */
 export interface SeedEntry {
   readonly key: string;
+  /** Its size once read, in bytes. */
+  readonly size: number;
   read(): Promise<Buffer>;
 }
 
@@ -90,11 +100,18 @@ export async function seedCache(
   let written = 0;
   let skipped = 0;
   try {
-    await forEachConcurrently(seed.entries, PUT_CONCURRENCY, async (entry) => {
+    await forEachConcurrently(seed.entries, async (entry) => {
       checkDeadline(deadline, written, skipped);
       const body = await entry.read();
       if (
-        await putIfAbsent(bucketName, `${buildId}/${entry.key}`, body, deadline)
+        await putIfAbsent(
+          bucketName,
+          `${buildId}/${entry.key}`,
+          // Every init cache file is JSON, `.long` ones included
+          // (`cacheObjectName`); the cache handler writes the same type.
+          { body, contentType: "application/json" },
+          deadline,
+        )
       ) {
         written++;
       } else {
@@ -110,7 +127,15 @@ export async function seedCache(
     return { status: "no-seed", written, skipped };
   }
 
-  await putMarker(bucketName, markerKey);
+  // Conditional too, and retried on a 409 like the entries: an overlapping
+  // seed of the same build (a hotswap's and CloudFormation's) may be writing
+  // it, and either marker is as good as the other.
+  await putIfAbsent(
+    bucketName,
+    markerKey,
+    { body: new Date().toISOString(), contentType: "text/plain" },
+    deadline,
+  );
   debug(`Seeded ${buildId}: wrote ${written}, skipped ${skipped}`);
   return { status: "seeded", written, skipped };
 }
@@ -124,30 +149,51 @@ function checkDeadline(deadline: number, written: number, skipped: number) {
 }
 
 /**
- * Run `fn` over `items`, at most `limit` at a time. Rejects on the first error,
- * after which no worker starts another item.
+ * Run `fn` over `entries`, at most {@link PUT_CONCURRENCY} at a time and
+ * {@link MAX_BYTES_IN_FLIGHT} bytes of them at once. Rejects with the first
+ * error, after which nothing new starts; but only once every call in flight
+ * has settled, so the caller doesn't close the seed under them, nor report a
+ * failure while their puts are still landing.
  */
-async function forEachConcurrently<T>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<void>,
+async function forEachConcurrently(
+  entries: readonly SeedEntry[],
+  fn: (entry: SeedEntry) => Promise<void>,
 ): Promise<void> {
   let next = 0;
   let failed = false;
-  const workers = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (!failed && next < items.length) {
-        try {
-          await fn(items[next++]);
-        } catch (error) {
-          failed = true;
-          throw error;
-        }
+  let firstError: unknown;
+  let bytesInFlight = 0;
+  let waiting: Array<() => void> = [];
+  const worker = async () => {
+    while (!failed && next < entries.length) {
+      const entry = entries[next++];
+      while (
+        bytesInFlight > 0 &&
+        bytesInFlight + entry.size > MAX_BYTES_IN_FLIGHT
+      ) {
+        await new Promise<void>((resolve) => waiting.push(resolve));
       }
-    },
+      if (failed) return;
+      bytesInFlight += entry.size;
+      try {
+        await fn(entry);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      } finally {
+        bytesInFlight -= entry.size;
+        const woken = waiting;
+        waiting = [];
+        woken.forEach((resolve) => resolve());
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(PUT_CONCURRENCY, entries.length) }, worker),
   );
-  await Promise.all(workers);
+  if (failed) throw firstError;
 }
 
 /**
@@ -157,7 +203,7 @@ async function forEachConcurrently<T>(
 const CONFLICT_ATTEMPTS = 5;
 
 /**
- * Put `body` at `key` unless the key exists. Returns whether it wrote.
+ * Put `object` at `key` unless the key exists. Returns whether it wrote.
  *
  * 412 is S3 saying the key exists. 409 is another conditional write to the
  * same key still in progress - the app's, or an overlapping seed's, which may
@@ -168,7 +214,7 @@ const CONFLICT_ATTEMPTS = 5;
 async function putIfAbsent(
   bucketName: string,
   key: string,
-  body: Buffer,
+  object: { body: Buffer | string; contentType: string },
   deadline: number,
 ): Promise<boolean> {
   for (let attempt = 1; ; attempt++) {
@@ -177,10 +223,8 @@ async function putIfAbsent(
         new PutObjectCommand({
           Bucket: bucketName,
           Key: key,
-          Body: body,
-          // Every init cache file is JSON, `.long` ones included
-          // (`cacheObjectName`); the cache handler writes the same type.
-          ContentType: "application/json",
+          Body: object.body,
+          ContentType: object.contentType,
           IfNoneMatch: "*",
         }),
       );
@@ -215,23 +259,6 @@ async function objectExists(bucketName: string, key: string): Promise<boolean> {
   } catch (error) {
     if (httpStatus(error) === 404) return false;
     throw error;
-  }
-}
-
-/** Write the marker. One that already exists (412) is just as good. */
-async function putMarker(bucketName: string, key: string): Promise<void> {
-  try {
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: bucketName,
-        Key: key,
-        Body: new Date().toISOString(),
-        ContentType: "text/plain",
-        IfNoneMatch: "*",
-      }),
-    );
-  } catch (error) {
-    if (httpStatus(error) !== 412) throw error;
   }
 }
 

@@ -28,13 +28,16 @@ an init cache:
   root constructs already make their compute and `NextjsPostDeploy` wait for it.
 - **`cdk deploy --hotswap` still seeds.** The custom resource's type is
   `Custom::CDKBucketDeployment`, which the CDK CLI hotswaps by invoking its
-  Lambda directly. Overriding `customResourceProps.resourceType` stops that.
+  Lambda directly. Overriding `customResourceProps.resourceType` stops that. A
+  hotswap doesn't wait for the seed before the new compute takes traffic, and
+  an entry rendered on demand in that window is no longer overwritten by it.
 - **A build ID that doesn't change is seeded once.** Before, every deploy
   overwrote `<buildId>/` with the init cache. Now a deploy that keeps the build
   ID (a `generateBuildId` returning a constant or a commit SHA) but changes the
   init cache leaves the live entries as they are.
-- **The first deploy after upgrading isn't protected on rollback.** Its rollback
-  runs the previous version's `BucketDeployment`, as it was synthesized.
+- **The first deploy after upgrading reseeds a build ID it keeps.** That build
+  has no `.seeded` marker yet, so its init cache is written once more: only
+  missing keys, but an entry the app deleted comes back.
 
 ## 0.7.0
 

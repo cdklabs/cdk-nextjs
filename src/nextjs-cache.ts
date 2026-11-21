@@ -231,11 +231,15 @@ export class NextjsCache extends Construct {
         `${LOG_PREFIX} The init cache at ${this.props.initCacheDir} is ${sizing.cacheMib} MiB. Its zip has to fit in the ${MAX_EPHEMERAL_STORAGE_MIB} MiB of ephemeral storage the cache seed Lambda can be given at most, so unless it compresses well the deploy will fail. Prerender less at build time (for example, return fewer params from generateStaticParams and let the rest render on demand).`,
       );
     }
+    const overrides = this.props.overrides?.cacheSeed?.functionProps;
     // Not CDK's default role, which attaches the AWSLambdaBasicExecutionRole
-    // managed policy: the log group's own grant below is all it needs.
-    const role = new Role(this, "CacheSeedRole", {
-      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
-    });
+    // managed policy: the log group's own grant below is all it needs. None
+    // at all when an override brings its own.
+    const role =
+      overrides?.role ??
+      new Role(this, "CacheSeedRole", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      });
     const fn = new LambdaFunction(this, "CacheSeedFn", {
       // Plain bundled JS with no native dependencies, so always arm64.
       architecture: Architecture.ARM_64,
@@ -261,7 +265,7 @@ export class NextjsCache extends Construct {
       // The most Lambda allows. The handler stops short of it and reports
       // FAILED, and a retry skips what was already written.
       timeout: Duration.minutes(15),
-      ...this.props.overrides?.cacheSeed?.functionProps,
+      ...overrides,
     });
     fn.logGroup.grantWrite(fn);
     fn.addToRolePolicy(
@@ -270,11 +274,23 @@ export class NextjsCache extends Construct {
         resources: [asset.bucket.arnForObjects("*")],
       }),
     );
-    // Read for the marker's HeadObject, which without `s3:ListBucket` answers
-    // a missing key with 403 rather than 404; put for the entries and the
-    // marker. Nothing is ever deleted.
-    this.cacheBucket.grantRead(fn);
-    this.cacheBucket.grantPut(fn);
+    // `s3:GetObject` for the marker's HeadObject, which without
+    // `s3:ListBucket` answers a missing key with 403 rather than 404;
+    // `s3:PutObject` for the entries and the marker. Nothing is ever deleted.
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:GetObject", "s3:PutObject"],
+        resources: [this.cacheBucket.arnForObjects("*")],
+      }),
+    );
+    fn.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [this.cacheBucket.bucketArn],
+      }),
+    );
+    // A bring-your-own bucket encrypted with a customer managed key.
+    this.cacheBucket.encryptionKey?.grantEncryptDecrypt(fn);
     return fn;
   }
 
