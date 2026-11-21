@@ -271,20 +271,31 @@ describe("NextjsCache", () => {
         initCacheDir,
         overrides: {
           nextjsCacheSeed: {
-            functionProps: { memorySize: 1024 },
+            // An `environment` override keeps the bucket name the direct
+            // invoke needs.
+            functionProps: {
+              memorySize: 1024,
+              environment: { EXTRA: "1" },
+            },
+            customResourceProps: { resourceType: "Custom::PinnedCacheSeed" },
             customResourceProperties: { buildId: "pinned" },
           },
         },
       });
       const template = Template.fromStack(ownStack);
 
-      template.hasResourceProperties("Custom::NextjsCacheSeed", {
+      template.resourceCountIs("Custom::NextjsCacheSeed", 0);
+      template.hasResourceProperties("Custom::PinnedCacheSeed", {
         buildId: "pinned",
       });
       template.hasResourceProperties("AWS::Lambda::Function", {
         MemorySize: 1024,
         Environment: {
-          Variables: Match.objectLike({ CACHE_BUCKET_NAME: Match.anyValue() }),
+          Variables: Match.objectLike({
+            CACHE_BUCKET_NAME: Match.anyValue(),
+            DEBUG: "cdk-nextjs:*",
+            EXTRA: "1",
+          }),
         },
       });
     });

@@ -7,7 +7,11 @@ import { cfnResponse, CfnResponseStatus } from "../utils";
 
 const debug = getDebug("cdk-nextjs:cache-seed");
 
-/** Stop starting copies this long before the Lambda would time out. */
+/**
+ * Stop starting copies this long before the Lambda would time out: 30 s, or a
+ * tenth of the time left if that is less, so an overridden short timeout still
+ * leaves time to copy.
+ */
 const DEADLINE_MARGIN_MS = 30_000;
 
 /**
@@ -37,8 +41,9 @@ export async function handler(
   context: Context,
 ): Promise<SeedCacheResult | void> {
   debug({ event });
+  const remaining = context.getRemainingTimeInMillis();
   const deadline =
-    Date.now() + context.getRemainingTimeInMillis() - DEADLINE_MARGIN_MS;
+    Date.now() + remaining - Math.min(DEADLINE_MARGIN_MS, remaining / 10);
   if (!("RequestType" in event)) {
     return seedCache({
       bucketName: event.cacheBucketName ?? process.env.CACHE_BUCKET_NAME!,

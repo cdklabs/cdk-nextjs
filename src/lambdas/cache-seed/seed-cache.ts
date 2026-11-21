@@ -122,54 +122,72 @@ function checkDeadline(deadline: number, copied: number, skipped: number) {
   }
 }
 
-/** Run `fn` over `items`, at most `limit` at a time; rejects on the first error. */
+/**
+ * Run `fn` over `items`, at most `limit` at a time. Rejects on the first error,
+ * after which no worker starts another item.
+ */
 async function forEachConcurrently<T>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<void>,
 ): Promise<void> {
   let next = 0;
+  let failed = false;
   const workers = Array.from(
     { length: Math.min(limit, items.length) },
     async () => {
-      while (next < items.length) {
-        await fn(items[next++]);
+      while (!failed && next < items.length) {
+        try {
+          await fn(items[next++]);
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
       }
     },
   );
   await Promise.all(workers);
 }
 
+/** Attempts at a copy S3 answers with 409, a conditional write racing it. */
+const CONFLICT_ATTEMPTS = 3;
+
 /**
  * Copy `sourceKey` to `destinationKey` unless the destination exists. Returns
  * whether it copied.
  *
- * 412 is S3 saying the destination exists. 409 is a write to the same key
- * racing this one; that write is the app's (nothing else writes `<buildId>/`),
- * so it is left to win too.
+ * 412 is S3 saying the destination exists. 409 is another conditional write to
+ * the same key still in progress - the app's, or an overlapping seed's, which
+ * may yet fail - so the copy is retried, and a 412 then means that write landed
+ * and wins. One that still conflicts throws, so no marker is written and the
+ * next attempt fills the key in.
  */
 async function copyIfAbsent(
   bucketName: string,
   sourceKey: string,
   destinationKey: string,
 ): Promise<boolean> {
-  try {
-    await s3Client.send(
-      new CopyObjectCommand({
-        Bucket: bucketName,
-        Key: destinationKey,
-        CopySource: `${bucketName}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
-        IfNoneMatch: "*",
-      }),
-    );
-    return true;
-  } catch (error) {
-    const status = httpStatus(error);
-    if (status === 412 || status === 409) {
-      debug(`${destinationKey} already written, skipping (${status})`);
-      return false;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await s3Client.send(
+        new CopyObjectCommand({
+          Bucket: bucketName,
+          Key: destinationKey,
+          CopySource: `${bucketName}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
+          IfNoneMatch: "*",
+        }),
+      );
+      return true;
+    } catch (error) {
+      const status = httpStatus(error);
+      if (status === 412) {
+        debug(`${destinationKey} already written, skipping`);
+        return false;
+      }
+      if (status !== 409 || attempt >= CONFLICT_ATTEMPTS) throw error;
+      debug(`${destinationKey} has a conflicting write, retrying`);
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
     }
-    throw error;
   }
 }
 

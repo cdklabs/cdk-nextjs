@@ -248,7 +248,10 @@ if [ -n "$CACHE_SEED_FUNCTION" ]; then
   CACHE_BUILD_ID="$BUILD_ID${NEXT_DEPLOYMENT_ID:+-$NEXT_DEPLOYMENT_ID}"
   CACHE_SEED_RESULT="$APP_DIR/cache-seed-result.json"
   echo "harness: seeding the cache for $CACHE_BUILD_ID"
+  # The seeder can run for up to its 15-minute timeout, well past the CLI's
+  # 60 s read timeout, and the CLI's retry would start a second, overlapping seed.
   aws lambda invoke \
+    --cli-read-timeout 900 \
     --function-name "$CACHE_SEED_FUNCTION" \
     --cli-binary-format raw-in-base64-out \
     --payload "{\"buildId\":\"$CACHE_BUILD_ID\"}" \

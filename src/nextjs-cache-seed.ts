@@ -76,7 +76,6 @@ export class NextjsCacheSeed extends Construct {
         join(__dirname, "../assets/lambdas/cache-seed/cache-seed.lambda"),
       ),
       handler: "index.handler",
-      environment: { CACHE_BUCKET_NAME: this.props.cacheBucket.bucketName },
       // Server-side copies, 32 at a time: memory only buys the CPU to keep
       // that many requests in flight.
       memorySize: 512,
@@ -86,8 +85,12 @@ export class NextjsCacheSeed extends Construct {
       timeout: Duration.minutes(15),
       ...this.props.overrides?.functionProps,
     });
+    // After the overrides, so an `environment` override can't drop it: a
+    // direct invoke (after a hotswap) has no other way to find the bucket.
+    fn.addEnvironment("CACHE_BUCKET_NAME", this.props.cacheBucket.bucketName);
     if (this.props.debug !== false) {
-      fn.addEnvironment("DEBUG", "1");
+      // A `debug` namespace pattern; `1` matches no namespace and enables nothing.
+      fn.addEnvironment("DEBUG", "cdk-nextjs:*");
     }
     // Read for the seed objects, the marker's HeadObject and the conditional
     // copy; list for `_seed/<buildId>/`; put for the copies and the marker.

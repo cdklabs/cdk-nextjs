@@ -48,6 +48,24 @@ prefix, every entry the app had regenerated since (`res.revalidate()`, an expire
 Post-deploy prunes every top-level prefix except the current `{buildId}/`, so
 `_seed/` is deleted once the build is live; a rollback uploads its seed again.
 
+The first deployment after upgrading to this layout isn't protected on rollback:
+the previous build's `BucketDeployment` was synthesized to upload straight into
+`{buildId}/`, and a rollback re-runs it as it was. Every deployment after that
+one rolls back to a build that seeds through `_seed/`.
+
+### Using `NextjsCache` without a root construct
+
+The four root constructs make their compute wait for the seed. If you compose
+`NextjsCache` with compute of your own, do the same, or a request the new build
+serves before the seed lands renders on demand and that render then wins over
+the seed, since the seed never overwrites a key:
+
+```ts
+if (cache.cacheSeed) {
+  myService.node.addDependency(cache.cacheSeed.customResource);
+}
+```
+
 ### `cdk deploy --hotswap`
 
 A hotswap uploads the seed, because CDK hotswaps `BucketDeployment`, but it never

@@ -177,15 +177,18 @@ describe("seedCache", () => {
     expect(objects.get("b1/a.json")).toBe("A (regenerated mid-seed)");
   });
 
-  it("treats a 409 conditional conflict as the app's write winning", async () => {
+  it("retries a 409 conditional conflict until the racing write lands", async () => {
     const objects = seedOf("b1", { "a.json": "A", "b.json": "B" });
     stubBucket(objects);
     const fake = holder.send.getMockImplementation()!;
     holder.send.mockImplementation(async (command: unknown) => {
       if (
         command instanceof CopyObjectCommand &&
-        command.input.Key === "b1/a.json"
+        command.input.Key === "b1/a.json" &&
+        !objects.has("b1/a.json")
       ) {
+        // The racing write lands once this one has been told about it.
+        objects.set("b1/a.json", "A (app)");
         throw s3Error(409, "ConditionalRequestConflict");
       }
       return fake(command);
@@ -194,6 +197,67 @@ describe("seedCache", () => {
     const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
 
     expect(result).toEqual({ status: "seeded", copied: 1, skipped: 1 });
+    expect(objects.get("b1/a.json")).toBe("A (app)");
+  });
+
+  it("copies a key once a 409 conflict's racing write has failed", async () => {
+    const objects = seedOf("b1", { "a.json": "A" });
+    stubBucket(objects);
+    const fake = holder.send.getMockImplementation()!;
+    let conflicts = 1;
+    holder.send.mockImplementation(async (command: unknown) => {
+      if (command instanceof CopyObjectCommand && conflicts-- > 0) {
+        throw s3Error(409, "ConditionalRequestConflict");
+      }
+      return fake(command);
+    });
+
+    const result = await seedCache({ bucketName: BUCKET, buildId: "b1" });
+
+    expect(result).toEqual({ status: "seeded", copied: 1, skipped: 0 });
+    expect(objects.get("b1/a.json")).toBe("A");
+  });
+
+  it("writes no marker when a 409 conflict persists", async () => {
+    const objects = seedOf("b1", { "a.json": "A" });
+    stubBucket(objects);
+    const fake = holder.send.getMockImplementation()!;
+    holder.send.mockImplementation(async (command: unknown) => {
+      if (command instanceof CopyObjectCommand) {
+        throw s3Error(409, "ConditionalRequestConflict");
+      }
+      return fake(command);
+    });
+
+    await expect(
+      seedCache({ bucketName: BUCKET, buildId: "b1" }),
+    ).rejects.toThrow("ConditionalRequestConflict");
+    expect(objects.has("b1/.seeded")).toBe(false);
+  });
+
+  it("starts no copy after one has failed", async () => {
+    const files = Object.fromEntries(
+      Array.from({ length: 100 }, (_, i) => [`k${i}.json`, String(i)]),
+    );
+    const objects = seedOf("b1", files);
+    stubBucket(objects, { pageSize: 1000 });
+    const fake = holder.send.getMockImplementation()!;
+    let copies = 0;
+    holder.send.mockImplementation(async (command: unknown) => {
+      if (command instanceof CopyObjectCommand) {
+        copies++;
+        if (command.input.Key === "b1/k0.json") throw s3Error(500, "Internal");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      return fake(command);
+    });
+
+    await expect(
+      seedCache({ bucketName: BUCKET, buildId: "b1" }),
+    ).rejects.toThrow("Internal");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Only the copies already in flight when the first failed.
+    expect(copies).toBeLessThanOrEqual(32);
   });
 
   it("writes no marker when a copy fails, so the next attempt seeds", async () => {
