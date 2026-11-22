@@ -141,11 +141,25 @@ export function suppressCommonNags(stack: Stack) {
       .findAll()
       .some((construct) => construct.node.path === cacheSeedPolicy)
   ) {
-    suppressS3WildcardPermissions(
+    // Only the two resource wildcards: its actions are exact, so a wildcard
+    // action (a delete, say) added later is still reported.
+    NagSuppressions.addResourceSuppressionsByPath(
       stack,
       `/${cacheSeedPolicy}`,
-      "Cache seed Lambda reads the init cache asset from the CDK assets bucket and writes it under the build's prefix in the cache bucket; whole-bucket grants keep its policy unchanged across builds, which a hotswap needs",
-      { includeCdkAssets: true },
+      [
+        {
+          id: "AwsSolutions-IAM5",
+          reason:
+            "Cache seed Lambda reads the init cache asset from the CDK assets bucket and writes it under the build's prefix in the cache bucket; whole-bucket grants keep its policy unchanged across builds, which a hotswap needs",
+          appliesTo: [
+            {
+              regex:
+                "/^Resource::<NextjsNextjsCacheBucket[A-Z0-9]+\\.Arn>/\\*$/",
+            },
+            "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
+          ],
+        },
+      ],
     );
   }
 

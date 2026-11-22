@@ -34,6 +34,9 @@ export function cfnResponse(props: CfnResponseProps) {
   return fetch(props.event.ResponseURL, {
     method: "PUT",
     body,
-    headers: { "content-type": "", "content-length": body.length.toString() },
+    headers: {
+      "content-type": "",
+      "content-length": Buffer.byteLength(body).toString(),
+    },
   });
 }

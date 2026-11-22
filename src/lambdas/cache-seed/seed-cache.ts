@@ -16,12 +16,16 @@ const s3Client = new S3Client();
 const PUT_CONCURRENCY = 32;
 
 /**
- * Bytes of entries read into memory at once. Each is held whole, about twice
- * over while it is read, so this keeps a seed of large entries well inside
- * the seeder's smallest memory size (512 MB), however few of the 32 puts that
- * leaves in flight. An entry larger than this on its own still goes, alone.
+ * Bytes of entries read into memory at once: a quarter of the function's
+ * memory, 128 MiB at the seeder's default 512 MB. Each entry is held whole,
+ * about twice over while it is read, so that leaves half for the runtime and
+ * the SDK, however few of the 32 puts it leaves in flight, and whatever
+ * `memorySize` an override sets. An entry larger than this on its own still
+ * goes, alone.
  */
-const MAX_BYTES_IN_FLIGHT = 128 * 1024 ** 2;
+const MAX_BYTES_IN_FLIGHT =
+  ((Number(process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE) || 512) * 1024 ** 2) /
+  4;
 
 /** One init cache file, keyed relative to `<buildId>/`. */
 export interface SeedEntry {

@@ -23,6 +23,11 @@ an init cache:
   `timeout`) and `customResourceProps` for its custom resource. There is no
   `useEfs`: the seeder sizes its own `/tmp`, up to Lambda's 10 GiB, and an init
   cache whose zip doesn't fit in that needs fewer build-time prerenders.
+- **If you set `bucketDeploymentProps.retainOnDelete: false`, remove it in a
+  deploy before upgrading.** Upgrading deletes the old `BucketDeployment`, and
+  with `retainOnDelete: false` its Delete empties its destination, which had no
+  key prefix: the whole cache bucket, the new build's seed included. With the
+  default (`true`) nothing is deleted.
 - **`NextjsCache.bucketDeployment` is removed.** **Migration:** depend on
   `NextjsCache.cacheSeed`, present only when the init cache holds a file. The
   root constructs already make their compute and `NextjsPostDeploy` wait for it.
