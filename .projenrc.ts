@@ -6,7 +6,7 @@ import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
-const nodeVersion = 24;
+const nodeVersion = 26;
 const pnpmVersion = "10.32.1";
 const project = new CdklabsConstructLibrary({
   // repository config

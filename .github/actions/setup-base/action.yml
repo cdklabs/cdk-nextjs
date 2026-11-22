@@ -16,7 +16,7 @@ runs:
     - uses: pnpm/action-setup@v4
     - uses: actions/setup-node@v4
       with:
-        node-version: 22
+        node-version: 26
         cache: pnpm
     - uses: aws-actions/configure-aws-credentials@v4.2.1
       with:

@@ -13,8 +13,6 @@ import {
   Architecture,
   Code,
   Function as LambdaFunction,
-  Runtime,
-  RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { Bucket, BucketProps, IBucket } from "aws-cdk-lib/aws-s3";
@@ -23,6 +21,7 @@ import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
+import { LAMBDA_RUNTIME } from "./lambda-runtime";
 import type { CacheSeedResourceProperties } from "./lambdas/cache-seed/cache-seed.lambda";
 import { listTree } from "./nextjs-build/nextjs-build";
 import {
@@ -44,8 +43,8 @@ const CACHE_SEED_RESOURCE_TYPE = "Custom::CDKBucketDeployment";
 /**
  * Files and bytes on disk under `dir`, following the tree but not symlinks.
  *
- * On {@link listTree} rather than `readdirSync({ recursive: true })`, which on
- * Node 24 descends into symlinked directories and never returns on a cycle.
+ * On {@link listTree} rather than `readdirSync({ recursive: true })`, which
+ * descends into symlinked directories and never returns on a cycle.
  */
 export function measureDirectory(dir: string): {
   files: number;
@@ -249,7 +248,7 @@ export class NextjsCache extends Construct {
       architecture: Architecture.ARM_64,
       // The runtime's own AWS SDK, not a bundled one: it has `PutObject`'s
       // `IfNoneMatch` (S3 conditional writes, August 2024) in every Node 24
-      // runtime, which postdates it.
+      // and later runtime, all of which postdate it.
       code: Code.fromAsset(
         join(__dirname, "../assets/lambdas/cache-seed/cache-seed.lambda"),
       ),
@@ -265,7 +264,7 @@ export class NextjsCache extends Construct {
       }),
       memorySize: sizing.memoryMb,
       role,
-      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
+      runtime: LAMBDA_RUNTIME,
       // The most Lambda allows. The handler stops short of it and reports
       // FAILED, and a retry skips what was already written.
       timeout: Duration.minutes(15),

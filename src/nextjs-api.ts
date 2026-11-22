@@ -27,13 +27,12 @@ import {
   Code,
   Function as LambdaFunction,
   IFunction,
-  Runtime,
-  RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { LOG_PREFIX } from "./constants";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
+import { LAMBDA_RUNTIME } from "./lambda-runtime";
 import {
   NextjsFunctionGroupBehavior,
   PublicDirEntry,
@@ -245,7 +244,7 @@ export class NextjsApi extends Construct {
       ),
       handler: "index.handler",
       memorySize: 256,
-      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
+      runtime: LAMBDA_RUNTIME,
       timeout: Duration.minutes(1),
       ...this.props.overrides?.redeployFunctionProps,
       environment: {
