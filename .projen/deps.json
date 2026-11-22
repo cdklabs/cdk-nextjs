@@ -68,6 +68,14 @@
       "type": "build"
     },
     {
+      "name": "@types/yauzl",
+      "type": "build"
+    },
+    {
+      "name": "@types/yazl",
+      "type": "build"
+    },
+    {
       "name": "@typescript-eslint/eslint-plugin",
       "version": "^8",
       "type": "build"
@@ -186,6 +194,14 @@
     },
     {
       "name": "undici",
+      "type": "build"
+    },
+    {
+      "name": "yauzl",
+      "type": "build"
+    },
+    {
+      "name": "yazl",
       "type": "build"
     },
     {

@@ -52,6 +52,8 @@ const project = new CdklabsConstructLibrary({
     "@types/debug",
     "@types/mime-types",
     "@types/node@^24",
+    "@types/yauzl",
+    "@types/yazl",
     "cdk-nag",
     "debug",
     "esbuild",
@@ -60,6 +62,10 @@ const project = new CdklabsConstructLibrary({
     // is the one the tests, the zero-config gate and the harness warm app build with.
     "next@^16.4.6",
     "undici",
+    // Reads the init cache asset's zip in the cache seeder (bundled by esbuild).
+    "yauzl",
+    // Writes zips for the cache seeder's tests only.
+    "yazl",
   ],
   // Synth runs on the user's Node. 22.2 is the first 22.x with `zlib.crc32`.
   minNodeVersion: "22.2.0",
