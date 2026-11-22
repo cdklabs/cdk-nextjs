@@ -866,7 +866,8 @@ Any object.
 | <code><a href="#cdk-nextjs.NextjsCache.property.buildId">buildId</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.cacheBucket">cacheBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCache.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | *No description.* |
-| <code><a href="#cdk-nextjs.NextjsCache.property.bucketDeployment">bucketDeployment</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeployment</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCache.property.cacheSeed">cacheSeed</a></code> | <code>aws-cdk-lib.CustomResource</code> | Writes the init cache (`initCacheDir`) into the cache bucket's `<buildId>/` prefix, once per build and never over a key the app has written. |
+| <code><a href="#cdk-nextjs.NextjsCache.property.cacheSeedFunction">cacheSeedFunction</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | The Lambda function behind `cacheSeed`. |
 
 ---
 
@@ -912,13 +913,34 @@ public readonly revalidationTable: ITableV2;
 
 ---
 
-##### `bucketDeployment`<sup>Optional</sup> <a name="bucketDeployment" id="cdk-nextjs.NextjsCache.property.bucketDeployment"></a>
+##### `cacheSeed`<sup>Optional</sup> <a name="cacheSeed" id="cdk-nextjs.NextjsCache.property.cacheSeed"></a>
 
 ```typescript
-public readonly bucketDeployment: BucketDeployment;
+public readonly cacheSeed: CustomResource;
 ```
 
-- *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeployment
+- *Type:* aws-cdk-lib.CustomResource
+
+Writes the init cache (`initCacheDir`) into the cache bucket's `<buildId>/` prefix, once per build and never over a key the app has written.
+
+Only exists when the init cache holds a file. The compute should
+depend on it, so that a new build takes traffic with its cache already
+seeded.
+
+Its type is `Custom::CDKBucketDeployment`, `BucketDeployment`'s, so that
+`cdk deploy --hotswap` runs it too.
+
+---
+
+##### `cacheSeedFunction`<sup>Optional</sup> <a name="cacheSeedFunction" id="cdk-nextjs.NextjsCache.property.cacheSeedFunction"></a>
+
+```typescript
+public readonly cacheSeedFunction: Function;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Function
+
+The Lambda function behind `cacheSeed`.
 
 ---
 
@@ -3665,30 +3687,9 @@ const nextjsCacheOverrides: NextjsCacheOverrides = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.bucketDeploymentProps">bucketDeploymentProps</a></code> | <code>aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps</code> | Overrides for the init cache's `BucketDeployment`, such as `useEfs` or `memoryLimit` for a large cache. |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.cacheBucketProps">cacheBucketProps</a></code> | <code>aws-cdk-lib.aws_s3.BucketProps</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.cacheSeed">cacheSeed</a></code> | <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides">NextjsCacheSeedOverrides</a></code> | *No description.* |
 | <code><a href="#cdk-nextjs.NextjsCacheOverrides.property.revalidationTableProps">revalidationTableProps</a></code> | <code>aws-cdk-lib.aws_dynamodb.TablePropsV2</code> | *No description.* |
-
----
-
-##### `bucketDeploymentProps`<sup>Optional</sup> <a name="bucketDeploymentProps" id="cdk-nextjs.NextjsCacheOverrides.property.bucketDeploymentProps"></a>
-
-```typescript
-public readonly bucketDeploymentProps: BucketDeploymentProps;
-```
-
-- *Type:* aws-cdk-lib.aws_s3_deployment.BucketDeploymentProps
-
-Overrides for the init cache's `BucketDeployment`, such as `useEfs` or `memoryLimit` for a large cache.
-
-`sources` and `destinationBucket`, which the type requires, are ignored:
-the upload is always the staged init cache, to the cache bucket (pass
-`cacheBucket` to bring your own). So is `destinationKeyPrefix`, since the
-cache handler reads the objects at `<buildId>/<key>`.
-
-`prune: true`, `retainOnDelete: false` and `extract: false` are rejected:
-the first two can delete cache entries the running app relies on, and the
-last uploads the zip instead of the cache.
 
 ---
 
@@ -3699,6 +3700,16 @@ public readonly cacheBucketProps: BucketProps;
 ```
 
 - *Type:* aws-cdk-lib.aws_s3.BucketProps
+
+---
+
+##### `cacheSeed`<sup>Optional</sup> <a name="cacheSeed" id="cdk-nextjs.NextjsCacheOverrides.property.cacheSeed"></a>
+
+```typescript
+public readonly cacheSeed: NextjsCacheSeedOverrides;
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsCacheSeedOverrides">NextjsCacheSeedOverrides</a>
 
 ---
 
@@ -3812,6 +3823,51 @@ The table must be dedicated to this one deployment. Don't share it with
 another deployment (another branch, stage, or app): every deploy's
 post-deploy step deletes the entries of the build it last recorded in the
 table, which with a shared table is another deployment's live build.
+
+---
+
+### NextjsCacheSeedOverrides <a name="NextjsCacheSeedOverrides" id="cdk-nextjs.NextjsCacheSeedOverrides"></a>
+
+Overrides for the cache seed: the Lambda function that writes the init cache into the cache bucket, and the custom resource that runs it.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsCacheSeedOverrides.Initializer"></a>
+
+```typescript
+import { NextjsCacheSeedOverrides } from 'cdk-nextjs'
+
+const nextjsCacheSeedOverrides: NextjsCacheSeedOverrides = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides.property.customResourceProps">customResourceProps</a></code> | <code><a href="#cdk-nextjs.OptionalCustomResourceProps">OptionalCustomResourceProps</a></code> | Overriding `resourceType` stops `cdk deploy --hotswap` from seeding: see `NextjsCache.cacheSeed`. |
+| <code><a href="#cdk-nextjs.NextjsCacheSeedOverrides.property.functionProps">functionProps</a></code> | <code><a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a></code> | Set log retention through `logGroup`, not `logRetention`: the function already has a log group, and CDK refuses both. |
+
+---
+
+##### `customResourceProps`<sup>Optional</sup> <a name="customResourceProps" id="cdk-nextjs.NextjsCacheSeedOverrides.property.customResourceProps"></a>
+
+```typescript
+public readonly customResourceProps: OptionalCustomResourceProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalCustomResourceProps">OptionalCustomResourceProps</a>
+
+Overriding `resourceType` stops `cdk deploy --hotswap` from seeding: see `NextjsCache.cacheSeed`.
+
+---
+
+##### `functionProps`<sup>Optional</sup> <a name="functionProps" id="cdk-nextjs.NextjsCacheSeedOverrides.property.functionProps"></a>
+
+```typescript
+public readonly functionProps: OptionalFunctionProps;
+```
+
+- *Type:* <a href="#cdk-nextjs.OptionalFunctionProps">OptionalFunctionProps</a>
+
+Set log retention through `logGroup`, not `logRetention`: the function already has a log group, and CDK refuses both.
 
 ---
 

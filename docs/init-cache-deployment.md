@@ -13,16 +13,89 @@ Pre-deployment of Next.js build cache files to S3 has been successfully implemen
 
 ### Deployment Time
 
-1. The `NextjsCache` construct checks for the `.next/cdk-nextjs-init-cache` directory
-2. If found, it copies the directory into a staging directory _under_ a `{buildId}/` directory and hands that to `BucketDeployment`
-3. Files are deployed to S3 with the path structure: `{buildId}/{cacheKey}.json`
+1. The `NextjsCache` construct checks `.next/cdk-nextjs-init-cache` for files
+2. If it holds any, the directory becomes a CDK file asset, a zip in the bootstrap bucket, as it is: its paths are the keys under `{buildId}/`
+3. `NextjsCache.cacheSeed`, a custom resource, downloads the zip into its Lambda's `/tmp` and writes each file to `{buildId}/{cacheKey}.json`, the prefix the cache handler uses
+4. The compute (each Lambda function, or the ECS service) and `NextjsPostDeploy` depend on `cacheSeed`, so a new build only takes traffic once its cache is seeded
 
-The build ID is in the staged paths rather than in `destinationKeyPrefix` on
-purpose: `BucketDeployment` tags its destination bucket with
-`aws-cdk:cr-owned:<destinationKeyPrefix>:<hash>`, and an `AWS::S3::Bucket`'s `Tags`
-are not hotswappable, so a prefix that changes per build forced a full
-CloudFormation deployment every time. See the comment on `createStagingDirectory`
-in `src/nextjs-cache.ts`.
+### Seeding once per build
+
+The seed is never just uploaded into `{buildId}/`, because of CloudFormation
+rollbacks ([#343](https://github.com/cdklabs/cdk-nextjs/issues/343)). A rollback
+sends the previous build's resources an Update with their old properties. When
+that was a `BucketDeployment` into the live prefix, it copied its files again,
+and every entry the app had regenerated since (`res.revalidate()`, an expired
+`revalidate`) or deleted went back to its build-time version.
+
+`cacheSeed` writes the init cache at most once per build:
+
+- Once `{buildId}/.seeded` exists it writes nothing, and doesn't download the
+  zip, so a rollback or a re-deploy of the same build leaves the live entries
+  alone.
+- Each put is conditional on the key not existing yet (`If-None-Match: *`), so an
+  entry the app has already written wins (S3 answers 412), and a retry after a
+  partial seed only fills in what is missing. A 409, another conditional write
+  to the key still in flight, is retried with backoff.
+- The marker is written last, and only once every file has been written or
+  skipped. A failed seed fails the deployment without it.
+
+The first deployment that moves from the old `BucketDeployment` upload to
+`cacheSeed` removes that `BucketDeployment`, and CloudFormation deletes removed
+resources only once the update has succeeded, so a rollback of that deployment
+never re-runs it. But if that deployment keeps the running build's ID, there is
+no `{buildId}/.seeded` marker yet, so the seed is written once more: it fills in
+only keys that don't exist, but an entry the app deleted comes back.
+
+"Once per build" is keyed on the build ID alone. A deployment that changes the
+init cache but not the build ID (a `generateBuildId` that returns a constant or a
+commit SHA, rebuilt with different build-time data) is never seeded again: the
+live prefix keeps the entries it has.
+
+### Using `NextjsCache` without a root construct
+
+The four root constructs make their compute wait for the seed. If you compose
+`NextjsCache` with compute of your own, do the same, or a request the new build
+serves before the seed lands renders on demand and that render then wins over
+the seed, since the seed never overwrites a key:
+
+```ts
+if (cache.cacheSeed) {
+  myService.node.addDependency(cache.cacheSeed);
+}
+```
+
+### `cdk deploy --hotswap`
+
+A hotswap seeds the cache too. CloudFormation never sees a hotswap, and the CDK
+CLI skips custom resources, except those of type `Custom::CDKBucketDeployment`,
+`BucketDeployment`'s: it invokes their Lambda directly, with an Update event whose
+`ResponseURL` is the placeholder `required-to-be-present-by-cfn`. `cacheSeed` has
+that type for this reason, and its Lambda recognizes the placeholder, seeds, and
+answers no one.
+
+Three things follow from the CLI handling it:
+
+- A hotswap applies its changes in parallel and ignores `DependsOn`, so the new
+  compute can take traffic before the seed lands. A request it serves first
+  misses, renders on demand and writes that render, which the seed then leaves
+  alone (it never overwrites a key): for a `cacheComponents` app, a postponed
+  shell where the prerender should be, until the entry is revalidated. The
+  window is the time the seed takes, and a full deployment, which keeps the
+  order, has none.
+- The CLI doesn't read the result. A seed that fails during a hotswap is in the
+  seeder's log (`/aws/lambda/...CacheSeedFn...`), and the deploy still reports
+  success; the next full deployment seeds what is missing.
+- It's the CLI's behavior, not a documented contract. If a CDK release stops
+  hotswapping that type by name, hotswapped stacks serve their new build from an
+  unseeded cache until the next full deployment: every entry renders on demand
+  the first time it's requested, and for a `cacheComponents` app that render is
+  the postponed shell, not the prerender. A test pins the type
+  (`src/nextjs-cache.test.ts`).
+
+The seeder's grants are on whole buckets for the same reason: the CLI skips,
+rather than applies, a policy change on a role only `Custom::CDKBucketDeployment`
+Lambdas use, so a grant naming this build's asset or prefix would deny the
+invoke that follows.
 
 ### Runtime
 
@@ -43,7 +116,7 @@ in `src/nextjs-cache.ts`.
 
 ### 2. Path Structure Mismatch ✅ SOLVED
 
-**Solution:** Local files are stored as `{cacheKey}.json`, and BucketDeployment adds the `{buildId}/` prefix during upload, resulting in the final S3 path:
+**Solution:** Local files are stored as `{cacheKey}.json`, zipped as they are into the init cache asset, and written by `NextjsCache.cacheSeed` to the final S3 path:
 
 ```
 {buildId}/{cacheKey}.json
@@ -59,26 +132,21 @@ in `src/nextjs-cache.ts`.
 
 ## Sizing
 
-`BucketDeployment`'s Lambda downloads the asset zip into `/tmp` and extracts it
-beside itself, so it needs room for both at once — and CDK gives it 512 MiB of
-ephemeral storage and 128 MB of memory by default. An app with many large
-prerenders blows through that: 60 pages carrying ~1 MB of RSC each produce a
-664 MiB seed directory, and the handler dies with
-`OSError: [Errno 28] No space left on device`. Under `cdk deploy --hotswap` that
-failure is invisible, because the CLI invokes custom resources with placeholder
-response URLs and never reads the status they send — the app comes up serving a
-partially seeded cache.
+The seeder downloads the init cache's zip into `/tmp` and reads it from there,
+entry by entry, so it needs room for the zip, and Lambda gives a function
+512 MiB of ephemeral storage by default. An app with many large prerenders
+outgrows that: 60 pages carrying ~1 MB of RSC each produce a 664 MiB init cache.
 
-`NextjsCache` therefore sizes that Lambda from the seed directory: twice its size
-plus headroom, floored at CDK's 512 MiB and capped at Lambda's 10 GiB, with
-`memoryLimit: 1024` past 256 MiB. Above the 10 GiB ceiling it warns; pass
-`overrides.bucketDeploymentProps` with `useEfs: true` (and the `vpc` it needs)
-for a cache that large. `sources`, `destinationBucket` and
-`destinationKeyPrefix` in that override are ignored: CDK's type requires the
-first two, but the upload is always the staged init cache, to the cache bucket,
-at the `<buildId>/` keys the cache handler reads. `prune: true`,
-`retainOnDelete: false` and `extract: false` fail synth, since each would delete
-or replace the cache.
+`NextjsCache` therefore sizes the seeder from the init cache directory. The zip's
+size isn't known at synth time, so it budgets the worst case, a zip as large as
+the directory, plus 128 MiB of headroom, rounded up to a power-of-two step
+(512 MiB, 1 GiB, 2 GiB...) and capped at Lambda's 10 GiB. The steps keep the
+seeder's configuration, which a hotswap can't change, the same while the cache
+grows by a little. Memory is 512 MB, and 1024 MB past 256 MiB of cache. Above
+the 10 GiB ceiling it warns: unless the zip compresses well the seed fails, and
+the way out is fewer build-time prerenders (return fewer params from
+`generateStaticParams` and let the rest render on demand).
+`overrides.nextjsCache.cacheSeed.functionProps` wins over all of it.
 
 Cache entries themselves serialize Buffers as base64 (`serializeCacheValue` in
 `src/adapter/cache-utils.ts`). That matters for size _and_ for read latency:
@@ -93,9 +161,10 @@ Both integer-array spellings are still accepted on read.
 
 1. **`cache-handler.ts`** - Detects build vs runtime and routes to appropriate handler
 2. **`local-file-cache-handler.ts`** (NEW) - Writes cache files during build
-3. **`nextjs-cache.ts`** - Deploys pre-built cache files via BucketDeployment
-4. **`nextjs-build.ts`** - Sets `BUILD_OUTPUT_PATH` and `CDK_NEXTJS_BUILD_ID` env vars
-5. **`nextjs-base-construct.ts`** - Passes `buildDirectory` to NextjsCache
+3. **`nextjs-cache.ts`** - Packages the init cache as an asset and creates the `cacheSeed` custom resource and its Lambda
+4. **`lambdas/cache-seed/`** - Writes the init cache into `{buildId}/` once per build
+5. **`nextjs-build.ts`** - Sets `BUILD_OUTPUT_PATH` and `CDK_NEXTJS_BUILD_ID` env vars
+6. **`nextjs-base-construct.ts`** - Passes `buildDirectory` to NextjsCache, and makes the compute wait for the seed
 
 ### Environment Variables
 

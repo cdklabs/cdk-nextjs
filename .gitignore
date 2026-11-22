@@ -62,6 +62,7 @@ junit.xml
 .jsii
 !/API.md
 /assets/
+!/src/lambdas/cache-seed/cache-seed-function.ts
 !/src/lambdas/post-deploy/post-deploy-function.ts
 !/src/lambdas/redeploy-stage/redeploy-stage-function.ts
 .jsii.tabl.json

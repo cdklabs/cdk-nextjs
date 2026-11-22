@@ -2,6 +2,48 @@
 
 ## 0.8.0
 
+### The init cache is seeded once per build, by a custom resource
+
+`NextjsCache` no longer uploads the init cache (`.next/cdk-nextjs-init-cache`)
+with a `BucketDeployment` straight into the cache bucket's live `<buildId>/`
+prefix. A CloudFormation rollback re-ran the previous build's upload and
+overwrote every entry the app had regenerated or deleted since
+([#343](https://github.com/cdklabs/cdk-nextjs/issues/343)). A custom resource,
+`NextjsCache.cacheSeed`, now writes it at most once per build and never over a
+key that exists. See [Init Cache Deployment](./init-cache-deployment.md).
+
+Your code only needs changing if you set
+`overrides.nextjsCache.bucketDeploymentProps` or read
+`NextjsCache.bucketDeployment`. The last three points apply to every app with
+an init cache:
+
+- **`overrides.nextjsCache.bucketDeploymentProps` is removed.** **Migration:**
+  size or configure the seeder through `overrides.nextjsCache.cacheSeed`:
+  `functionProps` for its Lambda (`memorySize`, `ephemeralStorageSize`,
+  `timeout`) and `customResourceProps` for its custom resource. There is no
+  `useEfs`: the seeder sizes its own `/tmp`, up to Lambda's 10 GiB, and an init
+  cache whose zip doesn't fit in that needs fewer build-time prerenders.
+- **If you set `bucketDeploymentProps.retainOnDelete: false`, remove it in a
+  deploy before upgrading.** Upgrading deletes the old `BucketDeployment`, and
+  with `retainOnDelete: false` its Delete empties its destination, by default
+  the whole cache bucket (it had no key prefix unless you set one), the new
+  build's seed included. With the default (`true`) nothing is deleted.
+- **`NextjsCache.bucketDeployment` is removed.** **Migration:** depend on
+  `NextjsCache.cacheSeed`, present only when the init cache holds a file. The
+  root constructs already make their compute and `NextjsPostDeploy` wait for it.
+- **`cdk deploy --hotswap` still seeds.** The custom resource's type is
+  `Custom::CDKBucketDeployment`, which the CDK CLI hotswaps by invoking its
+  Lambda directly. Overriding `customResourceProps.resourceType` stops that. A
+  hotswap doesn't wait for the seed before the new compute takes traffic, and
+  an entry rendered on demand in that window is no longer overwritten by it.
+- **A build ID that doesn't change is seeded once.** Before, every deploy
+  overwrote `<buildId>/` with the init cache. Now a deploy that keeps the build
+  ID (a `generateBuildId` returning a constant or a commit SHA) but changes the
+  init cache leaves the live entries as they are.
+- **The first deploy after upgrading reseeds a build ID it keeps.** That build
+  has no `.seeded` marker yet, so its init cache is written once more: only
+  missing keys, but an entry the app deleted comes back.
+
 ### Next.js 16.4.5 or higher is required
 
 `next build` now fails on Next.js 16.4.4 and earlier (was 16.3) with
@@ -26,11 +68,13 @@ Node 20 reached end of life on 2026-04-30. `package.json` now declares
 `Dirent.parentPath` without fallbacks. **Migration:** run `cdk synth` on
 Node 22.2 or higher.
 
+
+
 ### Lambda functions and containers run on Node.js 26
 
 Every function cdk-nextjs creates now uses the `nodejs26.x` runtime (was
-`nodejs24.x`): the Next.js server functions and the post-deploy and
-API Gateway redeploy-stage functions. The generated Dockerfiles
+`nodejs24.x`): the Next.js server functions, the cache seed function, and the
+post-deploy and API Gateway redeploy-stage functions. The generated Dockerfiles
 for Global and Regional Containers now start `FROM node:26-alpine` (was
 `node:24-alpine`). Node 26 is the active LTS; Node 24 moves to maintenance.
 
@@ -56,43 +100,6 @@ so you don't need Node 26 on your machine or in CI.
   own functions on `nodejs24.x` as not on the latest runtime: cdk-nextjs
   creates a `nodejs26.x` `Runtime`, which `aws-cdk-lib` before
   `NODEJS_26_X` doesn't list. Move them to `nodejs26.x` or suppress L1.
-
-### `NextjsCache` ignores or rejects some `bucketDeploymentProps` overrides
-
-`overrides.nextjsCache.bucketDeploymentProps` now follows the rules
-`NextjsStaticAssets` already applies to its own. Nothing changes unless you set
-one of these:
-
-- **`sources`, `destinationBucket` and `destinationKeyPrefix` are ignored.**
-  CDK's type requires the first two, so a caller who only wanted `memoryLimit`
-  or `useEfs` had to pass them, and they replaced the staged init cache or sent
-  it to a bucket the cache handler doesn't read from. `destinationKeyPrefix` put
-  the init cache outside the `<buildId>/` keys the cache handler reads, where
-  the post-deploy pruner deleted it, and now gets a synth warning.
-  **Migration:** pass your bucket as `cacheBucket` instead, and add your own
-  `BucketDeployment` for extra files.
-- **`prune: true`, `retainOnDelete: false` and `extract: false` fail synth.**
-  `prune: true` synced against the whole cache bucket with `--delete`, removing
-  the previous build's entries and those written at runtime while the old
-  deployment still served them. `retainOnDelete: false` could empty the bucket:
-  on an update that changed the destination (which ignoring `destinationBucket`
-  does), CDK runs `aws s3 rm --recursive` on the old one, and when the
-  deployment is replaced it empties an imported bucket, which it can't tag as
-  owned. `extract: false` uploaded the asset zip instead of the cache.
-  **Migration:** drop all three. Old builds' entries are already pruned after
-  deploy by `NextjsPostDeploy`. If you set `retainOnDelete: false` together
-  with `useEfs: true` and an imported `cacheBucket`, drop it in a deploy of its
-  own on your current version first: see below.
-
-With `useEfs: true`, the init cache's deployment Lambda now keeps CDK's default
-`/tmp`, since it unpacks onto EFS. Its size is part of the handler's and the
-custom resource's IDs, so unless you set `ephemeralStorageSize` yourself, the
-first deploy after upgrading replaces both: a full CloudFormation deployment
-rather than a hotswap. The old resource's Delete
-removes nothing from a bucket defined in your CDK app, which CDK tags as owned.
-But it runs with the old resource's settings, so with an imported `cacheBucket`
-(`Bucket.fromBucketName` and the like) and `retainOnDelete: false` it would
-empty the bucket, including the cache the new resource just uploaded.
 
 ## 0.7.0
 

@@ -237,7 +237,7 @@ four deployment types; `—` means harness or unit tests only.
 | 22  | Absolute `assetPrefix` with a path — every bundle 404s                                                       | The prefix's path was reduced to `""`, so no behavior was added                                                                                                                                                                                                                   | `assetPrefixPath`, `src/utils/base-path.ts`                                                                                                                                             | —                                                              |
 | 24  | `/_next/image` 400s for a `public/` file whose name needs percent-encoding                                   | `fetchFromS3` used the still-encoded href as the S3 key                                                                                                                                                                                                                           | Tolerant percent-decode in `fetchFromS3`, `src/runtime/image-utils.ts`                                                                                                                  | `static-assets` (asserts `image/webp`)                         |
 | 25  | A web worker never starts (assertion times out on placeholder text)                                          | `patch-fetch.js` was prepended to `turbopack-worker-*.js` and read `window`                                                                                                                                                                                                       | `patch-fetch.js` uses `globalThis`; worker-scope block in `patch-fetch.test.ts`                                                                                                         | —                                                              |
-| 26  | Large init cache only partly seeded (`MISS`, postponed shell); deploy reported success                       | `BucketDeployment` Lambda hit `ENOSPC` in 512 MiB `/tmp`; `--hotswap` ignores a custom resource's `FAILED`                                                                                                                                                                        | `sizeDeploymentLambda`, `src/nextjs-cache.ts`                                                                                                                                           | —                                                              |
+| 26  | Large init cache only partly seeded (`MISS`, postponed shell); deploy reported success                       | `BucketDeployment` Lambda hit `ENOSPC` in 512 MiB `/tmp`; `--hotswap` ignores a custom resource's `FAILED`                                                                                                                                                                        | `cacheSeedSizing`, `src/utils/cache-seed-sizing.ts`                                                                                                                                     | —                                                              |
 | 27  | A 1 MB segment prefetch takes ~5s                                                                            | Buffers serialized as JSON integer arrays and parsed with a reviver                                                                                                                                                                                                               | Base64 in `serializeCacheValue`/`parseCacheValue` (old format still readable)                                                                                                           | —                                                              |
 | 29  | A `beforeFiles` rewrite that matches its own output is applied twice                                         | `RouteModule.prepare` re-runs `handleRewrites` on the already-rewritten `req.url`                                                                                                                                                                                                 | `src/runtime/core.ts` hands `requestMeta.query` the resolved query                                                                                                                      | `config-routing`                                               |
 | 30  | `//` → 500, `/api//json` → 404, instead of a 308                                                             | `resolveRoutes` does not collapse repeated slashes; `new URL("//")` reads a host                                                                                                                                                                                                  | Collapse + 308 in `src/runtime/core.ts`, ahead of any parsing                                                                                                                           | `url-normalization`                                            |
@@ -606,7 +606,8 @@ verdicts were settled this way. Limits:
   directory (`.next/cdk-nextjs-init-cache`) instead — it is how defect 14's missing
   shells were found (the seeding loop had no jest coverage then).
 - **Offline agreement only rules out the request path, not the deploy.** Seeding
-  happens in the `BucketDeployment`, so an offline app has no seeded cache. Defect
+  happens in the cache seed custom resource (`NextjsCache.cacheSeed`), so an
+  offline app has no seeded cache. Defect
   32 agreed offline (both 404) and was a seeding bug.
 - For a question below the HTTP layer, call the library directly: defect 11 ran
   `resolveRoutes` from a shell; defect 35 fed candidate param shapes to next's built
@@ -669,10 +670,11 @@ parsing turns it into `/`). In Playwright, read duplicate headers with
 
 ### Deploy-side traps
 
-- **`cdk deploy --hotswap` does not check custom resources.** It invokes them with
-  placeholder response URLs and prints success even when they send `FAILED`. If a
-  cache looks partly seeded, count objects in the cache bucket against the seed
-  directory and read the `BucketDeployment` Lambda's log (defect 26).
+- **`cdk deploy --hotswap` does not check the custom resources it runs.** It
+  invokes `Custom::CDKBucketDeployment` ones, the cache seed included, with
+  placeholder response URLs and prints success even when they fail. If a cache
+  looks partly seeded, count objects in the cache bucket against the seed
+  directory and read the cache seed Lambda's log (defect 26).
 - **Hotswap never runs CloudFormation**, so the post-deploy custom resource does
   not fire between fixtures — anything it does (e.g. pruning the previous build) is not
   under harness coverage.

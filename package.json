@@ -18,6 +18,8 @@
     "bundle:adapter/use-cache-default-handler:watch": "pnpm dlx projen bundle:adapter/use-cache-default-handler:watch",
     "bundle:adapter/use-cache-remote-handler": "pnpm dlx projen bundle:adapter/use-cache-remote-handler",
     "bundle:adapter/use-cache-remote-handler:watch": "pnpm dlx projen bundle:adapter/use-cache-remote-handler:watch",
+    "bundle:lambdas/cache-seed/cache-seed.lambda": "pnpm dlx projen bundle:lambdas/cache-seed/cache-seed.lambda",
+    "bundle:lambdas/cache-seed/cache-seed.lambda:watch": "pnpm dlx projen bundle:lambdas/cache-seed/cache-seed.lambda:watch",
     "bundle:lambdas/post-deploy/post-deploy.lambda": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda",
     "bundle:lambdas/post-deploy/post-deploy.lambda:watch": "pnpm dlx projen bundle:lambdas/post-deploy/post-deploy.lambda:watch",
     "bundle:lambdas/redeploy-stage/redeploy-stage.lambda": "pnpm dlx projen bundle:lambdas/redeploy-stage/redeploy-stage.lambda",
@@ -79,6 +81,8 @@
     "@types/jest": "^29.5.14",
     "@types/mime-types": "^2.1.4",
     "@types/node": "^24",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "aws-cdk": "^2.1148.1",
@@ -108,7 +112,9 @@
     "ts-jest": "^29.4.15",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "undici": "^6.29.1"
+    "undici": "^6.29.1",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
   },
   "peerDependencies": {
     "aws-cdk-lib": "^2.261.0",
