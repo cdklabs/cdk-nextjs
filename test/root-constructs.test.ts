@@ -32,6 +32,7 @@ import {
   NextjsRegionalContainers,
   NextjsRegionalFunctions,
 } from "../src";
+import { LAMBDA_RUNTIME } from "../src/lambda-runtime";
 
 /**
  * Root-construct synth without `next build`: `NextjsBuild` is the one construct
@@ -516,10 +517,12 @@ describe("NextjsGlobalWebFunctions", () => {
     ).toEqual({});
   });
 
-  it("runs the pinned Node.js 24 runtime and the Web Function shell", () => {
+  it("runs LAMBDA_RUNTIME and the Web Function shell", () => {
     const { template } = synth({ functionGroups });
     for (const revision of Object.values(revisions(template))) {
-      expect(revision.BuildConfig.RuntimeConfig.Runtime).toBe("nodejs24.x");
+      expect(revision.BuildConfig.RuntimeConfig.Runtime).toBe(
+        LAMBDA_RUNTIME.name,
+      );
       expect(revision.ServiceConfig.EnvironmentVariables).toMatchObject({
         AWS_LAMBDA_NODEJS_ENTRYPOINT: "cdk-nextjs-runtime/web-function.mjs",
         NODE_ENV: "production",

@@ -26,6 +26,7 @@ import {
 import { DEFAULT_FUNCTION_GROUP } from "../adapter/function-groups";
 import { LOG_PREFIX } from "../constants";
 import { OptionalWebFunctionProps } from "../generated-structs/OptionalWebFunctionProps";
+import { LAMBDA_RUNTIME } from "../lambda-runtime";
 import { NextjsDeploymentRoot } from "../nextjs-build/nextjs-build";
 import { FUNCTION_GROUP_ENV_VAR, RUNTIME_DIR_NAME } from "../runtime/manifest";
 import { TRUSTED_ENDPOINT_ENV_VAR } from "../runtime/web-function-env";
@@ -213,8 +214,10 @@ export class NextjsWebFunctions extends Construct {
     const webFunctionProps: WebFunctionProps = {
       code: WebFunctionCode.fromAssetToManagedBucket(zipPath),
       entryPoint: ENTRY_POINT,
-      // Pinned, so a CDK upgrade can't move the app to another Node.js.
-      runtime: WebFunctionRuntime.NODEJS_24_X,
+      // `LAMBDA_RUNTIME`'s, by name: `WebFunctionRuntime` has no constant
+      // past `NODEJS_24_X`, though Web Functions run `nodejs26.x`. Pinned
+      // either way, so a CDK upgrade can't move the app to another Node.js.
+      runtime: WebFunctionRuntime.of(LAMBDA_RUNTIME.name),
       timeout: Duration.seconds(30),
       ...shared,
       ...own,

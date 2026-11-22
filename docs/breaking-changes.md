@@ -88,7 +88,8 @@ Node 22.2 or higher.
 
 Every function cdk-nextjs creates now uses the `nodejs26.x` runtime (was
 `nodejs24.x`): the Next.js server functions, the cache seed function, and the
-post-deploy and API Gateway redeploy-stage functions. The generated Dockerfiles
+post-deploy and API Gateway redeploy-stage functions. The new
+`NextjsGlobalWebFunctions` runs `nodejs26.x` too. The generated Dockerfiles
 for Global and Regional Containers now start `FROM node:26-alpine` (was
 `node:24-alpine`). Node 26 is the active LTS; Node 24 moves to maintenance.
 
