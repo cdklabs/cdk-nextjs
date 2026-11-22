@@ -27,8 +27,7 @@ an init cache:
   deploy before upgrading.** Upgrading deletes the old `BucketDeployment`, and
   with `retainOnDelete: false` its Delete empties its destination, by default
   the whole cache bucket (it had no key prefix unless you set one), the new
-  build's seed included. With the
-  default (`true`) nothing is deleted.
+  build's seed included. With the default (`true`) nothing is deleted.
 - **`NextjsCache.bucketDeployment` is removed.** **Migration:** depend on
   `NextjsCache.cacheSeed`, present only when the init cache holds a file. The
   root constructs already make their compute and `NextjsPostDeploy` wait for it.

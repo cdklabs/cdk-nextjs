@@ -21,6 +21,20 @@ function suppressLambdaExecutionRole(
 }
 
 /**
+ * The CDK assets bucket's objects, as cdk-nag renders a grant on them: with the
+ * partition, account and region as tokens, or (in a stack with an explicit
+ * `env`) the account and region literal and the partition either. Only the
+ * bucket's own `/*`, not a deeper prefix.
+ */
+const CDK_ASSETS_OBJECTS: Array<string | { regex: string }> = [
+  {
+    regex:
+      "/^Resource::arn:(<AWS::Partition>|aws[a-z-]*):s3:::cdk-hnb659fds-assets-[^/]+/\\*$/",
+  },
+  "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
+];
+
+/**
  * Helper function to suppress IAM5 for S3 wildcard permissions commonly needed by compute resources
  */
 function suppressS3WildcardPermissions(
@@ -53,13 +67,7 @@ function suppressS3WildcardPermissions(
   }
 
   if (includeCdkAssets) {
-    resources.push(
-      {
-        regex:
-          "/^Resource::arn:(aws|aws-cn|aws-us-gov):s3:::cdk-hnb659fds-assets-.+/\\*$/",
-      },
-      "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
-    );
+    resources.push(...CDK_ASSETS_OBJECTS);
   }
 
   NagSuppressions.addResourceSuppressionsByPath(stack, path, [
@@ -156,13 +164,7 @@ export function suppressCommonNags(stack: Stack) {
               regex:
                 "/^Resource::<NextjsNextjsCacheBucket[A-Z0-9]+\\.Arn>/\\*$/",
             },
-            // The assets bucket ARN with a literal partition, account and region,
-            // as a stack with an explicit `env` renders it.
-            {
-              regex:
-                "/^Resource::arn:(aws|aws-cn|aws-us-gov):s3:::cdk-hnb659fds-assets-.+/\\*$/",
-            },
-            "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
+            ...CDK_ASSETS_OBJECTS,
           ],
         },
       ],
