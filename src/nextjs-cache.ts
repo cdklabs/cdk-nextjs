@@ -29,8 +29,8 @@ import { SECURE_BUCKET_PROPS } from "./utils/secure-bucket-props";
 /**
  * Bytes on disk under `dir`, following the tree but not symlinks.
  *
- * On {@link listTree} rather than `readdirSync({ recursive: true })`, which on
- * Node 24 descends into symlinked directories and never returns on a cycle.
+ * On {@link listTree} rather than `readdirSync({ recursive: true })`, which
+ * descends into symlinked directories and never returns on a cycle.
  */
 export function sizeOfDirectory(dir: string): number {
   let total = 0;

@@ -1,4 +1,6 @@
 {
+  // Still node24 though the constructs deploy Node 26: @tsconfig/node26 sets
+  // lib es2025 and ESNext.Temporal, which need TypeScript 6. Type-check only.
   "extends": ["@tsconfig/strictest", "@tsconfig/node24"],
   "exclude": ["**/.next/**", "**/cdk.out/**"],
   "compilerOptions": {
