@@ -21,6 +21,20 @@ function suppressLambdaExecutionRole(
 }
 
 /**
+ * The CDK assets bucket's objects, as cdk-nag renders a grant on them: with the
+ * partition, account and region as tokens, or (in a stack with an explicit
+ * `env`) the account and region literal and the partition either. Only the
+ * bucket's own `/*`, not a deeper prefix.
+ */
+const CDK_ASSETS_OBJECTS: Array<string | { regex: string }> = [
+  {
+    regex:
+      "/^Resource::arn:(<AWS::Partition>|aws[a-z-]*):s3:::cdk-hnb659fds-assets-[^/]+/\\*$/",
+  },
+  "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
+];
+
+/**
  * Helper function to suppress IAM5 for S3 wildcard permissions commonly needed by compute resources
  */
 function suppressS3WildcardPermissions(
@@ -53,13 +67,7 @@ function suppressS3WildcardPermissions(
   }
 
   if (includeCdkAssets) {
-    resources.push(
-      {
-        regex:
-          "/^Resource::arn:(aws|aws-cn|aws-us-gov):s3:::cdk-hnb659fds-assets-.+/\\*$/",
-      },
-      "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
-    );
+    resources.push(...CDK_ASSETS_OBJECTS);
   }
 
   NagSuppressions.addResourceSuppressionsByPath(stack, path, [
@@ -131,6 +139,37 @@ export function suppressCommonNags(stack: Stack) {
     "Post-deploy Lambda needs wildcard S3 permissions to manage cache and static assets",
     { includeStaticAssets: true },
   );
+
+  // Cache seed function suppressions. It only exists when the app has an init
+  // cache, and a suppression path that matches nothing throws. Its role has no
+  // managed policy (no IAM4), only the log group's grant and these wildcards.
+  const cacheSeedPolicy = `${stack.stackName}/Nextjs/NextjsCache/CacheSeedRole/DefaultPolicy/Resource`;
+  if (
+    stack.node
+      .findAll()
+      .some((construct) => construct.node.path === cacheSeedPolicy)
+  ) {
+    // Only the resource wildcards: its actions are exact, so a wildcard
+    // action (a delete, say) added later is still reported.
+    NagSuppressions.addResourceSuppressionsByPath(
+      stack,
+      `/${cacheSeedPolicy}`,
+      [
+        {
+          id: "AwsSolutions-IAM5",
+          reason:
+            "Cache seed Lambda reads the init cache asset from the CDK assets bucket and writes it under the build's prefix in the cache bucket; whole-bucket grants keep its policy unchanged across builds, which a hotswap needs",
+          appliesTo: [
+            {
+              regex:
+                "/^Resource::<NextjsNextjsCacheBucket[A-Z0-9]+\\.Arn>/\\*$/",
+            },
+            ...CDK_ASSETS_OBJECTS,
+          ],
+        },
+      ],
+    );
+  }
 
   // CDK Bucket Deployment suppressions (using regex patterns to match dynamic hashes)
   // Note: We suppress these using a post-synthesis approach since the exact resource names

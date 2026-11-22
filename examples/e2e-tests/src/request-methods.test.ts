@@ -142,15 +142,18 @@ test.describe("request methods", () => {
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-echo"]).toBe("echo");
 
-    // The handler declares the length its GET would have returned, and since
-    // Next.js 16.4.5 Next.js itself drops it: `sendResponse` no longer copies
-    // `content-length` (nor `content-encoding`, `transfer-encoding`) from a route
-    // handler's `Response` (`FORBIDDEN_HEADERS` in `server/send-response.ts`, a
-    // security fix), so a HEAD arrives with none, on every type.
+    // The handler declares the length its GET would have returned, but Next.js
+    // drops it: since 16.4.5 (GHSA-pc58-hwjq-p385) `sendResponse` strips
+    // `content-length`, `content-encoding` and `transfer-encoding` from a route
+    // handler's `Response`, so a framing header never reaches the runtime. A HEAD
+    // is the other empty-body case the Lambda sink pads, and what matters is that
+    // the padding byte does not surface as a `content-length: 1` of its own.
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
-    // sent. Asserted rather than skipped, so a change at either layer shows up
-    // here.
+    // sent. Measured, not reasoned: the containers, API Gateway's streaming
+    // integration and a Web Function endpoint send no `content-length` at all. Asserted rather than skipped,
+    // so a Next.js that starts forwarding the declared length again, or a Function
+    // URL that stops inventing one, shows up here.
     expect(response.headers()["content-length"]).toBe(
       isGlobalFunctions() ? "0" : undefined,
     );
@@ -168,6 +171,35 @@ test.describe("request methods", () => {
 
     const body = await response.body();
     expect(body.byteLength).toBeLessThanOrEqual(1);
+  });
+
+  test("keeps a Pages API route's declared length on HEAD", async ({
+    request,
+  }) => {
+    // The declared-length check `answers HEAD on a dynamic route` can no longer
+    // make: Next.js 16.4.5+ strips a route handler's `content-length`, but a Pages
+    // API route writes the Node response itself, so its header reaches the
+    // runtime. The runtime pads the empty body, and the declared length has to
+    // survive that padding rather than be replaced by it (`content-length: 1`).
+    //
+    // Except behind a Lambda Function URL, which answers `0` whatever the runtime
+    // declared: the same runtime's length gets through API Gateway's streaming
+    // integration and from an ALB, with or without CloudFront in front.
+    const response = await request.head("./api/head-length");
+    expect(response.status()).toBe(200);
+    expect(response.headers()["x-e2e-head-length"]).toBe("pages");
+    expect(response.headers()["content-length"]).toBe(
+      isGlobalFunctions() ? "0" : "42",
+    );
+
+    const body = await response.body();
+    expect(body.byteLength).toBeLessThanOrEqual(1);
+
+    // The GET it describes, so a HEAD that declares the right length for the
+    // wrong body would show up too.
+    const get = await request.get("./api/head-length");
+    expect(get.status()).toBe(200);
+    expect((await get.body()).byteLength).toBe(42);
   });
 
   test("answers OPTIONS and DELETE", async ({ request }) => {

@@ -6,7 +6,7 @@ import { LambdaRuntime } from "projen/lib/awscdk";
 import { JobStep } from "projen/lib/github/workflows-model";
 import { UpgradeDependenciesSchedule } from "projen/lib/javascript";
 
-const nodeVersion = 24;
+const nodeVersion = 26;
 const pnpmVersion = "10.32.1";
 const project = new CdklabsConstructLibrary({
   // repository config
@@ -25,7 +25,7 @@ const project = new CdklabsConstructLibrary({
   jsiiVersion: "~6.0.4",
   packageManager: javascript.NodePackageManager.PNPM,
   pnpmVersion,
-  projenVersion: "^0.101.6",
+  projenVersion: "^0.105.6",
   devDeps: [
     "@aws-crypto/sha256-js",
     "@aws-sdk/client-api-gateway",
@@ -53,12 +53,20 @@ const project = new CdklabsConstructLibrary({
     "@types/debug",
     "@types/mime-types",
     "@types/node@^24",
+    "@types/yauzl",
+    "@types/yazl",
     "cdk-nag",
     "debug",
     "esbuild",
     "mime-types",
-    "next@^16.4.6", // bundled in src/nextjs-build/cache-handler.ts
+    // External to every esbuild bundle below, so not shipped. Its installed version
+    // is the one the tests, the zero-config gate and the harness warm app build with.
+    "next@^16.4.6",
     "undici",
+    // Reads the init cache asset's zip in the cache seeder (bundled by esbuild).
+    "yauzl",
+    // Writes zips for the cache seeder's tests only.
+    "yazl",
   ],
   // Synth runs on the user's Node. 22.2 is the first 22.x with `zlib.crc32`.
   minNodeVersion: "22.2.0",
@@ -86,6 +94,10 @@ const project = new CdklabsConstructLibrary({
       schedule: UpgradeDependenciesSchedule.MONTHLY,
     },
   },
+  // Its PRs failed every month (the regenerated package.json no longer matched
+  // the lockfile) and were closed by hand. Turned off, projen and
+  // cdklabs-projen-project-types ride along in the monthly dev-deps PR instead.
+  upgradeCdklabsProjenProjectTypes: false,
   autoApproveUpgrades: true,
   autoApproveOptions: {
     allowedUsernames: [
@@ -131,13 +143,17 @@ const project = new CdklabsConstructLibrary({
   },
   sampleCode: false,
   jsiiTargetLanguages: [],
-  releasableCommits: ReleasableCommits.ofType([
-    "feat",
-    "fix",
-    "chore",
-    "refactor",
-    "perf",
-  ]),
+  // `chore` releases, except dependency bumps: `chore(deps)` from the upgrade
+  // workflows, `chore(deps-dev)` from Dependabot, and hand-made
+  // `chore: upgrade <dep>` PRs. Those ride along with the next release instead
+  // of publishing one each, which is noise for anyone watching releases.
+  // `|| true` because grep exits 1 when it filters out every line, and an
+  // empty list just means "nothing to release".
+  releasableCommits: ReleasableCommits.exec(
+    `${
+      ReleasableCommits.ofType(["feat", "fix", "chore", "refactor", "perf"]).cmd
+    } | grep -vE '^[0-9a-f]+ chore(\\(deps(-dev)?\\)|: upgrade )' || true`,
+  ),
   githubOptions: {
     mergifyOptions: {
       rules: [
@@ -202,7 +218,7 @@ copyDockerfiles();
 checkBundleSyntax(bundle());
 typeCheckEsmSources();
 updateGitHubWorkflows();
-skipDraftAutoQueue();
+skipDraftAndForkAutoQueue();
 generateStructs();
 updatePackageJson();
 restrictNextValueImports();
@@ -466,25 +482,6 @@ function updateGitHubWorkflows() {
       ...upgradeJobSteps.slice(4),
     ],
   });
-  // .github/workflows/upgrade-cdklabs-projen-project-types-main.yml
-  const upgradeCdklabsWorkflow = project.github?.tryFindWorkflow(
-    "upgrade-cdklabs-projen-project-types-main",
-  );
-  if (!upgradeCdklabsWorkflow) return;
-  const upgradeCdklabsJob = upgradeCdklabsWorkflow.getJob("upgrade");
-  if (!upgradeCdklabsJob || !("steps" in upgradeCdklabsJob)) return;
-  const upgradeCdklabsJobSteps = upgradeCdklabsJob.steps;
-  upgradeCdklabsWorkflow.updateJob("upgrade", {
-    ...upgradeCdklabsJob,
-    steps: [
-      ...upgradeCdklabsJobSteps.slice(0, 4),
-      {
-        name: "Compile JSII",
-        run: `pnpm projen compile`,
-      },
-      ...upgradeCdklabsJobSteps.slice(4),
-    ],
-  });
   // .github/workflows/upgrade-dev-deps-main.yml
   const upgradeDevDepsWorkflow = project.github?.tryFindWorkflow(
     "upgrade-dev-deps-main",
@@ -511,22 +508,28 @@ function updateGitHubWorkflows() {
  * every draft that is opened. It also runs on `ready_for_review`, which is when
  * a draft gets queued, so skipping drafts loses nothing.
  *
+ * A PR from a fork isn't queued either: e2e-tests.yml skips it with the same
+ * head-repo test, so it would merge on its first approval without an
+ * end-to-end run. A maintainer recreates it on a branch here instead (see
+ * CONTRIBUTING.md).
+ *
  * ANDed onto whatever condition projen generates (labels, authors), and loud
  * if a projen upgrade renames the workflow or the job, rather than silently
- * bringing the draft failures back.
+ * bringing back the draft failures or auto-merge for fork PRs.
  */
-function skipDraftAutoQueue() {
+function skipDraftAndForkAutoQueue() {
   const workflow = project.github?.tryFindWorkflow("auto-queue");
   const job = workflow?.getJob("enableAutoQueue");
   if (!workflow || !job) {
     throw new Error(
-      "skipDraftAutoQueue: projen's auto-queue workflow or its enableAutoQueue job is gone",
+      "skipDraftAndForkAutoQueue: projen's auto-queue workflow or its enableAutoQueue job is gone",
     );
   }
-  const draft = "!github.event.pull_request.draft";
+  const queueable =
+    "!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository";
   workflow.updateJob("enableAutoQueue", {
     ...job,
-    if: job.if ? `(${job.if}) && ${draft}` : draft,
+    if: job.if ? `(${job.if}) && ${queueable}` : queueable,
   });
 }
 

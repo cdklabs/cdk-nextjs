@@ -17,6 +17,7 @@ import {
   Code,
   Function as LambdaFunction,
   Runtime,
+  RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import {
   NextjsGlobalContainers,
@@ -177,7 +178,7 @@ function requireCookie(service: ApplicationLoadBalancedFargateService): void {
  */
 function cookieGatedMethodOptions(scope: Construct): MethodOptions {
   const handler = new LambdaFunction(scope, "CookieAuthorizerFn", {
-    runtime: Runtime.NODEJS_24_X,
+    runtime: new Runtime("nodejs26.x", RuntimeFamily.NODEJS),
     architecture: Architecture.ARM_64,
     handler: "index.handler",
     code: Code.fromAsset(

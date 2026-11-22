@@ -42,3 +42,11 @@ export function isSignedLambdaOriginType(nextjsType: NextjsType): boolean {
     nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS
   );
 }
+
+/**
+ * Object written at `<buildId>/.seeded` once a build's init cache has been
+ * written in (`NextjsCache.cacheSeed`). While it exists the seed is never
+ * written again, so a CloudFormation rollback or a re-deploy of the same build
+ * can't overwrite entries the app has since regenerated or deleted.
+ */
+export const CACHE_SEEDED_MARKER = ".seeded";

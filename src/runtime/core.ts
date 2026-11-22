@@ -206,7 +206,7 @@ export class NextjsRuntime {
     // The rejection handler is attached here rather than at the `await` below.
     // `route()` awaits real I/O, so a stream that breaks while it runs would
     // leave this promise rejected with no handler attached for a full event-loop
-    // turn — and Node 24 defaults to `--unhandled-rejections=throw`, which on
+    // turn — and Node (15+) defaults to `--unhandled-rejections=throw`, which on
     // the container shell takes the whole task down and aborts every other
     // in-flight request on it. A mid-stream EPIPE from one client disconnect is
     // not grounds for that.

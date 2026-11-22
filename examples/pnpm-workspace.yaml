@@ -1,6 +1,6 @@
 packages:
   - '**'
-  - '!**/cdk.out/**'
+  - '!**/cdk.out*/**'
 
 catalog:
   '@heroicons/react': 2.1.3

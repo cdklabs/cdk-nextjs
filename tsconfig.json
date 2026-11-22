@@ -30,7 +30,9 @@
       "debug",
       "jest",
       "mime-types",
-      "node"
+      "node",
+      "yauzl",
+      "yazl"
     ],
     "skipLibCheck": true
   },

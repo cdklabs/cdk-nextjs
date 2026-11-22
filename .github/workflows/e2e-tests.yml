@@ -28,34 +28,34 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
-permissions:
-  id-token: write
+# Only the deploy jobs get a token permission: `id-token: write`, for AWS OIDC.
+# Each also repeats the fork test (`&same-repo`), so a later `needs` or
+# `always()` change can't hand a fork's code those credentials.
+permissions: {}
 env:
   ENV: ${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.number) || github.ref_name }}
 jobs:
-  # needed because we want ability to skip e2e tests sometimes via label and
-  # on push to main we always want e2e tests to run
+  # The gate every deploy job needs: skip e2e tests via a label, never deploy a
+  # fork's code, and always run on a push to main. A fork's code never runs here,
+  # not even after a manual approval, because these jobs get AWS credentials
+  # through OIDC; a maintainer recreates the change on a branch in this
+  # repository instead (see CONTRIBUTING.md). `pull_request_target` reads this
+  # condition from the base branch, so a fork can't change it.
   check-if-should-run:
     runs-on: ubuntu-24.04-arm
     # `github.event_name == 'push'` -> will run after merge to main
-    # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> will run when PR doesn't have label: skip-e2e-tests
-    # `!github.event.pull_request.draft` -> won't run for a draft PR; every deploy job needs this one, so they are skipped too
-    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
+    # `head.repo.full_name == github.repository` -> won't run for a PR from a fork
+    # `!github.event.pull_request.draft` -> won't run for a draft PR
+    # `!contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')` -> won't run when the PR has label: skip-e2e-tests
+    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-e2e-tests')) }}
     steps:
       - run: echo "Workflow should run"
 
-  # needed to manually approve fork PRs since they can contain malicious code
-  # "Approve workflows to run" button does not apply to pull_request_target which
-  # is required for fork PR to access OIDC for AWS access.
-  wait-for-approval:
-    needs: [check-if-should-run]
-    runs-on: ubuntu-24.04-arm
-    environment: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && 'manual-approval' || null }}
-    steps:
-      - run: echo "Workflow Approved! Starting PR Checks."
-
   glbl-fns:
-    needs: wait-for-approval
+    needs: check-if-should-run
+    if: &same-repo ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    permissions:
+      id-token: write
     runs-on: ubuntu-24.04-arm
     # This example declares `functionGroups` (see its app.ts), so it is the job
     # that exercises splitting. The name must match the group owning `/api/**`.
@@ -93,7 +93,10 @@ jobs:
           stack_name: ${{ env.ENV }}-glbl-web-fns
 
   glbl-cntnrs:
-    needs: wait-for-approval
+    needs: check-if-should-run
+    if: *same-repo
+    permissions:
+      id-token: write
     runs-on: ubuntu-22.04-arm
     steps:
       - name: Checkout PR
@@ -108,7 +111,10 @@ jobs:
           stack_name: ${{ env.ENV }}-glbl-cntnrs
 
   rgnl-cntnrs:
-    needs: wait-for-approval
+    needs: check-if-should-run
+    if: *same-repo
+    permissions:
+      id-token: write
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout PR
@@ -122,7 +128,10 @@ jobs:
           example_directory: regional-containers
           stack_name: ${{ env.ENV }}-rgnl-cntnrs
   rgnl-fns:
-    needs: wait-for-approval
+    needs: check-if-should-run
+    if: *same-repo
+    permissions:
+      id-token: write
     # x86 on purpose: examples/regional-functions deploys ARM_64, so this is the
     # job that stages `sharp` for an architecture other than the host's.
     runs-on: ubuntu-22.04

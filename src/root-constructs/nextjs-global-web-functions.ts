@@ -155,29 +155,37 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
   private createNextjsWebFunctions() {
     const overrides = this.props.overrides?.nextjsWebFunctions;
     const webFunctionProps = overrides?.webFunctionProps;
-    return new NextjsWebFunctions(this, "NextjsWebFunctions", {
-      ...this.computeBaseProps(),
-      deploymentRoots: this.nextjsBuild.deploymentRoots,
-      functionGroups: this.props.functionGroups,
-      overrides: {
-        ...overrides,
-        webFunctionProps: {
-          ...webFunctionProps,
-          // A Web Function has no `addEnvironment`, so the name goes in up
-          // front; see `wireCloudFrontInvalidation`.
-          environment: {
-            CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME:
-              this.distributionIdParameterName,
-            ...webFunctionProps?.environment,
+    const nextjsWebFunctions = new NextjsWebFunctions(
+      this,
+      "NextjsWebFunctions",
+      {
+        ...this.computeBaseProps(),
+        deploymentRoots: this.nextjsBuild.deploymentRoots,
+        functionGroups: this.props.functionGroups,
+        overrides: {
+          ...overrides,
+          webFunctionProps: {
+            ...webFunctionProps,
+            // A Web Function has no `addEnvironment`, so the name goes in up
+            // front; see `wireCloudFrontInvalidation`.
+            environment: {
+              CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME:
+                this.distributionIdParameterName,
+              ...webFunctionProps?.environment,
+            },
+            // Conditionally, so an override's connector isn't overwritten with
+            // `undefined`.
+            ...(this.props.vpc && !webFunctionProps?.egressNetworkConnector
+              ? { egressNetworkConnector: this.createNetworkConnector() }
+              : {}),
           },
-          // Conditionally, so an override's connector isn't overwritten with
-          // `undefined`.
-          ...(this.props.vpc && !webFunctionProps?.egressNetworkConnector
-            ? { egressNetworkConnector: this.createNetworkConnector() }
-            : {}),
         },
       },
-    });
+    );
+    this.waitForCacheSeed(
+      ...nextjsWebFunctions.functionGroups.map((group) => group.webFunction),
+    );
+    return nextjsWebFunctions;
   }
 
   /**

@@ -10,7 +10,7 @@
 !/package.json
 !/LICENSE
 !/.npmignore
-logs
+/logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -46,6 +46,7 @@ ash_output
 junit.xml
 /coverage/
 !/.github/workflows/build.yml
+!/.github/workflows/self-mutation.yml
 /dist/changelog.md
 /dist/version.txt
 !/.github/workflows/release.yml
@@ -61,13 +62,13 @@ junit.xml
 .jsii
 !/API.md
 /assets/
+!/src/lambdas/cache-seed/cache-seed-function.ts
 !/src/lambdas/post-deploy/post-deploy-function.ts
 !/src/lambdas/redeploy-stage/redeploy-stage-function.ts
 .jsii.tabl.json
 !/rosetta/default.ts-fixture
 !/.github/workflows/retry-automerge.yml
 !/.github/workflows/auto-queue.yml
-!/.github/workflows/upgrade-cdklabs-projen-project-types-main.yml
 !/.github/workflows/upgrade-main.yml
 !/.github/workflows/upgrade-dev-deps-main.yml
 !/examples/**/tsconfig.json

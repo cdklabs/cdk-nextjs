@@ -338,6 +338,33 @@ describe("NextjsGlobalFunctions", () => {
     expect(JSON.stringify(Resource)).not.toContain("distribution/*");
   });
 
+  it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups,
+      invalidateCdnOnRevalidate: false,
+    });
+    const template = Template.fromStack(stack);
+    // No parameter name, so the cache handler never invalidates; and no
+    // grant, since nothing in the functions would use it.
+    template.resourceCountIs("AWS::SSM::Parameter", 0);
+    const groups = appFunctions(template);
+    expect(Object.keys(groups).sort()).toEqual(["default", "reports"]);
+    const resources = template.toJSON().Resources;
+    for (const logicalId of Object.values(groups)) {
+      expect(
+        resources[logicalId].Properties.Environment.Variables,
+      ).not.toHaveProperty("CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME");
+      const actions = actionsOf(template, logicalId);
+      expect(actions).not.toContain("cloudfront:CreateInvalidation");
+      expect(actions).not.toContain("ssm:GetParameter");
+      expectCacheGrants(template, logicalId);
+    }
+    // The invalidation after each deploy is not affected.
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
+  });
+
   it("routes each group's patterns, parent and data URLs to its function", () => {
     const stack = new Stack(new App(), "Stack");
     new NextjsGlobalFunctions(stack, "App", {
@@ -962,6 +989,31 @@ describe("NextjsGlobalContainers", () => {
       );
     expect(JSON.stringify(invalidation.Resource)).toContain(distributionId);
   });
+
+  it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsGlobalContainers(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+      invalidateCdnOnRevalidate: false,
+    });
+    const template = Template.fromStack(stack);
+    const [taskDefinition] = Object.values(
+      template.findResources("AWS::ECS::TaskDefinition"),
+    );
+    for (const container of taskDefinition.Properties.ContainerDefinitions) {
+      expect(
+        (container.Environment ?? []).map((env: any) => env.Name),
+      ).not.toContain("CDK_NEXTJS_DISTRIBUTION_ID");
+    }
+    const actions = taskRoleActions(template);
+    expect(actions).not.toContain("cloudfront:CreateInvalidation");
+    expectCacheActions(actions);
+    // The invalidation after each deploy is not affected.
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
+  });
 });
 
 describe("NextjsRegionalContainers", () => {
@@ -1020,6 +1072,27 @@ describe.each([
   ["NextjsGlobalContainers", NextjsGlobalContainers],
   ["NextjsRegionalContainers", NextjsRegionalContainers],
 ])("%s", (_, RootConstruct) => {
+  it("waits for the ECS service before post-deploy pruning", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new RootConstruct(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+    });
+    const template = Template.fromStack(stack);
+    const services = Object.keys(template.findResources("AWS::ECS::Service"));
+    expect(services).toHaveLength(1);
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
+    const [postDeploy] = Object.values(
+      template.findResources("Custom::NextjsPostDeploy"),
+    );
+
+    // The service, not just its task definition: old tasks can still serve
+    // requests after CloudFormation has updated the task definition.
+    expect(postDeploy.DependsOn).toEqual(expect.arrayContaining(services));
+  });
+
   // An unset `vpc` prop used to be written over the override's as `undefined`,
   // so the cluster created a VPC of its own and the tasks ran outside the
   // consumer's.
@@ -1143,6 +1216,93 @@ describe("deploy-time invalidation", () => {
 
     expect(uploads).toHaveLength(2);
     expect(postDeploy.DependsOn).toEqual(expect.arrayContaining(uploads));
+  });
+});
+
+// cdklabs/cdk-nextjs#343: the seed is written once and never over an
+// existing key, so a request the new build served before seeding would render
+// on demand and that render would win over the prerendered seed.
+describe("init cache seeding", () => {
+  const initCacheDir = () => join(buildDir, ".next", "cdk-nextjs-init-cache");
+
+  beforeAll(() => {
+    write(join(initCacheDir(), "server", "app", "index.html"), "<p/>");
+  });
+
+  afterAll(() => {
+    rmSync(initCacheDir(), { recursive: true, force: true });
+  });
+
+  function synth(construct: (stack: Stack) => void) {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    construct(stack);
+    const template = Template.fromStack(stack);
+    // Its type is the static assets' `BucketDeployment`s' too.
+    const seeds = Object.keys(
+      template.findResources("Custom::CDKBucketDeployment"),
+    ).filter((id) => id.includes("NextjsCacheCacheSeed"));
+    expect(seeds).toHaveLength(1);
+    return { template, seed: seeds[0] };
+  }
+
+  function expectWaitsForSeed(template: Template, type: string, seed: string) {
+    const dependents = Object.values(template.findResources(type));
+    expect(dependents.length).toBeGreaterThan(0);
+    for (const dependent of dependents) {
+      expect(dependent.DependsOn).toEqual(expect.arrayContaining([seed]));
+    }
+  }
+
+  it.each([
+    ["NextjsGlobalFunctions", NextjsGlobalFunctions],
+    ["NextjsRegionalFunctions", NextjsRegionalFunctions],
+  ])("%s: every function group waits for the seed", (_, RootConstruct) => {
+    const { template, seed } = synth(
+      (stack) =>
+        new RootConstruct(stack, "App", {
+          buildDirectory: buildDir,
+          functionGroups,
+        }),
+    );
+    const groups = appFunctions(template);
+    expect(Object.keys(groups).sort()).toEqual(["default", "reports"]);
+    const functions = template.findResources("AWS::Lambda::Function");
+    for (const logicalId of Object.values(groups)) {
+      expect(functions[logicalId].DependsOn).toEqual(
+        expect.arrayContaining([seed]),
+      );
+    }
+    expectWaitsForSeed(template, "Custom::NextjsPostDeploy", seed);
+  });
+
+  it("NextjsGlobalWebFunctions: every function group waits for the seed", () => {
+    const { template, seed } = synth(
+      (stack) =>
+        new NextjsGlobalWebFunctions(stack, "App", {
+          buildDirectory: buildDir,
+          functionGroups,
+        }),
+    );
+    template.resourceCountIs("AWS::Lambda::WebFunction", 2);
+    expectWaitsForSeed(template, "AWS::Lambda::WebFunction", seed);
+    expectWaitsForSeed(template, "Custom::NextjsPostDeploy", seed);
+  });
+
+  it.each([
+    ["NextjsGlobalContainers", NextjsGlobalContainers],
+    ["NextjsRegionalContainers", NextjsRegionalContainers],
+  ])("%s: the ECS service waits for the seed", (_, RootConstruct) => {
+    const { template, seed } = synth(
+      (stack) =>
+        new RootConstruct(stack, "App", {
+          buildDirectory: buildDir,
+          healthCheckPath: "/api/health",
+        }),
+    );
+    expectWaitsForSeed(template, "AWS::ECS::Service", seed);
+    expectWaitsForSeed(template, "Custom::NextjsPostDeploy", seed);
   });
 });
 

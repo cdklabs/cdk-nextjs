@@ -7,6 +7,9 @@ on:
       - opened
       - reopened
       - ready_for_review
+      - edited
+    branches:
+      - main
 jobs:
   enableAutoQueue:
     name: "Set AutoQueue on PR #${{ github.event.number }}"
@@ -14,7 +17,7 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
-    if: "!github.event.pull_request.draft"
+    if: ((github.event.action != 'edited' || github.event.changes.base)) && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - id: auto-queue-pr
         env:

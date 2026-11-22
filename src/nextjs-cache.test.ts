@@ -10,13 +10,15 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { App, Size, Stack } from "aws-cdk-lib";
-import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
+import { App, Duration, Size, Stack } from "aws-cdk-lib";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { AttributeType } from "aws-cdk-lib/aws-dynamodb";
-import { Vpc } from "aws-cdk-lib/aws-ec2";
-import { Bucket } from "aws-cdk-lib/aws-s3";
-import { Source } from "aws-cdk-lib/aws-s3-deployment";
-import { NextjsCache, sizeOfDirectory } from "./nextjs-cache";
+import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import {
+  measureDirectory,
+  NextjsCache,
+  NextjsCacheProps,
+} from "./nextjs-cache";
 
 describe("NextjsCache", () => {
   let app: App;
@@ -28,6 +30,20 @@ describe("NextjsCache", () => {
   });
 
   describe("Basic Construction", () => {
+    it("creates no seeder without an init cache", () => {
+      const cache = new NextjsCache(stack, "TestCache", {
+        buildId: "test-build-123",
+        initCacheDir: "/tmp/does-not-exist-cdk-nextjs-init-cache",
+      });
+
+      expect(cache.cacheSeed).toBeUndefined();
+      expect(cache.cacheSeedFunction).toBeUndefined();
+      Template.fromStack(stack).resourceCountIs(
+        "Custom::CDKBucketDeployment",
+        0,
+      );
+    });
+
     it("should create S3 bucket and DynamoDB table", () => {
       const cache = new NextjsCache(stack, "TestCache", {
         buildId: "test-build-123",
@@ -153,14 +169,14 @@ describe("NextjsCache", () => {
     });
   });
 
-  describe("Init cache deployment", () => {
+  describe("Init cache seed", () => {
     let initCacheDir: string;
     let outdir: string;
 
     beforeEach(() => {
       initCacheDir = mkdtempSync(join(tmpdir(), "init-cache-src-"));
       mkdirSync(join(initCacheDir, "server", "app"), { recursive: true });
-      writeFileSync(join(initCacheDir, "server", "app", "index.html"), "<p/>");
+      writeFileSync(join(initCacheDir, "server", "app", "index.json"), "{}");
       outdir = mkdtempSync(join(tmpdir(), "init-cache-out-"));
     });
 
@@ -169,347 +185,241 @@ describe("NextjsCache", () => {
       rmSync(outdir, { recursive: true, force: true });
     });
 
-    /**
-     * The tag `BucketDeployment` stamps on its destination bucket, and the only
-     * one that can vary between two builds. `Tags` on an `AWS::S3::Bucket` are
-     * not hotswappable, so a tag key that carries the build ID costs a full
-     * CloudFormation deployment on every deploy.
-     */
-    function ownerTags(template: Template): string[] {
-      const buckets = template.findResources("AWS::S3::Bucket");
-      return Object.values(buckets)
-        .flatMap((bucket) => bucket.Properties?.Tags ?? [])
-        .map((tag: { Key: string }) => tag.Key)
-        .filter((key) => key.startsWith("aws-cdk:cr-owned"));
-    }
-
-    function synth(buildId: string) {
+    function synth(buildId: string, overrides?: NextjsCacheProps["overrides"]) {
       const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
       const ownStack = new Stack(ownApp, "TestStack");
-      new NextjsCache(ownStack, "TestCache", { buildId, initCacheDir });
-      return { app: ownApp, template: Template.fromStack(ownStack) };
+      const cache = new NextjsCache(ownStack, "TestCache", {
+        buildId,
+        initCacheDir,
+        overrides,
+      });
+      return { app: ownApp, cache, template: Template.fromStack(ownStack) };
     }
 
-    it("keys the objects under the build ID without a destinationKeyPrefix", () => {
+    function seedResource(template: Template) {
+      const seeds = template.findResources("Custom::CDKBucketDeployment");
+      expect(Object.keys(seeds)).toHaveLength(1);
+      return Object.values(seeds)[0];
+    }
+
+    /** The seeder's resources of `type`, not the bucket's auto-delete ones. */
+    function seedResources(template: Template, type: string, id: string) {
+      return Object.entries(template.findResources(type))
+        .filter(([logicalId]) => logicalId.startsWith(`TestCache${id}`))
+        .map(([logicalId, resource]) => ({
+          logicalId,
+          Properties: resource.Properties,
+        }));
+    }
+
+    function seedFunction(template: Template) {
+      const functions = seedResources(
+        template,
+        "AWS::Lambda::Function",
+        "CacheSeedFn",
+      );
+      expect(functions).toHaveLength(1);
+      return functions[0].Properties;
+    }
+
+    function seedPolicy(template: Template) {
+      const policies = template.findResources("AWS::IAM::Policy");
+      expect(Object.keys(policies)).toHaveLength(1);
+      return Object.values(policies)[0].Properties.PolicyDocument;
+    }
+
+    it("creates no seeder for an init cache without a file", () => {
+      // What a build with nothing to prerender leaves.
+      rmSync(join(initCacheDir, "server", "app", "index.json"));
+
+      const { cache, template } = synth("build-abc123");
+
+      expect(cache.cacheSeed).toBeUndefined();
+      template.resourceCountIs("Custom::CDKBucketDeployment", 0);
+      expect(
+        seedResources(template, "AWS::Lambda::Function", "CacheSeedFn"),
+      ).toEqual([]);
+    });
+
+    // `cdk deploy --hotswap` runs a custom resource only of this type: it picks
+    // it out by the type string alone and invokes the ServiceToken Lambda
+    // directly (`HOTSWAP_RESPONSE_URL`). Any other type, `Custom::NextjsCacheSeed`
+    // included, is skipped, and a hotswapped stack then serves unseeded.
+    it("is a Custom::CDKBucketDeployment, so a hotswap runs it", () => {
+      const { cache, template } = synth("build-abc123");
+
+      const seed = seedResource(template);
+      expect(seed.Type).toBe("Custom::CDKBucketDeployment");
+      // The Lambda itself, not a Provider framework's, which the hotswap's
+      // CloudFormation-shaped event would not get through.
+      const [fn] = seedResources(
+        template,
+        "AWS::Lambda::Function",
+        "CacheSeedFn",
+      );
+      expect(seed.Properties.ServiceToken).toEqual({
+        "Fn::GetAtt": [fn.logicalId, "Arn"],
+      });
+      expect(cache.cacheSeed).toBeDefined();
+      expect(cache.cacheSeedFunction).toBeDefined();
+    });
+
+    it("seeds the build from the init cache asset", () => {
       const { app: ownApp, template } = synth("build-abc123");
 
-      // Not `DestinationBucketKeyPrefix: Match.absent()` on its own: that would
-      // also pass if the staged tree had lost the build ID, which is what keeps
-      // the S3 keys the same as before this moved.
-      const deployments = template.findResources("Custom::CDKBucketDeployment");
-      expect(Object.keys(deployments)).toHaveLength(1);
-      expect(Object.values(deployments)[0].Properties).not.toHaveProperty(
-        "DestinationBucketKeyPrefix",
-      );
+      const { Properties } = seedResource(template);
+      expect(Properties).toMatchObject({
+        BuildId: "build-abc123",
+        DestinationBucketName: {
+          Ref: expect.stringMatching(/^TestCacheBucket/),
+        },
+        SourceBucketName: expect.anything(),
+        SourceObjectKey: expect.stringMatching(/^[0-9a-f]{64}\.zip$/),
+      });
+      // No `BucketDeployment` writing into the live prefix any more: a rollback
+      // re-ran it and overwrote what the app had regenerated
+      // (cdklabs/cdk-nextjs#343).
+      const python = template.findResources("AWS::Lambda::Function", {
+        Properties: { Runtime: Match.stringLikeRegexp("^python") },
+      });
+      expect(python).toEqual({});
 
+      // The asset is the init cache itself, keys relative to `<buildId>/`.
       const assembly = ownApp.synth();
-      const stagedUnderBuildId = readdirSync(assembly.directory, {
-        withFileTypes: true,
-      }).some(
-        (entry) =>
-          entry.isDirectory() &&
-          entry.name.startsWith("asset.") &&
-          readdirSync(join(assembly.directory, entry.name)).includes(
-            "build-abc123",
-          ),
-      );
-      expect(stagedUnderBuildId).toBe(true);
+      const key = Properties.SourceObjectKey.replace(/\.zip$/, "");
+      expect(
+        readdirSync(join(assembly.directory, `asset.${key}`), {
+          recursive: true,
+        }).sort(),
+      ).toEqual(["server", "server/app", "server/app/index.json"]);
     });
 
-    it("removes its temporary staging copy once the asset is staged", () => {
-      // `Source.asset` stages during `BucketDeployment`'s construction, so the
-      // copy is dead as soon as that returns - and it is a whole init cache,
-      // measured at 664 MiB. Leaving one per synth put ~15 GB in the system temp
-      // directory over a CI loop of ~22 deploys.
-      const existing = new Set(
-        readdirSync(tmpdir()).filter((name) =>
-          name.startsWith("nextjs-init-cache-"),
-        ),
-      );
+    it("never lets the seeder delete, nor use a managed policy", () => {
+      const { template } = synth("build-abc123");
 
-      synth("build-abc123").app.synth();
-
-      const leaked = readdirSync(tmpdir()).filter(
-        (name) => name.startsWith("nextjs-init-cache-") && !existing.has(name),
+      const actions = seedPolicy(template).Statement.flatMap(
+        (statement: { Action: string | string[] }) => [statement.Action].flat(),
       );
-      expect(leaked).toEqual([]);
+      // Exactly these: no delete, and none of `grantPut`'s legal hold,
+      // retention, tagging or abort.
+      expect([...new Set(actions)].sort()).toEqual([
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:PutObject",
+      ]);
+      // No AWSLambdaBasicExecutionRole: cdk-nag's AwsSolutions-IAM4.
+      const [role] = seedResources(template, "AWS::IAM::Role", "CacheSeedRole");
+      expect(role.Properties.ManagedPolicyArns).toBeUndefined();
+      template.hasResourceProperties("AWS::Logs::LogGroup", {
+        RetentionInDays: 30,
+      });
     });
 
-    it("tags the cache bucket the same way whatever the build ID", () => {
-      const first = ownerTags(synth("build-abc123").template);
-      const second = ownerTags(synth("build-def456").template);
+    // A hotswap skips, rather than applies, a change to the policy of a role
+    // that only `Custom::CDKBucketDeployment` Lambdas use. A grant on this
+    // build's asset key or prefix would then deny the invoke that follows.
+    it("grants the same whatever the build and its init cache", () => {
+      const first = seedPolicy(synth("build-abc123").template);
+      writeFileSync(join(initCacheDir, "server", "app", "other.json"), "{}");
+      const second = seedPolicy(synth("build-def456").template);
 
-      expect(first).toHaveLength(1);
-      expect(first[0]).toMatch(/^aws-cdk:cr-owned:[0-9a-f]{8}$/);
       expect(second).toEqual(first);
     });
 
-    /**
-     * The unzip Lambda holds the asset zip and its extracted contents in `/tmp`
-     * at once, so a seed directory bigger than the 512 MiB CDK asks for by
-     * default kills it with `[Errno 28] No space left on device` — and under
-     * `cdk deploy --hotswap` that failure is invisible, because the CLI hands the
-     * custom resource a placeholder response URL and never reads its status.
-     */
-    function deploymentLambda(template: Template) {
-      const functions = template.findResources("AWS::Lambda::Function", {
-        Properties: {
-          Handler: "index.handler",
-          Runtime: Match.stringLikeRegexp("^python"),
+    it("applies the seeder overrides", () => {
+      const { template } = synth("build-abc123", {
+        cacheSeed: {
+          functionProps: {
+            memorySize: 2048,
+            ephemeralStorageSize: Size.gibibytes(4),
+          },
+          customResourceProps: { serviceTimeout: Duration.minutes(20) },
         },
       });
-      expect(Object.keys(functions)).toHaveLength(1);
-      return Object.values(functions)[0].Properties;
-    }
 
-    it("leaves a small init cache on the default Lambda sizing", () => {
-      const properties = deploymentLambda(synth("build-abc123").template);
+      expect(seedResource(template).Properties.ServiceTimeout).toBe("1200");
+      expect(seedFunction(template)).toMatchObject({
+        MemorySize: 2048,
+        EphemeralStorage: { Size: 4096 },
+      });
+    });
 
-      // The floor, not a computed value: a handful of bytes still wants 512 MiB
-      // because that is the least Lambda will give.
+    it("creates no role of its own when an override brings one", () => {
+      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
+      const ownStack = new Stack(ownApp, "TestStack");
+      const role = new Role(ownStack, "Mine", {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      });
+      new NextjsCache(ownStack, "TestCache", {
+        buildId: "build-abc123",
+        initCacheDir,
+        overrides: { cacheSeed: { functionProps: { role } } },
+      });
+      const template = Template.fromStack(ownStack);
+
+      expect(
+        seedResources(template, "AWS::IAM::Role", "CacheSeedRole"),
+      ).toEqual([]);
+      expect(seedFunction(template).Role).toEqual({
+        "Fn::GetAtt": [expect.stringMatching(/^Mine/), "Arn"],
+      });
+    });
+
+    it("gives up on a seeder that never answers after 16 minutes", () => {
+      const { template } = synth("build-abc123");
+
+      expect(seedResource(template).Properties.ServiceTimeout).toBe("960");
+    });
+
+    it("never tags the cache bucket as a deployment's", () => {
+      // `BucketDeployment` tagged its destination bucket, which cost a full
+      // deployment whenever the tag changed: `Tags` aren't hotswappable.
+      const buckets =
+        synth("build-abc123").template.findResources("AWS::S3::Bucket");
+      const tags = Object.values(buckets).flatMap(
+        (bucket) => bucket.Properties?.Tags ?? [],
+      );
+      expect(
+        tags.filter((tag: { Key: string }) =>
+          tag.Key.startsWith("aws-cdk:cr-owned"),
+        ),
+      ).toEqual([]);
+    });
+
+    it("leaves a small init cache on the smallest sizing", () => {
+      const properties = seedFunction(synth("build-abc123").template);
+
       expect(properties.EphemeralStorage).toEqual({ Size: 512 });
-      // Not raised: leaving `memoryLimit` alone keeps CDK's own default, 1024
-      // MB since aws-cdk-lib raised it from Lambda's 128.
-      expect(properties.MemorySize).toBe(1024);
+      expect(properties.MemorySize).toBe(512);
     });
 
     it("scales /tmp and memory to a large init cache", () => {
-      // A sparse file: `statSync` reports 300 MiB, the filesystem stores almost
-      // nothing, and the zip of a 300 MiB hole costs no real work.
-      const big = join(initCacheDir, "server", "app", "big.rsc");
+      // A sparse file: `statSync` reports 400 MiB, the filesystem stores almost
+      // nothing, and the zip of a 400 MiB hole costs no real work.
+      const big = join(initCacheDir, "server", "app", "big.json");
       writeFileSync(big, "");
-      truncateSync(big, 300 * 1024 * 1024);
+      truncateSync(big, 400 * 1024 * 1024);
 
-      const properties = deploymentLambda(synth("build-abc123").template);
+      const properties = seedFunction(synth("build-abc123").template);
 
-      // 301 MiB of cache — the 300 MiB hole plus the fixture's own file, rounded
-      // up — doubled for the zip that sits beside it, plus headroom: 730 MiB,
+      // 401 MiB of cache, plus 128 MiB of headroom for the zip: 529 MiB,
       // rounded up to the next step.
       expect(properties.EphemeralStorage).toEqual({ Size: 1024 });
       expect(properties.MemorySize).toBe(1024);
     });
 
-    it("keeps the deployment's identity while the cache grows by a little", () => {
-      // `ephemeralStorageSize` is part of the singleton handler's UUID and the
-      // custom resource's logical ID. Sized to the MiB, a cache 5 MiB bigger
-      // than the last deploy's was a new handler Lambda, a new ServiceToken
-      // and a replaced custom resource - a full deployment, not a hotswap.
-      const big = join(initCacheDir, "server", "app", "big.rsc");
-      const logicalIds = (mib: number) => {
-        writeFileSync(big, "");
-        truncateSync(big, mib * 1024 * 1024);
-        const template = synth("build-abc123").template;
-        return [
-          ...Object.keys(template.findResources("Custom::CDKBucketDeployment")),
-          ...Object.keys(template.findResources("AWS::Lambda::Function")),
-        ].sort();
-      };
-
-      expect(logicalIds(305)).toEqual(logicalIds(300));
-    });
-
-    it("keeps the staging copy when asset staging is disabled", () => {
-      // `--no-staging` (and SAM) leaves the asset where it is rather than
-      // copying it into `cdk.out`, so the staging copy *is* the asset, and the
-      // publish after synth needs it.
-      const ownApp = new App({
-        outdir: mkdtempSync(join(outdir, "app-")),
-        context: { "aws:cdk:disable-asset-staging": true },
-      });
-      const existing = new Set(
-        readdirSync(tmpdir()).filter((name) =>
-          name.startsWith("nextjs-init-cache-"),
-        ),
-      );
-
-      new NextjsCache(new Stack(ownApp, "TestStack"), "TestCache", {
-        buildId: "build-abc123",
-        initCacheDir,
-      });
-
-      const kept = readdirSync(tmpdir()).filter(
-        (name) => name.startsWith("nextjs-init-cache-") && !existing.has(name),
-      );
-      expect(kept).toHaveLength(1);
-      rmSync(join(tmpdir(), kept[0]), { recursive: true, force: true });
-    });
-
     it("sizes an init cache holding a link loop", () => {
-      // `readdirSync({ recursive: true })` follows the link on Node 24 and
-      // never returns; the files are counted once, the link not at all.
+      // `readdirSync({ recursive: true })` follows the link and never
+      // returns; the files are counted once, the link not at all.
       symlinkSync("..", join(initCacheDir, "server", "loop"), "dir");
       writeFileSync(join(initCacheDir, "server", "data.json"), "12345");
 
-      expect(sizeOfDirectory(initCacheDir)).toBe("<p/>".length + 5);
-    });
-
-    it("lets overrides win over the computed sizing", () => {
-      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
-      const ownStack = new Stack(ownApp, "TestStack");
-      new NextjsCache(ownStack, "TestCache", {
-        buildId: "build-abc123",
-        initCacheDir,
-        overrides: {
-          bucketDeploymentProps: {
-            destinationBucket: Bucket.fromBucketName(
-              ownStack,
-              "Existing",
-              "someone-elses-bucket",
-            ),
-            sources: [Source.data("marker", "x")],
-            ephemeralStorageSize: Size.gibibytes(2),
-            memoryLimit: 2048,
-          },
-        },
+      expect(measureDirectory(initCacheDir)).toEqual({
+        files: 2,
+        bytes: "{}".length + 5,
       });
-
-      const properties = deploymentLambda(Template.fromStack(ownStack));
-      expect(properties.EphemeralStorage).toEqual({ Size: 2048 });
-      expect(properties.MemorySize).toBe(2048);
-    });
-
-    // The handler unpacks onto the EFS mount, so `/tmp` needn't grow.
-    it("leaves /tmp at the default but still sizes memory with useEfs", () => {
-      const big = join(initCacheDir, "server", "app", "big.rsc");
-      writeFileSync(big, "");
-      truncateSync(big, 300 * 1024 * 1024);
-      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
-      const ownStack = new Stack(ownApp, "TestStack");
-      new NextjsCache(ownStack, "TestCache", {
-        buildId: "build-abc123",
-        initCacheDir,
-        overrides: {
-          bucketDeploymentProps: {
-            sources: [],
-            destinationBucket: Bucket.fromBucketName(ownStack, "B", "unused"),
-            useEfs: true,
-            vpc: new Vpc(ownStack, "Vpc"),
-          },
-        },
-      });
-
-      const properties = deploymentLambda(Template.fromStack(ownStack));
-      expect(properties.EphemeralStorage).toBeUndefined();
-      expect(properties.MemorySize).toBe(1024);
-    });
-
-    it.each([
-      [{ prune: true }, /`prune: true`/],
-      [{ retainOnDelete: false }, /`retainOnDelete: false`/],
-      [{ extract: false }, /`extract: false`/],
-    ])("rejects %j", (override, message) => {
-      expect(
-        () =>
-          new NextjsCache(stack, "TestCache", {
-            buildId: "build-abc123",
-            initCacheDir,
-            overrides: { bucketDeploymentProps: override as any },
-          }),
-      ).toThrow(message);
-    });
-
-    // Rejected even without an init cache, so a build doesn't decide it.
-    it("rejects prune: true when there is no init cache", () => {
-      expect(
-        () =>
-          new NextjsCache(stack, "TestCache", {
-            buildId: "build-abc123",
-            initCacheDir: join(initCacheDir, "missing"),
-            overrides: { bucketDeploymentProps: { prune: true } as any },
-          }),
-      ).toThrow(/`prune: true`/);
-    });
-
-    it("warns about destinationKeyPrefix when there is no init cache", () => {
-      new NextjsCache(stack, "TestCache", {
-        buildId: "build-abc123",
-        initCacheDir: join(initCacheDir, "missing"),
-        overrides: {
-          bucketDeploymentProps: { destinationKeyPrefix: "seed" } as any,
-        },
-      });
-      Annotations.fromStack(stack).hasWarning(
-        "*",
-        Match.stringLikeRegexp("destinationKeyPrefix is ignored"),
-      );
-    });
-
-    // The type requires both, so a typed caller always passes them.
-    it("ignores sources and destinationBucket", () => {
-      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
-      const ownStack = new Stack(ownApp, "TestStack");
-      new NextjsCache(ownStack, "TestCache", {
-        buildId: "build-abc123",
-        initCacheDir,
-        overrides: {
-          bucketDeploymentProps: {
-            destinationBucket: Bucket.fromBucketName(
-              ownStack,
-              "Existing",
-              "someone-elses-bucket",
-            ),
-            sources: [Source.data("a", "x"), Source.data("b", "y")],
-            destinationKeyPrefix: "seed",
-            memoryLimit: 2048,
-          },
-        },
-      });
-      Annotations.fromStack(ownStack).hasWarning(
-        "*",
-        Match.stringLikeRegexp("destinationKeyPrefix is ignored"),
-      );
-
-      const [upload] = Object.values(
-        Template.fromStack(ownStack).findResources(
-          "Custom::CDKBucketDeployment",
-        ),
-      );
-      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
-      expect(JSON.stringify(upload.Properties.DestinationBucketName)).toContain(
-        "TestCacheBucket",
-      );
-      expect(upload.Properties).not.toHaveProperty(
-        "DestinationBucketKeyPrefix",
-      );
-      expect(upload.Properties.Prune).toBe(false);
-      expect(deploymentLambda(Template.fromStack(ownStack)).MemorySize).toBe(
-        2048,
-      );
-    });
-
-    // A JSII binding can materialize an unset field as an explicit undefined.
-    it("keeps the staged source, sizing and prune: false when the fields are explicitly undefined", () => {
-      const big = join(initCacheDir, "server", "app", "big.rsc");
-      writeFileSync(big, "");
-      truncateSync(big, 300 * 1024 * 1024);
-      const ownApp = new App({ outdir: mkdtempSync(join(outdir, "app-")) });
-      const ownStack = new Stack(ownApp, "TestStack");
-      new NextjsCache(ownStack, "TestCache", {
-        buildId: "build-abc123",
-        initCacheDir,
-        overrides: {
-          bucketDeploymentProps: {
-            sources: undefined,
-            destinationBucket: undefined,
-            prune: undefined,
-            retainOnDelete: undefined,
-            extract: undefined,
-            ephemeralStorageSize: undefined,
-            memoryLimit: undefined,
-          } as any,
-        },
-      });
-
-      const [upload] = Object.values(
-        Template.fromStack(ownStack).findResources(
-          "Custom::CDKBucketDeployment",
-        ),
-      );
-      expect(upload.Properties.SourceObjectKeys).toHaveLength(1);
-      expect(upload.Properties.Prune).toBe(false);
-      const properties = deploymentLambda(Template.fromStack(ownStack));
-      expect(properties.EphemeralStorage).toEqual({ Size: 1024 });
-      expect(properties.MemorySize).toBe(1024);
     });
   });
 });

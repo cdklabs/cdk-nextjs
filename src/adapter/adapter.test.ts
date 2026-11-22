@@ -45,7 +45,8 @@ beforeAll(() => {
     entryPoints: [join(repoRoot, "src/adapter/adapter.mts")],
     bundle: true,
     platform: "node",
-    target: "node24",
+    // `bundle:adapter/adapter`'s target: the user's `next build` loads it.
+    target: "node22.2.0",
     format: "esm",
     external: ["next"],
     outfile: join(dir, "adapter.mjs"),
@@ -64,7 +65,7 @@ afterAll(() => {
 function modifyConfig(
   config: Record<string, unknown>,
   phase: string,
-  nextVersion = "16.3.0",
+  nextVersion = "16.4.5",
 ): Record<string, any> {
   const script =
     `import adapter from ${JSON.stringify(join(dir, "adapter.mjs"))};` +
@@ -133,18 +134,23 @@ describe("modifyConfig", () => {
 });
 
 describe("assertSupportedNextVersion", () => {
-  it.each(["16.2.9", "15.5.0"])(
+  it.each(["16.4.4", "16.3.8", "16.2.9", "15.5.0"])(
     "rejects Next.js %s at build time",
     (version) => {
       expect(() =>
         modifyConfig({ images: {} }, "phase-production-build", version),
-      ).toThrow(`Next.js ${version} is not supported`);
+      ).toThrow(
+        `Next.js ${version} is not supported: cdk-nextjs needs Next.js 16.4.5 or higher.`,
+      );
     },
   );
 
-  it.each(["16.3.0", "17.0.0-canary.1"])("accepts Next.js %s", (version) => {
-    expect(() =>
-      modifyConfig({ images: {} }, "phase-production-build", version),
-    ).not.toThrow();
-  });
+  it.each(["16.4.5", "16.4.6", "16.5.0", "17.0.0-canary.1"])(
+    "accepts Next.js %s",
+    (version) => {
+      expect(() =>
+        modifyConfig({ images: {} }, "phase-production-build", version),
+      ).not.toThrow();
+    },
+  );
 });

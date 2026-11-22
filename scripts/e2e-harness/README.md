@@ -84,7 +84,11 @@ far more often than the distribution. Measured over batch 9, a 23-file run with
 
   Fixed: the build ID is now part of the staged asset's own paths and the
   deployment has no `destinationKeyPrefix` (`src/nextjs-cache.ts`). The S3 keys
-  are unchanged; the tag key is constant. An earlier 13-file measurement recorded
+  are unchanged; the tag key is constant. Since then the init cache has no
+  `BucketDeployment` at all: the `CacheSeed` custom resource (also a
+  `Custom::CDKBucketDeployment`, so it hotswaps) writes it, and only its
+  `BuildId` and `SourceObjectKey` change between fixtures. It doesn't tag the
+  bucket. An earlier 13-file measurement recorded
   in this file claimed the tag never blocked a deploy — it was wrong, and batch 9
   is the run that showed it.
 

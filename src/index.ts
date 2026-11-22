@@ -51,6 +51,7 @@ export {
   NextjsCache,
   NextjsCacheOverrides,
   NextjsCacheProps,
+  NextjsCacheSeedOverrides,
 } from "./nextjs-cache";
 export {
   NextjsGlobalContainers,
