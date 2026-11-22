@@ -6,14 +6,13 @@ import {
   Architecture,
   Code,
   Function as LambdaFunction,
-  Runtime,
-  RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { OptionalCustomResourceProps } from "./generated-structs/OptionalCustomResourceProps";
 import { OptionalFunctionProps } from "./generated-structs/OptionalFunctionProps";
 import { OptionalPostDeployCustomResourceProperties } from "./generated-structs/OptionalPostDeployCustomResourceProperties";
+import { LAMBDA_RUNTIME } from "./lambda-runtime";
 import { staticAssetsObjectsPattern } from "./nextjs-static-assets";
 import { wholeAppInvalidationPaths } from "./utils/base-path";
 
@@ -150,7 +149,7 @@ export class NextjsPostDeploy extends Construct {
       ),
       handler: "index.handler",
       memorySize: 2048,
-      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
+      runtime: LAMBDA_RUNTIME,
       timeout: Duration.minutes(5),
       ...this.props.overrides?.functionProps,
     });

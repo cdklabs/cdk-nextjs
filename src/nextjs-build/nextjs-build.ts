@@ -354,7 +354,7 @@ export class NextjsBuild extends Construct {
       this.stageRuntime(root.path, isFunctions, publicOnDisk);
       // Functions run on the Lambda managed runtime (Amazon Linux 2023, glibc),
       // for the architecture their Lambda deploys, whatever this machine is;
-      // Containers run on node:24-alpine (musl).
+      // Containers run on node:26-alpine (musl).
       this.stageSharpForTarget(
         root,
         join(root.path, this.relativeProjectDir),
@@ -1106,9 +1106,9 @@ export function sharpBinaryDir(root: string): string {
 /**
  * Every entry under `root`, links listed but not followed.
  *
- * An explicit walk rather than `readdirSync({ recursive: true })`, which on
- * Node 24 descends into symlinked directories itself and so never returns on a
- * cycle — two workspace packages that link each other, which is how pnpm wires a
+ * An explicit walk rather than `readdirSync({ recursive: true })`, which
+ * descends into symlinked directories itself and so never returns on a cycle:
+ * two workspace packages that link each other, which is how pnpm wires a
  * monorepo.
  */
 export function listTree(root: string): Dirent[] {

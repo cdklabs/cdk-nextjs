@@ -45,7 +45,8 @@ beforeAll(() => {
     entryPoints: [join(repoRoot, "src/adapter/adapter.mts")],
     bundle: true,
     platform: "node",
-    target: "node24",
+    // `bundle:adapter/adapter`'s target: the user's `next build` loads it.
+    target: "node22.2.0",
     format: "esm",
     external: ["next"],
     outfile: join(dir, "adapter.mjs"),

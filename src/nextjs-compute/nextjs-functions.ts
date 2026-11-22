@@ -8,8 +8,6 @@ import {
   FunctionUrl,
   FunctionUrlAuthType,
   InvokeMode,
-  Runtime,
-  RuntimeFamily,
 } from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
@@ -21,6 +19,7 @@ import { DEFAULT_FUNCTION_GROUP } from "../adapter/function-groups";
 import { LOG_PREFIX, NextjsType } from "../constants";
 import { OptionalFunctionProps } from "../generated-structs/OptionalFunctionProps";
 import { OptionalFunctionUrlProps } from "../generated-structs/OptionalFunctionUrlProps";
+import { LAMBDA_RUNTIME } from "../lambda-runtime";
 import { NextjsDeploymentRoot } from "../nextjs-build/nextjs-build";
 import { FUNCTION_GROUP_ENV_VAR, RUNTIME_DIR_NAME } from "../runtime/manifest";
 import { getLambdaArchitecture } from "../utils/get-architecture";
@@ -235,7 +234,7 @@ export class NextjsFunctions extends Construct {
       code: Code.fromAsset(zipPath),
       handler: `${RUNTIME_DIR_NAME}/lambda.handler`,
       memorySize: 2048,
-      runtime: new Runtime("nodejs24.x", RuntimeFamily.NODEJS),
+      runtime: LAMBDA_RUNTIME,
       timeout: Duration.seconds(30),
       ...this.sharedFunctionProps(root.name),
       ...groupOverrides?.functionProps,

@@ -96,8 +96,8 @@ class LoadTestRunnerStack extends Stack {
       "DEBIAN_FRONTEND=noninteractive apt-get install -y unzip",
       "snap install chromium",
       // for scripts/cold-start.ts and scripts/report.ts: node builtins only, and
-      // Node 24 runs TypeScript itself
-      "snap install node --classic --channel=24",
+      // Node 26 runs TypeScript itself
+      "snap install node --classic --channel=26",
       // https://grafana.com/docs/k6/latest/testing-guides/running-large-tests/
       "printf 'net.ipv4.ip_local_port_range = 1024 65535\\nnet.ipv4.tcp_tw_reuse = 1\\nnet.ipv4.tcp_timestamps = 1\\n' > /etc/sysctl.d/99-k6.conf",
       "sysctl --system",

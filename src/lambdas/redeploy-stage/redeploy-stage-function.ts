@@ -17,7 +17,7 @@ export class RedeployStageFunction extends lambda.Function {
     super(scope, id, {
       description: 'src/lambdas/redeploy-stage/redeploy-stage.lambda.ts',
       ...props,
-      runtime: new lambda.Runtime('nodejs24.x', lambda.RuntimeFamily.NODEJS, { supportsInlineCode: true }),
+      runtime: new lambda.Runtime('nodejs26.x', lambda.RuntimeFamily.NODEJS, { supportsInlineCode: true }),
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../../assets/lambdas/redeploy-stage/redeploy-stage.lambda')),
     });
