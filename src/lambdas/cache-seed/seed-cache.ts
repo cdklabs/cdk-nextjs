@@ -112,8 +112,9 @@ export async function seedCache(
           bucketName,
           `${buildId}/${entry.key}`,
           // Every init cache file is JSON, `.long` ones included
-          // (`cacheObjectName`); the cache handler writes the same type.
-          { body, contentType: "application/json" },
+          // (`cacheObjectName`); the same type the cache handler writes
+          // (`src/adapter/aws-cache-store.ts`).
+          { body, contentType: "application/json; charset=utf-8" },
           deadline,
         )
       ) {
@@ -167,15 +168,28 @@ async function forEachConcurrently(
   let failed = false;
   let firstError: unknown;
   let bytesInFlight = 0;
+  // Set while an entry waits for room: nothing else starts meanwhile, so a
+  // large entry isn't held back behind every small one after it.
+  let draining = false;
   let waiting: Array<() => void> = [];
+  const wait = () => new Promise<void>((resolve) => waiting.push(resolve));
   const worker = async () => {
     while (!failed && next < entries.length) {
+      while (draining) await wait();
+      if (failed || next >= entries.length) return;
       const entry = entries[next++];
-      while (
+      if (
         bytesInFlight > 0 &&
         bytesInFlight + entry.size > MAX_BYTES_IN_FLIGHT
       ) {
-        await new Promise<void>((resolve) => waiting.push(resolve));
+        draining = true;
+        while (
+          bytesInFlight > 0 &&
+          bytesInFlight + entry.size > MAX_BYTES_IN_FLIGHT
+        ) {
+          await wait();
+        }
+        draining = false;
       }
       if (failed) return;
       bytesInFlight += entry.size;

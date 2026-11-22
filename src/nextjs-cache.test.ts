@@ -367,6 +367,12 @@ describe("NextjsCache", () => {
       });
     });
 
+    it("gives up on a seeder that never answers after 16 minutes", () => {
+      const { template } = synth("build-abc123");
+
+      expect(seedResource(template).Properties.ServiceTimeout).toBe("960");
+    });
+
     it("never tags the cache bucket as a deployment's", () => {
       // `BucketDeployment` tagged its destination bucket, which cost a full
       // deployment whenever the tag changed: `Tags` aren't hotswappable.

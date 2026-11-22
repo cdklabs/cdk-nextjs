@@ -67,6 +67,10 @@ export function measureDirectory(dir: string): {
  * into the cache bucket, and the custom resource that runs it.
  */
 export interface NextjsCacheSeedOverrides {
+  /**
+   * Set log retention through `logGroup`, not `logRetention`: the function
+   * already has a log group, and CDK refuses both.
+   */
   readonly functionProps?: OptionalFunctionProps;
   /**
    * Overriding `resourceType` stops `cdk deploy --hotswap` from seeding: see
@@ -307,6 +311,10 @@ export class NextjsCache extends Construct {
       // The Lambda itself, not a Provider framework: the hotswap invokes the
       // ServiceToken directly with a CloudFormation-shaped event.
       serviceToken: fn.functionArn,
+      // Just past the Lambda's 15 minutes: a seeder killed before it answers
+      // (out of memory, say) fails the deploy then, not after CloudFormation's
+      // default hour.
+      serviceTimeout: Duration.minutes(16),
       ...this.props.overrides?.cacheSeed?.customResourceProps,
     });
   }

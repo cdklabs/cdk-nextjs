@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -31,7 +31,17 @@ export interface OpenZipSeedProps {
  * which a warm Lambda would otherwise keep in `/tmp` for its next invoke.
  */
 export async function openZipSeed(props: OpenZipSeedProps): Promise<Seed> {
-  const path = join(props.dir ?? tmpdir(), `init-cache-${randomUUID()}.zip`);
+  const dir = props.dir ?? tmpdir();
+  // An invoke killed by its timeout or by running out of memory never got to
+  // `close`, and a retry in the same environment may still find its download
+  // in `/tmp`, which has room for one. Nothing else runs here at once: Lambda
+  // gives each environment one invoke at a time.
+  for (const name of await readdir(dir)) {
+    if (/^init-cache-.+\.zip$/.test(name)) {
+      await rm(join(dir, name), { force: true });
+    }
+  }
+  const path = join(dir, `init-cache-${randomUUID()}.zip`);
   try {
     const object = await s3Client.send(
       new GetObjectCommand({ Bucket: props.bucketName, Key: props.key }),

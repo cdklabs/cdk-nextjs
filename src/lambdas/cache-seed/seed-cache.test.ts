@@ -158,7 +158,7 @@ describe("seedCache", () => {
       expect(put.input).toMatchObject({
         Bucket: BUCKET,
         IfNoneMatch: "*",
-        ContentType: "application/json",
+        ContentType: "application/json; charset=utf-8",
       });
     }
     // The marker is the last write.

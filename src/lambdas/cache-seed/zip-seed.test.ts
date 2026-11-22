@@ -110,6 +110,23 @@ describe("openZipSeed", () => {
     expect(readdirSync(downloads)).toEqual([]);
   });
 
+  it("deletes a download an earlier, killed invoke left behind", async () => {
+    const zipPath = join(dir, "asset.zip");
+    await zipOf(zipPath, { "a.json": "A" });
+    serve(zipPath);
+    writeFileSync(join(downloads, "init-cache-earlier.zip"), "partial");
+    writeFileSync(join(downloads, "unrelated.txt"), "kept");
+
+    const seed = await openZipSeed({
+      bucketName: "assets",
+      key: "abc.zip",
+      dir: downloads,
+    });
+    await seed.close();
+
+    expect(readdirSync(downloads)).toEqual(["unrelated.txt"]);
+  });
+
   it("deletes the download when it isn't a zip", async () => {
     const notZip = join(dir, "asset.zip");
     await writeFile(notZip, "not a zip");
