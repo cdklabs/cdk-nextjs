@@ -141,7 +141,7 @@ export function suppressCommonNags(stack: Stack) {
       .findAll()
       .some((construct) => construct.node.path === cacheSeedPolicy)
   ) {
-    // Only the two resource wildcards: its actions are exact, so a wildcard
+    // Only the resource wildcards: its actions are exact, so a wildcard
     // action (a delete, say) added later is still reported.
     NagSuppressions.addResourceSuppressionsByPath(
       stack,
@@ -155,6 +155,12 @@ export function suppressCommonNags(stack: Stack) {
             {
               regex:
                 "/^Resource::<NextjsNextjsCacheBucket[A-Z0-9]+\\.Arn>/\\*$/",
+            },
+            // The assets bucket ARN with a literal partition, account and region,
+            // as a stack with an explicit `env` renders it.
+            {
+              regex:
+                "/^Resource::arn:(aws|aws-cn|aws-us-gov):s3:::cdk-hnb659fds-assets-.+/\\*$/",
             },
             "Resource::arn:<AWS::Partition>:s3:::cdk-hnb659fds-assets-<AWS::AccountId>-<AWS::Region>/*",
           ],
