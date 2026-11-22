@@ -19,6 +19,7 @@ import {
   Source,
 } from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
+import { rejectDeploymentOverrides } from "./bucket-deployment-overrides";
 import { LOG_PREFIX } from "./constants";
 import { normalizeBasePath } from "./utils/base-path";
 import { removeStagingDirs } from "./utils/remove-staging-dirs";
@@ -49,10 +50,9 @@ const SERVICE_WORKER_DIR = "service-worker";
  * by.
  *
  * An explicit walk rather than `readdirSync({ recursive: true })`, which never
- * returns on a symlink cycle (Node 24 follows directory links), and whose
- * `Dirent.parentPath` doesn't exist before Node 20.12. A link back to a
- * directory already on the current path is a cycle and isn't followed; one that
- * can't be stat'd (dangling, or a loop of links) counts as a file.
+ * returns on a symlink cycle (Node follows directory links). A link back to
+ * a directory already on the current path is a cycle and isn't followed; one
+ * that can't be stat'd (dangling, or a loop of links) counts as a file.
  */
 function listFiles(dir: string): string[] {
   const files: string[] = [];
@@ -312,19 +312,16 @@ export class NextjsStaticAssets extends Construct {
    * explicit `undefined` from a JSII binding is not mistaken for an override.
    */
   private validateDeploymentOverrides() {
-    const overrides = this.props.overrides?.bucketDeploymentProps;
-    const rejected = [
-      overrides?.prune === true &&
-        "`prune: true` (old assets are pruned after deploy by NextjsPostDeploy, once they are past its TTL)",
-      overrides?.retainOnDelete === false && "`retainOnDelete: false`",
-    ].filter((reason): reason is string => !!reason);
-    if (rejected.length > 0) {
-      throw new Error(
-        `${LOG_PREFIX} overrides.bucketDeploymentProps can't set ${rejected.join(", or ")}: ` +
-          "the static assets are uploaded by one deployment per Cache-Control, " +
-          "and each of these would break the others.",
-      );
-    }
+    rejectDeploymentOverrides(
+      this.props.overrides?.bucketDeploymentProps,
+      {
+        prune:
+          " (old assets are pruned after deploy by NextjsPostDeploy, once they are past its TTL)",
+        retainOnDelete: "",
+      },
+      "the static assets are uploaded by one deployment per Cache-Control, " +
+        "and each of these would break the others.",
+    );
   }
 
   /**

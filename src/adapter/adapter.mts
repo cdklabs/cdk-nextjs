@@ -75,23 +75,31 @@ const adapter: NextAdapter = {
 export default adapter;
 
 /**
- * The oldest Next.js whose adapter API has what the build reads: 16.3 added
- * `routing.middlewareMatchers` and `outputs.*.assetsHashes`. On 16.2 the build
- * dies with a `TypeError` deep in `onBuildComplete` instead of saying why.
+ * The oldest Next.js cdk-nextjs builds. The adapter API it reads dates from
+ * 16.3, which added `routing.middlewareMatchers` and `outputs.*.assetsHashes`
+ * (on 16.2 the build dies with a `TypeError` deep in `onBuildComplete`). The
+ * floor is 16.4.5 because that release patches the November 2026 advisories:
+ * cross-tenant `'use cache'` disclosure, cache poisoning of shared fallback
+ * shells, and cross-client response injection in self-hosted apps
+ * (GHSA-pc58-hwjq-p385), among others. Every 16.3 and earlier 16.4 release is
+ * affected, and cdk-nextjs is exactly the self-hosted, multi-tenant-cache setup
+ * those describe.
+ *
+ * A prerelease compares by its numbers alone, so `17.0.0-canary.1` passes.
  */
-const MIN_NEXT_VERSION = [16, 3] as const;
+const MIN_NEXT_VERSION = [16, 4, 5] as const;
 
 function assertSupportedNextVersion(nextVersion: string | undefined): void {
-  const match = /^(\d+)\.(\d+)\./.exec(nextVersion ?? "");
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(nextVersion ?? "");
   if (!match) {
     return;
   }
-  const [major, minor] = [Number(match[1]), Number(match[2])];
-  const [minMajor, minMinor] = MIN_NEXT_VERSION;
-  if (major < minMajor || (major === minMajor && minor < minMinor)) {
+  const version = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const index = version.findIndex((part, i) => part !== MIN_NEXT_VERSION[i]);
+  if (index !== -1 && version[index] < MIN_NEXT_VERSION[index]) {
     throw new Error(
       `${LOG_PREFIX} Next.js ${nextVersion} is not supported: cdk-nextjs needs ` +
-        `Next.js ${minMajor}.${minMinor} or higher.`,
+        `Next.js ${MIN_NEXT_VERSION.join(".")} or higher.`,
     );
   }
 }

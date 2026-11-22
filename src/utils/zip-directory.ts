@@ -2,22 +2,7 @@
 /* eslint-disable no-bitwise */
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
-import { deflateRawSync } from "node:zlib";
-
-/** `zlib.crc32` only exists from Node 20.15, and synth runs on the user's Node. */
-const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-
-export function crc32(data: Buffer): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc = CRC_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
+import { crc32, deflateRawSync } from "node:zlib";
 
 /**
  * Zip `dir` with its symlinks stored *as* symlinks, which Lambda extracts as

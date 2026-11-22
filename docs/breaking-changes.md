@@ -44,6 +44,30 @@ an init cache:
   has no `.seeded` marker yet, so its init cache is written once more: only
   missing keys, but an entry the app deleted comes back.
 
+### Next.js 16.4.5 or higher is required
+
+`next build` now fails on Next.js 16.4.4 and earlier (was 16.3) with
+`Next.js <version> is not supported: cdk-nextjs needs Next.js 16.4.5 or
+higher.` 16.4.5 patches the November 2026 Next.js security advisories, and
+every 16.3 and earlier 16.4 release is affected. Several concern exactly what a
+cdk-nextjs deployment is: a self-hosted app whose `'use cache'` and fallback
+shells sit in a cache shared by every instance and every visitor. For example,
+cross-tenant disclosure through `'use cache'`, cache poisoning of shared
+fallback shells, and cross-client response injection (GHSA-pc58-hwjq-p385).
+**Migration:** upgrade your app's `next` to 16.4.5 or higher.
+
+16.4.5 also strips `content-length`, `content-encoding` and `transfer-encoding`
+from a route handler's `Response`. A route handler that set its own
+`content-length` (most visibly on a `HEAD`) or returned a body it compressed
+itself is affected. See the README's Limitations.
+
+### Node.js 22.2 or higher is required
+
+Node 20 reached end of life on 2026-04-30. `package.json` now declares
+`engines.node: ">= 22.2.0"`, and synth uses `zlib.crc32` and
+`Dirent.parentPath` without fallbacks. **Migration:** run `cdk synth` on
+Node 22.2 or higher.
+
 ## 0.7.0
 
 ### Requests are served through the adapter runtime, not `next start`
