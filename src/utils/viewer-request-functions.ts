@@ -246,3 +246,53 @@ export function assertViewerRequestUnclaimed(
     );
   }
 }
+
+/**
+ * A CloudFront Function a behavior will carry, and who put it there, for the
+ * error {@link assertViewerEdgeLambdasClear} throws.
+ */
+export interface BehaviorCloudFrontFunction {
+  readonly eventType: FunctionEventType;
+  /** Who added it, as a noun phrase. */
+  readonly owner: string;
+}
+
+const VIEWER_EVENT_TYPES: readonly string[] = [
+  FunctionEventType.VIEWER_REQUEST,
+  FunctionEventType.VIEWER_RESPONSE,
+];
+
+/**
+ * CloudFront refuses a behavior with both a CloudFront Function and a
+ * Lambda@Edge function on viewer events, in any combination of viewer-request
+ * and viewer-response. An override's `edgeLambdas` is spread into the
+ * behaviors cdk-nextjs builds unchecked, so this is thrown at synth, against
+ * the behavior's final functions, rather than left to a deploy that fails.
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html
+ */
+export function assertViewerEdgeLambdasClear(
+  overrideName: string,
+  edgeLambdas: readonly { readonly eventType: string }[] | undefined,
+  cloudFrontFunctions: readonly BehaviorCloudFrontFunction[],
+) {
+  const edgeLambda = (edgeLambdas ?? []).find((it) =>
+    VIEWER_EVENT_TYPES.includes(it.eventType),
+  );
+  const cloudFrontFunction = cloudFrontFunctions.find((it) =>
+    VIEWER_EVENT_TYPES.includes(it.eventType),
+  );
+  if (!edgeLambda || !cloudFrontFunction) {
+    return;
+  }
+  throw new Error(
+    `${LOG_PREFIX} \`overrides.${overrideName}.edgeLambdas\` associates a ` +
+      `Lambda@Edge function with ${edgeLambda.eventType}, but the same ` +
+      `behavior has a CloudFront Function on ` +
+      `${cloudFrontFunction.eventType}: ${cloudFrontFunction.owner}. CloudFront ` +
+      `doesn't allow CloudFront Functions and Lambda@Edge together on viewer ` +
+      `events. Use an origin-request or origin-response Lambda@Edge function, ` +
+      `which can sit beside viewer CloudFront Functions, or move ` +
+      `viewer-request logic into \`viewerRequestFunctionCode\`. See ` +
+      `https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html`,
+  );
+}

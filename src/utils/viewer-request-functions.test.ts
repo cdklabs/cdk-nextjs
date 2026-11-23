@@ -1,6 +1,10 @@
 import { Lazy } from "aws-cdk-lib";
-import { FunctionEventType } from "aws-cdk-lib/aws-cloudfront";
 import {
+  FunctionEventType,
+  LambdaEdgeEventType,
+} from "aws-cdk-lib/aws-cloudfront";
+import {
+  assertViewerEdgeLambdasClear,
   assertViewerRequestUnclaimed,
   assetPrefixRewriteHandler,
   checkFunctionCodeSize,
@@ -115,6 +119,64 @@ describe("assertViewerRequestUnclaimed", () => {
     ).toThrow(
       "`overrides.imageBehaviorOptions.functionAssociations` associates a " +
         "CloudFront function with viewer-request, but something needs it. ",
+    );
+  });
+});
+
+describe("assertViewerEdgeLambdasClear", () => {
+  const ours = [
+    { eventType: FunctionEventType.VIEWER_REQUEST, owner: "our function" },
+  ];
+
+  it("allows no edge lambdas, or ones on origin events", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear("dynamicBehaviorOptions", undefined, ours),
+    ).not.toThrow();
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "dynamicBehaviorOptions",
+        [
+          { eventType: LambdaEdgeEventType.ORIGIN_REQUEST },
+          { eventType: LambdaEdgeEventType.ORIGIN_RESPONSE },
+        ],
+        ours,
+      ),
+    ).not.toThrow();
+  });
+
+  it("allows a viewer edge lambda with no viewer CloudFront Function", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "staticBehaviorOptions",
+        [{ eventType: LambdaEdgeEventType.VIEWER_REQUEST }],
+        [],
+      ),
+    ).not.toThrow();
+  });
+
+  it("names the override field, both event types and the function's owner", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "imageBehaviorOptions",
+        [{ eventType: LambdaEdgeEventType.VIEWER_RESPONSE }],
+        ours,
+      ),
+    ).toThrow(
+      "`overrides.imageBehaviorOptions.edgeLambdas` associates a Lambda@Edge " +
+        "function with viewer-response, but the same behavior has a " +
+        "CloudFront Function on viewer-request: our function. ",
+    );
+  });
+
+  it("suggests an origin-event Lambda@Edge or viewerRequestFunctionCode", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "dynamicBehaviorOptions",
+        [{ eventType: LambdaEdgeEventType.VIEWER_REQUEST }],
+        ours,
+      ),
+    ).toThrow(
+      /origin-request or origin-response Lambda@Edge.*`viewerRequestFunctionCode`/,
     );
   });
 });
