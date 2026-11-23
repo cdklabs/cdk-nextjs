@@ -221,6 +221,11 @@ class GlobalWebFunctionsHarnessStack extends Stack {
       key: "ServerLogGroupName",
       value: nextjs.nextjsWebFunctions.webFunction.logGroup.logGroupRef.logGroupName,
     });
+    // What `e2e-sweep.sh` tells a Web Function from an Event Function by.
+    new CfnOutput(this, "ServerFunctionKind", {
+      key: "ServerFunctionKind",
+      value: "WebFunction",
+    });
   }
 }
 

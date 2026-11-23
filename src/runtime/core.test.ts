@@ -37,7 +37,6 @@ import {
   RUNTIME_DIR_NAME,
 } from "./manifest";
 import { TAG_MANIFEST_SYMBOL } from "./tag-manifest";
-import { TRUSTED_ENDPOINT_ENV_VAR } from "./web-function-env";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
 
 /**
@@ -1455,11 +1454,11 @@ exports.handler = async () =>
   });
 
   it("does not forward the headers Lambda adds on a Web Function endpoint", async () => {
-    process.env[TRUSTED_ENDPOINT_ENV_VAR] = "prod";
+    process.env.AWS_LAMBDA_HTTP_ENDPOINT = "127.0.0.1:8080";
     try {
       await proxy({ "lambda-web-endpoint-name": "prod", "x-kept": "1" });
     } finally {
-      delete process.env[TRUSTED_ENDPOINT_ENV_VAR];
+      delete process.env.AWS_LAMBDA_HTTP_ENDPOINT;
     }
 
     const headers = (fetchMock.mock.calls[0][1] as RequestInit)

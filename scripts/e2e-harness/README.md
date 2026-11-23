@@ -270,8 +270,8 @@ rebuilding would run next.js's install and build scripts in the job that holds
 `id-token: write`. Re-run the workflow and the `nextjs` job rebuilds the entry.
 
 What is cached is the whole `nextjs` directory plus `~/.cache/ms-playwright`,
-keyed on the next.js ref and the runner image and node major its `node_modules`
-were installed against (`plan` computes the key, so every job agrees on it; bump
+keyed on the next.js ref and the runner image, architecture and node major its
+`node_modules` were installed against (`plan` computes the key, so every job agrees on it; bump
 the `v1` in it to discard every entry). Two things to know:
 
 - **A repository gets 10 GB of cache in total, evicted least-recently-used.** An

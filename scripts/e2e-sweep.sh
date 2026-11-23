@@ -128,7 +128,7 @@ CANDIDATES="$(
         // it is a full one, which moves the stack's own timestamp, and Lambda's
         // `get-function-configuration` isn't the API that reads it.
         const output = (key) => ((stack.Outputs || []).find((o) => o.OutputKey === key) || {}).OutputValue;
-        const webFunctions = stack.StackName.startsWith(`${HARNESS_STACK_PREFIX}gwf-`);
+        const webFunctions = output("ServerFunctionKind") === "WebFunction";
         const fn = webFunctions ? undefined : output("ServerFunctionName");
         const cluster = output("EcsClusterName");
         const service = output("EcsServiceName");
