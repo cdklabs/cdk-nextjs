@@ -363,8 +363,10 @@ export class NextjsBuild extends Construct {
     this.relativeProjectDir = manifest.relativeProjectDir;
     this.relativePathToEntrypoint = joinPosix(
       RUNTIME_DIR_NAME,
+      // The Event Functions types name a handler, not a file to run, so they
+      // keep the container shell's path; see the JSDoc.
       props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS
-        ? shellFor(props.nextjsType)
+        ? "web-function.mjs"
         : "server.mjs",
     );
     this.architecture = deploymentArchitecture(props);

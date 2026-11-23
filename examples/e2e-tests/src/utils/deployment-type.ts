@@ -1,7 +1,7 @@
 /**
  * Which of the five root constructs is serving this run.
  *
- * Most of what these tests assert is identical on all four. A handful of things
+ * Most of what these tests assert is identical on all five. A handful of things
  * are not, because the plumbing in front of the app is genuinely different
  * hardware: CloudFront with a signed Lambda Function URL, CloudFront with a signed
  * Lambda Web Function endpoint, API Gateway REST with a

@@ -247,6 +247,10 @@ export class NextjsWebFunctions extends Construct {
 
     const webFunction = new WebFunction(this, id, webFunctionProps);
     grantRuntimeAccess(this.props, webFunction);
+    // The L2 names the role by ARN only, so nothing waits for the grants in
+    // its default policy: a new revision could serve before it can read the
+    // cache. A `Function` depends on its role the same way.
+    webFunction.node.addDependency(role);
 
     return {
       name: root.name,

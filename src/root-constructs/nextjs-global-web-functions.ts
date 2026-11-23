@@ -82,6 +82,21 @@ export interface NextjsGlobalWebFunctionsProps extends NextjsBaseProps {
    */
   readonly functionGroups?: NextjsWebFunctionGroup[];
   /**
+   * Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the
+   * Pages Router's `res.revalidate()`) creates CloudFront invalidations for
+   * the pages it touches.
+   *
+   * Set to `false` when pages change too often to purge one by one: thousands
+   * a day run past CloudFront's free 1,000 paths a month and its 15 wildcard
+   * paths in progress, and a rejected invalidation is retried as `/*`. Cap
+   * those pages' edge TTL instead (a short `s-maxage`, or a behavior with a
+   * low `maxTtl`), so the edge picks up the revalidated page when its copy
+   * expires. Revalidation still reaches every instance's origin cache, and
+   * the invalidation after each deploy still runs.
+   * @default true
+   */
+  readonly invalidateCdnOnRevalidate?: boolean;
+  /**
    * Override props of any construct.
    */
   readonly overrides?: NextjsGlobalWebFunctionsOverrides;
@@ -131,6 +146,10 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
   }
 
   private props: NextjsGlobalWebFunctionsProps;
+  /** See {@link NextjsGlobalWebFunctionsProps.invalidateCdnOnRevalidate}. */
+  private get invalidatesCdn(): boolean {
+    return this.props.invalidateCdnOnRevalidate !== false;
+  }
   /** See {@link wireCloudFrontInvalidation}. */
   private distributionIdParameterName: string;
 
@@ -141,12 +160,25 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
   ) {
     assertWebFunctionsRegion(scope);
     super(scope, id, props, NextjsType.GLOBAL_WEB_FUNCTIONS);
+    if (props.distribution && Stack.of(props.distribution) !== Stack.of(this)) {
+      throw new Error(
+        `${LOG_PREFIX} NextjsGlobalWebFunctions' \`distribution\` must be in ` +
+          `its stack (${Stack.of(this).node.path}), not ` +
+          `${Stack.of(props.distribution).node.path}: the Web Functions' ` +
+          `resource-based policy names the distribution, which reads their ` +
+          `endpoints' domains, so across stacks it's a dependency cycle.`,
+      );
+    }
     this.props = props;
     this.distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
 
     this.nextjsWebFunctions = this.createNextjsWebFunctions();
     this.nextjsDistribution = this.createNextjsDistribution();
-    this.wireCloudFrontInvalidation();
+    // Without the parameter name the cache handler skips invalidation
+    // altogether.
+    if (this.invalidatesCdn) {
+      this.wireCloudFrontInvalidation();
+    }
     this.nextjsPostDeploy = this.createNextjsPostDeploy(
       this.nextjsDistribution.distribution,
     );
@@ -169,8 +201,12 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
             // A Web Function has no `addEnvironment`, so the name goes in up
             // front; see `wireCloudFrontInvalidation`.
             environment: {
-              CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME:
-                this.distributionIdParameterName,
+              ...(this.invalidatesCdn
+                ? {
+                    CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME:
+                      this.distributionIdParameterName,
+                  }
+                : {}),
               ...webFunctionProps?.environment,
             },
             // Conditionally, so an override's connector isn't overwritten with

@@ -130,7 +130,7 @@ const ENCODE_PLUS = `
     });
 `;
 
-/** NextjsGlobalFunctions' and NextjsRegionalFunctions' viewer-request handler. */
+/** NextjsGlobalFunctions' viewer-request handler. */
 export const X_FORWARDED_HOST_HANDLER = signedOriginHandler(false);
 
 /** NextjsGlobalWebFunctions' viewer-request handler. */

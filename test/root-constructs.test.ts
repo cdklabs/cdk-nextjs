@@ -670,6 +670,73 @@ describe("NextjsGlobalWebFunctions", () => {
     );
   });
 
+  it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
+    const { template } = synth({
+      functionGroups,
+      invalidateCdnOnRevalidate: false,
+    });
+    // No parameter name, so the cache handler never invalidates; and no
+    // grant, since nothing in the functions would use it.
+    template.resourceCountIs("AWS::SSM::Parameter", 0);
+    const found = Object.values(revisions(template));
+    expect(found).toHaveLength(2);
+    for (const revision of found) {
+      expect(revision.ServiceConfig.EnvironmentVariables).not.toHaveProperty(
+        "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
+      );
+      const roleId = revision.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0];
+      const actions = actionsOfRole(template, roleId);
+      expect(actions).not.toContain("cloudfront:CreateInvalidation");
+      expect(actions).not.toContain("ssm:GetParameter");
+      expectCacheActions(actions);
+    }
+    // The invalidation after each deploy is not affected.
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
+  });
+
+  it("deploys each revision after its role's cache grants", () => {
+    const { template } = synth({ functionGroups });
+    const resources = template.toJSON().Resources;
+    const found = Object.values(
+      template.findResources("AWS::Lambda::WebFunctionRevision"),
+    );
+    expect(found).toHaveLength(2);
+    for (const revision of found) {
+      const roleId =
+        revision.Properties.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0];
+      const defaultPolicy = Object.keys(resources).find(
+        (logicalId) =>
+          resources[logicalId].Type === "AWS::IAM::Policy" &&
+          logicalId.includes("DefaultPolicy") &&
+          resources[logicalId].Properties.Roles.some(
+            (role: any) => role.Ref === roleId,
+          ),
+      );
+      expect(defaultPolicy).toBeDefined();
+      expect(revision.DependsOn).toEqual(
+        expect.arrayContaining([defaultPolicy]),
+      );
+    }
+  });
+
+  it("refuses a distribution from another stack", () => {
+    const app = new App();
+    const other = new Stack(app, "Other", { env });
+    const distribution = new Distribution(other, "Distribution", {
+      defaultBehavior: {
+        origin: new HttpOrigin("example.com"),
+      },
+    });
+    const stack = new Stack(app, "Stack", { env });
+    expect(
+      () =>
+        new NextjsGlobalWebFunctions(stack, "App", {
+          buildDirectory: buildDir,
+          distribution,
+        }),
+    ).toThrow(/`distribution` must be in its stack/);
+  });
+
   it("stages Arm64 binaries whatever this machine is", () => {
     const { app } = synth();
     expect(app.nextjsBuild.architecture).toBe(Architecture.ARM_64);

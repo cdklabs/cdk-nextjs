@@ -74,7 +74,10 @@ jobs:
           stack_name: ${{ env.ENV }}-glbl-fns
 
   glbl-web-fns:
-    needs: wait-for-approval
+    needs: check-if-should-run
+    if: *same-repo
+    permissions:
+      id-token: write
     runs-on: ubuntu-24.04-arm
     # Declares the same `functionGroups` as glbl-fns. Web Functions run Arm64
     # only, so an Arm runner stages `sharp` natively.
