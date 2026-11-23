@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { App, Stack } from "aws-cdk-lib";
+import { App, Duration, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
   Distribution,
@@ -825,6 +825,24 @@ describe("NextjsGlobalWebFunctions", () => {
         tables[0].Properties.Replicas.map((it: any) => it.ResourcePolicy),
       ),
     ).toContain("OwnRole");
+  });
+
+  it("warns that a Function URL origin override does nothing", () => {
+    const { stack } = synth({
+      overrides: {
+        nextjsDistribution: {
+          dynamicFunctionUrlOriginWithOACProps: {
+            readTimeout: Duration.seconds(60),
+          },
+        },
+      },
+    });
+    Annotations.fromStack(stack).hasWarning(
+      "*",
+      Match.stringLikeRegexp(
+        "dynamicFunctionUrlOriginWithOACProps.*ignored.*dynamicWebFunctionOriginProps",
+      ),
+    );
   });
 
   it("refuses a distribution from another stack", () => {

@@ -47,8 +47,9 @@ const project = new CdklabsConstructLibrary({
     // `scripts/e2e-harness/app.js` from a temporary app directory outside
     // `examples/`, so it cannot use the examples workspace's copy.
     // @see scripts/e2e-harness/README.md
-    // At least the CLI that reads aws-cdk-lib 2.276's cloud assembly schema (55).
-    "aws-cdk@^2.1148.1",
+    // Unversioned, so projen's upgrade task keeps it current, and with it a CLI
+    // that reads the cloud assembly schema `cdkVersion` emits.
+    "aws-cdk",
     "@types/aws-lambda",
     "@types/debug",
     "@types/mime-types",

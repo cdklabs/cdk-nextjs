@@ -337,6 +337,7 @@ export class NextjsDistribution extends Construct {
     this.isSignedLambdaOrigin = isSignedLambdaOriginType(props.nextjsType);
     this.isWebFunctionCompute =
       props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS;
+    this.warnOnOtherOriginOverride();
     this.validateFunctionGroupProps();
     this.dynamicOrigin = this.createDynamicOrigin();
     this.dynamicOriginResponsePolicy = this.createDynamicOriginRequestPolicy();
@@ -427,6 +428,34 @@ export class NextjsDistribution extends Construct {
    * (aws/aws-cdk#39434), this is the wiring its README documents.
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html
    */
+  /**
+   * The Function URL and Web Function origins take their overrides from props
+   * of their own, so one set for the other type (left over from moving between
+   * `NextjsGlobalFunctions` and `NextjsGlobalWebFunctions`, say) does nothing.
+   */
+  private warnOnOtherOriginOverride() {
+    const overrides = this.props.overrides;
+    const [unused, used] = this.isWebFunctionCompute
+      ? [
+          overrides?.dynamicFunctionUrlOriginWithOACProps &&
+            "dynamicFunctionUrlOriginWithOACProps",
+          "dynamicWebFunctionOriginProps",
+        ]
+      : [
+          overrides?.dynamicWebFunctionOriginProps &&
+            "dynamicWebFunctionOriginProps",
+          "dynamicFunctionUrlOriginWithOACProps",
+        ];
+    if (unused && this.isSignedLambdaOrigin) {
+      Annotations.of(this).addWarningV2(
+        "cdk-nextjs:unusedOriginOverride",
+        `${LOG_PREFIX} \`overrides.${unused}\` is ignored on ` +
+          `NextjsType.${this.props.nextjsType}; set \`overrides.${used}\` ` +
+          `instead.`,
+      );
+    }
+  }
+
   private webFunctionOrigin(endpoint: IWebFunctionEndpoint): IOrigin {
     assertSignableEndpoint(endpoint);
     this.webFunctionOriginAccessControl ??= new FunctionUrlOriginAccessControl(
