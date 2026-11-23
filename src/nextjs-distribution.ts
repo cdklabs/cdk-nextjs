@@ -477,6 +477,7 @@ export class NextjsDistribution extends Construct {
       ...(options?.functionAssociations ?? []).map(({ eventType }) => ({
         eventType,
         owner: `\`overrides.${overrideName}.functionAssociations\``,
+        fromOverride: true,
       })),
       ...ours.map(({ eventType }) => ({ eventType, owner: ourOwner })),
     ]);
@@ -512,6 +513,15 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...staticBehaviorOptions,
     };
+    // The viewer-request check first: its error rules out
+    // `viewerRequestFunctionCode`, which the edge-lambda one may suggest.
+    if (this.viewerRequestCode !== undefined) {
+      assertViewerRequestUnclaimed(
+        "staticBehaviorOptions",
+        staticBehaviorOptions?.functionAssociations,
+        "`viewerRequestFunctionCode` needs that event type on the static behaviors",
+      );
+    }
     this.assertOverrideEdgeLambdasClear(
       "staticBehaviorOptions",
       staticBehaviorOptions,
@@ -523,11 +533,6 @@ export class NextjsDistribution extends Construct {
     if (this.viewerRequestCode === undefined) {
       return options;
     }
-    assertViewerRequestUnclaimed(
-      "staticBehaviorOptions",
-      staticBehaviorOptions?.functionAssociations,
-      "`viewerRequestFunctionCode` needs that event type on the static behaviors",
-    );
     return {
       ...options,
       functionAssociations: [
@@ -599,6 +604,20 @@ export class NextjsDistribution extends Construct {
   ): FunctionAssociation[] {
     const ours = this.dynamicCloudFrontFunctionAssociations;
     const overridden = options?.functionAssociations;
+    // The viewer-request check first, as on the static behaviors.
+    if (overridden && ours.length) {
+      assertViewerRequestUnclaimed(
+        overrideName,
+        overridden,
+        this.isFunctionCompute
+          ? `NextjsGlobalFunctions needs that event type for its own function, ` +
+              `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
+              `(the runtime trusts that header behind CloudFront) and redirects ` +
+              `repeated slashes`
+          : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
+              "and image behaviors",
+      );
+    }
     this.assertOverrideEdgeLambdasClear(
       overrideName,
       options,
@@ -614,17 +633,6 @@ export class NextjsDistribution extends Construct {
     if (!ours.length) {
       return overridden;
     }
-    assertViewerRequestUnclaimed(
-      overrideName,
-      overridden,
-      this.isFunctionCompute
-        ? `NextjsGlobalFunctions needs that event type for its own function, ` +
-            `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
-            `(the runtime trusts that header behind CloudFront) and redirects ` +
-            `repeated slashes`
-        : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
-            "and image behaviors",
-    );
     return [...overridden, ...ours];
   }
   /**

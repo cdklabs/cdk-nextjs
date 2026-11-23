@@ -4,6 +4,7 @@ import {
   LambdaEdgeEventType,
 } from "aws-cdk-lib/aws-cloudfront";
 import {
+  BehaviorCloudFrontFunction,
   assertViewerEdgeLambdasClear,
   assertViewerRequestUnclaimed,
   assetPrefixRewriteHandler,
@@ -189,27 +190,65 @@ describe("assertViewerEdgeLambdasClear", () => {
     );
   });
 
-  it("suggests viewerRequestFunctionCode for a viewer-request Lambda@Edge", () => {
-    expect(() =>
+  const remedyOf = (
+    edgeEventType: LambdaEdgeEventType,
+    functions: BehaviorCloudFrontFunction[] = ours,
+  ) => {
+    try {
       assertViewerEdgeLambdasClear(
         "dynamicBehaviorOptions",
-        [{ eventType: LambdaEdgeEventType.VIEWER_REQUEST }],
-        ours,
-      ),
-    ).toThrow(
-      /origin-request or origin-response Lambda@Edge.*logic into `viewerRequestFunctionCode`/,
+        [{ eventType: edgeEventType }],
+        functions,
+      );
+    } catch (error) {
+      return (error as Error).message.replace(/^.* Use /s, "Use ");
+    }
+    throw new Error("expected a refusal");
+  };
+  const ORIGIN_EVENT =
+    "Use an origin-request or origin-response Lambda@Edge function, which " +
+    "can sit beside viewer CloudFront Functions";
+  const CODE =
+    "`viewerRequestFunctionCode`, which runs inside cdk-nextjs's own " +
+    "viewer-request functions, for the Lambda@Edge function's logic";
+  const VIEWER_RESPONSE_FUNCTION =
+    "a viewer-response CloudFront Function in " +
+    "`overrides.dynamicBehaviorOptions.functionAssociations`, which runs on " +
+    "cache hits too";
+
+  it("suggests viewerRequestFunctionCode for a viewer-request Lambda@Edge", () => {
+    expect(remedyOf(LambdaEdgeEventType.VIEWER_REQUEST)).toContain(
+      `${ORIGIN_EVENT}, or ${CODE}. See `,
     );
   });
 
-  it("suggests only an origin-event Lambda@Edge for a viewer-response one", () => {
-    expect(() =>
-      assertViewerEdgeLambdasClear(
-        "dynamicBehaviorOptions",
-        [{ eventType: LambdaEdgeEventType.VIEWER_RESPONSE }],
-        ours,
-      ),
-    ).toThrow(
-      /origin-request or origin-response Lambda@Edge function, which can sit beside viewer CloudFront Functions\. See/,
+  it("doesn't suggest viewerRequestFunctionCode where the override holds viewer-request", () => {
+    expect(
+      remedyOf(LambdaEdgeEventType.VIEWER_REQUEST, [
+        {
+          eventType: FunctionEventType.VIEWER_REQUEST,
+          owner: "theirs",
+          fromOverride: true,
+        },
+      ]),
+    ).toContain(`${ORIGIN_EVENT}. See `);
+  });
+
+  it("suggests a viewer-response CloudFront Function for a viewer-response Lambda@Edge", () => {
+    expect(remedyOf(LambdaEdgeEventType.VIEWER_RESPONSE)).toContain(
+      `${ORIGIN_EVENT}, or ${VIEWER_RESPONSE_FUNCTION}. See `,
     );
+  });
+
+  it("doesn't suggest a viewer-response CloudFront Function where one is already there", () => {
+    expect(
+      remedyOf(LambdaEdgeEventType.VIEWER_RESPONSE, [
+        {
+          eventType: FunctionEventType.VIEWER_RESPONSE,
+          owner: "theirs",
+          fromOverride: true,
+        },
+      ]),
+    ).toContain(`${ORIGIN_EVENT}. See `);
   });
 });

@@ -1794,22 +1794,47 @@ describe("viewer-event Lambda@Edge overrides", () => {
     LambdaEdgeEventType.ORIGIN_RESPONSE,
   ])("on %s", (eventType) => {
     it.each(BEHAVIOR_FIELDS)("is allowed in overrides.%s", (field) => {
-      expect(() =>
-        synth({
-          nextjsType: NextjsType.GLOBAL_FUNCTIONS,
-          assetPrefix: "/cdn",
-          eventType,
-          overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
-        }),
-      ).not.toThrow();
+      const functions = synth({
+        nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+        assetPrefix: "/cdn",
+        eventType,
+        overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+      });
+      expect(hasEdgeLambda(functions, eventType)).toBe(true);
+      const containers = synth({
+        nextjsType: NextjsType.GLOBAL_CONTAINERS,
+        code: VIEWER_REQUEST_CODE,
+        eventType,
+        overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+      });
+      expect(hasEdgeLambda(containers, eventType)).toBe(true);
+    });
+  });
+
+  it.each(BEHAVIOR_FIELDS)(
+    "reports a viewer-request claim in overrides.%s before the edge-lambda clash",
+    (field) => {
       expect(() =>
         synth({
           nextjsType: NextjsType.GLOBAL_CONTAINERS,
           code: VIEWER_REQUEST_CODE,
-          eventType,
-          overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+          eventType: LambdaEdgeEventType.VIEWER_RESPONSE,
+          overrides: (edgeLambdas) => ({
+            [field]: {
+              edgeLambdas,
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_REQUEST,
+                  function: importedFunction(),
+                },
+              ],
+            },
+          }),
         }),
-      ).not.toThrow();
-    });
-  });
+      ).toThrow(
+        `\`overrides.${field}.functionAssociations\` associates a ` +
+          "CloudFront function with viewer-request",
+      );
+    },
+  );
 });

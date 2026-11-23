@@ -258,6 +258,11 @@ export interface BehaviorCloudFrontFunction {
   readonly eventType: FunctionEventType;
   /** Who added it, as a noun phrase. */
   readonly owner: string;
+  /**
+   * Whether it's the override's own, in `functionAssociations`. One on
+   * viewer-request leaves `viewerRequestFunctionCode` no event type to run on.
+   */
+  readonly fromOverride?: boolean;
 }
 
 // `FunctionEventType` and `LambdaEdgeEventType` share these values.
@@ -297,21 +302,48 @@ export function assertViewerEdgeLambdasClear(
   const functions = viewerFunctions
     .map((it) => `${it.owner} (${it.eventType})`)
     .join("; ");
-  // Logic moved into `viewerRequestFunctionCode` runs on viewer-request only.
-  const moveToCode = viewerEdgeLambdas.every(
-    (it) => it.eventType === LambdaEdgeEventType.VIEWER_REQUEST,
-  )
-    ? `, or move the Lambda@Edge function's logic into ` +
-      `\`viewerRequestFunctionCode\`, which runs inside cdk-nextjs's own ` +
-      `viewer-request functions`
-    : "";
+  const remedies = [
+    "an origin-request or origin-response Lambda@Edge function, which can " +
+      "sit beside viewer CloudFront Functions",
+  ];
+  // Logic moved into `viewerRequestFunctionCode` runs on viewer-request only,
+  // and only where the override doesn't hold that event type itself.
+  if (
+    viewerEdgeLambdas.every(
+      (it) => it.eventType === LambdaEdgeEventType.VIEWER_REQUEST,
+    ) &&
+    !viewerFunctions.some(
+      (it) =>
+        it.fromOverride && it.eventType === FunctionEventType.VIEWER_REQUEST,
+    )
+  ) {
+    remedies.push(
+      "`viewerRequestFunctionCode`, which runs inside cdk-nextjs's own " +
+        "viewer-request functions, for the Lambda@Edge function's logic",
+    );
+  }
+  // An origin-response one runs on cache misses only; a viewer-response
+  // CloudFront Function still runs on every response.
+  if (
+    viewerEdgeLambdas.some(
+      (it) => it.eventType === LambdaEdgeEventType.VIEWER_RESPONSE,
+    ) &&
+    !viewerFunctions.some(
+      (it) => it.eventType === FunctionEventType.VIEWER_RESPONSE,
+    )
+  ) {
+    remedies.push(
+      `a viewer-response CloudFront Function in ` +
+        `\`overrides.${overrideName}.functionAssociations\`, which runs on ` +
+        `cache hits too`,
+    );
+  }
   throw new Error(
     `${LOG_PREFIX} \`overrides.${overrideName}.edgeLambdas\` associates a ` +
       `Lambda@Edge function with ${edgeEvents}, but the same behavior has ` +
       `viewer-event CloudFront Functions: ${functions}. CloudFront doesn't ` +
       `allow CloudFront Functions and Lambda@Edge together on viewer events. ` +
-      `Use an origin-request or origin-response Lambda@Edge function, which ` +
-      `can sit beside viewer CloudFront Functions${moveToCode}. See ` +
+      `Use ${remedies.join(", or ")}. See ` +
       `https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html`,
   );
 }
