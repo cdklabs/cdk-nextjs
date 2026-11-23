@@ -13,6 +13,7 @@ import {
   CachedMethods,
   Function as CloudFrontFunction,
   Distribution,
+  EdgeLambda,
   FunctionAssociation,
   FunctionCode,
   FunctionEventType,
@@ -69,6 +70,7 @@ import {
 import {
   assertNoPublicCollisions,
   getPathPattern,
+  isPathPatternChar,
   MAX_PATH_PATTERN_LENGTH,
   publicPathPatterns,
 } from "./utils/path-patterns";
@@ -859,23 +861,33 @@ export class NextjsDistribution extends Construct {
     for (const behavior of this.props.dynamicBehaviors ?? []) {
       const relative = behavior.pathPattern;
       const errorPrefix = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
-      // `getPathPattern` strips every leading slash, so `//*` is `*` too: under
-      // a `basePath`, the pattern of the behavior standing in for the default.
-      const bare = relative.replace(/^\/+/, "");
-      if (bare === "*") {
+      // Nothing but slashes and wildcards (`*`, `/**`, `*/*`) matches every
+      // path, or nearly, as the default behavior (or under a `basePath`, the
+      // one standing in for it) does.
+      if (/^[/*]*\*[/*]*$/.test(relative)) {
         throw new Error(
-          `${errorPrefix} matches every path, as the default behavior does. ` +
-            `Customize that through \`overrides.dynamicBehaviorOptions\` instead.`,
+          `${errorPrefix} matches every path, or nearly, as the default ` +
+            `behavior does. Customize that through ` +
+            `\`overrides.dynamicBehaviorOptions\` instead.`,
         );
       }
-      if (bare === "") {
+      const pathPattern = this.getPathPattern(relative);
+      if (pathPattern === "") {
         throw new Error(`${errorPrefix} is empty.`);
       }
-      const pathPattern = this.getPathPattern(relative);
       if (pathPattern.length > MAX_PATH_PATTERN_LENGTH) {
         throw new Error(
           `${errorPrefix} ("${pathPattern}") is ${pathPattern.length} ` +
             `characters, over CloudFront's ${MAX_PATH_PATTERN_LENGTH}.`,
+        );
+      }
+      const invalid = [...pathPattern].filter(
+        (char) => !isPathPatternChar(char),
+      );
+      if (invalid.length) {
+        throw new Error(
+          `${errorPrefix} has characters a CloudFront path pattern can't: ` +
+            `${[...new Set(invalid)].map((char) => JSON.stringify(char)).join(", ")}.`,
         );
       }
       const key = pathPatternKey(pathPattern);
@@ -889,21 +901,27 @@ export class NextjsDistribution extends Construct {
       // spread, or plain JS), such as `functionAssociations`, would replace
       // cdk-nextjs's viewer-request function. And unset fields keep the
       // dynamic options' rather than CDK's defaults, which for `cachePolicy`
-      // cache for a day.
-      // Every field of `DynamicBehaviorFields` listed, or it fails to compile.
-      const declared: DynamicBehaviorFields = {
-        cachePolicy: behavior.cachePolicy,
-        originRequestPolicy: behavior.originRequestPolicy,
-        responseHeadersPolicy: behavior.responseHeadersPolicy,
-        allowedMethods: behavior.allowedMethods,
-        cachedMethods: behavior.cachedMethods,
-        compress: behavior.compress,
-        viewerProtocolPolicy: behavior.viewerProtocolPolicy,
+      // cache for a day. A field added to `NextjsDynamicBehavior` goes here too.
+      const options: AddBehaviorOptions = {
+        ...defaults,
+        ...(behavior.cachePolicy && { cachePolicy: behavior.cachePolicy }),
+        ...(behavior.originRequestPolicy && {
+          originRequestPolicy: behavior.originRequestPolicy,
+        }),
+        ...(behavior.responseHeadersPolicy && {
+          responseHeadersPolicy: behavior.responseHeadersPolicy,
+        }),
+        ...(behavior.allowedMethods && {
+          allowedMethods: behavior.allowedMethods,
+        }),
+        ...(behavior.cachedMethods && {
+          cachedMethods: behavior.cachedMethods,
+        }),
+        ...(behavior.compress !== undefined && { compress: behavior.compress }),
+        ...(behavior.viewerProtocolPolicy && {
+          viewerProtocolPolicy: behavior.viewerProtocolPolicy,
+        }),
       };
-      const given: AddBehaviorOptions = Object.fromEntries(
-        Object.entries(declared).filter(([, value]) => value !== undefined),
-      );
-      const options: AddBehaviorOptions = { ...defaults, ...given };
       this.addCacheBehavior(pathPattern, origin, options);
     }
   }
@@ -1141,33 +1159,24 @@ function pathPatternKey(pathPattern: string): string {
  * `functionAssociations`.
  */
 function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
-  const frozenEntries = <T extends object>(
-    entries: readonly T[] | undefined,
-  ) =>
-    entries
-      ? (Object.freeze(
-          entries.map((entry) => Object.freeze({ ...entry })),
-        ) as T[])
-      : undefined;
+  // Fields copied by name, not spread: a getter on a class instance isn't an
+  // own enumerable property, and a spread would drop it.
   return Object.freeze({
     ...options,
-    functionAssociations: frozenEntries(options.functionAssociations),
-    edgeLambdas: frozenEntries(options.edgeLambdas),
+    functionAssociations: options.functionAssociations
+      ? (Object.freeze(
+          options.functionAssociations.map(({ function: fn, eventType }) =>
+            Object.freeze({ function: fn, eventType }),
+          ),
+        ) as FunctionAssociation[])
+      : undefined,
+    edgeLambdas: options.edgeLambdas
+      ? (Object.freeze(
+          options.edgeLambdas.map(
+            ({ functionVersion, eventType, includeBody }) =>
+              Object.freeze({ functionVersion, eventType, includeBody }),
+          ),
+        ) as EdgeLambda[])
+      : undefined,
   });
-}
-
-/**
- * The fields a {@link NextjsDynamicBehavior} may change, the only ones copied
- * from it, each required so the copy can't leave one out. A field added to
- * `NextjsDynamicBehavior` goes here too. (Written out rather than mapped from
- * it: `src/` keeps to JSII-compatible TypeScript.)
- */
-interface DynamicBehaviorFields {
-  readonly cachePolicy: ICachePolicy | undefined;
-  readonly originRequestPolicy: IOriginRequestPolicy | undefined;
-  readonly responseHeadersPolicy: IResponseHeadersPolicy | undefined;
-  readonly allowedMethods: AllowedMethods | undefined;
-  readonly cachedMethods: CachedMethods | undefined;
-  readonly compress: boolean | undefined;
-  readonly viewerProtocolPolicy: ViewerProtocolPolicy | undefined;
 }

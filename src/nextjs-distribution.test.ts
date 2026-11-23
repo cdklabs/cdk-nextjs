@@ -1811,7 +1811,7 @@ describe("dynamicBehaviors", () => {
       setup(NextjsType.GLOBAL_CONTAINERS, {
         dynamicBehaviors: () => [{ pathPattern }],
       }),
-    ).toThrow(/matches every path, as the default behavior does/);
+    ).toThrow(/matches every path, or nearly, as the default behavior does/);
   });
 
   it.each([
@@ -1835,9 +1835,16 @@ describe("dynamicBehaviors", () => {
 
   it.each([
     ["", undefined, /is empty/],
-    ["/", undefined, /is empty/],
     ["//*", "docs", /matches every path/],
+    ["//*", undefined, /matches every path/],
+    ["**", "docs", /matches every path/],
+    ["*/*", undefined, /matches every path/],
     [`${"a".repeat(250)}/*`, "docs", /characters, over CloudFront's 255/],
+    [
+      "blog posts/*",
+      undefined,
+      /characters a CloudFront path pattern can't: " "/,
+    ],
   ])("refuses %j (basePath %s)", (pathPattern, basePath, error) => {
     expect(() =>
       setup(NextjsType.GLOBAL_CONTAINERS, {
@@ -1845,6 +1852,19 @@ describe("dynamicBehaviors", () => {
         dynamicBehaviors: () => [{ pathPattern }],
       }),
     ).toThrow(error);
+  });
+
+  it.each([
+    ["/", undefined, "/"],
+    ["/", "docs", "/docs/"],
+    ["", "docs", "/docs/"],
+    ["*.pdf", undefined, "*.pdf"],
+  ])("accepts %j (basePath %s) as %s", (pathPattern, basePath, deployed) => {
+    const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      basePath,
+      dynamicBehaviors: () => [{ pathPattern }],
+    });
+    expect(behaviors(stack).patterns).toContain(deployed);
   });
 
   it("refuses a pattern overrides.distributionProps.additionalBehaviors has", () => {
