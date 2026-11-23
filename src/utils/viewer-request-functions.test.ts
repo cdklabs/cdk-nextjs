@@ -163,12 +163,33 @@ describe("assertViewerEdgeLambdasClear", () => {
       ),
     ).toThrow(
       "`overrides.imageBehaviorOptions.edgeLambdas` associates a Lambda@Edge " +
-        "function with viewer-response, but the same behavior has a " +
-        "CloudFront Function on viewer-request: our function. ",
+        "function with viewer-response, but the same behavior has " +
+        "viewer-event CloudFront Functions: our function (viewer-request). ",
     );
   });
 
-  it("suggests an origin-event Lambda@Edge or viewerRequestFunctionCode", () => {
+  it("names every viewer-event function on both sides", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "dynamicBehaviorOptions",
+        [
+          { eventType: LambdaEdgeEventType.VIEWER_REQUEST },
+          { eventType: LambdaEdgeEventType.ORIGIN_REQUEST },
+          { eventType: LambdaEdgeEventType.VIEWER_RESPONSE },
+        ],
+        [
+          ...ours,
+          { eventType: FunctionEventType.VIEWER_RESPONSE, owner: "theirs" },
+        ],
+      ),
+    ).toThrow(
+      "with viewer-request and viewer-response, but the same behavior has " +
+        "viewer-event CloudFront Functions: our function (viewer-request); " +
+        "theirs (viewer-response). ",
+    );
+  });
+
+  it("suggests viewerRequestFunctionCode for a viewer-request Lambda@Edge", () => {
     expect(() =>
       assertViewerEdgeLambdasClear(
         "dynamicBehaviorOptions",
@@ -176,7 +197,19 @@ describe("assertViewerEdgeLambdasClear", () => {
         ours,
       ),
     ).toThrow(
-      /origin-request or origin-response Lambda@Edge.*`viewerRequestFunctionCode`/,
+      /origin-request or origin-response Lambda@Edge.*logic into `viewerRequestFunctionCode`/,
+    );
+  });
+
+  it("suggests only an origin-event Lambda@Edge for a viewer-response one", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "dynamicBehaviorOptions",
+        [{ eventType: LambdaEdgeEventType.VIEWER_RESPONSE }],
+        ours,
+      ),
+    ).toThrow(
+      /origin-request or origin-response Lambda@Edge function, which can sit beside viewer CloudFront Functions\. See/,
     );
   });
 });

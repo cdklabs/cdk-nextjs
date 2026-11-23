@@ -1622,6 +1622,31 @@ describe("viewer-event Lambda@Edge overrides", () => {
     return Template.fromStack(stack);
   };
   const VIEWER_REQUEST_CODE = "function viewerRequest(event) { return; }";
+  const OWN_FUNCTION =
+    "NextjsGlobalFunctions' own viewer-request function, which overwrites " +
+    "`x-forwarded-host` with the viewer's `Host` (viewer-request)";
+  /** The start of the error, up to the functions it names. */
+  const refusal = (field: string, eventType: string, functions: string) =>
+    `\`overrides.${field}.edgeLambdas\` associates a Lambda@Edge function ` +
+    `with ${eventType}, but the same behavior has viewer-event CloudFront ` +
+    `Functions: ${functions}. `;
+  /** Whether some behavior carries a Lambda@Edge function on `eventType`. */
+  const hasEdgeLambda = (template: Template, eventType: string) => {
+    const config = Object.values(
+      template.findResources("AWS::CloudFront::Distribution"),
+    )[0].Properties.DistributionConfig;
+    return [config.DefaultCacheBehavior, ...config.CacheBehaviors].some(
+      (behavior) =>
+        behavior.LambdaFunctionAssociations?.some(
+          (it: { EventType: string }) => it.EventType === eventType,
+        ),
+    );
+  };
+  const importedFunction = () =>
+    CloudFrontFunction.fromFunctionAttributes(new Stack(), "Fn", {
+      functionArn: "arn:aws:cloudfront::111122223333:function/fn",
+      functionName: "fn",
+    });
 
   describe.each([
     LambdaEdgeEventType.VIEWER_REQUEST,
@@ -1636,14 +1661,47 @@ describe("viewer-event Lambda@Edge overrides", () => {
             eventType,
             overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
           }),
-        ).toThrow(
-          `\`overrides.${field}.edgeLambdas\` associates a Lambda@Edge ` +
-            `function with ${eventType}, but the same behavior has a ` +
-            `CloudFront Function on viewer-request: NextjsGlobalFunctions' ` +
-            `own viewer-request function`,
-        );
+        ).toThrow(refusal(field, eventType, OWN_FUNCTION));
       },
     );
+
+    it("is allowed in overrides.staticBehaviorOptions on Global Functions", () => {
+      const template = synth({
+        nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+        eventType,
+        overrides: (edgeLambdas) => ({
+          staticBehaviorOptions: { edgeLambdas },
+        }),
+      });
+      expect(hasEdgeLambda(template, eventType)).toBe(true);
+    });
+
+    it("names every viewer-event CloudFront Function on the behavior", () => {
+      expect(() =>
+        synth({
+          nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+          eventType,
+          overrides: (edgeLambdas) => ({
+            dynamicBehaviorOptions: {
+              edgeLambdas,
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_RESPONSE,
+                  function: importedFunction(),
+                },
+              ],
+            },
+          }),
+        }),
+      ).toThrow(
+        refusal(
+          "dynamicBehaviorOptions",
+          eventType,
+          "`overrides.dynamicBehaviorOptions.functionAssociations` " +
+            `(viewer-response); ${OWN_FUNCTION}`,
+        ),
+      );
+    });
 
     it.each([
       "dynamicBehaviorOptions",
@@ -1657,18 +1715,7 @@ describe("viewer-event Lambda@Edge overrides", () => {
           eventType,
           overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
         });
-        const config = Object.values(
-          template.findResources("AWS::CloudFront::Distribution"),
-        )[0].Properties.DistributionConfig;
-        const withEdgeLambda = [
-          config.DefaultCacheBehavior,
-          ...config.CacheBehaviors,
-        ].filter((behavior) =>
-          behavior.LambdaFunctionAssociations?.some(
-            (it: { EventType: string }) => it.EventType === eventType,
-          ),
-        );
-        expect(withEdgeLambda.length).toBeGreaterThan(0);
+        expect(hasEdgeLambda(template, eventType)).toBe(true);
       },
     );
 
@@ -1687,10 +1734,12 @@ describe("viewer-event Lambda@Edge overrides", () => {
             overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
           }),
         ).toThrow(
-          `\`overrides.${field}.edgeLambdas\` associates a Lambda@Edge ` +
-            `function with ${eventType}, but the same behavior has a ` +
-            `CloudFront Function on viewer-request: the viewer-request ` +
-            `function \`viewerRequestFunctionCode\` runs in.`,
+          refusal(
+            field,
+            eventType,
+            "the viewer-request function `viewerRequestFunctionCode` runs in " +
+              "(viewer-request)",
+          ),
         );
       },
     );
@@ -1706,10 +1755,12 @@ describe("viewer-event Lambda@Edge overrides", () => {
           }),
         }),
       ).toThrow(
-        `\`overrides.staticBehaviorOptions.edgeLambdas\` associates a ` +
-          `Lambda@Edge function with ${eventType}, but the same behavior has ` +
-          `a CloudFront Function on viewer-request: the function that ` +
-          `rewrites \`assetPrefix\` ("/cdn")`,
+        refusal(
+          "staticBehaviorOptions",
+          eventType,
+          'the function that rewrites `assetPrefix` ("/cdn") requests to the ' +
+            "object's key (viewer-request)",
+        ),
       );
     });
 
@@ -1724,25 +1775,19 @@ describe("viewer-event Lambda@Edge overrides", () => {
               functionAssociations: [
                 {
                   eventType: FunctionEventType.VIEWER_RESPONSE,
-                  function: CloudFrontFunction.fromFunctionAttributes(
-                    new Stack(),
-                    "Fn",
-                    {
-                      functionArn:
-                        "arn:aws:cloudfront::111122223333:function/fn",
-                      functionName: "fn",
-                    },
-                  ),
+                  function: importedFunction(),
                 },
               ],
             },
           }),
         }),
       ).toThrow(
-        `\`overrides.staticBehaviorOptions.edgeLambdas\` associates a ` +
-          `Lambda@Edge function with ${eventType}, but the same behavior has ` +
-          `a CloudFront Function on viewer-response: ` +
-          "`overrides.staticBehaviorOptions.functionAssociations`.",
+        refusal(
+          "staticBehaviorOptions",
+          eventType,
+          "`overrides.staticBehaviorOptions.functionAssociations` " +
+            "(viewer-response)",
+        ),
       );
     });
   });

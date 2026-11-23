@@ -275,24 +275,38 @@ export function assertViewerEdgeLambdasClear(
   edgeLambdas: readonly { readonly eventType: string }[] | undefined,
   cloudFrontFunctions: readonly BehaviorCloudFrontFunction[],
 ) {
-  const edgeLambda = (edgeLambdas ?? []).find((it) =>
+  const viewerEdgeLambdas = (edgeLambdas ?? []).filter((it) =>
     VIEWER_EVENT_TYPES.includes(it.eventType),
   );
-  const cloudFrontFunction = cloudFrontFunctions.find((it) =>
+  const viewerFunctions = cloudFrontFunctions.filter((it) =>
     VIEWER_EVENT_TYPES.includes(it.eventType),
   );
-  if (!edgeLambda || !cloudFrontFunction) {
+  if (!viewerEdgeLambdas.length || !viewerFunctions.length) {
     return;
   }
+  const edgeEvents = [
+    ...new Set(viewerEdgeLambdas.map((it) => it.eventType)),
+  ].join(" and ");
+  // Every one is named, so removing the one named doesn't just surface the
+  // next at the following synth.
+  const functions = viewerFunctions
+    .map((it) => `${it.owner} (${it.eventType})`)
+    .join("; ");
+  // Logic moved into `viewerRequestFunctionCode` runs on viewer-request only.
+  const moveToCode = viewerEdgeLambdas.every(
+    (it) => it.eventType === FunctionEventType.VIEWER_REQUEST,
+  )
+    ? `, or move the Lambda@Edge function's logic into ` +
+      `\`viewerRequestFunctionCode\`, which runs inside cdk-nextjs's own ` +
+      `viewer-request functions`
+    : "";
   throw new Error(
     `${LOG_PREFIX} \`overrides.${overrideName}.edgeLambdas\` associates a ` +
-      `Lambda@Edge function with ${edgeLambda.eventType}, but the same ` +
-      `behavior has a CloudFront Function on ` +
-      `${cloudFrontFunction.eventType}: ${cloudFrontFunction.owner}. CloudFront ` +
-      `doesn't allow CloudFront Functions and Lambda@Edge together on viewer ` +
-      `events. Use an origin-request or origin-response Lambda@Edge function, ` +
-      `which can sit beside viewer CloudFront Functions, or move ` +
-      `viewer-request logic into \`viewerRequestFunctionCode\`. See ` +
+      `Lambda@Edge function with ${edgeEvents}, but the same behavior has ` +
+      `viewer-event CloudFront Functions: ${functions}. CloudFront doesn't ` +
+      `allow CloudFront Functions and Lambda@Edge together on viewer events. ` +
+      `Use an origin-request or origin-response Lambda@Edge function, which ` +
+      `can sit beside viewer CloudFront Functions${moveToCode}. See ` +
       `https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html`,
   );
 }

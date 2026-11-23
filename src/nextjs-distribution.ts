@@ -463,11 +463,6 @@ export class NextjsDistribution extends Construct {
     };
   }
   /**
-   * `viewerRequestFunctionCode`, rendered once, since `FunctionCode.fromFile`
-   * reads the file on every render, and checked
-   * ({@link checkViewerRequestCode}).
-   */
-  /**
    * {@link assertViewerEdgeLambdasClear} on a behavior built from an override:
    * the override's own CloudFront Functions, plus `ours`, which `ourOwner`
    * describes.
@@ -486,6 +481,11 @@ export class NextjsDistribution extends Construct {
       ...ours.map(({ eventType }) => ({ eventType, owner: ourOwner })),
     ]);
   }
+  /**
+   * `viewerRequestFunctionCode`, rendered once, since `FunctionCode.fromFile`
+   * reads the file on every render, and checked
+   * ({@link checkViewerRequestCode}).
+   */
   private renderViewerRequestCode(): string | undefined {
     const userCode = this.props.viewerRequestFunctionCode?.render();
     if (userCode === undefined) {
