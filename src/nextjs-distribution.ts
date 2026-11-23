@@ -70,9 +70,9 @@ import {
 import {
   assertNoPublicCollisions,
   getPathPattern,
-  isPathPatternChar,
-  MAX_PATH_PATTERN_LENGTH,
+  pathPatternKey,
   publicPathPatterns,
+  resolveDynamicPathPattern,
 } from "./utils/path-patterns";
 import {
   assertViewerRequestUnclaimed,
@@ -876,37 +876,12 @@ export class NextjsDistribution extends Construct {
     );
     for (const behavior of this.props.dynamicBehaviors ?? []) {
       const relative = behavior.pathPattern;
-      if (Token.isUnresolved(relative)) {
-        // Prefixing it and the checks below need the pattern's text.
-        throw new Error(
-          `${LOG_PREFIX} a \`dynamicBehaviors\` pattern is a CDK token; ` +
-            `only literal patterns are supported.`,
-        );
-      }
-      const errorPrefix = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
-      const pathPattern = this.getPathPattern(relative);
-      if (pathPattern === "") {
-        throw new Error(`${errorPrefix} is empty.`);
-      }
-      if (pathPattern.length > MAX_PATH_PATTERN_LENGTH) {
-        throw new Error(
-          `${errorPrefix} ("${pathPattern}") is ${pathPattern.length} ` +
-            `characters, over CloudFront's ${MAX_PATH_PATTERN_LENGTH}.`,
-        );
-      }
-      const invalid = [...pathPattern].filter(
-        (char) => !isPathPatternChar(char),
-      );
-      if (invalid.length) {
-        throw new Error(
-          `${errorPrefix} has characters a CloudFront path pattern can't: ` +
-            `${[...new Set(invalid)].map((char) => JSON.stringify(char)).join(", ")}.`,
-        );
-      }
+      const pathPattern = resolveDynamicPathPattern(this.basePath, relative);
       const key = pathPatternKey(pathPattern);
       if (this.pathPatterns.has(key) || reservedPatterns.has(key)) {
         throw new Error(
-          `${errorPrefix} ("${pathPattern}") already has a behavior, which ` +
+          `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}" ` +
+            `("${pathPattern}") already has a behavior, which ` +
             `CloudFront would reject at deploy.`,
         );
       }
@@ -1156,14 +1131,6 @@ export class NextjsDistribution extends Construct {
  */
 const MAX_POLICY_NAME_LENGTH = 128;
 const SERVICE_WORKER_SUFFIX = "-sw";
-
-/**
- * CloudFront reads a path pattern with or without its leading `/`, so two that
- * differ only by it are the same pattern.
- */
-function pathPatternKey(pathPattern: string): string {
-  return pathPattern.replace(/^\//, "");
-}
 
 /**
  * A frozen copy, arrays and their entries included, so a caller changing the

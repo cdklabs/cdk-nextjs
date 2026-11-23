@@ -1,11 +1,38 @@
+import { Lazy } from "aws-cdk-lib";
 import {
   assertNoPublicCollisions,
   getPathPattern,
   isPathPatternChar,
   MAX_PATH_PATTERN_LENGTH,
+  pathPatternKey,
   publicPathPatterns,
+  resolveDynamicPathPattern,
   toPathPattern,
 } from "./path-patterns";
+
+describe("pathPatternKey", () => {
+  it("treats a pattern with and without its leading slash as one", () => {
+    expect(pathPatternKey("/detail/*")).toBe(pathPatternKey("detail/*"));
+  });
+});
+
+describe("resolveDynamicPathPattern", () => {
+  it("prefixes the basePath, and keeps a pattern as given without one", () => {
+    expect(resolveDynamicPathPattern("docs", "/detail/*")).toBe(
+      "/docs/detail/*",
+    );
+    expect(resolveDynamicPathPattern("", "detail/*")).toBe("detail/*");
+  });
+
+  it.each([
+    ["", "", /is empty/],
+    ["docs", `${"a".repeat(250)}/*`, /over CloudFront's 255/],
+    ["", "blog posts/*", /can't: " "/],
+    ["", Lazy.string({ produce: () => "x" }), /is a CDK token/],
+  ])("refuses basePath %j pattern %j", (basePath, relative, error) => {
+    expect(() => resolveDynamicPathPattern(basePath, relative)).toThrow(error);
+  });
+});
 
 describe("isPathPatternChar", () => {
   it("accepts literals and both wildcards", () => {
