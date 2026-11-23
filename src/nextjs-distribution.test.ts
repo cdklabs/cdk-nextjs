@@ -2,6 +2,7 @@ import { runInNewContext } from "node:vm";
 import { App, Duration, Lazy, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
+  CachePolicy,
   Function as CloudFrontFunction,
   FunctionCode,
   FunctionEventType,
@@ -1558,5 +1559,209 @@ describe("viewerRequestFunctionCode", () => {
     ],
   ])("refuses code with %s", (_name, code, error) => {
     expect(() => synth({ code })).toThrow(error);
+  });
+});
+
+/**
+ * `addDynamicBehavior` and `dynamicBehaviorOptions`, the public way to send a
+ * path of the app's own to the Next.js server with some options changed.
+ */
+describe("addDynamicBehavior", () => {
+  interface Behavior {
+    PathPattern?: string;
+    TargetOriginId: string;
+    CachePolicyId: unknown;
+    OriginRequestPolicyId: unknown;
+    ResponseHeadersPolicyId: unknown;
+    AllowedMethods: string[];
+    ViewerProtocolPolicy: string;
+    FunctionAssociations?: Array<{ EventType: string; FunctionARN: unknown }>;
+  }
+
+  const setup = (
+    nextjsType: NextjsType,
+    props: {
+      viewerRequestFunctionCode?: FunctionCode;
+      overrides?: (stack: Stack) => NextjsDistributionOverrides;
+    } = {},
+  ) => {
+    const stack = new Stack(new App(), "TestStack");
+    const compute =
+      nextjsType === NextjsType.GLOBAL_CONTAINERS
+        ? {
+            loadBalancer: new ApplicationLoadBalancer(stack, "Alb", {
+              vpc: new Vpc(stack, "Vpc"),
+            }),
+          }
+        : {
+            functionUrl: new FunctionUrl(stack, "Url", {
+              function: new LambdaFunction(stack, "Fn", {
+                code: Code.fromInline("exports.handler = () => {};"),
+                handler: "index.handler",
+                runtime: Runtime.NODEJS_22_X,
+              }),
+              authType: FunctionUrlAuthType.AWS_IAM,
+            }),
+          };
+    const distribution = new NextjsDistribution(stack, "Distribution", {
+      assetsBucket: new Bucket(stack, "Assets"),
+      nextjsType,
+      publicDirEntries: [],
+      viewerRequestFunctionCode: props.viewerRequestFunctionCode,
+      overrides: props.overrides?.(stack),
+      ...compute,
+    });
+    return { stack, distribution };
+  };
+
+  const behaviors = (stack: Stack) => {
+    const config = Object.values(
+      Template.fromStack(stack).findResources("AWS::CloudFront::Distribution"),
+    )[0].Properties.DistributionConfig;
+    const byPattern = (pattern: string) =>
+      (config.CacheBehaviors as Behavior[]).find(
+        (it) => it.PathPattern === pattern,
+      )!;
+    return {
+      defaultBehavior: config.DefaultCacheBehavior as Behavior,
+      byPattern,
+    };
+  };
+
+  const cloudFrontFn = (stack: Stack, id: string) =>
+    new CloudFrontFunction(stack, id, {
+      code: FunctionCode.fromInline(
+        "function handler(event) { return event.request || event.response; }",
+      ),
+    });
+
+  it.each([NextjsType.GLOBAL_CONTAINERS, NextjsType.GLOBAL_FUNCTIONS])(
+    "sends the path to the default behavior's origin with its policies on %s, bar the one replaced",
+    (nextjsType) => {
+      const { stack, distribution } = setup(nextjsType);
+      distribution.addDynamicBehavior("/detail/*", {
+        cachePolicy: new CachePolicy(stack, "DetailCachePolicy", {
+          maxTtl: Duration.seconds(60),
+        }),
+      });
+      const { defaultBehavior, byPattern } = behaviors(stack);
+      const detail = byPattern("/detail/*");
+      expect(detail).toEqual({
+        ...defaultBehavior,
+        PathPattern: "/detail/*",
+        CachePolicyId: { Ref: expect.stringMatching(/^DetailCachePolicy/) },
+      });
+      expect(detail.CachePolicyId).not.toEqual(defaultBehavior.CachePolicyId);
+    },
+  );
+
+  it("keeps the viewer-request function on Global Functions", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_FUNCTIONS);
+    distribution.addDynamicBehavior("/detail/*");
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    expect(defaultBehavior.FunctionAssociations).toEqual([
+      expect.objectContaining({ EventType: "viewer-request" }),
+    ]);
+    expect(byPattern("/detail/*").FunctionAssociations).toEqual(
+      defaultBehavior.FunctionAssociations,
+    );
+  });
+
+  it("keeps viewerRequestFunctionCode's function on Global Containers", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      viewerRequestFunctionCode: FunctionCode.fromInline(
+        "function viewerRequest(event) {}",
+      ),
+    });
+    distribution.addDynamicBehavior("/detail/*");
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    expect(defaultBehavior.FunctionAssociations).toEqual([
+      expect.objectContaining({ EventType: "viewer-request" }),
+    ]);
+    expect(byPattern("/detail/*").FunctionAssociations).toEqual(
+      defaultBehavior.FunctionAssociations,
+    );
+  });
+
+  it("adds associations of its own next to cdk-nextjs's", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_FUNCTIONS);
+    distribution.addDynamicBehavior("/detail/*", {
+      functionAssociations: [
+        {
+          eventType: FunctionEventType.VIEWER_RESPONSE,
+          function: cloudFrontFn(stack, "UserFn"),
+        },
+      ],
+    });
+    expect(
+      behaviors(stack)
+        .byPattern("/detail/*")
+        .FunctionAssociations?.map((it) => it.EventType),
+    ).toEqual(["viewer-response", "viewer-request"]);
+  });
+
+  it("keeps overrides.dynamicBehaviorOptions' associations when given none", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      overrides: (scope) => ({
+        dynamicBehaviorOptions: {
+          functionAssociations: [
+            {
+              eventType: FunctionEventType.VIEWER_RESPONSE,
+              function: cloudFrontFn(scope, "OverrideFn"),
+            },
+          ],
+        },
+      }),
+    });
+    distribution.addDynamicBehavior("/detail/*");
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    expect(defaultBehavior.FunctionAssociations).toEqual([
+      expect.objectContaining({ EventType: "viewer-response" }),
+    ]);
+    expect(byPattern("/detail/*").FunctionAssociations).toEqual(
+      defaultBehavior.FunctionAssociations,
+    );
+  });
+
+  it.each([
+    [NextjsType.GLOBAL_FUNCTIONS, undefined],
+    [
+      NextjsType.GLOBAL_CONTAINERS,
+      FunctionCode.fromInline("function viewerRequest(event) {}"),
+    ],
+  ])(
+    "refuses a viewer-request association of its own on %s",
+    (nextjsType, viewerRequestFunctionCode) => {
+      const { stack, distribution } = setup(nextjsType, {
+        viewerRequestFunctionCode,
+      });
+      expect(() =>
+        distribution.addDynamicBehavior("/detail/*", {
+          functionAssociations: [
+            {
+              eventType: FunctionEventType.VIEWER_REQUEST,
+              function: cloudFrontFn(stack, "UserFn"),
+            },
+          ],
+        }),
+      ).toThrow(
+        "`addDynamicBehavior`'s `options.functionAssociations` associates a " +
+          "CloudFront function with viewer-request",
+      );
+    },
+  );
+
+  it("exposes the default behavior's options, overrides applied", () => {
+    let headers: ResponseHeadersPolicy | undefined;
+    const { distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      overrides: (scope) => {
+        headers = new ResponseHeadersPolicy(scope, "AppHeaders", {});
+        return { dynamicBehaviorOptions: { responseHeadersPolicy: headers } };
+      },
+    });
+    expect(distribution.dynamicBehaviorOptions.responseHeadersPolicy).toBe(
+      headers,
+    );
+    expect(distribution.dynamicBehaviorOptions.origin).toBeDefined();
   });
 });

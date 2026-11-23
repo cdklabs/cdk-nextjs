@@ -539,7 +539,56 @@ server at all.
   `overrides.dynamicBehaviorOptions`.
 - A bring-your-own `distribution`'s default behavior is yours, so it isn't
   covered. Only the behaviors cdk-nextjs adds are; under a `basePath`, those
-  include the ones that stand in for the default behavior.
+  include the ones that stand in for the default behavior, and those added
+  with [`addDynamicBehavior`](#adding-behaviors-of-your-own).
+
+## Adding Behaviors of Your Own
+
+With `NextjsGlobalFunctions` and `NextjsGlobalContainers`, a path of the app's
+that needs options of its own, such as a shorter cache for `/detail/*`, can get
+a behavior with `nextjsDistribution.addDynamicBehavior()`. It goes to the same
+origin as the rest of the app, with the same policies and function
+associations, bar the fields you pass:
+
+```ts
+import { CachePolicy } from "aws-cdk-lib/aws-cloudfront";
+import { S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
+
+const nextjs = new NextjsGlobalContainers(this, "Nextjs", {
+  buildDirectory: join(import.meta.dirname),
+});
+const { nextjsDistribution } = nextjs;
+
+nextjsDistribution.addDynamicBehavior("/detail/*", {
+  cachePolicy: new CachePolicy(this, "DetailCachePolicy", {
+    maxTtl: Duration.seconds(60),
+  }),
+});
+
+// `dynamicBehaviorOptions` holds the default behavior's options, for reuse on
+// a behavior with another origin.
+nextjsDistribution.distribution.addBehavior(
+  "/media/*",
+  S3BucketOrigin.withOriginAccessControl(mediaBucket),
+  {
+    responseHeadersPolicy:
+      nextjsDistribution.dynamicBehaviorOptions.responseHeadersPolicy,
+  },
+);
+```
+
+- The path pattern is used as given, so include the `basePath`, if the app has
+  one.
+- `functionAssociations` you pass are added to cdk-nextjs's rather than
+  replacing them, so the viewer-request function (and
+  `viewerRequestFunctionCode`) still runs on the path. A viewer-request one of
+  your own is refused at synth when cdk-nextjs has one there.
+- Behaviors you add come after cdk-nextjs's own, which CloudFront matches
+  first, and count toward the distribution's cache behavior quota.
+- Prefer `addDynamicBehavior` to spreading `dynamicBehaviorOptions` into
+  `distribution.addBehavior()`: a `functionAssociations` of your own would
+  replace the viewer-request function there, which on Global Functions is what
+  stops a viewer's own `X-Forwarded-Host` reaching the server.
 
 ## Bring Your Own Resources
 

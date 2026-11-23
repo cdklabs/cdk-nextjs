@@ -278,7 +278,20 @@ export class NextjsDistribution extends Construct {
   private passThroughFunction?: CloudFrontFunction;
   private isFunctionCompute: boolean;
   private staticBehaviorOptions: BehaviorOptions;
-  private dynamicBehaviorOptions: BehaviorOptions;
+  /**
+   * The options of the default behavior, the one that sends requests to the
+   * Next.js server: its origin, cache, origin request and response headers
+   * policies, and function associations, with
+   * `overrides.dynamicBehaviorOptions` applied.
+   *
+   * Read it to reuse a policy on a behavior of your own, e.g. the
+   * `responseHeadersPolicy` on a path served from another bucket, or the
+   * `origin` as the fallback of an origin group. To send another path to the
+   * Next.js server with some options changed, use {@link addDynamicBehavior}
+   * rather than spreading this: it keeps the viewer-request function an
+   * override of `functionAssociations` would otherwise drop.
+   */
+  public readonly dynamicBehaviorOptions: BehaviorOptions;
   private imageBehaviorOptions: BehaviorOptions;
 
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
@@ -310,6 +323,39 @@ export class NextjsDistribution extends Construct {
     }
     this.addStaticBehaviors();
     this.addDynamicBehaviors();
+  }
+  /**
+   * Adds a behavior that sends `pathPattern` to the Next.js server with the
+   * default behavior's options ({@link dynamicBehaviorOptions}), each field of
+   * `options` replacing the one it names, e.g. `cachePolicy` for a path that
+   * caches longer or shorter than the rest of the app.
+   *
+   * `functionAssociations` in `options` are added to cdk-nextjs's own rather
+   * than replacing them, and a `VIEWER_REQUEST` one is an error when
+   * cdk-nextjs has one there: on NextjsGlobalFunctions always, on
+   * NextjsGlobalContainers with `viewerRequestFunctionCode`.
+   *
+   * `pathPattern` is used as given, so include `basePath` in it if the app has
+   * one. The behavior is added after cdk-nextjs's own, which CloudFront matches
+   * first, and counts toward the distribution's cache behavior quota.
+   *
+   * @param pathPattern The path pattern, e.g. `/detail/*`.
+   * @param options Fields replacing the default behavior's.
+   */
+  public addDynamicBehavior(pathPattern: string, options?: AddBehaviorOptions) {
+    const { origin, ...defaults } = this.dynamicBehaviorOptions;
+    this.distribution.addBehavior(pathPattern, origin, {
+      ...defaults,
+      ...options,
+      // Without associations of its own, the behavior keeps the default
+      // behavior's, `overrides.dynamicBehaviorOptions`' included.
+      functionAssociations: options?.functionAssociations
+        ? this.withDynamicFunctionAssociations(
+            "`addDynamicBehavior`'s `options.functionAssociations`",
+            options.functionAssociations,
+          )
+        : defaults.functionAssociations,
+    });
   }
 
   /**
@@ -492,7 +538,7 @@ export class NextjsDistribution extends Construct {
       return options;
     }
     assertViewerRequestUnclaimed(
-      "staticBehaviorOptions",
+      "`overrides.staticBehaviorOptions.functionAssociations`",
       staticBehaviorOptions?.functionAssociations,
       "`viewerRequestFunctionCode` needs that event type on the static behaviors",
     );
@@ -542,7 +588,7 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...dynamicBehaviorOptions,
       functionAssociations: this.withDynamicFunctionAssociations(
-        "dynamicBehaviorOptions",
+        "`overrides.dynamicBehaviorOptions.functionAssociations`",
         dynamicBehaviorOptions?.functionAssociations,
       ),
     };
@@ -561,7 +607,7 @@ export class NextjsDistribution extends Construct {
    * allows only one of per behavior — is an error rather than a replacement.
    */
   private withDynamicFunctionAssociations(
-    overrideName: string,
+    where: string,
     overridden: FunctionAssociation[] | undefined,
   ): FunctionAssociation[] {
     const ours = this.dynamicCloudFrontFunctionAssociations;
@@ -572,7 +618,7 @@ export class NextjsDistribution extends Construct {
       return overridden;
     }
     assertViewerRequestUnclaimed(
-      overrideName,
+      where,
       overridden,
       this.isFunctionCompute
         ? `NextjsGlobalFunctions needs that event type for its own function, ` +
@@ -626,7 +672,7 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...imageBehaviorOptions,
       functionAssociations: this.withDynamicFunctionAssociations(
-        "imageBehaviorOptions",
+        "`overrides.imageBehaviorOptions.functionAssociations`",
         imageBehaviorOptions?.functionAssociations,
       ),
     };
@@ -813,7 +859,7 @@ export class NextjsDistribution extends Construct {
       (association) => association.function !== this.passThroughFunction,
     );
     assertViewerRequestUnclaimed(
-      "staticBehaviorOptions",
+      "`overrides.staticBehaviorOptions.functionAssociations`",
       associations,
       `serving \`assetPrefix\` ("${this.assetPrefix}") needs that event type ` +
         `to rewrite the request URI to the object's key`,
