@@ -2,7 +2,7 @@
 # the Next.js adapter compatibility harness.
 #
 # Not a per-commit gate - a run builds and ships a deployment per test file.
-# `e2e-tests.yml` stays the per-commit gate on all four NextjsTypes; this is the
+# `e2e-tests.yml` stays the per-commit gate on all five NextjsTypes; this is the
 # correctness signal that no fixture app of ours could give. See
 # scripts/e2e-harness/README.md.
 #

@@ -7,14 +7,17 @@
 The `aws-cdk-lib` peer dependency is now `^2.276.0` (was `^2.261.0`), the
 release with the Lambda `WebFunction` construct that `NextjsGlobalWebFunctions`
 is built on. Upgrade `aws-cdk-lib` in your CDK app; nothing else in the
-construct API changes. One template difference comes with it, from
-aws-cdk-lib rather than cdk-nextjs: on `NextjsGlobalFunctions`,
-`FunctionUrlOrigin` now grants CloudFront `lambda:InvokeFunction` itself,
-scoped to the distribution and to calls through the Function URL, so
-cdk-nextjs's own `AWS::Lambda::Permission` (`InvokeFunction-<group>`) with the
-same scope is removed. The first deploy replaces one permission with the other;
-there is no gap, since CloudFormation creates the new one before it deletes the
-old.
+construct API changes. Two template differences come with it, both from
+aws-cdk-lib rather than cdk-nextjs:
+
+- On `NextjsGlobalFunctions`, `FunctionUrlOrigin` now grants CloudFront
+  `lambda:InvokeFunction` itself, scoped to the distribution and to calls
+  through the Function URL, so cdk-nextjs's own `AWS::Lambda::Permission`
+  (`InvokeFunction-<group>`) with the same scope is removed. The first deploy
+  replaces one permission with the other; there is no gap, since CloudFormation
+  creates the new one before it deletes the old.
+- On every construct, the static assets `BucketDeployment`'s Lambda gets 1024 MB
+  of memory, aws-cdk-lib's new default, where it had 128 MB.
 
 ### The init cache is seeded once per build, by a custom resource
 

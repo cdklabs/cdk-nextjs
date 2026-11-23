@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * One route handler covering the response and request shapes that the four
+ * One route handler covering the response and request shapes that the five
  * cdk-nextjs deployment types plumb differently. Deliberately one file rather
  * than nine: every branch here reads `request`, so none of them needs
  * `connection()` to stay out of the build-time prerender, and keeping them

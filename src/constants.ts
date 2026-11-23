@@ -33,8 +33,9 @@ export function isGlobalType(nextjsType: NextjsType): boolean {
 /**
  * Whether CloudFront reaches `nextjsType` through a SigV4-signed Lambda origin
  * (a Function URL or a Web Function endpoint), which needs the origin's own
- * domain as `Host` and so carries the viewer's in `x-forwarded-host`, and
- * rejects a body without `x-amz-content-sha256`.
+ * domain as `Host` and so carries the viewer's in `x-forwarded-host`. (Only
+ * the Function URL also rejects a body without `x-amz-content-sha256`: a Web
+ * Function endpoint takes CloudFront's `UNSIGNED-PAYLOAD`.)
  */
 export function isSignedLambdaOriginType(nextjsType: NextjsType): boolean {
   return (

@@ -84,7 +84,10 @@ export function createRuntimeServer(
       .catch((error) => {
         // `NextjsRuntime.handle` answers 500 itself, so reaching this means the
         // shell's own translation failed.
-        console.error("The container shell failed to handle a request:", error);
+        console.error(
+          "The HTTP server shell failed to handle a request:",
+          error,
+        );
         if (!res.headersSent) {
           res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
         }

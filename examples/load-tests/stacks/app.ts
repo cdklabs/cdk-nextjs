@@ -74,6 +74,15 @@ class LoadTestStack extends Stack {
       }
       case "global-web-functions": {
         const maxConcurrency = process.env["PERF_MAX_CONCURRENCY"];
+        const valid =
+          /^\d+$/.test(maxConcurrency ?? "") &&
+          Number(maxConcurrency) >= 1 &&
+          Number(maxConcurrency) <= 128;
+        if (maxConcurrency && !valid) {
+          throw new Error(
+            `PERF_MAX_CONCURRENCY must be an integer from 1 to 128, got "${maxConcurrency}"`,
+          );
+        }
         nextjs = new NextjsGlobalWebFunctions(this, "Nextjs", {
           buildDirectory,
           overrides: maxConcurrency

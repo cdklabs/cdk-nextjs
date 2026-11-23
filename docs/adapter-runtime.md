@@ -1,6 +1,6 @@
 # The adapter runtime
 
-How cdk-nextjs serves a Next.js app on all four deployment types: what runs at
+How cdk-nextjs serves a Next.js app on all five deployment types: what runs at
 build time, what runs per request, where it knowingly differs from `next start`,
 and what each deployment type cannot do. The reasoning behind individual
 decisions lives in the code comments next to them; this is the map.

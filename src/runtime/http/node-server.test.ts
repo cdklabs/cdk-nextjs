@@ -109,7 +109,9 @@ describe("createRuntimeServer", () => {
         (get) => get(),
       );
       expect(response).toEqual({ status: 500, body: "Internal Server Error" });
-      expect(String(error.mock.calls[0][0])).toMatch(/container shell failed/);
+      expect(String(error.mock.calls[0][0])).toMatch(
+        /HTTP server shell failed/,
+      );
     } finally {
       error.mockRestore();
     }
