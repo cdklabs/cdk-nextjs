@@ -227,7 +227,7 @@ export function checkFunctionCodeSize(code: string): "unresolved" | undefined {
  * a deploy that names neither.
  */
 export function assertViewerRequestUnclaimed(
-  where: string,
+  overrideName: string,
   associations:
     readonly { readonly eventType: FunctionEventType }[] | undefined,
   needs: string,
@@ -237,7 +237,8 @@ export function assertViewerRequestUnclaimed(
   );
   if (claimed) {
     throw new Error(
-      `${LOG_PREFIX} ${where} associates a CloudFront function with ` +
+      `${LOG_PREFIX} \`overrides.${overrideName}.functionAssociations\` ` +
+        `associates a CloudFront function with ` +
         `${FunctionEventType.VIEWER_REQUEST}, but ${needs}. ` +
         `CloudFront permits only one function per event type per behavior. ` +
         `Move the logic into \`viewerRequestFunctionCode\`, which runs ` +

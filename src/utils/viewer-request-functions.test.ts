@@ -94,15 +94,11 @@ describe("checkFunctionCodeSize", () => {
 describe("assertViewerRequestUnclaimed", () => {
   it("allows no associations, or ones on other event types", () => {
     expect(() =>
-      assertViewerRequestUnclaimed(
-        "`overrides.staticBehaviorOptions.functionAssociations`",
-        undefined,
-        "x",
-      ),
+      assertViewerRequestUnclaimed("staticBehaviorOptions", undefined, "x"),
     ).not.toThrow();
     expect(() =>
       assertViewerRequestUnclaimed(
-        "`overrides.staticBehaviorOptions.functionAssociations`",
+        "staticBehaviorOptions",
         [{ eventType: FunctionEventType.VIEWER_RESPONSE }],
         "x",
       ),
@@ -112,7 +108,7 @@ describe("assertViewerRequestUnclaimed", () => {
   it("names the override and what needs the event type", () => {
     expect(() =>
       assertViewerRequestUnclaimed(
-        "`overrides.imageBehaviorOptions.functionAssociations`",
+        "imageBehaviorOptions",
         [{ eventType: FunctionEventType.VIEWER_REQUEST }],
         "something needs it",
       ),

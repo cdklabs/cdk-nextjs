@@ -32,6 +32,7 @@ export {
   NextjsDistributionFunctionGroup,
   NextjsDistributionOverrides,
   NextjsDistributionProps,
+  NextjsDynamicBehavior,
 } from "./nextjs-distribution";
 export {
   NextjsFunctionGroup,

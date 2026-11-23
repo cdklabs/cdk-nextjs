@@ -21,13 +21,15 @@ export interface BehaviorBudgetProps {
   readonly publicPatterns: number;
   /** How many function group behaviors there are. */
   readonly groupPatterns: number;
+  /** How many `dynamicBehaviors` there are. */
+  readonly dynamicPatterns?: number;
 }
 
 /**
  * CloudFront has a per-distribution cache behavior quota, counting the default
  * one — 75 unless raised, and `maxCacheBehaviors` says which — and there are
- * three things competing for it: `public/` entries, function groups, and
- * cdk-nextjs's own fixed set.
+ * four things competing for it: `public/` entries, function groups,
+ * `dynamicBehaviors`, and cdk-nextjs's own fixed set.
  * Checked in one place so the error can say which to cut.
  *
  * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions
@@ -39,6 +41,7 @@ export function assertBehaviorBudget({
   serviceWorker,
   publicPatterns,
   groupPatterns,
+  dynamicPatterns = 0,
 }: BehaviorBudgetProps) {
   if (Token.isUnresolved(limit)) {
     return;
@@ -52,7 +55,7 @@ export function assertBehaviorBudget({
   // throw "over the limit" on an app that is under it.
   const fixed =
     3 + (basePath ? 2 : 0) + (assetPrefix ? 1 : 0) + (serviceWorker ? 1 : 0);
-  const total = fixed + publicPatterns + groupPatterns;
+  const total = fixed + publicPatterns + groupPatterns + dynamicPatterns;
   if (total <= limit) {
     return;
   }
@@ -62,6 +65,9 @@ export function assertBehaviorBudget({
   ];
   if (groupPatterns) {
     parts.push(`${groupPatterns} for \`functionGroups\` patterns`);
+  }
+  if (dynamicPatterns) {
+    parts.push(`${dynamicPatterns} for \`dynamicBehaviors\``);
   }
   throw new Error(
     `This Next.js app needs ${total} CloudFront cache behaviors, over the ` +

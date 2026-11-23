@@ -538,18 +538,18 @@ server at all.
   would replace the default behavior the code runs on; customize it through
   `overrides.dynamicBehaviorOptions`.
 - A bring-your-own `distribution`'s default behavior is yours, so it isn't
-  covered. Only the behaviors cdk-nextjs adds are, those added with
-  [`addDynamicBehavior`](#adding-your-own-behaviors-to-the-dynamic-origin)
+  covered. Only the behaviors cdk-nextjs adds are, those from
+  [`dynamicBehaviors`](#adding-your-own-behaviors-to-the-dynamic-origin)
   included; under a `basePath`, they include the ones that stand in for the
   default behavior.
 
 ## Adding Your Own Behaviors to the Dynamic Origin
 
 With `NextjsGlobalFunctions` and `NextjsGlobalContainers`, a path of the app's
-that needs options of its own, such as a shorter cache for `/detail/*`, can get
-a behavior with `nextjsDistribution.addDynamicBehavior()`. It goes to the same
-origin as the rest of the app, with the same policies and function
-associations, bar the fields you pass:
+that needs options of its own, such as a shorter cache for `detail/*`, can get
+a behavior through the `dynamicBehaviors` prop. It goes to the same origin as
+the rest of the app, with the same policies and function associations, bar the
+fields you set:
 
 ```ts
 import { Duration } from "aws-cdk-lib";
@@ -564,36 +564,38 @@ import { Bucket } from "aws-cdk-lib/aws-s3";
 
 const nextjs = new NextjsGlobalContainers(this, "Nextjs", {
   buildDirectory: join(import.meta.dirname),
-});
-const { nextjsDistribution } = nextjs;
-
-nextjsDistribution.addDynamicBehavior("/detail/*", {
-  cachePolicy: new CachePolicy(this, "DetailCachePolicy", {
-    // CDK's own defaults would cache a response with no `Cache-Control` for a
-    // day, and raise `maxTtl` to match.
-    defaultTtl: Duration.seconds(0),
-    maxTtl: Duration.seconds(60),
-    // The cache key of cdk-nextjs's dynamic cache policy: every request header
-    // a Next.js response varies on, so HTML and RSC payloads don't share an
-    // entry.
-    queryStringBehavior: CacheQueryStringBehavior.all(),
-    headerBehavior: CacheHeaderBehavior.allowList(
-      "accept",
-      "rsc",
-      "next-url",
-      "next-router-state-tree",
-      "next-router-prefetch",
-      "next-router-segment-prefetch",
-      "x-prerender-revalidate",
-    ),
-    cookieBehavior: CacheCookieBehavior.all(),
-    enableAcceptEncodingBrotli: true,
-    enableAcceptEncodingGzip: true,
-  }),
+  dynamicBehaviors: [
+    {
+      pathPattern: "detail/*",
+      cachePolicy: new CachePolicy(this, "DetailCachePolicy", {
+        // CDK's own defaults would cache a response with no `Cache-Control`
+        // for a day, and raise `maxTtl` to match.
+        defaultTtl: Duration.seconds(0),
+        maxTtl: Duration.seconds(60),
+        // The cache key of cdk-nextjs's dynamic cache policy: every request
+        // header a Next.js response varies on, so HTML and RSC payloads don't
+        // share an entry.
+        queryStringBehavior: CacheQueryStringBehavior.all(),
+        headerBehavior: CacheHeaderBehavior.allowList(
+          "accept",
+          "rsc",
+          "next-url",
+          "next-router-state-tree",
+          "next-router-prefetch",
+          "next-router-segment-prefetch",
+          "x-prerender-revalidate",
+        ),
+        cookieBehavior: CacheCookieBehavior.all(),
+        enableAcceptEncodingBrotli: true,
+        enableAcceptEncodingGzip: true,
+      }),
+    },
+  ],
 });
 
 // `dynamicBehaviorOptions` holds the default behavior's options, for reuse on
 // a behavior with another origin.
+const { nextjsDistribution } = nextjs;
 const mediaBucket = new Bucket(this, "Media");
 nextjsDistribution.distribution.addBehavior(
   "/media/*",
@@ -605,32 +607,26 @@ nextjsDistribution.distribution.addBehavior(
 );
 ```
 
-- The path pattern is used as given. Under a `basePath`, patterns inside it
-  aren't supported yet: cdk-nextjs's `/<basePath>/*` behavior comes first and
-  would hide them. Synth refuses a literal one (`/<basePath>/...`), but not a
-  wildcard one that reaches inside it, such as `*.pdf`.
-- cdk-nextjs's viewer-request function (and `viewerRequestFunctionCode`) still
-  runs on the path. `functionAssociations` you pass are added to it, replacing
-  those from `overrides.dynamicBehaviorOptions`; a viewer-request one of your
-  own is refused at synth when cdk-nextjs has a viewer-request function there.
-  CloudFront doesn't allow a Lambda@Edge on a viewer event next to a CloudFront
-  function, so one in `edgeLambdas` is refused then too; use an origin-request
-  or origin-response Lambda@Edge instead.
-- A field you pass as `undefined` keeps the default behavior's, so a default
-  field can't be removed for one path.
-- Behaviors you add come after cdk-nextjs's own, which CloudFront matches
-  first, so a pattern inside one of theirs (a `public/` entry, a
-  `functionGroups` pattern) never applies. They count toward the
-  distribution's cache behavior quota, `maxCacheBehaviors`, which synth checks
-  against cdk-nextjs's behaviors and yours, so lower it by any others, as the
-  [Limitations](#limitations) say. Synth also refuses a pattern that already
-  has a behavior from cdk-nextjs or
-  `overrides.distributionProps.additionalBehaviors`. Neither check sees
-  behaviors you add to `distribution` directly, like `/media/*` above.
-- Prefer `addDynamicBehavior` to spreading `dynamicBehaviorOptions` into
+- Patterns are relative to the app: under a `basePath`, cdk-nextjs prefixes
+  them with it, as it does `functionGroups` patterns.
+- A behavior can set `cachePolicy`, `originRequestPolicy`,
+  `responseHeadersPolicy`, `allowedMethods`, `cachedMethods`, `compress` and
+  `viewerProtocolPolicy`. Fields left unset keep the default behavior's. Its
+  function associations and Lambda@Edge are always the default behavior's,
+  `overrides.dynamicBehaviorOptions` included, so cdk-nextjs's viewer-request
+  function (and `viewerRequestFunctionCode`) runs on it.
+- They are added in the order given, after `_next/static*`, `_next/image*`,
+  the `public/` entries and the `functionGroups` patterns, which CloudFront
+  matches first, and before the behaviors that stand in for the default one
+  under a `basePath`.
+- They count toward `maxCacheBehaviors`, and a pattern another behavior
+  already has (cdk-nextjs's, or one in
+  `overrides.distributionProps.additionalBehaviors`) is a synth error.
+- Prefer `dynamicBehaviors` to spreading `dynamicBehaviorOptions` into
   `distribution.addBehavior()`: a `functionAssociations` of your own would
   replace the viewer-request function there, which on Global Functions is what
-  stops a viewer's own `X-Forwarded-Host` reaching the server.
+  stops a viewer's own `X-Forwarded-Host` reaching the server, and the behavior
+  would come after the `basePath` ones, which would hide it.
 
 ## Bring Your Own Resources
 
