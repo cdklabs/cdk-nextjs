@@ -54,7 +54,11 @@ import {
   NextjsFunctionGroupBehavior,
   PublicDirEntry,
 } from "./nextjs-build/nextjs-build";
-import { assetPrefixPath, normalizeBasePath } from "./utils/base-path";
+import {
+  assetPrefixPath,
+  hasPathPrefix,
+  normalizeBasePath,
+} from "./utils/base-path";
 import {
   assertBehaviorBudget,
   DEFAULT_MAX_CACHE_BEHAVIORS,
@@ -340,12 +344,14 @@ export class NextjsDistribution extends Construct {
    * default behavior's options ({@link dynamicBehaviorOptions}), each field of
    * `options` replacing the one it names, e.g. `cachePolicy` for a path that
    * caches longer or shorter than the rest of the app. A field set to
-   * `undefined` keeps the default behavior's.
+   * `undefined` keeps the default behavior's, so a default field can't be
+   * removed for one path.
    *
    * cdk-nextjs's own function associations are always kept.
    * `functionAssociations` in `options` replace those from
-   * `overrides.dynamicBehaviorOptions` and are added to cdk-nextjs's, and a
-   * `VIEWER_REQUEST` one is an error when cdk-nextjs has one there: on
+   * `overrides.dynamicBehaviorOptions` and are added to cdk-nextjs's. A
+   * `VIEWER_REQUEST` one, or a `VIEWER_REQUEST` Lambda@Edge in `edgeLambdas`,
+   * is an error when cdk-nextjs has a viewer-request function there: on
    * NextjsGlobalFunctions always, on NextjsGlobalContainers with
    * `viewerRequestFunctionCode`.
    *
@@ -353,8 +359,11 @@ export class NextjsDistribution extends Construct {
    * own, which CloudFront matches first, so a pattern inside one of theirs (a
    * `public/` entry, a `functionGroups` pattern) never applies. Under a
    * `basePath`, cdk-nextjs's `/<basePath>/*` behavior would hide every pattern
-   * inside it, so those are refused. So is a pattern that already has a
-   * behavior, or one past `maxCacheBehaviors`.
+   * inside it, so a literal one (`/<basePath>/...`) is refused; a wildcard
+   * one that reaches inside it (`*.pdf`) isn't caught. So is a pattern that
+   * already has a behavior, or one past `maxCacheBehaviors`, counting
+   * cdk-nextjs's behaviors and `overrides.distributionProps.additionalBehaviors`
+   * but not those added to {@link distribution} directly.
    *
    * @param pathPattern The path pattern, e.g. `/detail/*`.
    * @param options Fields replacing the default behavior's.
@@ -367,6 +376,22 @@ export class NextjsDistribution extends Construct {
     const given: AddBehaviorOptions = Object.fromEntries(
       Object.entries(options ?? {}).filter(([, value]) => value !== undefined),
     );
+    // CloudFront allows a CloudFront Function or a Lambda@Edge per event type,
+    // not both.
+    const isViewerRequest = ({ eventType }: { eventType: string }) =>
+      eventType === FunctionEventType.VIEWER_REQUEST;
+    if (
+      given.edgeLambdas?.some(isViewerRequest) &&
+      this.dynamicCloudFrontFunctionAssociations.some(isViewerRequest)
+    ) {
+      throw new Error(
+        `${LOG_PREFIX} \`addDynamicBehavior("${pathPattern}")\`'s ` +
+          `\`options.edgeLambdas\` has a ${FunctionEventType.VIEWER_REQUEST} ` +
+          `Lambda@Edge, but cdk-nextjs has a CloudFront function there, and ` +
+          `CloudFront permits only one function per event type per behavior. ` +
+          `Move the logic into \`viewerRequestFunctionCode\`.`,
+      );
+    }
     this.addCacheBehavior(pathPattern, origin, {
       ...defaults,
       ...given,
@@ -387,13 +412,18 @@ export class NextjsDistribution extends Construct {
   private assertDynamicBehaviorPattern(pathPattern: string) {
     const call = `${LOG_PREFIX} \`addDynamicBehavior("${pathPattern}")\``;
     const key = pathPatternKey(pathPattern);
-    if (this.pathPatterns.has(key)) {
+    // A bring-your-own distribution's behaviors can't be read, and its
+    // `overrides.distributionProps` don't apply.
+    const overridden = this.props.distribution
+      ? []
+      : Object.keys(
+          this.props.overrides?.distributionProps?.additionalBehaviors ?? {},
+        ).map(pathPatternKey);
+    const existing = new Set([...this.pathPatterns, ...overridden]);
+    if (existing.has(key)) {
       throw new Error(`${call}: the distribution already has that pattern.`);
     }
-    if (
-      this.basePath &&
-      (key === this.basePath || key.startsWith(`${this.basePath}/`))
-    ) {
+    if (hasPathPrefix(key, this.basePath)) {
       throw new Error(
         `${call}: cdk-nextjs's own \`/${this.basePath}/*\` behavior comes ` +
           `first, so CloudFront would match it instead and the pattern would ` +
@@ -402,7 +432,7 @@ export class NextjsDistribution extends Construct {
     }
     const limit = this.props.maxCacheBehaviors ?? DEFAULT_MAX_CACHE_BEHAVIORS;
     // The default behavior, the others added so far, and this one.
-    const total = this.pathPatterns.size + 2;
+    const total = existing.size + 2;
     if (!Token.isUnresolved(limit) && total > limit) {
       throw new Error(
         `${call}: the distribution would have ${total} cache behaviors, over ` +

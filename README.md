@@ -607,16 +607,22 @@ nextjsDistribution.distribution.addBehavior(
 
 - The path pattern is used as given. Under a `basePath`, patterns inside it
   aren't supported yet: cdk-nextjs's `/<basePath>/*` behavior comes first and
-  would hide them, so synth refuses them.
+  would hide them. Synth refuses a literal one (`/<basePath>/...`), but not a
+  wildcard one that reaches inside it, such as `*.pdf`.
 - cdk-nextjs's viewer-request function (and `viewerRequestFunctionCode`) still
   runs on the path. `functionAssociations` you pass are added to it, replacing
   those from `overrides.dynamicBehaviorOptions`; a viewer-request one of your
-  own is refused at synth when cdk-nextjs has one there.
+  own, or a viewer-request Lambda@Edge in `edgeLambdas`, is refused at synth
+  when cdk-nextjs has a viewer-request function there.
+- A field you pass as `undefined` keeps the default behavior's, so a default
+  field can't be removed for one path.
 - Behaviors you add come after cdk-nextjs's own, which CloudFront matches
   first, so a pattern inside one of theirs (a `public/` entry, a
   `functionGroups` pattern) never applies. They count toward the
-  distribution's cache behavior quota, `maxCacheBehaviors`, which synth checks,
-  as it does for a pattern that already has a behavior.
+  distribution's cache behavior quota, `maxCacheBehaviors`. Synth checks it,
+  and refuses a pattern that already has a behavior, counting cdk-nextjs's
+  behaviors and `overrides.distributionProps.additionalBehaviors`, but not
+  those you add to `distribution` directly, like `/media/*` above.
 - Prefer `addDynamicBehavior` to spreading `dynamicBehaviorOptions` into
   `distribution.addBehavior()`: a `functionAssociations` of your own would
   replace the viewer-request function there, which on Global Functions is what

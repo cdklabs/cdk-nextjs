@@ -7,6 +7,7 @@ import {
   FunctionCode,
   FunctionEventType,
   KeyValueStore,
+  LambdaEdgeEventType,
   ResponseHeadersPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
@@ -1794,6 +1795,48 @@ describe("addDynamicBehavior", () => {
       );
     },
   );
+
+  it("refuses a pattern overrides.distributionProps.additionalBehaviors has, and counts them", () => {
+    const { distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      maxCacheBehaviors: 5,
+      overrides: () => ({
+        distributionProps: {
+          additionalBehaviors: {
+            "/media/*": {
+              origin: new HttpOrigin("media.example.com"),
+            },
+          },
+        },
+      }),
+    });
+    expect(() => distribution.addDynamicBehavior("media/*")).toThrow(
+      /already has that pattern/,
+    );
+    // The default behavior, `_next/static*`, `_next/image*`, `/media/*`.
+    distribution.addDynamicBehavior("/a/*");
+    expect(() => distribution.addDynamicBehavior("/b/*")).toThrow(
+      /would have 6 cache behaviors, over the limit of 5/,
+    );
+  });
+
+  it("refuses a viewer-request Lambda@Edge next to cdk-nextjs's viewer-request function", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_FUNCTIONS);
+    const edgeFn = new LambdaFunction(stack, "EdgeFn", {
+      code: Code.fromInline("exports.handler = () => {};"),
+      handler: "index.handler",
+      runtime: Runtime.NODEJS_22_X,
+    });
+    expect(() =>
+      distribution.addDynamicBehavior("/detail/*", {
+        edgeLambdas: [
+          {
+            eventType: LambdaEdgeEventType.VIEWER_REQUEST,
+            functionVersion: edgeFn.currentVersion,
+          },
+        ],
+      }),
+    ).toThrow(/`options.edgeLambdas` has a viewer-request Lambda@Edge/);
+  });
 
   it("refuses a behavior past maxCacheBehaviors", () => {
     // The default behavior, `_next/static*` and `_next/image*` use 3 of 4.
