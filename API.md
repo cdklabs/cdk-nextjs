@@ -3577,7 +3577,7 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+- `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
   follows your app's `basePath`, which is what you want — CloudFront serves
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
@@ -3843,7 +3843,7 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+- `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
   follows your app's `basePath`, which is what you want — CloudFront serves
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
@@ -5931,7 +5931,7 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+- `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
   follows your app's `basePath`, which is what you want — CloudFront serves
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
@@ -6445,7 +6445,7 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+- `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
   follows your app's `basePath`, which is what you want — CloudFront serves
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
@@ -6873,6 +6873,7 @@ const nextjsGlobalWebFunctionsProps: NextjsGlobalWebFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
 | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsWebFunctionGroup">NextjsWebFunctionGroup</a>[]</code> | Package sets of routes into separate Web Functions, each fronted by its own CloudFront behaviors. |
+| <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.invalidateCdnOnRevalidate">invalidateCdnOnRevalidate</a></code> | <code>boolean</code> | Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches. |
 | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsOverrides">NextjsGlobalWebFunctionsOverrides</a></code> | Override props of any construct. |
 | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.viewerRequestFunctionCode">viewerRequestFunctionCode</a></code> | <code>aws-cdk-lib.aws_cloudfront.FunctionCode</code> | CloudFront Function code run first on every viewer request, static assets included — HTTP Basic auth on a pre-launch site, say. |
 | <code><a href="#cdk-nextjs.NextjsGlobalWebFunctionsProps.property.viewerRequestKeyValueStore">viewerRequestKeyValueStore</a></code> | <code>aws-cdk-lib.aws_cloudfront.IKeyValueStore</code> | A CloudFront KeyValueStore `viewerRequestFunctionCode` can read with `cf.kvs()`, so credentials stay out of the template. |
@@ -6916,7 +6917,7 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+- `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
   follows your app's `basePath`, which is what you want — CloudFront serves
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
@@ -7094,6 +7095,27 @@ function is over it.
 
 ---
 
+##### `invalidateCdnOnRevalidate`<sup>Optional</sup> <a name="invalidateCdnOnRevalidate" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.invalidateCdnOnRevalidate"></a>
+
+```typescript
+public readonly invalidateCdnOnRevalidate: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches.
+
+Set to `false` when pages change too often to purge one by one: thousands
+a day run past CloudFront's free 1,000 paths a month and its 15 wildcard
+paths in progress, and a rejected invalidation is retried as `/*`. Cap
+those pages' edge TTL instead (a short `s-maxage`, or a behavior with a
+low `maxTtl`), so the edge picks up the revalidated page when its copy
+expires. Revalidation still reaches every instance's origin cache, and
+the invalidation after each deploy still runs.
+
+---
+
 ##### `overrides`<sup>Optional</sup> <a name="overrides" id="cdk-nextjs.NextjsGlobalWebFunctionsProps.property.overrides"></a>
 
 ```typescript
@@ -7214,7 +7236,7 @@ const nextjsPostDeployProps: NextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsPostDeployOverrides">NextjsPostDeployOverrides</a></code> | Override props for every construct. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
-| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
+| <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions`, `NextjsType.GlobalWebFunctions` and `NextjsType.GlobalContainers`. |
 | <code><a href="#cdk-nextjs.NextjsPostDeployProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so that apps or branches sharing one bucket under different `basePath`s don't prune each other's assets. |
 
 ---
@@ -7314,7 +7336,7 @@ public readonly staticAssetsBucket: IBucket;
 
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
-Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
+Required for `NextjsType.GlobalFunctions`, `NextjsType.GlobalWebFunctions` and `NextjsType.GlobalContainers`.
 
 ---
 
@@ -7546,7 +7568,7 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+- `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
   follows your app's `basePath`, which is what you want — CloudFront serves
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
@@ -7987,7 +8009,7 @@ How this relates to the `basePath` in your app's `next.config.js` depends
 on the construct, and synth fails on a combination that can't serve the
 app:
 
-- `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+- `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
   follows your app's `basePath`, which is what you want — CloudFront serves
   static assets from S3 using the request path as the object key, so the two
   have to be identical and a mismatch 404s all of them. Setting a different
@@ -12664,7 +12686,7 @@ const optionalNextjsPostDeployProps: OptionalNextjsPostDeployProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.debug">debug</a></code> | <code>boolean</code> | If true, logs details in custom resource lambda. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.IDistribution</code> | CloudFront Distribution to invalidate. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.revalidationTable">revalidationTable</a></code> | <code>aws-cdk-lib.aws_dynamodb.ITableV2</code> | DynamoDB table for cleaning up old BUILD_ID prefixed revalidation entries. |
-| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`. |
+| <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Required for `NextjsType.GlobalFunctions`, `NextjsType.GlobalWebFunctions` and `NextjsType.GlobalContainers`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsPostDeployProps.property.staticAssetsKeyPrefix">staticAssetsKeyPrefix</a></code> | <code>string</code> | S3 key prefix the static assets were uploaded under (`NextjsStaticAssets.keyPrefix`). Scopes pruning to this app's objects, so that apps or branches sharing one bucket under different `basePath`s don't prune each other's assets. |
 
 ---
@@ -12752,7 +12774,7 @@ public readonly staticAssetsBucket: IBucket;
 
 - *Type:* aws-cdk-lib.aws_s3.IBucket
 
-Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
+Required for `NextjsType.GlobalFunctions`, `NextjsType.GlobalWebFunctions` and `NextjsType.GlobalContainers`.
 
 ---
 
