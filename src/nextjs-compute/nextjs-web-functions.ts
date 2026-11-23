@@ -156,6 +156,8 @@ export class NextjsWebFunctions extends Construct {
   functionGroups: NextjsWebFunctionGroupResources[];
 
   private props: NextjsWebFunctionsProps;
+  /** See {@link runtimePolicy}: one per role, which groups can share. */
+  private readonly runtimePolicies = new Map<IRole, Policy>();
 
   constructor(scope: Construct, id: string, props: NextjsWebFunctionsProps) {
     super(scope, id);
@@ -256,18 +258,10 @@ export class NextjsWebFunctions extends Construct {
     };
 
     const webFunction = new WebFunction(this, id, webFunctionProps);
-    // The L2 names the role by ARN only, so nothing waits for its policies: a
-    // new revision could serve before it can read the cache. So the cache
-    // grants go in a policy of their own that the function waits for, not the
-    // role's default one, which can hold grants naming the distribution
-    // (`grantCreateInvalidation`, say), whose origins are these endpoints:
-    // waiting on that would be a cycle.
-    // Attached by the role, so one that refuses policy updates gets none, as
-    // it would get no default policy.
-    const runtimePolicy = new Policy(this, `${id}RuntimePolicy`);
-    role.attachInlinePolicy(runtimePolicy);
-    grantRuntimeAccess(this.props, new PolicyGrantee(role, runtimePolicy));
-    webFunction.node.addDependency(runtimePolicy);
+    const runtimePolicy = this.runtimePolicy(id, role);
+    if (runtimePolicy) {
+      webFunction.node.addDependency(runtimePolicy);
+    }
 
     return {
       name: root.name,
@@ -276,6 +270,34 @@ export class NextjsWebFunctions extends Construct {
       endpoint: webFunction.endpoint,
       role,
     };
+  }
+
+  /**
+   * Grants `role` the cache, once however many groups share it, and returns
+   * the policy holding those grants for the functions to wait on.
+   *
+   * The L2 names the role by ARN only, so nothing waits for its policies: a
+   * new revision could serve before it can read the cache. So the grants go
+   * in a policy of their own, not the role's default one, which can hold
+   * grants naming the distribution (`grantCreateInvalidation`, say), whose
+   * origins are these endpoints: waiting on that would be a cycle.
+   *
+   * Only for a role made in this app. Any other (imported, or refusing policy
+   * updates) is granted as the L2 would grant it, which may put the grants on
+   * the resources instead, and isn't waited on.
+   */
+  private runtimePolicy(id: string, role: IRole): Policy | undefined {
+    if (!(role instanceof Role)) {
+      grantRuntimeAccess(this.props, role);
+      return undefined;
+    }
+    let policy = this.runtimePolicies.get(role);
+    if (!policy) {
+      policy = new Policy(this, `${id}RuntimePolicy`, { roles: [role] });
+      grantRuntimeAccess(this.props, new PolicyGrantee(role, policy));
+      this.runtimePolicies.set(role, policy);
+    }
+    return policy;
   }
 
   /**

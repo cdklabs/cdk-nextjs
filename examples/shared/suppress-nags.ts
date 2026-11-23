@@ -263,10 +263,10 @@ export function suppressWebFunctionNags(
   for (const constructId of constructIds) {
     const role = `/${stack.stackName}/Nextjs/NextjsWebFunctions/${constructId}ServiceRole`;
     suppressLambdaExecutionRole(stack, `${role}/Resource`);
-
+    // The cache grants, in a policy of their own that the function waits on.
     suppressS3WildcardPermissions(
       stack,
-      `${role}/DefaultPolicy/Resource`,
+      `/${stack.stackName}/Nextjs/NextjsWebFunctions/${constructId}RuntimePolicy/Resource`,
       "Web Functions need wildcard S3 permissions to access cache and static assets",
       { includeStaticAssets: true },
     );

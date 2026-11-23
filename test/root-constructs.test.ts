@@ -763,6 +763,57 @@ describe("NextjsGlobalWebFunctions", () => {
     }
   });
 
+  it("grants a role groups share once, and every group waits on it", () => {
+    const stack = new Stack(new App(), "Stack", { env });
+    const role = new Role(stack, "OwnRole", {
+      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+    });
+    new NextjsGlobalWebFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups,
+      overrides: { nextjsWebFunctions: { webFunctionProps: { role } } },
+    });
+    const template = Template.fromStack(stack);
+    const runtimePolicies = Object.keys(
+      template.findResources("AWS::IAM::Policy"),
+    ).filter((logicalId) => logicalId.includes("RuntimePolicy"));
+    // Identical statements per group would add up past a role's inline
+    // policy quota.
+    expect(runtimePolicies).toHaveLength(1);
+    const found = Object.values(
+      template.findResources("AWS::Lambda::WebFunctionRevision"),
+    );
+    expect(found).toHaveLength(2);
+    for (const revision of found) {
+      expect(revision.DependsOn).toEqual(
+        expect.arrayContaining(runtimePolicies),
+      );
+    }
+  });
+
+  it("grants a role that takes no policy updates on the resources", () => {
+    const stack = new Stack(new App(), "Stack", { env });
+    const role = new Role(stack, "OwnRole", {
+      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+    }).withoutPolicyUpdates({ addGrantsToResources: true });
+    new NextjsGlobalWebFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      overrides: { nextjsWebFunctions: { webFunctionProps: { role } } },
+    });
+    const template = Template.fromStack(stack);
+    // Nothing to wait on, so no policy of its own...
+    expect(
+      Object.keys(template.findResources("AWS::IAM::Policy")).filter(
+        (logicalId) => logicalId.includes("RuntimePolicy"),
+      ),
+    ).toEqual([]);
+    // ...but the cache bucket still lets the role in.
+    const bucketPolicies = JSON.stringify(
+      template.findResources("AWS::S3::BucketPolicy"),
+    );
+    expect(bucketPolicies).toContain("OwnRole");
+  });
+
   it("refuses a distribution from another stack", () => {
     const app = new App();
     const other = new Stack(app, "Other", { env });
