@@ -663,6 +663,9 @@ export class NextjsRuntime {
         },
         encrypted: origin.encrypted,
         trustForwardedHost: origin.trustForwardedHost,
+        // An allowed revalidate header can be OAC's signature, which a
+        // rewrite to an external origin must not forward.
+        carriesOriginSignature: origin.carriesOriginSignature,
       },
       {},
     );
@@ -720,6 +723,7 @@ export class NextjsRuntime {
       ]),
       encrypted: (req.socket as { encrypted?: boolean } | undefined)?.encrypted,
       trustForwardedHost: req.trustForwardedHost,
+      carriesOriginSignature: req.carriesOriginSignature,
     };
     const { head, body, otherGroup, tooLarge } = await this.handleInternally(
       request,
@@ -1473,6 +1477,13 @@ async function proxyExternal(
   const headers = new Headers(requestHeaders);
   for (const name of PROXY_DROPPED_HEADERS) {
     headers.delete(name);
+  }
+  // What Lambda adds on a Web Function endpoint (`lambda-web-endpoint-name`,
+  // among others): about our deployment, meaningless to the upstream.
+  for (const name of [...headers.keys()]) {
+    if (name.startsWith("lambda-web-")) {
+      headers.delete(name);
+    }
   }
   if (req.carriesOriginSignature) {
     for (const name of SIGV4_HEADERS) {

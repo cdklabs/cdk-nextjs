@@ -1433,6 +1433,15 @@ exports.handler = async () =>
     }
   });
 
+  it("does not forward the headers Lambda adds on a Web Function endpoint", async () => {
+    await proxy({ "lambda-web-endpoint-name": "prod", "x-kept": "1" });
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    expect(headers.has("lambda-web-endpoint-name")).toBe(false);
+    expect(headers.get("x-kept")).toBe("1");
+  });
+
   it("proxies the request to the rewritten origin", async () => {
     const sink = await proxy();
 
