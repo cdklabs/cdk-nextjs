@@ -1796,7 +1796,7 @@ describe("addDynamicBehavior", () => {
     },
   );
 
-  it("refuses a pattern overrides.distributionProps.additionalBehaviors has, and counts them", () => {
+  it("refuses a pattern overrides.distributionProps.additionalBehaviors has, but leaves them out of the quota", () => {
     const { distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
       maxCacheBehaviors: 5,
       overrides: () => ({
@@ -1812,30 +1812,97 @@ describe("addDynamicBehavior", () => {
     expect(() => distribution.addDynamicBehavior("media/*")).toThrow(
       /already has that pattern/,
     );
-    // The default behavior, `_next/static*`, `_next/image*`, `/media/*`.
+    // `maxCacheBehaviors` is to be lowered by `/media/*` instead: the default
+    // behavior, `_next/static*`, `_next/image*`, `/a/*`, `/b/*` are 5.
     distribution.addDynamicBehavior("/a/*");
-    expect(() => distribution.addDynamicBehavior("/b/*")).toThrow(
+    distribution.addDynamicBehavior("/b/*");
+    expect(() => distribution.addDynamicBehavior("/c/*")).toThrow(
       /would have 6 cache behaviors, over the limit of 5/,
     );
   });
 
-  it("refuses a viewer-request Lambda@Edge next to cdk-nextjs's viewer-request function", () => {
-    const { stack, distribution } = setup(NextjsType.GLOBAL_FUNCTIONS);
-    const edgeFn = new LambdaFunction(stack, "EdgeFn", {
-      code: Code.fromInline("exports.handler = () => {};"),
-      handler: "index.handler",
-      runtime: Runtime.NODEJS_22_X,
+  describe("Lambda@Edge", () => {
+    const edgeLambda = (stack: Stack, eventType: LambdaEdgeEventType) => ({
+      eventType,
+      functionVersion: new LambdaFunction(stack, `EdgeFn${eventType}`, {
+        code: Code.fromInline("exports.handler = () => {};"),
+        handler: "index.handler",
+        runtime: Runtime.NODEJS_22_X,
+      }).currentVersion,
     });
-    expect(() =>
-      distribution.addDynamicBehavior("/detail/*", {
-        edgeLambdas: [
-          {
-            eventType: LambdaEdgeEventType.VIEWER_REQUEST,
-            functionVersion: edgeFn.currentVersion,
+    const viewerRequestCode = FunctionCode.fromInline(
+      "function viewerRequest(event) {}",
+    );
+
+    it.each([
+      [
+        NextjsType.GLOBAL_FUNCTIONS,
+        undefined,
+        LambdaEdgeEventType.VIEWER_REQUEST,
+      ],
+      [
+        NextjsType.GLOBAL_FUNCTIONS,
+        undefined,
+        LambdaEdgeEventType.VIEWER_RESPONSE,
+      ],
+      [
+        NextjsType.GLOBAL_CONTAINERS,
+        viewerRequestCode,
+        LambdaEdgeEventType.VIEWER_REQUEST,
+      ],
+    ])(
+      "refuses one on a viewer event next to cdk-nextjs's function on %s",
+      (nextjsType, viewerRequestFunctionCode, eventType) => {
+        const { stack, distribution } = setup(nextjsType, {
+          viewerRequestFunctionCode,
+        });
+        expect(() =>
+          distribution.addDynamicBehavior("/detail/*", {
+            edgeLambdas: [edgeLambda(stack, eventType)],
+          }),
+        ).toThrow(
+          new RegExp(
+            `would have a ${eventType} Lambda@Edge next to the CloudFront function`,
+          ),
+        );
+      },
+    );
+
+    it("refuses one next to overrides.dynamicBehaviorOptions' CloudFront function", () => {
+      const { stack, distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+        overrides: (scope) => ({
+          dynamicBehaviorOptions: {
+            functionAssociations: [
+              {
+                eventType: FunctionEventType.VIEWER_REQUEST,
+                function: cloudFrontFn(scope, "OverrideFn"),
+              },
+            ],
           },
-        ],
-      }),
-    ).toThrow(/`options.edgeLambdas` has a viewer-request Lambda@Edge/);
+        }),
+      });
+      expect(() =>
+        distribution.addDynamicBehavior("/detail/*", {
+          edgeLambdas: [edgeLambda(stack, LambdaEdgeEventType.VIEWER_REQUEST)],
+        }),
+      ).toThrow(/Lambda@Edge next to the CloudFront function/);
+    });
+
+    it("accepts one on a viewer event where there's no CloudFront function", () => {
+      const { stack, distribution } = setup(NextjsType.GLOBAL_CONTAINERS);
+      distribution.addDynamicBehavior("/detail/*", {
+        edgeLambdas: [edgeLambda(stack, LambdaEdgeEventType.VIEWER_REQUEST)],
+      });
+      expect(behaviors(stack).byPattern("/detail/*")).toBeDefined();
+    });
+
+    it("accepts one on an origin event next to cdk-nextjs's function", () => {
+      const { stack, distribution } = setup(NextjsType.GLOBAL_FUNCTIONS);
+      distribution.addDynamicBehavior("/detail/*", {
+        edgeLambdas: [edgeLambda(stack, LambdaEdgeEventType.ORIGIN_REQUEST)],
+      });
+      expect(behaviors(stack).byPattern("/detail/*")).toBeDefined();
+    });
   });
 
   it("refuses a behavior past maxCacheBehaviors", () => {

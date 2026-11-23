@@ -24,6 +24,7 @@ import {
   IKeyValueStore,
   IOrigin,
   IOriginRequestPolicy,
+  LambdaEdgeEventType,
   OriginProtocolPolicy,
   OriginRequestPolicy,
   ResponseHeadersPolicy,
@@ -350,20 +351,25 @@ export class NextjsDistribution extends Construct {
    * cdk-nextjs's own function associations are always kept.
    * `functionAssociations` in `options` replace those from
    * `overrides.dynamicBehaviorOptions` and are added to cdk-nextjs's. A
-   * `VIEWER_REQUEST` one, or a `VIEWER_REQUEST` Lambda@Edge in `edgeLambdas`,
-   * is an error when cdk-nextjs has a viewer-request function there: on
-   * NextjsGlobalFunctions always, on NextjsGlobalContainers with
-   * `viewerRequestFunctionCode`.
+   * `VIEWER_REQUEST` one is an error when cdk-nextjs has a viewer-request
+   * function there: on NextjsGlobalFunctions always, on NextjsGlobalContainers
+   * with `viewerRequestFunctionCode`. So is a viewer-request or
+   * viewer-response Lambda@Edge in `edgeLambdas` next to any CloudFront
+   * function, which CloudFront doesn't allow; an origin-request or
+   * origin-response one is fine.
    *
    * `pathPattern` is used as given. The behavior is added after cdk-nextjs's
    * own, which CloudFront matches first, so a pattern inside one of theirs (a
    * `public/` entry, a `functionGroups` pattern) never applies. Under a
    * `basePath`, cdk-nextjs's `/<basePath>/*` behavior would hide every pattern
-   * inside it, so a literal one (`/<basePath>/...`) is refused; a wildcard
-   * one that reaches inside it (`*.pdf`) isn't caught. So is a pattern that
-   * already has a behavior, or one past `maxCacheBehaviors`, counting
-   * cdk-nextjs's behaviors and `overrides.distributionProps.additionalBehaviors`
-   * but not those added to {@link distribution} directly.
+   * inside it: a literal one (`/<basePath>/...`) is refused, but a wildcard
+   * one that reaches inside it (`*.pdf`) isn't caught.
+   *
+   * A pattern that already has a behavior is refused too, checked against
+   * cdk-nextjs's behaviors and `overrides.distributionProps.additionalBehaviors`,
+   * as is one past `maxCacheBehaviors`, which counts cdk-nextjs's behaviors
+   * only, as the constructor's check does. Neither sees behaviors added to
+   * {@link distribution} directly.
    *
    * @param pathPattern The path pattern, e.g. `/detail/*`.
    * @param options Fields replacing the default behavior's.
@@ -376,23 +382,7 @@ export class NextjsDistribution extends Construct {
     const given: AddBehaviorOptions = Object.fromEntries(
       Object.entries(options ?? {}).filter(([, value]) => value !== undefined),
     );
-    // CloudFront allows a CloudFront Function or a Lambda@Edge per event type,
-    // not both.
-    const isViewerRequest = ({ eventType }: { eventType: string }) =>
-      eventType === FunctionEventType.VIEWER_REQUEST;
-    if (
-      given.edgeLambdas?.some(isViewerRequest) &&
-      this.dynamicCloudFrontFunctionAssociations.some(isViewerRequest)
-    ) {
-      throw new Error(
-        `${LOG_PREFIX} \`addDynamicBehavior("${pathPattern}")\`'s ` +
-          `\`options.edgeLambdas\` has a ${FunctionEventType.VIEWER_REQUEST} ` +
-          `Lambda@Edge, but cdk-nextjs has a CloudFront function there, and ` +
-          `CloudFront permits only one function per event type per behavior. ` +
-          `Move the logic into \`viewerRequestFunctionCode\`.`,
-      );
-    }
-    this.addCacheBehavior(pathPattern, origin, {
+    const behavior: AddBehaviorOptions = {
       ...defaults,
       ...given,
       // Without associations of its own, the behavior keeps the default
@@ -403,7 +393,9 @@ export class NextjsDistribution extends Construct {
             given.functionAssociations,
           )
         : defaults.functionAssociations,
-    });
+    };
+    assertNoViewerEdgeLambdaClash(pathPattern, behavior);
+    this.addCacheBehavior(pathPattern, origin, behavior);
   }
   /**
    * What CloudFront would only reject at deploy, or accept and never match,
@@ -431,8 +423,10 @@ export class NextjsDistribution extends Construct {
       );
     }
     const limit = this.props.maxCacheBehaviors ?? DEFAULT_MAX_CACHE_BEHAVIORS;
-    // The default behavior, the others added so far, and this one.
-    const total = existing.size + 2;
+    // The default behavior, cdk-nextjs's others so far, and this one. Not
+    // `overrides.distributionProps`' behaviors: `maxCacheBehaviors` says to
+    // lower it by those instead, as the constructor's budget check does.
+    const total = this.pathPatterns.size + 2;
     if (!Token.isUnresolved(limit) && total > limit) {
       throw new Error(
         `${call}: the distribution would have ${total} cache behaviors, over ` +
@@ -1126,4 +1120,33 @@ function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
         ]) as FunctionAssociation[])
       : undefined,
   });
+}
+
+/**
+ * CloudFront refuses a behavior with a CloudFront function and a Lambda@Edge
+ * on its viewer events, in any combination, so this says which at synth.
+ *
+ * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html
+ */
+function assertNoViewerEdgeLambdaClash(
+  pathPattern: string,
+  behavior: AddBehaviorOptions,
+) {
+  const viewerEdgeLambdas = (behavior.edgeLambdas ?? []).filter(
+    ({ eventType }) =>
+      eventType === LambdaEdgeEventType.VIEWER_REQUEST ||
+      eventType === LambdaEdgeEventType.VIEWER_RESPONSE,
+  );
+  if (!viewerEdgeLambdas.length || !behavior.functionAssociations?.length) {
+    return;
+  }
+  throw new Error(
+    `${LOG_PREFIX} \`addDynamicBehavior("${pathPattern}")\` would have a ` +
+      `${viewerEdgeLambdas[0].eventType} Lambda@Edge next to the CloudFront ` +
+      `function${behavior.functionAssociations.length > 1 ? "s" : ""} on ` +
+      `${behavior.functionAssociations.map((it) => it.eventType).join(" and ")}, ` +
+      `and CloudFront doesn't allow both on viewer events. Use an ` +
+      `origin-request or origin-response Lambda@Edge, or move the logic into ` +
+      `\`viewerRequestFunctionCode\`.`,
+  );
 }
