@@ -323,6 +323,33 @@ describe("NextjsDistribution function group behaviors", () => {
     ]);
   });
 
+  it("adds dynamicBehaviors after the group behaviors, and refuses a group's pattern", () => {
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["api"]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+      functionGroupBehaviors,
+      dynamicBehaviors: [{ pathPattern: "detail/*" }],
+    });
+    expect(pathPatterns(stack)).toEqual([
+      "_next/static*",
+      "_next/image*",
+      "api/*",
+      "detail/*",
+    ]);
+    const clash = setup(["api"]);
+    expect(
+      () =>
+        new NextjsDistribution(clash.stack, "Distribution", {
+          ...clash.distributionProps,
+          functionGroups: clash.functionGroups,
+          functionGroupBehaviors: clash.functionGroupBehaviors,
+          dynamicBehaviors: [{ pathPattern: "/api/*" }],
+        }),
+    ).toThrow(/"\/api\/\*" \("\/api\/\*"\) already has a behavior/);
+  });
+
   it("keeps the two slash variants distinct under a basePath", () => {
     // `getPathPattern` used to join through a helper that strips trailing
     // slashes, so `pricing` and `pricing/` both became `/base/pricing`: two
@@ -1715,6 +1742,35 @@ describe("dynamicBehaviors", () => {
     expect(byPattern("detail/*").FunctionAssociations).toEqual(
       defaultBehavior.FunctionAssociations,
     );
+  });
+
+  it("reads only the declared fields, so a stray functionAssociations can't drop cdk-nextjs's", () => {
+    const { stack } = setup(NextjsType.GLOBAL_FUNCTIONS, {
+      dynamicBehaviors: (scope) => {
+        // A spread of a full `BehaviorOptions`, which TypeScript doesn't
+        // check for extra properties.
+        const shared = {
+          functionAssociations: [
+            {
+              eventType: FunctionEventType.VIEWER_REQUEST,
+              function: cloudFrontFn(scope, "StrayFn"),
+            },
+          ],
+          compress: false,
+        };
+        const behavior: NextjsDynamicBehavior = {
+          ...shared,
+          pathPattern: "detail/*",
+        };
+        return [behavior];
+      },
+    });
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    const detail = byPattern("detail/*") as Behavior & { Compress: boolean };
+    expect(detail.FunctionAssociations).toEqual(
+      defaultBehavior.FunctionAssociations,
+    );
+    expect(detail.Compress).toBe(false);
   });
 
   it("keeps the default behavior's field where one is left undefined", () => {

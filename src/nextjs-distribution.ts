@@ -13,6 +13,7 @@ import {
   CachedMethods,
   Function as CloudFrontFunction,
   Distribution,
+  EdgeLambda,
   FunctionAssociation,
   FunctionCode,
   FunctionEventType,
@@ -177,15 +178,18 @@ export interface NextjsDistributionProps {
    * default behavior, with some of its options changed: a shorter cache for
    * `detail/*`, say. Each gets {@link NextjsDistribution.dynamicBehaviorOptions},
    * function associations and Lambda@Edge included, with the fields it sets
-   * replacing the default behavior's.
+   * replacing those. Those are the options cdk-nextjs builds for its dynamic
+   * behaviors, so a default behavior replaced through
+   * `overrides.distributionProps.defaultBehavior` isn't what they copy.
    *
    * Their patterns are relative to the app, like `functionGroups` patterns:
    * under a `basePath`, cdk-nextjs prefixes them with it. They are added in
    * the order given, after `_next/static*`, `_next/image*`, the `public/`
    * entries and the `functionGroups` patterns, which CloudFront matches
-   * first, and before the behaviors that stand in for the default one under a
-   * `basePath`. A pattern another behavior already has is a synth error, and
-   * they count toward {@link maxCacheBehaviors}.
+   * first, so a pattern inside one of those (`api/slow/*` under a group's
+   * `api/*`) never applies. They come before the behaviors that stand in for
+   * the default one under a `basePath`. A pattern another behavior already has
+   * is a synth error, and they count toward {@link maxCacheBehaviors}.
    * @default - none
    * @see https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin
    */
@@ -241,9 +245,10 @@ export interface NextjsDistributionFunctionGroup {
 
 /**
  * A behavior of your own to the Next.js server, one of
- * {@link NextjsDistributionProps.dynamicBehaviors}. Fields left unset keep the
- * default behavior's. Its function associations and Lambda@Edge are always the
- * default behavior's, so cdk-nextjs's viewer-request function runs on it.
+ * {@link NextjsDistributionProps.dynamicBehaviors}. Fields left unset keep
+ * those of {@link NextjsDistribution.dynamicBehaviorOptions}. Its function
+ * associations and Lambda@Edge are always those options', so cdk-nextjs's
+ * viewer-request function runs on it; only the fields here are read.
  */
 export interface NextjsDynamicBehavior {
   /**
@@ -255,20 +260,20 @@ export interface NextjsDynamicBehavior {
    * Its cache policy. Build it from the dynamic one's cache key, and set
    * `defaultTtl`, which CDK otherwise defaults to a day.
    * @see https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin
-   * @default - the default behavior's
+   * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
    */
   readonly cachePolicy?: ICachePolicy;
-  /** @default - the default behavior's */
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly originRequestPolicy?: IOriginRequestPolicy;
-  /** @default - the default behavior's */
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly responseHeadersPolicy?: IResponseHeadersPolicy;
-  /** @default - the default behavior's */
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly allowedMethods?: AllowedMethods;
-  /** @default - the default behavior's */
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly cachedMethods?: CachedMethods;
-  /** @default - the default behavior's */
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly compress?: boolean;
-  /** @default - the default behavior's */
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly viewerProtocolPolicy?: ViewerProtocolPolicy;
 }
 
@@ -345,8 +350,8 @@ export class NextjsDistribution extends Construct {
    * this into `distribution.addBehavior`: a `functionAssociations` of your
    * own there would drop cdk-nextjs's viewer-request function.
    *
-   * Frozen, `functionAssociations` included: the behaviors cdk-nextjs builds
-   * from it would change with it.
+   * Frozen, `functionAssociations` and `edgeLambdas` included: the behaviors
+   * cdk-nextjs builds from it would change with it.
    */
   public readonly dynamicBehaviorOptions: BehaviorOptions;
   private imageBehaviorOptions: BehaviorOptions;
@@ -855,11 +860,11 @@ export class NextjsDistribution extends Construct {
       : [];
     const taken = new Set([...additional, ...later].map(pathPatternKey));
     for (const behavior of this.props.dynamicBehaviors ?? []) {
-      const { pathPattern: relative, ...fields } = behavior;
-      const call = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
+      const relative = behavior.pathPattern;
+      const errorPrefix = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
       if (pathPatternKey(relative) === "*") {
         throw new Error(
-          `${call} matches every path, as the default behavior does. ` +
+          `${errorPrefix} matches every path, as the default behavior does. ` +
             `Customize that through \`overrides.dynamicBehaviorOptions\` instead.`,
         );
       }
@@ -867,14 +872,19 @@ export class NextjsDistribution extends Construct {
       const key = pathPatternKey(pathPattern);
       if (this.pathPatterns.has(key) || taken.has(key)) {
         throw new Error(
-          `${call} ("${pathPattern}") already has a behavior, which ` +
+          `${errorPrefix} ("${pathPattern}") already has a behavior, which ` +
             `CloudFront would reject at deploy.`,
         );
       }
-      // Unset fields keep the default behavior's rather than CDK's defaults,
-      // which for `cachePolicy` caches for a day.
+      // Only the declared fields: one more on the object at runtime (from a
+      // spread, or plain JS), such as `functionAssociations`, would replace
+      // cdk-nextjs's viewer-request function. And unset fields keep the
+      // dynamic options' rather than CDK's defaults, which for `cachePolicy`
+      // cache for a day.
       const given = Object.fromEntries(
-        Object.entries(fields).filter(([, value]) => value !== undefined),
+        DYNAMIC_BEHAVIOR_FIELDS.map((field) => [field, behavior[field]]).filter(
+          ([, value]) => value !== undefined,
+        ),
       );
       this.addCacheBehavior(pathPattern, origin, { ...defaults, ...given });
     }
@@ -1108,8 +1118,8 @@ function pathPatternKey(pathPattern: string): string {
 
 /**
  * A frozen copy, so a caller pushing onto the public options'
- * `functionAssociations` can't change every behavior built from them, and skip
- * the viewer-request check on the way.
+ * `functionAssociations` or `edgeLambdas` can't change every behavior built
+ * from them, and skip the checks on the way.
  */
 function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
   return Object.freeze({
@@ -1119,5 +1129,22 @@ function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
           ...options.functionAssociations,
         ]) as FunctionAssociation[])
       : undefined,
+    edgeLambdas: options.edgeLambdas
+      ? (Object.freeze([...options.edgeLambdas]) as EdgeLambda[])
+      : undefined,
   });
 }
+
+/**
+ * The fields a {@link NextjsDynamicBehavior} may change, the only ones
+ * copied from it.
+ */
+const DYNAMIC_BEHAVIOR_FIELDS = [
+  "cachePolicy",
+  "originRequestPolicy",
+  "responseHeadersPolicy",
+  "allowedMethods",
+  "cachedMethods",
+  "compress",
+  "viewerProtocolPolicy",
+] as const satisfies ReadonlyArray<keyof NextjsDynamicBehavior>;

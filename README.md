@@ -611,14 +611,18 @@ nextjsDistribution.distribution.addBehavior(
   them with it, as it does `functionGroups` patterns.
 - A behavior can set `cachePolicy`, `originRequestPolicy`,
   `responseHeadersPolicy`, `allowedMethods`, `cachedMethods`, `compress` and
-  `viewerProtocolPolicy`. Fields left unset keep the default behavior's. Its
-  function associations and Lambda@Edge are always the default behavior's,
-  `overrides.dynamicBehaviorOptions` included, so cdk-nextjs's viewer-request
-  function (and `viewerRequestFunctionCode`) runs on it.
+  `viewerProtocolPolicy`; nothing else on the object is read. Fields left unset
+  keep those of `dynamicBehaviorOptions`, the options cdk-nextjs builds for its
+  dynamic behaviors (`overrides.dynamicBehaviorOptions` applied, but not a
+  default behavior you replace through `overrides.distributionProps`). Its
+  function associations and Lambda@Edge are always those options', so
+  cdk-nextjs's viewer-request function (and `viewerRequestFunctionCode`) runs
+  on it.
 - They are added in the order given, after `_next/static*`, `_next/image*`,
   the `public/` entries and the `functionGroups` patterns, which CloudFront
-  matches first, and before the behaviors that stand in for the default one
-  under a `basePath`.
+  matches first, so a pattern inside one of those (`api/slow/*` under a
+  group's `api/*`) never applies. They come before the behaviors that stand in
+  for the default one under a `basePath`.
 - They count toward `maxCacheBehaviors`, and a pattern another behavior
   already has (cdk-nextjs's, or one in
   `overrides.distributionProps.additionalBehaviors`) is a synth error.
