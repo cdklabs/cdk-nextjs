@@ -337,10 +337,11 @@ export class NextjsDistribution extends Construct {
   private isFunctionCompute: boolean;
   private staticBehaviorOptions: BehaviorOptions;
   /**
-   * The options of the default behavior, the one that sends requests to the
-   * Next.js server: its origin, cache, origin request and response headers
-   * policies, and function associations, with
-   * `overrides.dynamicBehaviorOptions` applied.
+   * The options cdk-nextjs builds for the behaviors that send requests to the
+   * Next.js server (the default behavior, unless
+   * `overrides.distributionProps.defaultBehavior` replaces it): their origin,
+   * cache, origin request and response headers policies, and function
+   * associations, with `overrides.dynamicBehaviorOptions` applied.
    *
    * Read it to reuse a policy on a behavior of your own with another origin,
    * e.g. the `responseHeadersPolicy` on a path served from another bucket, or
@@ -881,12 +882,22 @@ export class NextjsDistribution extends Construct {
       // cdk-nextjs's viewer-request function. And unset fields keep the
       // dynamic options' rather than CDK's defaults, which for `cachePolicy`
       // cache for a day.
-      const given = Object.fromEntries(
-        DYNAMIC_BEHAVIOR_FIELDS.map((field) => [field, behavior[field]]).filter(
-          ([, value]) => value !== undefined,
-        ),
+      // Every field listed, so one added to `NextjsDynamicBehavior` and not
+      // here fails to compile rather than being dropped.
+      const declared: DynamicBehaviorFields = {
+        cachePolicy: behavior.cachePolicy,
+        originRequestPolicy: behavior.originRequestPolicy,
+        responseHeadersPolicy: behavior.responseHeadersPolicy,
+        allowedMethods: behavior.allowedMethods,
+        cachedMethods: behavior.cachedMethods,
+        compress: behavior.compress,
+        viewerProtocolPolicy: behavior.viewerProtocolPolicy,
+      };
+      const given: Partial<DynamicBehaviorFields> = Object.fromEntries(
+        Object.entries(declared).filter(([, value]) => value !== undefined),
       );
-      this.addCacheBehavior(pathPattern, origin, { ...defaults, ...given });
+      const options: AddBehaviorOptions = { ...defaults, ...given };
+      this.addCacheBehavior(pathPattern, origin, options);
     }
   }
   /** `distribution.addBehavior`, recording the pattern. */
@@ -1119,7 +1130,7 @@ function pathPatternKey(pathPattern: string): string {
 /**
  * A frozen copy, so a caller pushing onto the public options'
  * `functionAssociations` or `edgeLambdas` can't change every behavior built
- * from them, and skip the checks on the way.
+ * from them, skipping the viewer-request check on `functionAssociations`.
  */
 function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
   return Object.freeze({
@@ -1136,15 +1147,11 @@ function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
 }
 
 /**
- * The fields a {@link NextjsDynamicBehavior} may change, the only ones
- * copied from it.
+ * The fields a {@link NextjsDynamicBehavior} may change, the only ones copied
+ * from it: every one required, so none can be left out of the copy.
  */
-const DYNAMIC_BEHAVIOR_FIELDS = [
-  "cachePolicy",
-  "originRequestPolicy",
-  "responseHeadersPolicy",
-  "allowedMethods",
-  "cachedMethods",
-  "compress",
-  "viewerProtocolPolicy",
-] as const satisfies ReadonlyArray<keyof NextjsDynamicBehavior>;
+type DynamicBehaviorFields = {
+  [
+    K in Exclude<keyof NextjsDynamicBehavior, "pathPattern">
+  ]: NextjsDynamicBehavior[K];
+};

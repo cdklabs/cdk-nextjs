@@ -7,6 +7,7 @@ import {
   FunctionCode,
   FunctionEventType,
   KeyValueStore,
+  LambdaEdgeEventType,
   ResponseHeadersPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
@@ -1861,7 +1862,22 @@ describe("dynamicBehaviors", () => {
     const { distribution } = setup(NextjsType.GLOBAL_FUNCTIONS, {
       overrides: (scope) => {
         headers = new ResponseHeadersPolicy(scope, "AppHeaders", {});
-        return { dynamicBehaviorOptions: { responseHeadersPolicy: headers } };
+        const edgeFn = new LambdaFunction(scope, "EdgeFn", {
+          code: Code.fromInline("exports.handler = () => {};"),
+          handler: "index.handler",
+          runtime: Runtime.NODEJS_22_X,
+        });
+        return {
+          dynamicBehaviorOptions: {
+            responseHeadersPolicy: headers,
+            edgeLambdas: [
+              {
+                eventType: LambdaEdgeEventType.ORIGIN_REQUEST,
+                functionVersion: edgeFn.currentVersion,
+              },
+            ],
+          },
+        };
       },
     });
     const { dynamicBehaviorOptions } = distribution;
@@ -1871,5 +1887,7 @@ describe("dynamicBehaviors", () => {
     expect(Object.isFrozen(dynamicBehaviorOptions.functionAssociations)).toBe(
       true,
     );
+    expect(dynamicBehaviorOptions.edgeLambdas).toHaveLength(1);
+    expect(Object.isFrozen(dynamicBehaviorOptions.edgeLambdas)).toBe(true);
   });
 });
