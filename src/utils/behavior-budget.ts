@@ -22,7 +22,7 @@ export interface BehaviorBudgetProps {
   /** How many function group behaviors there are. */
   readonly groupPatterns: number;
   /** How many `dynamicBehaviors` there are. */
-  readonly dynamicPatterns?: number;
+  readonly dynamicPatterns: number;
 }
 
 /**
@@ -41,7 +41,7 @@ export function assertBehaviorBudget({
   serviceWorker,
   publicPatterns,
   groupPatterns,
-  dynamicPatterns = 0,
+  dynamicPatterns,
 }: BehaviorBudgetProps) {
   if (Token.isUnresolved(limit)) {
     return;

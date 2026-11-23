@@ -860,7 +860,7 @@ export class NextjsDistribution extends Construct {
     const { origin, ...defaults } = this.dynamicBehaviorOptions;
     // A bring-your-own distribution's own behaviors can't be read, and
     // `overrides.distributionProps` don't apply to it.
-    const additional = this.props.distribution
+    const overridePatterns = this.props.distribution
       ? []
       : Object.keys(
           this.props.overrides?.distributionProps?.additionalBehaviors ?? {},
@@ -872,7 +872,7 @@ export class NextjsDistribution extends Construct {
       ? [`/${this.basePath}`, this.getPathPattern("*")]
       : [];
     const reservedPatterns = new Set(
-      [...additional, ...basePathStandIns].map(pathPatternKey),
+      [...overridePatterns, ...basePathStandIns].map(pathPatternKey),
     );
     for (const behavior of this.props.dynamicBehaviors ?? []) {
       const relative = behavior.pathPattern;

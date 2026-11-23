@@ -14,6 +14,7 @@ describe("assertBehaviorBudget", () => {
     assetPrefix: "",
     publicPatterns: 0,
     groupPatterns: 0,
+    dynamicPatterns: 0,
     ...overrides,
   });
 
