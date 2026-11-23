@@ -18,6 +18,7 @@ import {
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
+import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import {
   Architecture,
   WebFunctionAuthType,
@@ -716,6 +717,28 @@ describe("NextjsGlobalWebFunctions", () => {
       expect(revision.DependsOn).toEqual(
         expect.arrayContaining([defaultPolicy]),
       );
+    }
+  });
+
+  it("doesn't make a revision wait on a role an override brings", () => {
+    const stack = new Stack(new App(), "Stack", { env });
+    const role = new Role(stack, "OwnRole", {
+      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+    });
+    new NextjsGlobalWebFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      overrides: { nextjsWebFunctions: { webFunctionProps: { role } } },
+    });
+    const template = Template.fromStack(stack);
+    const resources = template.toJSON().Resources;
+    // Its default policy can name the distribution, whose origin is the
+    // endpoint, so depending on it could be a cycle.
+    for (const revision of Object.values(
+      template.findResources("AWS::Lambda::WebFunctionRevision"),
+    )) {
+      for (const dependency of revision.DependsOn ?? []) {
+        expect(resources[dependency].Type).not.toBe("AWS::IAM::Policy");
+      }
     }
   });
 

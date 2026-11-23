@@ -63,7 +63,7 @@ export interface NextjsBaseProps {
    * on the construct, and synth fails on a combination that can't serve the
    * app:
    *
-   * - `NextjsGlobalFunctions`/`NextjsGlobalContainers`: leave this unset and it
+   * - `NextjsGlobalFunctions`/`NextjsGlobalWebFunctions`/`NextjsGlobalContainers`: leave this unset and it
    *   follows your app's `basePath`, which is what you want — CloudFront serves
    *   static assets from S3 using the request path as the object key, so the two
    *   have to be identical and a mismatch 404s all of them. Setting a different
@@ -238,7 +238,7 @@ export abstract class NextjsBaseConstruct extends Construct {
         `which NextjsType.${this.nextjsType} cannot serve: your bundles will be requested at ` +
         `"${this.nextjsBuild.nextConfigAssetPrefix}/_next/static/..." and nothing answers there, so they will 404. ` +
         "Drop `assetPrefix`, use an absolute one pointing at a CDN you front the assets bucket with, " +
-        "or deploy with NextjsGlobalFunctions/NextjsGlobalContainers.",
+        "or deploy with NextjsGlobalFunctions/NextjsGlobalWebFunctions/NextjsGlobalContainers.",
     );
   }
 

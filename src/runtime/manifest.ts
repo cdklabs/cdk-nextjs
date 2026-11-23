@@ -106,6 +106,9 @@ export const ERROR_PAGE_SUFFIXES = [
  */
 export const RUNTIME_DIR_NAME = "cdk-nextjs-runtime";
 
+/** The shell a Web Function runs, in {@link RUNTIME_DIR_NAME}. */
+export const WEB_FUNCTION_SHELL = "web-function.mjs";
+
 /**
  * The file, next to the manifest in {@link RUNTIME_DIR_NAME}, that lists
  * `public/` on every type but `NextjsRegionalContainers`: a JSON array of

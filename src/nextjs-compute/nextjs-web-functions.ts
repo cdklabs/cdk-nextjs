@@ -28,7 +28,11 @@ import { LOG_PREFIX } from "../constants";
 import { OptionalWebFunctionProps } from "../generated-structs/OptionalWebFunctionProps";
 import { LAMBDA_RUNTIME } from "../lambda-runtime";
 import { NextjsDeploymentRoot } from "../nextjs-build/nextjs-build";
-import { FUNCTION_GROUP_ENV_VAR, RUNTIME_DIR_NAME } from "../runtime/manifest";
+import {
+  FUNCTION_GROUP_ENV_VAR,
+  RUNTIME_DIR_NAME,
+  WEB_FUNCTION_SHELL,
+} from "../runtime/manifest";
 import { TRUSTED_ENDPOINT_ENV_VAR } from "../runtime/web-function-env";
 import { zipDirectory } from "../utils/zip-directory";
 
@@ -36,7 +40,7 @@ import { zipDirectory } from "../utils/zip-directory";
  * The shell every Web Function runs, relative to its deployment root.
  * @see NextjsBuild.relativePathToEntrypoint
  */
-const ENTRY_POINT = posix.join(RUNTIME_DIR_NAME, "web-function.mjs");
+const ENTRY_POINT = posix.join(RUNTIME_DIR_NAME, WEB_FUNCTION_SHELL);
 
 /**
  * What the L2 names a home-Region default endpoint it isn't given a name for.
@@ -249,8 +253,12 @@ export class NextjsWebFunctions extends Construct {
     grantRuntimeAccess(this.props, webFunction);
     // The L2 names the role by ARN only, so nothing waits for the grants in
     // its default policy: a new revision could serve before it can read the
-    // cache. A `Function` depends on its role the same way.
-    webFunction.node.addDependency(role);
+    // cache. Only for the role made here: a user's role can hold grants that
+    // name the distribution, whose origins are these endpoints, so depending
+    // on it could be a cycle.
+    if (!own?.role && !shared?.role) {
+      webFunction.node.addDependency(role);
+    }
 
     return {
       name: root.name,

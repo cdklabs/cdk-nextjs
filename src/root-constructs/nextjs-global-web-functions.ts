@@ -159,16 +159,20 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
     props: NextjsGlobalWebFunctionsProps,
   ) {
     assertWebFunctionsRegion(scope);
-    super(scope, id, props, NextjsType.GLOBAL_WEB_FUNCTIONS);
-    if (props.distribution && Stack.of(props.distribution) !== Stack.of(this)) {
+    // Before `super`, which runs `next build`.
+    if (
+      props.distribution &&
+      Stack.of(props.distribution) !== Stack.of(scope)
+    ) {
       throw new Error(
         `${LOG_PREFIX} NextjsGlobalWebFunctions' \`distribution\` must be in ` +
-          `its stack (${Stack.of(this).node.path}), not ` +
+          `its stack (${Stack.of(scope).node.path}), not ` +
           `${Stack.of(props.distribution).node.path}: the Web Functions' ` +
           `resource-based policy names the distribution, which reads their ` +
           `endpoints' domains, so across stacks it's a dependency cycle.`,
       );
     }
+    super(scope, id, props, NextjsType.GLOBAL_WEB_FUNCTIONS);
     this.props = props;
     this.distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
 

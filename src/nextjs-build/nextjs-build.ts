@@ -42,6 +42,7 @@ import {
   MANIFEST_FILE_NAME,
   PUBLIC_FILES_FILE_NAME,
   RUNTIME_DIR_NAME,
+  WEB_FUNCTION_SHELL,
   groupStagingDirName,
 } from "../runtime/manifest";
 import { readPublicFiles } from "../runtime/public-files";
@@ -75,7 +76,7 @@ const WEB_FUNCTION_UNZIPPED_LIMIT_BYTES = 512 * 1024 * 1024;
  */
 function shellFor(nextjsType: NextjsType): string {
   if (nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS) {
-    return "web-function.mjs";
+    return WEB_FUNCTION_SHELL;
   }
   return isFunctionsType(nextjsType) ? "lambda.mjs" : "server.mjs";
 }
@@ -363,10 +364,10 @@ export class NextjsBuild extends Construct {
     this.relativeProjectDir = manifest.relativeProjectDir;
     this.relativePathToEntrypoint = joinPosix(
       RUNTIME_DIR_NAME,
-      // The Event Functions types name a handler, not a file to run, so they
-      // keep the container shell's path; see the JSDoc.
+      // The Event Functions types run a handler, not a file, so nothing reads
+      // this for them; see the JSDoc.
       props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS
-        ? "web-function.mjs"
+        ? WEB_FUNCTION_SHELL
         : "server.mjs",
     );
     this.architecture = deploymentArchitecture(props);
