@@ -96,7 +96,7 @@ jobs:
     # A matrix cannot be built from an input directly, so the shard list is
     # computed here - as is the cache key, so that every job below agrees on it
     # and the next.js ref's default is written once rather than per job.
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
     permissions:
       contents: read
@@ -260,7 +260,7 @@ jobs:
             console.log(`matrix=${JSON.stringify({ include })}`);
             console.log(`max-parallel=${maxParallel}`);
             console.log(`nextjs-ref=${ref}`);
-            console.log(`cache-key=nextjs-v1-ubuntu-24.04-arm-node24-${ref}`);
+            console.log(`cache-key=nextjs-v1-ubuntu-26.04-arm-node24-${ref}`);
           ' >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -281,7 +281,7 @@ jobs:
     # eviction clock; this lookup may not, which is why the schedule's cadence and
     # not this job is what keeps the entry warm.
     needs: plan
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     timeout-minutes: 90
     steps:
       - name: Look for a cached next.js build
@@ -333,7 +333,7 @@ jobs:
     # Arm, so what `next build` traces natively matches every type's compute:
     # Web Functions run Arm64 only, and the other types deploy the host's
     # architecture.
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     # The sum of the capped steps below - warm 25, run 150, delete 65 - plus ~50
     # for setup.
     # The step caps are what guarantee the delete its time; this only has to
@@ -561,7 +561,7 @@ jobs:
     # pending scheduled run, and with it this job.
     needs: harness
     if: ${{ always() }}
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     timeout-minutes: 15
     permissions:
       id-token: write
