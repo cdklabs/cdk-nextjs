@@ -53,7 +53,7 @@ live prefix keeps the entries it has.
 
 ### Using `NextjsCache` without a root construct
 
-The four root constructs make their compute wait for the seed. If you compose
+The five root constructs make their compute wait for the seed. If you compose
 `NextjsCache` with compute of your own, do the same, or a request the new build
 serves before the seed lands renders on demand and that render then wins over
 the seed, since the seed never overwrites a key:

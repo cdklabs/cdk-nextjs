@@ -1,6 +1,6 @@
 /**
  * Turns results/<construct>/*.json into the markdown tables in the README's
- * Performance section: a summary comparing the four constructs, then each
+ * Performance section: a summary comparing the five constructs, then each
  * construct's detail. The newest file of each script per construct wins;
  * result directories not named after a construct are skipped.
  *

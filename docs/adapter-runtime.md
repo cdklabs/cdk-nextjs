@@ -111,7 +111,8 @@ web-function.mts
 - **PPR is origin-only**, as in `next start`. The CDN-shell variant needs
   CloudFront to splice an edge response with an origin stream, which it cannot
   do.
-- **One Dispatcher serves every request**, concurrently on the container shell,
+- **One Dispatcher serves every request**, concurrently on the HTTP server shell
+  (containers and Web Functions),
   so per-request state (the middleware invoker, with its `waitUntil` and
   `signal`) travels in the `DispatchRequest`, never on the Dispatcher.
 

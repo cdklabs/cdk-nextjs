@@ -4,9 +4,9 @@ Runs [vercel/next.js's own e2e suite][harness] against a real cdk-nextjs
 deployment. It is a better correctness signal than any fixture app we would
 write, because the tests were written by the people who define the behavior.
 
-`examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
+`examples/e2e-tests/` remains the per-commit gate on all five `NextjsType`s. This
 is the scheduled one — every sixth day of the month at 14:00 UTC, so the day of
-the week drifts — on all four types in one run, `NextjsGlobalFunctions` first
+the week drifts — on all five types in one run, `NextjsGlobalFunctions` first
 (see "Sharding"). A `workflow_dispatch` runs one type (its `nextjs_type` input,
 `NextjsGlobalFunctions` by default) or `all`; see "Running on the other
 `NextjsType`s".
@@ -29,7 +29,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
 | `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in about an hour (`test_filters`).                    |
-| `.github/workflows/e2e-harness.yml` | Every six days (all four types) + `workflow_dispatch`. A matrix of (type, shard) jobs, one stack each.             |
+| `.github/workflows/e2e-harness.yml` | Every six days (all five types) + `workflow_dispatch`. A matrix of (type, shard) jobs, one stack each.             |
 
 ## One shared stack, not one per test file
 
