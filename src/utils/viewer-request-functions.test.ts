@@ -10,7 +10,7 @@ import {
   spliceViewerRequest,
   VIEWER_REQUEST_HOOK,
   WEB_FUNCTION_HANDLER,
-  X_FORWARDED_HOST_HANDLER,
+  FUNCTION_URL_HANDLER,
 } from "./viewer-request-functions";
 
 type QueryString = Record<
@@ -35,7 +35,7 @@ async function run(handler: string, uri: string, querystring: QueryString) {
 
 describe("spliceViewerRequest", () => {
   it.each([
-    ["x-forwarded-host", X_FORWARDED_HOST_HANDLER],
+    ["x-forwarded-host", FUNCTION_URL_HANDLER],
     ["Web Function", WEB_FUNCTION_HANDLER],
     ["pass-through", PASS_THROUGH_HANDLER],
     ["assetPrefix rewrite", assetPrefixRewriteHandler("base", "/cdn")],
@@ -143,7 +143,7 @@ describe("assertViewerRequestUnclaimed", () => {
 
 describe("the signed-origin viewer-request handlers", () => {
   it.each([
-    ["x-forwarded-host", X_FORWARDED_HOST_HANDLER],
+    ["x-forwarded-host", FUNCTION_URL_HANDLER],
     ["Web Function", WEB_FUNCTION_HANDLER],
   ])(
     "the %s handler redirects repeated slashes, keeping the query",
@@ -202,7 +202,7 @@ describe("the signed-origin viewer-request handlers", () => {
   });
 
   it("leaves + alone on a Function URL origin", async () => {
-    const request = await run(X_FORWARDED_HOST_HANDLER, "/search", {
+    const request = await run(FUNCTION_URL_HANDLER, "/search", {
       query: { value: "hello+world" },
     });
     expect(request.querystring).toEqual({ query: { value: "hello+world" } });

@@ -199,7 +199,7 @@ export class NextjsWebFunctions extends Construct {
       ...shared?.defaultEndpoint,
       ...own?.defaultEndpoint,
     };
-    assertSupported(root.name, {
+    assertReachableByCloudFront(root.name, {
       defaultEndpointAuth:
         own?.defaultEndpointAuth ?? shared?.defaultEndpointAuth,
       endpointType: defaultEndpoint.endpointLocation?.endpointType,
@@ -234,7 +234,7 @@ export class NextjsWebFunctions extends Construct {
       ...shared,
       ...own,
       role,
-      // Checked by `assertSupported` above; restated so no spread can drop it.
+      // Checked by `assertReachableByCloudFront` above; restated so no spread can drop it.
       defaultEndpointAuth: WebFunctionAuthType.IAM_AUTH,
       defaultEndpoint: {
         ...defaultEndpoint,
@@ -342,7 +342,7 @@ function withoutEmptyValues(
  * only for `IAM_AUTH`; a multi- or per-Region endpoint needs SigV4A signing
  * and Region-local cache resources this construct doesn't create.
  */
-function assertSupported(
+function assertReachableByCloudFront(
   group: string,
   requested: {
     defaultEndpointAuth?: WebFunctionAuthType;

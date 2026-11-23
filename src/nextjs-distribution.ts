@@ -85,7 +85,7 @@ import {
   PASS_THROUGH_HANDLER,
   spliceViewerRequest,
   WEB_FUNCTION_HANDLER,
-  X_FORWARDED_HOST_HANDLER,
+  FUNCTION_URL_HANDLER,
 } from "./utils/viewer-request-functions";
 
 export interface NextjsDistributionOverrides {
@@ -308,7 +308,7 @@ export class NextjsDistribution extends Construct {
    * URL or a Web Function endpoint, which needs the viewer-request function
    * that sets `x-forwarded-host`; see `isSignedLambdaOriginType`.
    */
-  private isFunctionCompute: boolean;
+  private isSignedLambdaOrigin: boolean;
   /** Whether that origin is a Web Function endpoint. */
   private isWebFunctionCompute: boolean;
   /**
@@ -334,7 +334,7 @@ export class NextjsDistribution extends Construct {
     this.basePath = normalizeBasePath(props.basePath);
     this.assetPrefix = this.resolveAssetPrefix();
     this.staticOrigin = this.createStaticOrigin();
-    this.isFunctionCompute = isSignedLambdaOriginType(props.nextjsType);
+    this.isSignedLambdaOrigin = isSignedLambdaOriginType(props.nextjsType);
     this.isWebFunctionCompute =
       props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS;
     this.validateFunctionGroupProps();
@@ -395,7 +395,7 @@ export class NextjsDistribution extends Construct {
       }
       return this.webFunctionOrigin(this.props.webFunctionEndpoint);
     }
-    if (this.isFunctionCompute) {
+    if (this.isSignedLambdaOrigin) {
       if (!this.props.functionUrl) {
         throw new Error("Missing NextjsDistributionProps.functionUrl");
       }
@@ -454,7 +454,7 @@ export class NextjsDistribution extends Construct {
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html#managed-origin-request-policy-all-viewer-and-cloudfront
    */
   private createDynamicOriginRequestPolicy(): IOriginRequestPolicy {
-    return this.isFunctionCompute
+    return this.isSignedLambdaOrigin
       ? OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER
       : OriginRequestPolicy.ALL_VIEWER_AND_CLOUDFRONT_2022;
   }
@@ -465,12 +465,12 @@ export class NextjsDistribution extends Construct {
    */
   private createDynamicCloudFrontFunctionAssociations(): FunctionAssociation[] {
     const associations: FunctionAssociation[] = [];
-    if (this.isFunctionCompute) {
+    if (this.isSignedLambdaOrigin) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
         ...this.viewerRequestFunctionProps(
           this.isWebFunctionCompute
             ? WEB_FUNCTION_HANDLER
-            : X_FORWARDED_HOST_HANDLER,
+            : FUNCTION_URL_HANDLER,
         ),
       });
       associations.push({
@@ -652,8 +652,8 @@ export class NextjsDistribution extends Construct {
     assertViewerRequestUnclaimed(
       overrideName,
       overridden,
-      this.isFunctionCompute
-        ? `NextjsGlobal${this.isWebFunctionCompute ? "Web" : ""}Functions ` +
+      this.isSignedLambdaOrigin
+        ? `${this.isWebFunctionCompute ? "NextjsGlobalWebFunctions" : "NextjsGlobalFunctions"} ` +
             `needs that event type for its own function, ` +
             `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
             `(the runtime trusts that header behind CloudFront) and redirects ` +
@@ -786,7 +786,7 @@ export class NextjsDistribution extends Construct {
     ) {
       return;
     }
-    if (!this.isFunctionCompute) {
+    if (!this.isSignedLambdaOrigin) {
       throw new Error(
         "`functionGroups` is only supported by NextjsGlobalFunctions and " +
           "NextjsGlobalWebFunctions.",

@@ -64,16 +64,6 @@ export const MAX_FUNCTION_CODE_BYTES = 10 * 1024;
 // literal in here would need every backtick and `${` escaped.
 // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-javascript-runtime-20.html
 
-// A Web Function endpoint rejects CloudFront's signature on any request
-// whose query string has a literal `+`, in a name or a value: `?q=a+b`
-// answers 403 "You are not authorized to access this endpoint", while
-// `?q=a%20b` passes (measured 2026-11-15; a Function URL accepts both).
-// HTML forms submit GET with spaces as `+`, so every `next/form` search
-// hit it. Both spell a space in a form-encoded query, which is how
-// `URLSearchParams` (and so `searchParams`) reads them, so `+` is sent
-// on as `%20`. Only the entries holding a `+` are touched; `%2B`, a
-// literal plus, has none and passes as it is.
-
 /**
  * The Functions constructs' viewer-request handler: redirects repeated
  * slashes, and overwrites `x-forwarded-host` with the viewer's `Host` so
@@ -113,6 +103,15 @@ ${encodePlus ? ENCODE_PLUS : ""}
   `;
 }
 
+// A Web Function endpoint rejects CloudFront's signature on any request
+// whose query string has a literal `+`, in a name or a value: `?q=a+b`
+// answers 403 "You are not authorized to access this endpoint", while
+// `?q=a%20b` passes (measured 2026-11-15; a Function URL accepts both).
+// HTML forms submit GET with spaces as `+`, so every `next/form` search
+// hit it. Both spell a space in a form-encoded query, which is how
+// `URLSearchParams` (and so `searchParams`) reads them, so `+` is sent
+// on as `%20`. Only the entries holding a `+` are touched; `%2B`, a
+// literal plus, has none and passes as it is.
 const ENCODE_PLUS = `
     const plus = (s) => s.replace(/\\+/g, "%20");
     const qs = request.querystring;
@@ -131,7 +130,7 @@ const ENCODE_PLUS = `
 `;
 
 /** NextjsGlobalFunctions' viewer-request handler. */
-export const X_FORWARDED_HOST_HANDLER = signedOriginHandler(false);
+export const FUNCTION_URL_HANDLER = signedOriginHandler(false);
 
 /** NextjsGlobalWebFunctions' viewer-request handler. */
 export const WEB_FUNCTION_HANDLER = signedOriginHandler(true);
