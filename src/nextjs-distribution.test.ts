@@ -1622,6 +1622,11 @@ describe("viewer-event Lambda@Edge overrides", () => {
     return Template.fromStack(stack);
   };
   const VIEWER_REQUEST_CODE = "function viewerRequest(event) { return; }";
+  const BEHAVIOR_FIELDS = [
+    "dynamicBehaviorOptions",
+    "imageBehaviorOptions",
+    "staticBehaviorOptions",
+  ] as const;
   const OWN_FUNCTION =
     "NextjsGlobalFunctions' own viewer-request function, which overwrites " +
     "`x-forwarded-host` with the viewer's `Host` (viewer-request)";
@@ -1703,11 +1708,7 @@ describe("viewer-event Lambda@Edge overrides", () => {
       );
     });
 
-    it.each([
-      "dynamicBehaviorOptions",
-      "imageBehaviorOptions",
-      "staticBehaviorOptions",
-    ] as const)(
+    it.each(BEHAVIOR_FIELDS)(
       "is allowed in overrides.%s on Global Containers without viewerRequestFunctionCode",
       (field) => {
         const template = synth({
@@ -1719,11 +1720,7 @@ describe("viewer-event Lambda@Edge overrides", () => {
       },
     );
 
-    it.each([
-      "dynamicBehaviorOptions",
-      "imageBehaviorOptions",
-      "staticBehaviorOptions",
-    ] as const)(
+    it.each(BEHAVIOR_FIELDS)(
       "is refused in overrides.%s on Global Containers with viewerRequestFunctionCode",
       (field) => {
         expect(() =>
@@ -1796,11 +1793,7 @@ describe("viewer-event Lambda@Edge overrides", () => {
     LambdaEdgeEventType.ORIGIN_REQUEST,
     LambdaEdgeEventType.ORIGIN_RESPONSE,
   ])("on %s", (eventType) => {
-    it.each([
-      "dynamicBehaviorOptions",
-      "imageBehaviorOptions",
-      "staticBehaviorOptions",
-    ] as const)("is allowed in overrides.%s", (field) => {
+    it.each(BEHAVIOR_FIELDS)("is allowed in overrides.%s", (field) => {
       expect(() =>
         synth({
           nextjsType: NextjsType.GLOBAL_FUNCTIONS,

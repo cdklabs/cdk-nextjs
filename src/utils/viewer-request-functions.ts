@@ -1,5 +1,8 @@
 import { Token } from "aws-cdk-lib";
-import { FunctionEventType } from "aws-cdk-lib/aws-cloudfront";
+import {
+  FunctionEventType,
+  LambdaEdgeEventType,
+} from "aws-cdk-lib/aws-cloudfront";
 import { LOG_PREFIX } from "../constants";
 
 /**
@@ -257,9 +260,10 @@ export interface BehaviorCloudFrontFunction {
   readonly owner: string;
 }
 
+// `FunctionEventType` and `LambdaEdgeEventType` share these values.
 const VIEWER_EVENT_TYPES: readonly string[] = [
-  FunctionEventType.VIEWER_REQUEST,
-  FunctionEventType.VIEWER_RESPONSE,
+  LambdaEdgeEventType.VIEWER_REQUEST,
+  LambdaEdgeEventType.VIEWER_RESPONSE,
 ];
 
 /**
@@ -272,7 +276,8 @@ const VIEWER_EVENT_TYPES: readonly string[] = [
  */
 export function assertViewerEdgeLambdasClear(
   overrideName: string,
-  edgeLambdas: readonly { readonly eventType: string }[] | undefined,
+  edgeLambdas:
+    readonly { readonly eventType: LambdaEdgeEventType }[] | undefined,
   cloudFrontFunctions: readonly BehaviorCloudFrontFunction[],
 ) {
   const viewerEdgeLambdas = (edgeLambdas ?? []).filter((it) =>
@@ -294,7 +299,7 @@ export function assertViewerEdgeLambdasClear(
     .join("; ");
   // Logic moved into `viewerRequestFunctionCode` runs on viewer-request only.
   const moveToCode = viewerEdgeLambdas.every(
-    (it) => it.eventType === FunctionEventType.VIEWER_REQUEST,
+    (it) => it.eventType === LambdaEdgeEventType.VIEWER_REQUEST,
   )
     ? `, or move the Lambda@Edge function's logic into ` +
       `\`viewerRequestFunctionCode\`, which runs inside cdk-nextjs's own ` +

@@ -467,7 +467,7 @@ export class NextjsDistribution extends Construct {
    * the override's own CloudFront Functions, plus `ours`, which `ourOwner`
    * describes.
    */
-  private assertViewerEdgeLambdasClear(
+  private assertOverrideEdgeLambdasClear(
     overrideName: string,
     options: AddBehaviorOptions | undefined,
     ours: readonly { readonly eventType: FunctionEventType }[],
@@ -512,7 +512,7 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...staticBehaviorOptions,
     };
-    this.assertViewerEdgeLambdasClear(
+    this.assertOverrideEdgeLambdasClear(
       "staticBehaviorOptions",
       staticBehaviorOptions,
       this.viewerRequestCode === undefined
@@ -599,7 +599,7 @@ export class NextjsDistribution extends Construct {
   ): FunctionAssociation[] {
     const ours = this.dynamicCloudFrontFunctionAssociations;
     const overridden = options?.functionAssociations;
-    this.assertViewerEdgeLambdasClear(
+    this.assertOverrideEdgeLambdasClear(
       overrideName,
       options,
       ours,
@@ -861,7 +861,7 @@ export class NextjsDistribution extends Construct {
       `serving \`assetPrefix\` ("${this.assetPrefix}") needs that event type ` +
         `to rewrite the request URI to the object's key`,
     );
-    this.assertViewerEdgeLambdasClear(
+    this.assertOverrideEdgeLambdasClear(
       "staticBehaviorOptions",
       { ...this.staticBehaviorOptions, functionAssociations: associations },
       [{ eventType: FunctionEventType.VIEWER_REQUEST }],
