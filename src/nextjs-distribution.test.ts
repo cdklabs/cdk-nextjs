@@ -1810,13 +1810,16 @@ describe("dynamicBehaviors", () => {
     ]);
   });
 
-  it("leaves a bare * without a basePath to CDK, which keeps it for the default behavior", () => {
-    expect(() =>
-      setup(NextjsType.GLOBAL_CONTAINERS, {
-        dynamicBehaviors: () => [{ pathPattern: "*" }],
-      }),
-    ).toThrow(/Only the default behavior can have a path pattern of '\*'/);
-  });
+  it.each(["*", "/*"])(
+    "refuses %j without a basePath, the default behavior's pattern",
+    (pathPattern) => {
+      expect(() =>
+        setup(NextjsType.GLOBAL_CONTAINERS, {
+          dynamicBehaviors: () => [{ pathPattern }],
+        }),
+      ).toThrow(/already has a behavior/);
+    },
+  );
 
   it.each(["*", "/*", "//*"])(
     "refuses %j under a basePath, the pattern of a behavior standing in for the default",

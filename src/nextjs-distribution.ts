@@ -865,14 +865,14 @@ export class NextjsDistribution extends Construct {
       : Object.keys(
           this.props.overrides?.distributionProps?.additionalBehaviors ?? {},
         );
-    // Under a `basePath`, the behaviors standing in for the default one are
-    // added after these, so their patterns are reserved now: `*` resolves to
-    // the second.
-    const basePathStandIns = this.basePath
+    // The default behavior's own pattern, which `/*` repeats: it never goes
+    // through `addCacheBehavior`. Under a `basePath`, the behaviors standing in
+    // for it are added after these, so their patterns are reserved now too.
+    const defaultPatterns = this.basePath
       ? [`/${this.basePath}`, this.getPathPattern("*")]
-      : [];
+      : ["*"];
     const reservedPatterns = new Set(
-      [...overridePatterns, ...basePathStandIns].map(pathPatternKey),
+      [...overridePatterns, ...defaultPatterns].map(pathPatternKey),
     );
     for (const behavior of this.props.dynamicBehaviors ?? []) {
       const relative = behavior.pathPattern;
