@@ -705,40 +705,61 @@ describe("NextjsGlobalWebFunctions", () => {
     for (const revision of found) {
       const roleId =
         revision.Properties.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0];
-      const defaultPolicy = Object.keys(resources).find(
+      const runtimePolicy = Object.keys(resources).find(
         (logicalId) =>
           resources[logicalId].Type === "AWS::IAM::Policy" &&
-          logicalId.includes("DefaultPolicy") &&
+          logicalId.includes("RuntimePolicy") &&
           resources[logicalId].Properties.Roles.some(
             (role: any) => role.Ref === roleId,
           ),
       );
-      expect(defaultPolicy).toBeDefined();
+      expect(runtimePolicy).toBeDefined();
       expect(revision.DependsOn).toEqual(
-        expect.arrayContaining([defaultPolicy]),
+        expect.arrayContaining([runtimePolicy]),
       );
     }
   });
 
-  it("doesn't make a revision wait on a role an override brings", () => {
-    const stack = new Stack(new App(), "Stack", { env });
-    const role = new Role(stack, "OwnRole", {
-      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
-    });
-    new NextjsGlobalWebFunctions(stack, "App", {
-      buildDirectory: buildDir,
-      overrides: { nextjsWebFunctions: { webFunctionProps: { role } } },
-    });
-    const template = Template.fromStack(stack);
-    const resources = template.toJSON().Resources;
-    // Its default policy can name the distribution, whose origin is the
-    // endpoint, so depending on it could be a cycle.
-    for (const revision of Object.values(
-      template.findResources("AWS::Lambda::WebFunctionRevision"),
-    )) {
-      for (const dependency of revision.DependsOn ?? []) {
-        expect(resources[dependency].Type).not.toBe("AWS::IAM::Policy");
-      }
+  it("lets a role, its own or an override's, be granted the distribution", () => {
+    for (const bringRole of [false, true]) {
+      const stack = new Stack(new App(), "Stack", { env });
+      const role = bringRole
+        ? new Role(stack, "OwnRole", {
+            assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+          })
+        : undefined;
+      const app = new NextjsGlobalWebFunctions(stack, "App", {
+        buildDirectory: buildDir,
+        overrides: role
+          ? { nextjsWebFunctions: { webFunctionProps: { role } } }
+          : undefined,
+      });
+      const [group] = app.nextjsWebFunctions.functionGroups;
+      // Lands in the role's default policy, which names the distribution,
+      // whose origin is the endpoint: a revision waiting on it is a cycle.
+      app.nextjsDistribution.distribution.grantCreateInvalidation(group.role);
+      const template = Template.fromStack(stack);
+      const resources = template.toJSON().Resources;
+      const found = Object.values(
+        template.findResources("AWS::Lambda::WebFunctionRevision"),
+      );
+      expect(found).toHaveLength(1);
+      const [revision] = found;
+      // It waits on the cache grants, whoever made the role.
+      const roleId =
+        revision.Properties.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0];
+      const waitsOn = (revision.DependsOn ?? []).filter(
+        (dependency: string) =>
+          resources[dependency].Type === "AWS::IAM::Policy",
+      );
+      expect(waitsOn).toHaveLength(1);
+      expect(waitsOn[0]).toContain("RuntimePolicy");
+      expect(
+        resources[waitsOn[0]].Properties.Roles.map((it: any) => it.Ref),
+      ).toEqual([roleId]);
+      expect(
+        JSON.stringify(resources[waitsOn[0]].Properties.PolicyDocument),
+      ).not.toContain("cloudfront");
     }
   });
 

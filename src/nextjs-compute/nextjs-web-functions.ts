@@ -2,8 +2,14 @@ import { writeFileSync } from "node:fs";
 import { posix } from "node:path";
 import { Duration } from "aws-cdk-lib";
 import {
+  AddToPrincipalPolicyResult,
+  IGrantable,
+  IPrincipal,
   IRole,
   ManagedPolicy,
+  Policy,
+  PolicyStatement,
+  PrincipalPolicyFragment,
   Role,
   ServicePrincipal,
 } from "aws-cdk-lib/aws-iam";
@@ -250,15 +256,18 @@ export class NextjsWebFunctions extends Construct {
     };
 
     const webFunction = new WebFunction(this, id, webFunctionProps);
-    grantRuntimeAccess(this.props, webFunction);
-    // The L2 names the role by ARN only, so nothing waits for the grants in
-    // its default policy: a new revision could serve before it can read the
-    // cache. Only for the role made here: a user's role can hold grants that
-    // name the distribution, whose origins are these endpoints, so depending
-    // on it could be a cycle.
-    if (!own?.role && !shared?.role) {
-      webFunction.node.addDependency(role);
-    }
+    // The L2 names the role by ARN only, so nothing waits for its policies: a
+    // new revision could serve before it can read the cache. So the cache
+    // grants go in a policy of their own that the function waits for, not the
+    // role's default one, which can hold grants naming the distribution
+    // (`grantCreateInvalidation`, say), whose origins are these endpoints:
+    // waiting on that would be a cycle.
+    // Attached by the role, so one that refuses policy updates gets none, as
+    // it would get no default policy.
+    const runtimePolicy = new Policy(this, `${id}RuntimePolicy`);
+    role.attachInlinePolicy(runtimePolicy);
+    grantRuntimeAccess(this.props, new PolicyGrantee(role, runtimePolicy));
+    webFunction.node.addDependency(runtimePolicy);
 
     return {
       name: root.name,
@@ -337,5 +346,31 @@ function assertSupported(
         `already serves viewers globally, and the cache bucket and ` +
         `revalidation table are in the stack's Region.`,
     );
+  }
+}
+
+/**
+ * `role`, as a grantee whose grants land in `policy` rather than in the
+ * role's default policy.
+ */
+class PolicyGrantee implements IPrincipal {
+  readonly grantPrincipal: IPrincipal = this;
+  readonly assumeRoleAction: string;
+  readonly policyFragment: PrincipalPolicyFragment;
+  readonly principalAccount?: string;
+
+  constructor(
+    role: IGrantable,
+    private readonly policy: Policy,
+  ) {
+    const principal = role.grantPrincipal;
+    this.assumeRoleAction = principal.assumeRoleAction;
+    this.policyFragment = principal.policyFragment;
+    this.principalAccount = principal.principalAccount;
+  }
+
+  addToPrincipalPolicy(statement: PolicyStatement): AddToPrincipalPolicyResult {
+    this.policy.addStatements(statement);
+    return { statementAdded: true, policyDependable: this.policy };
   }
 }
