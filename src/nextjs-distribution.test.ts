@@ -1818,7 +1818,11 @@ describe("dynamicBehaviors", () => {
     ["a public/ entry's", "/favicon.ico", {}],
     ["cdk-nextjs's", "_next/image*", {}],
     ["another dynamic behavior's", "/detail/*", {}],
-    ["the basePath stand-in's", "*", { basePath: "docs" }],
+    [
+      "a basePath-prefixed public/ entry's",
+      "favicon.ico",
+      { basePath: "docs" },
+    ],
   ])("refuses %s pattern", (_name, pathPattern, props) => {
     expect(() =>
       setup(NextjsType.GLOBAL_FUNCTIONS, {
@@ -1826,7 +1830,21 @@ describe("dynamicBehaviors", () => {
         publicDirEntries: ["favicon.ico"],
         dynamicBehaviors: () => [{ pathPattern: "detail/*" }, { pathPattern }],
       }),
-    ).toThrow(/already has a behavior|matches every path/);
+    ).toThrow(/already has a behavior/);
+  });
+
+  it.each([
+    ["", undefined, /is empty/],
+    ["/", undefined, /is empty/],
+    ["//*", "docs", /matches every path/],
+    [`${"a".repeat(250)}/*`, "docs", /characters, over CloudFront's 255/],
+  ])("refuses %j (basePath %s)", (pathPattern, basePath, error) => {
+    expect(() =>
+      setup(NextjsType.GLOBAL_CONTAINERS, {
+        basePath,
+        dynamicBehaviors: () => [{ pathPattern }],
+      }),
+    ).toThrow(error);
   });
 
   it("refuses a pattern overrides.distributionProps.additionalBehaviors has", () => {
@@ -1889,5 +1907,9 @@ describe("dynamicBehaviors", () => {
     );
     expect(dynamicBehaviorOptions.edgeLambdas).toHaveLength(1);
     expect(Object.isFrozen(dynamicBehaviorOptions.edgeLambdas)).toBe(true);
+    expect(Object.isFrozen(dynamicBehaviorOptions.edgeLambdas![0])).toBe(true);
+    expect(
+      Object.isFrozen(dynamicBehaviorOptions.functionAssociations![0]),
+    ).toBe(true);
   });
 });

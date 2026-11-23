@@ -13,7 +13,6 @@ import {
   CachedMethods,
   Function as CloudFrontFunction,
   Distribution,
-  EdgeLambda,
   FunctionAssociation,
   FunctionCode,
   FunctionEventType,
@@ -70,6 +69,7 @@ import {
 import {
   assertNoPublicCollisions,
   getPathPattern,
+  MAX_PATH_PATTERN_LENGTH,
   publicPathPatterns,
 } from "./utils/path-patterns";
 import {
@@ -855,23 +855,31 @@ export class NextjsDistribution extends Construct {
       : Object.keys(
           this.props.overrides?.distributionProps?.additionalBehaviors ?? {},
         );
-    // Added after these, so they're checked now.
-    const later = this.basePath
-      ? [`/${this.basePath}`, this.getPathPattern("*")]
-      : [];
-    const taken = new Set([...additional, ...later].map(pathPatternKey));
+    const reservedPatterns = new Set(additional.map(pathPatternKey));
     for (const behavior of this.props.dynamicBehaviors ?? []) {
       const relative = behavior.pathPattern;
       const errorPrefix = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
-      if (pathPatternKey(relative) === "*") {
+      // `getPathPattern` strips every leading slash, so `//*` is `*` too: under
+      // a `basePath`, the pattern of the behavior standing in for the default.
+      const bare = relative.replace(/^\/+/, "");
+      if (bare === "*") {
         throw new Error(
           `${errorPrefix} matches every path, as the default behavior does. ` +
             `Customize that through \`overrides.dynamicBehaviorOptions\` instead.`,
         );
       }
+      if (bare === "") {
+        throw new Error(`${errorPrefix} is empty.`);
+      }
       const pathPattern = this.getPathPattern(relative);
+      if (pathPattern.length > MAX_PATH_PATTERN_LENGTH) {
+        throw new Error(
+          `${errorPrefix} ("${pathPattern}") is ${pathPattern.length} ` +
+            `characters, over CloudFront's ${MAX_PATH_PATTERN_LENGTH}.`,
+        );
+      }
       const key = pathPatternKey(pathPattern);
-      if (this.pathPatterns.has(key) || taken.has(key)) {
+      if (this.pathPatterns.has(key) || reservedPatterns.has(key)) {
         throw new Error(
           `${errorPrefix} ("${pathPattern}") already has a behavior, which ` +
             `CloudFront would reject at deploy.`,
@@ -882,8 +890,7 @@ export class NextjsDistribution extends Construct {
       // cdk-nextjs's viewer-request function. And unset fields keep the
       // dynamic options' rather than CDK's defaults, which for `cachePolicy`
       // cache for a day.
-      // Every field listed, so one added to `NextjsDynamicBehavior` and not
-      // here fails to compile rather than being dropped.
+      // Every field of `DynamicBehaviorFields` listed, or it fails to compile.
       const declared: DynamicBehaviorFields = {
         cachePolicy: behavior.cachePolicy,
         originRequestPolicy: behavior.originRequestPolicy,
@@ -893,7 +900,7 @@ export class NextjsDistribution extends Construct {
         compress: behavior.compress,
         viewerProtocolPolicy: behavior.viewerProtocolPolicy,
       };
-      const given: Partial<DynamicBehaviorFields> = Object.fromEntries(
+      const given: AddBehaviorOptions = Object.fromEntries(
         Object.entries(declared).filter(([, value]) => value !== undefined),
       );
       const options: AddBehaviorOptions = { ...defaults, ...given };
@@ -1128,30 +1135,39 @@ function pathPatternKey(pathPattern: string): string {
 }
 
 /**
- * A frozen copy, so a caller pushing onto the public options'
- * `functionAssociations` or `edgeLambdas` can't change every behavior built
- * from them, skipping the viewer-request check on `functionAssociations`.
+ * A frozen copy, arrays and their entries included, so a caller changing the
+ * public options' `functionAssociations` or `edgeLambdas` can't change every
+ * behavior built from them, skipping the viewer-request check on
+ * `functionAssociations`.
  */
 function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
+  const frozenEntries = <T extends object>(
+    entries: readonly T[] | undefined,
+  ) =>
+    entries
+      ? (Object.freeze(
+          entries.map((entry) => Object.freeze({ ...entry })),
+        ) as T[])
+      : undefined;
   return Object.freeze({
     ...options,
-    functionAssociations: options.functionAssociations
-      ? (Object.freeze([
-          ...options.functionAssociations,
-        ]) as FunctionAssociation[])
-      : undefined,
-    edgeLambdas: options.edgeLambdas
-      ? (Object.freeze([...options.edgeLambdas]) as EdgeLambda[])
-      : undefined,
+    functionAssociations: frozenEntries(options.functionAssociations),
+    edgeLambdas: frozenEntries(options.edgeLambdas),
   });
 }
 
 /**
  * The fields a {@link NextjsDynamicBehavior} may change, the only ones copied
- * from it: every one required, so none can be left out of the copy.
+ * from it, each required so the copy can't leave one out. A field added to
+ * `NextjsDynamicBehavior` goes here too. (Written out rather than mapped from
+ * it: `src/` keeps to JSII-compatible TypeScript.)
  */
-type DynamicBehaviorFields = {
-  [
-    K in Exclude<keyof NextjsDynamicBehavior, "pathPattern">
-  ]: NextjsDynamicBehavior[K];
-};
+interface DynamicBehaviorFields {
+  readonly cachePolicy: ICachePolicy | undefined;
+  readonly originRequestPolicy: IOriginRequestPolicy | undefined;
+  readonly responseHeadersPolicy: IResponseHeadersPolicy | undefined;
+  readonly allowedMethods: AllowedMethods | undefined;
+  readonly cachedMethods: CachedMethods | undefined;
+  readonly compress: boolean | undefined;
+  readonly viewerProtocolPolicy: ViewerProtocolPolicy | undefined;
+}

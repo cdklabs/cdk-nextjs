@@ -564,6 +564,7 @@ import { Bucket } from "aws-cdk-lib/aws-s3";
 
 const nextjs = new NextjsGlobalContainers(this, "Nextjs", {
   buildDirectory: join(import.meta.dirname),
+  healthCheckPath: "/api/health",
   dynamicBehaviors: [
     {
       pathPattern: "detail/*",
