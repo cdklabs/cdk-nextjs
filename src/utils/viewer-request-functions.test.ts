@@ -5,12 +5,12 @@ import {
   assetPrefixRewriteHandler,
   checkFunctionCodeSize,
   checkViewerRequestCode,
+  FUNCTION_URL_HANDLER,
   MAX_FUNCTION_CODE_BYTES,
   PASS_THROUGH_HANDLER,
   spliceViewerRequest,
   VIEWER_REQUEST_HOOK,
   WEB_FUNCTION_HANDLER,
-  FUNCTION_URL_HANDLER,
 } from "./viewer-request-functions";
 
 type QueryString = Record<
@@ -35,7 +35,7 @@ async function run(handler: string, uri: string, querystring: QueryString) {
 
 describe("spliceViewerRequest", () => {
   it.each([
-    ["x-forwarded-host", FUNCTION_URL_HANDLER],
+    ["Function URL", FUNCTION_URL_HANDLER],
     ["Web Function", WEB_FUNCTION_HANDLER],
     ["pass-through", PASS_THROUGH_HANDLER],
     ["assetPrefix rewrite", assetPrefixRewriteHandler("base", "/cdn")],
@@ -143,7 +143,7 @@ describe("assertViewerRequestUnclaimed", () => {
 
 describe("the signed-origin viewer-request handlers", () => {
   it.each([
-    ["x-forwarded-host", FUNCTION_URL_HANDLER],
+    ["Function URL", FUNCTION_URL_HANDLER],
     ["Web Function", WEB_FUNCTION_HANDLER],
   ])(
     "the %s handler redirects repeated slashes, keeping the query",

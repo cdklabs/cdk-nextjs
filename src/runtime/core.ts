@@ -53,6 +53,7 @@ import { publicDirKey, resolvePublicFiles } from "./public-files";
 import { serveS3PublicFile, serveStaticFile } from "./static-files";
 import { captureOutsideRequest, catchUpTags } from "./tag-manifest";
 import { drained, firstValue, toSearch, withoutPathPrefix } from "./util";
+import { TRUSTED_ENDPOINT_ENV_VAR } from "./web-function-env";
 
 // At load, before any request: the context cache handler work escapes to.
 captureOutsideRequest();
@@ -1479,10 +1480,13 @@ async function proxyExternal(
     headers.delete(name);
   }
   // What Lambda adds on a Web Function endpoint (`lambda-web-endpoint-name`,
-  // among others): about our deployment, meaningless to the upstream.
-  for (const name of [...headers.keys()]) {
-    if (name.startsWith("lambda-web-")) {
-      headers.delete(name);
+  // among others, stripping any a client sent): about our deployment,
+  // meaningless to the upstream. Anywhere else they are the client's own.
+  if (process.env[TRUSTED_ENDPOINT_ENV_VAR]) {
+    for (const name of [...headers.keys()]) {
+      if (name.startsWith("lambda-web-")) {
+        headers.delete(name);
+      }
     }
   }
   if (req.carriesOriginSignature) {

@@ -37,6 +37,7 @@ import {
   RUNTIME_DIR_NAME,
 } from "./manifest";
 import { TAG_MANIFEST_SYMBOL } from "./tag-manifest";
+import { TRUSTED_ENDPOINT_ENV_VAR } from "./web-function-env";
 import appPlayground from "../adapter/__fixtures__/app-playground.json";
 
 /**
@@ -602,6 +603,26 @@ describe("NextjsRuntime.handle", () => {
     expect(sink.head?.statusCode).toBe(200);
     expect(stubBody(sink)).toEqual({ revalidated: true, error: null });
   });
+
+  // Its headers can be OAC's signature (an `allowedRevalidateHeaderKeys`
+  // entry), which an external rewrite of the revalidated path must not get.
+  it.each([true, false])(
+    "renders a revalidation with the caller's carriesOriginSignature (%s)",
+    async (carriesOriginSignature) => {
+      const internal = jest.spyOn(runtime as any, "handleInternally");
+      try {
+        await send({ url: "/?revalidate=%2F", carriesOriginSignature });
+        const revalidation = internal.mock.calls
+          .map(([request]) => request as RuntimeRequest)
+          .find((request) => request.url === "/");
+        expect(revalidation?.carriesOriginSignature).toBe(
+          carriesOriginSignature,
+        );
+      } finally {
+        internal.mockRestore();
+      }
+    },
+  );
 
   it("renders a revalidation for the public origin the caller was served on", async () => {
     const marker = join(root, "revalidate-origin-marker");
@@ -1434,12 +1455,26 @@ exports.handler = async () =>
   });
 
   it("does not forward the headers Lambda adds on a Web Function endpoint", async () => {
-    await proxy({ "lambda-web-endpoint-name": "prod", "x-kept": "1" });
+    process.env[TRUSTED_ENDPOINT_ENV_VAR] = "prod";
+    try {
+      await proxy({ "lambda-web-endpoint-name": "prod", "x-kept": "1" });
+    } finally {
+      delete process.env[TRUSTED_ENDPOINT_ENV_VAR];
+    }
 
     const headers = (fetchMock.mock.calls[0][1] as RequestInit)
       .headers as Headers;
     expect(headers.has("lambda-web-endpoint-name")).toBe(false);
     expect(headers.get("x-kept")).toBe("1");
+  });
+
+  // Anywhere else no Lambda sets them, so they are the client's own.
+  it("forwards a client's lambda-web-* header off Web Functions", async () => {
+    await proxy({ "lambda-web-endpoint-name": "prod" });
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    expect(headers.get("lambda-web-endpoint-name")).toBe("prod");
   });
 
   it("proxies the request to the rewritten origin", async () => {

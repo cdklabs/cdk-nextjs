@@ -292,7 +292,10 @@ export function suppressWebFunctionNags(
         },
       ]);
     } else if (path.includes("/Custom::S3ObjectCopy")) {
-      if (path.endsWith("/ServiceRole/Resource")) {
+      if (/\/Custom::S3ObjectCopy[^/]+\/Resource$/.test(path)) {
+        // CDK's singleton, on the runtime aws-cdk-lib picks for it.
+        suppressLambdaRuntime(stack, `/${path}`);
+      } else if (path.endsWith("/ServiceRole/Resource")) {
         suppressLambdaExecutionRole(stack, `/${path}`);
       } else if (path.endsWith("/ServiceRole/DefaultPolicy/Resource")) {
         NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [

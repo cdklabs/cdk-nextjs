@@ -184,7 +184,8 @@ test.describe("request methods", () => {
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
     // declared: the same runtime's length gets through API Gateway's streaming
-    // integration and from an ALB, with or without CloudFront in front.
+    // integration, a Web Function endpoint, and from an ALB, with or without
+    // CloudFront in front.
     const response = await request.head("./api/head-length");
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-head-length"]).toBe("pages");

@@ -81,11 +81,11 @@ import {
   assetPrefixRewriteHandler,
   checkFunctionCodeSize,
   checkViewerRequestCode,
+  FUNCTION_URL_HANDLER,
   MAX_FUNCTION_CODE_BYTES,
   PASS_THROUGH_HANDLER,
   spliceViewerRequest,
   WEB_FUNCTION_HANDLER,
-  FUNCTION_URL_HANDLER,
 } from "./utils/viewer-request-functions";
 
 export interface NextjsDistributionOverrides {
@@ -418,17 +418,6 @@ export class NextjsDistribution extends Construct {
     }
   }
   /**
-   * A Web Function endpoint behind Origin Access Control: an `HttpOrigin` on
-   * its domain, which CloudFront signs for with `always-amz-auth` — the one
-   * signing behavior a Web Function origin accepts. It adds its signature in a
-   * header of its own, so the viewer's `Authorization` reaches the app, and
-   * sends `UNSIGNED-PAYLOAD` for a body, so the viewer needn't hash it.
-   *
-   * Until `aws-cloudfront-origins` has an origin for Web Functions
-   * (aws/aws-cdk#39434), this is the wiring its README documents.
-   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html
-   */
-  /**
    * The Function URL and Web Function origins take their overrides from props
    * of their own, so one set for the other type (left over from moving between
    * `NextjsGlobalFunctions` and `NextjsGlobalWebFunctions`, say) does nothing.
@@ -456,6 +445,17 @@ export class NextjsDistribution extends Construct {
     }
   }
 
+  /**
+   * A Web Function endpoint behind Origin Access Control: an `HttpOrigin` on
+   * its domain, which CloudFront signs for with `always-amz-auth` — the one
+   * signing behavior a Web Function origin accepts. It adds its signature in a
+   * header of its own, so the viewer's `Authorization` reaches the app, and
+   * sends `UNSIGNED-PAYLOAD` for a body, so the viewer needn't hash it.
+   *
+   * Until `aws-cloudfront-origins` has an origin for Web Functions
+   * (aws/aws-cdk#39434), this is the wiring its README documents.
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html
+   */
   private webFunctionOrigin(endpoint: IWebFunctionEndpoint): IOrigin {
     assertSignableEndpoint(endpoint);
     this.webFunctionOriginAccessControl ??= new FunctionUrlOriginAccessControl(
@@ -686,7 +686,11 @@ export class NextjsDistribution extends Construct {
             `needs that event type for its own function, ` +
             `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
             `(the runtime trusts that header behind CloudFront) and redirects ` +
-            `repeated slashes`
+            `repeated slashes` +
+            (this.isWebFunctionCompute
+              ? `, and sends a \`+\` in the query on as \`%20\`, without ` +
+                `which the endpoint answers such a query with a 403`
+              : "")
         : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
             "and image behaviors",
     );

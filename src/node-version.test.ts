@@ -82,9 +82,9 @@ test("the harness runner pins next.js's Node, cache key included", () => {
     HARNESS_RUNNER_MAJOR,
     HARNESS_RUNNER_MAJOR,
   ]);
-  expect(matches(HARNESS_WORKFLOW, /ubuntu-[\d.]+-node(\d+)-/g)).toEqual([
-    HARNESS_RUNNER_MAJOR,
-  ]);
+  expect(
+    matches(HARNESS_WORKFLOW, /ubuntu-[\d.]+(?:-arm)?-node(\d+)-/g),
+  ).toEqual([HARNESS_RUNNER_MAJOR]);
 });
 
 test("the load-test runner installs the runtime major", () => {
