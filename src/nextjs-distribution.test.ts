@@ -2,13 +2,17 @@ import { runInNewContext } from "node:vm";
 import { App, Duration, Lazy, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
+  AllowedMethods,
+  CachedMethods,
   CachePolicy,
   Function as CloudFrontFunction,
   FunctionCode,
   FunctionEventType,
   KeyValueStore,
   LambdaEdgeEventType,
+  OriginRequestPolicy,
   ResponseHeadersPolicy,
+  ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
@@ -1806,12 +1810,61 @@ describe("dynamicBehaviors", () => {
     ]);
   });
 
-  it.each(["*", "/*"])("refuses %s, the default behavior's", (pathPattern) => {
+  it("leaves a bare * without a basePath to CDK, which keeps it for the default behavior", () => {
     expect(() =>
       setup(NextjsType.GLOBAL_CONTAINERS, {
-        dynamicBehaviors: () => [{ pathPattern }],
+        dynamicBehaviors: () => [{ pathPattern: "*" }],
       }),
-    ).toThrow(/matches every path, or nearly, as the default behavior does/);
+    ).toThrow(/Only the default behavior can have a path pattern of '\*'/);
+  });
+
+  it.each(["*", "/*", "//*"])(
+    "refuses %j under a basePath, the pattern of a behavior standing in for the default",
+    (pathPattern) => {
+      expect(() =>
+        setup(NextjsType.GLOBAL_CONTAINERS, {
+          basePath: "docs",
+          dynamicBehaviors: () => [{ pathPattern }],
+        }),
+      ).toThrow(/already has a behavior/);
+    },
+  );
+
+  it("copies every field it declares", () => {
+    const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      dynamicBehaviors: (scope) => [
+        {
+          pathPattern: "detail/*",
+          cachePolicy: new CachePolicy(scope, "DetailCachePolicy", {
+            defaultTtl: Duration.seconds(0),
+          }),
+          originRequestPolicy: OriginRequestPolicy.ALL_VIEWER,
+          responseHeadersPolicy: new ResponseHeadersPolicy(
+            scope,
+            "DetailHeaders",
+            {},
+          ),
+          allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
+          cachedMethods: CachedMethods.CACHE_GET_HEAD,
+          compress: false,
+          viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
+        },
+      ],
+    });
+    expect(behaviors(stack).byPattern("detail/*")).toEqual(
+      expect.objectContaining({
+        CachePolicyId: { Ref: expect.stringMatching(/^DetailCachePolicy/) },
+        OriginRequestPolicyId:
+          OriginRequestPolicy.ALL_VIEWER.originRequestPolicyId,
+        ResponseHeadersPolicyId: {
+          Ref: expect.stringMatching(/^DetailHeaders/),
+        },
+        AllowedMethods: ["GET", "HEAD"],
+        CachedMethods: ["GET", "HEAD"],
+        Compress: false,
+        ViewerProtocolPolicy: "https-only",
+      }),
+    );
   });
 
   it.each([
@@ -1835,10 +1888,6 @@ describe("dynamicBehaviors", () => {
 
   it.each([
     ["", undefined, /is empty/],
-    ["//*", "docs", /matches every path/],
-    ["//*", undefined, /matches every path/],
-    ["**", "docs", /matches every path/],
-    ["*/*", undefined, /matches every path/],
     [`${"a".repeat(250)}/*`, "docs", /characters, over CloudFront's 255/],
     [
       "blog posts/*",
@@ -1859,6 +1908,8 @@ describe("dynamicBehaviors", () => {
     ["/", "docs", "/docs/"],
     ["", "docs", "/docs/"],
     ["*.pdf", undefined, "*.pdf"],
+    ["**", "docs", "/docs/**"],
+    ["*/*", undefined, "*/*"],
   ])("accepts %j (basePath %s) as %s", (pathPattern, basePath, deployed) => {
     const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
       basePath,

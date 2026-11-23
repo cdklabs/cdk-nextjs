@@ -857,20 +857,18 @@ export class NextjsDistribution extends Construct {
       : Object.keys(
           this.props.overrides?.distributionProps?.additionalBehaviors ?? {},
         );
-    const reservedPatterns = new Set(additional.map(pathPatternKey));
+    // Under a `basePath`, the behaviors standing in for the default one are
+    // added after these, so their patterns are reserved now: `*` resolves to
+    // the second.
+    const basePathStandIns = this.basePath
+      ? [`/${this.basePath}`, this.getPathPattern("*")]
+      : [];
+    const reservedPatterns = new Set(
+      [...additional, ...basePathStandIns].map(pathPatternKey),
+    );
     for (const behavior of this.props.dynamicBehaviors ?? []) {
       const relative = behavior.pathPattern;
       const errorPrefix = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
-      // Nothing but slashes and wildcards (`*`, `/**`, `*/*`) matches every
-      // path, or nearly, as the default behavior (or under a `basePath`, the
-      // one standing in for it) does.
-      if (/^[/*]*\*[/*]*$/.test(relative)) {
-        throw new Error(
-          `${errorPrefix} matches every path, or nearly, as the default ` +
-            `behavior does. Customize that through ` +
-            `\`overrides.dynamicBehaviorOptions\` instead.`,
-        );
-      }
       const pathPattern = this.getPathPattern(relative);
       if (pathPattern === "") {
         throw new Error(`${errorPrefix} is empty.`);
