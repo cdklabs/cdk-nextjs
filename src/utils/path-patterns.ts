@@ -74,10 +74,12 @@ export function getPathPattern(basePath: string, pathPattern: string): string {
 
 /**
  * CloudFront reads a path pattern with or without its leading `/`, so two that
- * differ only by it are the same pattern.
+ * differ only by it are the same pattern. Every leading `/` goes, as
+ * {@link getPathPattern} drops them under a `basePath`, so `//*` is refused
+ * next to the default behavior's `*` with or without one.
  */
 export function pathPatternKey(pathPattern: string): string {
-  return pathPattern.replace(/^\//, "");
+  return pathPattern.replace(/^\/+/, "");
 }
 
 /**

@@ -14,6 +14,11 @@ describe("pathPatternKey", () => {
   it("treats a pattern with and without its leading slash as one", () => {
     expect(pathPatternKey("/detail/*")).toBe(pathPatternKey("detail/*"));
   });
+
+  it("drops every leading slash, as getPathPattern does under a basePath", () => {
+    expect(pathPatternKey("//*")).toBe("*");
+    expect(pathPatternKey("//detail/*")).toBe(pathPatternKey("detail/*"));
+  });
 });
 
 describe("resolveDynamicPathPattern", () => {

@@ -1810,7 +1810,7 @@ describe("dynamicBehaviors", () => {
     ]);
   });
 
-  it.each(["*", "/*"])(
+  it.each(["*", "/*", "//*"])(
     "refuses %j without a basePath, the default behavior's pattern",
     (pathPattern) => {
       expect(() =>

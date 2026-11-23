@@ -594,8 +594,8 @@ const nextjs = new NextjsGlobalContainers(this, "Nextjs", {
   ],
 });
 
-// `dynamicBehaviorOptions` holds the default behavior's options, for reuse on
-// a behavior with another origin.
+// `dynamicBehaviorOptions` holds the options cdk-nextjs builds for its dynamic
+// behaviors, for reuse on a behavior with another origin.
 const { nextjsDistribution } = nextjs;
 const mediaBucket = new Bucket(this, "Media");
 nextjsDistribution.distribution.addBehavior(
@@ -622,9 +622,10 @@ nextjsDistribution.distribution.addBehavior(
 - `allowedMethods` must include the `cachedMethods` the behavior ends up with,
   inherited ones included. On `NextjsGlobalFunctions`, an `originRequestPolicy`
   must not forward the viewer's `Host` header, which a Lambda Function URL
-  refuses (`ALL_VIEWER_EXCEPT_HOST_HEADER` is the one cdk-nextjs uses).
-- They are added in the order given, after `_next/static*`, `_next/image*`,
-  the `public/` entries and the `functionGroups` patterns, which CloudFront
+  refuses (`ALL_VIEWER_EXCEPT_HOST_HEADER` is the one cdk-nextjs uses), and
+  a `cachePolicy` must not put it in the cache key, which forwards it too.
+- They are added in the order given, after `_next/static*`, the `public/`
+  entries, `_next/image*` and the `functionGroups` patterns, which CloudFront
   matches first, so a pattern inside one of those (`api/slow/*` under a
   group's `api/*`) never applies. They come before the behaviors that stand in
   for the default one under a `basePath`.
