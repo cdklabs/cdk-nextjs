@@ -290,9 +290,18 @@ export class NextjsDistribution extends Construct {
    * Next.js server with some options changed, use {@link addDynamicBehavior}
    * rather than spreading this: it keeps the viewer-request function an
    * override of `functionAssociations` would otherwise drop.
+   *
+   * Frozen, `functionAssociations` included: the behaviors cdk-nextjs builds
+   * from it would change with it.
    */
   public readonly dynamicBehaviorOptions: BehaviorOptions;
   private imageBehaviorOptions: BehaviorOptions;
+  /**
+   * Every pattern this construct has added a behavior for, by
+   * {@link pathPatternKey}, so {@link addDynamicBehavior} can refuse a
+   * duplicate.
+   */
+  private readonly pathPatterns = new Set<string>();
 
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
     super(scope, id);
@@ -315,7 +324,9 @@ export class NextjsDistribution extends Construct {
     this.dynamicCloudFrontFunctionAssociations =
       this.createDynamicCloudFrontFunctionAssociations();
     this.staticBehaviorOptions = this.createStaticBehaviorOptions();
-    this.dynamicBehaviorOptions = this.createDynamicBehaviorOptions();
+    this.dynamicBehaviorOptions = freezeBehaviorOptions(
+      this.createDynamicBehaviorOptions(),
+    );
     this.imageBehaviorOptions = this.createImageBehaviorOptions();
     this.distribution = this.getDistribution();
     if (this.isFunctionCompute) {
@@ -328,34 +339,86 @@ export class NextjsDistribution extends Construct {
    * Adds a behavior that sends `pathPattern` to the Next.js server with the
    * default behavior's options ({@link dynamicBehaviorOptions}), each field of
    * `options` replacing the one it names, e.g. `cachePolicy` for a path that
-   * caches longer or shorter than the rest of the app.
+   * caches longer or shorter than the rest of the app. A field set to
+   * `undefined` keeps the default behavior's.
    *
-   * `functionAssociations` in `options` are added to cdk-nextjs's own rather
-   * than replacing them, and a `VIEWER_REQUEST` one is an error when
-   * cdk-nextjs has one there: on NextjsGlobalFunctions always, on
-   * NextjsGlobalContainers with `viewerRequestFunctionCode`.
+   * cdk-nextjs's own function associations are always kept.
+   * `functionAssociations` in `options` replace those from
+   * `overrides.dynamicBehaviorOptions` and are added to cdk-nextjs's, and a
+   * `VIEWER_REQUEST` one is an error when cdk-nextjs has one there: on
+   * NextjsGlobalFunctions always, on NextjsGlobalContainers with
+   * `viewerRequestFunctionCode`.
    *
-   * `pathPattern` is used as given, so include `basePath` in it if the app has
-   * one. The behavior is added after cdk-nextjs's own, which CloudFront matches
-   * first, and counts toward the distribution's cache behavior quota.
+   * `pathPattern` is used as given. The behavior is added after cdk-nextjs's
+   * own, which CloudFront matches first, so a pattern inside one of theirs (a
+   * `public/` entry, a `functionGroups` pattern) never applies. Under a
+   * `basePath`, cdk-nextjs's `/<basePath>/*` behavior would hide every pattern
+   * inside it, so those are refused. So is a pattern that already has a
+   * behavior, or one past `maxCacheBehaviors`.
    *
    * @param pathPattern The path pattern, e.g. `/detail/*`.
    * @param options Fields replacing the default behavior's.
    */
   public addDynamicBehavior(pathPattern: string, options?: AddBehaviorOptions) {
+    this.assertDynamicBehaviorPattern(pathPattern);
     const { origin, ...defaults } = this.dynamicBehaviorOptions;
-    this.distribution.addBehavior(pathPattern, origin, {
+    // Spread as given, `{ cachePolicy: undefined }` would leave CDK's default
+    // policy, which caches for a day, rather than the default behavior's.
+    const given: AddBehaviorOptions = Object.fromEntries(
+      Object.entries(options ?? {}).filter(([, value]) => value !== undefined),
+    );
+    this.addCacheBehavior(pathPattern, origin, {
       ...defaults,
-      ...options,
+      ...given,
       // Without associations of its own, the behavior keeps the default
       // behavior's, `overrides.dynamicBehaviorOptions`' included.
-      functionAssociations: options?.functionAssociations
+      functionAssociations: given.functionAssociations
         ? this.withDynamicFunctionAssociations(
             "`addDynamicBehavior`'s `options.functionAssociations`",
-            options.functionAssociations,
+            given.functionAssociations,
           )
         : defaults.functionAssociations,
     });
+  }
+  /**
+   * What CloudFront would only reject at deploy, or accept and never match,
+   * refused at synth instead.
+   */
+  private assertDynamicBehaviorPattern(pathPattern: string) {
+    const call = `${LOG_PREFIX} \`addDynamicBehavior("${pathPattern}")\``;
+    const key = pathPatternKey(pathPattern);
+    if (this.pathPatterns.has(key)) {
+      throw new Error(`${call}: the distribution already has that pattern.`);
+    }
+    if (
+      this.basePath &&
+      (key === this.basePath || key.startsWith(`${this.basePath}/`))
+    ) {
+      throw new Error(
+        `${call}: cdk-nextjs's own \`/${this.basePath}/*\` behavior comes ` +
+          `first, so CloudFront would match it instead and the pattern would ` +
+          `never apply. Behaviors inside a \`basePath\` aren't supported yet.`,
+      );
+    }
+    const limit = this.props.maxCacheBehaviors ?? DEFAULT_MAX_CACHE_BEHAVIORS;
+    // The default behavior, the others added so far, and this one.
+    const total = this.pathPatterns.size + 2;
+    if (!Token.isUnresolved(limit) && total > limit) {
+      throw new Error(
+        `${call}: the distribution would have ${total} cache behaviors, over ` +
+          `the limit of ${limit}. If your account's quota is higher, set ` +
+          `\`maxCacheBehaviors\` to it.`,
+      );
+    }
+  }
+  /** `distribution.addBehavior`, recording the pattern. */
+  private addCacheBehavior(
+    pathPattern: string,
+    origin: IOrigin,
+    options: AddBehaviorOptions,
+  ) {
+    this.pathPatterns.add(pathPatternKey(pathPattern));
+    this.distribution.addBehavior(pathPattern, origin, options);
   }
 
   /**
@@ -714,7 +777,7 @@ export class NextjsDistribution extends Construct {
   }
   private addDynamicBehaviors() {
     // Image Behavior
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       this.getPathPattern("_next/image*"),
       this.imageBehaviorOptions.origin,
       this.imageBehaviorOptions,
@@ -726,13 +789,13 @@ export class NextjsDistribution extends Construct {
     // Root Path Behaviors
     if (this.basePath) {
       // because we already have a basePath we don't use / instead we use /base-path
-      this.distribution.addBehavior(
+      this.addCacheBehavior(
         `/${this.basePath}`,
         this.dynamicBehaviorOptions.origin,
         this.dynamicBehaviorOptions,
       );
       // when basePath is set, we emulate the "default behavior" (*) for the site as `/base-path/*`
-      this.distribution.addBehavior(
+      this.addCacheBehavior(
         this.getPathPattern("*"),
         this.dynamicBehaviorOptions.origin,
         this.dynamicBehaviorOptions,
@@ -799,7 +862,7 @@ export class NextjsDistribution extends Construct {
       // differs, and it is passed separately.
       const { origin: _ignored, ...behaviorOptions } =
         this.dynamicBehaviorOptions;
-      this.distribution.addBehavior(pathPattern, origin, behaviorOptions);
+      this.addCacheBehavior(pathPattern, origin, behaviorOptions);
     }
   }
   /**
@@ -870,7 +933,7 @@ export class NextjsDistribution extends Construct {
         assetPrefixRewriteHandler(this.basePath, this.assetPrefix),
       ),
     });
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       `${this.assetPrefix}/_next/static*`,
       this.staticOrigin,
       {
@@ -945,7 +1008,7 @@ export class NextjsDistribution extends Construct {
           },
         },
       );
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       this.getPathPattern("_next/static/service-worker/*"),
       this.staticOrigin,
       { ...this.staticBehaviorOptions, responseHeadersPolicy },
@@ -955,7 +1018,7 @@ export class NextjsDistribution extends Construct {
     if (this.props.serviceWorkerAllowed !== undefined) {
       this.addServiceWorkerBehavior(this.props.serviceWorkerAllowed);
     }
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       this.getPathPattern("_next/static*"),
       this.staticOrigin,
       this.staticBehaviorOptions,
@@ -990,7 +1053,7 @@ export class NextjsDistribution extends Construct {
     });
     assertNoPublicCollisions(patterns, groupBehaviors);
     for (const pathPattern of patterns) {
-      this.distribution.addBehavior(
+      this.addCacheBehavior(
         pathPattern,
         this.staticOrigin,
         this.staticBehaviorOptions,
@@ -1010,3 +1073,27 @@ export class NextjsDistribution extends Construct {
  */
 const MAX_POLICY_NAME_LENGTH = 128;
 const SERVICE_WORKER_SUFFIX = "-sw";
+
+/**
+ * CloudFront reads a path pattern with or without its leading `/`, so two that
+ * differ only by it are the same pattern.
+ */
+function pathPatternKey(pathPattern: string): string {
+  return pathPattern.replace(/^\//, "");
+}
+
+/**
+ * A frozen copy, so a caller pushing onto the public options'
+ * `functionAssociations` can't change every behavior built from them, and skip
+ * the viewer-request check on the way.
+ */
+function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
+  return Object.freeze({
+    ...options,
+    functionAssociations: options.functionAssociations
+      ? (Object.freeze([
+          ...options.functionAssociations,
+        ]) as FunctionAssociation[])
+      : undefined,
+  });
+}

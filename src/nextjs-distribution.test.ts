@@ -1583,6 +1583,9 @@ describe("addDynamicBehavior", () => {
     props: {
       viewerRequestFunctionCode?: FunctionCode;
       overrides?: (stack: Stack) => NextjsDistributionOverrides;
+      basePath?: string;
+      publicDirEntries?: string[];
+      maxCacheBehaviors?: number;
     } = {},
   ) => {
     const stack = new Stack(new App(), "TestStack");
@@ -1606,7 +1609,12 @@ describe("addDynamicBehavior", () => {
     const distribution = new NextjsDistribution(stack, "Distribution", {
       assetsBucket: new Bucket(stack, "Assets"),
       nextjsType,
-      publicDirEntries: [],
+      basePath: props.basePath,
+      maxCacheBehaviors: props.maxCacheBehaviors,
+      publicDirEntries: (props.publicDirEntries ?? []).map((name) => ({
+        name,
+        isDirectory: false,
+      })),
       viewerRequestFunctionCode: props.viewerRequestFunctionCode,
       overrides: props.overrides?.(stack),
       ...compute,
@@ -1683,8 +1691,47 @@ describe("addDynamicBehavior", () => {
     );
   });
 
-  it("adds associations of its own next to cdk-nextjs's", () => {
-    const { stack, distribution } = setup(NextjsType.GLOBAL_FUNCTIONS);
+  it.each([
+    [NextjsType.GLOBAL_FUNCTIONS, undefined],
+    [
+      NextjsType.GLOBAL_CONTAINERS,
+      FunctionCode.fromInline("function viewerRequest(event) {}"),
+    ],
+  ])(
+    "adds associations of its own next to cdk-nextjs's on %s",
+    (nextjsType, viewerRequestFunctionCode) => {
+      const { stack, distribution } = setup(nextjsType, {
+        viewerRequestFunctionCode,
+      });
+      distribution.addDynamicBehavior("/detail/*", {
+        functionAssociations: [
+          {
+            eventType: FunctionEventType.VIEWER_RESPONSE,
+            function: cloudFrontFn(stack, "UserFn"),
+          },
+        ],
+      });
+      expect(
+        behaviors(stack)
+          .byPattern("/detail/*")
+          .FunctionAssociations?.map((it) => it.EventType),
+      ).toEqual(["viewer-response", "viewer-request"]);
+    },
+  );
+
+  it("replaces overrides.dynamicBehaviorOptions' associations with its own", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_FUNCTIONS, {
+      overrides: (scope) => ({
+        dynamicBehaviorOptions: {
+          functionAssociations: [
+            {
+              eventType: FunctionEventType.VIEWER_RESPONSE,
+              function: cloudFrontFn(scope, "OverrideFn"),
+            },
+          ],
+        },
+      }),
+    });
     distribution.addDynamicBehavior("/detail/*", {
       functionAssociations: [
         {
@@ -1693,11 +1740,80 @@ describe("addDynamicBehavior", () => {
         },
       ],
     });
-    expect(
-      behaviors(stack)
-        .byPattern("/detail/*")
-        .FunctionAssociations?.map((it) => it.EventType),
-    ).toEqual(["viewer-response", "viewer-request"]);
+    const functionIds = (behavior: Behavior) =>
+      behavior.FunctionAssociations?.map(
+        ({ FunctionARN }) =>
+          (FunctionARN as { "Fn::GetAtt": [string, string] })["Fn::GetAtt"][0],
+      );
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    const ours = functionIds(defaultBehavior)!.at(-1);
+    expect(functionIds(byPattern("/detail/*"))).toEqual([
+      expect.stringMatching(/^UserFn/),
+      ours,
+    ]);
+  });
+
+  it("keeps the default behavior's field where options leave it undefined", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_CONTAINERS);
+    distribution.addDynamicBehavior("/detail/*", { cachePolicy: undefined });
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    expect(byPattern("/detail/*").CachePolicyId).toEqual(
+      defaultBehavior.CachePolicyId,
+    );
+  });
+
+  it.each(["/docs/page.html", "/docs/detail/*", "docs/detail/*"])(
+    "refuses %s under basePath docs, which the basePath catch-all would hide",
+    (pattern) => {
+      const { distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+        basePath: "docs",
+      });
+      expect(() => distribution.addDynamicBehavior(pattern)).toThrow(
+        /`\/docs\/\*` behavior comes first/,
+      );
+    },
+  );
+
+  it("accepts a pattern outside the basePath", () => {
+    const { stack, distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      basePath: "docs",
+    });
+    distribution.addDynamicBehavior("/docsearch/*");
+    expect(behaviors(stack).byPattern("/docsearch/*")).toBeDefined();
+  });
+
+  it.each(["/favicon.ico", "favicon.ico", "/_next/image*", "/detail/*"])(
+    "refuses %s when the distribution already has that pattern",
+    (pattern) => {
+      const { distribution } = setup(NextjsType.GLOBAL_FUNCTIONS, {
+        publicDirEntries: ["favicon.ico"],
+      });
+      distribution.addDynamicBehavior("detail/*");
+      expect(() => distribution.addDynamicBehavior(pattern)).toThrow(
+        /already has that pattern/,
+      );
+    },
+  );
+
+  it("refuses a behavior past maxCacheBehaviors", () => {
+    // The default behavior, `_next/static*` and `_next/image*` use 3 of 4.
+    const { distribution } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      maxCacheBehaviors: 4,
+    });
+    distribution.addDynamicBehavior("/a/*");
+    expect(() => distribution.addDynamicBehavior("/b/*")).toThrow(
+      /would have 5 cache behaviors, over the limit of 4/,
+    );
+  });
+
+  it("freezes the public options", () => {
+    const { dynamicBehaviorOptions } = setup(
+      NextjsType.GLOBAL_FUNCTIONS,
+    ).distribution;
+    expect(Object.isFrozen(dynamicBehaviorOptions)).toBe(true);
+    expect(Object.isFrozen(dynamicBehaviorOptions.functionAssociations)).toBe(
+      true,
+    );
   });
 
   it("keeps overrides.dynamicBehaviorOptions' associations when given none", () => {
