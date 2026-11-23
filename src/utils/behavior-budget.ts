@@ -78,6 +78,10 @@ export function assertBehaviorBudget({
         ? `, and prefer one subtree pattern per function group over several ` +
           `exact paths`
         : ``) +
+      (dynamicPatterns
+        ? `, and merge \`dynamicBehaviors\` that share options under one ` +
+          `pattern`
+        : ``) +
       `. If your account's quota is higher than ${limit}, set ` +
       `\`maxCacheBehaviors\` to it. See https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-web-distributions`,
   );

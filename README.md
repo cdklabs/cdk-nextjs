@@ -619,6 +619,10 @@ nextjsDistribution.distribution.addBehavior(
   function associations and Lambda@Edge are always those options', so
   cdk-nextjs's viewer-request function (and `viewerRequestFunctionCode`) runs
   on it.
+- `allowedMethods` must include the `cachedMethods` the behavior ends up with,
+  inherited ones included. On `NextjsGlobalFunctions`, an `originRequestPolicy`
+  must not forward the viewer's `Host` header, which a Lambda Function URL
+  refuses (`ALL_VIEWER_EXCEPT_HOST_HEADER` is the one cdk-nextjs uses).
 - They are added in the order given, after `_next/static*`, `_next/image*`,
   the `public/` entries and the `functionGroups` patterns, which CloudFront
   matches first, so a pattern inside one of those (`api/slow/*` under a

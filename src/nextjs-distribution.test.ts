@@ -1918,6 +1918,16 @@ describe("dynamicBehaviors", () => {
     expect(behaviors(stack).patterns).toContain(deployed);
   });
 
+  it("refuses a pattern that is a CDK token", () => {
+    expect(() =>
+      setup(NextjsType.GLOBAL_CONTAINERS, {
+        dynamicBehaviors: () => [
+          { pathPattern: Lazy.string({ produce: () => "detail/*" }) },
+        ],
+      }),
+    ).toThrow(/is a CDK token; only literal patterns are supported/);
+  });
+
   it("refuses a pattern overrides.distributionProps.additionalBehaviors has", () => {
     expect(() =>
       setup(NextjsType.GLOBAL_CONTAINERS, {

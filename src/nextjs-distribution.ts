@@ -265,11 +265,19 @@ export interface NextjsDynamicBehavior {
    * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
    */
   readonly cachePolicy?: ICachePolicy;
-  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
+  /**
+   * Its origin request policy. On NextjsGlobalFunctions it must not forward
+   * the viewer's `Host` header, which a Lambda Function URL refuses.
+   * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
+   */
   readonly originRequestPolicy?: IOriginRequestPolicy;
   /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly responseHeadersPolicy?: IResponseHeadersPolicy;
-  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
+  /**
+   * Its allowed methods, which must include its `cachedMethods`, inherited
+   * ones included.
+   * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
+   */
   readonly allowedMethods?: AllowedMethods;
   /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
   readonly cachedMethods?: CachedMethods;
@@ -868,6 +876,13 @@ export class NextjsDistribution extends Construct {
     );
     for (const behavior of this.props.dynamicBehaviors ?? []) {
       const relative = behavior.pathPattern;
+      if (Token.isUnresolved(relative)) {
+        // Prefixing it and the checks below need the pattern's text.
+        throw new Error(
+          `${LOG_PREFIX} a \`dynamicBehaviors\` pattern is a CDK token; ` +
+            `only literal patterns are supported.`,
+        );
+      }
       const errorPrefix = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
       const pathPattern = this.getPathPattern(relative);
       if (pathPattern === "") {
