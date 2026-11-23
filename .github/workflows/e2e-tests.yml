@@ -118,7 +118,10 @@ jobs:
     if: *same-repo
     permissions:
       id-token: write
-    runs-on: ubuntu-26.04-arm
+    # x86 on purpose, and the only x86 job: the Containers types build and run
+    # the host's architecture, so this is the suite's one x86 image and task.
+    # Every other job runs on Arm.
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
@@ -135,10 +138,9 @@ jobs:
     if: *same-repo
     permissions:
       id-token: write
-    # x86 on purpose, and the only x86 job: examples/regional-functions deploys
-    # ARM_64, so this is the job that stages `sharp` for an architecture other
-    # than the host's. Every other job runs on Arm.
-    runs-on: ubuntu-26.04
+    # examples/regional-functions deploys X86_64 from this Arm runner, so this
+    # is the job that stages `sharp` for an architecture other than the host's.
+    runs-on: ubuntu-26.04-arm
     # Declares the same `functionGroups` as glbl-fns, so splitting is exercised
     # behind API Gateway as well as CloudFront.
     env:
