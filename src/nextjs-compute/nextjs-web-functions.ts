@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { posix } from "node:path";
-import { Duration } from "aws-cdk-lib";
+import { Duration, Names } from "aws-cdk-lib";
 import {
   AddToPrincipalPolicyResult,
   IGrantable,
@@ -258,7 +258,7 @@ export class NextjsWebFunctions extends Construct {
     };
 
     const webFunction = new WebFunction(this, id, webFunctionProps);
-    const runtimePolicy = this.runtimePolicy(id, role);
+    const runtimePolicy = this.runtimePolicy(role);
     if (runtimePolicy) {
       webFunction.node.addDependency(runtimePolicy);
     }
@@ -286,14 +286,19 @@ export class NextjsWebFunctions extends Construct {
    * updates) is granted as the L2 would grant it, which may put the grants on
    * the resources instead, and isn't waited on.
    */
-  private runtimePolicy(id: string, role: IRole): Policy | undefined {
-    if (!(role instanceof Role)) {
+  private runtimePolicy(role: IRole): Policy | undefined {
+    // `isRole`, not `instanceof`: an app can load another aws-cdk-lib copy.
+    if (!Role.isRole(role)) {
       grantRuntimeAccess(this.props, role);
       return undefined;
     }
     let policy = this.runtimePolicies.get(role);
     if (!policy) {
-      policy = new Policy(this, `${id}RuntimePolicy`, { roles: [role] });
+      // Named after the role, not the group that reached it first, so removing
+      // a group doesn't replace a shared role's policy.
+      policy = new Policy(this, `RuntimePolicy-${Names.uniqueId(role)}`, {
+        roles: [role],
+      });
       grantRuntimeAccess(this.props, new PolicyGrantee(role, policy));
       this.runtimePolicies.set(role, policy);
     }

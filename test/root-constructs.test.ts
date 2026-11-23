@@ -807,11 +807,24 @@ describe("NextjsGlobalWebFunctions", () => {
         (logicalId) => logicalId.includes("RuntimePolicy"),
       ),
     ).toEqual([]);
-    // ...but the cache bucket still lets the role in.
-    const bucketPolicies = JSON.stringify(
+    // ...but the cache bucket and the revalidation table still let it in.
+    const cachePolicy = Object.values(
       template.findResources("AWS::S3::BucketPolicy"),
+    ).find((policy) =>
+      JSON.stringify(policy.Properties.Bucket).includes("NextjsCache"),
     );
-    expect(bucketPolicies).toContain("OwnRole");
+    expect(JSON.stringify(cachePolicy?.Properties.PolicyDocument)).toContain(
+      "OwnRole",
+    );
+    const tables = Object.values(
+      template.findResources("AWS::DynamoDB::GlobalTable"),
+    );
+    expect(tables).toHaveLength(1);
+    expect(
+      JSON.stringify(
+        tables[0].Properties.Replicas.map((it: any) => it.ResourcePolicy),
+      ),
+    ).toContain("OwnRole");
   });
 
   it("refuses a distribution from another stack", () => {
