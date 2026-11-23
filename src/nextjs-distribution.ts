@@ -775,23 +775,22 @@ export class NextjsDistribution extends Construct {
     // the order of the unsplit case byte-identical is worth more than symmetry).
     this.addFunctionGroupBehaviors();
     this.addUserDynamicBehaviors();
-    // Root Path Behaviors
-    if (this.basePath) {
-      // because we already have a basePath we don't use / instead we use /base-path
+    // Root Path Behaviors: under a basePath, `/base-path` and `/base-path/*`
+    // stand in for the default behavior (*); without one, it handles them.
+    for (const pathPattern of this.basePathStandInPatterns()) {
       this.addCacheBehavior(
-        `/${this.basePath}`,
+        pathPattern,
         this.dynamicBehaviorOptions.origin,
         this.dynamicBehaviorOptions,
       );
-      // when basePath is set, we emulate the "default behavior" (*) for the site as `/base-path/*`
-      this.addCacheBehavior(
-        this.getPathPattern("*"),
-        this.dynamicBehaviorOptions.origin,
-        this.dynamicBehaviorOptions,
-      );
-    } else {
-      // if no base path, then default behavior will handle all other paths
     }
+  }
+  /**
+   * The patterns of the behaviors standing in for the default one under a
+   * `basePath`: `/base-path` and `/base-path/*`. None without one.
+   */
+  private basePathStandInPatterns(): string[] {
+    return this.basePath ? [`/${this.basePath}`, this.getPathPattern("*")] : [];
   }
   /**
    * Before any behavior is computed: the budget and the `public/` checks both
@@ -872,7 +871,7 @@ export class NextjsDistribution extends Construct {
     // through `addCacheBehavior`. Under a `basePath`, the behaviors standing in
     // for it are added after these, so their patterns are reserved now too.
     const defaultPatterns = this.basePath
-      ? [`/${this.basePath}`, this.getPathPattern("*")]
+      ? this.basePathStandInPatterns()
       : ["*"];
     const reservedPatterns = new Set(
       [...overridePatterns, ...defaultPatterns].map(pathPatternKey),
