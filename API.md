@@ -4815,7 +4815,10 @@ public readonly cachePolicy: ICachePolicy;
 Its cache policy.
 
 Build it from the dynamic one's cache key, and set
-`defaultTtl`, which CDK otherwise defaults to a day.
+`defaultTtl`, which CDK otherwise defaults to a day. On
+NextjsGlobalFunctions its cache key must not include the viewer's `Host`
+header: CloudFront forwards cache key headers to the origin, and a Lambda
+Function URL refuses that one.
 
 > [https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin](https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin)
 
