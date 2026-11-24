@@ -81,11 +81,10 @@ import {
   assetPrefixRewriteHandler,
   checkFunctionCodeSize,
   checkViewerRequestCode,
-  FUNCTION_URL_HANDLER,
   MAX_FUNCTION_CODE_BYTES,
   PASS_THROUGH_HANDLER,
   spliceViewerRequest,
-  WEB_FUNCTION_HANDLER,
+  X_FORWARDED_HOST_HANDLER,
 } from "./utils/viewer-request-functions";
 
 export interface NextjsDistributionOverrides {
@@ -496,11 +495,7 @@ export class NextjsDistribution extends Construct {
     const associations: FunctionAssociation[] = [];
     if (this.isSignedLambdaOrigin) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
-        ...this.viewerRequestFunctionProps(
-          this.isWebFunctionCompute
-            ? WEB_FUNCTION_HANDLER
-            : FUNCTION_URL_HANDLER,
-        ),
+        ...this.viewerRequestFunctionProps(X_FORWARDED_HOST_HANDLER),
       });
       associations.push({
         eventType: FunctionEventType.VIEWER_REQUEST,
@@ -686,11 +681,7 @@ export class NextjsDistribution extends Construct {
             `needs that event type for its own function, ` +
             `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
             `(the runtime trusts that header behind CloudFront) and redirects ` +
-            `repeated slashes` +
-            (this.isWebFunctionCompute
-              ? `, and sends a \`+\` in the query on as \`%20\`, without ` +
-                `which the endpoint answers such a query with a 403`
-              : "")
+            `repeated slashes`
         : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
             "and image behaviors",
     );
