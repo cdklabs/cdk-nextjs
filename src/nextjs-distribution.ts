@@ -70,6 +70,7 @@ import {
   publicPathPatterns,
 } from "./utils/path-patterns";
 import {
+  assertViewerEdgeLambdasClear,
   assertViewerRequestUnclaimed,
   assetPrefixRewriteHandler,
   checkFunctionCodeSize,
@@ -79,6 +80,10 @@ import {
   spliceViewerRequest,
   X_FORWARDED_HOST_HANDLER,
 } from "./utils/viewer-request-functions";
+
+/** The viewer-request function `viewerRequestFunctionCode` runs in, in errors. */
+const VIEWER_REQUEST_CODE_FUNCTION =
+  "the viewer-request function `viewerRequestFunctionCode` runs in";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
@@ -458,6 +463,26 @@ export class NextjsDistribution extends Construct {
     };
   }
   /**
+   * {@link assertViewerEdgeLambdasClear} on a behavior built from an override:
+   * the override's own CloudFront Functions, plus `ours`, which `ourOwner`
+   * describes.
+   */
+  private assertOverrideEdgeLambdasClear(
+    overrideName: string,
+    options: AddBehaviorOptions | undefined,
+    ours: readonly { readonly eventType: FunctionEventType }[],
+    ourOwner: string,
+  ) {
+    assertViewerEdgeLambdasClear(overrideName, options?.edgeLambdas, [
+      ...(options?.functionAssociations ?? []).map(({ eventType }) => ({
+        eventType,
+        owner: `\`overrides.${overrideName}.functionAssociations\``,
+        fromOverride: true,
+      })),
+      ...ours.map(({ eventType }) => ({ eventType, owner: ourOwner })),
+    ]);
+  }
+  /**
    * `viewerRequestFunctionCode`, rendered once, since `FunctionCode.fromFile`
    * reads the file on every render, and checked
    * ({@link checkViewerRequestCode}).
@@ -488,14 +513,26 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...staticBehaviorOptions,
     };
+    // The viewer-request check first: its error rules out
+    // `viewerRequestFunctionCode`, which the edge-lambda one may suggest.
+    if (this.viewerRequestCode !== undefined) {
+      assertViewerRequestUnclaimed(
+        "staticBehaviorOptions",
+        staticBehaviorOptions?.functionAssociations,
+        "`viewerRequestFunctionCode` needs that event type on the static behaviors",
+      );
+    }
+    this.assertOverrideEdgeLambdasClear(
+      "staticBehaviorOptions",
+      staticBehaviorOptions,
+      this.viewerRequestCode === undefined
+        ? []
+        : [{ eventType: FunctionEventType.VIEWER_REQUEST }],
+      VIEWER_REQUEST_CODE_FUNCTION,
+    );
     if (this.viewerRequestCode === undefined) {
       return options;
     }
-    assertViewerRequestUnclaimed(
-      "staticBehaviorOptions",
-      staticBehaviorOptions?.functionAssociations,
-      "`viewerRequestFunctionCode` needs that event type on the static behaviors",
-    );
     return {
       ...options,
       functionAssociations: [
@@ -543,7 +580,7 @@ export class NextjsDistribution extends Construct {
       ...dynamicBehaviorOptions,
       functionAssociations: this.withDynamicFunctionAssociations(
         "dynamicBehaviorOptions",
-        dynamicBehaviorOptions?.functionAssociations,
+        dynamicBehaviorOptions,
       ),
     };
   }
@@ -559,29 +596,43 @@ export class NextjsDistribution extends Construct {
    * URLs, cached for other viewers because the header is not in the cache key.
    * So ours is kept, and an override claiming VIEWER_REQUEST — which CloudFront
    * allows only one of per behavior — is an error rather than a replacement.
+   * So is a viewer-event Lambda@Edge beside a CloudFront Function.
    */
   private withDynamicFunctionAssociations(
     overrideName: string,
-    overridden: FunctionAssociation[] | undefined,
+    options: AddBehaviorOptions | undefined,
   ): FunctionAssociation[] {
     const ours = this.dynamicCloudFrontFunctionAssociations;
+    const overridden = options?.functionAssociations;
+    // The viewer-request check first, as on the static behaviors.
+    if (overridden && ours.length) {
+      assertViewerRequestUnclaimed(
+        overrideName,
+        overridden,
+        this.isFunctionCompute
+          ? `NextjsGlobalFunctions needs that event type for its own function, ` +
+              `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
+              `(the runtime trusts that header behind CloudFront) and redirects ` +
+              `repeated slashes`
+          : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
+              "and image behaviors",
+      );
+    }
+    this.assertOverrideEdgeLambdasClear(
+      overrideName,
+      options,
+      ours,
+      this.isFunctionCompute
+        ? "NextjsGlobalFunctions' own viewer-request function, which " +
+            "overwrites `x-forwarded-host` with the viewer's `Host`"
+        : VIEWER_REQUEST_CODE_FUNCTION,
+    );
     if (!overridden) {
       return ours;
     }
     if (!ours.length) {
       return overridden;
     }
-    assertViewerRequestUnclaimed(
-      overrideName,
-      overridden,
-      this.isFunctionCompute
-        ? `NextjsGlobalFunctions needs that event type for its own function, ` +
-            `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
-            `(the runtime trusts that header behind CloudFront) and redirects ` +
-            `repeated slashes`
-        : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
-            "and image behaviors",
-    );
     return [...overridden, ...ours];
   }
   /**
@@ -627,7 +678,7 @@ export class NextjsDistribution extends Construct {
       ...imageBehaviorOptions,
       functionAssociations: this.withDynamicFunctionAssociations(
         "imageBehaviorOptions",
-        imageBehaviorOptions?.functionAssociations,
+        imageBehaviorOptions,
       ),
     };
   }
@@ -817,6 +868,13 @@ export class NextjsDistribution extends Construct {
       associations,
       `serving \`assetPrefix\` ("${this.assetPrefix}") needs that event type ` +
         `to rewrite the request URI to the object's key`,
+    );
+    this.assertOverrideEdgeLambdasClear(
+      "staticBehaviorOptions",
+      { ...this.staticBehaviorOptions, functionAssociations: associations },
+      [{ eventType: FunctionEventType.VIEWER_REQUEST }],
+      `the function that rewrites \`assetPrefix\` ("${this.assetPrefix}") ` +
+        `requests to the object's key`,
     );
     const rewrite = new CloudFrontFunction(this, "AssetPrefixFn", {
       comment: this.getComment("NextJS assetPrefix rewrite"),
