@@ -5337,9 +5337,10 @@ Its cache policy.
 
 Build it from the dynamic one's cache key, and set
 `defaultTtl`, which CDK otherwise defaults to a day. On
-NextjsGlobalFunctions its cache key must not include the viewer's `Host`
-header: CloudFront forwards cache key headers to the origin, and a Lambda
-Function URL refuses that one.
+NextjsGlobalFunctions and NextjsGlobalWebFunctions its cache key must not
+include the viewer's `Host` header: CloudFront forwards cache key headers
+to the origin, and a Lambda Function URL refuses that one, as a Web
+Function endpoint does with a 404.
 
 > [https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin](https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin)
 
@@ -5367,8 +5368,10 @@ public readonly originRequestPolicy: IOriginRequestPolicy;
 
 Its origin request policy.
 
-On NextjsGlobalFunctions it must not forward
-the viewer's `Host` header, which a Lambda Function URL refuses.
+On NextjsGlobalFunctions and
+NextjsGlobalWebFunctions it must not forward the viewer's `Host` header,
+which a Lambda Function URL refuses and a Web Function endpoint answers
+with a 404.
 
 ---
 
