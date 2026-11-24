@@ -319,7 +319,7 @@ point at which running one at a time is the cheaper answer.
 
 ## Why `NextjsGlobalFunctions` is the default
 
-All four types run on the schedule (see "Sharding"); this one runs first, and is
+All five types run on the schedule (see "Sharding"); this one runs first, and is
 what a dispatch runs unless told otherwise. The harness builds every request URL
 as `new URL(path, deploymentUrl)` — `getFullUrl` in `test/lib/next-test-utils.ts`
 assigns `pathname` outright — so any prefix in the deployment URL is dropped.

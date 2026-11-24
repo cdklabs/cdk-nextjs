@@ -916,7 +916,7 @@ describe("NextjsGlobalWebFunctions", () => {
       const stack = new Stack(new App(), "Stack");
       new NextjsGlobalWebFunctions(stack, "App", { buildDirectory: buildDir });
       Annotations.fromStack(stack).hasWarning(
-        "*",
+        "/Stack/App",
         Match.stringLikeRegexp("this stack's Region isn't known at synth"),
       );
     });

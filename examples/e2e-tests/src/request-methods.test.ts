@@ -151,9 +151,10 @@ test.describe("request methods", () => {
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
     // sent. Measured, not reasoned: the containers, API Gateway's streaming
-    // integration and a Web Function endpoint send no `content-length` at all. Asserted rather than skipped,
-    // so a Next.js that starts forwarding the declared length again, or a Function
-    // URL that stops inventing one, shows up here.
+    // integration and a Web Function endpoint send no `content-length` at all.
+    // Asserted rather than skipped, so a Next.js that starts forwarding the
+    // declared length again, or a Function URL that stops inventing one, shows up
+    // here.
     expect(response.headers()["content-length"]).toBe(
       isGlobalFunctions() ? "0" : undefined,
     );

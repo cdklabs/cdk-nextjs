@@ -649,10 +649,12 @@ nextjsDistribution.distribution.addBehavior(
   cdk-nextjs's viewer-request function (and `viewerRequestFunctionCode`) runs
   on it.
 - `allowedMethods` must include the `cachedMethods` the behavior ends up with,
-  inherited ones included. On `NextjsGlobalFunctions`, an `originRequestPolicy`
-  must not forward the viewer's `Host` header, which a Lambda Function URL
-  refuses (`ALL_VIEWER_EXCEPT_HOST_HEADER` is the one cdk-nextjs uses), and
-  a `cachePolicy` must not put it in the cache key, which forwards it too.
+  inherited ones included. On `NextjsGlobalFunctions` and
+  `NextjsGlobalWebFunctions`, an `originRequestPolicy` must not forward the
+  viewer's `Host` header, which a Lambda Function URL refuses and a Web
+  Function endpoint answers with a 404 (`ALL_VIEWER_EXCEPT_HOST_HEADER` is the
+  one cdk-nextjs uses), and a `cachePolicy` must not put it in the cache key,
+  which forwards it too.
 - They are added in the order given, after `_next/static*`, the `public/`
   entries, `_next/image*` and the `functionGroups` patterns, which CloudFront
   matches first, so a pattern inside one of those (`api/slow/*` under a
@@ -663,8 +665,9 @@ nextjsDistribution.distribution.addBehavior(
   `overrides.distributionProps.additionalBehaviors`) is a synth error.
 - Prefer `dynamicBehaviors` to spreading `dynamicBehaviorOptions` into
   `distribution.addBehavior()`: a `functionAssociations` of your own would
-  replace the viewer-request function there, which on Global Functions is what
-  stops a viewer's own `X-Forwarded-Host` reaching the server, and the behavior
+  replace the viewer-request function there, which on Global Functions and
+  Global Web Functions is what stops a viewer's own `X-Forwarded-Host`
+  reaching the server, and the behavior
   would come after the `basePath` ones, which would hide it.
 
 ## Bring Your Own Resources

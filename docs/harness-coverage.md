@@ -68,12 +68,12 @@ included files passing on each scheduled run.
 
 ### Which types the harness proves
 
-The harness runs on all four types, on the schedule and by `workflow_dispatch`
+The harness runs on all five types, on the schedule and by `workflow_dispatch`
 (`nextjs_type`, `all` for every type) or by hand, with
 `NextjsRegionalFunctions` behind `scripts/e2e-harness/stage-proxy.mjs`, which puts
 back the stage prefix the harness would otherwise drop. The findings whose
 plumbing differs per deployment type are also back-filled into
-`examples/e2e-tests` (run against `examples/app-playground` on all four types,
+`examples/e2e-tests` (run against `examples/app-playground` on all five types,
 every commit) — the "4-type spec" column of the table under "Fixed". What stays
 harness-only is what cannot coexist with the App Router fixture in one
 `next.config.ts` (`trailingSlash`, `assetPrefix`, `i18n`, the Pages Router) or has

@@ -168,8 +168,8 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
     id: string,
     props: NextjsGlobalWebFunctionsProps,
   ) {
-    assertWebFunctionsRegion(scope);
     // Before `super`, which runs `next build`.
+    assertWebFunctionsRegion(scope);
     if (
       props.distribution &&
       Stack.of(props.distribution) !== Stack.of(scope)
@@ -184,6 +184,8 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
     }
     super(scope, id, props, NextjsType.GLOBAL_WEB_FUNCTIONS);
     this.props = props;
+    // On the construct, so each one's warning names it.
+    warnIfWebFunctionsRegionUnknown(this);
     this.distributionIdParameterName = `cdk-nextjs-distribution-id-${this.node.addr}`;
 
     this.nextjsWebFunctions = this.createNextjsWebFunctions();
@@ -332,26 +334,29 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
 /**
  * Fails at synth in a Region without Web Functions, where the deploy would
  * otherwise fail on the first `AWS::Lambda::WebFunction`. An environment-
- * agnostic stack can't be checked, so it gets a warning instead.
+ * agnostic stack can't be checked: see {@link warnIfWebFunctionsRegionUnknown}.
  */
 function assertWebFunctionsRegion(scope: Construct) {
   const { region } = Stack.of(scope);
-  if (Token.isUnresolved(region)) {
-    Annotations.of(scope).addWarningV2(
-      "cdk-nextjs:webFunctionsRegionUnknown",
-      `${LOG_PREFIX} NextjsGlobalWebFunctions can only deploy to a Region ` +
-        `with Lambda Web Functions (${WEB_FUNCTIONS_REGIONS.join(", ")}), and ` +
-        `this stack's Region isn't known at synth. Set the stack's \`env\` ` +
-        `to have it checked.`,
-    );
-    return;
-  }
-  if (!WEB_FUNCTIONS_REGIONS.includes(region)) {
+  if (!Token.isUnresolved(region) && !WEB_FUNCTIONS_REGIONS.includes(region)) {
     throw new Error(
       `${LOG_PREFIX} NextjsGlobalWebFunctions can't deploy to ${region}: ` +
         `Lambda Web Functions are only available in ` +
         `${WEB_FUNCTIONS_REGIONS.join(", ")}. Deploy the stack to one of ` +
         `those, or use NextjsGlobalFunctions.`,
+    );
+  }
+}
+
+/** Warns, on `construct`, when its stack's Region isn't known at synth. */
+function warnIfWebFunctionsRegionUnknown(construct: Construct) {
+  if (Token.isUnresolved(Stack.of(construct).region)) {
+    Annotations.of(construct).addWarningV2(
+      "cdk-nextjs:webFunctionsRegionUnknown",
+      `${LOG_PREFIX} NextjsGlobalWebFunctions can only deploy to a Region ` +
+        `with Lambda Web Functions (${WEB_FUNCTIONS_REGIONS.join(", ")}), and ` +
+        `this stack's Region isn't known at synth. Set the stack's \`env\` ` +
+        `to have it checked.`,
     );
   }
 }
