@@ -1,8 +1,10 @@
 /**
  * CloudFront path patterns for `NextjsDistribution`'s behaviors: spelling a
- * `public/` entry as one, putting the `basePath` in front, and checking the
- * `public/` ones against the function group ones.
+ * `public/` entry as one, putting the `basePath` in front, checking the
+ * `public/` ones against the function group ones, and checking a
+ * `dynamicBehaviors` one.
  */
+import { Token } from "aws-cdk-lib";
 import {
   cloudFrontPatternRegex,
   PATH_PATTERN_LITERAL,
@@ -68,6 +70,54 @@ export function getPathPattern(basePath: string, pathPattern: string): string {
     return pathPattern;
   }
   return `/${basePath}/${pathPattern.replace(/^\/+/, "")}`;
+}
+
+/**
+ * CloudFront reads a path pattern with or without its leading `/`, so two that
+ * differ only by it are the same pattern. Every leading `/` goes, as
+ * {@link getPathPattern} drops them under a `basePath`, so `//*` is refused
+ * next to the default behavior's `*` with or without one.
+ */
+export function pathPatternKey(pathPattern: string): string {
+  return pathPattern.replace(/^\/+/, "");
+}
+
+/**
+ * A `dynamicBehaviors` pattern as it is deployed, `basePath`-prefixed by
+ * {@link getPathPattern}, refused at synth where CloudFront would only refuse it
+ * at deploy: a CDK token (prefixing it needs its text), empty, over
+ * {@link MAX_PATH_PATTERN_LENGTH}, or with characters outside the alphabet.
+ * Duplicates are the caller's to check, since it knows the other behaviors.
+ */
+export function resolveDynamicPathPattern(
+  basePath: string,
+  relative: string,
+): string {
+  if (Token.isUnresolved(relative)) {
+    throw new Error(
+      `${LOG_PREFIX} a \`dynamicBehaviors\` pattern is a CDK token; ` +
+        `only literal patterns are supported.`,
+    );
+  }
+  const errorPrefix = `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}"`;
+  const pathPattern = getPathPattern(basePath, relative);
+  if (pathPattern === "") {
+    throw new Error(`${errorPrefix} is empty.`);
+  }
+  if (pathPattern.length > MAX_PATH_PATTERN_LENGTH) {
+    throw new Error(
+      `${errorPrefix} ("${pathPattern}") is ${pathPattern.length} ` +
+        `characters, over CloudFront's ${MAX_PATH_PATTERN_LENGTH}.`,
+    );
+  }
+  const invalid = [...pathPattern].filter((char) => !isPathPatternChar(char));
+  if (invalid.length) {
+    throw new Error(
+      `${errorPrefix} has characters a CloudFront path pattern can't: ` +
+        `${[...new Set(invalid)].map((char) => JSON.stringify(char)).join(", ")}.`,
+    );
+  }
+  return pathPattern;
 }
 
 /**
