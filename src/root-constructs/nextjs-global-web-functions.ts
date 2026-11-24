@@ -30,6 +30,7 @@ import {
 import {
   NextjsDistribution,
   NextjsDistributionOverrides,
+  NextjsDynamicBehavior,
 } from "../nextjs-distribution";
 import { NextjsPostDeploy } from "../nextjs-post-deploy";
 import { joinPath } from "../utils/base-path";
@@ -81,6 +82,15 @@ export interface NextjsGlobalWebFunctionsProps extends NextjsBaseProps {
    * @default - one function serves every route
    */
   readonly functionGroups?: NextjsWebFunctionGroup[];
+  /**
+   * Behaviors of your own that send a path to the Next.js server like the
+   * default behavior, with some of its options changed: a shorter cache for
+   * `detail/*`, say. Patterns are relative to the app, prefixed with the
+   * `basePath` if there is one.
+   * @see NextjsDistributionProps.dynamicBehaviors
+   * @default - none
+   */
+  readonly dynamicBehaviors?: NextjsDynamicBehavior[];
   /**
    * Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the
    * Pages Router's `res.revalidate()`) creates CloudFront invalidations for
@@ -296,6 +306,7 @@ export class NextjsGlobalWebFunctions extends NextjsBaseConstruct {
       assetPrefix: this.nextjsBuild.nextConfigAssetPrefixPath,
       basePath: this.resolvedBasePath,
       distribution: this.props.distribution,
+      dynamicBehaviors: this.props.dynamicBehaviors,
       webFunctionEndpoint: this.nextjsWebFunctions.endpoint,
       nextjsType: this.nextjsType,
       overrides: this.props.overrides?.nextjsDistribution,

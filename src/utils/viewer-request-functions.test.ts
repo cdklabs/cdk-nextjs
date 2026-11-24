@@ -1,6 +1,11 @@
 import { Lazy } from "aws-cdk-lib";
-import { FunctionEventType } from "aws-cdk-lib/aws-cloudfront";
 import {
+  FunctionEventType,
+  LambdaEdgeEventType,
+} from "aws-cdk-lib/aws-cloudfront";
+import {
+  BehaviorCloudFrontFunction,
+  assertViewerEdgeLambdasClear,
   assertViewerRequestUnclaimed,
   assetPrefixRewriteHandler,
   checkFunctionCodeSize,
@@ -168,5 +173,134 @@ describe("X_FORWARDED_HOST_HANDLER", () => {
       query: { value: "hello+world" },
       "a+b": { value: "1" },
     });
+  });
+});
+
+describe("assertViewerEdgeLambdasClear", () => {
+  const ours = [
+    { eventType: FunctionEventType.VIEWER_REQUEST, owner: "our function" },
+  ];
+
+  it("allows no edge lambdas, or ones on origin events", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear("dynamicBehaviorOptions", undefined, ours),
+    ).not.toThrow();
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "dynamicBehaviorOptions",
+        [
+          { eventType: LambdaEdgeEventType.ORIGIN_REQUEST },
+          { eventType: LambdaEdgeEventType.ORIGIN_RESPONSE },
+        ],
+        ours,
+      ),
+    ).not.toThrow();
+  });
+
+  it("allows a viewer edge lambda with no viewer CloudFront Function", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "staticBehaviorOptions",
+        [{ eventType: LambdaEdgeEventType.VIEWER_REQUEST }],
+        [],
+      ),
+    ).not.toThrow();
+  });
+
+  it("names the override field, both event types and the function's owner", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "imageBehaviorOptions",
+        [{ eventType: LambdaEdgeEventType.VIEWER_RESPONSE }],
+        ours,
+      ),
+    ).toThrow(
+      "`overrides.imageBehaviorOptions.edgeLambdas` associates a Lambda@Edge " +
+        "function with viewer-response, but the same behavior has " +
+        "viewer-event CloudFront Functions: our function (viewer-request). ",
+    );
+  });
+
+  it("names every viewer-event function on both sides", () => {
+    expect(() =>
+      assertViewerEdgeLambdasClear(
+        "dynamicBehaviorOptions",
+        [
+          { eventType: LambdaEdgeEventType.VIEWER_REQUEST },
+          { eventType: LambdaEdgeEventType.ORIGIN_REQUEST },
+          { eventType: LambdaEdgeEventType.VIEWER_RESPONSE },
+        ],
+        [
+          ...ours,
+          { eventType: FunctionEventType.VIEWER_RESPONSE, owner: "theirs" },
+        ],
+      ),
+    ).toThrow(
+      "with viewer-request and viewer-response, but the same behavior has " +
+        "viewer-event CloudFront Functions: our function (viewer-request); " +
+        "theirs (viewer-response). ",
+    );
+  });
+
+  const remedyOf = (
+    edgeEventType: LambdaEdgeEventType,
+    functions: BehaviorCloudFrontFunction[] = ours,
+  ) => {
+    try {
+      assertViewerEdgeLambdasClear(
+        "dynamicBehaviorOptions",
+        [{ eventType: edgeEventType }],
+        functions,
+      );
+    } catch (error) {
+      return (error as Error).message.replace(/^.* Use /s, "Use ");
+    }
+    throw new Error("expected a refusal");
+  };
+  const ORIGIN_EVENT =
+    "Use an origin-request or origin-response Lambda@Edge function, which " +
+    "can sit beside viewer CloudFront Functions";
+  const CODE =
+    "`viewerRequestFunctionCode`, which runs inside cdk-nextjs's own " +
+    "viewer-request functions, for the Lambda@Edge function's logic";
+  const VIEWER_RESPONSE_FUNCTION =
+    "a viewer-response CloudFront Function in " +
+    "`overrides.dynamicBehaviorOptions.functionAssociations`, which runs on " +
+    "cache hits too";
+
+  it("suggests viewerRequestFunctionCode for a viewer-request Lambda@Edge", () => {
+    expect(remedyOf(LambdaEdgeEventType.VIEWER_REQUEST)).toContain(
+      `${ORIGIN_EVENT}, or ${CODE}. See `,
+    );
+  });
+
+  it("doesn't suggest viewerRequestFunctionCode where the override holds viewer-request", () => {
+    expect(
+      remedyOf(LambdaEdgeEventType.VIEWER_REQUEST, [
+        {
+          eventType: FunctionEventType.VIEWER_REQUEST,
+          owner: "theirs",
+          fromOverride: true,
+        },
+      ]),
+    ).toContain(`${ORIGIN_EVENT}. See `);
+  });
+
+  it("suggests a viewer-response CloudFront Function for a viewer-response Lambda@Edge", () => {
+    expect(remedyOf(LambdaEdgeEventType.VIEWER_RESPONSE)).toContain(
+      `${ORIGIN_EVENT}, or ${VIEWER_RESPONSE_FUNCTION}. See `,
+    );
+  });
+
+  it("doesn't suggest a viewer-response CloudFront Function where one is already there", () => {
+    expect(
+      remedyOf(LambdaEdgeEventType.VIEWER_RESPONSE, [
+        {
+          eventType: FunctionEventType.VIEWER_RESPONSE,
+          owner: "theirs",
+          fromOverride: true,
+        },
+      ]),
+    ).toContain(`${ORIGIN_EVENT}. See `);
   });
 });

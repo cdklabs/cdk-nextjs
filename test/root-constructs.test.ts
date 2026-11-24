@@ -440,6 +440,24 @@ describe("NextjsGlobalFunctions", () => {
     });
   });
 
+  it("passes dynamicBehaviors to its distribution", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      dynamicBehaviors: [{ pathPattern: "detail/*", compress: false }],
+    });
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::Distribution",
+      {
+        DistributionConfig: {
+          CacheBehaviors: Match.arrayWith([
+            Match.objectLike({ PathPattern: "detail/*", Compress: false }),
+          ]),
+        },
+      },
+    );
+  });
+
   it("adds its behaviors to a distribution passed in instead of creating one", () => {
     nextConfigBasePath = "shop";
     const stack = new Stack(new App(), "Stack");
@@ -484,6 +502,19 @@ describe("NextjsGlobalWebFunctions", () => {
     });
     return { app, stack, template: Template.fromStack(stack) };
   }
+
+  it("passes dynamicBehaviors to its distribution", () => {
+    const { template } = synth({
+      dynamicBehaviors: [{ pathPattern: "detail/*", compress: false }],
+    });
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: {
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({ PathPattern: "detail/*", Compress: false }),
+        ]),
+      },
+    });
+  });
 
   /** Every Web Function revision that serves the app, keyed by its group. */
   function revisions(template: Template) {
@@ -620,12 +651,12 @@ describe("NextjsGlobalWebFunctions", () => {
         (it: any) => it.EventType,
       ),
     ).toEqual(["viewer-request"]);
-    // Which also sends a `+` in the query on as `%20`, which the endpoint's
-    // signature check accepts.
+    // Which leaves a `+` in the query as sent: the endpoint accepts
+    // CloudFront's signature on it (measured 2026-11-23).
     const functions = Object.values(
       template.findResources("AWS::CloudFront::Function"),
     ).map((fn) => fn.Properties.FunctionCode as string);
-    expect(functions.some((code) => code.includes('"%20"'))).toBe(true);
+    expect(functions.some((code) => code.includes('"%20"'))).toBe(false);
     // And the group's routes reach the group's endpoint.
     const reports = config.CacheBehaviors.find(
       (behavior: any) => behavior.PathPattern === "reports",
@@ -1184,6 +1215,27 @@ describe("NextjsGlobalContainers", () => {
           statement.Action === "cloudfront:CreateInvalidation",
       );
     expect(JSON.stringify(invalidation.Resource)).toContain(distributionId);
+  });
+
+  it("passes dynamicBehaviors to its distribution", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsGlobalContainers(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+      dynamicBehaviors: [{ pathPattern: "detail/*", compress: false }],
+    });
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::Distribution",
+      {
+        DistributionConfig: {
+          CacheBehaviors: Match.arrayWith([
+            Match.objectLike({ PathPattern: "detail/*", Compress: false }),
+          ]),
+        },
+      },
+    );
   });
 
   it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
