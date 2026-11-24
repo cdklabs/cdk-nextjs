@@ -124,9 +124,10 @@ CANDIDATES="$(
         if (!tagged) continue;
         // What a hotswap moves: the server function for the Functions types,
         // the ECS service (as `ecs:<cluster>/<service>`) for the Containers types.
-        // Not a Web Function: the CDK CLI can't hotswap one, so every deploy of
-        // it is a full one, which moves the stack's own timestamp, and Lambda's
-        // `get-function-configuration` isn't the API that reads it.
+        // Not a Web Function: the CDK CLI cannot hotswap one, so every deploy
+        // of it is a full one, which moves the stack timestamp, and Lambda
+        // `get-function-configuration` is not the API that reads it. (No
+        // apostrophes in here: this script is single-quoted.)
         const output = (key) => ((stack.Outputs || []).find((o) => o.OutputKey === key) || {}).OutputValue;
         const webFunctions = output("ServerFunctionKind") === "WebFunction";
         const fn = webFunctions ? undefined : output("ServerFunctionName");
