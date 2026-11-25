@@ -357,20 +357,28 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   PROBES=("$BASE_PATH/" "$MANIFEST_PROBE" "$BASE_PATH/__cdk-nextjs-harness-probe")
   READY_WINDOW=180 PROBE_TIMEOUT=10 ROUND_GAP=3
   api_gateway_ready() {
-    local path head status limit
+    local path head status limit rc
     for path in "${PROBES[@]}"; do
       # Capped at the time left, so a stalled probe can't stretch the window by
-      # more than about a second. Past the deadline, a round fails without
-      # touching STATUS, so the log keeps naming the last real failure.
+      # more than about a second. Past the deadline the round is cut short
+      # (return 2): neither a pass nor a failure, so the log keeps naming the
+      # last real failure.
       limit=$((READY_DEADLINE - SECONDS))
-      [ "$limit" -ge 1 ] || return 1
+      [ "$limit" -ge 1 ] || return 2
       [ "$limit" -le "$PROBE_TIMEOUT" ] || limit=$PROBE_TIMEOUT
-      head="$(curl -s --max-time "$limit" -o /dev/null -D - "$URL$path" || true)"
+      rc=0
+      head="$(curl -s --max-time "$limit" -o /dev/null -D - "$URL$path")" || rc=$?
       status="$(printf '%s' "$head" | awk 'NR==1{print $2}')"
       if [ -z "$status" ] || [ "${status:0:1}" = "5" ] \
         || printf '%s' "$head" | grep -qi '^x-amzn-errortype:' \
         || { [ "$path" = "$MANIFEST_PROBE" ] && [ "${status:0:1}" != "2" ]; }; then
-        STATUS="$path -> ${status:-no answer within ${limit}s}"
+        if [ -n "$status" ]; then
+          STATUS="$path -> $status"
+        elif [ "$rc" -eq 28 ]; then
+          STATUS="$path -> no answer within ${limit}s"
+        else
+          STATUS="$path -> curl exit $rc"
+        fi
         return 1
       fi
     done
@@ -398,9 +406,13 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   LAST_FAILURE="none"
   READY_DEADLINE=$((SECONDS + READY_WINDOW))
   while [ "$SECONDS" -lt "$READY_DEADLINE" ]; do
-    if api_gateway_ready; then
+    rc=0
+    api_gateway_ready || rc=$?
+    if [ "$rc" -eq 0 ]; then
       READY_ROUNDS=$((READY_ROUNDS + 1))
       [ "$READY_ROUNDS" -ge 5 ] && break
+    elif [ "$rc" -eq 2 ]; then
+      break
     else
       READY_ROUNDS=0
       LAST_FAILURE="$STATUS"
