@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "comment": [
+    "Throwaway: the basePath fixtures on Regional Functions, to check the stage-switch probe fix (fix/harness-stage-switch-probe). Delete the branch afterwards."
+  ],
+  "suites": {
+    "test/e2e/invalid-static-asset-404-app/invalid-static-asset-404-app-base-path.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-app-base-path should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    },
+    "test/e2e/invalid-static-asset-404-pages/invalid-static-asset-404-pages-base-path.test.ts": {
+      "comment": [
+        "2 of 3 cases. The skipped one asks a missing `/_next/static/*` for a `404`",
+        "whose body is exactly `Not Found`; S3 behind Origin Access Control answers",
+        "`404` (the OAC principal has `s3:ListBucket`) but with S3's XML error body.",
+        "Unsupported (a design choice); see docs/harness-coverage.md.",
+        "",
+        "The two that pass are the ones that matter: a valid asset path serves the",
+        "build manifest with a 200, and an invalid non-asset path renders the app's own",
+        "404 page."
+      ],
+      "failed": [
+        "invalid-static-asset-404-pages-base-path should return 404 with plain text when fetching invalid asset path"
+      ],
+      "flakey": []
+    }
+  },
+  "rules": {
+    "include": [
+      "test/e2e/app-dir/app-basepath/index.test.ts",
+      "test/e2e/app-dir/asset-prefix-with-basepath/asset-prefix-with-basepath.test.ts",
+      "test/e2e/app-dir/basepath-fallback-params/basepath-fallback-params.test.ts",
+      "test/e2e/app-dir/parallel-routes-and-interception-basepath/parallel-routes-and-interception-basepath.test.ts",
+      "test/e2e/app-dir/redirect-rewrite-dynamic-basepath/redirect-rewrite-dynamic-basepath.test.ts",
+      "test/e2e/basepath-root-catch-all/basepath-root-catch-all.test.ts",
+      "test/e2e/basepath/query-hash.test.ts",
+      "test/e2e/basepath/router-events.test.ts",
+      "test/e2e/basepath/trailing-slash.test.ts",
+      "test/e2e/chrome-devtools-workspace/chrome-devtools-workspace-base-path.test.ts",
+      "test/e2e/i18n-ignore-redirect-source-locale/redirects-with-basepath.test.ts",
+      "test/e2e/next-form/basepath/next-form-basepath.test.ts",
+      "test/e2e/app-dir/hello-world/hello-world.test.ts"
+    ],
+    "exclude": []
+  }
+}
