@@ -343,15 +343,27 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   # ready together: the base resource answered while `_next/static` (the S3
   # integration) and the `{proxy+}` catch-all under it still 500'd. The build
   # manifest is a real object; the catch-all probe is a path the app 404s.
+  #
+  # The build manifest has to answer 2xx, not just "no API Gateway error". While
+  # the replaced tree is still serving, `<basePath>/_next/static/...` has no
+  # resource of its own there and falls through to that tree's `{proxy+}`, i.e.
+  # the server function - already updated, but holding no static files - which
+  # answers a plain 404. That passed every check above, so the suite ran with
+  # every chunk 404ing and nothing hydrating: all 11 `basePath` fixtures failed
+  # their first attempt on Regional Functions (run 45526235700), and two failed
+  # their retry ~75s after the stage switch too. Only the new tree's S3
+  # integration serves it.
   BASE_PATH="$(node -e 'try{process.stdout.write(require(process.argv[1]).config.basePath||"")}catch{}' "$APP_DIR/.next/required-server-files.json")"
-  PROBES=("$BASE_PATH/" "$BASE_PATH/_next/static/$BUILD_ID/_buildManifest.js" "$BASE_PATH/__cdk-nextjs-harness-probe")
+  MANIFEST_PROBE="$BASE_PATH/_next/static/$BUILD_ID/_buildManifest.js"
+  PROBES=("$BASE_PATH/" "$MANIFEST_PROBE" "$BASE_PATH/__cdk-nextjs-harness-probe")
   api_gateway_ready() {
     local path head status
     for path in "${PROBES[@]}"; do
       head="$(curl -s -o /dev/null -D - "$URL$path" || true)"
       status="$(printf '%s' "$head" | awk 'NR==1{print $2}')"
       if [ -z "$status" ] || [ "${status:0:1}" = "5" ] \
-        || printf '%s' "$head" | grep -qi '^x-amzn-errortype:'; then
+        || printf '%s' "$head" | grep -qi '^x-amzn-errortype:' \
+        || { [ "$path" = "$MANIFEST_PROBE" ] && [ "${status:0:1}" != "2" ]; }; then
         STATUS="$path -> ${status:-no answer}"
         return 1
       fi
@@ -360,10 +372,13 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   }
   # Five rounds in a row, not one: the new deployment reaches API Gateway's fleet
   # unevenly, and a test got the replaced tree's 403 right after all three
-  # probes had passed once. 40 x 3s overall: the replaced tree was measured
-  # still answering ~90s after CloudFormation reported UPDATE_COMPLETE.
+  # probes had passed once. 60 x 3s overall: the replaced tree was measured
+  # still answering ~90s after CloudFormation reported UPDATE_COMPLETE, and a
+  # fixture failed on it ~75s after the stage switch, so 120s left too little
+  # margin. A deploy that leaves the tree alone still passes its five rounds
+  # straight away (~15s); only a stage switch waits longer.
   READY_ROUNDS=0
-  for _ in $(seq 1 40); do
+  for _ in $(seq 1 60); do
     if api_gateway_ready; then
       READY_ROUNDS=$((READY_ROUNDS + 1))
       [ "$READY_ROUNDS" -ge 5 ] && break
