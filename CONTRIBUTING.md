@@ -23,4 +23,8 @@ Checks that need no credentials, such as the build and unit tests, still run on 
 
 This project uses [Projen](https://projen.io/): don't edit the files it generates (they start with a header saying so). Edit `.projenrc.ts` instead, then run `pnpm projen`. See the [Development Guide](./docs/development-guide.md) for more.
 
+## Reviewing your own branch
+
+If you use [Claude Code](https://docs.claude.com/en/docs/claude-code/overview), run `/self-review` on your branch before you ask for review. It reviews the branch in rounds, fixing and committing what holds up until a round comes back clean, then, on your own open pull request, pushes the fixes and posts its summary. It needs Node.js 24.2 or later and `gh` logged in to github.com. On a pull request from a fork it can't set its `self-review` commit status, which is expected. See [the skill](./.claude/skills/self-review/SKILL.md) for its options, such as `--no-publish`.
+
 Pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, `docs:` and so on).
