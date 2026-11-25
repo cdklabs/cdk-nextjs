@@ -1,9 +1,10 @@
 /**
- * Which of the four root constructs is serving this run.
+ * Which of the five root constructs is serving this run.
  *
- * Most of what these tests assert is identical on all four. A handful of things
+ * Most of what these tests assert is identical on all five. A handful of things
  * are not, because the plumbing in front of the app is genuinely different
- * hardware: CloudFront with a signed Lambda Function URL, API Gateway REST with a
+ * hardware: CloudFront with a signed Lambda Function URL, CloudFront with a signed
+ * Lambda Web Function endpoint, API Gateway REST with a
  * streaming Lambda integration, an ALB with Fargate, CloudFront with Fargate. A
  * test that skips on the awkward types proves nothing about them; these helpers
  * exist so a test can assert the *divergence* instead.
@@ -15,12 +16,14 @@
  */
 export type DeploymentType =
   | "global-functions"
+  | "global-web-functions"
   | "global-containers"
   | "regional-containers"
   | "regional-functions";
 
 const DEPLOYMENT_TYPES: readonly DeploymentType[] = [
   "global-functions",
+  "global-web-functions",
   "global-containers",
   "regional-containers",
   "regional-functions",
@@ -48,10 +51,11 @@ function fromBaseUrl(baseUrl: string | undefined): DeploymentType | undefined {
   // `<api-id>.execute-api.<region>.amazonaws.com` - only NextjsRegionalFunctions
   // puts an API Gateway in front of the app.
   if (host.includes(".execute-api.")) return "regional-functions";
-  // A CloudFront distribution could be either Global construct. Guessing the
-  // Functions one is the useful default: it is the only type with the
-  // viewer-request function and the signed Function URL, so a wrong guess makes a
+  // A CloudFront distribution could be any Global construct. Guessing the
+  // Functions one is the useful default: it has the viewer-request function and
+  // the most origin quirks (the signed Function URL), so a wrong guess makes a
   // test assert *more* than it should and fail loudly rather than silently pass.
+  // A hand-deployed Web Functions run sets `E2E_NEXTJS_TYPE`.
   if (host.endsWith(".cloudfront.net")) return "global-functions";
   return undefined;
 }
@@ -67,10 +71,28 @@ export function isGlobalFunctions(baseUrl?: string): boolean {
   return getDeploymentType(baseUrl) === "global-functions";
 }
 
-/** Either Global construct - i.e. there is a CloudFront distribution in front. */
+/** `NextjsGlobalWebFunctions`: CloudFront in front of a signed Web Function endpoint. */
+export function isGlobalWebFunctions(baseUrl?: string): boolean {
+  return getDeploymentType(baseUrl) === "global-web-functions";
+}
+
+/**
+ * Either Lambda-backed Global construct: the two with the cdk-nextjs
+ * viewer-request function, which answers some requests (a repeated slash) at
+ * the edge before they reach the origin.
+ */
+export function hasViewerRequestFunction(baseUrl?: string): boolean {
+  return isGlobalFunctions(baseUrl) || isGlobalWebFunctions(baseUrl);
+}
+
+/** Any Global construct - i.e. there is a CloudFront distribution in front. */
 export function isCdn(baseUrl?: string): boolean {
   const type = getDeploymentType(baseUrl);
-  return type === "global-functions" || type === "global-containers";
+  return (
+    type === "global-functions" ||
+    type === "global-web-functions" ||
+    type === "global-containers"
+  );
 }
 
 /** Fargate rather than Lambda, so no response-stream prelude and no 6 MB cap. */

@@ -603,6 +603,26 @@ describe("NextjsRuntime.handle", () => {
     expect(stubBody(sink)).toEqual({ revalidated: true, error: null });
   });
 
+  // Its headers can be OAC's signature (an `allowedRevalidateHeaderKeys`
+  // entry), which an external rewrite of the revalidated path must not get.
+  it.each([true, false])(
+    "renders a revalidation with the caller's carriesOriginSignature (%s)",
+    async (carriesOriginSignature) => {
+      const internal = jest.spyOn(runtime as any, "handleInternally");
+      try {
+        await send({ url: "/?revalidate=%2F", carriesOriginSignature });
+        const revalidation = internal.mock.calls
+          .map(([request]) => request as RuntimeRequest)
+          .find((request) => request.url === "/");
+        expect(revalidation?.carriesOriginSignature).toBe(
+          carriesOriginSignature,
+        );
+      } finally {
+        internal.mockRestore();
+      }
+    },
+  );
+
   it("renders a revalidation for the public origin the caller was served on", async () => {
     const marker = join(root, "revalidate-origin-marker");
     process.env.CDK_NEXTJS_TEST_MARKER = marker;
@@ -1369,7 +1389,10 @@ exports.handler = async () =>
 
   async function proxy(
     headers: Record<string, string> = {},
-    trustForwardedHost = false,
+    trust: Pick<
+      RuntimeRequest,
+      "trustForwardedHost" | "carriesOriginSignature"
+    > = {},
   ): Promise<CollectingSink> {
     const sink = new CollectingSink();
     await proxying.handle(
@@ -1377,7 +1400,7 @@ exports.handler = async () =>
         method: "GET",
         url: "/anything",
         headers: { host: "shop.example.test", ...headers },
-        trustForwardedHost,
+        ...trust,
       },
       sink,
     );
@@ -1395,7 +1418,10 @@ exports.handler = async () =>
   // Forwarded, OAC's signature would let the upstream replay the request
   // against the Function URL.
   it("does not forward the SigV4 headers of an IAM-verified request", async () => {
-    await proxy(SIGNED, true);
+    await proxy(SIGNED, {
+      trustForwardedHost: true,
+      carriesOriginSignature: true,
+    });
 
     const headers = (fetchMock.mock.calls[0][1] as RequestInit)
       .headers as Headers;
@@ -1413,6 +1439,41 @@ exports.handler = async () =>
     for (const [name, value] of Object.entries(SIGNED)) {
       expect(headers.get(name)).toBe(value);
     }
+  });
+
+  // A Web Function endpoint strips OAC's signature before the app sees the
+  // request, so a trusted request's `authorization` is the viewer's own.
+  it("forwards the viewer's Authorization on a trusted Web Function request", async () => {
+    await proxy(SIGNED, { trustForwardedHost: true });
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    for (const [name, value] of Object.entries(SIGNED)) {
+      expect(headers.get(name)).toBe(value);
+    }
+  });
+
+  it("does not forward the headers Lambda adds on a Web Function endpoint", async () => {
+    process.env.AWS_LAMBDA_HTTP_ENDPOINT = "127.0.0.1:8080";
+    try {
+      await proxy({ "lambda-web-endpoint-name": "prod", "x-kept": "1" });
+    } finally {
+      delete process.env.AWS_LAMBDA_HTTP_ENDPOINT;
+    }
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    expect(headers.has("lambda-web-endpoint-name")).toBe(false);
+    expect(headers.get("x-kept")).toBe("1");
+  });
+
+  // Anywhere else no Lambda sets them, so they are the client's own.
+  it("forwards a client's lambda-web-* header off Web Functions", async () => {
+    await proxy({ "lambda-web-endpoint-name": "prod" });
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit)
+      .headers as Headers;
+    expect(headers.get("lambda-web-endpoint-name")).toBe("prod");
   });
 
   it("proxies the request to the rewritten origin", async () => {

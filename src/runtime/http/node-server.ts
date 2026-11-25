@@ -54,6 +54,20 @@ export interface RuntimeServerOptions {
    * {@link viewerHeaders}.
    */
   readonly trustCloudFrontProto?: boolean;
+  /**
+   * Whether `x-forwarded-host` names the viewer's host on this request; see
+   * `RuntimeRequest.trustForwardedHost`. Only the Web Functions shell can tell,
+   * from a header Lambda sets. @default - never
+   */
+  readonly trustForwardedHost?: (headers: IncomingHttpHeaders) => boolean;
+  /**
+   * Whether the client's hop ended in TLS before reaching this server, which
+   * decides the scheme of absolute URLs a request without `x-forwarded-proto`
+   * gets. True on Web Functions, whose endpoints are HTTPS only.
+   * @default false - TLS terminates at the ALB or CloudFront, and the hop to
+   * the container is plaintext
+   */
+  readonly encrypted?: boolean;
 }
 
 export function createRuntimeServer(
@@ -70,7 +84,10 @@ export function createRuntimeServer(
       .catch((error) => {
         // `NextjsRuntime.handle` answers 500 itself, so reaching this means the
         // shell's own translation failed.
-        console.error("The container shell failed to handle a request:", error);
+        console.error(
+          "The HTTP server shell failed to handle a request:",
+          error,
+        );
         if (!res.headersSent) {
           res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
         }
@@ -135,10 +152,9 @@ async function serve(
       headers: viewerHeaders(req.headers, options.trustCloudFrontProto),
       body: hasRequestBody(req) ? req : undefined,
       remoteAddress: req.socket.remoteAddress,
-      // TLS terminates at the ALB (Regional) or CloudFront (Global); the hop to
-      // this container is plaintext HTTP/1.1.
-      encrypted: false,
+      encrypted: options.encrypted ?? false,
       signal: clientAbortSignal(req, res),
+      trustForwardedHost: options.trustForwardedHost?.(req.headers) ?? false,
     },
     new NodeResponseSink(res),
   );

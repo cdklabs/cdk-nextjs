@@ -7,6 +7,11 @@ import type { NextjsDynamicBehavior, NextjsType, PublicDirEntry } from '../';
  */
 export interface OptionalNextjsDistributionProps {
   /**
+   * Required if `NextjsType.GLOBAL_WEB_FUNCTIONS`. Must be an `IAM_AUTH`, home-Region endpoint: CloudFront's Origin Access Control signs requests to it, and is granted `lambda:InvokeWebFunctionEndpoint` on it.
+   * @stability stable
+   */
+  readonly webFunctionEndpoint?: aws_lambda.IWebFunctionEndpoint;
+  /**
    * A CloudFront KeyValueStore associated with every viewer-request function {@link viewerRequestFunctionCode} is copied into (up to three, one per kind of behavior), so values it reads — Basic auth credentials, an allowlist — live outside the CloudFormation template and change without a deploy.
    * Read it with `cf.kvs()`, no ID needed.
    * @default - none

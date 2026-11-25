@@ -144,8 +144,8 @@ test.describe("edge caching", () => {
    * bytes, with their hash in `x-e2e-body-sha256`) and that sets no
    * `Cache-Control`, so a cached copy is visible as a repeated hash even if
    * CloudFront ever stops saying so in `x-cache`. A size no other test asks for,
-   * so this file owns the cache key. Only the two Global types have a CDN to
-   * cache in; the regional ones have nothing between the client and the app.
+   * so this file owns the cache key. Only the Global types have a CDN to cache
+   * in; the regional ones have nothing between the client and the app.
    */
   test("does not cache a dynamic response that sends no Cache-Control", async ({
     request,

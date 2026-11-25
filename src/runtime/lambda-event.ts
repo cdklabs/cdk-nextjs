@@ -34,6 +34,7 @@ export function toRuntimeRequest(
     };
   }
   const { http } = event.requestContext;
+  const iamAuthenticated = isIamAuthenticated(event);
   return {
     method: http.method,
     // Raw, still percent-encoded, which is what Next.js's own normalization
@@ -52,7 +53,9 @@ export function toRuntimeRequest(
     // `lambda:InvokeFunctionUrl`, which are already trusted with the function.
     // Gated on the signature Lambda verified, not assumed: a URL overridden to
     // `authType: NONE` can be called by anyone, with any header.
-    trustForwardedHost: isIamAuthenticated(event),
+    trustForwardedHost: iamAuthenticated,
+    // A Function URL passes OAC's signature through to the function.
+    carriesOriginSignature: iamAuthenticated,
   };
 }
 

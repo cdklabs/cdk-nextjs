@@ -39,6 +39,8 @@ export interface IncomingMessageInit {
   readonly encrypted?: boolean;
   /** `RuntimeRequest.trustForwardedHost`, kept for the requests made on its behalf. */
   readonly trustForwardedHost?: boolean;
+  /** `RuntimeRequest.carriesOriginSignature`, read by `proxyExternal`. */
+  readonly carriesOriginSignature?: boolean;
 }
 
 /**
@@ -64,6 +66,8 @@ export class ShimIncomingMessage extends IncomingMessage {
   public fetchMetrics?: unknown;
   /** See {@link IncomingMessageInit.trustForwardedHost}. */
   public readonly trustForwardedHost: boolean;
+  /** See {@link IncomingMessageInit.carriesOriginSignature}. */
+  public readonly carriesOriginSignature: boolean;
 
   private source?: Readable;
   private pumping = false;
@@ -86,6 +90,7 @@ export class ShimIncomingMessage extends IncomingMessage {
     }
 
     this.trustForwardedHost = init.trustForwardedHost ?? false;
+    this.carriesOriginSignature = init.carriesOriginSignature ?? false;
     this.method = init.method.toUpperCase();
     this.url = init.url;
     this.headers = headers;

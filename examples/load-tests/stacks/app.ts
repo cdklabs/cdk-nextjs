@@ -22,6 +22,7 @@ import {
 import {
   NextjsGlobalContainers,
   NextjsGlobalFunctions,
+  NextjsGlobalWebFunctions,
   NextjsRegionalContainers,
   NextjsCache,
   NextjsRegionalFunctions,
@@ -36,12 +37,16 @@ import { join } from "node:path";
  *   - Containers scale on CPU, from PERF_MIN_TASKS (2) to PERF_MAX_TASKS (10)
  *     tasks. The default is one task and no scaling.
  *   - No DEBUG logging, which would log on every request.
+ *   - Web Functions take PERF_MAX_CONCURRENCY, the requests one execution
+ *     environment serves at once, when it is set. Unset, the service default
+ *     (64) applies, which is what the published numbers use.
  *
  * One construct per synth, chosen with CONSTRUCT, since each synth builds the
  * bench app: `CONSTRUCT=global-functions pnpm stack:deploy`.
  */
 const CONSTRUCTS = {
   "global-functions": "glbl-fns",
+  "global-web-functions": "glbl-web-fns",
   "global-containers": "glbl-cntnrs",
   "regional-containers": "rgnl-cntnrs",
   "regional-functions": "rgnl-fns",
@@ -65,6 +70,22 @@ class LoadTestStack extends Stack {
     switch (construct) {
       case "global-functions": {
         nextjs = new NextjsGlobalFunctions(this, "Nextjs", { buildDirectory });
+        break;
+      }
+      case "global-web-functions": {
+        const maxConcurrency = process.env["PERF_MAX_CONCURRENCY"];
+        nextjs = new NextjsGlobalWebFunctions(this, "Nextjs", {
+          buildDirectory,
+          overrides: maxConcurrency
+            ? {
+                nextjsWebFunctions: {
+                  webFunctionProps: {
+                    maxConcurrencyPerEnvironment: Number(maxConcurrency),
+                  },
+                },
+              }
+            : undefined,
+        });
         break;
       }
       case "global-containers": {

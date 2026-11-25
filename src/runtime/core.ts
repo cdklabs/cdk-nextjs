@@ -79,12 +79,21 @@ export interface RuntimeRequest {
    * Origin Access Control, whose viewer-request function overwrites the header
    * with the viewer's `Host` (CloudFront has to replace `Host` itself with the
    * Function URL's domain), plus principals granted `lambda:InvokeFunctionUrl`,
-   * who could replace the function's code anyway. It is also what
-   * `proxyExternal` drops OAC's signature on. Everywhere else the header is
-   * whatever the client sent, and it is
+   * who could replace the function's code anyway. On a Web Function it is
+   * `true` for a request through the `IAM_AUTH` endpoint CloudFront signs for.
+   * Everywhere else the header is whatever the client sent, and it is
    * ignored, as `next start` ignores it without `experimental.trustHostHeader`.
    */
   readonly trustForwardedHost?: boolean;
+  /**
+   * Whether the request still carries the SigV4 signature Origin Access
+   * Control put on it, which `proxyExternal` must not forward. Only a Function
+   * URL leaves it on: `true` for one whose SigV4 Lambda verified. A Web
+   * Function endpoint strips OAC's signature headers before the app sees the
+   * request, so there `authorization` and `x-amz-*` are the viewer's own and
+   * are forwarded, as `next start` forwards them.
+   */
+  readonly carriesOriginSignature?: boolean;
   /**
    * Set by {@link NextjsRuntime.handleInternally} for the in-process requests it
    * makes: called with the `RouteInOtherGroupError` the route threw, instead of
@@ -185,6 +194,7 @@ export class NextjsRuntime {
       remoteAddress: request.remoteAddress,
       encrypted: request.encrypted,
       trustForwardedHost: request.trustForwardedHost,
+      carriesOriginSignature: request.carriesOriginSignature,
     });
     const res = new ShimServerResponse();
     // Next.js reads `res.req` in a few error paths.
@@ -653,6 +663,9 @@ export class NextjsRuntime {
         },
         encrypted: origin.encrypted,
         trustForwardedHost: origin.trustForwardedHost,
+        // An allowed revalidate header can be OAC's signature, which a
+        // rewrite to an external origin must not forward.
+        carriesOriginSignature: origin.carriesOriginSignature,
       },
       {},
     );
@@ -710,6 +723,7 @@ export class NextjsRuntime {
       ]),
       encrypted: (req.socket as { encrypted?: boolean } | undefined)?.encrypted,
       trustForwardedHost: req.trustForwardedHost,
+      carriesOriginSignature: req.carriesOriginSignature,
     };
     const { head, body, otherGroup, tooLarge } = await this.handleInternally(
       request,
@@ -1438,7 +1452,8 @@ const PROXY_DROPPED_HEADERS: readonly string[] = [
 
 /**
  * The SigV4 signature Origin Access Control put on a request to the Function
- * URL, also dropped by {@link proxyExternal} when the request was IAM-verified:
+ * URL, also dropped by {@link proxyExternal} when the request carries it
+ * (`RuntimeRequest.carriesOriginSignature`):
  * forwarded, it would let the third-party origin replay the request against
  * the Function URL. Anywhere else these are the client's own, and are
  * forwarded as `next start` forwards them.
@@ -1463,7 +1478,18 @@ async function proxyExternal(
   for (const name of PROXY_DROPPED_HEADERS) {
     headers.delete(name);
   }
-  if (req.trustForwardedHost) {
+  // What Lambda adds on a Web Function endpoint (`lambda-web-endpoint-name`,
+  // among others, stripping any a client sent): about our deployment,
+  // meaningless to the upstream. Anywhere else they are the client's own.
+  // `AWS_LAMBDA_HTTP_ENDPOINT` is set only in a Web Function.
+  if (process.env.AWS_LAMBDA_HTTP_ENDPOINT) {
+    for (const name of [...headers.keys()]) {
+      if (name.startsWith("lambda-web-")) {
+        headers.delete(name);
+      }
+    }
+  }
+  if (req.carriesOriginSignature) {
     for (const name of SIGV4_HEADERS) {
       headers.delete(name);
     }

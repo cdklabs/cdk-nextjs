@@ -68,9 +68,10 @@ export const MAX_FUNCTION_CODE_BYTES = 10 * 1024;
 // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-javascript-runtime-20.html
 
 /**
- * NextjsGlobalFunctions' viewer-request handler: redirects repeated slashes,
- * and overwrites `x-forwarded-host` with the viewer's `Host` so Next.js
- * `request.url` is the site's domain rather than the Function URL's.
+ * NextjsGlobalFunctions' and NextjsGlobalWebFunctions' viewer-request
+ * handler: redirects repeated slashes, and overwrites `x-forwarded-host` with
+ * the viewer's `Host` so Next.js `request.url` is the site's domain rather
+ * than the origin's.
  * @see https://open-next.js.org/advanced/workaround#workaround-set-x-forwarded-host-header-aws-specific
  */
 export const X_FORWARDED_HOST_HANDLER = `

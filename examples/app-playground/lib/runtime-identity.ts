@@ -22,6 +22,24 @@ export function instanceId(): string {
 }
 
 /**
+ * Which Lambda function is running this code, or `null` outside Lambda.
+ *
+ * An Event Function has `AWS_LAMBDA_FUNCTION_NAME`. A Web Function does not
+ * (measured on a `NextjsGlobalWebFunctions` deploy), but each one has its own
+ * endpoint, and the `host` it receives is that endpoint's domain. Only trusted
+ * with `lambda-web-endpoint-name` present, which Lambda sets and strips from
+ * client requests, so the request did come through a Web Function endpoint.
+ */
+function computeId(request: Request): string | null {
+  const functionName = process.env['AWS_LAMBDA_FUNCTION_NAME'];
+  if (functionName) return functionName;
+  if (request.headers.has('lambda-web-endpoint-name')) {
+    return request.headers.get('host');
+  }
+  return null;
+}
+
+/**
  * Reports which compute instance served the request. Used by the
  * `function-groups` e2e test to prove that two routes in different
  * `functionGroups` are served by *different* Lambda functions - the whole point
@@ -29,13 +47,13 @@ export function instanceId(): string {
  * this, so a split that puts `/api/**` in its own group shows up as two
  * different `computeId`s.
  */
-export function runtimeIdentity() {
+export function runtimeIdentity(request: Request) {
   return NextResponse.json(
     {
       // Set by cdk-nextjs on every function it creates, to the group name.
       functionGroup: process.env['CDK_NEXTJS_FUNCTION_GROUP'] ?? null,
-      // Unique per Lambda function (undefined outside Lambda).
-      computeId: process.env['AWS_LAMBDA_FUNCTION_NAME'] ?? null,
+      // Unique per Lambda function (null outside Lambda).
+      computeId: computeId(request),
       instanceId: instanceId(),
     },
     { headers: { 'cache-control': 'no-store' } },

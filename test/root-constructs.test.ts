@@ -8,19 +8,32 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { App, Stack } from "aws-cdk-lib";
-import { Match, Template } from "aws-cdk-lib/assertions";
-import { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import { App, Duration, Stack } from "aws-cdk-lib";
+import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
+import {
+  Distribution,
+  Function as CloudFrontFunction,
+  FunctionCode,
+  FunctionEventType,
+} from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
-import { Architecture } from "aws-cdk-lib/aws-lambda";
+import { Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import {
+  Architecture,
+  WebFunctionAuthType,
+  WebFunctionEndpointLocation,
+} from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
   NextjsGlobalContainers,
   NextjsGlobalFunctions,
+  NextjsGlobalWebFunctions,
+  NextjsGlobalWebFunctionsProps,
   NextjsRegionalContainers,
   NextjsRegionalFunctions,
 } from "../src";
+import { LAMBDA_RUNTIME } from "../src/lambda-runtime";
 
 /**
  * Root-construct synth without `next build`: `NextjsBuild` is the one construct
@@ -475,6 +488,562 @@ describe("NextjsGlobalFunctions", () => {
       { AuthType: "NONE" },
       0,
     );
+  });
+});
+
+describe("NextjsGlobalWebFunctions", () => {
+  const env = { region: "us-east-1" };
+
+  function synth(props: Partial<NextjsGlobalWebFunctionsProps> = {}) {
+    const stack = new Stack(new App(), "Stack", { env });
+    const app = new NextjsGlobalWebFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      ...props,
+    });
+    return { app, stack, template: Template.fromStack(stack) };
+  }
+
+  it("passes dynamicBehaviors to its distribution", () => {
+    const { template } = synth({
+      dynamicBehaviors: [{ pathPattern: "detail/*", compress: false }],
+    });
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: {
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({ PathPattern: "detail/*", Compress: false }),
+        ]),
+      },
+    });
+  });
+
+  /** Every Web Function revision that serves the app, keyed by its group. */
+  function revisions(template: Template) {
+    const found = template.findResources("AWS::Lambda::WebFunctionRevision");
+    return Object.fromEntries(
+      Object.values(found).map((revision) => [
+        revision.Properties.ServiceConfig.EnvironmentVariables
+          .CDK_NEXTJS_FUNCTION_GROUP,
+        revision.Properties,
+      ]),
+    );
+  }
+
+  it("serves every group through an IAM_AUTH, home-Region endpoint", () => {
+    const { template } = synth({ functionGroups });
+    template.resourceCountIs("AWS::Lambda::WebFunction", 2);
+    const endpoints = Object.values(
+      template.findResources("AWS::Lambda::WebFunctionEndpoint"),
+    );
+    expect(endpoints).toHaveLength(2);
+    for (const endpoint of endpoints) {
+      expect(endpoint.Properties.AuthType).toBe("IamAuth");
+      expect(endpoint.Properties.EndpointType).toBe("HomeRegion");
+      expect(endpoint.Properties.EndpointName).toBe("prod");
+    }
+    // No Event Function URL or permission is left over from Global Functions.
+    template.resourceCountIs("AWS::Lambda::Url", 0);
+    expect(
+      template.findResources("AWS::Lambda::Permission", {
+        Properties: { Principal: "cloudfront.amazonaws.com" },
+      }),
+    ).toEqual({});
+  });
+
+  it("runs LAMBDA_RUNTIME and the Web Function shell", () => {
+    const { template } = synth({ functionGroups });
+    for (const revision of Object.values(revisions(template))) {
+      expect(revision.BuildConfig.RuntimeConfig.Runtime).toBe(
+        LAMBDA_RUNTIME.name,
+      );
+      expect(revision.ServiceConfig.EnvironmentVariables).toMatchObject({
+        AWS_LAMBDA_NODEJS_ENTRYPOINT: "cdk-nextjs-runtime/web-function.mjs",
+        NODE_ENV: "production",
+        // What the runtime trusts `x-forwarded-host` on.
+        CDK_NEXTJS_TRUSTED_ENDPOINT_NAME: "prod",
+        CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME: expect.stringMatching(
+          /^cdk-nextjs-distribution-id-/,
+        ),
+      });
+      // A revision rejects an empty value; the runtime reads unset as empty.
+      for (const value of Object.values(
+        revision.ServiceConfig.EnvironmentVariables,
+      )) {
+        expect(value).not.toBe("");
+      }
+      expect(revision.ServiceConfig.EnvironmentVariables).not.toHaveProperty(
+        "CDK_NEXTJS_STATIC_ASSETS_KEY_PREFIX",
+      );
+      // Staged into a versioned bucket Lambda can read, not the bootstrap one.
+      expect(JSON.stringify(revision.BuildConfig.CodeConfig)).not.toContain(
+        "cdk-hnb659fds-assets",
+      );
+    }
+  });
+
+  it("grants CloudFront the endpoints, scoped to the distribution, in one policy per function", () => {
+    const { template } = synth({ functionGroups });
+    const [distributionId] = Object.keys(
+      template.findResources("AWS::CloudFront::Distribution"),
+    );
+    const policies = Object.values(
+      template.findResources("AWS::Lambda::ResourcePolicy"),
+    );
+    // A function has a single resource-based policy; a second policy
+    // resource for the same function would replace the first.
+    expect(policies).toHaveLength(2);
+    const functionsWithPolicy = policies.map(
+      (policy) => policy.Properties.ResourceArn["Fn::GetAtt"][0],
+    );
+    expect(new Set(functionsWithPolicy).size).toBe(2);
+    for (const policy of policies) {
+      const statements = policy.Properties.PolicyDocument.Statement;
+      expect(statements).toHaveLength(1);
+      const [statement] = statements;
+      expect(statement).toMatchObject({
+        Effect: "Allow",
+        Action: "lambda:InvokeWebFunctionEndpoint",
+        Principal: { Service: "cloudfront.amazonaws.com" },
+      });
+      expect(
+        JSON.stringify(statement.Condition.ArnLike["aws:SourceArn"]),
+      ).toContain(distributionId);
+      expect(JSON.stringify(statement.Resource)).toContain("EndpointArn");
+    }
+  });
+
+  it("reaches the endpoints through always-amz-auth OAC, without the viewer's Host", () => {
+    const { template } = synth({ functionGroups });
+    const controls = Object.values(
+      template.findResources("AWS::CloudFront::OriginAccessControl", {
+        Properties: {
+          OriginAccessControlConfig: Match.objectLike({
+            OriginAccessControlOriginType: "lambda",
+          }),
+        },
+      }),
+    );
+    // One, shared by every group's origin.
+    expect(controls).toHaveLength(1);
+    expect(controls[0].Properties.OriginAccessControlConfig).toMatchObject({
+      SigningBehavior: "always-amz-auth",
+      SigningProtocol: "sigv4",
+    });
+    const [distribution] = Object.values(
+      template.findResources("AWS::CloudFront::Distribution"),
+    );
+    const config = distribution.Properties.DistributionConfig;
+    const endpointOrigins = config.Origins.filter((origin: any) =>
+      /WebFunction\w*Endpoint/.test(JSON.stringify(origin.DomainName)),
+    );
+    expect(endpointOrigins).toHaveLength(2);
+    for (const origin of endpointOrigins) {
+      expect(origin.CustomOriginConfig.OriginProtocolPolicy).toBe("https-only");
+      expect(origin.OriginAccessControlId).toBeDefined();
+    }
+    // `ALL_VIEWER_EXCEPT_HOST_HEADER`: a Web Function answers any `Host` but
+    // its endpoint's with a 404.
+    expect(config.DefaultCacheBehavior.OriginRequestPolicyId).toBe(
+      "b689b0a8-53d0-40ab-baf2-68738e2966ac",
+    );
+    // The viewer-request function that sets `x-forwarded-host`.
+    expect(
+      config.DefaultCacheBehavior.FunctionAssociations.map(
+        (it: any) => it.EventType,
+      ),
+    ).toEqual(["viewer-request"]);
+    // Which leaves a `+` in the query as sent: the endpoint accepts
+    // CloudFront's signature on it (measured 2026-11-23).
+    const functions = Object.values(
+      template.findResources("AWS::CloudFront::Function"),
+    ).map((fn) => fn.Properties.FunctionCode as string);
+    expect(functions.some((code) => code.includes('"%20"'))).toBe(false);
+    // And the group's routes reach the group's endpoint.
+    const reports = config.CacheBehaviors.find(
+      (behavior: any) => behavior.PathPattern === "reports",
+    );
+    const target = config.Origins.find(
+      (origin: any) => origin.Id === reports.TargetOriginId,
+    );
+    expect(JSON.stringify(target.DomainName)).toContain(
+      "WebFunctionreportsEndpoint",
+    );
+  });
+
+  it("grants every group the cache, and invalidation through a policy of its own", () => {
+    const { template } = synth({ functionGroups });
+    const [distributionId] = Object.keys(
+      template.findResources("AWS::CloudFront::Distribution"),
+    );
+    const roleIds = Object.values(revisions(template)).map(
+      (revision) => revision.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0],
+    );
+    expect(roleIds).toHaveLength(2);
+    for (const roleId of roleIds) {
+      expectCacheActions(actionsOfRole(template, roleId));
+      expectTableScopedDynamoGrants(template, roleId);
+    }
+    const invalidation = Object.values(
+      template.findResources("AWS::IAM::Policy"),
+    ).filter((policy) =>
+      policy.Properties.PolicyDocument.Statement.some(
+        (statement: any) =>
+          statement.Action === "cloudfront:CreateInvalidation" &&
+          policy.Properties.Roles.some((role: any) =>
+            roleIds.includes(role.Ref),
+          ),
+      ),
+    );
+    expect(invalidation).toHaveLength(1);
+    expect(
+      invalidation[0].Properties.Roles.map((role: any) => role.Ref).sort(),
+    ).toEqual(roleIds.sort());
+    expect(JSON.stringify(invalidation[0].Properties.PolicyDocument)).toContain(
+      distributionId,
+    );
+  });
+
+  it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {
+    const { template } = synth({
+      functionGroups,
+      invalidateCdnOnRevalidate: false,
+    });
+    // No parameter name, so the cache handler never invalidates; and no
+    // grant, since nothing in the functions would use it.
+    template.resourceCountIs("AWS::SSM::Parameter", 0);
+    const found = Object.values(revisions(template));
+    expect(found).toHaveLength(2);
+    for (const revision of found) {
+      expect(revision.ServiceConfig.EnvironmentVariables).not.toHaveProperty(
+        "CDK_NEXTJS_DISTRIBUTION_ID_PARAM_NAME",
+      );
+      const roleId = revision.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0];
+      const actions = actionsOfRole(template, roleId);
+      expect(actions).not.toContain("cloudfront:CreateInvalidation");
+      expect(actions).not.toContain("ssm:GetParameter");
+      expectCacheActions(actions);
+    }
+    // The invalidation after each deploy is not affected.
+    template.resourceCountIs("Custom::NextjsPostDeploy", 1);
+  });
+
+  it("deploys each revision after its role's cache grants", () => {
+    const { template } = synth({ functionGroups });
+    const resources = template.toJSON().Resources;
+    const found = Object.values(
+      template.findResources("AWS::Lambda::WebFunctionRevision"),
+    );
+    expect(found).toHaveLength(2);
+    for (const revision of found) {
+      const roleId =
+        revision.Properties.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0];
+      const runtimePolicy = Object.keys(resources).find(
+        (logicalId) =>
+          resources[logicalId].Type === "AWS::IAM::Policy" &&
+          logicalId.includes("RuntimePolicy") &&
+          resources[logicalId].Properties.Roles.some(
+            (role: any) => role.Ref === roleId,
+          ),
+      );
+      expect(runtimePolicy).toBeDefined();
+      expect(revision.DependsOn).toEqual(
+        expect.arrayContaining([runtimePolicy]),
+      );
+    }
+  });
+
+  it("lets a role, its own or an override's, be granted the distribution", () => {
+    for (const bringRole of [false, true]) {
+      const stack = new Stack(new App(), "Stack", { env });
+      const role = bringRole
+        ? new Role(stack, "OwnRole", {
+            assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+          })
+        : undefined;
+      const app = new NextjsGlobalWebFunctions(stack, "App", {
+        buildDirectory: buildDir,
+        overrides: role
+          ? { nextjsWebFunctions: { webFunctionProps: { role } } }
+          : undefined,
+      });
+      const [group] = app.nextjsWebFunctions.functionGroups;
+      // Lands in the role's default policy, which names the distribution,
+      // whose origin is the endpoint: a revision waiting on it is a cycle.
+      app.nextjsDistribution.distribution.grantCreateInvalidation(group.role);
+      const template = Template.fromStack(stack);
+      const resources = template.toJSON().Resources;
+      const found = Object.values(
+        template.findResources("AWS::Lambda::WebFunctionRevision"),
+      );
+      expect(found).toHaveLength(1);
+      const [revision] = found;
+      // It waits on the cache grants, whoever made the role.
+      const roleId =
+        revision.Properties.ServiceConfig.ExecutionRoleArn["Fn::GetAtt"][0];
+      const waitsOn = (revision.DependsOn ?? []).filter(
+        (dependency: string) =>
+          resources[dependency].Type === "AWS::IAM::Policy",
+      );
+      expect(waitsOn).toHaveLength(1);
+      expect(waitsOn[0]).toContain("RuntimePolicy");
+      expect(
+        resources[waitsOn[0]].Properties.Roles.map((it: any) => it.Ref),
+      ).toEqual([roleId]);
+      expect(
+        JSON.stringify(resources[waitsOn[0]].Properties.PolicyDocument),
+      ).not.toContain("cloudfront");
+    }
+  });
+
+  it("grants a role groups share once, and every group waits on it", () => {
+    const stack = new Stack(new App(), "Stack", { env });
+    const role = new Role(stack, "OwnRole", {
+      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+    });
+    new NextjsGlobalWebFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups,
+      overrides: { nextjsWebFunctions: { webFunctionProps: { role } } },
+    });
+    const template = Template.fromStack(stack);
+    const runtimePolicies = Object.keys(
+      template.findResources("AWS::IAM::Policy"),
+    ).filter((logicalId) => logicalId.includes("RuntimePolicy"));
+    // Identical statements per group would add up past a role's inline
+    // policy quota.
+    expect(runtimePolicies).toHaveLength(1);
+    const found = Object.values(
+      template.findResources("AWS::Lambda::WebFunctionRevision"),
+    );
+    expect(found).toHaveLength(2);
+    for (const revision of found) {
+      expect(revision.DependsOn).toEqual(
+        expect.arrayContaining(runtimePolicies),
+      );
+    }
+  });
+
+  it("grants a role that takes no policy updates on the resources", () => {
+    const stack = new Stack(new App(), "Stack", { env });
+    const role = new Role(stack, "OwnRole", {
+      assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+    }).withoutPolicyUpdates({ addGrantsToResources: true });
+    new NextjsGlobalWebFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      overrides: { nextjsWebFunctions: { webFunctionProps: { role } } },
+    });
+    const template = Template.fromStack(stack);
+    // Nothing to wait on, so no policy of its own...
+    expect(
+      Object.keys(template.findResources("AWS::IAM::Policy")).filter(
+        (logicalId) => logicalId.includes("RuntimePolicy"),
+      ),
+    ).toEqual([]);
+    // ...but the cache bucket and the revalidation table still let it in.
+    const cachePolicy = Object.values(
+      template.findResources("AWS::S3::BucketPolicy"),
+    ).find((policy) =>
+      JSON.stringify(policy.Properties.Bucket).includes("NextjsCache"),
+    );
+    expect(JSON.stringify(cachePolicy?.Properties.PolicyDocument)).toContain(
+      "OwnRole",
+    );
+    const tables = Object.values(
+      template.findResources("AWS::DynamoDB::GlobalTable"),
+    );
+    expect(tables).toHaveLength(1);
+    expect(
+      JSON.stringify(
+        tables[0].Properties.Replicas.map((it: any) => it.ResourcePolicy),
+      ),
+    ).toContain("OwnRole");
+  });
+
+  it("warns that a Function URL origin override does nothing", () => {
+    const { stack } = synth({
+      overrides: {
+        nextjsDistribution: {
+          dynamicFunctionUrlOriginWithOACProps: {
+            readTimeout: Duration.seconds(60),
+          },
+        },
+      },
+    });
+    Annotations.fromStack(stack).hasWarning(
+      "*",
+      Match.stringLikeRegexp(
+        "dynamicFunctionUrlOriginWithOACProps.*ignored.*dynamicWebFunctionOriginProps",
+      ),
+    );
+  });
+
+  it("refuses a distribution from another stack", () => {
+    const app = new App();
+    const other = new Stack(app, "Other", { env });
+    const distribution = new Distribution(other, "Distribution", {
+      defaultBehavior: {
+        origin: new HttpOrigin("example.com"),
+      },
+    });
+    const stack = new Stack(app, "Stack", { env });
+    expect(
+      () =>
+        new NextjsGlobalWebFunctions(stack, "App", {
+          buildDirectory: buildDir,
+          distribution,
+        }),
+    ).toThrow(/`distribution` must be in its stack/);
+  });
+
+  it("stages Arm64 binaries whatever this machine is", () => {
+    const { app } = synth();
+    expect(app.nextjsBuild.architecture).toBe(Architecture.ARM_64);
+  });
+
+  describe("Regions", () => {
+    it("fails at synth in a Region without Web Functions", () => {
+      const stack = new Stack(new App(), "Stack", {
+        env: { region: "eu-central-1" },
+      });
+      expect(
+        () =>
+          new NextjsGlobalWebFunctions(stack, "App", {
+            buildDirectory: buildDir,
+          }),
+      ).toThrow(/can't deploy to eu-central-1/);
+    });
+
+    it("warns when the Region isn't known at synth", () => {
+      const stack = new Stack(new App(), "Stack");
+      new NextjsGlobalWebFunctions(stack, "App", { buildDirectory: buildDir });
+      Annotations.fromStack(stack).hasWarning(
+        "/Stack/App",
+        Match.stringLikeRegexp("this stack's Region isn't known at synth"),
+      );
+    });
+  });
+
+  describe("overrides", () => {
+    it("refuses an endpoint CloudFront can't sign for", () => {
+      expect(() =>
+        synth({
+          overrides: {
+            nextjsWebFunctions: {
+              webFunctionProps: {
+                defaultEndpointAuth: WebFunctionAuthType.APPLICATION_MANAGED,
+              },
+            },
+          },
+        }),
+      ).toThrow(/only supports IamAuth/);
+      expect(() =>
+        synth({
+          functionGroups: [
+            {
+              ...functionGroups[0],
+              overrides: {
+                webFunctionProps: {
+                  defaultEndpointAuth: WebFunctionAuthType.APPLICATION_MANAGED,
+                },
+              },
+            },
+          ],
+        }),
+      ).toThrow(/function group "reports"/);
+      expect(() =>
+        synth({
+          overrides: {
+            nextjsWebFunctions: {
+              webFunctionProps: {
+                defaultEndpoint: {
+                  endpointLocation: WebFunctionEndpointLocation.multiRegion([
+                    "us-west-2",
+                  ]),
+                },
+              },
+            },
+          },
+        }),
+      ).toThrow(/only supports homeRegion\(\)/);
+    });
+
+    it("applies shared props to every group, and naming props to the default one", () => {
+      const { template } = synth({
+        functionGroups,
+        overrides: {
+          nextjsWebFunctions: {
+            webFunctionProps: {
+              webFunctionName: "my-app",
+              maxConcurrencyPerEnvironment: 32,
+              defaultEndpoint: { endpointName: "live" },
+              environment: { FOO: "bar" },
+            },
+          },
+        },
+      });
+      const names = Object.values(
+        template.findResources("AWS::Lambda::WebFunction"),
+      ).map((fn) => fn.Properties.FunctionName);
+      expect(names).toContain("my-app");
+      expect(names.filter((name) => name === "my-app")).toHaveLength(1);
+      for (const revision of Object.values(revisions(template))) {
+        expect(revision.ServiceConfig.EnvironmentVariables).toMatchObject({
+          FOO: "bar",
+          // Follows a renamed endpoint, or nothing would be trusted.
+          CDK_NEXTJS_TRUSTED_ENDPOINT_NAME: "live",
+        });
+      }
+      const endpoints = Object.values(
+        template.findResources("AWS::Lambda::WebFunctionEndpoint"),
+      );
+      expect(endpoints.map((it) => it.Properties.EndpointName)).toEqual([
+        "live",
+        "live",
+      ]);
+    });
+
+    // The guard Global Functions has: replacing the viewer-request function
+    // would let a viewer's own `X-Forwarded-Host` through to a runtime that
+    // trusts it.
+    it("refuses a VIEWER_REQUEST association that would replace cdk-nextjs's", () => {
+      const stack = new Stack(new App(), "Stack", { env });
+      const fn = new CloudFrontFunction(stack, "Mine", {
+        code: FunctionCode.fromInline(
+          "function handler(e) { return e.request; }",
+        ),
+      });
+      expect(
+        () =>
+          new NextjsGlobalWebFunctions(stack, "App", {
+            buildDirectory: buildDir,
+            overrides: {
+              nextjsDistribution: {
+                dynamicBehaviorOptions: {
+                  functionAssociations: [
+                    {
+                      eventType: FunctionEventType.VIEWER_REQUEST,
+                      function: fn,
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+      ).toThrow(/NextjsGlobalWebFunctions needs that event type/);
+    });
+  });
+
+  it("reaches a VPC through one network connector for every group", () => {
+    const stack = new Stack(new App(), "Stack", { env });
+    new NextjsGlobalWebFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      functionGroups,
+      vpc: new Vpc(stack, "Vpc"),
+    });
+    const template = Template.fromStack(stack);
+    template.resourceCountIs("AWS::Lambda::NetworkConnector", 1);
+    for (const revision of Object.values(revisions(template))) {
+      expect(JSON.stringify(revision)).toContain("NetworkConnector");
+    }
   });
 });
 
@@ -953,6 +1522,19 @@ describe("init cache seeding", () => {
         expect.arrayContaining([seed]),
       );
     }
+    expectWaitsForSeed(template, "Custom::NextjsPostDeploy", seed);
+  });
+
+  it("NextjsGlobalWebFunctions: every function group waits for the seed", () => {
+    const { template, seed } = synth(
+      (stack) =>
+        new NextjsGlobalWebFunctions(stack, "App", {
+          buildDirectory: buildDir,
+          functionGroups,
+        }),
+    );
+    template.resourceCountIs("AWS::Lambda::WebFunction", 2);
+    expectWaitsForSeed(template, "AWS::Lambda::WebFunction", seed);
     expectWaitsForSeed(template, "Custom::NextjsPostDeploy", seed);
   });
 

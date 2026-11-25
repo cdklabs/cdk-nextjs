@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * One route handler covering the response and request shapes that the four
+ * One route handler covering the response and request shapes that the five
  * cdk-nextjs deployment types plumb differently. Deliberately one file rather
  * than nine: every branch here reads `request`, so none of them needs
  * `connection()` to stay out of the build-time prerender, and keeping them
@@ -33,6 +33,11 @@ import { NextRequest, NextResponse } from 'next/server';
  *   to catch an integration that buffers the whole response before sending.
  * - `?throw=1` / `?notfound=1` The error and 404 paths *out of a route handler*,
  *   which reach different code than a page's do.
+ * - `?request=1` (GET or POST) What the request looked like on arrival: the
+ *   URL the app builds from it, which must carry the viewer's host rather than
+ *   the origin's, and the header names that made it through, which shows what
+ *   the front door adds, strips or overwrites (`authorization` above all; it is
+ *   reported as a hash so a real credential is never echoed back).
  * - `POST` / `PUT` A request body. Behind CloudFront + a signed Function URL the
  *   body has to be hashed into the SigV4 signature; on API Gateway it arrives
  *   base64-encoded; on a container it arrives as a plain stream. Three code paths
@@ -49,12 +54,33 @@ function sha256(body: Uint8Array | string) {
   return createHash('sha256').update(body).digest('hex');
 }
 
+function describeRequest(request: NextRequest) {
+  const authorization = request.headers.get('authorization');
+  return NextResponse.json(
+    {
+      method: request.method,
+      url: request.url,
+      origin: request.nextUrl.origin,
+      host: request.headers.get('host'),
+      forwardedHost: request.headers.get('x-forwarded-host'),
+      authorizationSha256:
+        authorization === null ? null : sha256(authorization),
+      headerNames: Array.from(request.headers.keys()).sort(),
+    },
+    { headers: markerHeaders({ 'cache-control': 'no-store' }) },
+  );
+}
+
 function markerHeaders(extra?: Record<string, string>) {
   return { [MARKER]: 'echo', ...extra };
 }
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
+
+  if (params.has('request')) {
+    return describeRequest(request);
+  }
 
   if (params.has('throw')) {
     // Not a `new Response(..., { status: 500 })`: the point is an *unhandled*
@@ -175,6 +201,9 @@ async function echoRequestBody(request: NextRequest, method: string) {
 }
 
 export async function POST(request: NextRequest) {
+  if (request.nextUrl.searchParams.has('request')) {
+    return describeRequest(request);
+  }
   return echoRequestBody(request, 'POST');
 }
 

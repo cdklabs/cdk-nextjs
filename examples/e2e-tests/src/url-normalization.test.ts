@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { isGlobalFunctions, isLocal } from "./utils/deployment-type";
+import { hasViewerRequestFunction, isLocal } from "./utils/deployment-type";
 
 /**
  * A repeated slash in a path. Next.js answers one with a 308 to the collapsed
@@ -9,6 +9,7 @@ import { isGlobalFunctions, isLocal } from "./utils/deployment-type";
  * pieces of infrastructure:
  *
  *   NextjsGlobalFunctions    a CloudFront viewer-request function
+ *   NextjsGlobalWebFunctions the same CloudFront viewer-request function
  *   NextjsGlobalContainers   the origin, through CloudFront
  *   NextjsRegionalContainers the origin, through the ALB
  *   NextjsRegionalFunctions  the origin, through API Gateway
@@ -117,8 +118,8 @@ test.describe("url normalization", () => {
   }) => {
     test.skip(isLocal(), "no CDN in front of a dev server");
     test.skip(
-      !isGlobalFunctions(),
-      "only NextjsGlobalFunctions collapses in a CloudFront function",
+      !hasViewerRequestFunction(),
+      "only the Lambda-backed Global types collapse in a CloudFront function",
     );
 
     const response = await request.get(rawUrl(baseURL, "/isr//1"), {
@@ -147,7 +148,7 @@ test.describe("url normalization", () => {
     expect(response.status()).toBe(308);
 
     const location = response.headers()["location"] ?? "";
-    // Order-insensitive, because on `NextjsGlobalFunctions` it has to be: a
+    // Order-insensitive, because behind the viewer-request function it has to be: a
     // CloudFront viewer-request event exposes `querystring` as an object and never
     // as the raw string, so the function rebuilds it and the order becomes
     // CloudFront's. Every pair surviving is what matters for a redirect target.
@@ -158,7 +159,7 @@ test.describe("url normalization", () => {
     // was given, so the order is the client's and can be asserted exactly. Keeping
     // this half strict is what would catch a rebuild being introduced on a type
     // that has no reason to need one.
-    if (!isGlobalFunctions()) {
+    if (!hasViewerRequestFunction()) {
       expect(location).toContain("?a=1&b=2");
     }
   });

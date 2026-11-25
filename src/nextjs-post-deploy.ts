@@ -58,7 +58,8 @@ export interface NextjsPostDeployProps {
    */
   readonly overrides?: NextjsPostDeployOverrides;
   /**
-   * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`
+   * Required for `NextjsType.GlobalFunctions`, `NextjsType.GlobalWebFunctions`
+   * and `NextjsType.GlobalContainers`
    */
   readonly staticAssetsBucket?: IBucket;
   /**

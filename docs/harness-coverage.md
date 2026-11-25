@@ -68,12 +68,12 @@ included files passing on each scheduled run.
 
 ### Which types the harness proves
 
-The harness runs on all four types, on the schedule and by `workflow_dispatch`
+The harness runs on all five types, on the schedule and by `workflow_dispatch`
 (`nextjs_type`, `all` for every type) or by hand, with
 `NextjsRegionalFunctions` behind `scripts/e2e-harness/stage-proxy.mjs`, which puts
 back the stage prefix the harness would otherwise drop. The findings whose
 plumbing differs per deployment type are also back-filled into
-`examples/e2e-tests` (run against `examples/app-playground` on all four types,
+`examples/e2e-tests` (run against `examples/app-playground` on all five types,
 every commit) — the "4-type spec" column of the table under "Fixed". What stays
 harness-only is what cannot coexist with the App Router fixture in one
 `next.config.ts` (`trailingSlash`, `assetPrefix`, `i18n`, the Pages Router) or has
@@ -547,7 +547,7 @@ needs no flag (`.mts` is ESM either way) and is green.
   e.g. churning bucket `Tags` once did this; see the README. On the Global
   types, `rejected changes: DistributionConfig` in the log means a CloudFront
   update, which takes 8-10 minutes; if the next file logs `an earlier cdk deploy
-  … is still running; waiting`, it is waiting on that update, not failing on its
+… is still running; waiting`, it is waiting on that update, not failing on its
   own. A wait that ends in `outlived 600s; stopping it` means the earlier deploy
   hung: that file failed on it, and this one starts from a clean slate.
 - **A pass in under ~10s deployed nothing.** A real file spends 100s+ on

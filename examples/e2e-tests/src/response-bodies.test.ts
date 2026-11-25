@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
 
 /**
- * The shapes of response body that the four deployment types carry differently.
+ * The shapes of response body that the five deployment types carry differently.
  *
  * All four put something between Next.js and the client that has an opinion about
  * bodies: CloudFront wants a `content-length`, API Gateway in STREAM mode drops

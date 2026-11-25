@@ -425,7 +425,7 @@ export class S3CacheHandler implements CacheHandler {
   constructor(options: S3CacheHandlerOptions) {
     this.config = resolveAwsCacheConfig();
 
-    // Only set for CloudFront-fronted deployments (NextjsGlobalFunctions/Containers).
+    // Only set for CloudFront-fronted deployments (the Global constructs).
     // When unset, on-demand revalidation skips CDN invalidation and relies on the
     // distribution's cache policy TTL (driven by the origin's Cache-Control header)
     // to eventually pick up fresh content.

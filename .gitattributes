@@ -45,6 +45,7 @@
 /src/generated-structs/OptionalPostDeployCustomResourceProperties.ts linguist-generated
 /src/generated-structs/OptionalS3OriginBucketWithOACProps.ts linguist-generated
 /src/generated-structs/OptionalVpcProps.ts linguist-generated
+/src/generated-structs/OptionalWebFunctionProps.ts linguist-generated
 /src/lambdas/cache-seed/cache-seed-function.ts linguist-generated
 /src/lambdas/post-deploy/post-deploy-function.ts linguist-generated
 /src/lambdas/redeploy-stage/redeploy-stage-function.ts linguist-generated

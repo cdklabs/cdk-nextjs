@@ -11,7 +11,7 @@ export interface OptionalNextjsPostDeployProps {
    */
   readonly staticAssetsKeyPrefix?: string;
   /**
-   * Required for `NextjsType.GlobalFunctions` and `NextjsType.GlobalContainers`.
+   * Required for `NextjsType.GlobalFunctions`, `NextjsType.GlobalWebFunctions` and `NextjsType.GlobalContainers`.
    * @stability stable
    */
   readonly staticAssetsBucket?: aws_s3.IBucket;

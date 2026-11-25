@@ -434,7 +434,7 @@ export class NextjsApi extends Construct {
           "their own; their requests reach the server function, which reads them " +
           `from S3 instead: ${unroutable.join(", ")}. To serve them directly, rename them, move them into a ` +
           "public/ subdirectory whose own name is expressible, or use " +
-          "NextjsGlobalFunctions or NextjsGlobalContainers, whose CloudFront " +
+          "NextjsGlobalFunctions, NextjsGlobalWebFunctions or NextjsGlobalContainers, whose CloudFront " +
           "behaviors can match them.",
       );
     }

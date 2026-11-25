@@ -13,13 +13,14 @@ const { Vpc } = require("aws-cdk-lib/aws-ec2");
 const {
   NextjsGlobalContainers,
   NextjsGlobalFunctions,
+  NextjsGlobalWebFunctions,
   NextjsRegionalContainers,
   NextjsRegionalFunctions,
 } = require("../../lib");
 
 const appDir = required("HARNESS_APP_DIR");
 const stackName = required("HARNESS_STACK_NAME");
-// One of the four `NextjsType`s, `global-functions` by default; see common.sh's
+// One of the five `NextjsType`s, `global-functions` by default; see common.sh's
 // `harness_nextjs_type`, which validates it and keeps the stack names apart.
 const nextjsType = process.env["HARNESS_NEXTJS_TYPE"] || "global-functions";
 
@@ -189,6 +190,46 @@ class HarnessStack extends Stack {
 }
 
 /**
+ * `NextjsGlobalWebFunctions`: CloudFront + Lambda Web Functions. Served at the
+ * distribution's origin root, like `HarnessStack`, and invalidated the same way
+ * by `e2e-deploy.sh`. CDK can't hotswap a Web Function, so every test file is a
+ * CloudFormation deployment (`--hotswap-fallback`).
+ */
+class GlobalWebFunctionsHarnessStack extends Stack {
+  constructor(scope, id, props) {
+    super(scope, id, props);
+    const nextjs = new NextjsGlobalWebFunctions(this, "Nextjs", {
+      ...COMMON_PROPS,
+      overrides: { nextjsPostDeploy: PINNED_POST_DEPLOY },
+    });
+    new CfnOutput(this, "HarnessUrl", {
+      key: "HarnessUrl",
+      // The bare origin, for the reasons given in `HarnessStack`.
+      value: `https://${nextjs.nextjsDistribution.distribution.domainName}`,
+    });
+    new CfnOutput(this, "DistributionId", {
+      key: "DistributionId",
+      value: nextjs.nextjsDistribution.distribution.distributionId,
+    });
+    new CfnOutput(this, "ServerFunctionName", {
+      key: "ServerFunctionName",
+      value: nextjs.nextjsWebFunctions.webFunction.webFunctionName,
+    });
+    // Not `/aws/lambda/<name>`: the Web Function's log group is named by
+    // CloudFormation, so `e2e-logs.sh` reads it from here.
+    new CfnOutput(this, "ServerLogGroupName", {
+      key: "ServerLogGroupName",
+      value: nextjs.nextjsWebFunctions.webFunction.logGroup.logGroupRef.logGroupName,
+    });
+    // What `e2e-sweep.sh` tells a Web Function from an Event Function by.
+    new CfnOutput(this, "ServerFunctionKind", {
+      key: "ServerFunctionKind",
+      value: "WebFunction",
+    });
+  }
+}
+
+/**
  * A path no fixture routes, for the container health checks.
  *
  * Both container types require a `healthCheckPath` that answers 200, and the
@@ -350,6 +391,7 @@ class RegionalContainersHarnessStack extends Stack {
 
 const STACK_CLASSES = {
   "global-functions": HarnessStack,
+  "global-web-functions": GlobalWebFunctionsHarnessStack,
   "regional-functions": RegionalHarnessStack,
   "global-containers": GlobalContainersHarnessStack,
   "regional-containers": RegionalContainersHarnessStack,
