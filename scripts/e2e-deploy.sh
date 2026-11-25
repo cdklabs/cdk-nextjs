@@ -349,17 +349,16 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   # resource of its own there and falls through to that tree's `{proxy+}`, i.e.
   # the server function - already updated, but holding no static files - which
   # answers a plain 404. That passed every check above, so the suite ran with
-  # every chunk 404ing and nothing hydrating: all 11 `basePath` fixtures failed
-  # their first attempt on Regional Functions (run 45526235700), and two failed
-  # their retry ~75s after the stage switch too. Only the new tree's S3
-  # integration serves it.
+  # every chunk 404ing and nothing hydrating: every `basePath` fixture failed its
+  # first attempt on Regional Functions, and some their retry too. Only the new
+  # tree's S3 integration serves it.
   BASE_PATH="$(node -e 'try{process.stdout.write(require(process.argv[1]).config.basePath||"")}catch{}' "$APP_DIR/.next/required-server-files.json")"
   MANIFEST_PROBE="$BASE_PATH/_next/static/$BUILD_ID/_buildManifest.js"
   PROBES=("$BASE_PATH/" "$MANIFEST_PROBE" "$BASE_PATH/__cdk-nextjs-harness-probe")
   api_gateway_ready() {
     local path head status
     for path in "${PROBES[@]}"; do
-      head="$(curl -s -o /dev/null -D - "$URL$path" || true)"
+      head="$(curl -s --max-time 10 -o /dev/null -D - "$URL$path" || true)"
       status="$(printf '%s' "$head" | awk 'NR==1{print $2}')"
       if [ -z "$status" ] || [ "${status:0:1}" = "5" ] \
         || printf '%s' "$head" | grep -qi '^x-amzn-errortype:' \
@@ -372,11 +371,17 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   }
   # Five rounds in a row, not one: the new deployment reaches API Gateway's fleet
   # unevenly, and a test got the replaced tree's 403 right after all three
-  # probes had passed once. 60 x 3s overall: the replaced tree was measured
-  # still answering ~90s after CloudFormation reported UPDATE_COMPLETE, and a
-  # fixture failed on it ~75s after the stage switch, so 120s left too little
-  # margin. A deploy that leaves the tree alone still passes its five rounds
-  # straight away (~15s); only a stage switch waits longer.
+  # probes had passed once. Up to 60 rounds, 3s apart (each probe capped at
+  # 10s): the replaced tree was measured still answering ~90s after
+  # CloudFormation reported UPDATE_COMPLETE, and five clean rounds add ~15s on
+  # top. A deploy that leaves the tree alone still passes its five rounds
+  # straight away (~15s); only a stage switch waits longer. The whole wait is
+  # charged against NEXT_E2E_TEST_TIMEOUT, which is why Regional Functions gets
+  # more of it than Global Functions' hotswaps need (.github/workflows/e2e-harness.yml).
+  #
+  # Running out of rounds still runs the suite (a fixture can answer 500 on
+  # purpose), but says so: the log then names the probe that never settled
+  # rather than reporting "ready".
   READY_ROUNDS=0
   for _ in $(seq 1 60); do
     if api_gateway_ready; then
@@ -387,7 +392,11 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
     fi
     sleep 3
   done
-  echo "harness: $URL ready: $STATUS"
+  if [ "$READY_ROUNDS" -ge 5 ]; then
+    echo "harness: $URL ready: $STATUS"
+  else
+    echo "harness: $URL not ready after 60 rounds, running anyway: $STATUS" >&2
+  fi
 else
   # Then evict the previous test file's app from the edge.
   #

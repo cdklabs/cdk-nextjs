@@ -467,10 +467,16 @@ Three things the regional deploy does that the Global one does not:
   Gateway kept answering the replaced tree (403 `MissingAuthenticationToken`,
   then 500s) for ~90s after CloudFormation reported `UPDATE_COMPLETE`, unevenly
   across requests. So it waits until the base path, `_next/static` and the
-  catch-all have all stayed healthy for five rounds in a row, for up to 180s.
+  catch-all have all stayed healthy for five rounds in a row: up to 60 rounds,
+  3s apart, each probe capped at 10s. If they never do, it logs `not ready
+  after 60 rounds` with the failing probe, and the suite runs anyway.
   The build manifest has to answer 2xx: on the replaced tree a basePath's
   `_next/static` request falls through to the old `{proxy+}`, and the server
   function answers it with a plain 404 that no other check catches.
+
+That wait comes on top of a full CloudFormation update, all inside `beforeAll`,
+so `NEXT_E2E_TEST_TIMEOUT` is 360000 for Regional Functions in the workflow,
+not 240000.
 
 What it cannot do: a fetch the **server** makes to its own origin. The origin is
 `127.0.0.1` on the machine running the suite, and the Lambda cannot reach that.
@@ -770,6 +776,6 @@ the account.
 | `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per local session (`dev-$USER`).       |
 | `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |
-| `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. Use `240000`.   |
+| `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. Use `240000` (`360000` for `regional-functions`). |
 
 [harness]: https://nextjs.org/docs/app/api-reference/adapters/testing-adapters
