@@ -385,10 +385,11 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   # tree alone still passes its five rounds straight away (~15s); only a stage
   # switch waits longer. A deadline, not a round count, because a stalled probe
   # makes a round take up to PROBE_TIMEOUT per probe; each probe is also capped
-  # at the time left, so the last round overruns it by a second at most. The whole wait is
-  # charged against NEXT_E2E_TEST_TIMEOUT, on top of the full CloudFormation
-  # update a stage switch is, which is why Regional Functions' budget is 360s
-  # rather than the 240s a hotswap needs (.github/workflows/e2e-harness.yml).
+  # at the time left, so the last round overruns it by a second at most. The
+  # whole wait is charged against NEXT_E2E_TEST_TIMEOUT, on top of the full
+  # CloudFormation update a stage switch is, which is why Regional Functions'
+  # budget is 360s rather than the 240s a hotswap needs
+  # (.github/workflows/e2e-harness.yml).
   #
   # Running out of time still runs the suite (a fixture can answer 500 on
   # purpose), but says so, naming the last probe that failed rather than
