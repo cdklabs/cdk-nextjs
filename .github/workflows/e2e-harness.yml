@@ -360,9 +360,9 @@ jobs:
       # Containers types add an image build and push and an ECS rollout to every
       # deploy, which do not fit the 240s a hotswapped Functions deploy needs. The
       # Global types get more again: a fixture whose top-level `public/` entries
-      # differ from the previous file's changes the distribution's cache behaviors, which
-      # hotswap cannot apply, and the full update then waits on CloudFront -
-      # 8-10 minutes measured on 2026-09-28. At 240s such a file failed wholesale,
+      # differ from the previous file's changes the distribution's cache
+      # behaviors, which hotswap cannot apply, and the full update then waits on
+      # CloudFront - 8-10 minutes measured on 2026-09-28. At 240s such a file failed wholesale,
       # and its retry spent its own 240s waiting for that same update to finish.
       # Regional Functions gets 360s: a fixture whose `basePath` differs from the
       # previous file's changes the REST API's resource tree, so its deploy is a

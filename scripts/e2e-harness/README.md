@@ -46,8 +46,9 @@ the whole saving, and it is most of the cost of a run.
 
 `scripts/e2e-warm.sh` pays that cost **before `run-tests.js` starts**, and
 is not optional. The harness calls `createNext` inside jest's `beforeAll`, so a
-stack create is charged against `NEXT_E2E_TEST_TIMEOUT` (240s when this was measured) and the
-first test file fails wholesale, then passes on retry once the stack exists.
+stack create is charged against `NEXT_E2E_TEST_TIMEOUT` (240s when this was
+measured) and the first test file failed wholesale, then passed on retry once
+the stack existed.
 Measured: unwarmed, the first file failed all 11 tests at 242s and passed on
 retry 1 in 213s; against an already-created stack, a file passes on its first
 attempt in 107s. Retries make that survivable, not correct - it spends a retry

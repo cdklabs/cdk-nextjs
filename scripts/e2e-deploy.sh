@@ -357,17 +357,20 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   PROBES=("$BASE_PATH/" "$MANIFEST_PROBE" "$BASE_PATH/__cdk-nextjs-harness-probe")
   READY_WINDOW=180 PROBE_TIMEOUT=10 ROUND_GAP=3
   api_gateway_ready() {
-    local path head status left
+    local path head status limit
     for path in "${PROBES[@]}"; do
-      # Never past the deadline, so a stalled probe can't stretch the window.
-      left=$((READY_DEADLINE - SECONDS))
-      [ "$left" -lt 1 ] && left=1
-      head="$(curl -s --max-time "$((left < PROBE_TIMEOUT ? left : PROBE_TIMEOUT))" -o /dev/null -D - "$URL$path" || true)"
+      # Capped at the time left, so a stalled probe can't stretch the window by
+      # more than about a second. Past the deadline, a round fails without
+      # touching STATUS, so the log keeps naming the last real failure.
+      limit=$((READY_DEADLINE - SECONDS))
+      [ "$limit" -ge 1 ] || return 1
+      [ "$limit" -le "$PROBE_TIMEOUT" ] || limit=$PROBE_TIMEOUT
+      head="$(curl -s --max-time "$limit" -o /dev/null -D - "$URL$path" || true)"
       status="$(printf '%s' "$head" | awk 'NR==1{print $2}')"
       if [ -z "$status" ] || [ "${status:0:1}" = "5" ] \
         || printf '%s' "$head" | grep -qi '^x-amzn-errortype:' \
         || { [ "$path" = "$MANIFEST_PROBE" ] && [ "${status:0:1}" != "2" ]; }; then
-        STATUS="$path -> ${status:-no answer}"
+        STATUS="$path -> ${status:-no answer within ${limit}s}"
         return 1
       fi
     done
@@ -382,7 +385,7 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   # tree alone still passes its five rounds straight away (~15s); only a stage
   # switch waits longer. A deadline, not a round count, because a stalled probe
   # makes a round take up to PROBE_TIMEOUT per probe; each probe is also capped
-  # at the time left, so the last round can't overrun it. The whole wait is
+  # at the time left, so the last round overruns it by a second at most. The whole wait is
   # charged against NEXT_E2E_TEST_TIMEOUT, on top of the full CloudFormation
   # update a stage switch is, which is why Regional Functions' budget is 360s
   # rather than the 240s a hotswap needs (.github/workflows/e2e-harness.yml).
