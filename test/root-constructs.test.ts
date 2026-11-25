@@ -427,6 +427,24 @@ describe("NextjsGlobalFunctions", () => {
     });
   });
 
+  it("passes dynamicBehaviors to its distribution", () => {
+    const stack = new Stack(new App(), "Stack");
+    new NextjsGlobalFunctions(stack, "App", {
+      buildDirectory: buildDir,
+      dynamicBehaviors: [{ pathPattern: "detail/*", compress: false }],
+    });
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::Distribution",
+      {
+        DistributionConfig: {
+          CacheBehaviors: Match.arrayWith([
+            Match.objectLike({ PathPattern: "detail/*", Compress: false }),
+          ]),
+        },
+      },
+    );
+  });
+
   it("adds its behaviors to a distribution passed in instead of creating one", () => {
     nextConfigBasePath = "shop";
     const stack = new Stack(new App(), "Stack");
@@ -628,6 +646,27 @@ describe("NextjsGlobalContainers", () => {
           statement.Action === "cloudfront:CreateInvalidation",
       );
     expect(JSON.stringify(invalidation.Resource)).toContain(distributionId);
+  });
+
+  it("passes dynamicBehaviors to its distribution", () => {
+    const stack = new Stack(new App(), "Stack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    new NextjsGlobalContainers(stack, "App", {
+      buildDirectory: buildDir,
+      healthCheckPath: "/api/health",
+      dynamicBehaviors: [{ pathPattern: "detail/*", compress: false }],
+    });
+    Template.fromStack(stack).hasResourceProperties(
+      "AWS::CloudFront::Distribution",
+      {
+        DistributionConfig: {
+          CacheBehaviors: Match.arrayWith([
+            Match.objectLike({ PathPattern: "detail/*", Compress: false }),
+          ]),
+        },
+      },
+    );
   });
 
   it("leaves invalidation off when invalidateCdnOnRevalidate is false", () => {

@@ -2,11 +2,18 @@ import { runInNewContext } from "node:vm";
 import { App, Duration, Lazy, Stack } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import {
+  AllowedMethods,
+  CachedMethods,
+  CachePolicy,
   Function as CloudFrontFunction,
+  EdgeLambda,
   FunctionCode,
   FunctionEventType,
   KeyValueStore,
+  LambdaEdgeEventType,
+  OriginRequestPolicy,
   ResponseHeadersPolicy,
+  ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Vpc } from "aws-cdk-lib/aws-ec2";
@@ -17,6 +24,7 @@ import {
   FunctionUrl,
   FunctionUrlAuthType,
   Runtime,
+  Version,
 } from "aws-cdk-lib/aws-lambda";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { pathPatternsFor } from "./adapter/function-groups";
@@ -25,6 +33,7 @@ import {
   NextjsDistribution,
   NextjsDistributionFunctionGroup,
   NextjsDistributionOverrides,
+  NextjsDynamicBehavior,
 } from "./nextjs-distribution";
 
 /**
@@ -319,6 +328,33 @@ describe("NextjsDistribution function group behaviors", () => {
       "api/reports/*",
       "api/*",
     ]);
+  });
+
+  it("adds dynamicBehaviors after the group behaviors, and refuses a group's pattern", () => {
+    const { stack, functionGroups, functionGroupBehaviors, distributionProps } =
+      setup(["api"]);
+    new NextjsDistribution(stack, "Distribution", {
+      ...distributionProps,
+      functionGroups,
+      functionGroupBehaviors,
+      dynamicBehaviors: [{ pathPattern: "detail/*" }],
+    });
+    expect(pathPatterns(stack)).toEqual([
+      "_next/static*",
+      "_next/image*",
+      "api/*",
+      "detail/*",
+    ]);
+    const clash = setup(["api"]);
+    expect(
+      () =>
+        new NextjsDistribution(clash.stack, "Distribution", {
+          ...clash.distributionProps,
+          functionGroups: clash.functionGroups,
+          functionGroupBehaviors: clash.functionGroupBehaviors,
+          dynamicBehaviors: [{ pathPattern: "/api/*" }],
+        }),
+    ).toThrow(/"\/api\/\*" \("\/api\/\*"\) already has a behavior/);
   });
 
   it("keeps the two slash variants distinct under a basePath", () => {
@@ -1559,4 +1595,682 @@ describe("viewerRequestFunctionCode", () => {
   ])("refuses code with %s", (_name, code, error) => {
     expect(() => synth({ code })).toThrow(error);
   });
+});
+
+/**
+ * `dynamicBehaviors` and `dynamicBehaviorOptions`, the public way to send a
+ * path of the app's own to the Next.js server with some options changed.
+ */
+describe("dynamicBehaviors", () => {
+  interface Behavior {
+    PathPattern?: string;
+    TargetOriginId: string;
+    CachePolicyId: unknown;
+    OriginRequestPolicyId: unknown;
+    ResponseHeadersPolicyId: unknown;
+    AllowedMethods: string[];
+    ViewerProtocolPolicy: string;
+    FunctionAssociations?: Array<{ EventType: string; FunctionARN: unknown }>;
+  }
+
+  const setup = (
+    nextjsType: NextjsType,
+    props: {
+      dynamicBehaviors?: (stack: Stack) => NextjsDynamicBehavior[];
+      viewerRequestFunctionCode?: FunctionCode;
+      overrides?: (stack: Stack) => NextjsDistributionOverrides;
+      basePath?: string;
+      publicDirEntries?: string[];
+      maxCacheBehaviors?: number;
+    } = {},
+  ) => {
+    const stack = new Stack(new App(), "TestStack");
+    const compute =
+      nextjsType === NextjsType.GLOBAL_CONTAINERS
+        ? {
+            loadBalancer: new ApplicationLoadBalancer(stack, "Alb", {
+              vpc: new Vpc(stack, "Vpc"),
+            }),
+          }
+        : {
+            functionUrl: new FunctionUrl(stack, "Url", {
+              function: new LambdaFunction(stack, "Fn", {
+                code: Code.fromInline("exports.handler = () => {};"),
+                handler: "index.handler",
+                runtime: Runtime.NODEJS_22_X,
+              }),
+              authType: FunctionUrlAuthType.AWS_IAM,
+            }),
+          };
+    const distribution = new NextjsDistribution(stack, "Distribution", {
+      assetsBucket: new Bucket(stack, "Assets"),
+      nextjsType,
+      basePath: props.basePath,
+      maxCacheBehaviors: props.maxCacheBehaviors,
+      publicDirEntries: (props.publicDirEntries ?? []).map((name) => ({
+        name,
+        isDirectory: false,
+      })),
+      dynamicBehaviors: props.dynamicBehaviors?.(stack),
+      viewerRequestFunctionCode: props.viewerRequestFunctionCode,
+      overrides: props.overrides?.(stack),
+      ...compute,
+    });
+    return { stack, distribution };
+  };
+
+  const behaviors = (stack: Stack) => {
+    const config = Object.values(
+      Template.fromStack(stack).findResources("AWS::CloudFront::Distribution"),
+    )[0].Properties.DistributionConfig;
+    const cacheBehaviors = config.CacheBehaviors as Behavior[];
+    return {
+      defaultBehavior: config.DefaultCacheBehavior as Behavior,
+      patterns: cacheBehaviors.map((it) => it.PathPattern),
+      byPattern: (pattern: string) =>
+        cacheBehaviors.find((it) => it.PathPattern === pattern)!,
+    };
+  };
+
+  const cloudFrontFn = (stack: Stack, id: string) =>
+    new CloudFrontFunction(stack, id, {
+      code: FunctionCode.fromInline(
+        "function handler(event) { return event.request || event.response; }",
+      ),
+    });
+
+  it.each([NextjsType.GLOBAL_CONTAINERS, NextjsType.GLOBAL_FUNCTIONS])(
+    "sends the path to the default behavior's origin with its options on %s, bar the one set",
+    (nextjsType) => {
+      const { stack } = setup(nextjsType, {
+        dynamicBehaviors: (scope) => [
+          {
+            pathPattern: "detail/*",
+            cachePolicy: new CachePolicy(scope, "DetailCachePolicy", {
+              defaultTtl: Duration.seconds(0),
+              maxTtl: Duration.seconds(60),
+            }),
+          },
+        ],
+      });
+      const { defaultBehavior, byPattern } = behaviors(stack);
+      expect(byPattern("detail/*")).toEqual({
+        ...defaultBehavior,
+        PathPattern: "detail/*",
+        CachePolicyId: { Ref: expect.stringMatching(/^DetailCachePolicy/) },
+      });
+      expect(byPattern("detail/*").CachePolicyId).not.toEqual(
+        defaultBehavior.CachePolicyId,
+      );
+    },
+  );
+
+  it.each([
+    [NextjsType.GLOBAL_FUNCTIONS, undefined],
+    [
+      NextjsType.GLOBAL_CONTAINERS,
+      FunctionCode.fromInline("function viewerRequest(event) {}"),
+    ],
+  ])(
+    "keeps cdk-nextjs's viewer-request function on %s",
+    (nextjsType, viewerRequestFunctionCode) => {
+      const { stack } = setup(nextjsType, {
+        viewerRequestFunctionCode,
+        dynamicBehaviors: () => [{ pathPattern: "detail/*" }],
+      });
+      const { defaultBehavior, byPattern } = behaviors(stack);
+      expect(defaultBehavior.FunctionAssociations).toEqual([
+        expect.objectContaining({ EventType: "viewer-request" }),
+      ]);
+      expect(byPattern("detail/*").FunctionAssociations).toEqual(
+        defaultBehavior.FunctionAssociations,
+      );
+    },
+  );
+
+  it("keeps overrides.dynamicBehaviorOptions' associations", () => {
+    const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      overrides: (scope) => ({
+        dynamicBehaviorOptions: {
+          functionAssociations: [
+            {
+              eventType: FunctionEventType.VIEWER_RESPONSE,
+              function: cloudFrontFn(scope, "OverrideFn"),
+            },
+          ],
+        },
+      }),
+      dynamicBehaviors: () => [{ pathPattern: "detail/*" }],
+    });
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    expect(defaultBehavior.FunctionAssociations).toEqual([
+      expect.objectContaining({ EventType: "viewer-response" }),
+    ]);
+    expect(byPattern("detail/*").FunctionAssociations).toEqual(
+      defaultBehavior.FunctionAssociations,
+    );
+  });
+
+  it("reads only the declared fields, so a stray functionAssociations can't drop cdk-nextjs's", () => {
+    const { stack } = setup(NextjsType.GLOBAL_FUNCTIONS, {
+      dynamicBehaviors: (scope) => {
+        // A spread of a full `BehaviorOptions`, which TypeScript doesn't
+        // check for extra properties.
+        const shared = {
+          functionAssociations: [
+            {
+              eventType: FunctionEventType.VIEWER_REQUEST,
+              function: cloudFrontFn(scope, "StrayFn"),
+            },
+          ],
+          compress: false,
+        };
+        const behavior: NextjsDynamicBehavior = {
+          ...shared,
+          pathPattern: "detail/*",
+        };
+        return [behavior];
+      },
+    });
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    const detail = byPattern("detail/*") as Behavior & { Compress: boolean };
+    expect(detail.FunctionAssociations).toEqual(
+      defaultBehavior.FunctionAssociations,
+    );
+    expect(detail.Compress).toBe(false);
+  });
+
+  it("keeps the default behavior's field where one is left undefined", () => {
+    const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      dynamicBehaviors: () => [
+        { pathPattern: "detail/*", cachePolicy: undefined },
+      ],
+    });
+    const { defaultBehavior, byPattern } = behaviors(stack);
+    expect(byPattern("detail/*").CachePolicyId).toEqual(
+      defaultBehavior.CachePolicyId,
+    );
+  });
+
+  it("prefixes the basePath and adds them before the basePath behaviors, in order", () => {
+    const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      basePath: "docs",
+      publicDirEntries: ["favicon.ico"],
+      dynamicBehaviors: () => [
+        { pathPattern: "detail/*" },
+        { pathPattern: "/reports/*" },
+      ],
+    });
+    expect(behaviors(stack).patterns).toEqual([
+      "/docs/_next/static*",
+      "/docs/favicon.ico",
+      "/docs/_next/image*",
+      "/docs/detail/*",
+      "/docs/reports/*",
+      "/docs",
+      "/docs/*",
+    ]);
+  });
+
+  it.each(["*", "/*", "//*"])(
+    "refuses %j without a basePath, the default behavior's pattern",
+    (pathPattern) => {
+      expect(() =>
+        setup(NextjsType.GLOBAL_CONTAINERS, {
+          dynamicBehaviors: () => [{ pathPattern }],
+        }),
+      ).toThrow(/already has a behavior/);
+    },
+  );
+
+  it.each(["*", "/*", "//*"])(
+    "refuses %j under a basePath, the pattern of a behavior standing in for the default",
+    (pathPattern) => {
+      expect(() =>
+        setup(NextjsType.GLOBAL_CONTAINERS, {
+          basePath: "docs",
+          dynamicBehaviors: () => [{ pathPattern }],
+        }),
+      ).toThrow(/already has a behavior/);
+    },
+  );
+
+  it("copies every field it declares", () => {
+    const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      dynamicBehaviors: (scope) => [
+        {
+          pathPattern: "detail/*",
+          cachePolicy: new CachePolicy(scope, "DetailCachePolicy", {
+            defaultTtl: Duration.seconds(0),
+          }),
+          originRequestPolicy: OriginRequestPolicy.ALL_VIEWER,
+          responseHeadersPolicy: new ResponseHeadersPolicy(
+            scope,
+            "DetailHeaders",
+            {},
+          ),
+          allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
+          cachedMethods: CachedMethods.CACHE_GET_HEAD,
+          compress: false,
+          viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
+        },
+      ],
+    });
+    expect(behaviors(stack).byPattern("detail/*")).toEqual(
+      expect.objectContaining({
+        CachePolicyId: { Ref: expect.stringMatching(/^DetailCachePolicy/) },
+        OriginRequestPolicyId:
+          OriginRequestPolicy.ALL_VIEWER.originRequestPolicyId,
+        ResponseHeadersPolicyId: {
+          Ref: expect.stringMatching(/^DetailHeaders/),
+        },
+        AllowedMethods: ["GET", "HEAD"],
+        CachedMethods: ["GET", "HEAD"],
+        Compress: false,
+        ViewerProtocolPolicy: "https-only",
+      }),
+    );
+  });
+
+  it.each([
+    ["a public/ entry's", "/favicon.ico", {}],
+    ["cdk-nextjs's", "_next/image*", {}],
+    ["another dynamic behavior's", "/detail/*", {}],
+    [
+      "a basePath-prefixed public/ entry's",
+      "favicon.ico",
+      { basePath: "docs" },
+    ],
+  ])("refuses %s pattern", (_name, pathPattern, props) => {
+    expect(() =>
+      setup(NextjsType.GLOBAL_FUNCTIONS, {
+        ...props,
+        publicDirEntries: ["favicon.ico"],
+        dynamicBehaviors: () => [{ pathPattern: "detail/*" }, { pathPattern }],
+      }),
+    ).toThrow(/already has a behavior/);
+  });
+
+  it.each([
+    ["", undefined, /is empty/],
+    [`${"a".repeat(250)}/*`, "docs", /characters, over CloudFront's 255/],
+    [
+      "blog posts/*",
+      undefined,
+      /characters a CloudFront path pattern can't: " "/,
+    ],
+  ])("refuses %j (basePath %s)", (pathPattern, basePath, error) => {
+    expect(() =>
+      setup(NextjsType.GLOBAL_CONTAINERS, {
+        basePath,
+        dynamicBehaviors: () => [{ pathPattern }],
+      }),
+    ).toThrow(error);
+  });
+
+  it.each([
+    ["/", undefined, "/"],
+    ["/", "docs", "/docs/"],
+    ["", "docs", "/docs/"],
+    ["*.pdf", undefined, "*.pdf"],
+    ["**", "docs", "/docs/**"],
+    ["*/*", undefined, "*/*"],
+  ])("accepts %j (basePath %s) as %s", (pathPattern, basePath, deployed) => {
+    const { stack } = setup(NextjsType.GLOBAL_CONTAINERS, {
+      basePath,
+      dynamicBehaviors: () => [{ pathPattern }],
+    });
+    expect(behaviors(stack).patterns).toContain(deployed);
+  });
+
+  it("refuses a pattern that is a CDK token", () => {
+    expect(() =>
+      setup(NextjsType.GLOBAL_CONTAINERS, {
+        dynamicBehaviors: () => [
+          { pathPattern: Lazy.string({ produce: () => "detail/*" }) },
+        ],
+      }),
+    ).toThrow(/is a CDK token; only literal patterns are supported/);
+  });
+
+  it("refuses a pattern overrides.distributionProps.additionalBehaviors has", () => {
+    expect(() =>
+      setup(NextjsType.GLOBAL_CONTAINERS, {
+        overrides: () => ({
+          distributionProps: {
+            additionalBehaviors: {
+              "/media/*": { origin: new HttpOrigin("media.example.com") },
+            },
+          },
+        }),
+        dynamicBehaviors: () => [{ pathPattern: "media/*" }],
+      }),
+    ).toThrow(/"media\/\*" \("media\/\*"\) already has a behavior/);
+  });
+
+  it("counts them toward maxCacheBehaviors", () => {
+    // The default behavior, `_next/static*` and `_next/image*` use 3 of 4.
+    expect(() =>
+      setup(NextjsType.GLOBAL_CONTAINERS, {
+        maxCacheBehaviors: 4,
+        dynamicBehaviors: () => [
+          { pathPattern: "a/*" },
+          { pathPattern: "b/*" },
+        ],
+      }),
+    ).toThrow(/needs 5 CloudFront cache behaviors.*2 for `dynamicBehaviors`/);
+  });
+
+  it("exposes the default behavior's options, overrides applied, frozen", () => {
+    let headers: ResponseHeadersPolicy | undefined;
+    const { distribution } = setup(NextjsType.GLOBAL_FUNCTIONS, {
+      overrides: (scope) => {
+        headers = new ResponseHeadersPolicy(scope, "AppHeaders", {});
+        const edgeFn = new LambdaFunction(scope, "EdgeFn", {
+          code: Code.fromInline("exports.handler = () => {};"),
+          handler: "index.handler",
+          runtime: Runtime.NODEJS_22_X,
+        });
+        return {
+          dynamicBehaviorOptions: {
+            responseHeadersPolicy: headers,
+            edgeLambdas: [
+              {
+                eventType: LambdaEdgeEventType.ORIGIN_REQUEST,
+                functionVersion: edgeFn.currentVersion,
+              },
+            ],
+          },
+        };
+      },
+    });
+    const { dynamicBehaviorOptions } = distribution;
+    expect(dynamicBehaviorOptions.responseHeadersPolicy).toBe(headers);
+    expect(dynamicBehaviorOptions.origin).toBeDefined();
+    expect(Object.isFrozen(dynamicBehaviorOptions)).toBe(true);
+    expect(Object.isFrozen(dynamicBehaviorOptions.functionAssociations)).toBe(
+      true,
+    );
+    expect(dynamicBehaviorOptions.edgeLambdas).toHaveLength(1);
+    expect(Object.isFrozen(dynamicBehaviorOptions.edgeLambdas)).toBe(true);
+    expect(Object.isFrozen(dynamicBehaviorOptions.edgeLambdas![0])).toBe(true);
+    expect(
+      Object.isFrozen(dynamicBehaviorOptions.functionAssociations![0]),
+    ).toBe(true);
+  });
+});
+
+/**
+ * CloudFront refuses a behavior with both a CloudFront Function and a
+ * Lambda@Edge function on viewer events, so an override's `edgeLambdas` is
+ * checked against the functions the behavior ends up with.
+ */
+describe("viewer-event Lambda@Edge overrides", () => {
+  const synth = (props: {
+    nextjsType: NextjsType;
+    code?: string;
+    assetPrefix?: string;
+    overrides: (edge: EdgeLambda[]) => NextjsDistributionOverrides;
+    eventType: LambdaEdgeEventType;
+  }) => {
+    const stack = new Stack(new App(), "EdgeStack", {
+      env: { region: "us-east-1" },
+    });
+    const edgeLambdas: EdgeLambda[] = [
+      {
+        eventType: props.eventType,
+        functionVersion: Version.fromVersionArn(
+          stack,
+          "EdgeFn",
+          "arn:aws:lambda:us-east-1:111122223333:function:edge:1",
+        ),
+      },
+    ];
+    const compute =
+      props.nextjsType === NextjsType.GLOBAL_CONTAINERS
+        ? {
+            loadBalancer: new ApplicationLoadBalancer(stack, "Alb", {
+              vpc: new Vpc(stack, "Vpc"),
+            }),
+          }
+        : {
+            functionUrl: new FunctionUrl(stack, "Url", {
+              function: new LambdaFunction(stack, "Fn", {
+                code: Code.fromInline("exports.handler = () => {};"),
+                handler: "index.handler",
+                runtime: Runtime.NODEJS_22_X,
+              }),
+              authType: FunctionUrlAuthType.AWS_IAM,
+            }),
+          };
+    new NextjsDistribution(stack, "Distribution", {
+      ...compute,
+      assetsBucket: new Bucket(stack, "Assets"),
+      assetPrefix: props.assetPrefix,
+      nextjsType: props.nextjsType,
+      overrides: props.overrides(edgeLambdas),
+      publicDirEntries: [],
+      viewerRequestFunctionCode:
+        props.code === undefined
+          ? undefined
+          : FunctionCode.fromInline(props.code),
+    });
+    return Template.fromStack(stack);
+  };
+  const VIEWER_REQUEST_CODE = "function viewerRequest(event) { return; }";
+  const BEHAVIOR_FIELDS = [
+    "dynamicBehaviorOptions",
+    "imageBehaviorOptions",
+    "staticBehaviorOptions",
+  ] as const;
+  const OWN_FUNCTION =
+    "NextjsGlobalFunctions' own viewer-request function, which overwrites " +
+    "`x-forwarded-host` with the viewer's `Host` (viewer-request)";
+  /** The start of the error, up to the functions it names. */
+  const refusal = (field: string, eventType: string, functions: string) =>
+    `\`overrides.${field}.edgeLambdas\` associates a Lambda@Edge function ` +
+    `with ${eventType}, but the same behavior has viewer-event CloudFront ` +
+    `Functions: ${functions}. `;
+  /** Whether some behavior carries a Lambda@Edge function on `eventType`. */
+  const hasEdgeLambda = (template: Template, eventType: string) => {
+    const config = Object.values(
+      template.findResources("AWS::CloudFront::Distribution"),
+    )[0].Properties.DistributionConfig;
+    return [config.DefaultCacheBehavior, ...config.CacheBehaviors].some(
+      (behavior) =>
+        behavior.LambdaFunctionAssociations?.some(
+          (it: { EventType: string }) => it.EventType === eventType,
+        ),
+    );
+  };
+  const importedFunction = () =>
+    CloudFrontFunction.fromFunctionAttributes(new Stack(), "Fn", {
+      functionArn: "arn:aws:cloudfront::111122223333:function/fn",
+      functionName: "fn",
+    });
+
+  describe.each([
+    LambdaEdgeEventType.VIEWER_REQUEST,
+    LambdaEdgeEventType.VIEWER_RESPONSE,
+  ])("on %s", (eventType) => {
+    it.each(["dynamicBehaviorOptions", "imageBehaviorOptions"] as const)(
+      "is refused in overrides.%s on Global Functions",
+      (field) => {
+        expect(() =>
+          synth({
+            nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+            eventType,
+            overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+          }),
+        ).toThrow(refusal(field, eventType, OWN_FUNCTION));
+      },
+    );
+
+    it("is allowed in overrides.staticBehaviorOptions on Global Functions", () => {
+      const template = synth({
+        nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+        eventType,
+        overrides: (edgeLambdas) => ({
+          staticBehaviorOptions: { edgeLambdas },
+        }),
+      });
+      expect(hasEdgeLambda(template, eventType)).toBe(true);
+    });
+
+    it("names every viewer-event CloudFront Function on the behavior", () => {
+      expect(() =>
+        synth({
+          nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+          eventType,
+          overrides: (edgeLambdas) => ({
+            dynamicBehaviorOptions: {
+              edgeLambdas,
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_RESPONSE,
+                  function: importedFunction(),
+                },
+              ],
+            },
+          }),
+        }),
+      ).toThrow(
+        refusal(
+          "dynamicBehaviorOptions",
+          eventType,
+          "`overrides.dynamicBehaviorOptions.functionAssociations` " +
+            `(viewer-response); ${OWN_FUNCTION}`,
+        ),
+      );
+    });
+
+    it.each(BEHAVIOR_FIELDS)(
+      "is allowed in overrides.%s on Global Containers without viewerRequestFunctionCode",
+      (field) => {
+        const template = synth({
+          nextjsType: NextjsType.GLOBAL_CONTAINERS,
+          eventType,
+          overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+        });
+        expect(hasEdgeLambda(template, eventType)).toBe(true);
+      },
+    );
+
+    it.each(BEHAVIOR_FIELDS)(
+      "is refused in overrides.%s on Global Containers with viewerRequestFunctionCode",
+      (field) => {
+        expect(() =>
+          synth({
+            nextjsType: NextjsType.GLOBAL_CONTAINERS,
+            code: VIEWER_REQUEST_CODE,
+            eventType,
+            overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+          }),
+        ).toThrow(
+          refusal(
+            field,
+            eventType,
+            "the viewer-request function `viewerRequestFunctionCode` runs in " +
+              "(viewer-request)",
+          ),
+        );
+      },
+    );
+
+    it("is refused in overrides.staticBehaviorOptions beside the assetPrefix rewrite", () => {
+      expect(() =>
+        synth({
+          nextjsType: NextjsType.GLOBAL_CONTAINERS,
+          assetPrefix: "/cdn",
+          eventType,
+          overrides: (edgeLambdas) => ({
+            staticBehaviorOptions: { edgeLambdas },
+          }),
+        }),
+      ).toThrow(
+        refusal(
+          "staticBehaviorOptions",
+          eventType,
+          'the function that rewrites `assetPrefix` ("/cdn") requests to the ' +
+            "object's key (viewer-request)",
+        ),
+      );
+    });
+
+    it("is refused beside the override's own viewer-response CloudFront Function", () => {
+      expect(() =>
+        synth({
+          nextjsType: NextjsType.GLOBAL_CONTAINERS,
+          eventType,
+          overrides: (edgeLambdas) => ({
+            staticBehaviorOptions: {
+              edgeLambdas,
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_RESPONSE,
+                  function: importedFunction(),
+                },
+              ],
+            },
+          }),
+        }),
+      ).toThrow(
+        refusal(
+          "staticBehaviorOptions",
+          eventType,
+          "`overrides.staticBehaviorOptions.functionAssociations` " +
+            "(viewer-response)",
+        ),
+      );
+    });
+  });
+
+  describe.each([
+    LambdaEdgeEventType.ORIGIN_REQUEST,
+    LambdaEdgeEventType.ORIGIN_RESPONSE,
+  ])("on %s", (eventType) => {
+    it.each(BEHAVIOR_FIELDS)("is allowed in overrides.%s", (field) => {
+      const functions = synth({
+        nextjsType: NextjsType.GLOBAL_FUNCTIONS,
+        assetPrefix: "/cdn",
+        eventType,
+        overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+      });
+      expect(hasEdgeLambda(functions, eventType)).toBe(true);
+      const containers = synth({
+        nextjsType: NextjsType.GLOBAL_CONTAINERS,
+        code: VIEWER_REQUEST_CODE,
+        eventType,
+        overrides: (edgeLambdas) => ({ [field]: { edgeLambdas } }),
+      });
+      expect(hasEdgeLambda(containers, eventType)).toBe(true);
+    });
+  });
+
+  it.each(BEHAVIOR_FIELDS)(
+    "reports a viewer-request claim in overrides.%s before the edge-lambda clash",
+    (field) => {
+      expect(() =>
+        synth({
+          nextjsType: NextjsType.GLOBAL_CONTAINERS,
+          code: VIEWER_REQUEST_CODE,
+          eventType: LambdaEdgeEventType.VIEWER_RESPONSE,
+          overrides: (edgeLambdas) => ({
+            [field]: {
+              edgeLambdas,
+              functionAssociations: [
+                {
+                  eventType: FunctionEventType.VIEWER_REQUEST,
+                  function: importedFunction(),
+                },
+              ],
+            },
+          }),
+        }),
+      ).toThrow(
+        `\`overrides.${field}.functionAssociations\` associates a ` +
+          "CloudFront function with viewer-request",
+      );
+    },
+  );
 });
