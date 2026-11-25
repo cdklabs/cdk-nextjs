@@ -538,7 +538,8 @@ needs no flag (`.mts` is ESM either way) and is green.
 
 ### Reading a harness log
 
-- **Wholesale failure at ~120s or ~240s** with
+- **Wholesale failure at the per-file timeout** (~120s by default, 240s or the
+  type's value in the workflow's plan job) with
   `Exceeded timeout of … ms for a hook` in `beforeAll`: the deploy outran jest's
   hook timeout (`NEXT_E2E_TEST_TIMEOUT`); nothing was asserted. Read the retry, not
   attempt 0, and read durations, not case names — a file can report 8 of 8

@@ -355,10 +355,14 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   BASE_PATH="$(node -e 'try{process.stdout.write(require(process.argv[1]).config.basePath||"")}catch{}' "$APP_DIR/.next/required-server-files.json")"
   MANIFEST_PROBE="$BASE_PATH/_next/static/$BUILD_ID/_buildManifest.js"
   PROBES=("$BASE_PATH/" "$MANIFEST_PROBE" "$BASE_PATH/__cdk-nextjs-harness-probe")
+  READY_WINDOW=180 PROBE_TIMEOUT=10 ROUND_GAP=3
   api_gateway_ready() {
-    local path head status
+    local path head status left
     for path in "${PROBES[@]}"; do
-      head="$(curl -s --max-time 10 -o /dev/null -D - "$URL$path" || true)"
+      # Never past the deadline, so a stalled probe can't stretch the window.
+      left=$((READY_DEADLINE - SECONDS))
+      [ "$left" -lt 1 ] && left=1
+      head="$(curl -s --max-time "$((left < PROBE_TIMEOUT ? left : PROBE_TIMEOUT))" -o /dev/null -D - "$URL$path" || true)"
       status="$(printf '%s' "$head" | awk 'NR==1{print $2}')"
       if [ -z "$status" ] || [ "${status:0:1}" = "5" ] \
         || printf '%s' "$head" | grep -qi '^x-amzn-errortype:' \
@@ -371,25 +375,25 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   }
   # Five rounds in a row, not one: the new deployment reaches API Gateway's fleet
   # unevenly, and a test got the replaced tree's 403 right after all three
-  # probes had passed once. Rounds 3s apart, each probe capped at 10s, for at
-  # most 180s in all: the replaced tree was measured still answering ~90s after
+  # probes had passed once. Rounds ROUND_GAP apart, for at most READY_WINDOW in
+  # all: the replaced tree was measured still answering ~90s after
   # CloudFormation reported UPDATE_COMPLETE, five clean rounds add ~15s on top,
   # and the rest is margin for the fleet's unevenness. A deploy that leaves the
   # tree alone still passes its five rounds straight away (~15s); only a stage
   # switch waits longer. A deadline, not a round count, because a stalled probe
-  # makes a round take up to 10s per probe; and a round starts only if its worst
-  # case (3 probes x 10s, plus the sleep) still ends by the deadline. The whole wait is charged against
-  # NEXT_E2E_TEST_TIMEOUT, on top of the full CloudFormation update a stage
-  # switch is, which is why Regional Functions' budget is 360s rather than the
-  # 240s a hotswap needs (.github/workflows/e2e-harness.yml).
+  # makes a round take up to PROBE_TIMEOUT per probe; each probe is also capped
+  # at the time left, so the last round can't overrun it. The whole wait is
+  # charged against NEXT_E2E_TEST_TIMEOUT, on top of the full CloudFormation
+  # update a stage switch is, which is why Regional Functions' budget is 360s
+  # rather than the 240s a hotswap needs (.github/workflows/e2e-harness.yml).
   #
   # Running out of time still runs the suite (a fixture can answer 500 on
   # purpose), but says so, naming the last probe that failed rather than
   # reporting "ready".
   READY_ROUNDS=0
   LAST_FAILURE="none"
-  READY_DEADLINE=$((SECONDS + 180))
-  while [ $((SECONDS + ${#PROBES[@]} * 10 + 3)) -le "$READY_DEADLINE" ]; do
+  READY_DEADLINE=$((SECONDS + READY_WINDOW))
+  while [ "$SECONDS" -lt "$READY_DEADLINE" ]; do
     if api_gateway_ready; then
       READY_ROUNDS=$((READY_ROUNDS + 1))
       [ "$READY_ROUNDS" -ge 5 ] && break
@@ -397,12 +401,13 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
       READY_ROUNDS=0
       LAST_FAILURE="$STATUS"
     fi
-    sleep 3
+    [ $((SECONDS + ROUND_GAP)) -lt "$READY_DEADLINE" ] || break
+    sleep "$ROUND_GAP"
   done
   if [ "$READY_ROUNDS" -ge 5 ]; then
     echo "harness: $URL ready: $STATUS"
   else
-    echo "harness: $URL not ready within 180s ($READY_ROUNDS clean rounds in a row), running anyway; last failure: $LAST_FAILURE"
+    echo "harness: $URL not ready within ${READY_WINDOW}s ($READY_ROUNDS clean rounds in a row), running anyway; last failure: $LAST_FAILURE"
   fi
 else
   # Then evict the previous test file's app from the edge.

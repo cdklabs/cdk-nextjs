@@ -5,8 +5,8 @@
 #
 # The first deploy creates a CloudFront distribution and everything behind it,
 # measured at ~240s. The harness runs `createNext` inside jest's `beforeAll`, so
-# that wait is charged against NEXT_E2E_TEST_TIMEOUT - 240000 when it was written, i.e. the same
-# order - and the first test file of every run fails wholesale, then passes on
+# that wait is charged against NEXT_E2E_TEST_TIMEOUT - 240000 when this was
+# measured, i.e. the same order - and the first test file of every run fails wholesale, then passes on
 # retry once the stack exists. Retries make that survivable, not correct: it
 # burns a retry the next real failure needs, and a create slower than two retries
 # goes red.
