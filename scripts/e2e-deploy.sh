@@ -371,31 +371,37 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   }
   # Five rounds in a row, not one: the new deployment reaches API Gateway's fleet
   # unevenly, and a test got the replaced tree's 403 right after all three
-  # probes had passed once. Up to 60 rounds, 3s apart (each probe capped at
-  # 10s): the replaced tree was measured still answering ~90s after
-  # CloudFormation reported UPDATE_COMPLETE, and five clean rounds add ~15s on
-  # top. A deploy that leaves the tree alone still passes its five rounds
-  # straight away (~15s); only a stage switch waits longer. The whole wait is
-  # charged against NEXT_E2E_TEST_TIMEOUT, which is why Regional Functions gets
-  # more of it than Global Functions' hotswaps need (.github/workflows/e2e-harness.yml).
+  # probes had passed once. Rounds 3s apart, each probe capped at 10s, none
+  # started after 180s: the replaced tree was measured still answering ~90s after
+  # CloudFormation reported UPDATE_COMPLETE, five clean rounds add ~15s on top,
+  # and the rest is margin for the fleet's unevenness. A deploy that leaves the
+  # tree alone still passes its five rounds straight away (~15s); only a stage
+  # switch waits longer. A deadline, not a round count, because a stalled probe
+  # makes a round take up to 10s per probe. The whole wait is charged against
+  # NEXT_E2E_TEST_TIMEOUT, on top of the full CloudFormation update a stage
+  # switch is, which is why Regional Functions' budget is 360s rather than the
+  # 240s a hotswap needs (.github/workflows/e2e-harness.yml).
   #
-  # Running out of rounds still runs the suite (a fixture can answer 500 on
-  # purpose), but says so: the log then names the probe that never settled
-  # rather than reporting "ready".
+  # Running out of time still runs the suite (a fixture can answer 500 on
+  # purpose), but says so, naming the last probe that failed rather than
+  # reporting "ready".
   READY_ROUNDS=0
-  for _ in $(seq 1 60); do
+  LAST_FAILURE="none"
+  READY_DEADLINE=$((SECONDS + 180))
+  while [ "$SECONDS" -lt "$READY_DEADLINE" ]; do
     if api_gateway_ready; then
       READY_ROUNDS=$((READY_ROUNDS + 1))
       [ "$READY_ROUNDS" -ge 5 ] && break
     else
       READY_ROUNDS=0
+      LAST_FAILURE="$STATUS"
     fi
     sleep 3
   done
   if [ "$READY_ROUNDS" -ge 5 ]; then
     echo "harness: $URL ready: $STATUS"
   else
-    echo "harness: $URL not ready after 60 rounds, running anyway: $STATUS" >&2
+    echo "harness: $URL not ready after 180s ($READY_ROUNDS clean rounds in a row), running anyway; last failure: $LAST_FAILURE"
   fi
 else
   # Then evict the previous test file's app from the edge.

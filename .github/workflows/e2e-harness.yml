@@ -358,7 +358,7 @@ jobs:
       HARNESS_NEXTJS_TYPE: ${{ matrix.type }}
       # The per-file budget `createNext` - build, deploy and all - runs inside. The
       # Containers types add an image build and push and an ECS rollout to every
-      # deploy, which the Functions types' 240s does not fit. The Global types
+      # deploy, which a hotswapped Functions deploy's 240s does not fit. The Global types
       # get more again: a fixture whose top-level `public/` entries differ from
       # the previous file's changes the distribution's cache behaviors, which
       # hotswap cannot apply, and the full update then waits on CloudFront -
@@ -366,8 +366,8 @@ jobs:
       # and its retry spent its own 240s waiting for that same update to finish.
       # Regional Functions gets 360s: a fixture whose `basePath` differs from the
       # previous file's changes the REST API's resource tree, so its deploy is a
-      # full CloudFormation update, and `e2e-deploy.sh` then waits up to ~3
-      # minutes more for the stage switch to settle.
+      # full CloudFormation update, and `e2e-deploy.sh` then waits up to 180s
+      # more for the stage switch to settle.
       # The values are in the plan job's TYPES.
       NEXT_E2E_TEST_TIMEOUT: ${{ matrix.timeout }}
       # The stack this shard owns, read by `harness_stack_name` in

@@ -46,7 +46,7 @@ the whole saving, and it is most of the cost of a run.
 
 `scripts/e2e-warm.sh` pays that cost **before `run-tests.js` starts**, and
 is not optional. The harness calls `createNext` inside jest's `beforeAll`, so a
-stack create is charged against `NEXT_E2E_TEST_TIMEOUT` (240s in CI) and the
+stack create is charged against `NEXT_E2E_TEST_TIMEOUT` (240s or more in CI) and the
 first test file fails wholesale, then passes on retry once the stack exists.
 Measured: unwarmed, the first file failed all 11 tests at 242s and passed on
 retry 1 in 213s; against an already-created stack, a file passes on its first
@@ -467,9 +467,9 @@ Three things the regional deploy does that the Global one does not:
   Gateway kept answering the replaced tree (403 `MissingAuthenticationToken`,
   then 500s) for ~90s after CloudFormation reported `UPDATE_COMPLETE`, unevenly
   across requests. So it waits until the base path, `_next/static` and the
-  catch-all have all stayed healthy for five rounds in a row: up to 60 rounds,
-  3s apart, each probe capped at 10s. If they never do, it logs `not ready
-  after 60 rounds` with the failing probe, and the suite runs anyway.
+  catch-all have all stayed healthy for five rounds in a row, starting no round
+  after 180s. If they never do, it logs `not ready after 180s` with the last
+  probe that failed, and the suite runs anyway.
   The build manifest has to answer 2xx: on the replaced tree a basePath's
   `_next/static` request falls through to the old `{proxy+}`, and the server
   function answers it with a plain 404 that no other check catches.
@@ -658,8 +658,9 @@ export NEXT_ENABLE_ADAPTER=1
 # CloudFront invalidation wait. Measured, that sums past 120s for most files, and
 # a file over budget fails *wholesale* on every retry with `Exceeded timeout of
 # 120000 ms for a hook` - which is indistinguishable from a real failure unless
-# you read the elapsed time. CI uses this same value
-# (.github/workflows/e2e-harness.yml).
+# you read the elapsed time. CI uses this value for the hotswap path; the other
+# types get more (the plan job's TYPES in .github/workflows/e2e-harness.yml), so
+# match the type you run: 360000 for regional-functions, for one.
 export NEXT_E2E_TEST_TIMEOUT=240000
 node run-tests.js --timings -c 1 --retries 1 --type e2e
 
