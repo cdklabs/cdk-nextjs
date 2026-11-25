@@ -82,9 +82,19 @@ test("the harness runner pins next.js's Node, cache key included", () => {
     HARNESS_RUNNER_MAJOR,
     HARNESS_RUNNER_MAJOR,
   ]);
-  expect(matches(HARNESS_WORKFLOW, /ubuntu-[\d.]+-node(\d+)-/g)).toEqual([
-    HARNESS_RUNNER_MAJOR,
-  ]);
+  expect(
+    matches(HARNESS_WORKFLOW, /ubuntu-[\d.]+(?:-arm)?-node(\d+)-/g),
+  ).toEqual([HARNESS_RUNNER_MAJOR]);
+});
+
+// The cached tree's native addons and Chromium are built for the runner, so a
+// key that kept naming an old image would restore them onto the new one.
+test("the harness cache key names the image every harness job runs on", () => {
+  const images = new Set(matches(HARNESS_WORKFLOW, /^\s*runs-on: (\S+)\s*$/gm));
+  expect(images.size).toBe(1);
+  expect(
+    matches(HARNESS_WORKFLOW, /cache-key=nextjs-v\d+-(\S+?)-node\d+-/g),
+  ).toEqual([...images]);
 });
 
 test("the load-test runner installs the runtime major", () => {

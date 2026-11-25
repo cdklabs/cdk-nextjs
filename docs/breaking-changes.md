@@ -2,6 +2,23 @@
 
 ## 0.8.0
 
+### `aws-cdk-lib` 2.276.0 or higher is required
+
+The `aws-cdk-lib` peer dependency is now `^2.276.0` (was `^2.261.0`), the
+release with the Lambda `WebFunction` construct that `NextjsGlobalWebFunctions`
+is built on. Upgrade `aws-cdk-lib` in your CDK app; nothing else in the
+construct API changes. Two template differences come with it, both from
+aws-cdk-lib rather than cdk-nextjs:
+
+- On `NextjsGlobalFunctions`, `FunctionUrlOrigin` now grants CloudFront
+  `lambda:InvokeFunction` itself, scoped to the distribution and to calls
+  through the Function URL, so cdk-nextjs's own `AWS::Lambda::Permission`
+  (`InvokeFunction-<group>`) with the same scope is removed. The first deploy
+  replaces one permission with the other; there is no gap, since CloudFormation
+  creates the new one before it deletes the old.
+- On every construct, the static assets `BucketDeployment`'s Lambda gets 1024 MB
+  of memory, aws-cdk-lib's new default, where it had 128 MB.
+
 ### The init cache is seeded once per build, by a custom resource
 
 `NextjsCache` no longer uploads the init cache (`.next/cdk-nextjs-init-cache`)
@@ -74,7 +91,8 @@ Node 22.2 or higher.
 
 Every function cdk-nextjs creates now uses the `nodejs26.x` runtime (was
 `nodejs24.x`): the Next.js server functions, the cache seed function, and the
-post-deploy and API Gateway redeploy-stage functions. The generated Dockerfiles
+post-deploy and API Gateway redeploy-stage functions. The new
+`NextjsGlobalWebFunctions` runs `nodejs26.x` too. The generated Dockerfiles
 for Global and Regional Containers now start `FROM node:26-alpine` (was
 `node:24-alpine`). Node 26 is the active LTS; Node 24 moves to maintenance.
 
@@ -100,6 +118,13 @@ so you don't need Node 26 on your machine or in CI.
   own functions on `nodejs24.x` as not on the latest runtime: cdk-nextjs
   creates a `nodejs26.x` `Runtime`, which `aws-cdk-lib` before
   `NODEJS_26_X` doesn't list. Move them to `nodejs26.x` or suppress L1.
+
+### New (non-breaking): `NextjsGlobalWebFunctions`
+
+CloudFront in front of [Lambda Web Functions](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html)
+rather than Event Functions and Function URLs. `NextjsGlobalFunctions` is
+unchanged. See the README's `NextjsGlobalWebFunctions` section for how the two
+compare and where Web Functions are available.
 
 ## 0.7.0
 

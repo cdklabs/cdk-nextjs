@@ -2,7 +2,7 @@
 # the Next.js adapter compatibility harness.
 #
 # Not a per-commit gate - a run builds and ships a deployment per test file.
-# `e2e-tests.yml` stays the per-commit gate on all four NextjsTypes; this is the
+# `e2e-tests.yml` stays the per-commit gate on all five NextjsTypes; this is the
 # correctness signal that no fixture app of ours could give. See
 # scripts/e2e-harness/README.md.
 #
@@ -38,6 +38,7 @@ on:
         type: choice
         options:
           - global-functions
+          - global-web-functions
           - regional-functions
           - global-containers
           - regional-containers
@@ -95,7 +96,7 @@ jobs:
     # A matrix cannot be built from an input directly, so the shard list is
     # computed here - as is the cache key, so that every job below agrees on it
     # and the next.js ref's default is written once rather than per job.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
     permissions:
       contents: read
@@ -212,13 +213,14 @@ jobs:
         # checks the manifest's screening counts.
         #
         # The cache key pins everything the cached tree was built by and for: the
-        # next.js commit, and the runner image and node major that its node_modules
-        # (native addons included) were installed against. Bump `v1` to discard
-        # every entry at once.
+        # next.js commit, and the runner image, architecture and node major that
+        # its node_modules (native addons included) were installed against. Bump
+        # `v1` to discard every entry at once.
         run: |
           node -e '
             const TYPES = {
               "global-functions": { shards: 10, timeout: 900000, containers: false },
+              "global-web-functions": { shards: 10, timeout: 900000, containers: false },
               "regional-containers": { shards: 10, timeout: 480000, containers: true },
               "global-containers": { shards: 15, timeout: 900000, containers: true },
               "regional-functions": { shards: 10, timeout: 240000, containers: false },
@@ -258,7 +260,7 @@ jobs:
             console.log(`matrix=${JSON.stringify({ include })}`);
             console.log(`max-parallel=${maxParallel}`);
             console.log(`nextjs-ref=${ref}`);
-            console.log(`cache-key=nextjs-v1-ubuntu-24.04-node24-${ref}`);
+            console.log(`cache-key=nextjs-v1-ubuntu-26.04-arm-node24-${ref}`);
           ' >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -279,7 +281,7 @@ jobs:
     # eviction clock; this lookup may not, which is why the schedule's cadence and
     # not this job is what keeps the entry warm.
     needs: plan
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04-arm
     timeout-minutes: 90
     steps:
       - name: Look for a cached next.js build
@@ -328,7 +330,10 @@ jobs:
     # Empty when every shard passed in an earlier attempt of this run, and a
     # matrix with no entries fails the job instead of skipping it.
     if: ${{ fromJSON(needs.plan.outputs.matrix).include[0] != null }}
-    runs-on: ubuntu-24.04
+    # Arm, so what `next build` traces natively matches every type's compute:
+    # Web Functions run Arm64 only, and the other types deploy the host's
+    # architecture.
+    runs-on: ubuntu-26.04-arm
     # The sum of the capped steps below - warm 25, run 150, delete 65 - plus ~50
     # for setup.
     # The step caps are what guarantee the delete its time; this only has to
@@ -556,7 +561,7 @@ jobs:
     # pending scheduled run, and with it this job.
     needs: harness
     if: ${{ always() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04-arm
     timeout-minutes: 15
     permissions:
       id-token: write

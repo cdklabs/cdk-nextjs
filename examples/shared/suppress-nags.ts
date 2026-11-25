@@ -248,6 +248,74 @@ export function suppressLambdaNags(
   }
 }
 
+/**
+ * `suppressLambdaNags` for `NextjsGlobalWebFunctions`: each group's Web
+ * Function has its execution role at `WebFunction[-<name>]ServiceRole`.
+ */
+export function suppressWebFunctionNags(
+  stack: Stack,
+  functionGroupNames: string[] = [],
+) {
+  const constructIds = [
+    "WebFunction",
+    ...functionGroupNames.map((name) => `WebFunction-${name}`),
+  ];
+  for (const constructId of constructIds) {
+    const role = `/${stack.stackName}/Nextjs/NextjsWebFunctions/${constructId}ServiceRole`;
+    suppressLambdaExecutionRole(stack, `${role}/Resource`);
+  }
+  // The cache grants, in a policy of their own per role that the functions
+  // wait on. Named after the role, hence the search.
+  for (const construct of stack.node.findAll()) {
+    const path = construct.node.path;
+    if (/\/NextjsWebFunctions\/RuntimePolicy-[^/]+\/Resource$/.test(path)) {
+      suppressS3WildcardPermissions(
+        stack,
+        `/${path}`,
+        "Web Functions need wildcard S3 permissions to access cache and static assets",
+        { includeStaticAssets: true },
+      );
+    }
+  }
+
+  // What `WebFunctionCode.fromAssetToManagedBucket` creates per stack: the
+  // versioned bucket Lambda reads the code from, and the custom resource that
+  // copies the staged asset into it. Paths carry a hash, hence the search.
+  for (const construct of stack.node.findAll()) {
+    const path = construct.node.path;
+    if (path.endsWith("/AWSCDKWebFunctionAssetBucket/Resource")) {
+      NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
+        {
+          id: "AwsSolutions-S1",
+          reason:
+            "CDK-managed Web Function code bucket; only CloudFormation writes to it",
+        },
+      ]);
+    } else if (path.includes("/Custom::S3ObjectCopy")) {
+      if (/\/Custom::S3ObjectCopy[^/]+\/Resource$/.test(path)) {
+        // CDK's singleton, on the runtime aws-cdk-lib picks for it.
+        suppressLambdaRuntime(stack, `/${path}`);
+      } else if (path.endsWith("/ServiceRole/Resource")) {
+        suppressLambdaExecutionRole(stack, `/${path}`);
+      } else if (path.endsWith("/ServiceRole/DefaultPolicy/Resource")) {
+        NagSuppressions.addResourceSuppressionsByPath(stack, `/${path}`, [
+          {
+            id: "AwsSolutions-IAM5",
+            reason:
+              "CDK's code copy function reads staged assets and writes under the Web Function code bucket's web-function/ prefix",
+            appliesTo: [
+              "Action::s3:Abort*",
+              "Action::s3:DeleteObject*",
+              { regex: "/^Resource::<AWSCDKWebFunctionAssetBucket[A-Z0-9]+\\.Arn>/web-function/\\*$/" },
+              { regex: "/^Resource::arn:(aws|aws-cn|aws-us-gov|<AWS::Partition>):s3:::cdk-hnb659fds-assets-.+/\\*$/" },
+            ],
+          },
+        ]);
+      }
+    }
+  }
+}
+
 export function suppressContainerNags(stack: Stack) {
   NagSuppressions.addResourceSuppressionsByPath(
     stack,

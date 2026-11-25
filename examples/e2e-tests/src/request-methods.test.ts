@@ -117,8 +117,10 @@ test.describe("request methods", () => {
     // is refused - so if the fetch patch is ever dropped, the browser test fails
     // and this one keeps working, which localises the break immediately.
     //
-    // Only `NextjsGlobalFunctions` signs requests to its origin. The other three
-    // accept this POST, which is correct for them.
+    // Only `NextjsGlobalFunctions` signs the payload of requests to its origin.
+    // `NextjsGlobalWebFunctions` signs too, but sends `UNSIGNED-PAYLOAD` for the
+    // body, and the other three don't sign at all, so all four accept this POST,
+    // which is correct for them.
     test.skip(
       !isGlobalFunctions(),
       "only NextjsGlobalFunctions signs origin requests",
@@ -148,10 +150,11 @@ test.describe("request methods", () => {
     // the padding byte does not surface as a `content-length: 1` of its own.
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
-    // sent. Measured, not reasoned: the containers and API Gateway's streaming
-    // integration send no `content-length` at all. Asserted rather than skipped,
-    // so a Next.js that starts forwarding the declared length again, or a Function
-    // URL that stops inventing one, shows up here.
+    // sent. Measured, not reasoned: the containers, API Gateway's streaming
+    // integration and a Web Function endpoint send no `content-length` at all.
+    // Asserted rather than skipped, so a Next.js that starts forwarding the
+    // declared length again, or a Function URL that stops inventing one, shows up
+    // here.
     expect(response.headers()["content-length"]).toBe(
       isGlobalFunctions() ? "0" : undefined,
     );
@@ -182,7 +185,8 @@ test.describe("request methods", () => {
     //
     // Except behind a Lambda Function URL, which answers `0` whatever the runtime
     // declared: the same runtime's length gets through API Gateway's streaming
-    // integration and from an ALB, with or without CloudFront in front.
+    // integration, a Web Function endpoint, and from an ALB, with or without
+    // CloudFront in front.
     const response = await request.head("./api/head-length");
     expect(response.status()).toBe(200);
     expect(response.headers()["x-e2e-head-length"]).toBe("pages");

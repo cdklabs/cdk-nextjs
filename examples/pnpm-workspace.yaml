@@ -17,8 +17,8 @@ catalog:
   '@types/react-dom': 19.2.3
   '@vercel/git-hooks': 1.0.0
   autoprefixer: 10.4.19
-  aws-cdk: ^2.1143.0
-  aws-cdk-lib: 2.261.0
+  aws-cdk: ^2.1148.1
+  aws-cdk-lib: 2.276.0
   babel-plugin-react-compiler: 1.0.0
   cdk-pipelines-github: ^0.4.140
   clsx: 2.1.1

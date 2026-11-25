@@ -1,6 +1,6 @@
 /**
  * Turns results/<construct>/*.json into the markdown tables in the README's
- * Performance section: a summary comparing the four constructs, then each
+ * Performance section: a summary comparing the five constructs, then each
  * construct's detail. The newest file of each script per construct wins;
  * result directories not named after a construct are skipped.
  *
@@ -17,6 +17,7 @@ const SLO_ERROR_RATE = Number(process.env["SLO_ERROR_RATE"] ?? 0.01);
 
 const CONSTRUCTS: Record<string, string> = {
   "global-functions": "NextjsGlobalFunctions",
+  "global-web-functions": "NextjsGlobalWebFunctions",
   "global-containers": "NextjsGlobalContainers",
   "regional-containers": "NextjsRegionalContainers",
   "regional-functions": "NextjsRegionalFunctions",

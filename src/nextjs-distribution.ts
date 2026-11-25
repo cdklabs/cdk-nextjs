@@ -19,6 +19,7 @@ import {
   FunctionEventType,
   FunctionProps,
   FunctionRuntime,
+  FunctionUrlOriginAccessControl,
   HeadersFrameOption,
   HeadersReferrerPolicy,
   HttpVersion,
@@ -33,24 +34,30 @@ import {
   ResponseHeadersPolicyProps,
   ResponseSecurityHeadersBehavior,
   SecurityPolicyProtocol,
+  Signing,
   ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
 import {
   FunctionUrlOrigin,
   FunctionUrlOriginWithOACProps,
+  HttpOrigin,
+  HttpOriginProps,
   S3BucketOrigin,
   VpcOrigin,
   VpcOriginWithEndpointProps,
 } from "aws-cdk-lib/aws-cloudfront-origins";
 import { IApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { CfnPermission, IFunctionUrl } from "aws-cdk-lib/aws-lambda";
+import { ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import {
+  IFunctionUrl,
+  IWebFunctionEndpoint,
+  WebFunctionAuthType,
+  WebFunctionEndpointType,
+} from "aws-cdk-lib/aws-lambda";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import {
-  assertKnownFunctionGroups,
-  DEFAULT_FUNCTION_GROUP,
-} from "./adapter/function-groups";
-import { LOG_PREFIX, NextjsType } from "./constants";
+import { assertKnownFunctionGroups } from "./adapter/function-groups";
+import { isSignedLambdaOriginType, LOG_PREFIX, NextjsType } from "./constants";
 import { OptionalDistributionProps } from "./generated-structs/OptionalDistributionProps";
 import { OptionalS3OriginBucketWithOACProps } from "./generated-structs/OptionalS3OriginBucketWithOACProps";
 import {
@@ -99,6 +106,14 @@ export interface NextjsDistributionOverrides {
   readonly dynamicCachePolicyProps?: CachePolicyProps;
   readonly dynamicResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
   readonly dynamicFunctionUrlOriginWithOACProps?: FunctionUrlOriginWithOACProps;
+  /**
+   * Props for the `HttpOrigin` every Web Function endpoint is reached
+   * through, on `NextjsType.GLOBAL_WEB_FUNCTIONS`. Its
+   * `originAccessControlId` is cdk-nextjs's own Origin Access Control, which
+   * signs with `always-amz-auth`, the only behavior a Web Function origin
+   * accepts.
+   */
+  readonly dynamicWebFunctionOriginProps?: HttpOriginProps;
   readonly dynamicVpcOriginWithEndpointProps?: VpcOriginWithEndpointProps;
   readonly staticBehaviorOptions?: AddBehaviorOptions;
   readonly staticResponseHeadersPolicyProps?: ResponseHeadersPolicyProps;
@@ -144,6 +159,12 @@ export interface NextjsDistributionProps {
    * Required if `NextjsType.GLOBAL_FUNCTIONS`
    */
   readonly functionUrl?: IFunctionUrl;
+  /**
+   * Required if `NextjsType.GLOBAL_WEB_FUNCTIONS`. Must be an `IAM_AUTH`,
+   * home-Region endpoint: CloudFront's Origin Access Control signs requests to
+   * it, and is granted `lambda:InvokeWebFunctionEndpoint` on it.
+   */
+  readonly webFunctionEndpoint?: IWebFunctionEndpoint;
   /**
    * Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`
    */
@@ -246,8 +267,13 @@ export interface NextjsDistributionProps {
 /** A non-default function group and the origin its routes must reach. */
 export interface NextjsDistributionFunctionGroup {
   readonly name: string;
-  /** The group's Lambda Function URL. */
-  readonly functionUrl: IFunctionUrl;
+  /** The group's Lambda Function URL, on `NextjsType.GLOBAL_FUNCTIONS`. */
+  readonly functionUrl?: IFunctionUrl;
+  /**
+   * The group's Web Function endpoint, on `NextjsType.GLOBAL_WEB_FUNCTIONS`.
+   * @see NextjsDistributionProps.webFunctionEndpoint
+   */
+  readonly webFunctionEndpoint?: IWebFunctionEndpoint;
 }
 
 /**
@@ -266,16 +292,19 @@ export interface NextjsDynamicBehavior {
   /**
    * Its cache policy. Build it from the dynamic one's cache key, and set
    * `defaultTtl`, which CDK otherwise defaults to a day. On
-   * NextjsGlobalFunctions its cache key must not include the viewer's `Host`
-   * header: CloudFront forwards cache key headers to the origin, and a Lambda
-   * Function URL refuses that one.
+   * NextjsGlobalFunctions and NextjsGlobalWebFunctions its cache key must not
+   * include the viewer's `Host` header: CloudFront forwards cache key headers
+   * to the origin, and a Lambda Function URL refuses that one, as a Web
+   * Function endpoint does with a 404.
    * @see https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin
    * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
    */
   readonly cachePolicy?: ICachePolicy;
   /**
-   * Its origin request policy. On NextjsGlobalFunctions it must not forward
-   * the viewer's `Host` header, which a Lambda Function URL refuses.
+   * Its origin request policy. On NextjsGlobalFunctions and
+   * NextjsGlobalWebFunctions it must not forward the viewer's `Host` header,
+   * which a Lambda Function URL refuses and a Web Function endpoint answers
+   * with a 404.
    * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
    */
   readonly originRequestPolicy?: IOriginRequestPolicy;
@@ -352,7 +381,25 @@ export class NextjsDistribution extends Construct {
    * can tell it from an override's.
    */
   private passThroughFunction?: CloudFrontFunction;
-  private isFunctionCompute: boolean;
+  /**
+   * Whether the dynamic origin is a SigV4-signed Lambda origin, a Function
+   * URL or a Web Function endpoint, which needs the viewer-request function
+   * that sets `x-forwarded-host`; see `isSignedLambdaOriginType`.
+   */
+  private isSignedLambdaOrigin: boolean;
+  /** Whether that origin is a Web Function endpoint. */
+  private isWebFunctionCompute: boolean;
+  /** The root construct a signed Lambda origin comes from, for errors. */
+  private get signedOriginConstructName(): string {
+    return this.isWebFunctionCompute
+      ? "NextjsGlobalWebFunctions"
+      : "NextjsGlobalFunctions";
+  }
+  /**
+   * The Origin Access Control every Web Function origin shares, created on
+   * first use.
+   */
+  private webFunctionOriginAccessControl?: FunctionUrlOriginAccessControl;
   private staticBehaviorOptions: BehaviorOptions;
   /**
    * The options cdk-nextjs builds for the behaviors that send requests to the
@@ -395,7 +442,10 @@ export class NextjsDistribution extends Construct {
     this.basePath = normalizeBasePath(props.basePath);
     this.assetPrefix = this.resolveAssetPrefix();
     this.staticOrigin = this.createStaticOrigin();
-    this.isFunctionCompute = props.nextjsType === NextjsType.GLOBAL_FUNCTIONS;
+    this.isSignedLambdaOrigin = isSignedLambdaOriginType(props.nextjsType);
+    this.isWebFunctionCompute =
+      props.nextjsType === NextjsType.GLOBAL_WEB_FUNCTIONS;
+    this.warnOnOtherOriginOverride();
     this.validateFunctionGroupProps();
     this.dynamicOrigin = this.createDynamicOrigin();
     this.dynamicOriginResponsePolicy = this.createDynamicOriginRequestPolicy();
@@ -407,8 +457,10 @@ export class NextjsDistribution extends Construct {
     );
     this.imageBehaviorOptions = this.createImageBehaviorOptions();
     this.distribution = this.getDistribution();
-    if (this.isFunctionCompute) {
-      this.grantInvoke(DEFAULT_FUNCTION_GROUP, props.functionUrl!);
+    // A Function URL origin grants CloudFront both `lambda:InvokeFunctionUrl`
+    // and `lambda:InvokeFunction` itself, scoped to this distribution.
+    if (this.isWebFunctionCompute) {
+      this.grantInvokeWebFunction(props.webFunctionEndpoint!);
     }
     this.addStaticBehaviors();
     this.addDynamicBehaviors();
@@ -448,7 +500,13 @@ export class NextjsDistribution extends Construct {
     });
   }
   private createDynamicOrigin(): IOrigin {
-    if (this.isFunctionCompute) {
+    if (this.isWebFunctionCompute) {
+      if (!this.props.webFunctionEndpoint) {
+        throw new Error("Missing NextjsDistributionProps.webFunctionEndpoint");
+      }
+      return this.webFunctionOrigin(this.props.webFunctionEndpoint);
+    }
+    if (this.isSignedLambdaOrigin) {
       if (!this.props.functionUrl) {
         throw new Error("Missing NextjsDistributionProps.functionUrl");
       }
@@ -470,8 +528,61 @@ export class NextjsDistribution extends Construct {
     }
   }
   /**
+   * The Function URL and Web Function origins take their overrides from props
+   * of their own, so one set for the other type (left over from moving between
+   * `NextjsGlobalFunctions` and `NextjsGlobalWebFunctions`, say) does nothing.
+   */
+  private warnOnOtherOriginOverride() {
+    const overrides = this.props.overrides;
+    const [unused, used] = this.isWebFunctionCompute
+      ? [
+          overrides?.dynamicFunctionUrlOriginWithOACProps &&
+            "dynamicFunctionUrlOriginWithOACProps",
+          "dynamicWebFunctionOriginProps",
+        ]
+      : [
+          overrides?.dynamicWebFunctionOriginProps &&
+            "dynamicWebFunctionOriginProps",
+          "dynamicFunctionUrlOriginWithOACProps",
+        ];
+    if (unused && this.isSignedLambdaOrigin) {
+      Annotations.of(this).addWarningV2(
+        "cdk-nextjs:unusedOriginOverride",
+        `${LOG_PREFIX} \`overrides.${unused}\` is ignored on ` +
+          `NextjsType.${this.props.nextjsType}; set \`overrides.${used}\` ` +
+          `instead.`,
+      );
+    }
+  }
+
+  /**
+   * A Web Function endpoint behind Origin Access Control: an `HttpOrigin` on
+   * its domain, which CloudFront signs for with `always-amz-auth` — the one
+   * signing behavior a Web Function origin accepts. It adds its signature in a
+   * header of its own, so the viewer's `Authorization` reaches the app, and
+   * sends `UNSIGNED-PAYLOAD` for a body, so the viewer needn't hash it.
+   *
+   * Until `aws-cloudfront-origins` has an origin for Web Functions
+   * (aws/aws-cdk#39434), this is the wiring its README documents.
+   * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda-web.html
+   */
+  private webFunctionOrigin(endpoint: IWebFunctionEndpoint): IOrigin {
+    assertSignableEndpoint(endpoint);
+    this.webFunctionOriginAccessControl ??= new FunctionUrlOriginAccessControl(
+      this,
+      "WebFunctionOriginAccessControl",
+      { signing: Signing.SIGV4_ALWAYS_AMZ_AUTH },
+    );
+    return new HttpOrigin(endpoint.domainName, {
+      ...this.props.overrides?.dynamicWebFunctionOriginProps,
+      originAccessControlId:
+        this.webFunctionOriginAccessControl.originAccessControlId,
+    });
+  }
+  /**
    * Lambda Function URLs "expect the `Host` header to contain the origin domain
-   * name, not the domain name of the CloudFront distribution."
+   * name, not the domain name of the CloudFront distribution." So do Web
+   * Function endpoints, which answer any other `Host` with a 404.
    *
    * A container origin also gets CloudFront's own headers, for
    * `CloudFront-Forwarded-Proto`: without a certificate CloudFront reaches the
@@ -482,7 +593,7 @@ export class NextjsDistribution extends Construct {
    * @see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html#managed-origin-request-policy-all-viewer-and-cloudfront
    */
   private createDynamicOriginRequestPolicy(): IOriginRequestPolicy {
-    return this.isFunctionCompute
+    return this.isSignedLambdaOrigin
       ? OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER
       : OriginRequestPolicy.ALL_VIEWER_AND_CLOUDFRONT_2022;
   }
@@ -493,7 +604,7 @@ export class NextjsDistribution extends Construct {
    */
   private createDynamicCloudFrontFunctionAssociations(): FunctionAssociation[] {
     const associations: FunctionAssociation[] = [];
-    if (this.isFunctionCompute) {
+    if (this.isSignedLambdaOrigin) {
       const cloudFrontFn = new CloudFrontFunction(this, "CloudFrontFn", {
         ...this.viewerRequestFunctionProps(X_FORWARDED_HOST_HANDLER),
       });
@@ -706,8 +817,8 @@ export class NextjsDistribution extends Construct {
       assertViewerRequestUnclaimed(
         overrideName,
         overridden,
-        this.isFunctionCompute
-          ? `NextjsGlobalFunctions needs that event type for its own function, ` +
+        this.isSignedLambdaOrigin
+          ? `${this.signedOriginConstructName} needs that event type for its own function, ` +
               `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
               `(the runtime trusts that header behind CloudFront) and redirects ` +
               `repeated slashes`
@@ -719,8 +830,8 @@ export class NextjsDistribution extends Construct {
       overrideName,
       options,
       ours,
-      this.isFunctionCompute
-        ? "NextjsGlobalFunctions' own viewer-request function, which " +
+      this.isSignedLambdaOrigin
+        ? `${this.signedOriginConstructName}' own viewer-request function, which ` +
             "overwrites `x-forwarded-host` with the viewer's `Host`"
         : VIEWER_REQUEST_CODE_FUNCTION,
     );
@@ -855,9 +966,10 @@ export class NextjsDistribution extends Construct {
     ) {
       return;
     }
-    if (!this.isFunctionCompute) {
+    if (!this.isSignedLambdaOrigin) {
       throw new Error(
-        "`functionGroups` is only supported by NextjsGlobalFunctions.",
+        "`functionGroups` is only supported by NextjsGlobalFunctions and " +
+          "NextjsGlobalWebFunctions.",
       );
     }
   }
@@ -890,12 +1002,8 @@ export class NextjsDistribution extends Construct {
     for (const { group, pathPattern } of this.functionGroupBehaviors()) {
       let origin = originPerGroup.get(group.name);
       if (!origin) {
-        origin = FunctionUrlOrigin.withOriginAccessControl(
-          group.functionUrl,
-          this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
-        );
+        origin = this.functionGroupOrigin(group);
         originPerGroup.set(group.name, origin);
-        this.grantInvoke(group.name, group.functionUrl);
       }
       // Same behavior options as every other dynamic route — only the origin
       // differs, and it is passed separately.
@@ -903,6 +1011,25 @@ export class NextjsDistribution extends Construct {
         this.dynamicBehaviorOptions;
       this.addCacheBehavior(pathPattern, origin, behaviorOptions);
     }
+  }
+  /** A non-default group's origin, granted to this distribution. */
+  private functionGroupOrigin(group: NextjsDistributionFunctionGroup): IOrigin {
+    if (this.isWebFunctionCompute) {
+      if (!group.webFunctionEndpoint) {
+        throw new Error(
+          `Missing webFunctionEndpoint for function group "${group.name}"`,
+        );
+      }
+      this.grantInvokeWebFunction(group.webFunctionEndpoint);
+      return this.webFunctionOrigin(group.webFunctionEndpoint);
+    }
+    if (!group.functionUrl) {
+      throw new Error(`Missing functionUrl for function group "${group.name}"`);
+    }
+    return FunctionUrlOrigin.withOriginAccessControl(
+      group.functionUrl,
+      this.props.overrides?.dynamicFunctionUrlOriginWithOACProps,
+    );
   }
   /**
    * {@link NextjsDistributionProps.dynamicBehaviors}: after the function group
@@ -976,19 +1103,21 @@ export class NextjsDistribution extends Construct {
     this.distribution.addBehavior(pathPattern, origin, options);
   }
   /**
-   * `lambda:InvokeFunction` for CloudFront, which a Function URL behind OAC
-   * needs besides the `lambda:InvokeFunctionUrl` `FunctionUrlOrigin` grants,
-   * and scoped the same way: to this distribution, and to calls that come
-   * through the Function URL.
+   * `lambda:InvokeWebFunctionEndpoint` for CloudFront, on `endpoint` only and
+   * only from this distribution.
+   *
+   * Through the endpoint's grants, which put the statement in the function's
+   * one `AWS::Lambda::ResourcePolicy`: a function has a single resource-based
+   * policy, and a second policy resource would replace the first.
    */
-  private grantInvoke(group: string, functionUrl: IFunctionUrl) {
-    new CfnPermission(this, `InvokeFunction-${group}`, {
-      action: "lambda:InvokeFunction",
-      principal: "cloudfront.amazonaws.com",
-      functionName: functionUrl.functionArn,
-      sourceArn: this.distribution.distributionArn,
-      invokedViaFunctionUrl: true,
-    });
+  private grantInvokeWebFunction(endpoint: IWebFunctionEndpoint) {
+    endpoint.grants.invoke(
+      new ServicePrincipal("cloudfront.amazonaws.com", {
+        conditions: {
+          ArnLike: { "aws:SourceArn": this.distribution.distributionArn },
+        },
+      }),
+    );
   }
   /**
    * The `assetPrefix` path that needs a behavior of its own, or `""` for none.
@@ -1191,6 +1320,33 @@ export class NextjsDistribution extends Construct {
  */
 const MAX_POLICY_NAME_LENGTH = 128;
 const SERVICE_WORKER_SUFFIX = "-sw";
+
+/**
+ * Fails on an endpoint CloudFront can't sign for: Origin Access Control only
+ * signs for `IAM_AUTH`, and with SigV4 only for a home-Region or per-Region
+ * domain, not a multi-Region one's global domain.
+ */
+function assertSignableEndpoint(endpoint: IWebFunctionEndpoint) {
+  if (
+    !Token.isUnresolved(endpoint.authType) &&
+    endpoint.authType !== WebFunctionAuthType.IAM_AUTH
+  ) {
+    throw new Error(
+      `${LOG_PREFIX} The Web Function endpoint is ${endpoint.authType}, but ` +
+        `CloudFront's Origin Access Control only signs requests for ` +
+        `${WebFunctionAuthType.IAM_AUTH} endpoints.`,
+    );
+  }
+  if (
+    !Token.isUnresolved(endpoint.endpointType) &&
+    endpoint.endpointType === WebFunctionEndpointType.MULTI_REGION
+  ) {
+    throw new Error(
+      `${LOG_PREFIX} A ${WebFunctionEndpointType.MULTI_REGION} Web Function ` +
+        `endpoint needs SigV4A signing, which NextjsDistribution doesn't set up.`,
+    );
+  }
+}
 
 /**
  * A frozen copy, arrays and their entries included, so a caller changing the

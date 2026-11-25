@@ -1,7 +1,7 @@
 # cdk-nextjs Load Tests
 
 [k6](https://grafana.com/docs/k6/latest/) load tests behind the README's
-[Performance](../../README.md#performance) section. They compare the four root
+[Performance](../../README.md#performance) section. They compare the root
 constructs with each other, using the same app, the same sizing and the same
 load.
 
@@ -30,7 +30,7 @@ a number is CloudFront's or the construct's.
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm latency`    | p50/p95/p99 per kind at fixed request rates (`RATES`, default `10,50` req/s per kind, `STEP_SECONDS` (180) each, all kinds at once, so the total is 8× the rate). A 30 s warm-up runs first and isn't reported. The Functions constructs are worth running at `RATES=10,50,250,1000` too. |
 | `pnpm capacity`   | The highest rate one kind (`KIND`, default `ssr`) sustains. Steps up by `FACTOR` (1.5) every `STEP_SECONDS` (60) from `START_RATE` (50) to `MAX_RATE` (8000), and aborts once a step is clearly broken.                                                                                   |
-| `pnpm cold-start` | Functions constructs only. Forces fresh Lambda execution environments, then measures `CONCURRENCY` (10) simultaneous first requests, `ROUNDS` (5) times.                                                                                                                                  |
+| `pnpm cold-start` | `NextjsGlobalFunctions` and `NextjsRegionalFunctions` only. Forces fresh Lambda execution environments, then measures `CONCURRENCY` (10) simultaneous first requests, `ROUNDS` (5) times.                                                                                                 |
 | `pnpm browser`    | Web Vitals (LCP, FCP, CLS, TTFB) and client-side navigation time from real Chromium visitors. For vitals under load, run it from a second machine while `pnpm latency` runs on the first, with `UNDER_LOAD="50 req/s per route"` (or whatever the load is) so the report says so.         |
 | `pnpm report`     | Turns `results/` into the README's markdown tables.                                                                                                                                                                                                                                       |
 | `pnpm use-cache`  | `'use cache'` with many tags per instance: `RATE` (200) req/s over `/use-cache/0` to `/use-cache/<TAGS - 1>` (`TAGS`, 1000) and `REVALIDATE_RATE` (1) `revalidateTag`s a second, for `DURATION_SECONDS` (600). See [`'use cache'` tag reads](#use-cache-tag-reads).                       |
@@ -55,7 +55,9 @@ construct, e.g. `global-functions`.
 2. Deploy the construct's stack from [`stacks/app.ts`](./stacks/app.ts), which
    deploys the bench app with the construct's defaults, except that the
    Containers constructs scale on CPU from 2 to 10 tasks (`PERF_MIN_TASKS`,
-   `PERF_MAX_TASKS`) and nothing logs every request:
+   `PERF_MAX_TASKS`) and nothing logs every request. On
+   NextjsGlobalWebFunctions, `PERF_MAX_CONCURRENCY` sets how many requests one
+   execution environment serves at once (the service default, 64, when unset):
 
    ```sh
    pnpm stack:deploy    # URL in stack-outputs.json; pnpm stack:destroy when done
@@ -69,7 +71,7 @@ construct, e.g. `global-functions`.
    ```sh
    pnpm latency
    pnpm capacity                   # KIND=isr pnpm capacity, etc.
-   pnpm cold-start                 # Functions constructs
+   pnpm cold-start                 # NextjsGlobalFunctions, NextjsRegionalFunctions
    pnpm browser
    pnpm report
    ```

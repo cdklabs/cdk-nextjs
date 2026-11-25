@@ -80,9 +80,10 @@ export class RegionalFunctionsStack extends Stack {
         },
         nextjsFunctions: {
           functionProps: {
-            // Its e2e job (rgnl-fns) runs on x86, so this deploy covers staging
-            // `sharp` for an architecture other than the build host's.
-            architecture: Architecture.ARM_64,
+            // Its e2e job (rgnl-fns) runs on Arm, so this deploy covers staging
+            // `sharp` for an architecture other than the build host's, and is
+            // the e2e suite's one x86 Lambda.
+            architecture: Architecture.X86_64,
             environment: {
               DEBUG: "cdk-nextjs:*",
             },

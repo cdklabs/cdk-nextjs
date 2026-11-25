@@ -4,9 +4,9 @@ Runs [vercel/next.js's own e2e suite][harness] against a real cdk-nextjs
 deployment. It is a better correctness signal than any fixture app we would
 write, because the tests were written by the people who define the behavior.
 
-`examples/e2e-tests/` remains the per-commit gate on all four `NextjsType`s. This
+`examples/e2e-tests/` remains the per-commit gate on all five `NextjsType`s. This
 is the scheduled one — every sixth day of the month at 14:00 UTC, so the day of
-the week drifts — on all four types in one run, `NextjsGlobalFunctions` first
+the week drifts — on all five types in one run, `NextjsGlobalFunctions` first
 (see "Sharding"). A `workflow_dispatch` runs one type (its `nextjs_type` input,
 `NextjsGlobalFunctions` by default) or `all`; see "Running on the other
 `NextjsType`s".
@@ -29,7 +29,7 @@ acceptable: [`docs/harness-coverage.md`](../../docs/harness-coverage.md).
 | `.github/actions/build-nextjs`      | Checks out and builds vercel/next.js. The cache-miss path, shared by the `nextjs` job and a shard's fallback.      |
 | `test/deploy-tests-manifest.json`   | Which next.js test files run (`NEXT_EXTERNAL_TESTS_FILTERS`).                                                      |
 | `test/harness-smoke-manifest.json`  | One file every type passes, for checking the workflow itself in about an hour (`test_filters`).                    |
-| `.github/workflows/e2e-harness.yml` | Every six days (all four types) + `workflow_dispatch`. A matrix of (type, shard) jobs, one stack each.             |
+| `.github/workflows/e2e-harness.yml` | Every six days (all five types) + `workflow_dispatch`. A matrix of (type, shard) jobs, one stack each.             |
 
 ## One shared stack, not one per test file
 
@@ -270,8 +270,8 @@ rebuilding would run next.js's install and build scripts in the job that holds
 `id-token: write`. Re-run the workflow and the `nextjs` job rebuilds the entry.
 
 What is cached is the whole `nextjs` directory plus `~/.cache/ms-playwright`,
-keyed on the next.js ref and the runner image and node major its `node_modules`
-were installed against (`plan` computes the key, so every job agrees on it; bump
+keyed on the next.js ref and the runner image, architecture and node major its
+`node_modules` were installed against (`plan` computes the key, so every job agrees on it; bump
 the `v1` in it to discard every entry). Two things to know:
 
 - **A repository gets 10 GB of cache in total, evicted least-recently-used.** An
@@ -319,7 +319,7 @@ point at which running one at a time is the cheaper answer.
 
 ## Why `NextjsGlobalFunctions` is the default
 
-All four types run on the schedule (see "Sharding"); this one runs first, and is
+All five types run on the schedule (see "Sharding"); this one runs first, and is
 what a dispatch runs unless told otherwise. The harness builds every request URL
 as `new URL(path, deploymentUrl)` — `getFullUrl` in `test/lib/next-test-utils.ts`
 assigns `pathname` outright — so any prefix in the deployment URL is dropped.
@@ -356,10 +356,12 @@ Two caveats worth knowing before reading a failure as a regression:
 ## Running on the other `NextjsType`s
 
 `HARNESS_NEXTJS_TYPE` picks the root construct: `global-functions` (the default),
-`regional-functions`, `global-containers` or `regional-containers`. Each type but
-the default gets a stack infix of its own — `hrns-rf-*`, `hrns-gc-*`,
-`hrns-rc-*` — so no run can deploy into another type's stack, and shards of all
-four types can share one run. In CI, two *runs* still queue behind each other
+`global-web-functions`, `regional-functions`, `global-containers` or
+`regional-containers`. Each type but the default gets a stack infix of its own —
+`hrns-gwf-*`, `hrns-rf-*`, `hrns-gc-*`, `hrns-rc-*` — so no run can deploy into
+another type's stack, and shards of all five types can share one run.
+`global-web-functions` needs a Region with Lambda Web Functions, and can't be
+hotswapped, so each of its test files is a CloudFormation deployment. In CI, two *runs* still queue behind each other
 (see "Sharding"). The workflow's `nextjs_type` input sets the type, or `all`
 runs every type, as the schedule does.
 
@@ -761,7 +763,7 @@ the account.
 | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `ADAPTER_DIR`                       | _required_                           | This checkout. Every harness script resolves everything from it.                                        |
 | `CDK_BIN`                           | `$ADAPTER_DIR/node_modules/.bin/cdk` | CDK CLI to deploy with.                                                                                |
-| `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
+| `HARNESS_NEXTJS_TYPE`               | `global-functions`                   | Or `global-web-functions` (`hrns-gwf-*`), `regional-functions` (behind `stage-proxy.mjs`, `hrns-rf-*`), `global-containers` (`hrns-gc-*`) or `regional-containers` (`hrns-rc-*`). See "Running on the other `NextjsType`s". |
 | `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per local session (`dev-$USER`).       |
 | `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |

@@ -113,6 +113,9 @@
           "spawn": "bundle:runtime/server"
         },
         {
+          "spawn": "bundle:runtime/web-function"
+        },
+        {
           "exec": "node --check lib/adapter/adapter.mjs"
         },
         {
@@ -129,6 +132,9 @@
         },
         {
           "exec": "node --check lib/runtime/server.mjs"
+        },
+        {
+          "exec": "node --check lib/runtime/web-function.mjs"
         }
       ]
     },
@@ -529,6 +535,51 @@
             "--target=node26",
             "--platform=node",
             "--outfile=lib/runtime/server.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--external:sharp",
+            "--external:@opentelemetry/api",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);",
+            "--watch"
+          ]
+        }
+      ]
+    },
+    "bundle:runtime/web-function": {
+      "name": "bundle:runtime/web-function",
+      "description": "Create a JavaScript bundle from src/runtime/web-function.mts",
+      "steps": [
+        {
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/runtime/web-function.mts",
+            "--target=node26",
+            "--platform=node",
+            "--outfile=lib/runtime/web-function.mjs",
+            "--packages=bundle",
+            "--external:next",
+            "--external:sharp",
+            "--external:@opentelemetry/api",
+            "--format=esm",
+            "--banner:js=import { createRequire as __cdkNextjsCreateRequire } from 'node:module'; import { fileURLToPath as __cdkNextjsFileURLToPath } from 'node:url'; import { dirname as __cdkNextjsDirname } from 'node:path'; const require = __cdkNextjsCreateRequire(import.meta.url); const __filename = __cdkNextjsFileURLToPath(import.meta.url); const __dirname = __cdkNextjsDirname(__filename);"
+          ]
+        }
+      ]
+    },
+    "bundle:runtime/web-function:watch": {
+      "name": "bundle:runtime/web-function:watch",
+      "description": "Continuously update the JavaScript bundle from src/runtime/web-function.mts",
+      "steps": [
+        {
+          "execArgs": [
+            "esbuild",
+            "--bundle",
+            "src/runtime/web-function.mts",
+            "--target=node26",
+            "--platform=node",
+            "--outfile=lib/runtime/web-function.mjs",
             "--packages=bundle",
             "--external:next",
             "--external:sharp",

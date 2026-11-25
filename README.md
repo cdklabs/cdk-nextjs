@@ -25,7 +25,7 @@ Deploy [Next.js](https://nextjs.org/) apps on [AWS](https://aws.amazon.com/) wit
 ## Features
 
 - Supports all features of Next.js App and Pages Router for [Node.js Runtime](https://nextjs.org/docs/app/building-your-application/rendering/edge-and-nodejs-runtimes#nodejs-runtime).
-- Choose your AWS architecture for Next.js with the supported constructs: `NextjsGlobalFunctions`, `NextjsGlobalContainers`, `NextjsRegionalContainers`, `NextjsRegionalFunctions`.
+- Choose your AWS architecture for Next.js with the supported constructs: `NextjsGlobalFunctions`, `NextjsGlobalWebFunctions`, `NextjsGlobalContainers`, `NextjsRegionalContainers`, `NextjsRegionalFunctions`.
 - Global Content Delivery Network (CDN) built with [Amazon CloudFront](https://aws.amazon.com/cloudfront/) to deliver content with low latency and high transfer speeds.
 - Serverless functions powered by [AWS Lambda](https://aws.amazon.com/lambda/) or serverless containers powered by [AWS Fargate](https://aws.amazon.com/fargate/).
 - Static assets (JS, CSS, public folder) are stored and served from [Amazon Simple Storage Service (S3)](https://aws.amazon.com/s3/) for all constructs (except `NextjsRegionalContainers`) to decrease latency and reduce compute costs by serving directly from S3.
@@ -96,6 +96,26 @@ Architecture includes [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/
 
 ![NextjsGlobalFunctions architecture: User to CloudFront, which serves S3 static assets and forwards to a Lambda function backed by a DynamoDB table and S3 cache bucket](https://raw.githubusercontent.com/cdklabs/cdk-nextjs/main/docs/diagrams/nextjs-global-functions.svg)
 
+### `NextjsGlobalWebFunctions`
+
+Architecture includes [AWS Lambda Web Functions](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html) to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. It's the same layout as `NextjsGlobalFunctions`, but each Lambda execution environment runs a Node.js HTTP server that serves many requests at once (64 by default, up to 128), and you pay for the CPU time your app actively uses rather than the duration of each request. A request that waits on S3, DynamoDB or a `fetch` costs almost nothing while it waits, and fewer environments means fewer cold starts. Use this construct for server-rendered apps with I/O-bound requests, in a Region that has Web Functions. ([code](./src/root-constructs/nextjs-global-web-functions.ts))
+
+How it differs from `NextjsGlobalFunctions`:
+
+|                                              | `NextjsGlobalFunctions`                                                                           | `NextjsGlobalWebFunctions`                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Lambda compute                               | [Event Functions](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) behind Function URLs | [Web Functions](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html) behind `IAM_AUTH` endpoints |
+| Requests per execution environment           | 1                                                                                                 | Up to `maxConcurrencyPerEnvironment` (64 by default, up to 128)                                              |
+| Billing                                      | Duration × memory, per request                                                                    | Active vCPU time, plus memory over the environment's lifetime                                                |
+| Memory and architecture                      | Configurable, x86_64 or Arm64                                                                     | Fixed: 2 GB, 2 vCPUs, Arm64                                                                                  |
+| Unzipped code limit                          | 250 MB                                                                                            | 512 MB                                                                                                       |
+| Regions                                      | All commercial Regions                                                                            | us-east-1, us-east-2, us-west-2, ap-northeast-1 and eu-west-1 (synth fails elsewhere)                        |
+| `POST`/`PUT` bodies from non-browser clients | Need an `x-amz-content-sha256` header ([Limitations](#limitations))                               | No header needed: CloudFront signs the body as `UNSIGNED-PAYLOAD`                                            |
+| Viewer `Authorization` header                | Doesn't reach the app                                                                             | Reaches the app on every method. It isn't in the cache key, so send a per-user `GET` response as `private`   |
+| Overrides                                    | `overrides.nextjsFunctions.functionProps` / `functionUrlProps`                                    | `overrides.nextjsWebFunctions.webFunctionProps`, typed on the `WebFunction` L2                               |
+
+The functions are reached only through CloudFront: each endpoint is `IAM_AUTH`, CloudFront signs requests to it with Origin Access Control (`always-amz-auth`), and the function's resource-based policy allows `lambda:InvokeWebFunctionEndpoint` from this distribution only. The code is staged with `WebFunctionCode.fromAssetToManagedBucket`, which creates a versioned bucket per stack that the Lambda service can read; the CDK bootstrap bucket can't be used. Requires aws-cdk-lib 2.276.0 or later.
+
 ### `NextjsGlobalContainers`
 
 Architecture includes [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) containers to respond to dynamic requests and [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html) Distribution to globally serve requests and distribute static assets. Use this option when you have predictable traffic, need the lowest latency, and/or can afford a less granular pricing model. ([code](./src/root-constructs/nextjs-global-containers.ts))
@@ -124,6 +144,13 @@ Lambda functions or containers. Set them on the compute through `overrides`:
 overrides: {
   nextjsFunctions: {
     functionProps: { environment: { CDK_NEXTJS_MEMORY_CACHE_TTL_MS: "0" } },
+  },
+},
+
+// NextjsGlobalWebFunctions
+overrides: {
+  nextjsWebFunctions: {
+    webFunctionProps: { environment: { CDK_NEXTJS_MEMORY_CACHE_TTL_MS: "0" } },
   },
 },
 
@@ -341,8 +368,10 @@ The generated Dockerfile runs `apk upgrade` so the image picks up Alpine securit
 
 ## Splitting a Large App Across Functions
 
-Only for `NextjsGlobalFunctions` and `NextjsRegionalFunctions`, and only if you
-need it. AWS Lambda caps a function's unzipped code at 250 MB. If your app
+Only for `NextjsGlobalFunctions`, `NextjsGlobalWebFunctions` and
+`NextjsRegionalFunctions`, and only if you need it. (A Web Function's limit is
+512 MB, so `NextjsGlobalWebFunctions` rarely needs it. Its groups take
+`webFunctionProps` overrides instead of `functionProps`.) AWS Lambda caps a function's unzipped code at 250 MB. If your app
 exceeds it, cdk-nextjs fails at synth with the measured size and points you here:
 
 ```
@@ -458,7 +487,7 @@ Notes:
 
 ## Running Code on Every Viewer Request
 
-`NextjsGlobalFunctions` and `NextjsGlobalContainers` take a
+`NextjsGlobalFunctions`, `NextjsGlobalWebFunctions` and `NextjsGlobalContainers` take a
 `viewerRequestFunctionCode` prop: CloudFront Function code that runs first on
 every request, on every behavior cdk-nextjs adds — pages, API routes,
 `_next/image`, `_next/static` and `public/` files alike. It's the place for a
@@ -545,7 +574,7 @@ server at all.
 
 ## Adding Your Own Behaviors to the Dynamic Origin
 
-With `NextjsGlobalFunctions` and `NextjsGlobalContainers`, a path of the app's
+With the three Global constructs, a path of the app's
 that needs options of its own, such as a shorter cache for `detail/*`, can get
 a behavior through the `dynamicBehaviors` prop. It goes to the same origin as
 the rest of the app, with the same policies and function associations, bar the
@@ -620,10 +649,12 @@ nextjsDistribution.distribution.addBehavior(
   cdk-nextjs's viewer-request function (and `viewerRequestFunctionCode`) runs
   on it.
 - `allowedMethods` must include the `cachedMethods` the behavior ends up with,
-  inherited ones included. On `NextjsGlobalFunctions`, an `originRequestPolicy`
-  must not forward the viewer's `Host` header, which a Lambda Function URL
-  refuses (`ALL_VIEWER_EXCEPT_HOST_HEADER` is the one cdk-nextjs uses), and
-  a `cachePolicy` must not put it in the cache key, which forwards it too.
+  inherited ones included. On `NextjsGlobalFunctions` and
+  `NextjsGlobalWebFunctions`, an `originRequestPolicy` must not forward the
+  viewer's `Host` header, which a Lambda Function URL refuses and a Web
+  Function endpoint answers with a 404 (`ALL_VIEWER_EXCEPT_HOST_HEADER` is the
+  one cdk-nextjs uses), and a `cachePolicy` must not put it in the cache key,
+  which forwards it too.
 - They are added in the order given, after `_next/static*`, the `public/`
   entries, `_next/image*` and the `functionGroups` patterns, which CloudFront
   matches first, so a pattern inside one of those (`api/slow/*` under a
@@ -634,8 +665,9 @@ nextjsDistribution.distribution.addBehavior(
   `overrides.distributionProps.additionalBehaviors`) is a synth error.
 - Prefer `dynamicBehaviors` to spreading `dynamicBehaviorOptions` into
   `distribution.addBehavior()`: a `functionAssociations` of your own would
-  replace the viewer-request function there, which on Global Functions is what
-  stops a viewer's own `X-Forwarded-Host` reaching the server, and the behavior
+  replace the viewer-request function there, which on Global Functions and
+  Global Web Functions is what stops a viewer's own `X-Forwarded-Host`
+  reaching the server, and the behavior
   would come after the `basePath` ones, which would hide it.
 
 ## Bring Your Own Resources
@@ -644,19 +676,19 @@ cdk-nextjs supports importing existing AWS resources instead of creating new one
 
 ### Supported Resources
 
-| Resource                    | Prop                 | Available On                                         |
-| --------------------------- | -------------------- | ---------------------------------------------------- |
-| S3 Cache Bucket             | `cacheBucket`        | All constructs                                       |
-| DynamoDB Revalidation Table | `revalidationTable`  | All constructs                                       |
-| S3 Static Assets Bucket     | `staticAssetsBucket` | All constructs                                       |
-| CloudFront Distribution     | `distribution`       | `NextjsGlobalFunctions`, `NextjsGlobalContainers`    |
-| ECS Cluster                 | `ecsCluster`         | `NextjsGlobalContainers`, `NextjsRegionalContainers` |
-| ALB                         | `alb`                | `NextjsGlobalContainers`, `NextjsRegionalContainers` |
+| Resource                    | Prop                 | Available On                                                                  |
+| --------------------------- | -------------------- | ----------------------------------------------------------------------------- |
+| S3 Cache Bucket             | `cacheBucket`        | All constructs                                                                |
+| DynamoDB Revalidation Table | `revalidationTable`  | All constructs                                                                |
+| S3 Static Assets Bucket     | `staticAssetsBucket` | All constructs                                                                |
+| CloudFront Distribution     | `distribution`       | `NextjsGlobalFunctions`, `NextjsGlobalWebFunctions`, `NextjsGlobalContainers` |
+| ECS Cluster                 | `ecsCluster`         | `NextjsGlobalContainers`, `NextjsRegionalContainers`                          |
+| ALB                         | `alb`                | `NextjsGlobalContainers`, `NextjsRegionalContainers`                          |
 
 ### Resource Isolation
 
 - **Cache bucket and DynamoDB table** must be dedicated to one deployment. Sharing either between deployments (branches, stages, apps) is not supported: each deploy's post-deploy step prunes every cache object and revalidation entry that isn't from its own current build, so deploying one branch wipes the others' caches. Buckets and tables are cheap, so give each deployment its own, or leave `cacheBucket`/`revalidationTable` unset and let cdk-nextjs create them (they are removed with the stack).
-- **Static assets bucket** can be shared, but only between deployments with different `basePath`s, which become their S3 key prefixes. Pruning only looks at `<basePath>/_next/`, so it never touches another prefix. Two deployments under the same prefix (for example two subdomain previews both at the root) overwrite each other's `public/` files and prune each other's `_next/` assets once they are past the prune TTL (30 days by default), so give those their own buckets. `NextjsGlobalFunctions` and `NextjsGlobalContainers` read the `basePath` out of your Next.js build and use it as the S3 key prefix, since CloudFront serves assets from S3 by request path and the two can't differ. Set the `basePath` prop only if you want to be explicit about it; a value that disagrees with your app's fails at synth. Each deployment also adds an ownership tag per static asset upload (1 to 3, by whether the build has `public/` files and service workers) to a bucket created in your CDK app; an imported bucket gets none. S3 allows 50 tags per bucket, so such a bucket holds at least 16 deployments.
+- **Static assets bucket** can be shared, but only between deployments with different `basePath`s, which become their S3 key prefixes. Pruning only looks at `<basePath>/_next/`, so it never touches another prefix. Two deployments under the same prefix (for example two subdomain previews both at the root) overwrite each other's `public/` files and prune each other's `_next/` assets once they are past the prune TTL (30 days by default), so give those their own buckets. `NextjsGlobalFunctions`, `NextjsGlobalWebFunctions` and `NextjsGlobalContainers` read the `basePath` out of your Next.js build and use it as the S3 key prefix, since CloudFront serves assets from S3 by request path and the two can't differ. Set the `basePath` prop only if you want to be explicit about it; a value that disagrees with your app's fails at synth. Each deployment also adds an ownership tag per static asset upload (1 to 3, by whether the build has `public/` files and service workers) to a bucket created in your CDK app; an imported bucket gets none. S3 allows 50 tags per bucket, so such a bucket holds at least 16 deployments.
 
 ### Shared ALB and `removeAutoCreatedListener()`
 
@@ -716,15 +748,16 @@ Note: CloudFront distributions take several minutes to create/update, so this ar
 
 ## Limitations
 
-- If using `NextjsGlobalFunctions` or `NextjsGlobalContainers` (which use CloudFront), each top level file/directory in `public/` takes a CloudFront cache behavior, and a distribution's default quota is 75 behaviors (cdk-nextjs uses 3 to 6 itself). We recommend you put all of your public assets into one top level directory (i.e. public/static) so you don't reach this limit. If you raise the quota for your account, set `maxCacheBehaviors` on the distribution props (`overrides.nextjsGlobalFunctions.nextjsDistributionProps`, or the Containers equivalent) to match. The synth check only counts the behaviors cdk-nextjs adds, so if you pass your own `distribution` (or add behaviors through `overrides.nextjsDistribution.distributionProps`), lower `maxCacheBehaviors` by the behaviors it already has. See [CloudFront Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) for more information.
-- If using `NextjsGlobalFunctions` or `NextjsGlobalContainers`, on-demand revalidation ([revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath), [revalidateTag](https://nextjs.org/docs/app/api-reference/functions/revalidateTag)) creates the CloudFront invalidations for you (so does the Pages Router's `res.revalidate()`, for the page's HTML and `_next/data` copies), but [invalidations](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html) are eventually consistent: until one completes (usually seconds, occasionally minutes), some edge locations can still serve the previous copy.
+- If using `NextjsGlobalFunctions`, `NextjsGlobalWebFunctions` or `NextjsGlobalContainers` (which use CloudFront), each top level file/directory in `public/` takes a CloudFront cache behavior, and a distribution's default quota is 75 behaviors (cdk-nextjs uses 3 to 6 itself). We recommend you put all of your public assets into one top level directory (i.e. public/static) so you don't reach this limit. If you raise the quota for your account, set `maxCacheBehaviors` on the distribution props (`overrides.nextjsGlobalFunctions.nextjsDistributionProps`, or the Web Functions or Containers equivalent) to match. The synth check only counts the behaviors cdk-nextjs adds, so if you pass your own `distribution` (or add behaviors through `overrides.nextjsDistribution.distributionProps`), lower `maxCacheBehaviors` by the behaviors it already has. See [CloudFront Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) for more information.
+- If using `NextjsGlobalFunctions`, `NextjsGlobalWebFunctions` or `NextjsGlobalContainers`, on-demand revalidation ([revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath), [revalidateTag](https://nextjs.org/docs/app/api-reference/functions/revalidateTag)) creates the CloudFront invalidations for you (so does the Pages Router's `res.revalidate()`, for the page's HTML and `_next/data` copies), but [invalidations](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html) are eventually consistent: until one completes (usually seconds, occasionally minutes), some edge locations can still serve the previous copy.
   - **Burst limit.** CloudFront allows 15 wildcard invalidation paths in progress per distribution, and each page cdk-nextjs invalidates is one wildcard path (`/blog*`). Next.js sends every `revalidatePath`/`revalidateTag` from one request as a single call, one invalidation per cache-life profile, however many pages it covers. A Pages Router `res.revalidate()` sends one invalidation per call, and a page regenerated after a stale-while-revalidate `revalidateTag(tag, profile)` sends one more when it lands. When the quota is full, cdk-nextjs retries the request as a single `/*` (a colder edge, never a stale page). If that is also rejected, it logs `Failed to create CloudFront invalidation` and the page stays stale at the edge until its `s-maxage` expires.
   - **For bulk updates** (a CMS webhook touching many pages), call `revalidateTag` with a tag the pages share, or `revalidatePath` for each page within one request, rather than looping `res.revalidate()`. If you need to know when invalidations are dropped, add a CloudWatch Logs metric filter on that log line.
   - **Purge or short edge TTL.** If pages change too often to purge one by one (thousands a day, or webhooks close enough together that their wildcard paths exceed the 15 in progress and fall back to `/*`), set `invalidateCdnOnRevalidate: false` and cap those pages' edge TTL instead, with a short `s-maxage` or a behavior with a low `maxTtl`. Revalidation still reaches the origin cache on every instance, and the edge picks up the new page when its copy expires. Cap pages that only revalidate on demand too: with `revalidate: false`, Next.js sends `s-maxage=31536000`, so the edge would keep them for a year. The invalidation after each deploy still runs. Changing the setting on a running stack takes effect as functions and tasks are replaced; until then an old one can log `Failed to create CloudFront invalidation`. Turning it back on with the same build ID leaves pages cached while it was off unpurged by `revalidateTag` until they expire, since no mapping rows were written for them. Beyond the first 1,000 paths a month, CloudFront [charges per invalidation path](https://aws.amazon.com/cloudfront/pricing/).
 - If using `NextjsGlobalFunctions`, a client-supplied `Authorization` header does not reach your app: CloudFront signs each request to the Lambda Function URL with SigV4, which uses that header. Send credentials under a different name (e.g. `x-authorization`) and read that header in your app. cdk-nextjs does not rename it for you — it no longer uses [AWS Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter), so `AWS_LWA_AUTHORIZATION_SOURCE` no longer applies.
-- If using `NextjsGlobalFunctions`, a `POST` or `PUT` with a request body must carry an `x-amz-content-sha256` header holding the hex SHA-256 of that body. This is [AWS behavior](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html), not a cdk-nextjs choice: CloudFront signs the origin request to the Lambda Function URL with SigV4 but does not hash the body, and Lambda rejects an unsigned payload with `403 InvalidSignatureException`. Requests from your own pages are handled for you — cdk-nextjs injects a `fetch`/`XMLHttpRequest` wrapper into the client bundle that adds the header, so server actions, route handlers, `fetch` and `XMLHttpRequest` from the browser work untouched, whatever the body type. The exception is a native `<form method="post">` submitted before the page hydrates (a server action form without JavaScript, or clicked before the bundle loads): the browser sends it, not the wrapper, so it has no header and gets the 403. **Anything that is not that browser bundle has to add the header itself**: `curl`, a mobile app, a webhook provider, another service calling your API routes. Server-to-server callers can compute it with the AWS SDK's `Sha256`, or with `crypto.createHash("sha256").update(body).digest("hex")`. The other three deployment types are unaffected.
+- If using `NextjsGlobalFunctions`, a `POST` or `PUT` with a request body must carry an `x-amz-content-sha256` header holding the hex SHA-256 of that body. This is [AWS behavior](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html), not a cdk-nextjs choice: CloudFront signs the origin request to the Lambda Function URL with SigV4 but does not hash the body, and Lambda rejects an unsigned payload with `403 InvalidSignatureException`. Requests from your own pages are handled for you — cdk-nextjs injects a `fetch`/`XMLHttpRequest` wrapper into the client bundle that adds the header, so server actions, route handlers, `fetch` and `XMLHttpRequest` from the browser work untouched, whatever the body type. The exception is a native `<form method="post">` submitted before the page hydrates (a server action form without JavaScript, or clicked before the bundle loads): the browser sends it, not the wrapper, so it has no header and gets the 403. **Anything that is not that browser bundle has to add the header itself**: `curl`, a mobile app, a webhook provider, another service calling your API routes. Server-to-server callers can compute it with the AWS SDK's `Sha256`, or with `crypto.createHash("sha256").update(body).digest("hex")`. The other four deployment types are unaffected.
+- If using `NextjsGlobalWebFunctions`, the stack must deploy to a Region with [Lambda Web Functions](https://docs.aws.amazon.com/lambda/latest/dg/web-functions.html) (us-east-1, us-east-2, us-west-2, ap-northeast-1, eu-west-1). Synth fails in any other Region, and warns when the stack's Region isn't known at synth. Memory is fixed at 2 GB on Arm64, there are no WebSocket upgrades, and the endpoint stays `IAM_AUTH` in the stack's Region: an override that asks for `APPLICATION_MANAGED` or a multi-Region endpoint fails at synth. The `vpc` prop gives the functions VPC egress through a Lambda network connector in the VPC's private subnets.
 - If using `NextjsGlobalFunctions`, a `HEAD` request is answered with `content-length: 0`, whatever length your handler declares. This is Lambda Function URL behavior.
-- On Next.js 16.4.5 and later, a `HEAD` to an App Router route handler carries no `content-length` on the other three types either: Next.js strips `content-length`, `content-encoding` and `transfer-encoding` from a route handler's `Response` ([GHSA-pc58-hwjq-p385](https://github.com/vercel/next.js/security/advisories/GHSA-pc58-hwjq-p385)). On earlier versions the declared length reaches the client through API Gateway (`NextjsRegionalFunctions`) and from an ALB, with or without CloudFront in front (the two Containers types).
+- On Next.js 16.4.5 and later, a `HEAD` to an App Router route handler carries no `content-length` on the other types either: Next.js strips `content-length`, `content-encoding` and `transfer-encoding` from a route handler's `Response` ([GHSA-pc58-hwjq-p385](https://github.com/vercel/next.js/security/advisories/GHSA-pc58-hwjq-p385)). On earlier versions the declared length reaches the client through API Gateway (`NextjsRegionalFunctions`), a Web Function endpoint (`NextjsGlobalWebFunctions`), and from an ALB, with or without CloudFront in front (the two Containers types).
 - On Next.js 16.4.5 and later, a route handler that returns a body it compressed itself, with its own `content-encoding`, sends the client a body it cannot decode, on every method and deployment type: the same filter drops the `content-encoding`, whatever the content type. This happens under `next start` too. Return the uncompressed body instead: cdk-nextjs compresses it when next.config's `compress` is on (the default) and the content type is text-like (`text/*`, JSON, JavaScript, XML, SVG), and sends it uncompressed otherwise.
 - Group patterns declared via [`functionGroups`](#splitting-a-large-app-across-functions) also count against the CloudFront behavior limit above.
 - If using `NextjsRegionalFunctions` without a custom domain, API Gateway REST APIs require a [stage name](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-stages.html) (default: `/prod`) to be specified. This causes links to pages and static assets to break because they're not prefixed with the stage name. You can work around this issue by specifying [basePath](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath) in next.config.js as your stage name — leave the construct's `basePath` prop unset when you do, since API Gateway strips the stage before matching resources. API Gateway strips the stage from the path it passes to Lambda; cdk-nextjs puts it back for an app whose `basePath` starts with it, reading the stage off each request, so no middleware is needed and a renamed stage needs no configuration. Mapping a custom domain at the root avoids all of this — see [examples/regional-functions/README.md](./examples/regional-functions/README.md#with-a-custom-domain-no-stage-workarounds).
@@ -735,7 +768,7 @@ This construct by default implements all AWS security best practices that a CDK 
 
 - [VPC Flow Logs](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs.html). See [examples/](./examples) for sample implementation.
 - [Scan ECR Images For Vulnerabilities](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-scanning.html).
-- For `NextjsGlobalFunctions` and `NextjsGlobalContainers`, [CloudFront Access Logs](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/AccessLogs.html). See [examples/](./examples) for sample implementation.
+- For `NextjsGlobalFunctions`, `NextjsGlobalWebFunctions` and `NextjsGlobalContainers`, [CloudFront Access Logs](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/AccessLogs.html). See [examples/](./examples) for sample implementation.
 - For `NextjsGlobalContainers` and `NextjsRegionalContainers`, use [ALB HTTPS Listener](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/create-https-listener.html)
 - If using `NextjsGlobalContainers` and `NextjsRegionalContainers`, enable `ReadonlyRootFilesystem`. This will remove ability to use Static On-Demand feature of Next.js so it's not enabled by default, but is recommended for security.
 
@@ -832,6 +865,7 @@ What each route measures:
 | Construct                  | `ssr` at 10 req/s | `ssr` at 50 req/s                         | `ssr` capacity | `isr` capacity | Cold start p50 |
 | -------------------------- | ----------------- | ----------------------------------------- | -------------- | -------------- | -------------- |
 | `NextjsGlobalFunctions`    | 36 / 103          | 33 / 84                                   | ≥ 6560 req/s   | ≥ 6560 req/s   | 1390 ms        |
+| `NextjsGlobalWebFunctions` | 18 / 44           | 14 / 36                                   | ≥ 6560 req/s   | ≥ 6560 req/s   | –              |
 | `NextjsGlobalContainers`   | 19 / 44           | 18 / 219                                  | 194 req/s      | ≥ 6400 req/s   | –              |
 | `NextjsRegionalContainers` | 22 / 172          | 1972 / 39536 ⚠️ 0.54% errors, 76% dropped | 675 req/s      | ≥ 6075 req/s   | –              |
 | `NextjsRegionalFunctions`  | 32 / 114          | 30 / 103                                  | ≥ 6560 req/s   | ≥ 6560 req/s   | 1380 ms        |
@@ -840,10 +874,11 @@ _Latency is p50 / p99 in ms, with every route loaded at that rate at once. Capac
 
 What this means for choosing one:
 
-- **Functions constructs scale with no sizing.** Both held at least 6,560 req/s of SSR, the load generator's limit, at the same latency as at 10 req/s. The cost is a cold start of about 1.4 s on a new execution environment.
+- **Web Functions halve the Functions constructs' compute latency.** `NextjsGlobalWebFunctions` served SSR at 12–18 ms p50 and under 50 ms p99 at every rate up to 6,560 req/s, against 26–34 ms p50 for `NextjsGlobalFunctions` measured alongside it. One execution environment serves many requests at once (`maxConcurrencyPerEnvironment`, 64 by default), but Lambda added environments well before that: none served more than 11 requests at once, and at 5,600 req/s of SSR 77 environments averaged 2 each.
+- **Functions constructs scale with no sizing.** All three held at least 6,560 req/s of SSR, the load generator's limit, at the same latency as at 10 req/s. The cost, on the two Event Functions constructs, is a cold start of about 1.4 s on a new execution environment; Web Functions' wasn't measured.
 - **Containers constructs are fastest per request but need sizing.** Two 1 vCPU tasks served SSR at 19–22 ms p50 against Lambda's ~30 ms, but tasks take minutes to add. Past capacity they don't degrade gradually: tasks too busy to answer the ALB health check are replaced, which leaves fewer tasks for the same load. Leave headroom.
 - **CloudFront carries the Global constructs' cached traffic.** Prerendered pages, ISR hits, images and assets were answered at the edge in 2–3 ms at every rate. On the Regional constructs every request reaches the construct: `NextjsRegionalContainers` serves assets and image optimization from the same tasks, so 50 req/s on every route at once (400 req/s) is already more than two tasks handle.
-- **Cached pages scale on every construct.** ISR hits held at least 6,000 req/s on all four: at the edge on the Global constructs, and through the S3 + DynamoDB cache on the Regional ones, where each instance holds a tag's revalidation marker for a second (`CDK_NEXTJS_TAG_REFRESH_MS`, see the [Caching Guide](./docs/caching-guide.md)).
+- **Cached pages scale on every construct.** ISR hits held at least 6,000 req/s on all of them: at the edge on the Global constructs, and through the S3 + DynamoDB cache on the Regional ones, where each instance holds a tag's revalidation marker for a second (`CDK_NEXTJS_TAG_REFRESH_MS`, see the [Caching Guide](./docs/caching-guide.md)).
 
 <details>
 <summary><code>NextjsGlobalFunctions</code></summary>
@@ -875,6 +910,29 @@ Browser, p75 in ms, under 50 req/s per route:
 | isr    | 52  | 8.7  | 12                     |
 | stream | 64  | 34   | 38                     |
 | image  | 52  | 6.7  | 10                     |
+
+</details>
+
+<details>
+<summary><code>NextjsGlobalWebFunctions</code></summary>
+
+Latency per route, p50 / p99 in ms, with every route at the same rate at once:
+
+| Route         | 10 req/s  | 50 req/s  | 250 req/s | 1000 req/s | CDN hits |
+| ------------- | --------- | --------- | --------- | ---------- | -------- |
+| static-asset  | 1.0 / 3.4 | 1.0 / 2.7 | 0.9 / 2.9 | 1.0 / 5.5  | 100%     |
+| static        | 1.8 / 4.3 | 1.7 / 5.9 | 1.8 / 4.2 | 1.8 / 6.9  | 100%     |
+| isr           | 1.8 / 4.6 | 1.8 / 4.0 | 1.8 / 4.2 | 1.7 / 7.1  | 100%     |
+| ssr           | 18 / 44   | 14 / 36   | 13 / 40   | 13 / 47    | 0%       |
+| stream        | 216 / 239 | 213 / 233 | 212 / 239 | 212 / 244  | 0%       |
+| stream (TTFB) | 16 / 39   | 12 / 30   | 11 / 34   | 11 / 38    |          |
+| rsc           | 16 / 42   | 12 / 30   | 12 / 31   | 11 / 33    | 0%       |
+| api           | 13 / 33   | 11 / 26   | 9.9 / 25  | 9.3 / 27   | 0%       |
+| image         | 1.8 / 4.7 | 1.7 / 3.6 | 1.8 / 4.4 | 1.7 / 6.8  | 100%     |
+
+Capacity: `isr` ≥ 6560 req/s, `ssr` ≥ 6560 req/s.
+
+Cold start: not measured. `pnpm cold-start` retires execution environments by changing a function's configuration, which a Web Function does only through a new revision.
 
 </details>
 

@@ -41,6 +41,7 @@ import {
   CachedRouteKind,
   IncrementalCacheKind,
 } from "next/dist/server/response-cache";
+import { markerClock } from "./aws-cache-store";
 import { S3CacheHandler } from "./s3-cache-handler";
 import { sharedTagManifest } from "./use-cache-common";
 import { REVALIDATED_PAGE_HOOK } from "../runtime/manifest";
@@ -2043,7 +2044,9 @@ describe("S3DynamoCacheHandler", () => {
     });
 
     it("records a profile's revalidation as stale now, expiring later", async () => {
-      const before = Date.now();
+      // The clock the handler stamps with, which can run a few ms behind
+      // `Date.now()`.
+      const before = markerClock();
       await handler.revalidateTag("posts", { expire: 60 });
 
       const [input] = (UpdateItemCommand as unknown as jest.Mock).mock.calls[0];
