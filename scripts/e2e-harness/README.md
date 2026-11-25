@@ -467,7 +467,10 @@ Three things the regional deploy does that the Global one does not:
   Gateway kept answering the replaced tree (403 `MissingAuthenticationToken`,
   then 500s) for ~90s after CloudFormation reported `UPDATE_COMPLETE`, unevenly
   across requests. So it waits until the base path, `_next/static` and the
-  catch-all have all stayed healthy for five rounds in a row.
+  catch-all have all stayed healthy for five rounds in a row, for up to 180s.
+  The build manifest has to answer 2xx: on the replaced tree a basePath's
+  `_next/static` request falls through to the old `{proxy+}`, and the server
+  function answers it with a plain 404 that no other check catches.
 
 What it cannot do: a fetch the **server** makes to its own origin. The origin is
 `127.0.0.1` on the machine running the suite, and the Lambda cannot reach that.
