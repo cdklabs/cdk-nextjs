@@ -7,9 +7,9 @@
 # measured at ~240s. The harness runs `createNext` inside jest's `beforeAll`, so
 # that wait is charged against NEXT_E2E_TEST_TIMEOUT - 240000 when this was
 # measured, i.e. the same order - and the first test file of every run failed
-# wholesale, then passed on retry once the stack existed. Retries make that survivable, not correct: it
-# burns a retry the next real failure needs, and a create slower than two retries
-# goes red.
+# wholesale, then passed on retry once the stack existed. Retries make that
+# survivable, not correct: it burns a retry the next real failure needs, and a
+# create slower than two retries goes red.
 #
 # So: deploy once here, from a throwaway app, and let every test file take the
 # update path. Re-running against an existing stack is a fast no-op update, so

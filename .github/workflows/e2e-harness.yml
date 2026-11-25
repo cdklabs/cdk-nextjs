@@ -362,8 +362,9 @@ jobs:
       # Global types get more again: a fixture whose top-level `public/` entries
       # differ from the previous file's changes the distribution's cache
       # behaviors, which hotswap cannot apply, and the full update then waits on
-      # CloudFront - 8-10 minutes measured on 2026-09-28. At 240s such a file failed wholesale,
-      # and its retry spent its own 240s waiting for that same update to finish.
+      # CloudFront - 8-10 minutes measured on 2026-09-28. At 240s such a file
+      # failed wholesale, and its retry spent its own 240s waiting for that same
+      # update to finish.
       # Regional Functions gets 360s: a fixture whose `basePath` differs from the
       # previous file's changes the REST API's resource tree, so its deploy is a
       # full CloudFormation update, and `e2e-deploy.sh` then waits up to 180s
