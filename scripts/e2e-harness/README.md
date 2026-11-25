@@ -46,8 +46,9 @@ the whole saving, and it is most of the cost of a run.
 
 `scripts/e2e-warm.sh` pays that cost **before `run-tests.js` starts**, and
 is not optional. The harness calls `createNext` inside jest's `beforeAll`, so a
-stack create is charged against `NEXT_E2E_TEST_TIMEOUT` (240s in CI) and the
-first test file fails wholesale, then passes on retry once the stack exists.
+stack create is charged against `NEXT_E2E_TEST_TIMEOUT` (240s when this was
+measured) and the first test file failed wholesale, then passed on retry once
+the stack existed.
 Measured: unwarmed, the first file failed all 11 tests at 242s and passed on
 retry 1 in 213s; against an already-created stack, a file passes on its first
 attempt in 107s. Retries make that survivable, not correct - it spends a retry
@@ -467,10 +468,16 @@ Three things the regional deploy does that the Global one does not:
   Gateway kept answering the replaced tree (403 `MissingAuthenticationToken`,
   then 500s) for ~90s after CloudFormation reported `UPDATE_COMPLETE`, unevenly
   across requests. So it waits until the base path, `_next/static` and the
-  catch-all have all stayed healthy for five rounds in a row, for up to 180s.
+  catch-all have all stayed healthy for five rounds in a row, for at most 180s.
+  If they never do, it logs `not ready within 180s` with the last probe that
+  failed, and the suite runs anyway.
   The build manifest has to answer 2xx: on the replaced tree a basePath's
   `_next/static` request falls through to the old `{proxy+}`, and the server
   function answers it with a plain 404 that no other check catches.
+
+That wait comes on top of a full CloudFormation update, all inside `beforeAll`,
+so `NEXT_E2E_TEST_TIMEOUT` is 360000 for Regional Functions in the workflow,
+not 240000.
 
 What it cannot do: a fetch the **server** makes to its own origin. The origin is
 `127.0.0.1` on the machine running the suite, and the Lambda cannot reach that.
@@ -652,8 +659,9 @@ export NEXT_ENABLE_ADAPTER=1
 # CloudFront invalidation wait. Measured, that sums past 120s for most files, and
 # a file over budget fails *wholesale* on every retry with `Exceeded timeout of
 # 120000 ms for a hook` - which is indistinguishable from a real failure unless
-# you read the elapsed time. CI uses this same value
-# (.github/workflows/e2e-harness.yml).
+# you read the elapsed time. 240000 is enough for a file that hotswaps. CI sets
+# more, per type (the plan job's TYPES in .github/workflows/e2e-harness.yml), to
+# cover the slower updates; to reproduce a CI failure, use that type's value.
 export NEXT_E2E_TEST_TIMEOUT=240000
 node run-tests.js --timings -c 1 --retries 1 --type e2e
 
@@ -770,6 +778,6 @@ the account.
 | `HARNESS_SHARED_STACK_SUFFIX`       | `shared`                             | Shared stack name, after the `hrns-` prefix. One per shard, and per local session (`dev-$USER`).       |
 | `HARNESS_VERBOSE_LOGS`              | `0`                                  | Add the deploy log and CloudWatch tail to `e2e-logs.sh`. Off by default because that output _is_ `next.cliOutput` — see below.                                                   |
 | `HARNESS_SWEEP_MAX_AGE_HOURS`       | `6`                                  | Age floor for the sweeper. Ignored when a stack is named.                                              |
-| `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. Use `240000`.   |
+| `NEXT_E2E_TEST_TIMEOUT`             | next.js's 120000                     | next.js's own knob, but effectively required here: the deploy runs inside `beforeAll`. `240000` at least; CI's per-type values are in the workflow's plan job. |
 
 [harness]: https://nextjs.org/docs/app/api-reference/adapters/testing-adapters

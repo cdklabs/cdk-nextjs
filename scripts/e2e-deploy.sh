@@ -349,22 +349,36 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   # resource of its own there and falls through to that tree's `{proxy+}`, i.e.
   # the server function - already updated, but holding no static files - which
   # answers a plain 404. That passed every check above, so the suite ran with
-  # every chunk 404ing and nothing hydrating: all 11 `basePath` fixtures failed
-  # their first attempt on Regional Functions (run 45526235700), and two failed
-  # their retry ~75s after the stage switch too. Only the new tree's S3
-  # integration serves it.
+  # every chunk 404ing and nothing hydrating: every `basePath` fixture failed its
+  # first attempt on Regional Functions, and some their retry too. Only the new
+  # tree's S3 integration serves it.
   BASE_PATH="$(node -e 'try{process.stdout.write(require(process.argv[1]).config.basePath||"")}catch{}' "$APP_DIR/.next/required-server-files.json")"
   MANIFEST_PROBE="$BASE_PATH/_next/static/$BUILD_ID/_buildManifest.js"
   PROBES=("$BASE_PATH/" "$MANIFEST_PROBE" "$BASE_PATH/__cdk-nextjs-harness-probe")
+  READY_WINDOW=180 PROBE_TIMEOUT=10 ROUND_GAP=3
   api_gateway_ready() {
-    local path head status
+    local path head status limit rc
     for path in "${PROBES[@]}"; do
-      head="$(curl -s -o /dev/null -D - "$URL$path" || true)"
+      # Capped at the time left, so a stalled probe can't stretch the window by
+      # more than about a second. Past the deadline the round is cut short
+      # (return 2): neither a pass nor a failure, so the log keeps naming the
+      # last real failure.
+      limit=$((READY_DEADLINE - SECONDS))
+      [ "$limit" -ge 1 ] || return 2
+      [ "$limit" -le "$PROBE_TIMEOUT" ] || limit=$PROBE_TIMEOUT
+      rc=0
+      head="$(curl -s --max-time "$limit" -o /dev/null -D - "$URL$path")" || rc=$?
       status="$(printf '%s' "$head" | awk 'NR==1{print $2}')"
       if [ -z "$status" ] || [ "${status:0:1}" = "5" ] \
         || printf '%s' "$head" | grep -qi '^x-amzn-errortype:' \
         || { [ "$path" = "$MANIFEST_PROBE" ] && [ "${status:0:1}" != "2" ]; }; then
-        STATUS="$path -> ${status:-no answer}"
+        if [ -n "$status" ]; then
+          STATUS="$path -> $status"
+        elif [ "$rc" -eq 28 ]; then
+          STATUS="$path -> no answer within ${limit}s"
+        else
+          STATUS="$path -> curl exit $rc"
+        fi
         return 1
       fi
     done
@@ -372,22 +386,45 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   }
   # Five rounds in a row, not one: the new deployment reaches API Gateway's fleet
   # unevenly, and a test got the replaced tree's 403 right after all three
-  # probes had passed once. 60 x 3s overall: the replaced tree was measured
-  # still answering ~90s after CloudFormation reported UPDATE_COMPLETE, and a
-  # fixture failed on it ~75s after the stage switch, so 120s left too little
-  # margin. A deploy that leaves the tree alone still passes its five rounds
-  # straight away (~15s); only a stage switch waits longer.
+  # probes had passed once. Rounds ROUND_GAP apart, for at most READY_WINDOW in
+  # all: the replaced tree was measured still answering ~90s after
+  # CloudFormation reported UPDATE_COMPLETE, five clean rounds add ~15s on top,
+  # and the rest is margin for the fleet's unevenness. A deploy that leaves the
+  # tree alone still passes its five rounds straight away (~15s); only a stage
+  # switch waits longer. A deadline, not a round count, because a stalled probe
+  # makes a round take up to PROBE_TIMEOUT per probe; each probe is also capped
+  # at the time left, so the last round overruns it by a second at most. The
+  # whole wait is charged against NEXT_E2E_TEST_TIMEOUT, on top of the full
+  # CloudFormation update a stage switch is, which is why Regional Functions'
+  # budget is 360s rather than the 240s a hotswap needs
+  # (.github/workflows/e2e-harness.yml).
+  #
+  # Running out of time still runs the suite (a fixture can answer 500 on
+  # purpose), but says so, naming the last probe that failed rather than
+  # reporting "ready".
   READY_ROUNDS=0
-  for _ in $(seq 1 60); do
-    if api_gateway_ready; then
+  LAST_FAILURE="none"
+  READY_DEADLINE=$((SECONDS + READY_WINDOW))
+  while [ "$SECONDS" -lt "$READY_DEADLINE" ]; do
+    rc=0
+    api_gateway_ready || rc=$?
+    if [ "$rc" -eq 0 ]; then
       READY_ROUNDS=$((READY_ROUNDS + 1))
       [ "$READY_ROUNDS" -ge 5 ] && break
+    elif [ "$rc" -eq 2 ]; then
+      break
     else
       READY_ROUNDS=0
+      LAST_FAILURE="$STATUS"
     fi
-    sleep 3
+    [ $((SECONDS + ROUND_GAP)) -lt "$READY_DEADLINE" ] || break
+    sleep "$ROUND_GAP"
   done
-  echo "harness: $URL ready: $STATUS"
+  if [ "$READY_ROUNDS" -ge 5 ]; then
+    echo "harness: $URL ready: $STATUS"
+  else
+    echo "harness: $URL not ready within ${READY_WINDOW}s ($READY_ROUNDS clean rounds in a row), running anyway; last failure: $LAST_FAILURE"
+  fi
 else
   # Then evict the previous test file's app from the edge.
   #
