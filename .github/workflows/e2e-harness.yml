@@ -358,7 +358,7 @@ jobs:
       HARNESS_NEXTJS_TYPE: ${{ matrix.type }}
       # The per-file budget `createNext` - build, deploy and all - runs inside. The
       # Containers types add an image build and push and an ECS rollout to every
-      # deploy, which a hotswapped Functions deploy's 240s does not fit. The Global types
+      # deploy, which the 240s a hotswapped Functions deploy needs does not fit. The Global types
       # get more again: a fixture whose top-level `public/` entries differ from
       # the previous file's changes the distribution's cache behaviors, which
       # hotswap cannot apply, and the full update then waits on CloudFront -

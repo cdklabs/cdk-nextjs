@@ -371,13 +371,14 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   }
   # Five rounds in a row, not one: the new deployment reaches API Gateway's fleet
   # unevenly, and a test got the replaced tree's 403 right after all three
-  # probes had passed once. Rounds 3s apart, each probe capped at 10s, none
-  # started after 180s: the replaced tree was measured still answering ~90s after
+  # probes had passed once. Rounds 3s apart, each probe capped at 10s, for at
+  # most 180s in all: the replaced tree was measured still answering ~90s after
   # CloudFormation reported UPDATE_COMPLETE, five clean rounds add ~15s on top,
   # and the rest is margin for the fleet's unevenness. A deploy that leaves the
   # tree alone still passes its five rounds straight away (~15s); only a stage
   # switch waits longer. A deadline, not a round count, because a stalled probe
-  # makes a round take up to 10s per probe. The whole wait is charged against
+  # makes a round take up to 10s per probe; and a round starts only if its worst
+  # case (3 probes x 10s, plus the sleep) still ends by the deadline. The whole wait is charged against
   # NEXT_E2E_TEST_TIMEOUT, on top of the full CloudFormation update a stage
   # switch is, which is why Regional Functions' budget is 360s rather than the
   # 240s a hotswap needs (.github/workflows/e2e-harness.yml).
@@ -388,7 +389,7 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   READY_ROUNDS=0
   LAST_FAILURE="none"
   READY_DEADLINE=$((SECONDS + 180))
-  while [ "$SECONDS" -lt "$READY_DEADLINE" ]; do
+  while [ $((SECONDS + ${#PROBES[@]} * 10 + 3)) -le "$READY_DEADLINE" ]; do
     if api_gateway_ready; then
       READY_ROUNDS=$((READY_ROUNDS + 1))
       [ "$READY_ROUNDS" -ge 5 ] && break
@@ -401,7 +402,7 @@ elif [ "$NEXTJS_TYPE" = "regional-functions" ]; then
   if [ "$READY_ROUNDS" -ge 5 ]; then
     echo "harness: $URL ready: $STATUS"
   else
-    echo "harness: $URL not ready after 180s ($READY_ROUNDS clean rounds in a row), running anyway; last failure: $LAST_FAILURE"
+    echo "harness: $URL not ready within 180s ($READY_ROUNDS clean rounds in a row), running anyway; last failure: $LAST_FAILURE"
   fi
 else
   # Then evict the previous test file's app from the edge.
