@@ -1265,6 +1265,7 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#cdk-nextjs.NextjsDistribution.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#cdk-nextjs.NextjsDistribution.property.dynamicBehaviorOptions">dynamicBehaviorOptions</a></code> | <code>aws-cdk-lib.aws_cloudfront.BehaviorOptions</code> | The options cdk-nextjs builds for the behaviors that send requests to the Next.js server (the default behavior, unless `overrides.distributionProps.defaultBehavior` replaces it): their origin, cache, origin request and response headers policies, and function associations, with `overrides.dynamicBehaviorOptions` applied. |
 | <code><a href="#cdk-nextjs.NextjsDistribution.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
 
 ---
@@ -1278,6 +1279,29 @@ public readonly node: Node;
 - *Type:* constructs.Node
 
 The tree node.
+
+---
+
+##### `dynamicBehaviorOptions`<sup>Required</sup> <a name="dynamicBehaviorOptions" id="cdk-nextjs.NextjsDistribution.property.dynamicBehaviorOptions"></a>
+
+```typescript
+public readonly dynamicBehaviorOptions: BehaviorOptions;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.BehaviorOptions
+
+The options cdk-nextjs builds for the behaviors that send requests to the Next.js server (the default behavior, unless `overrides.distributionProps.defaultBehavior` replaces it): their origin, cache, origin request and response headers policies, and function associations, with `overrides.dynamicBehaviorOptions` applied.
+
+Read it to reuse a policy on a behavior of your own with another origin,
+e.g. the `responseHeadersPolicy` on a path served from another bucket, or
+the `origin` as the fallback of an origin group. To send another path to
+the Next.js server with some options changed, use
+{@link NextjsDistributionProps.dynamicBehaviors} rather than spreading
+this into `distribution.addBehavior`: a `functionAssociations` of your
+own there would drop cdk-nextjs's viewer-request function.
+
+Frozen, `functionAssociations` and `edgeLambdas` included: the behaviors
+cdk-nextjs builds from it would change with it.
 
 ---
 
@@ -4507,6 +4531,7 @@ const nextjsDistributionProps: NextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDistributionProps.property.dynamicBehaviors">dynamicBehaviors</a></code> | <code><a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]</code> | Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Each gets {@link NextjsDistribution.dynamicBehaviorOptions}, function associations and Lambda@Edge included, with the fields it sets replacing those. Those are the options cdk-nextjs builds for its dynamic behaviors, so a default behavior replaced through `overrides.distributionProps.defaultBehavior` isn't what they copy. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionGroupBehaviors">functionGroupBehaviors</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroupBehavior">NextjsFunctionGroupBehavior</a>[]</code> | `NextjsBuild.functionGroupBehaviors`: one cache behavior each, added in order, so the routes each group was packaged with reach it rather than the default function. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsDistributionFunctionGroup">NextjsDistributionFunctionGroup</a>[]</code> | The non-`default` function groups, the origins {@link functionGroupBehaviors} route to. |
 | <code><a href="#cdk-nextjs.NextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
@@ -4617,6 +4642,30 @@ public readonly distribution: Distribution;
 ```
 
 - *Type:* aws-cdk-lib.aws_cloudfront.Distribution
+
+---
+
+##### `dynamicBehaviors`<sup>Optional</sup> <a name="dynamicBehaviors" id="cdk-nextjs.NextjsDistributionProps.property.dynamicBehaviors"></a>
+
+```typescript
+public readonly dynamicBehaviors: NextjsDynamicBehavior[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]
+- *Default:* none
+
+Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Each gets {@link NextjsDistribution.dynamicBehaviorOptions}, function associations and Lambda@Edge included, with the fields it sets replacing those. Those are the options cdk-nextjs builds for its dynamic behaviors, so a default behavior replaced through `overrides.distributionProps.defaultBehavior` isn't what they copy.
+
+Their patterns are relative to the app, like `functionGroups` patterns:
+under a `basePath`, cdk-nextjs prefixes them with it. They are added in
+the order given, after `_next/static*`, `_next/image*`, the `public/`
+entries and the `functionGroups` patterns, which CloudFront matches
+first, so a pattern inside one of those (`api/slow/*` under a group's
+`api/*`) never applies. They come before the behaviors that stand in for
+the default one under a `basePath`. A pattern another behavior already has
+is a synth error, and they count toward {@link maxCacheBehaviors}.
+
+> [https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin](https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin)
 
 ---
 
@@ -4755,6 +4804,139 @@ A CloudFront KeyValueStore associated with every viewer-request function {@link 
 Read it with `cf.kvs()`, no ID needed.
 
 > [https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/functions-custom-methods.html)
+
+---
+
+### NextjsDynamicBehavior <a name="NextjsDynamicBehavior" id="cdk-nextjs.NextjsDynamicBehavior"></a>
+
+A behavior of your own to the Next.js server, one of {@link NextjsDistributionProps.dynamicBehaviors}. Fields left unset keep those of {@link NextjsDistribution.dynamicBehaviorOptions}. Its function associations and Lambda@Edge are always those options', so cdk-nextjs's viewer-request function runs on it; only the fields here are read.
+
+#### Initializer <a name="Initializer" id="cdk-nextjs.NextjsDynamicBehavior.Initializer"></a>
+
+```typescript
+import { NextjsDynamicBehavior } from 'cdk-nextjs'
+
+const nextjsDynamicBehavior: NextjsDynamicBehavior = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.pathPattern">pathPattern</a></code> | <code>string</code> | The path pattern, relative to the app (`detail/*`): under a `basePath`, cdk-nextjs prefixes it with it. |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.allowedMethods">allowedMethods</a></code> | <code>aws-cdk-lib.aws_cloudfront.AllowedMethods</code> | Its allowed methods, which must include its `cachedMethods`, inherited ones included. |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.cachedMethods">cachedMethods</a></code> | <code>aws-cdk-lib.aws_cloudfront.CachedMethods</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.cachePolicy">cachePolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.ICachePolicy</code> | Its cache policy. |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.compress">compress</a></code> | <code>boolean</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.originRequestPolicy">originRequestPolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.IOriginRequestPolicy</code> | Its origin request policy. |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.responseHeadersPolicy">responseHeadersPolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.IResponseHeadersPolicy</code> | *No description.* |
+| <code><a href="#cdk-nextjs.NextjsDynamicBehavior.property.viewerProtocolPolicy">viewerProtocolPolicy</a></code> | <code>aws-cdk-lib.aws_cloudfront.ViewerProtocolPolicy</code> | *No description.* |
+
+---
+
+##### `pathPattern`<sup>Required</sup> <a name="pathPattern" id="cdk-nextjs.NextjsDynamicBehavior.property.pathPattern"></a>
+
+```typescript
+public readonly pathPattern: string;
+```
+
+- *Type:* string
+
+The path pattern, relative to the app (`detail/*`): under a `basePath`, cdk-nextjs prefixes it with it.
+
+---
+
+##### `allowedMethods`<sup>Optional</sup> <a name="allowedMethods" id="cdk-nextjs.NextjsDynamicBehavior.property.allowedMethods"></a>
+
+```typescript
+public readonly allowedMethods: AllowedMethods;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.AllowedMethods
+- *Default:* that of `NextjsDistribution.dynamicBehaviorOptions`
+
+Its allowed methods, which must include its `cachedMethods`, inherited ones included.
+
+---
+
+##### `cachedMethods`<sup>Optional</sup> <a name="cachedMethods" id="cdk-nextjs.NextjsDynamicBehavior.property.cachedMethods"></a>
+
+```typescript
+public readonly cachedMethods: CachedMethods;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.CachedMethods
+- *Default:* that of `NextjsDistribution.dynamicBehaviorOptions`
+
+---
+
+##### `cachePolicy`<sup>Optional</sup> <a name="cachePolicy" id="cdk-nextjs.NextjsDynamicBehavior.property.cachePolicy"></a>
+
+```typescript
+public readonly cachePolicy: ICachePolicy;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.ICachePolicy
+- *Default:* that of `NextjsDistribution.dynamicBehaviorOptions`
+
+Its cache policy.
+
+Build it from the dynamic one's cache key, and set
+`defaultTtl`, which CDK otherwise defaults to a day. On
+NextjsGlobalFunctions its cache key must not include the viewer's `Host`
+header: CloudFront forwards cache key headers to the origin, and a Lambda
+Function URL refuses that one.
+
+> [https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin](https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin)
+
+---
+
+##### `compress`<sup>Optional</sup> <a name="compress" id="cdk-nextjs.NextjsDynamicBehavior.property.compress"></a>
+
+```typescript
+public readonly compress: boolean;
+```
+
+- *Type:* boolean
+- *Default:* that of `NextjsDistribution.dynamicBehaviorOptions`
+
+---
+
+##### `originRequestPolicy`<sup>Optional</sup> <a name="originRequestPolicy" id="cdk-nextjs.NextjsDynamicBehavior.property.originRequestPolicy"></a>
+
+```typescript
+public readonly originRequestPolicy: IOriginRequestPolicy;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IOriginRequestPolicy
+- *Default:* that of `NextjsDistribution.dynamicBehaviorOptions`
+
+Its origin request policy.
+
+On NextjsGlobalFunctions it must not forward
+the viewer's `Host` header, which a Lambda Function URL refuses.
+
+---
+
+##### `responseHeadersPolicy`<sup>Optional</sup> <a name="responseHeadersPolicy" id="cdk-nextjs.NextjsDynamicBehavior.property.responseHeadersPolicy"></a>
+
+```typescript
+public readonly responseHeadersPolicy: IResponseHeadersPolicy;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.IResponseHeadersPolicy
+- *Default:* that of `NextjsDistribution.dynamicBehaviorOptions`
+
+---
+
+##### `viewerProtocolPolicy`<sup>Optional</sup> <a name="viewerProtocolPolicy" id="cdk-nextjs.NextjsDynamicBehavior.property.viewerProtocolPolicy"></a>
+
+```typescript
+public readonly viewerProtocolPolicy: ViewerProtocolPolicy;
+```
+
+- *Type:* aws-cdk-lib.aws_cloudfront.ViewerProtocolPolicy
+- *Default:* that of `NextjsDistribution.dynamicBehaviorOptions`
 
 ---
 
@@ -5432,6 +5614,7 @@ const nextjsGlobalContainersProps: NextjsGlobalContainersProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.healthCheckPath">healthCheckPath</a></code> | <code>string</code> | Path to API Route Handler that returns HTTP 200 to ensure compute health. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.alb">alb</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Bring your own Application Load Balancer. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
+| <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.dynamicBehaviors">dynamicBehaviors</a></code> | <code><a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]</code> | Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Patterns are relative to the app, prefixed with the `basePath` if there is one. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | Bring your own ECS cluster. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.invalidateCdnOnRevalidate">invalidateCdnOnRevalidate</a></code> | <code>boolean</code> | Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches. |
 | <code><a href="#cdk-nextjs.NextjsGlobalContainersProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalContainersOverrides">NextjsGlobalContainersOverrides</a></code> | Override props of any construct. |
@@ -5678,6 +5861,21 @@ Bring your own distribution.
 
 Can be used with `basePath` to host multiple
 apps on the same CloudFront distribution.
+
+---
+
+##### `dynamicBehaviors`<sup>Optional</sup> <a name="dynamicBehaviors" id="cdk-nextjs.NextjsGlobalContainersProps.property.dynamicBehaviors"></a>
+
+```typescript
+public readonly dynamicBehaviors: NextjsDynamicBehavior[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]
+- *Default:* none
+
+Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Patterns are relative to the app, prefixed with the `basePath` if there is one.
+
+> [NextjsDistributionProps.dynamicBehaviors *](NextjsDistributionProps.dynamicBehaviors *)
 
 ---
 
@@ -5946,6 +6144,7 @@ const nextjsGlobalFunctionsProps: NextjsGlobalFunctionsProps = { ... }
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.staticAssetsBucket">staticAssetsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bring your own S3 bucket for static assets. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | Bring your own VPC. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | Bring your own distribution. |
+| <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.dynamicBehaviors">dynamicBehaviors</a></code> | <code><a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]</code> | Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Patterns are relative to the app, prefixed with the `basePath` if there is one. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.functionGroups">functionGroups</a></code> | <code><a href="#cdk-nextjs.NextjsFunctionGroup">NextjsFunctionGroup</a>[]</code> | Package sets of routes into separate Lambda functions, each fronted by its own CloudFront behaviors. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.invalidateCdnOnRevalidate">invalidateCdnOnRevalidate</a></code> | <code>boolean</code> | Whether on-demand revalidation (`revalidateTag`, `revalidatePath` and the Pages Router's `res.revalidate()`) creates CloudFront invalidations for the pages it touches. |
 | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsProps.property.overrides">overrides</a></code> | <code><a href="#cdk-nextjs.NextjsGlobalFunctionsOverrides">NextjsGlobalFunctionsOverrides</a></code> | Override props of any construct. |
@@ -6145,6 +6344,21 @@ Bring your own distribution.
 
 Can be used with `basePath` to host multiple
 apps on the same CloudFront distribution.
+
+---
+
+##### `dynamicBehaviors`<sup>Optional</sup> <a name="dynamicBehaviors" id="cdk-nextjs.NextjsGlobalFunctionsProps.property.dynamicBehaviors"></a>
+
+```typescript
+public readonly dynamicBehaviors: NextjsDynamicBehavior[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]
+- *Default:* none
+
+Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Patterns are relative to the app, prefixed with the `basePath` if there is one.
+
+> [NextjsDistributionProps.dynamicBehaviors *](NextjsDistributionProps.dynamicBehaviors *)
 
 ---
 
@@ -11179,6 +11393,7 @@ const optionalNextjsDistributionProps: OptionalNextjsDistributionProps = { ... }
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.basePath">basePath</a></code> | <code>string</code> | URI path prefix the app is served at. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.certificate">certificate</a></code> | <code>aws-cdk-lib.aws_certificatemanager.ICertificate</code> | Optional but only applicable for `NextjsType.GLOBAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.distribution">distribution</a></code> | <code>aws-cdk-lib.aws_cloudfront.Distribution</code> | *No description.* |
+| <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.dynamicBehaviors">dynamicBehaviors</a></code> | <code><a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]</code> | Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Each gets {@link NextjsDistribution.dynamicBehaviorOptions }, function associations and Lambda@Edge included, with the fields it sets replacing those. Those are the options cdk-nextjs builds for its dynamic behaviors, so a default behavior replaced through `overrides.distributionProps.defaultBehavior` isn't what they copy. Their patterns are relative to the app, like `functionGroups` patterns: under a `basePath`, cdk-nextjs prefixes them with it. They are added in the order given, after `_next/static*`, `_next/image*`, the `public/` entries and the `functionGroups` patterns, which CloudFront matches first, so a pattern inside one of those (`api/slow/*` under a group's `api/*`) never applies. They come before the behaviors that stand in for the default one under a `basePath`. A pattern another behavior already has is a synth error, and they count toward {@link maxCacheBehaviors}. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.functionUrl">functionUrl</a></code> | <code>aws-cdk-lib.aws_lambda.IFunctionUrl</code> | Required if `NextjsType.GLOBAL_FUNCTIONS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.loadBalancer">loadBalancer</a></code> | <code>aws-cdk-lib.aws_elasticloadbalancingv2.IApplicationLoadBalancer</code> | Required if `NextjsType.GLOBAL_CONTAINERS` or `NextjsType.REGIONAL_CONTAINERS`. |
 | <code><a href="#cdk-nextjs.OptionalNextjsDistributionProps.property.maxCacheBehaviors">maxCacheBehaviors</a></code> | <code>number</code> | The most cache behaviors the distribution may have, the default one included. |
@@ -11266,6 +11481,19 @@ public readonly distribution: Distribution;
 ```
 
 - *Type:* aws-cdk-lib.aws_cloudfront.Distribution
+
+---
+
+##### `dynamicBehaviors`<sup>Optional</sup> <a name="dynamicBehaviors" id="cdk-nextjs.OptionalNextjsDistributionProps.property.dynamicBehaviors"></a>
+
+```typescript
+public readonly dynamicBehaviors: NextjsDynamicBehavior[];
+```
+
+- *Type:* <a href="#cdk-nextjs.NextjsDynamicBehavior">NextjsDynamicBehavior</a>[]
+- *Default:* none
+
+Behaviors of your own that send a path to the Next.js server like the default behavior, with some of its options changed: a shorter cache for `detail/*`, say. Each gets {@link NextjsDistribution.dynamicBehaviorOptions }, function associations and Lambda@Edge included, with the fields it sets replacing those. Those are the options cdk-nextjs builds for its dynamic behaviors, so a default behavior replaced through `overrides.distributionProps.defaultBehavior` isn't what they copy. Their patterns are relative to the app, like `functionGroups` patterns: under a `basePath`, cdk-nextjs prefixes them with it. They are added in the order given, after `_next/static*`, `_next/image*`, the `public/` entries and the `functionGroups` patterns, which CloudFront matches first, so a pattern inside one of those (`api/slow/*` under a group's `api/*`) never applies. They come before the behaviors that stand in for the default one under a `basePath`. A pattern another behavior already has is a synth error, and they count toward {@link maxCacheBehaviors}.
 
 ---
 

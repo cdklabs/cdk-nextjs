@@ -13,6 +13,7 @@ import {
   CachedMethods,
   Function as CloudFrontFunction,
   Distribution,
+  EdgeLambda,
   FunctionAssociation,
   FunctionCode,
   FunctionEventType,
@@ -21,9 +22,11 @@ import {
   HeadersFrameOption,
   HeadersReferrerPolicy,
   HttpVersion,
+  ICachePolicy,
   IKeyValueStore,
   IOrigin,
   IOriginRequestPolicy,
+  IResponseHeadersPolicy,
   OriginProtocolPolicy,
   OriginRequestPolicy,
   ResponseHeadersPolicy,
@@ -67,9 +70,12 @@ import {
 import {
   assertNoPublicCollisions,
   getPathPattern,
+  pathPatternKey,
   publicPathPatterns,
+  resolveDynamicPathPattern,
 } from "./utils/path-patterns";
 import {
+  assertViewerEdgeLambdasClear,
   assertViewerRequestUnclaimed,
   assetPrefixRewriteHandler,
   checkFunctionCodeSize,
@@ -79,6 +85,10 @@ import {
   spliceViewerRequest,
   X_FORWARDED_HOST_HANDLER,
 } from "./utils/viewer-request-functions";
+
+/** The viewer-request function `viewerRequestFunctionCode` runs in, in errors. */
+const VIEWER_REQUEST_CODE_FUNCTION =
+  "the viewer-request function `viewerRequestFunctionCode` runs in";
 
 export interface NextjsDistributionOverrides {
   readonly distributionProps?: OptionalDistributionProps;
@@ -171,6 +181,27 @@ export interface NextjsDistributionProps {
    */
   readonly functionGroupBehaviors?: NextjsFunctionGroupBehavior[];
   /**
+   * Behaviors of your own that send a path to the Next.js server like the
+   * default behavior, with some of its options changed: a shorter cache for
+   * `detail/*`, say. Each gets {@link NextjsDistribution.dynamicBehaviorOptions},
+   * function associations and Lambda@Edge included, with the fields it sets
+   * replacing those. Those are the options cdk-nextjs builds for its dynamic
+   * behaviors, so a default behavior replaced through
+   * `overrides.distributionProps.defaultBehavior` isn't what they copy.
+   *
+   * Their patterns are relative to the app, like `functionGroups` patterns:
+   * under a `basePath`, cdk-nextjs prefixes them with it. They are added in
+   * the order given, after `_next/static*`, `_next/image*`, the `public/`
+   * entries and the `functionGroups` patterns, which CloudFront matches
+   * first, so a pattern inside one of those (`api/slow/*` under a group's
+   * `api/*`) never applies. They come before the behaviors that stand in for
+   * the default one under a `basePath`. A pattern another behavior already has
+   * is a synth error, and they count toward {@link maxCacheBehaviors}.
+   * @default - none
+   * @see https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin
+   */
+  readonly dynamicBehaviors?: NextjsDynamicBehavior[];
+  /**
    * The most cache behaviors the distribution may have, the default one
    * included. cdk-nextjs counts what it adds against this at synth, so running
    * out is a synth error naming what used them rather than a failed deploy.
@@ -217,6 +248,51 @@ export interface NextjsDistributionFunctionGroup {
   readonly name: string;
   /** The group's Lambda Function URL. */
   readonly functionUrl: IFunctionUrl;
+}
+
+/**
+ * A behavior of your own to the Next.js server, one of
+ * {@link NextjsDistributionProps.dynamicBehaviors}. Fields left unset keep
+ * those of {@link NextjsDistribution.dynamicBehaviorOptions}. Its function
+ * associations and Lambda@Edge are always those options', so cdk-nextjs's
+ * viewer-request function runs on it; only the fields here are read.
+ */
+export interface NextjsDynamicBehavior {
+  /**
+   * The path pattern, relative to the app (`detail/*`): under a `basePath`,
+   * cdk-nextjs prefixes it with it.
+   */
+  readonly pathPattern: string;
+  /**
+   * Its cache policy. Build it from the dynamic one's cache key, and set
+   * `defaultTtl`, which CDK otherwise defaults to a day. On
+   * NextjsGlobalFunctions its cache key must not include the viewer's `Host`
+   * header: CloudFront forwards cache key headers to the origin, and a Lambda
+   * Function URL refuses that one.
+   * @see https://github.com/cdklabs/cdk-nextjs#adding-your-own-behaviors-to-the-dynamic-origin
+   * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
+   */
+  readonly cachePolicy?: ICachePolicy;
+  /**
+   * Its origin request policy. On NextjsGlobalFunctions it must not forward
+   * the viewer's `Host` header, which a Lambda Function URL refuses.
+   * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
+   */
+  readonly originRequestPolicy?: IOriginRequestPolicy;
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
+  readonly responseHeadersPolicy?: IResponseHeadersPolicy;
+  /**
+   * Its allowed methods, which must include its `cachedMethods`, inherited
+   * ones included.
+   * @default - that of `NextjsDistribution.dynamicBehaviorOptions`
+   */
+  readonly allowedMethods?: AllowedMethods;
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
+  readonly cachedMethods?: CachedMethods;
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
+  readonly compress?: boolean;
+  /** @default - that of `NextjsDistribution.dynamicBehaviorOptions` */
+  readonly viewerProtocolPolicy?: ViewerProtocolPolicy;
 }
 
 export class NextjsDistribution extends Construct {
@@ -278,8 +354,32 @@ export class NextjsDistribution extends Construct {
   private passThroughFunction?: CloudFrontFunction;
   private isFunctionCompute: boolean;
   private staticBehaviorOptions: BehaviorOptions;
-  private dynamicBehaviorOptions: BehaviorOptions;
+  /**
+   * The options cdk-nextjs builds for the behaviors that send requests to the
+   * Next.js server (the default behavior, unless
+   * `overrides.distributionProps.defaultBehavior` replaces it): their origin,
+   * cache, origin request and response headers policies, and function
+   * associations, with `overrides.dynamicBehaviorOptions` applied.
+   *
+   * Read it to reuse a policy on a behavior of your own with another origin,
+   * e.g. the `responseHeadersPolicy` on a path served from another bucket, or
+   * the `origin` as the fallback of an origin group. To send another path to
+   * the Next.js server with some options changed, use
+   * {@link NextjsDistributionProps.dynamicBehaviors} rather than spreading
+   * this into `distribution.addBehavior`: a `functionAssociations` of your
+   * own there would drop cdk-nextjs's viewer-request function.
+   *
+   * Frozen, `functionAssociations` and `edgeLambdas` included: the behaviors
+   * cdk-nextjs builds from it would change with it.
+   */
+  public readonly dynamicBehaviorOptions: BehaviorOptions;
   private imageBehaviorOptions: BehaviorOptions;
+  /**
+   * Every pattern this construct has added a behavior for, by
+   * {@link pathPatternKey}, so a `dynamicBehaviors` pattern that repeats one
+   * is refused.
+   */
+  private readonly pathPatterns = new Set<string>();
 
   constructor(scope: Construct, id: string, props: NextjsDistributionProps) {
     super(scope, id);
@@ -302,7 +402,9 @@ export class NextjsDistribution extends Construct {
     this.dynamicCloudFrontFunctionAssociations =
       this.createDynamicCloudFrontFunctionAssociations();
     this.staticBehaviorOptions = this.createStaticBehaviorOptions();
-    this.dynamicBehaviorOptions = this.createDynamicBehaviorOptions();
+    this.dynamicBehaviorOptions = freezeBehaviorOptions(
+      this.createDynamicBehaviorOptions(),
+    );
     this.imageBehaviorOptions = this.createImageBehaviorOptions();
     this.distribution = this.getDistribution();
     if (this.isFunctionCompute) {
@@ -458,6 +560,26 @@ export class NextjsDistribution extends Construct {
     };
   }
   /**
+   * {@link assertViewerEdgeLambdasClear} on a behavior built from an override:
+   * the override's own CloudFront Functions, plus `ours`, which `ourOwner`
+   * describes.
+   */
+  private assertOverrideEdgeLambdasClear(
+    overrideName: string,
+    options: AddBehaviorOptions | undefined,
+    ours: readonly { readonly eventType: FunctionEventType }[],
+    ourOwner: string,
+  ) {
+    assertViewerEdgeLambdasClear(overrideName, options?.edgeLambdas, [
+      ...(options?.functionAssociations ?? []).map(({ eventType }) => ({
+        eventType,
+        owner: `\`overrides.${overrideName}.functionAssociations\``,
+        fromOverride: true,
+      })),
+      ...ours.map(({ eventType }) => ({ eventType, owner: ourOwner })),
+    ]);
+  }
+  /**
    * `viewerRequestFunctionCode`, rendered once, since `FunctionCode.fromFile`
    * reads the file on every render, and checked
    * ({@link checkViewerRequestCode}).
@@ -488,14 +610,26 @@ export class NextjsDistribution extends Construct {
       viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       ...staticBehaviorOptions,
     };
+    // The viewer-request check first: its error rules out
+    // `viewerRequestFunctionCode`, which the edge-lambda one may suggest.
+    if (this.viewerRequestCode !== undefined) {
+      assertViewerRequestUnclaimed(
+        "staticBehaviorOptions",
+        staticBehaviorOptions?.functionAssociations,
+        "`viewerRequestFunctionCode` needs that event type on the static behaviors",
+      );
+    }
+    this.assertOverrideEdgeLambdasClear(
+      "staticBehaviorOptions",
+      staticBehaviorOptions,
+      this.viewerRequestCode === undefined
+        ? []
+        : [{ eventType: FunctionEventType.VIEWER_REQUEST }],
+      VIEWER_REQUEST_CODE_FUNCTION,
+    );
     if (this.viewerRequestCode === undefined) {
       return options;
     }
-    assertViewerRequestUnclaimed(
-      "staticBehaviorOptions",
-      staticBehaviorOptions?.functionAssociations,
-      "`viewerRequestFunctionCode` needs that event type on the static behaviors",
-    );
     return {
       ...options,
       functionAssociations: [
@@ -543,7 +677,7 @@ export class NextjsDistribution extends Construct {
       ...dynamicBehaviorOptions,
       functionAssociations: this.withDynamicFunctionAssociations(
         "dynamicBehaviorOptions",
-        dynamicBehaviorOptions?.functionAssociations,
+        dynamicBehaviorOptions,
       ),
     };
   }
@@ -559,29 +693,43 @@ export class NextjsDistribution extends Construct {
    * URLs, cached for other viewers because the header is not in the cache key.
    * So ours is kept, and an override claiming VIEWER_REQUEST — which CloudFront
    * allows only one of per behavior — is an error rather than a replacement.
+   * So is a viewer-event Lambda@Edge beside a CloudFront Function.
    */
   private withDynamicFunctionAssociations(
     overrideName: string,
-    overridden: FunctionAssociation[] | undefined,
+    options: AddBehaviorOptions | undefined,
   ): FunctionAssociation[] {
     const ours = this.dynamicCloudFrontFunctionAssociations;
+    const overridden = options?.functionAssociations;
+    // The viewer-request check first, as on the static behaviors.
+    if (overridden && ours.length) {
+      assertViewerRequestUnclaimed(
+        overrideName,
+        overridden,
+        this.isFunctionCompute
+          ? `NextjsGlobalFunctions needs that event type for its own function, ` +
+              `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
+              `(the runtime trusts that header behind CloudFront) and redirects ` +
+              `repeated slashes`
+          : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
+              "and image behaviors",
+      );
+    }
+    this.assertOverrideEdgeLambdasClear(
+      overrideName,
+      options,
+      ours,
+      this.isFunctionCompute
+        ? "NextjsGlobalFunctions' own viewer-request function, which " +
+            "overwrites `x-forwarded-host` with the viewer's `Host`"
+        : VIEWER_REQUEST_CODE_FUNCTION,
+    );
     if (!overridden) {
       return ours;
     }
     if (!ours.length) {
       return overridden;
     }
-    assertViewerRequestUnclaimed(
-      overrideName,
-      overridden,
-      this.isFunctionCompute
-        ? `NextjsGlobalFunctions needs that event type for its own function, ` +
-            `which overwrites \`x-forwarded-host\` with the viewer's \`Host\` ` +
-            `(the runtime trusts that header behind CloudFront) and redirects ` +
-            `repeated slashes`
-        : "`viewerRequestFunctionCode` needs that event type on the dynamic " +
-            "and image behaviors",
-    );
     return [...overridden, ...ours];
   }
   /**
@@ -627,7 +775,7 @@ export class NextjsDistribution extends Construct {
       ...imageBehaviorOptions,
       functionAssociations: this.withDynamicFunctionAssociations(
         "imageBehaviorOptions",
-        imageBehaviorOptions?.functionAssociations,
+        imageBehaviorOptions,
       ),
     };
   }
@@ -668,7 +816,7 @@ export class NextjsDistribution extends Construct {
   }
   private addDynamicBehaviors() {
     // Image Behavior
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       this.getPathPattern("_next/image*"),
       this.imageBehaviorOptions.origin,
       this.imageBehaviorOptions,
@@ -677,23 +825,23 @@ export class NextjsDistribution extends Construct {
     // `_next/image*` (no group pattern can match an image request, and keeping
     // the order of the unsplit case byte-identical is worth more than symmetry).
     this.addFunctionGroupBehaviors();
-    // Root Path Behaviors
-    if (this.basePath) {
-      // because we already have a basePath we don't use / instead we use /base-path
-      this.distribution.addBehavior(
-        `/${this.basePath}`,
+    this.addUserDynamicBehaviors();
+    // Root Path Behaviors: under a basePath, `/base-path` and `/base-path/*`
+    // stand in for the default behavior (*); without one, it handles them.
+    for (const pathPattern of this.basePathStandInPatterns()) {
+      this.addCacheBehavior(
+        pathPattern,
         this.dynamicBehaviorOptions.origin,
         this.dynamicBehaviorOptions,
       );
-      // when basePath is set, we emulate the "default behavior" (*) for the site as `/base-path/*`
-      this.distribution.addBehavior(
-        this.getPathPattern("*"),
-        this.dynamicBehaviorOptions.origin,
-        this.dynamicBehaviorOptions,
-      );
-    } else {
-      // if no base path, then default behavior will handle all other paths
     }
+  }
+  /**
+   * The patterns of the behaviors standing in for the default one under a
+   * `basePath`: `/base-path` and `/base-path/*`. None without one.
+   */
+  private basePathStandInPatterns(): string[] {
+    return this.basePath ? [`/${this.basePath}`, this.getPathPattern("*")] : [];
   }
   /**
    * Before any behavior is computed: the budget and the `public/` checks both
@@ -753,8 +901,79 @@ export class NextjsDistribution extends Construct {
       // differs, and it is passed separately.
       const { origin: _ignored, ...behaviorOptions } =
         this.dynamicBehaviorOptions;
-      this.distribution.addBehavior(pathPattern, origin, behaviorOptions);
+      this.addCacheBehavior(pathPattern, origin, behaviorOptions);
     }
+  }
+  /**
+   * {@link NextjsDistributionProps.dynamicBehaviors}: after the function group
+   * behaviors, since a group's routes must reach its own function, and before
+   * the `basePath` ones, which would otherwise match first.
+   */
+  private addUserDynamicBehaviors() {
+    const { origin, ...defaults } = this.dynamicBehaviorOptions;
+    // A bring-your-own distribution's own behaviors can't be read, and
+    // `overrides.distributionProps` don't apply to it.
+    const overridePatterns = this.props.distribution
+      ? []
+      : Object.keys(
+          this.props.overrides?.distributionProps?.additionalBehaviors ?? {},
+        );
+    // The default behavior's own pattern, which `/*` repeats: it never goes
+    // through `addCacheBehavior`. Under a `basePath`, the behaviors standing in
+    // for it are added after these, so their patterns are reserved now too.
+    const defaultPatterns = this.basePath
+      ? this.basePathStandInPatterns()
+      : ["*"];
+    const reservedPatterns = new Set(
+      [...overridePatterns, ...defaultPatterns].map(pathPatternKey),
+    );
+    for (const behavior of this.props.dynamicBehaviors ?? []) {
+      const relative = behavior.pathPattern;
+      const pathPattern = resolveDynamicPathPattern(this.basePath, relative);
+      const key = pathPatternKey(pathPattern);
+      if (this.pathPatterns.has(key) || reservedPatterns.has(key)) {
+        throw new Error(
+          `${LOG_PREFIX} \`dynamicBehaviors\` pattern "${relative}" ` +
+            `("${pathPattern}") already has a behavior, which ` +
+            `CloudFront would reject at deploy.`,
+        );
+      }
+      // Only the declared fields: one more on the object at runtime (from a
+      // spread, or plain JS), such as `functionAssociations`, would replace
+      // cdk-nextjs's viewer-request function. And unset fields keep the
+      // dynamic options' rather than CDK's defaults, which for `cachePolicy`
+      // cache for a day. A field added to `NextjsDynamicBehavior` goes here too.
+      const options: AddBehaviorOptions = {
+        ...defaults,
+        ...(behavior.cachePolicy && { cachePolicy: behavior.cachePolicy }),
+        ...(behavior.originRequestPolicy && {
+          originRequestPolicy: behavior.originRequestPolicy,
+        }),
+        ...(behavior.responseHeadersPolicy && {
+          responseHeadersPolicy: behavior.responseHeadersPolicy,
+        }),
+        ...(behavior.allowedMethods && {
+          allowedMethods: behavior.allowedMethods,
+        }),
+        ...(behavior.cachedMethods && {
+          cachedMethods: behavior.cachedMethods,
+        }),
+        ...(behavior.compress !== undefined && { compress: behavior.compress }),
+        ...(behavior.viewerProtocolPolicy && {
+          viewerProtocolPolicy: behavior.viewerProtocolPolicy,
+        }),
+      };
+      this.addCacheBehavior(pathPattern, origin, options);
+    }
+  }
+  /** `distribution.addBehavior`, recording the pattern. */
+  private addCacheBehavior(
+    pathPattern: string,
+    origin: IOrigin,
+    options: AddBehaviorOptions,
+  ) {
+    this.pathPatterns.add(pathPatternKey(pathPattern));
+    this.distribution.addBehavior(pathPattern, origin, options);
   }
   /**
    * `lambda:InvokeFunction` for CloudFront, which a Function URL behind OAC
@@ -818,13 +1037,20 @@ export class NextjsDistribution extends Construct {
       `serving \`assetPrefix\` ("${this.assetPrefix}") needs that event type ` +
         `to rewrite the request URI to the object's key`,
     );
+    this.assertOverrideEdgeLambdasClear(
+      "staticBehaviorOptions",
+      { ...this.staticBehaviorOptions, functionAssociations: associations },
+      [{ eventType: FunctionEventType.VIEWER_REQUEST }],
+      `the function that rewrites \`assetPrefix\` ("${this.assetPrefix}") ` +
+        `requests to the object's key`,
+    );
     const rewrite = new CloudFrontFunction(this, "AssetPrefixFn", {
       comment: this.getComment("NextJS assetPrefix rewrite"),
       ...this.viewerRequestFunctionProps(
         assetPrefixRewriteHandler(this.basePath, this.assetPrefix),
       ),
     });
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       `${this.assetPrefix}/_next/static*`,
       this.staticOrigin,
       {
@@ -899,7 +1125,7 @@ export class NextjsDistribution extends Construct {
           },
         },
       );
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       this.getPathPattern("_next/static/service-worker/*"),
       this.staticOrigin,
       { ...this.staticBehaviorOptions, responseHeadersPolicy },
@@ -909,7 +1135,7 @@ export class NextjsDistribution extends Construct {
     if (this.props.serviceWorkerAllowed !== undefined) {
       this.addServiceWorkerBehavior(this.props.serviceWorkerAllowed);
     }
-    this.distribution.addBehavior(
+    this.addCacheBehavior(
       this.getPathPattern("_next/static*"),
       this.staticOrigin,
       this.staticBehaviorOptions,
@@ -941,10 +1167,11 @@ export class NextjsDistribution extends Construct {
       serviceWorker: this.props.serviceWorkerAllowed !== undefined,
       publicPatterns: patterns.length,
       groupPatterns: groupBehaviors.length,
+      dynamicPatterns: this.props.dynamicBehaviors?.length ?? 0,
     });
     assertNoPublicCollisions(patterns, groupBehaviors);
     for (const pathPattern of patterns) {
-      this.distribution.addBehavior(
+      this.addCacheBehavior(
         pathPattern,
         this.staticOrigin,
         this.staticBehaviorOptions,
@@ -964,3 +1191,32 @@ export class NextjsDistribution extends Construct {
  */
 const MAX_POLICY_NAME_LENGTH = 128;
 const SERVICE_WORKER_SUFFIX = "-sw";
+
+/**
+ * A frozen copy, arrays and their entries included, so a caller changing the
+ * public options' `functionAssociations` or `edgeLambdas` can't change every
+ * behavior built from them, skipping the viewer-request check on
+ * `functionAssociations`.
+ */
+function freezeBehaviorOptions(options: BehaviorOptions): BehaviorOptions {
+  // Fields copied by name, not spread: a getter on a class instance isn't an
+  // own enumerable property, and a spread would drop it.
+  return Object.freeze({
+    ...options,
+    functionAssociations: options.functionAssociations
+      ? (Object.freeze(
+          options.functionAssociations.map(({ function: fn, eventType }) =>
+            Object.freeze({ function: fn, eventType }),
+          ),
+        ) as FunctionAssociation[])
+      : undefined,
+    edgeLambdas: options.edgeLambdas
+      ? (Object.freeze(
+          options.edgeLambdas.map(
+            ({ functionVersion, eventType, includeBody }) =>
+              Object.freeze({ functionVersion, eventType, includeBody }),
+          ),
+        ) as EdgeLambda[])
+      : undefined,
+  });
+}
