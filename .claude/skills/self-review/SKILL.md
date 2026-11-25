@@ -171,6 +171,10 @@ another's reasoning or an earlier round's. Never reuse one. Every prompt also ca
 > efficiency) or a **rule** breach (quote the rule and its file), and the ID it relates to, if any.
 > Say "outside range" for one on a line `<RANGE>` doesn't change. If you find nothing, say so.
 
+The standards and spec reviewers below are adapted from Matt Pocock's
+[code-review skill](https://github.com/mattpocock/skills) (MIT; see `LICENSE-mattpocock` in this
+skill's directory).
+
 **Standards reviewer**, FULL rounds only. Its prompt, filled in, with the smell baseline below
 pasted in full:
 
